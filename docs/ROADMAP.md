@@ -8,7 +8,7 @@ The roadmap is 11 milestones, numbered 0-10, worked in order. Reaching Milestone
 | --- | --- | --- |
 | [00](roadmap/milestones/00-repo-and-infra-foundations.md) | Repository & Infrastructure Foundations | Monorepo, CI, local dev environment — no business logic yet. |
 | [01](roadmap/milestones/01-tenancy-and-auth-core.md) | Tenancy & Auth Core | Org/Property/User models with RLS isolation, auth, RBAC. |
-| [02](roadmap/milestones/02-signup-and-free-trial-onboarding.md) | Self-Serve Signup & Free Trial Onboarding | Self-serve signup, lands on Free plan, 30-day trial clock. |
+| [02](roadmap/milestones/02-signup-and-free-trial-onboarding.md) | Self-Serve Signup & Free Plan Onboarding | Self-serve signup, lands directly on the permanent Free plan (no trial clock). |
 | [03](roadmap/milestones/03-property-room-rate-management.md) | Property, Room & Rate Management (Local) | Staff can configure inventory/rates locally, no PMS yet. |
 | [04](roadmap/milestones/04-local-booking-domain.md) | Local Booking Domain & State Machine | `PmsProvider` interface, `LocalPmsProvider`, idempotent booking state machine. |
 | [05](roadmap/milestones/05-guest-payments.md) | Guest Payments | Stripe Checkout, server-verified payment, refunds — separate from platform billing. |

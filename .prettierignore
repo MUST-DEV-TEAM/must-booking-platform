@@ -1,0 +1,8 @@
+node_modules/
+dist/
+build/
+.next/
+coverage/
+docs/
+next-env.d.ts
+pnpm-lock.yaml

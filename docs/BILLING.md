@@ -11,7 +11,7 @@ Flat tiered plans — the shape is confirmed. The table below is an **illustrati
 | Plan | Properties | Staff seats | PMS connections |
 | --- | --- | --- | --- |
 | **Free** _(illustrative)_ | 1 | 3 | None (local/direct booking only) |
-| **Basic** _(illustrative)_ | 3 | 10 | Unlimited |
+| **Basic** _(illustrative)_ | 3 | 10 | 1 per property (add-on for more — not unlimited) |
 | _(further tier(s))_ | TBD | TBD | TBD |
 
 ## Enforcement (ADR-0005)
@@ -28,11 +28,11 @@ Stripe Billing (subscriptions, invoicing, customer portal) is the implementation
 
 ## Onboarding (ADR-0008)
 
-Self-serve signup, no payment card required upfront. New tenants land directly on the **Free** plan, which is a **30-day trial**, not a permanent evergreen tier. Upgrading to a paid plan is a self-serve in-app action that invokes Stripe Billing. Exact behavior when the 30-day trial expires without an upgrade (hard-lock vs. auto-downgrade to a restricted permanent state) is confirmed at Milestone 8 kickoff.
+Self-serve signup, no payment card required upfront. New tenants land directly on the **Free** plan, which is **permanent** (no expiry) — Free and "free trial" are separate concepts. A tenant may separately start an optional, time-boxed **paid-plan trial** (illustrative: 14 days) from the dashboard at any time; if not converted to a paid subscription before it ends, the tenant reverts to Free (not locked, not deleted). Upgrading to a paid plan (or starting a trial) is a self-serve in-app action that invokes Stripe Billing. Which tier(s) offer a trial and the exact trial length are confirmed at Milestone 8 kickoff.
 
 ## Data retention after cancellation (ADR-0009)
 
-30-day grace period after cancellation, then hard delete via a scheduled job. Reactivation within the window restores full access. Deletion scope is **tenant data only** — organization, properties, staff/user accounts, subscription/invoice/payment-method records. Guest/booking/payment history is explicitly out of scope for this rule and follows its own retention policy.
+30-day grace period after cancellation, then hard delete via a scheduled job. Reactivation within the window restores full access. Deletion scope is **tenant data only** — organization, properties, staff/user accounts, operational subscription state. **Invoices, tax records, and payment-transaction records are explicitly excluded** and retained per legal/tax retention policy, independent of this job; security/audit logs follow the security retention policy. Guest/booking/payment history is explicitly out of scope for this rule and follows its own retention policy. Backups expire on their own retention cycle and must not be restored to production without re-applying deletions.
 
 ## Explicit non-goals (v1)
 

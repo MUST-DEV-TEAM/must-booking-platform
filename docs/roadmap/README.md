@@ -2,7 +2,9 @@
 
 The roadmap is 11 milestones, numbered **0 to 10**. Reaching Milestone 10 done means an initial, usable, end-to-end version of the platform exists — tenancy, booking, guest payments, platform billing, and a basic Clock PMS connection — even though it is **not** the fully hardened, feature-complete product (see each milestone's "explicitly not included" notes, and the backlog at the bottom of `docs/ROADMAP.md`).
 
-**Active milestone: [00 — Repository & Infrastructure Foundations](milestones/00-repo-and-infra-foundations.md)**
+**Active milestone: [01 — Tenancy & Auth Core](milestones/01-tenancy-and-auth-core.md)**
+
+Completed: [00 — Repository & Infrastructure Foundations](completed/00-repo-and-infra-foundations.md)
 
 ## How a milestone works
 

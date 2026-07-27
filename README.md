@@ -21,6 +21,19 @@ The WordPress plugin is not discarded: it is being repositioned as a thin embedd
 
 Pre-implementation. Documentation, tenancy/billing decisions, and initial ADRs are being established before any application code is written.
 
+## Local services
+
+Start the local PostgreSQL and Redis services from the repository root:
+
+```sh
+docker compose up -d
+```
+
+PostgreSQL is available at `postgresql://must_booking:must_booking_dev@localhost:5432/must_booking`.
+Redis is available at `redis://localhost:6379`.
+
+For the complete local setup and contribution workflow, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 Proprietary — MUST-DEV-TEAM internal project.
