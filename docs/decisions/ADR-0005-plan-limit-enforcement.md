@@ -19,7 +19,7 @@ Hybrid, chosen by the owner:
 - The plan-limit schema needs a `limit_type: hard | soft` flag per limit, not a single enforcement rule for all limits.
 - Hard-limit checks must be synchronous in the request path for the constrained action (e.g., create-property endpoint checks before creating).
 - Soft-limit checks can run asynchronously/on a schedule (e.g., nightly usage rollup) and only need to trigger a notification, not block a request.
-- Which specific limits are "hard" vs "soft" is a product decision made per-limit when each is defined in `BILLING.md`'s plan table (not yet fully specified — flag per limit as it's added).
+- **Confirmed hard limits (2026-07-27, see ADR-0007's plan table)**: number of properties per tenant and number of staff seats per tenant, both tied to the tenant's plan. PMS-connection availability is also enforced hard (as a feature gate, not a count) — see ADR-0007. Any further limit (e.g. a future bookings/month cap) is classified hard or soft individually when it is added to `BILLING.md`'s plan table.
 
 ## Alternatives considered
 

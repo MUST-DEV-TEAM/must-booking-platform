@@ -4,10 +4,10 @@ Phased delivery order. Each phase should close with its own ADRs (where applicab
 
 ## Phase 0 — Foundations (current)
 
-- ADR-0004 (data residency), ADR-0005 (limit enforcement), and ADR-0006 (multi-property v1) are **accepted**.
-- ADR-0002 (tenant isolation) is **explicitly left open by the owner** — must be resolved before the first migration is written. This blocks the tenant+auth skeleton item below.
-- Monorepo skeleton: `apps/api` (NestJS), `apps/web` (Next.js), `packages/shared-types`, `packages/domain-contracts`, lint/test tooling, CI (build + lint + test on PR). Not blocked by ADR-0002 — can start immediately.
-- Tenant + auth skeleton: Organization/Property/User models, RBAC per `TENANCY.md`, login, tenant-scoped request context. **Blocked on ADR-0002.**
+- All Phase 0-relevant ADRs are **accepted**: ADR-0002 (tenant isolation: shared schema + RLS), ADR-0004 (EU data residency), ADR-0005 (hybrid hard/soft limit enforcement), ADR-0006 (multi-property from v1). Nothing blocks starting.
+- Monorepo skeleton: `apps/api` (NestJS), `apps/web` (Next.js), `packages/shared-types`, `packages/domain-contracts`, lint/test tooling, CI (build + lint + test on PR).
+- Tenant + auth skeleton: Organization/Property/User models with `tenant_id`/`property_id` + RLS policies per ADR-0002, RBAC per `TENANCY.md`, login, tenant-scoped request context (must establish the per-request tenant-context mechanism RLS policies rely on).
+- Signup skeleton: self-serve organization signup landing on the Free plan per ADR-0008 (full billing/upgrade flow is Phase 3; Phase 0 only needs the tenant to exist and be tagged `plan: free`).
 
 ## Phase 1 — Booking domain (provider-agnostic)
 
@@ -22,9 +22,10 @@ Phased delivery order. Each phase should close with its own ADRs (where applicab
 
 ## Phase 3 — Platform billing
 
-- **Blocked until ADR-0003 (billing provider), ADR-0007 (pricing model), ADR-0008 (onboarding model), and ADR-0009 (retention on cancellation) are resolved** — all four are currently explicitly left open by the owner. Do not start billing schema/integration work before they land.
-- Tenant subscription, plans, trial, invoicing, dunning per the resolved ADRs above.
-- Plan-limit enforcement in the API layer per the hybrid model already accepted in ADR-0005.
+- All Phase 3 ADRs are **accepted**: ADR-0003 (Stripe Billing behind a `BillingProvider` interface), ADR-0007 (flat tiered plans — Free/Basic confirmed, more tiers to be specified), ADR-0008 (self-serve onto Free, upgrade invokes Stripe), ADR-0009 (30-day grace then hard delete on cancellation).
+- Implement `StripeBillingProvider`, plan/subscription schema per ADR-0007's table, upgrade/downgrade flow, dunning, cancellation + the 30-day deletion job from ADR-0009.
+- Plan-limit enforcement in the API layer per the hybrid model in ADR-0005 (hard-block properties/staff/PMS-gate).
+- Remaining implementation-level details to confirm with the owner during this phase (not new ADRs — see the "Consequences" section of the relevant ADR): exact Free-plan trial semantics (ADR-0008), any further plan tiers beyond Free/Basic (ADR-0007), precise "hard delete" scope (ADR-0009).
 
 ## Phase 4 — WordPress shell migration
 

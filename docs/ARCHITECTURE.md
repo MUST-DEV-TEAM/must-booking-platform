@@ -68,7 +68,7 @@ docs/
 
 ## Tenant isolation
 
-Every domain table, credential, cache key, and queue message carries `tenant_id` (and `hotel_id`/`property_id` beneath it for multi-property tenants). Isolation mechanism (row-level security vs. schema-per-tenant vs. hybrid) is an open decision — see `TENANCY.md` and its ADR.
+Every domain table, credential, cache key, and queue message carries `tenant_id` (and `hotel_id`/`property_id` beneath it for multi-property tenants). Isolation mechanism: shared schema + Postgres row-level security (RLS) by default, per ADR-0002 — see `TENANCY.md`.
 
 ## PMS provider interface
 
@@ -90,6 +90,23 @@ interface PmsProvider {
 `context` always includes `tenantId` and `propertyId`. `ClockPmsProvider` is the first implementation; `LocalPmsProvider` and future vendors (Mews, Cloudbeds, Opera) implement the same interface without changing the booking domain.
 
 The full Clock-specific architecture (HTTP client, rate limiting, error classification, webhook architecture, booking state machine, idempotency, reconciliation, etc.) from the source brief carries over unchanged in principle and will be materialized as `CLOCK_ARCHITECTURE.md`, `CLOCK_ENDPOINT_MATRIX.md`, and the other deliverables listed in the brief, once the Clock adapter work starts (see `ROADMAP.md`).
+
+## Billing provider interface
+
+Platform billing (tenant subscriptions, per `BILLING.md`) follows the same provider-abstraction pattern as `PmsProvider`, per ADR-0003:
+
+```ts
+interface BillingProvider {
+  createCustomer(context, tenant): Promise<Result>;
+  createSubscription(context, planId): Promise<Result>;
+  changePlan(context, subscriptionId, newPlanId): Promise<Result>;
+  cancelSubscription(context, subscriptionId): Promise<Result>;
+  getSubscription(context, subscriptionId): Promise<Subscription | null>;
+  handleWebhook(context, event): Promise<Result>;
+}
+```
+
+`context` includes `tenantId`. `StripeBillingProvider` is the only implementation for now; a future provider (e.g. PokPay, for tenants wanting a regional/local subscription payment method) can be added later without changing the platform billing domain. This is a distinct interface/implementation from any guest-facing `PaymentProvider` (Stripe Checkout/PokPay for room payments) — same vendor may back both, but the code paths and data models never merge (`PROJECT_CONTEXT.md`).
 
 ## WordPress plugin's new role
 

@@ -1,6 +1,6 @@
 # ADR-0008: Tenant onboarding model
 
-Status: Proposed — **explicitly left open by the owner on 2026-07-27**
+Status: Accepted
 Date: 2026-07-27
 
 ## Context
@@ -15,8 +15,14 @@ Options presented were: self-serve signup with card required upfront, self-serve
 
 ## Decision
 
-_Left open — the owner was asked directly and chose not to decide yet. This has a sequencing consequence: if manual onboarding is chosen, ADR-0003/ADR-0007 (billing provider/pricing) can be deferred further without blocking early tenant onboarding; if self-serve is chosen, those need to be resolved before Phase 0 closes. Re-raise this ADR before committing to a Phase 0 delivery order for onboarding._
+Self-serve signup, no payment card required upfront. A new tenant signs up and lands directly on the **Free** plan (ADR-0007: 1 property, 3 staff seats, no PMS connection) — the Free plan itself is the trial/entry point, rather than a separate time-boxed "trial of everything" tier.
+
+Accepted by the owner on 2026-07-27.
 
 ## Consequences
 
-_To be filled in once decided._
+- Signup flow: organization + first property + first admin user, activated immediately on the Free plan — no Stripe/billing step required to start using the product.
+- Upgrading to Basic (or a future paid tier) is a self-serve in-app action that does invoke Stripe Billing (ADR-0003) — this is the first point a payment method is collected, not signup itself.
+- Because self-serve is confirmed, ADR-0003 (billing provider) and ADR-0007 (pricing model) needed to be resolved before Phase 0 closes — both are now accepted, so this no longer sequences ahead of them.
+- **One detail intentionally left unspecified, not blocking**: whether the Free plan is a permanent evergreen free tier (tenant can stay on it indefinitely) or additionally time-boxed (e.g. must upgrade or lose access after N days). Confirm this with the owner during Phase 3 implementation of the Free plan's exact behavior — it does not change the onboarding flow shape decided here either way.
+- Trial-abuse guardrails (e.g. rate-limiting signups per email/IP, verifying email before activation) are a Phase 0/3 implementation detail to include given no card gates signup.

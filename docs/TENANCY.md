@@ -15,15 +15,9 @@ Organization (tenant)
 - Every domain row, cache key, queue message, and stored credential is scoped by `tenant_id`, and by `property_id` where the entity is property-level (rooms, rates, bookings, PMS connections).
 - Hosting region: EU now, with the isolation design expected to allow multi-region expansion later without a rewrite (**ADR-0004, accepted**).
 
-## Isolation strategy — open decision (ADR-0002)
+## Isolation strategy — decided (ADR-0002)
 
-Candidates:
-
-1. **Shared schema + row-level security (RLS)**: one Postgres database/schema, `tenant_id` on every table, Postgres RLS policies enforce isolation at the database layer regardless of application-layer bugs. Lower operational overhead, easier cross-tenant admin tooling, but a single logical database.
-2. **Schema-per-tenant**: stronger blast-radius isolation and easier per-tenant backup/restore/export, but heavier migration fan-out and connection management as tenant count grows.
-3. **Hybrid**: shared schema + RLS by default, with schema/database-per-tenant reserved for enterprise tenants with contractual data-isolation requirements.
-
-This is a foundational, very-hard-to-reverse decision. The owner was asked directly on 2026-07-27 and **explicitly chose to leave it open** rather than pick a candidate now. It must be recorded as an ADR and resolved before the first migration is written — do not guess. See `decisions/ADR-0002-tenant-isolation-strategy.md`.
+Shared schema + `tenant_id` + Postgres row-level security (RLS) as the default, with a structural hybrid escape hatch: a specific tenant can be moved to a dedicated schema/database later if a contractual enterprise isolation requirement ever demands it, without that being the default path. RLS is a backstop, not a substitute for explicit tenant scoping in application queries. See `decisions/ADR-0002-tenant-isolation-strategy.md` for full consequences, including how this interacts with ADR-0004's EU-now/multi-region-later hosting.
 
 ## Roles (initial draft, refine before auth implementation)
 
