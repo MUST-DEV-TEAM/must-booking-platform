@@ -29,7 +29,8 @@ Start the local PostgreSQL and Redis services from the repository root:
 docker compose up -d
 ```
 
-PostgreSQL is available at `postgresql://must_booking:must_booking_dev@localhost:5432/must_booking`.
+The API runtime uses the non-superuser RLS role in `DATABASE_URL`.
+Prisma migrations use the separate migration-owner connection in `MIGRATION_DATABASE_URL`.
 Redis is available at `redis://localhost:6379`.
 
 For the complete local setup and contribution workflow, see [CONTRIBUTING.md](CONTRIBUTING.md).

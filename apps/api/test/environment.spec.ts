@@ -12,7 +12,8 @@ describe('environment validation', () => {
   it('normalizes a valid port', () => {
     const environment = validateEnvironment({
       APP_PORT: '3000',
-      DATABASE_URL: 'postgresql://must_booking:must_booking_dev@localhost:5432/must_booking',
+      DATABASE_URL:
+        'postgresql://must_booking_app:must_booking_app_dev@localhost:5432/must_booking',
       REDIS_URL: 'redis://localhost:6379',
     });
 

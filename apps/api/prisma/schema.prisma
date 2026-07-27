@@ -3,6 +3,172 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("MIGRATION_DATABASE_URL")
+}
+
+enum TenantMembershipRole {
+  OWNER
+  ADMIN
+  STAFF
+}
+
+enum PropertyRoleTemplateKind {
+  BUILT_IN
+  CUSTOM
+}
+
+model Organization {
+  id           String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String             @db.VarChar(200)
+  createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  properties   Property[]
+  memberships  TenantMembership[]
+  capabilities Capability[]
+
+  @@map("organizations")
+}
+
+model User {
+  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email           String             @unique @db.VarChar(320)
+  passwordHash    String?            @map("password_hash")
+  emailVerifiedAt DateTime?          @map("email_verified_at") @db.Timestamptz(6)
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  memberships     TenantMembership[]
+
+  @@map("users")
+}
+
+model Property {
+  id               String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String                    @map("tenant_id") @db.Uuid
+  name             String                    @db.VarChar(200)
+  slug             String                    @db.VarChar(100)
+  createdAt        DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  organization     Organization              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  roleTemplates    PropertyRoleTemplate[]
+  staffAssignments PropertyStaffAssignment[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+  @@map("properties")
+}
+
+model TenantMembership {
+  id               String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String                    @map("tenant_id") @db.Uuid
+  userId           String                    @map("user_id") @db.Uuid
+  role             TenantMembershipRole
+  createdAt        DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  organization     Organization              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user             User                      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  staffAssignments PropertyStaffAssignment[]
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@map("tenant_memberships")
+}
+
+model Capability {
+  id                       String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                 String                           @map("tenant_id") @db.Uuid
+  key                      String                           @db.VarChar(100)
+  description              String?                          @db.VarChar(500)
+  createdAt                DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime                         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  organization             Organization                     @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  roleTemplateCapabilities PropertyRoleTemplateCapability[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@map("capabilities")
+}
+
+model PropertyRoleTemplate {
+  id               String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String                           @map("tenant_id") @db.Uuid
+  propertyId       String                           @map("property_id") @db.Uuid
+  name             String                           @db.VarChar(100)
+  kind             PropertyRoleTemplateKind
+  createdAt        DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property         Property                         @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  capabilities     PropertyRoleTemplateCapability[]
+  staffAssignments PropertyStaffAssignment[]
+
+  @@unique([tenantId, propertyId, id])
+  @@unique([tenantId, propertyId, name])
+  @@index([tenantId, propertyId])
+  @@map("property_role_templates")
+}
+
+model PropertyRoleTemplateCapability {
+  id             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String               @map("tenant_id") @db.Uuid
+  propertyId     String               @map("property_id") @db.Uuid
+  roleTemplateId String               @map("role_template_id") @db.Uuid
+  capabilityId   String               @map("capability_id") @db.Uuid
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  roleTemplate   PropertyRoleTemplate @relation(fields: [tenantId, propertyId, roleTemplateId], references: [tenantId, propertyId, id], onDelete: Restrict, map: "property_role_template_capabilities_role_template_fkey")
+  capability     Capability           @relation(fields: [tenantId, capabilityId], references: [tenantId, id], onDelete: Restrict, map: "property_role_template_capabilities_capability_fkey")
+
+  @@unique([tenantId, propertyId, roleTemplateId, capabilityId], map: "property_role_template_capabilities_tenant_id_property_id_role_")
+  @@index([tenantId, propertyId])
+  @@map("property_role_template_capabilities")
+}
+
+model PropertyStaffAssignment {
+  id             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String               @map("tenant_id") @db.Uuid
+  propertyId     String               @map("property_id") @db.Uuid
+  userId         String               @map("user_id") @db.Uuid
+  roleTemplateId String               @map("role_template_id") @db.Uuid
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property       Property             @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict, map: "property_staff_assignments_property_fkey")
+  membership     TenantMembership     @relation(fields: [tenantId, userId], references: [tenantId, userId], onDelete: Restrict, map: "property_staff_assignments_membership_fkey")
+  roleTemplate   PropertyRoleTemplate @relation(fields: [tenantId, propertyId, roleTemplateId], references: [tenantId, propertyId, id], onDelete: Restrict, map: "property_staff_assignments_role_template_fkey")
+
+  @@unique([tenantId, propertyId, userId])
+  @@index([tenantId, userId])
+  @@map("property_staff_assignments")
+}
+
+model PropertyStaffCapabilityOverride {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  propertyId   String   @map("property_id") @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  capabilityId String   @map("capability_id") @db.Uuid
+  granted      Boolean
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, propertyId, userId, capabilityId])
+  @@index([tenantId, propertyId, userId])
+  @@map("property_staff_capability_overrides")
+}
+
+model AuditLog {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String?  @map("tenant_id") @db.Uuid
+  propertyId  String?  @map("property_id") @db.Uuid
+  actorUserId String   @map("actor_user_id") @db.Uuid
+  action      String   @db.VarChar(100)
+  targetType  String   @map("target_type") @db.VarChar(100)
+  targetId    String   @map("target_id") @db.VarChar(320)
+  details     Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@map("audit_logs")
 }

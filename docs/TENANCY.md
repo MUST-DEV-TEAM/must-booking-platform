@@ -26,6 +26,10 @@ Shared schema + `tenant_id` + Postgres row-level security (RLS) as the default, 
 - **Property staff**: capability-gated access scoped to one or more properties within the tenant (mirrors the predecessor plugin's staff-portal capability model).
 - **Guest**: no account; interacts only through the public booking widget and signed links (booking confirmation, cancellation), consistent with the predecessor system's model — no separate guest login area unless a future decision changes this.
 
+## Audit context
+
+Sensitive tenant actions are retained in the tenant-scoped audit log with actor, action, target, timestamp, and optional property context. Authentication login/logout events are retained as global audit rows because a user can authenticate before belonging to a tenant; they are not exposed by a tenant's audit-log read path.
+
 ## Non-goals for v1
 
 - Cross-tenant data sharing or marketplace features.

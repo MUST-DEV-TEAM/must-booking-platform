@@ -35,6 +35,11 @@ Apply the local Prisma migration:
 pnpm --filter api prisma migrate dev
 ```
 
+The template provides both required database URLs: `DATABASE_URL` is the API's
+non-superuser `must_booking_app` runtime role, while
+`MIGRATION_DATABASE_URL` is the `must_booking` migration owner used through
+Prisma's `directUrl`. No manual environment-variable override is needed.
+
 Run the API and web app in separate terminals:
 
 ```sh

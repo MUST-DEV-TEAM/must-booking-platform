@@ -10,7 +10,7 @@ describe('Health endpoint', () => {
   beforeEach(async () => {
     process.env.APP_PORT = '3000';
     process.env.DATABASE_URL =
-      'postgresql://must_booking:must_booking_dev@localhost:5432/must_booking';
+      'postgresql://must_booking_app:must_booking_app_dev@localhost:5432/must_booking';
     process.env.REDIS_URL = 'redis://localhost:6379';
 
     ({ AppModule: appModule } = await import('../src/app.module'));
