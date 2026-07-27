@@ -4,28 +4,31 @@ This document covers only **platform billing**: the subscription MUST charges te
 
 ## Scope (v1)
 
-- Plans (e.g. Starter/Growth/Enterprise) with limits such as number of properties, bookings/month, staff seats.
-- Trial period.
-- Provider-hosted subscription billing (Stripe Billing is the default assumption — confirm/record as ADR before implementation).
+- Plans with limits such as number of properties (properties confirmed multi-per-tenant from v1, ADR-0006), bookings/month, staff seats. Exact plan tiers/shape: open, ADR-0007.
+- Trial period — length and expiry behavior open, tied to ADR-0008 (onboarding model).
+- Provider-hosted subscription billing — provider open, ADR-0003.
 - Invoicing, payment method on file, dunning (failed-payment retry/grace period), plan upgrade/downgrade proration.
-- Usage metering where limits are usage-based (e.g. bookings/month) feeding enforcement in the API layer.
-- Tenant-facing billing portal (Stripe Customer Portal or custom) for invoices/payment method management.
+- Usage metering where limits are usage-based, feeding enforcement in the API layer per the hybrid model in ADR-0005.
+- Tenant-facing billing portal (Stripe Customer Portal or custom, depending on ADR-0003) for invoices/payment method management.
 
 ## Explicit non-goals (v1)
 
 - Marketplace/revenue-share billing.
-- Usage-based billing granular enough to require a dedicated metering pipeline (defer unless a plan requires per-booking metering beyond simple monthly counts).
-- Multi-currency tenant billing (confirm with the user before scoping in).
+- Multi-currency tenant billing (not scoped in; revisit if ADR-0004's future multi-region expansion brings non-EUR/USD tenants).
 
-## Enforcement boundary
+## Enforcement boundary — decided (ADR-0005)
 
-Plan limits are enforced in the API layer at the point of the constrained action (e.g. creating a new property, inviting a new staff seat), not retroactively. A tenant over a soft limit is warned; enforcement of hard limits (blocking the action) vs. soft limits (warn + notify billing) is an open product decision to confirm with the user before implementation.
+Plan limits are enforced in the API layer at the point of the constrained action (e.g. creating a new property, inviting a new staff seat), not retroactively. Hybrid model: **hard** limits (capacity-shaped, e.g. property count, staff seats) block the action at the limit; **soft** limits (usage-shaped, e.g. bookings/month) only warn (in-app + email) without blocking. Each limit added to a plan must be tagged `hard` or `soft`.
 
-## Open decisions requiring an ADR before implementation
+## Data retention after cancellation — open (ADR-0009)
 
-- Billing provider: Stripe Billing vs. a custom ledger + Stripe Payments primitives.
-- Hard-block vs. soft-warn enforcement per limit type.
-- Trial length and what happens to tenant data/access at trial expiry without a payment method.
-- Whether platform billing currency/region constraints differ from guest-payment currency/region constraints.
+No cancellation/offboarding data-deletion job may be implemented until ADR-0009 is resolved.
 
-See `decisions/` once these are resolved.
+## Open decisions blocking implementation
+
+- ADR-0003 — billing provider.
+- ADR-0007 — pricing model shape (plan tiers vs. metered vs. usage-based).
+- ADR-0008 — onboarding model (self-serve vs. sales-assisted), which determines how early ADR-0003/ADR-0007 must land.
+- ADR-0009 — tenant data retention after cancellation.
+
+See `decisions/` for full context and status on each.

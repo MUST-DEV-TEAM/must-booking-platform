@@ -11,10 +11,11 @@ Organization (tenant)
 ```
 
 - A tenant is the billing unit and the top-level isolation boundary.
-- A tenant may operate multiple properties (multi-property hotel groups); plan limits may cap property count (see `BILLING.md`).
+- A tenant operates one or more properties from v1 (**ADR-0006, accepted** — not deferred to a later phase); plan limits may cap property count (see `BILLING.md`, ADR-0007 for the exact shape).
 - Every domain row, cache key, queue message, and stored credential is scoped by `tenant_id`, and by `property_id` where the entity is property-level (rooms, rates, bookings, PMS connections).
+- Hosting region: EU now, with the isolation design expected to allow multi-region expansion later without a rewrite (**ADR-0004, accepted**).
 
-## Isolation strategy — open decision
+## Isolation strategy — open decision (ADR-0002)
 
 Candidates:
 
@@ -22,7 +23,7 @@ Candidates:
 2. **Schema-per-tenant**: stronger blast-radius isolation and easier per-tenant backup/restore/export, but heavier migration fan-out and connection management as tenant count grows.
 3. **Hybrid**: shared schema + RLS by default, with schema/database-per-tenant reserved for enterprise tenants with contractual data-isolation requirements.
 
-This is a foundational, very-hard-to-reverse decision and must be recorded as an ADR before the first migration is written. See `decisions/`.
+This is a foundational, very-hard-to-reverse decision. The owner was asked directly on 2026-07-27 and **explicitly chose to leave it open** rather than pick a candidate now. It must be recorded as an ADR and resolved before the first migration is written — do not guess. See `decisions/ADR-0002-tenant-isolation-strategy.md`.
 
 ## Roles (initial draft, refine before auth implementation)
 

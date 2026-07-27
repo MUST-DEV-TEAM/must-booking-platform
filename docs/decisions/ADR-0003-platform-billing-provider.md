@@ -19,8 +19,8 @@ Stripe Billing, given Stripe is already a guest-payment provider in the source a
 
 ## Decision
 
-_Pending — confirm with the user (including expected tenant geography/VAT exposure), then update this section and set Status to Accepted._
+_Explicitly deferred by the owner on 2026-07-27 — asked directly, chose to leave this open rather than pick an option. Do not start billing implementation until this is resolved; re-raise before Phase 3._
 
 ## Consequences
 
-_To be filled in once decided._
+_To be filled in once decided. Depends in part on ADR-0007 (pricing model shape) and ADR-0004 (EU-now, multi-region-later hosting, which affects VAT/tax exposure across regions)._

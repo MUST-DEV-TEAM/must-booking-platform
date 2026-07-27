@@ -17,8 +17,8 @@ Option 1 (shared schema + RLS), with the hybrid escape hatch (option 3) kept ope
 
 ## Decision
 
-_Pending — confirm with the user, then update this section and set Status to Accepted._
+_Explicitly deferred by the owner on 2026-07-27 — asked directly, chose to leave this open rather than pick an option. Do not start schema/migration work that depends on this choice; re-raise before Phase 0 database work begins._
 
 ## Consequences
 
-_To be filled in once decided._
+_To be filled in once decided. Note: ADR-0004 (data residency) commits to EU hosting now with room to expand region later — whichever isolation strategy is chosen here should not assume a single fixed region._

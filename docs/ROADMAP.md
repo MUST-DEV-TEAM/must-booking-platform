@@ -4,9 +4,10 @@ Phased delivery order. Each phase should close with its own ADRs (where applicab
 
 ## Phase 0 — Foundations (current)
 
-- Accept ADR-0002 (tenant isolation) and ADR-0003 (billing provider) with the user.
-- Monorepo skeleton: `apps/api` (NestJS), `apps/web` (Next.js), `packages/shared-types`, `packages/domain-contracts`, lint/test tooling, CI (build + lint + test on PR).
-- Tenant + auth skeleton: Organization/Property/User models, RBAC per `TENANCY.md`, login, tenant-scoped request context.
+- ADR-0004 (data residency), ADR-0005 (limit enforcement), and ADR-0006 (multi-property v1) are **accepted**.
+- ADR-0002 (tenant isolation) is **explicitly left open by the owner** — must be resolved before the first migration is written. This blocks the tenant+auth skeleton item below.
+- Monorepo skeleton: `apps/api` (NestJS), `apps/web` (Next.js), `packages/shared-types`, `packages/domain-contracts`, lint/test tooling, CI (build + lint + test on PR). Not blocked by ADR-0002 — can start immediately.
+- Tenant + auth skeleton: Organization/Property/User models, RBAC per `TENANCY.md`, login, tenant-scoped request context. **Blocked on ADR-0002.**
 
 ## Phase 1 — Booking domain (provider-agnostic)
 
@@ -21,8 +22,9 @@ Phased delivery order. Each phase should close with its own ADRs (where applicab
 
 ## Phase 3 — Platform billing
 
-- Tenant subscription, plans, trial, invoicing, dunning per accepted ADR-0003.
-- Plan-limit enforcement in the API layer per `BILLING.md`.
+- **Blocked until ADR-0003 (billing provider), ADR-0007 (pricing model), ADR-0008 (onboarding model), and ADR-0009 (retention on cancellation) are resolved** — all four are currently explicitly left open by the owner. Do not start billing schema/integration work before they land.
+- Tenant subscription, plans, trial, invoicing, dunning per the resolved ADRs above.
+- Plan-limit enforcement in the API layer per the hybrid model already accepted in ADR-0005.
 
 ## Phase 4 — WordPress shell migration
 

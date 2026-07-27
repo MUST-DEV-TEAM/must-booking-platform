@@ -49,7 +49,7 @@ Platform Billing Service and Guest Payment Service are separate services with se
 - **Backend**: TypeScript, Node.js LTS, NestJS, PostgreSQL, Redis, BullMQ, OpenAPI, runtime request/response validation.
 - **Frontend (tenant admin/staff)**: React/Next.js, TypeScript, TanStack Query, React Hook Form.
 - **Booking widget (public, embedded in WordPress or any site)**: isolated React bundle / web component; never talks to Clock or holds provider credentials directly — always through the MUST Public API.
-- **Infrastructure**: Docker, managed PostgreSQL, managed Redis, object storage, secret manager, centralized logs/metrics/alerts, CI/CD with migration gates.
+- **Infrastructure**: Docker, managed PostgreSQL, managed Redis, object storage, secret manager, centralized logs/metrics/alerts, CI/CD with migration gates. Hosted in the EU (ADR-0004), with region kept as a configuration parameter rather than hardcoded, to allow future multi-region expansion without rearchitecting.
 
 ## Repository layout (monorepo)
 
