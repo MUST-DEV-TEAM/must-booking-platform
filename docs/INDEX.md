@@ -9,7 +9,7 @@ Read only the documents routed for your task. Do not load the whole `docs/` tree
 | Tenant model, isolation, roles | `TENANCY.md` |
 | Platform subscription billing (plans, metering, invoicing) | `BILLING.md` |
 | Clock PMS adapter work | `source/clock-pms-integration.pdf`, and once created: `CLOCK_ARCHITECTURE.md`, `CLOCK_ENDPOINT_MATRIX.md`, `CLOCK_DATA_MAPPING.md` (see ROADMAP phase 2) |
-| Delivery order / what to build next | `ROADMAP.md` |
+| Delivery order / what to build next | `ROADMAP.md` (milestone index), then `roadmap/README.md` (process) and the active milestone file under `roadmap/milestones/` |
 | Durable, cross-cutting, or hard-to-reverse decisions | `decisions/` (ADR log) |
 | Notable changes | `../CHANGELOG.md` |
 

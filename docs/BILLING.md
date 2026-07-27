@@ -6,20 +6,20 @@ All decisions below are accepted (2026-07-27) — see `decisions/` for full cont
 
 ## Plans (ADR-0007)
 
-Flat tiered plans. Free/Basic are confirmed starting content; further tiers (e.g. Pro/Enterprise) are expected but not yet specified — add rows to this table when the owner defines them.
+Flat tiered plans — the shape is confirmed. The table below is an **illustrative example only**, not a final catalog; real tier count/names/limits are confirmed together with the owner at Milestone 8 (Platform Billing) kickoff — see `docs/roadmap/milestones/08-platform-billing.md`.
 
 | Plan | Properties | Staff seats | PMS connections |
 | --- | --- | --- | --- |
-| **Free** | 1 | 3 | None (local/direct booking only) |
-| **Basic** | 3 | 10 | Unlimited |
-| _(future tier)_ | TBD | TBD | TBD |
+| **Free** _(illustrative)_ | 1 | 3 | None (local/direct booking only) |
+| **Basic** _(illustrative)_ | 3 | 10 | Unlimited |
+| _(further tier(s))_ | TBD | TBD | TBD |
 
 ## Enforcement (ADR-0005)
 
 Plan limits are enforced in the API layer at the point of the constrained action (e.g. creating a new property, inviting a new staff seat), not retroactively.
 
 - **Hard limits** — properties and staff seats per tenant: the action is **blocked** once the plan's cap is reached.
-- **PMS connections** — a feature gate, not a count: blocked entirely on Free, unlimited on Basic+.
+- **PMS connections** — a feature gate, not a count: blocked entirely on plans without it, unlimited on plans with it.
 - Any future usage-shaped limit (e.g. bookings/month) is classified hard or soft individually when added to the table above.
 
 ## Billing provider (ADR-0003)
@@ -28,11 +28,11 @@ Stripe Billing (subscriptions, invoicing, customer portal) is the implementation
 
 ## Onboarding (ADR-0008)
 
-Self-serve signup, no payment card required upfront. New tenants land directly on the **Free** plan as their entry point — Free itself is the trial, not a separate time-boxed "everything unlocked" trial tier. Upgrading to a paid plan is a self-serve in-app action that invokes Stripe Billing. Whether Free is a permanent evergreen tier or additionally time-boxed is an implementation detail to confirm during Phase 3, not a blocker.
+Self-serve signup, no payment card required upfront. New tenants land directly on the **Free** plan, which is a **30-day trial**, not a permanent evergreen tier. Upgrading to a paid plan is a self-serve in-app action that invokes Stripe Billing. Exact behavior when the 30-day trial expires without an upgrade (hard-lock vs. auto-downgrade to a restricted permanent state) is confirmed at Milestone 8 kickoff.
 
 ## Data retention after cancellation (ADR-0009)
 
-30-day grace period after cancellation, then hard delete via a scheduled job. Reactivation within the window restores full access. Exact scope of "hard delete" (tenant/staff/billing data vs. guest booking history, which may follow a separate legal retention rule) is confirmed during Phase 3 implementation — see ADR-0009's consequences.
+30-day grace period after cancellation, then hard delete via a scheduled job. Reactivation within the window restores full access. Deletion scope is **tenant data only** — organization, properties, staff/user accounts, subscription/invoice/payment-method records. Guest/booking/payment history is explicitly out of scope for this rule and follows its own retention policy.
 
 ## Explicit non-goals (v1)
 

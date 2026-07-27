@@ -9,8 +9,18 @@ Multi-tenant SaaS hotel booking platform with PMS integration (Clock PMS+ first)
 1. Read this file.
 2. Read `docs/INDEX.md` and read only the canonical documents it routes you to for your task. Do not load all documentation by default.
 3. Run `git status --short` before editing and preserve unrelated changes.
-4. Check `docs/decisions/README.md` — if your task touches a decision marked "Open — needs decision," stop and flag it instead of guessing; do not implement against an unresolved ADR.
-5. Verify behavior in current code before changing it — docs are navigation, not a substitute for reading the code.
+4. Check `docs/decisions/README.md` — if your task touches a decision marked open/not-yet-accepted, stop and flag it instead of guessing; do not implement against an unresolved ADR.
+5. Confirm the task you were given is a task listed in the **active** milestone's file under `docs/roadmap/milestones/` (see "Milestone/task workflow" below). If it isn't, stop and flag it rather than improvising scope.
+6. Verify behavior in current code before changing it — docs are navigation, not a substitute for reading the code.
+
+## Milestone/task workflow
+
+Work is organized as 11 milestones (`docs/roadmap/README.md`), each with exactly 10 tasks defined at that milestone's kickoff.
+
+- Only work on tasks that exist in the active milestone's task table. Do not start a task from a future milestone, and do not invent a task not in the table, even if it seems like an obvious next step — flag the gap instead.
+- You implement; you do not mark a task or milestone **Done**. Report what you did per the "Final response" format below and let Claude review and update the milestone file's status.
+- If a task's acceptance criteria are ambiguous or the task depends on a detail an ADR left unspecified (e.g. a "confirm at Milestone 8 kickoff" note), stop and flag it rather than guessing the missing decision.
+- Keep PRs scoped to one task. Do not bundle multiple tasks into one PR unless explicitly told to.
 
 ## Scope and safety
 
@@ -52,6 +62,7 @@ See `docs/INDEX.md` for the full routing table. Update the owning document when 
 
 Report:
 
+- Which milestone/task number(s) this addresses (e.g. "Milestone 1, Task 3").
 - Files changed.
 - What changed and why.
 - How to test it.

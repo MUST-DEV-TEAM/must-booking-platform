@@ -1,42 +1,31 @@
 # Roadmap
 
-Phased delivery order. Each phase should close with its own ADRs (where applicable) accepted and its own tests green before the next phase's feature work starts — do not parallelize phases 0-2.
+The roadmap is 11 milestones, numbered 0-10, worked in order. Reaching Milestone 10 done = an initial, usable, end-to-end version of the platform, not the fully hardened/feature-complete product. The process (kickoff, task lifecycle, who marks things done, archiving) is in [docs/roadmap/README.md](roadmap/README.md) — read that before starting or reviewing any milestone work.
 
-## Phase 0 — Foundations (current)
+## Milestones
 
-- All Phase 0-relevant ADRs are **accepted**: ADR-0002 (tenant isolation: shared schema + RLS), ADR-0004 (EU data residency), ADR-0005 (hybrid hard/soft limit enforcement), ADR-0006 (multi-property from v1). Nothing blocks starting.
-- Monorepo skeleton: `apps/api` (NestJS), `apps/web` (Next.js), `packages/shared-types`, `packages/domain-contracts`, lint/test tooling, CI (build + lint + test on PR).
-- Tenant + auth skeleton: Organization/Property/User models with `tenant_id`/`property_id` + RLS policies per ADR-0002, RBAC per `TENANCY.md`, login, tenant-scoped request context (must establish the per-request tenant-context mechanism RLS policies rely on).
-- Signup skeleton: self-serve organization signup landing on the Free plan per ADR-0008 (full billing/upgrade flow is Phase 3; Phase 0 only needs the tenant to exist and be tagged `plan: free`).
+| # | Milestone | Goal (one line) |
+| --- | --- | --- |
+| [00](roadmap/milestones/00-repo-and-infra-foundations.md) | Repository & Infrastructure Foundations | Monorepo, CI, local dev environment — no business logic yet. |
+| [01](roadmap/milestones/01-tenancy-and-auth-core.md) | Tenancy & Auth Core | Org/Property/User models with RLS isolation, auth, RBAC. |
+| [02](roadmap/milestones/02-signup-and-free-trial-onboarding.md) | Self-Serve Signup & Free Trial Onboarding | Self-serve signup, lands on Free plan, 30-day trial clock. |
+| [03](roadmap/milestones/03-property-room-rate-management.md) | Property, Room & Rate Management (Local) | Staff can configure inventory/rates locally, no PMS yet. |
+| [04](roadmap/milestones/04-local-booking-domain.md) | Local Booking Domain & State Machine | `PmsProvider` interface, `LocalPmsProvider`, idempotent booking state machine. |
+| [05](roadmap/milestones/05-guest-payments.md) | Guest Payments | Stripe Checkout, server-verified payment, refunds — separate from platform billing. |
+| [06](roadmap/milestones/06-public-booking-widget.md) | Public Booking Widget | Embeddable guest-facing booking frontend, full guest journey. |
+| [07](roadmap/milestones/07-tenant-admin-dashboard.md) | Tenant Admin Dashboard | Staff-facing operations UI: reservations, payments, guests, staff, settings. |
+| [08](roadmap/milestones/08-platform-billing.md) | Platform Billing | Real subscriptions via Stripe Billing, plan enforcement, dunning, cancellation/retention. |
+| [09](roadmap/milestones/09-clock-pms-adapter-basic.md) | Clock PMS+ Adapter (Basic) | Sandbox-validated `ClockPmsProvider`: connect, catalog sync, availability, bookings. |
+| [10](roadmap/milestones/10-integration-and-initial-release.md) | Integration & Initial Release Readiness | Everything working together; demoable initial version; go/no-go review. |
 
-## Phase 1 — Booking domain (provider-agnostic)
+## Backlog — after Milestone 10, not scheduled
 
-- Booking domain, state machine, and `LocalPmsProvider` only (no external PMS yet) — proves the domain model and idempotency design in isolation, per `ARCHITECTURE.md`.
-- Guest payment domain skeleton: Stripe Checkout integration, payment ledger, refunds — kept structurally separate from platform billing (Phase 3).
+Explicitly deferred, not forgotten. Bring any of these back as a new milestone when the owner wants to prioritize it:
 
-## Phase 2 — Clock PMS+ adapter
-
-- Materialize the deliverables listed in `docs/source/clock-pms-integration.pdf` section 37: `CLOCK_ARCHITECTURE.md`, `CLOCK_ENDPOINT_MATRIX.md`, `CLOCK_DATA_MAPPING.md`, `CLOCK_BOOKING_STATE_MACHINE.md`, `CLOCK_WEBHOOK_FLOW.md`, `CLOCK_RECONCILIATION.md`, `CLOCK_ERROR_CATALOGUE.md`, `CLOCK_SECURITY_REVIEW.md`, `CLOCK_RUNBOOK.md`.
-- `ClockPmsProvider` implementing the `PmsProvider` interface, sandbox-validated per the brief's Definition of Done (section 36) before any production activation.
-- Resolve each ADR listed in the brief's section 38 before the corresponding capability ships.
-
-## Phase 3 — Platform billing
-
-- All Phase 3 ADRs are **accepted**: ADR-0003 (Stripe Billing behind a `BillingProvider` interface), ADR-0007 (flat tiered plans — Free/Basic confirmed, more tiers to be specified), ADR-0008 (self-serve onto Free, upgrade invokes Stripe), ADR-0009 (30-day grace then hard delete on cancellation).
-- Implement `StripeBillingProvider`, plan/subscription schema per ADR-0007's table, upgrade/downgrade flow, dunning, cancellation + the 30-day deletion job from ADR-0009.
-- Plan-limit enforcement in the API layer per the hybrid model in ADR-0005 (hard-block properties/staff/PMS-gate).
-- Remaining implementation-level details to confirm with the owner during this phase (not new ADRs — see the "Consequences" section of the relevant ADR): exact Free-plan trial semantics (ADR-0008), any further plan tiers beyond Free/Basic (ADR-0007), precise "hard delete" scope (ADR-0009).
-
-## Phase 4 — WordPress shell migration
-
-- Rebuild the predecessor plugin's public booking surface as a thin embeddable widget calling the MUST Public API only — no provider credentials, no domain logic in WordPress.
-- Decommission the domain/payment/PMS code paths in the legacy plugin once the widget is validated in a non-production environment.
-
-## Phase 5 — Production hardening
-
-- Observability, alerting, rate limiting, WAF handling, reconciliation jobs, security review, E2E suite — per the brief's sections 27-31 and its Definition of Done (section 36), extended to cover tenancy and billing failure modes.
-
-## Out of scope until explicitly requested
-
-- Additional PMS vendors beyond Clock (Mews/Cloudbeds/Opera) — the `PmsProvider` interface keeps this open, but no vendor work starts without an explicit go-ahead.
-- Marketplace/reseller billing, multi-currency platform billing.
+- Full production hardening of the Clock integration: complete reconciliation, WAF-suspicion circuit breakers, full observability/alerting, and the remaining deliverable documents from `docs/source/clock-pms-integration.pdf` section 37 (`CLOCK_ARCHITECTURE.md`, `CLOCK_DATA_MAPPING.md`, `CLOCK_BOOKING_STATE_MACHINE.md`, `CLOCK_WEBHOOK_FLOW.md`, `CLOCK_RECONCILIATION.md`, `CLOCK_ERROR_CATALOGUE.md`, `CLOCK_SECURITY_REVIEW.md`, `CLOCK_RUNBOOK.md`) and every ADR listed in the brief's section 38.
+- Legacy WordPress plugin migration/decommissioning: rebuild its public surface fully on top of Milestone 6's widget, then retire the plugin's own domain/payment/PMS code paths (`docs/PROJECT_CONTEXT.md`).
+- Additional PMS vendors beyond Clock (Mews, Cloudbeds, Opera) — `PmsProvider` keeps this cheap, but no vendor work starts without an explicit go-ahead.
+- Second platform-billing provider (PokPay) per ADR-0003's deferred consequence.
+- Additional plan tiers beyond what Milestone 8 finalizes.
+- Multi-currency platform billing, marketplace/reseller billing.
+- Multi-region expansion (ADR-0004 keeps the door open, not scheduled).
