@@ -16,6 +16,7 @@ import { RequiresCapability } from './capabilities.decorator';
 import { AdminStaffService } from './admin-staff.service';
 import { Role, Roles } from './roles.decorator';
 import { TenantScoped } from './tenant-context.decorator';
+import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 
 @Controller('tenants/:tenantId')
 export class AdminStaffController {
@@ -34,6 +35,7 @@ export class AdminStaffController {
   @TenantScoped()
   @Roles(Role.TenantOwner, Role.TenantAdmin)
   @RequiresCapability('staff.manage_permissions')
+  @RequiresVerifiedEmail()
   async changeMembershipRole(
     @Param('userId') userId: string,
     @Body() body: { role?: string },
@@ -52,6 +54,7 @@ export class AdminStaffController {
   @TenantScoped()
   @Roles(Role.TenantOwner, Role.TenantAdmin)
   @RequiresCapability('staff.manage_permissions')
+  @RequiresVerifiedEmail()
   async removeMembership(
     @Param('userId') userId: string,
     @Req() request: { tenantContext: { tenantId: string; userId: string } },
@@ -79,6 +82,7 @@ export class AdminStaffController {
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin)
   @RequiresCapability('staff.manage_permissions')
+  @RequiresVerifiedEmail()
   async assignPropertyStaff(
     @Param('userId') userId: string,
     @Body() body: { roleTemplateId?: string },
@@ -99,6 +103,7 @@ export class AdminStaffController {
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin)
   @RequiresCapability('staff.manage_permissions')
+  @RequiresVerifiedEmail()
   async setCapabilityOverride(
     @Param('userId') userId: string,
     @Param('capabilityKey') capabilityKey: string,

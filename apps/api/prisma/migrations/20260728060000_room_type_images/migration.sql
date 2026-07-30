@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS room_type_images (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id UUID NOT NULL, property_id UUID NOT NULL, room_type_id UUID NOT NULL, object_key TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(tenant_id, property_id, room_type_id, object_key), FOREIGN KEY(tenant_id,property_id,room_type_id) REFERENCES room_types(tenant_id,property_id,id) ON DELETE RESTRICT);
+ALTER TABLE room_type_images ENABLE ROW LEVEL SECURITY; ALTER TABLE room_type_images FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS room_type_images_isolation ON room_type_images;
+CREATE POLICY room_type_images_isolation ON room_type_images USING (tenant_id=app_current_tenant_id() AND (app_current_property_id() IS NULL OR property_id=app_current_property_id())) WITH CHECK (tenant_id=app_current_tenant_id() AND (app_current_property_id() IS NULL OR property_id=app_current_property_id()));

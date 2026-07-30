@@ -28,6 +28,7 @@ describe('staff invitations', () => {
   const ownerEmail = `invite-owner-${randomUUID()}@example.test`;
   const existingEmail = `invite-existing-${randomUUID()}@example.test`;
   const newEmail = `invite-new-${randomUUID()}@example.test`;
+  const overLimitEmail = `invite-over-limit-${randomUUID()}@example.test`;
   const failedActivationEmail = `invite-failed-${randomUUID()}@example.test`;
   const password = 'correct-horse-battery-staple';
   let ownerCookie: string;
@@ -52,6 +53,7 @@ describe('staff invitations', () => {
     process.env.DATABASE_URL =
       'postgresql://must_booking_app:must_booking_app_dev@localhost:5432/must_booking';
     process.env.REDIS_URL = 'redis://localhost:6379';
+    process.env.WEB_APP_URL = 'http://localhost:3001';
     const { AppModule } = await import('../src/app.module');
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
@@ -86,7 +88,7 @@ describe('staff invitations', () => {
     await migrationPrisma.$executeRaw`DELETE FROM "capabilities" WHERE "tenant_id" = ${tenantId}::uuid`;
     await migrationPrisma.$executeRaw`DELETE FROM "tenant_memberships" WHERE "tenant_id" = ${tenantId}::uuid`;
     await migrationPrisma.$executeRaw`DELETE FROM "properties" WHERE "id" = ${propertyId}::uuid`;
-    await migrationPrisma.$executeRaw`DELETE FROM "users" WHERE "email" IN (${ownerEmail}, ${existingEmail}, ${newEmail}, ${failedActivationEmail})`;
+    await migrationPrisma.$executeRaw`DELETE FROM "users" WHERE "email" IN (${ownerEmail}, ${existingEmail}, ${newEmail}, ${overLimitEmail}, ${failedActivationEmail})`;
     await migrationPrisma.$executeRaw`DELETE FROM "organizations" WHERE "id" = ${tenantId}::uuid`;
     await app.close();
     await migrationPrisma.$disconnect();
@@ -96,6 +98,9 @@ describe('staff invitations', () => {
     email: string,
     roleTemplateId = frontDeskTemplateId,
   ): Promise<string> {
+    await migrationPrisma.$executeRaw`
+      UPDATE "users" SET "email_verified_at" = CURRENT_TIMESTAMP WHERE "id" = ${ownerId}::uuid
+    `;
     const response = await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/staff-invitations`)
       .set('Cookie', ownerCookie)
@@ -113,6 +118,53 @@ describe('staff invitations', () => {
     expect(response.body.token).toEqual(expect.any(String));
     return response.body.token as string;
   }
+
+  it('blocks an unverified Owner from inviting staff', async () => {
+    await request(app.getHttpServer())
+      .post(`/tenants/${tenantId}/staff-invitations`)
+      .set('Cookie', ownerCookie)
+      .send({
+        email: newEmail,
+        assignments: [{ propertyId, roleTemplateId: frontDeskTemplateId }],
+      })
+      .expect(403);
+  });
+
+  it('rejects an invitation once the current plan staff-seat limit is reached', async () => {
+    const limitUserIds = [randomUUID(), randomUUID()];
+    const limitEmails = limitUserIds.map((id) => `invite-limit-${id}@example.test`);
+    await migrationPrisma.$executeRaw`
+      UPDATE "users" SET "email_verified_at" = CURRENT_TIMESTAMP WHERE "id" = ${ownerId}::uuid
+    `;
+    try {
+      for (const [index, userId] of limitUserIds.entries()) {
+        await migrationPrisma.$executeRaw`
+          INSERT INTO "users" ("id", "email") VALUES (${userId}::uuid, ${limitEmails[index]})
+        `;
+        await migrationPrisma.$executeRaw`
+          INSERT INTO "tenant_memberships" ("tenant_id", "user_id", "role")
+          VALUES (${tenantId}::uuid, ${userId}::uuid, 'STAFF')
+        `;
+      }
+
+      const response = await request(app.getHttpServer())
+        .post(`/tenants/${tenantId}/staff-invitations`)
+        .set('Cookie', ownerCookie)
+        .send({
+          email: overLimitEmail,
+          assignments: [{ propertyId, roleTemplateId: frontDeskTemplateId }],
+        })
+        .expect(409);
+      expect(response.body.message).toBe('The current plan has reached its staff-seat limit.');
+    } finally {
+      for (const userId of limitUserIds) {
+        await migrationPrisma.$executeRaw`
+          DELETE FROM "tenant_memberships" WHERE "tenant_id" = ${tenantId}::uuid AND "user_id" = ${userId}::uuid
+        `;
+        await migrationPrisma.$executeRaw`DELETE FROM "users" WHERE "id" = ${userId}::uuid`;
+      }
+    }
+  });
 
   it('lets an Owner create an invitation and a new user activate exactly its assigned access', async () => {
     const token = await createInvite(newEmail);
@@ -172,11 +224,26 @@ describe('staff invitations', () => {
 
   it('does not translate unrelated database errors into an email-conflict error', async () => {
     const databaseFailure = { code: 'P2010', meta: { code: '23503' } };
-    const service = new StaffInviteService({
+    const transaction = {
+      $queryRaw: async () => [{ maxStaffSeats: 3 }, { found: false }, { count: 0 }],
       $executeRaw: async () => {
         throw databaseFailure;
       },
-    } as never);
+    };
+    const service = new StaffInviteService(
+      {
+        withTenantTransaction: async (
+          _context: unknown,
+          operation: (tx: typeof transaction) => Promise<void>,
+        ) => operation(transaction),
+      } as never,
+      {} as never,
+    );
+    (service as unknown as { consumeInvite: () => Promise<unknown> }).consumeInvite = async () => ({
+      tenantId,
+      email: failedActivationEmail,
+      assignments: [],
+    });
 
     await expect(service.activate('unused-token', failedActivationEmail, password)).rejects.toBe(
       databaseFailure,

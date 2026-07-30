@@ -1,9 +1,15 @@
-import { BadRequestException, Inject, Injectable, OnModuleDestroy } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
 import { createClient, type RedisClientType } from 'redis';
 
-import { TenantDatabaseService } from './tenant-database.service';
+import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 import { AuditLogService } from './audit-log.service';
 
 export interface StaffInvite {
@@ -26,6 +32,9 @@ export class StaffInviteService implements OnModuleDestroy {
   async invite(command: StaffInvite, actorUserId: string): Promise<string> {
     if (!command.assignments.length)
       throw new BadRequestException('At least one property assignment is required.');
+    await this.database.withTenantTransaction({ tenantId: command.tenantId }, (tx) =>
+      this.ensureStaffSeatAvailable(tx, command.tenantId, { email: command.email }),
+    );
     const token = randomBytes(32).toString('base64url');
     await this.client().then((redis) =>
       redis.set(`auth:staff-invite:${this.hash(token)}`, JSON.stringify(command), { EX: 604800 }),
@@ -42,37 +51,10 @@ export class StaffInviteService implements OnModuleDestroy {
   }
 
   async accept(token: string, userId: string): Promise<void> {
-    const value = await this.client().then((redis) =>
-      redis.getDel(`auth:staff-invite:${this.hash(token)}`),
-    );
-    if (!value) throw new BadRequestException('Invalid or expired staff invitation.');
-    const invite = JSON.parse(value) as StaffInvite;
+    const invite = await this.consumeInvite(token);
     await this.database.withTenantTransaction({ tenantId: invite.tenantId }, async (tx) => {
-      await tx.$executeRaw`
-        INSERT INTO "tenant_memberships" ("tenant_id", "user_id", "role") VALUES (${invite.tenantId}::uuid, ${userId}::uuid, 'STAFF')
-        ON CONFLICT ("tenant_id", "user_id") DO NOTHING
-      `;
-      for (const assignment of invite.assignments) {
-        await tx.$executeRaw`
-          INSERT INTO "property_staff_assignments" ("tenant_id", "property_id", "user_id", "role_template_id") VALUES (${invite.tenantId}::uuid, ${assignment.propertyId}::uuid, ${userId}::uuid, ${assignment.roleTemplateId}::uuid)
-          ON CONFLICT ("tenant_id", "property_id", "user_id") DO UPDATE SET "role_template_id" = EXCLUDED."role_template_id"
-        `;
-        for (const key of assignment.capabilityKeys ?? []) {
-          await tx.$executeRaw`
-            INSERT INTO "property_staff_capability_overrides" ("tenant_id", "property_id", "user_id", "capability_id", "granted")
-            SELECT ${invite.tenantId}::uuid, ${assignment.propertyId}::uuid, ${userId}::uuid, "id", true FROM "capabilities" WHERE "tenant_id" = ${invite.tenantId}::uuid AND "key" = ${key}
-            ON CONFLICT ("tenant_id", "property_id", "user_id", "capability_id") DO UPDATE SET "granted" = true
-          `;
-        }
-      }
-      await this.auditLogs.recordInTransaction(tx, {
-        tenantId: invite.tenantId,
-        actorUserId: userId,
-        action: 'staff.invite_accepted',
-        targetType: 'user',
-        targetId: userId,
-        details: { propertyIds: invite.assignments.map((assignment) => assignment.propertyId) },
-      });
+      await this.ensureStaffSeatAvailable(tx, invite.tenantId, { userId });
+      await this.assignInvitation(tx, invite, userId);
     });
   }
 
@@ -83,17 +65,21 @@ export class StaffInviteService implements OnModuleDestroy {
       );
     }
     const userId = randomUUID();
+    const invite = await this.consumeInvite(token);
     try {
-      await this.database.$executeRaw`
-        INSERT INTO "users" ("id", "email", "password_hash") VALUES (${userId}::uuid, ${email.toLowerCase()}, ${await bcrypt.hash(password, 12)})
-      `;
+      await this.database.withTenantTransaction({ tenantId: invite.tenantId }, async (tx) => {
+        await this.ensureStaffSeatAvailable(tx, invite.tenantId, { email });
+        await tx.$executeRaw`
+          INSERT INTO "users" ("id", "email", "password_hash") VALUES (${userId}::uuid, ${email.toLowerCase()}, ${await bcrypt.hash(password, 12)})
+        `;
+        await this.assignInvitation(tx, invite, userId);
+      });
     } catch (error: unknown) {
       if (this.isUniqueEmailViolation(error)) {
         throw new BadRequestException('This invitation requires a new user account.');
       }
       throw error;
     }
-    await this.accept(token, userId);
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -110,6 +96,47 @@ export class StaffInviteService implements OnModuleDestroy {
   private hash(value: string): string {
     return createHash('sha256').update(value).digest('hex');
   }
+
+  private async consumeInvite(token: string): Promise<StaffInvite> {
+    const value = await this.client().then((redis) =>
+      redis.getDel(`auth:staff-invite:${this.hash(token)}`),
+    );
+    if (!value) throw new BadRequestException('Invalid or expired staff invitation.');
+    return JSON.parse(value) as StaffInvite;
+  }
+
+  private async assignInvitation(
+    tx: TenantTransaction,
+    invite: StaffInvite,
+    userId: string,
+  ): Promise<void> {
+    await tx.$executeRaw`
+      INSERT INTO "tenant_memberships" ("tenant_id", "user_id", "role") VALUES (${invite.tenantId}::uuid, ${userId}::uuid, 'STAFF')
+      ON CONFLICT ("tenant_id", "user_id") DO NOTHING
+    `;
+    for (const assignment of invite.assignments) {
+      await tx.$executeRaw`
+        INSERT INTO "property_staff_assignments" ("tenant_id", "property_id", "user_id", "role_template_id") VALUES (${invite.tenantId}::uuid, ${assignment.propertyId}::uuid, ${userId}::uuid, ${assignment.roleTemplateId}::uuid)
+        ON CONFLICT ("tenant_id", "property_id", "user_id") DO UPDATE SET "role_template_id" = EXCLUDED."role_template_id"
+      `;
+      for (const key of assignment.capabilityKeys ?? []) {
+        await tx.$executeRaw`
+          INSERT INTO "property_staff_capability_overrides" ("tenant_id", "property_id", "user_id", "capability_id", "granted")
+          SELECT ${invite.tenantId}::uuid, ${assignment.propertyId}::uuid, ${userId}::uuid, "id", true FROM "capabilities" WHERE "tenant_id" = ${invite.tenantId}::uuid AND "key" = ${key}
+          ON CONFLICT ("tenant_id", "property_id", "user_id", "capability_id") DO UPDATE SET "granted" = true
+        `;
+      }
+    }
+    await this.auditLogs.recordInTransaction(tx, {
+      tenantId: invite.tenantId,
+      actorUserId: userId,
+      action: 'staff.invite_accepted',
+      targetType: 'user',
+      targetId: userId,
+      details: { propertyIds: invite.assignments.map((assignment) => assignment.propertyId) },
+    });
+  }
+
   private isUniqueEmailViolation(error: unknown): boolean {
     return (
       typeof error === 'object' &&
@@ -120,5 +147,46 @@ export class StaffInviteService implements OnModuleDestroy {
       typeof (error as { meta?: unknown }).meta === 'object' &&
       (error as { meta?: { code?: string } }).meta?.code === '23505'
     );
+  }
+
+  private async ensureStaffSeatAvailable(
+    tx: TenantTransaction,
+    tenantId: string,
+    invitee: { email?: string; userId?: string },
+  ): Promise<void> {
+    const plan = await tx.$queryRaw<Array<{ maxStaffSeats: number }>>`
+      SELECT p."max_staff_seats" AS "maxStaffSeats"
+      FROM "organizations" o
+      JOIN "plans" p ON p."id" = o."plan_id"
+      WHERE o."id" = ${tenantId}::uuid
+      FOR UPDATE OF o
+    `;
+    if (!plan[0]) throw new BadRequestException('The tenant does not have a plan.');
+
+    const existingMembership = invitee.userId
+      ? await tx.$queryRaw<Array<{ found: boolean }>>`
+          SELECT EXISTS(
+            SELECT 1 FROM "tenant_memberships"
+            WHERE "tenant_id" = ${tenantId}::uuid AND "user_id" = ${invitee.userId}::uuid
+          ) AS "found"
+        `
+      : await tx.$queryRaw<Array<{ found: boolean }>>`
+          SELECT EXISTS(
+            SELECT 1
+            FROM "tenant_memberships" tm
+            JOIN "users" u ON u."id" = tm."user_id"
+            WHERE tm."tenant_id" = ${tenantId}::uuid AND u."email" = ${invitee.email!.toLowerCase()}
+          ) AS "found"
+        `;
+    if (existingMembership[0]?.found) return;
+
+    const memberships = await tx.$queryRaw<Array<{ count: number }>>`
+      SELECT COUNT(*)::integer AS "count"
+      FROM "tenant_memberships"
+      WHERE "tenant_id" = ${tenantId}::uuid
+    `;
+    if ((memberships[0]?.count ?? 0) >= plan[0].maxStaffSeats) {
+      throw new ConflictException('The current plan has reached its staff-seat limit.');
+    }
   }
 }

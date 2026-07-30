@@ -3,6 +3,8 @@
 Status: Not started
 Depends on: Milestone 4 (booking domain/`PmsProvider`); reference material: `docs/source/clock-pms-integration.pdf`
 
+**Carried forward from Milestone 2 (Task 7, 2026-07-28):** Milestone 2's Free-plan limit enforcement could not gate PMS connections — no PMS-connection endpoint existed at all yet. When this milestone builds Task 3's per-tenant Clock connection settings/admin UI (the actual "connect a PMS" mutation point), add enforcement of `plans.pms_enabled` there: a plan without PMS access must have connection attempts rejected outright (feature gate, not a count), per ADR-0007.
+
 ## Goal
 
 A first working `ClockPmsProvider`, sandbox-validated, covering the core loop: connect, catalog sync, availability, and booking create/update/cancel. This is deliberately **basic**, not the full production-grade integration the source brief specifies (full webhook reconciliation, WAF handling, complete observability, all deliverable documents) — that hardening is Milestone 10 and beyond. Done means: a real Clock sandbox account can be connected, its catalog synced, and a booking created/cancelled through `ClockPmsProvider`, end to end.

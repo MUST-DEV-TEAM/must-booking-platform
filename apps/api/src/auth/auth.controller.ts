@@ -1,6 +1,17 @@
-import { Body, Controller, HttpCode, Inject, Post, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Inject,
+  Post,
+  Req,
+  Res,
+  UnauthorizedException,
+} from '@nestjs/common';
 
 import { AuthService } from './auth.service';
+import { SignupRateLimited } from './signup-rate-limit.decorator';
 import { Public } from '../tenancy/tenant-context.decorator';
 
 type CookieResponse = {
@@ -14,8 +25,22 @@ type CookieRequest = { headers: { cookie?: string } };
 export class AuthController {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
 
-  @Post('signup') async signup(@Body() body: unknown) {
-    return this.auth.signup(body);
+  @Post('signup') @SignupRateLimited() async signup(
+    @Body() body: unknown,
+    @Res({ passthrough: true }) response: CookieResponse,
+  ) {
+    const result = await this.auth.signup(body);
+    response.cookie('must_session', result.sessionId, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+    });
+    return {
+      user: result.user,
+      organization: result.organization,
+      property: result.property,
+    };
   }
   @Post('login') async login(
     @Body() body: unknown,
@@ -57,6 +82,20 @@ export class AuthController {
   }
   @Post('email-verification/confirm') @HttpCode(204) async verify(@Body() body: unknown) {
     await this.auth.verifyEmail(body);
+  }
+  @Get('session') async session(@Req() request: CookieRequest) {
+    const user = await this.auth.getSessionUser(
+      this.cookie(request.headers.cookie, 'must_session'),
+    );
+    if (!user) throw new UnauthorizedException('A valid session is required.');
+    return { user };
+  }
+  @Get('memberships') async memberships(@Req() request: CookieRequest) {
+    const memberships = await this.auth.getSessionMemberships(
+      this.cookie(request.headers.cookie, 'must_session'),
+    );
+    if (!memberships) throw new UnauthorizedException('A valid session is required.');
+    return { memberships };
   }
 
   private cookie(header: string | undefined, name: string): string | undefined {

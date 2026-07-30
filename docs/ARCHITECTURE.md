@@ -4,10 +4,12 @@
 
 Booking, pricing, payment, and PMS-provider domain logic live in this platform's backend, behind a generic provider interface. No PMS vendor (Clock, and later others) is a first-class citizen of the domain model. The WordPress plugin, and any other frontend, is a client of this platform's public API — it holds no provider credentials and no domain logic.
 
+Per ADR-0016, the guest-facing frontend is not a new green-field widget — it is the legacy single-tenant WordPress plugin (`MUST-DEV-TEAM/must-hotel-booking`), imported into this monorepo as `apps/wordpress-plugin` and retrofitted at Milestone 6: its own domain/payment/PMS code is stripped and replaced with calls to the MUST Public API, while its existing UI is kept and given per-tenant configuration.
+
 ## System diagram
 
 ```
-Tenant admin/staff web app (Next.js)      WordPress booking widget (thin embed)
+Tenant admin/staff web app (Next.js)      WordPress plugin (retrofitted, ADR-0016)
               |                                          |
               +--------------------+---------------------+
                                    |
@@ -48,7 +50,7 @@ Platform Billing Service and Guest Payment Service are separate services with se
 
 - **Backend**: TypeScript, Node.js LTS, NestJS, PostgreSQL, Redis, BullMQ, OpenAPI, runtime request/response validation.
 - **Frontend (tenant admin/staff)**: React/Next.js, TypeScript, TanStack Query, React Hook Form.
-- **Booking widget (public, embedded in WordPress or any site)**: isolated React bundle / web component; never talks to Clock or holds provider credentials directly — always through the MUST Public API.
+- **Guest-facing frontend**: the retrofitted legacy WordPress plugin (`apps/wordpress-plugin`, ADR-0016) — its existing PHP/UI stays, its domain/payment/PMS code is replaced with calls to the MUST Public API; never talks to Clock or holds provider credentials directly.
 - **Infrastructure**: Docker, managed PostgreSQL, managed Redis, object storage, secret manager, centralized logs/metrics/alerts, CI/CD with migration gates. Hosted in the EU (ADR-0004), with region kept as a configuration parameter rather than hardcoded, to allow future multi-region expansion without rearchitecting.
 
 ## Repository layout (monorepo)
@@ -57,7 +59,7 @@ Platform Billing Service and Guest Payment Service are separate services with se
 apps/
   api/              NestJS backend: tenancy, auth, booking domain, PMS adapters, platform billing, guest payments
   web/              Next.js tenant admin/staff dashboard
-  booking-widget/   embeddable public booking frontend
+  wordpress-plugin/ retrofitted legacy guest-facing plugin (ADR-0016), imported at Milestone 6
 packages/
   shared-types/     cross-app TypeScript types/contracts
   domain-contracts/ provider interfaces (PmsProvider, PaymentProvider, BillingProvider)
@@ -69,6 +71,10 @@ docs/
 ## Tenant isolation
 
 Every domain table, credential, cache key, and queue message carries `tenant_id` (and `hotel_id`/`property_id` beneath it for multi-property tenants). Isolation mechanism: shared schema + Postgres row-level security (RLS) by default, per ADR-0002 — see `TENANCY.md`.
+
+## Local availability
+
+The local inventory service stores `inventory_units` as a tenant/property/room-type count for each sellable night. Availability is queried over an end-exclusive stay range and is true only when every requested night has a positive local unit count; it has no PMS dependency.
 
 ## PMS provider interface
 
@@ -111,3 +117,5 @@ interface BillingProvider {
 ## WordPress plugin's new role
 
 Per the source brief's principle: WordPress is a shell frontend and one-time configuration surface only. It does not store PMS/payment credentials and does not talk to Clock or any provider directly — it calls the MUST Public API, same as the Next.js tenant app.
+
+Per ADR-0016, this is realized by importing and retrofitting the legacy plugin itself (`apps/wordpress-plugin`) rather than building a separate new widget: its domain/payment/PMS code is removed, its UI stays, and tenant/property configuration (API base URL, tenant ID, property ID, plugin-scoped API credential) is added to its settings screen so each tenant's own WordPress install points at their own tenant in the shared multi-tenant backend.

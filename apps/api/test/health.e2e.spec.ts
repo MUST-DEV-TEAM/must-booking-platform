@@ -12,6 +12,7 @@ describe('Health endpoint', () => {
     process.env.DATABASE_URL =
       'postgresql://must_booking_app:must_booking_app_dev@localhost:5432/must_booking';
     process.env.REDIS_URL = 'redis://localhost:6379';
+    process.env.WEB_APP_URL = 'http://localhost:3001';
 
     ({ AppModule: appModule } = await import('../src/app.module'));
   });

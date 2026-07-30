@@ -42,9 +42,9 @@ describe('audit logs', () => {
       VALUES (${propertyId}::uuid, ${tenantId}::uuid, 'Audit property', ${`audit-${propertyId}`})
     `;
     await migrationPrisma.$executeRaw`
-      INSERT INTO "users" ("id", "email", "password_hash") VALUES
-        (${ownerId}::uuid, ${ownerEmail}, ${passwordHash}),
-        (${targetId}::uuid, ${targetEmail}, ${passwordHash})
+      INSERT INTO "users" ("id", "email", "password_hash", "email_verified_at") VALUES
+        (${ownerId}::uuid, ${ownerEmail}, ${passwordHash}, CURRENT_TIMESTAMP),
+        (${targetId}::uuid, ${targetEmail}, ${passwordHash}, CURRENT_TIMESTAMP)
     `;
     await migrationPrisma.$executeRaw`
       INSERT INTO "tenant_memberships" ("tenant_id", "user_id", "role") VALUES
@@ -56,6 +56,7 @@ describe('audit logs', () => {
     process.env.DATABASE_URL =
       'postgresql://must_booking_app:must_booking_app_dev@localhost:5432/must_booking';
     process.env.REDIS_URL = 'redis://localhost:6379';
+    process.env.WEB_APP_URL = 'http://localhost:3001';
     const { AppModule } = await import('../src/app.module');
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();

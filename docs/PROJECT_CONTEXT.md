@@ -24,7 +24,7 @@ These use separate ledgers, separate domain models, and must never share a table
 
 ## Relationship to the WordPress plugin
 
-The plugin is not discarded. It is repositioned as a thin, embeddable booking-widget frontend that talks only to this platform's public API — it must not hold PMS/payment provider credentials and must not contain booking domain logic. See `ARCHITECTURE.md` and `ROADMAP.md` phase covering the WordPress shell migration.
+The plugin is not discarded — and, per ADR-0016 (2026-07-30), it is not replaced by a new widget either. It is imported into this monorepo (`apps/wordpress-plugin`) and retrofitted in place at Milestone 6: its own booking domain logic, payment integration, and Clock PMS sync code are stripped out and replaced with calls to this platform's public API, while its existing UI/templates/guest-facing look and feel are kept. It must not hold PMS/payment provider credentials and must not contain booking domain logic — same constraint as originally stated, just satisfied by retrofitting the plugin's existing frontend rather than building a new one. See `ARCHITECTURE.md` and ADR-0016.
 
 ## Current status
 

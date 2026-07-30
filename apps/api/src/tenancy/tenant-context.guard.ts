@@ -9,7 +9,12 @@ import {
 import { Reflector } from '@nestjs/core';
 
 import { AuthService } from '../auth/auth.service';
-import { PUBLIC_ROUTE, TENANT_SCOPE, type TenantScopeOptions } from './tenant-context.decorator';
+import {
+  PUBLIC_ROUTE,
+  PUBLIC_TENANT_SCOPE,
+  TENANT_SCOPE,
+  type TenantScopeOptions,
+} from './tenant-context.decorator';
 import { TenantDatabaseService } from './tenant-database.service';
 
 type RequestWithContext = {
@@ -35,6 +40,13 @@ export class TenantContextGuard implements CanActivate {
     ) {
       return true;
     }
+    if (
+      this.reflector.getAllAndOverride<TenantScopeOptions>(PUBLIC_TENANT_SCOPE, [
+        context.getHandler(),
+        context.getClass(),
+      ])
+    )
+      return true;
 
     const request = context.switchToHttp().getRequest<RequestWithContext>();
     const userId = await this.auth.getSessionUserId(

@@ -3,6 +3,8 @@
 Status: Not started
 Depends on: Milestone 6
 
+**Carried forward from Milestone 2 (Task 8, 2026-07-28):** Milestone 2 built a read-only tenant plan-usage API (staff-seat count vs. `max_staff_seats`) but shipped no UI, since the dashboard had no staff-management screen yet. When this milestone's staff-management UI (invite/role-change/remove) is built, surface a disabled "Invite staff" control with an "Upgrade to unlock more" prompt once the plan-usage API reports the seat cap reached — no trial countdown, no real upgrade flow (that's Milestone 8).
+
 ## Goal
 
 The staff-facing `apps/web` Next.js dashboard covers day-to-day hotel operations: reservations, payments, guests, staff, and settings — RBAC-gated per `docs/TENANCY.md`. Done means: a hotel's staff can run their day (see bookings, handle a refund, add a staff member, adjust settings) without touching the database directly.

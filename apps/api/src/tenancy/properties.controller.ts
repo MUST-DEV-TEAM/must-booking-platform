@@ -1,0 +1,19 @@
+import { Body, Controller, Get, Inject, Post, Req } from '@nestjs/common';
+import { TenantScoped } from './tenant-context.decorator';
+import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
+import { PropertiesService } from './properties.service';
+import { Role, Roles } from './roles.decorator';
+@Controller('tenants/:tenantId/properties')
+export class PropertiesController {
+  constructor(@Inject(PropertiesService) private readonly properties: PropertiesService) {}
+  @Get() @TenantScoped() list(@Req() r: { tenantContext: { tenantId: string } }) {
+    return this.properties.list(r.tenantContext.tenantId);
+  }
+  @Post()
+  @TenantScoped()
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresVerifiedEmail()
+  create(@Body() b: unknown, @Req() r: { tenantContext: { tenantId: string; userId: string } }) {
+    return this.properties.create(r.tenantContext.tenantId, r.tenantContext.userId, b);
+  }
+}

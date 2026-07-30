@@ -30,6 +30,8 @@ Shared schema + `tenant_id` + Postgres row-level security (RLS) as the default, 
 
 Sensitive tenant actions are retained in the tenant-scoped audit log with actor, action, target, timestamp, and optional property context. Authentication login/logout events are retained as global audit rows because a user can authenticate before belonging to a tenant; they are not exposed by a tenant's audit-log read path.
 
+Self-serve signup records `tenant.created` for the new organization and `property.created` for its first property in that tenant-scoped log. Both entries identify the new Owner as actor; the property event carries its property context.
+
 ## Non-goals for v1
 
 - Cross-tenant data sharing or marketplace features.

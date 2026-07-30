@@ -29,6 +29,8 @@ const tenantTables = [
   'property_staff_assignments',
   'property_staff_capability_overrides',
   'audit_logs',
+  'guests',
+  'integration_operations',
 ] as const;
 
 async function asRuntimeRole<T>(

@@ -6,6 +6,7 @@ import { Role, Roles } from './roles.decorator';
 import { StaffInviteService, type StaffInvite } from './staff-invite.service';
 import { TenantScoped } from './tenant-context.decorator';
 import { AuthService } from '../auth/auth.service';
+import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 
 @Controller()
 export class StaffInviteController {
@@ -18,6 +19,7 @@ export class StaffInviteController {
   @TenantScoped()
   @Roles(Role.TenantOwner, Role.TenantAdmin)
   @RequiresCapability('staff.invite')
+  @RequiresVerifiedEmail()
   async invite(
     @Body() body: Omit<StaffInvite, 'tenantId'>,
     @Req() request: { tenantContext: { tenantId: string; userId: string } },

@@ -65,6 +65,7 @@ describe('tenant staff administration', () => {
     process.env.DATABASE_URL =
       'postgresql://must_booking_app:must_booking_app_dev@localhost:5432/must_booking';
     process.env.REDIS_URL = 'redis://localhost:6379';
+    process.env.WEB_APP_URL = 'http://localhost:3001';
     const { AppModule } = await import('../src/app.module');
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
@@ -116,6 +117,15 @@ describe('tenant staff administration', () => {
         { userId: ownerId, email: ownerEmail, role: 'OWNER' },
       ]),
     );
+
+    await request(app.getHttpServer())
+      .patch(`/tenants/${tenantId}/memberships/${targetId}`)
+      .set('Cookie', adminCookie)
+      .send({ role: 'ADMIN' })
+      .expect(403);
+    await migrationPrisma.$executeRaw`
+      UPDATE "users" SET "email_verified_at" = CURRENT_TIMESTAMP WHERE "id" = ${adminId}::uuid
+    `;
 
     await request(app.getHttpServer())
       .patch(`/tenants/${tenantId}/memberships/${targetId}`)

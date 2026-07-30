@@ -3,7 +3,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 
 export interface AuditEntry {
-  actorUserId: string;
+  actorUserId: string | null;
   action: string;
   targetType: string;
   targetId: string;
@@ -40,7 +40,7 @@ export class AuditLogService {
   async list(tenantId: string): Promise<
     Array<{
       id: string;
-      actorUserId: string;
+      actorUserId: string | null;
       action: string;
       targetType: string;
       targetId: string;
@@ -55,7 +55,7 @@ export class AuditLogService {
         tx.$queryRaw<
           Array<{
             id: string;
-            actorUserId: string;
+            actorUserId: string | null;
             action: string;
             targetType: string;
             targetId: string;

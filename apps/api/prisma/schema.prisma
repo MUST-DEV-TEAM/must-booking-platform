@@ -19,16 +19,50 @@ enum PropertyRoleTemplateKind {
   CUSTOM
 }
 
+enum BookingStatus {
+  DRAFT
+  QUOTED
+  INVENTORY_REVALIDATING
+  PAYMENT_PENDING
+  PAYMENT_NOT_REQUIRED
+  PMS_CREATION_PENDING
+  PMS_CONFIRMATION_PENDING
+  CONFIRMED
+  AVAILABILITY_FAILED
+  PAYMENT_FAILED
+  PMS_UNKNOWN_RESULT
+  PMS_REJECTED
+  MANUAL_REVIEW
+  CANCELLED
+  EXPIRED
+}
+
 model Organization {
   id           String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name         String             @db.VarChar(200)
+  planId       String             @default("00000000-0000-0000-0000-000000000001") @map("plan_id") @db.Uuid
   createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  plan         Plan               @relation(fields: [planId], references: [id], onDelete: Restrict)
   properties   Property[]
   memberships  TenantMembership[]
   capabilities Capability[]
 
   @@map("organizations")
+}
+
+model Plan {
+  id                           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                         String         @unique @db.VarChar(100)
+  maxProperties                Int            @map("max_properties")
+  maxStaffSeats                Int            @map("max_staff_seats")
+  pmsEnabled                   Boolean        @default(false) @map("pms_enabled")
+  maxPmsConnectionsPerProperty Int            @map("max_pms_connections_per_property")
+  createdAt                    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                    DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  organizations                Organization[]
+
+  @@map("plans")
 }
 
 model User {
@@ -44,15 +78,25 @@ model User {
 }
 
 model Property {
-  id               String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId         String                    @map("tenant_id") @db.Uuid
-  name             String                    @db.VarChar(200)
-  slug             String                    @db.VarChar(100)
-  createdAt        DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  organization     Organization              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  roleTemplates    PropertyRoleTemplate[]
-  staffAssignments PropertyStaffAssignment[]
+  id                String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String                    @map("tenant_id") @db.Uuid
+  name              String                    @db.VarChar(200)
+  slug              String                    @db.VarChar(100)
+  address           String?                   @db.VarChar(500)
+  timezone          String?                   @db.VarChar(100)
+  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  organization      Organization              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  roleTemplates     PropertyRoleTemplate[]
+  staffAssignments  PropertyStaffAssignment[]
+  roomTypes         RoomType[]
+  rooms             Room[]
+  inventoryUnits    InventoryUnit[]
+  ratePlans         RatePlan[]
+  rateRules         RateRule[]
+  bookings          Booking[]
+  amenities         Amenity[]
+  roomTypeAmenities RoomTypeAmenity[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, slug])
@@ -161,7 +205,7 @@ model AuditLog {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId    String?  @map("tenant_id") @db.Uuid
   propertyId  String?  @map("property_id") @db.Uuid
-  actorUserId String   @map("actor_user_id") @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
   action      String   @db.VarChar(100)
   targetType  String   @map("target_type") @db.VarChar(100)
   targetId    String   @map("target_id") @db.VarChar(320)
@@ -171,4 +215,194 @@ model AuditLog {
   @@index([tenantId, createdAt])
   @@index([actorUserId, createdAt])
   @@map("audit_logs")
+}
+
+model RoomType {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String            @map("tenant_id") @db.Uuid
+  propertyId     String            @map("property_id") @db.Uuid
+  name           String            @db.VarChar(200)
+  description    String?
+  maxOccupancy   Int               @map("max_occupancy")
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property       Property          @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  rooms          Room[]
+  rateRules      RateRule[]
+  amenities      RoomTypeAmenity[]
+  inventoryUnits InventoryUnit[]
+  bookings       Booking[]
+
+  @@unique([tenantId, propertyId, id])
+  @@unique([tenantId, propertyId, name])
+  @@index([tenantId, propertyId])
+  @@map("room_types")
+}
+
+model Room {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  roomTypeId String   @map("room_type_id") @db.Uuid
+  name       String   @db.VarChar(200)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property   Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  roomType   RoomType @relation(fields: [tenantId, propertyId, roomTypeId], references: [tenantId, propertyId, id], onDelete: Restrict)
+
+  @@unique([tenantId, propertyId, id])
+  @@unique([tenantId, propertyId, name])
+  @@index([tenantId, propertyId, roomTypeId])
+  @@map("rooms")
+}
+
+model InventoryUnit {
+  tenantId       String   @map("tenant_id") @db.Uuid
+  propertyId     String   @map("property_id") @db.Uuid
+  roomTypeId     String   @map("room_type_id") @db.Uuid
+  staysOn        DateTime @map("stays_on") @db.Date
+  availableUnits Int      @map("available_units")
+  bookedUnits    Int      @default(0) @map("booked_units")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property       Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  roomType       RoomType @relation(fields: [tenantId, propertyId, roomTypeId], references: [tenantId, propertyId, id], onDelete: Restrict)
+
+  @@id([tenantId, propertyId, roomTypeId, staysOn])
+  @@index([tenantId, propertyId, roomTypeId, staysOn])
+  @@map("inventory_units")
+}
+
+model RatePlan {
+  id                         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                   String     @map("tenant_id") @db.Uuid
+  propertyId                 String     @map("property_id") @db.Uuid
+  name                       String     @db.VarChar(200)
+  currency                   String     @db.Char(3)
+  isActive                   Boolean    @default(true) @map("is_active")
+  freeCancellationUntilHours Int?       @map("free_cancellation_until_hours")
+  createdAt                  DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property                   Property   @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  rules                      RateRule[]
+  bookings                   Booking[]
+
+  @@unique([tenantId, propertyId, id])
+  @@unique([tenantId, propertyId, name])
+  @@index([tenantId, propertyId])
+  @@map("rate_plans")
+}
+
+model RateRule {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  propertyId String    @map("property_id") @db.Uuid
+  ratePlanId String    @map("rate_plan_id") @db.Uuid
+  roomTypeId String    @map("room_type_id") @db.Uuid
+  startsOn   DateTime? @map("starts_on") @db.Date
+  endsOn     DateTime? @map("ends_on") @db.Date
+  weekdays   Int[]     @default([0, 1, 2, 3, 4, 5, 6])
+  amount     Decimal   @db.Decimal(12, 2)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property   Property  @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  ratePlan   RatePlan  @relation(fields: [tenantId, propertyId, ratePlanId], references: [tenantId, propertyId, id], onDelete: Restrict)
+  roomType   RoomType  @relation(fields: [tenantId, propertyId, roomTypeId], references: [tenantId, propertyId, id], onDelete: Restrict)
+
+  @@unique([tenantId, propertyId, id])
+  @@index([tenantId, propertyId, ratePlanId])
+  @@index([tenantId, propertyId, roomTypeId, startsOn, endsOn])
+  @@map("rate_rules")
+}
+
+model Booking {
+  id                         String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                   String        @map("tenant_id") @db.Uuid
+  propertyId                 String        @map("property_id") @db.Uuid
+  roomTypeId                 String        @map("room_type_id") @db.Uuid
+  guestId                    String?       @map("guest_id") @db.Uuid
+  externalReference          String        @map("external_reference") @db.VarChar(200)
+  status                     BookingStatus @default(DRAFT)
+  startsOn                   DateTime      @map("starts_on") @db.Date
+  endsOn                     DateTime      @map("ends_on") @db.Date
+  ratePlanId                 String        @map("rate_plan_id") @db.Uuid
+  totalAmount                Decimal       @map("total_amount") @db.Decimal(12, 2)
+  version                    Int           @default(1)
+  cancellationIsFree         Boolean?      @map("cancellation_is_free")
+  cancellationFreeUntilHours Int?          @map("cancellation_free_until_hours")
+  cancellationCutoffAt       DateTime?     @map("cancellation_cutoff_at") @db.Timestamptz(6)
+  createdAt                  DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property                   Property      @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  roomType                   RoomType      @relation(fields: [tenantId, propertyId, roomTypeId], references: [tenantId, propertyId, id], onDelete: Restrict)
+  ratePlan                   RatePlan      @relation(fields: [tenantId, propertyId, ratePlanId], references: [tenantId, propertyId, id], onDelete: Restrict)
+
+  @@unique([tenantId, propertyId, id])
+  @@unique([tenantId, propertyId, externalReference])
+  @@index([tenantId, propertyId, status])
+  @@index([tenantId, propertyId, roomTypeId, startsOn, endsOn])
+  @@index([tenantId, propertyId, guestId])
+  @@map("bookings")
+}
+
+model Guest {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  email     String   @db.VarChar(320)
+  phone     String?  @db.VarChar(50)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, createdAt])
+  @@map("guests")
+}
+
+model IntegrationOperation {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  propertyId        String   @map("property_id") @db.Uuid
+  idempotencyKey    String   @map("idempotency_key") @db.VarChar(320)
+  aggregateId       String?  @map("aggregate_id") @db.Uuid
+  externalReference String?  @map("external_reference") @db.VarChar(320)
+  requestHash       String   @map("request_hash") @db.VarChar(64)
+  status            String   @db.VarChar(32)
+  attempts          Int      @default(1)
+  externalEntityId  String?  @map("external_entity_id") @db.Uuid
+  result            Json?
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, propertyId, createdAt])
+  @@map("integration_operations")
+}
+
+model Amenity {
+  id         String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String            @map("tenant_id") @db.Uuid
+  propertyId String            @map("property_id") @db.Uuid
+  name       String            @db.VarChar(100)
+  createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property   Property          @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  roomTypes  RoomTypeAmenity[]
+
+  @@unique([tenantId, propertyId, id])
+  @@unique([tenantId, propertyId, name])
+  @@index([tenantId, propertyId])
+  @@map("amenities")
+}
+
+model RoomTypeAmenity {
+  tenantId   String   @map("tenant_id") @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  roomTypeId String   @map("room_type_id") @db.Uuid
+  amenityId  String   @map("amenity_id") @db.Uuid
+  property   Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  roomType   RoomType @relation(fields: [tenantId, propertyId, roomTypeId], references: [tenantId, propertyId, id], onDelete: Restrict)
+  amenity    Amenity  @relation(fields: [tenantId, propertyId, amenityId], references: [tenantId, propertyId, id], onDelete: Restrict)
+
+  @@id([tenantId, propertyId, roomTypeId, amenityId])
+  @@map("room_type_amenities")
 }
