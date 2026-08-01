@@ -72,9 +72,12 @@ services:
       - '4011:3001'
     networks:
       - internal
+      - proxy
 
 networks:
   internal:
+  proxy:
+    external: true
 
 volumes:
   postgres-data:
