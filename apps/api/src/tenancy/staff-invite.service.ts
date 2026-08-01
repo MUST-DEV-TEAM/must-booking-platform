@@ -110,6 +110,7 @@ export class StaffInviteService implements OnModuleDestroy {
     invite: StaffInvite,
     userId: string,
   ): Promise<void> {
+    await this.ensureTenantMembershipAllowed(tx, userId);
     await tx.$executeRaw`
       INSERT INTO "tenant_memberships" ("tenant_id", "user_id", "role") VALUES (${invite.tenantId}::uuid, ${userId}::uuid, 'STAFF')
       ON CONFLICT ("tenant_id", "user_id") DO NOTHING
@@ -135,6 +136,18 @@ export class StaffInviteService implements OnModuleDestroy {
       targetId: userId,
       details: { propertyIds: invite.assignments.map((assignment) => assignment.propertyId) },
     });
+  }
+
+  private async ensureTenantMembershipAllowed(
+    tx: TenantTransaction,
+    userId: string,
+  ): Promise<void> {
+    const rows = await tx.$queryRaw<Array<{ isPlatformAdmin: boolean }>>`
+      SELECT "auth_is_platform_admin"(${userId}::uuid) AS "isPlatformAdmin"
+    `;
+    if (rows[0]?.isPlatformAdmin === true) {
+      throw new BadRequestException('Platform admin accounts cannot join a tenant.');
+    }
   }
 
   private isUniqueEmailViolation(error: unknown): boolean {

@@ -31,6 +31,9 @@ describe('local availability', () => {
       verificationToken = new URL(command.verificationUrl).searchParams.get('token')!;
     },
     async sendWelcomeEmail() {},
+    async sendPasswordResetEmail() {},
+    async sendPaymentConfirmationEmail() {},
+    async sendRefundConfirmationEmail() {},
   };
 
   beforeAll(async () => {
@@ -107,6 +110,21 @@ describe('local availability', () => {
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn: '2026-08-01', endsOn: '2026-08-04', availableUnits: 2 })
       .expect(204);
+
+    const publicAvailability = await request(app!.getHttpServer())
+      .get(`${propertyUrl}/public/availability`)
+      .query({ roomTypeId, startsOn: '2026-08-01', endsOn: '2026-08-02' })
+      .expect(200);
+    expect(publicAvailability.body).toMatchObject({
+      roomTypeId,
+      startsOn: '2026-08-01',
+      endsOn: '2026-08-02',
+      isAvailable: true,
+      availableUnits: 2,
+    });
+    expect(publicAvailability.headers['set-cookie']).toEqual(
+      expect.arrayContaining([expect.stringContaining('must_guest_session=')]),
+    );
 
     const singleNightAvailable = await request(app!.getHttpServer())
       .get(`${propertyUrl}/availability`)

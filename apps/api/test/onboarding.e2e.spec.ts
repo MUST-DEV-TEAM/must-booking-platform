@@ -42,6 +42,9 @@ describe('self-serve onboarding', () => {
     async sendWelcomeEmail(command) {
       sentEmails.push({ kind: 'welcome', command });
     },
+    async sendPasswordResetEmail() {},
+    async sendPaymentConfirmationEmail() {},
+    async sendRefundConfirmationEmail() {},
   };
 
   beforeAll(async () => {
@@ -104,7 +107,9 @@ describe('self-serve onboarding', () => {
           .set('Cookie', ownerCookie)
           .expect(200)
       ).body,
-    ).toEqual({ user: { id: ownerId, email: ownerEmail, emailVerified: false } });
+    ).toEqual({
+      user: { id: ownerId, email: ownerEmail, emailVerified: false, isPlatformAdmin: false },
+    });
     await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/staff-invitations`)
       .set('Cookie', ownerCookie)
@@ -132,7 +137,9 @@ describe('self-serve onboarding', () => {
           .set('Cookie', ownerCookie)
           .expect(200)
       ).body,
-    ).toEqual({ user: { id: ownerId, email: ownerEmail, emailVerified: true } });
+    ).toEqual({
+      user: { id: ownerId, email: ownerEmail, emailVerified: true, isPlatformAdmin: false },
+    });
 
     await templates.ensureBuiltInTemplates(tenantId, propertyId);
     const template = await migrationPrisma.$queryRaw<Array<{ id: string }>>`

@@ -1,5 +1,13 @@
 import type { Metadata } from 'next';
+import { Manrope } from 'next/font/google';
 import type { ReactNode } from 'react';
+
+import '@must/ui/styles.css';
+
+const manrope = Manrope({
+  display: 'swap',
+  subsets: ['latin'],
+});
 
 export const metadata: Metadata = {
   title: 'MUST Booking',
@@ -9,7 +17,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className={manrope.className}>{children}</body>
     </html>
   );
 }

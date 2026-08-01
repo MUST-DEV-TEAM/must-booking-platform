@@ -23,13 +23,13 @@ A working monorepo skeleton with no business logic yet: apps build, lint, and te
 6. Database migration tooling wired up (choose and configure a migration tool compatible with NestJS/TypeORM or Prisma — decide as part of this task, not a separate ADR).
 7. CI pipeline (GitHub Actions): install, build, lint, test on every PR for all apps/packages.
 8. Environment/config management (`.env` handling, config validation on boot, secrets never committed — `.env.example` only).
-9. Base logging setup (structured logs) wired into `apps/api`, ready for later observability work (Milestone 10).
+9. Base logging setup (structured logs) wired into `apps/api`, ready for later observability work (Milestone 11).
 10. `CONTRIBUTING.md` or equivalent short doc: how to run the repo locally, run tests, and open a PR — so Codex/any contributor has one canonical setup reference.
 
 ## Explicitly not included
 
 - Any tenant, auth, or booking domain logic (Milestone 1+).
-- Deployed staging/production environment (Milestone 10 at the earliest).
+- Deployed staging/production environment (Milestone 11 at the earliest).
 
 ## Tasks
 

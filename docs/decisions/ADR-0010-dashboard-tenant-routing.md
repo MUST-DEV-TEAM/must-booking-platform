@@ -23,7 +23,7 @@ Accepted by the owner on 2026-07-28.
 - Every tenant-scoped dashboard page under `apps/web` is namespaced by `tenantId` in its route, mirroring the API's path convention.
 - `/dashboard` (no tenant ID) is a tenant picker: it lists the caller's tenant memberships (from a session/membership-list endpoint) and links into `/dashboard/:tenantId/...` for each.
 - No "current tenant" server-side state is introduced — multiple browser tabs can safely operate on different tenants simultaneously without desyncing each other.
-- Every dashboard page/component built from Milestone 3 onward (including Milestone 7's admin dashboard) must read `tenantId` from the route, not assume a single implicit tenant.
+- Every dashboard page/component built from Milestone 3 onward (including Milestone 8's admin dashboard) must read `tenantId` from the route, not assume a single implicit tenant.
 - `/auth/session` does not need a "current tenant" field for this purpose; it may still need a memberships list for the picker page, decided at whichever milestone builds that page in full (Milestone 3 needs at least enough to build the picker for its own add-property UI).
 
 ## Alternatives considered

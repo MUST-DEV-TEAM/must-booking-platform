@@ -1,0 +1,165 @@
+{
+    "gateways": {
+        "pokpay": {
+            "success": true,
+            "gateway": "pokpay",
+            "reservation_id": 134,
+            "booking_id": "MHB-20260614-574A7198",
+            "clock_booking_id": "36600654",
+            "clock_reservation_id": "36600654",
+            "amount": 150,
+            "currency": "EUR",
+            "checkin": "2026-07-19",
+            "checkout": "2026-07-20",
+            "room_id": 45,
+            "assigned_room_id": 143,
+            "rate_plan_id": 6,
+            "guest_form": {
+                "first_name": "MHB",
+                "last_name": "E2E POKPAY",
+                "email": "mhb-e2e-20260614-full-pokpay@example.test",
+                "phone_country_code": "+355",
+                "phone_number": "690000000",
+                "phone": "+355690000000",
+                "country": "AL",
+                "special_requests": "MHB-E2E-20260614-FULL disposable sandbox record for pokpay",
+                "marketing_opt_in": "",
+                "room_guest_count": {
+                    "143": "1"
+                },
+                "room_guest_first_name": {
+                    "143": "MHB"
+                },
+                "room_guest_last_name": {
+                    "143": "E2E"
+                }
+            },
+            "checkout_url": "https://pay-staging.pokpay.io/sdk-orders/74e983b5-8464-45bf-99f6-cf8b03740604",
+            "provider_session_id": "74e983b5-8464-45bf-99f6-cf8b03740604",
+            "checkout_mode": "sdk_confirm_url_redirect",
+            "created_at_utc": "2026-06-14T12:19:41+00:00",
+            "pokpay_order": {
+                "status": "REFUNDED"
+            },
+            "payment_id": 63,
+            "provider_payment_reference": "8d6a421a-0691-4191-a493-87991e6efe1b",
+            "duplicate_pokpay_webhook_status": 200,
+            "cancelled": true,
+            "clock_cancel_result": "success",
+            "refund_id": 13,
+            "provider_refund_id": "8d6a421a-0691-4191-a493-87991e6efe1b"
+        },
+        "stripe": {
+            "success": true,
+            "gateway": "stripe",
+            "reservation_id": 135,
+            "booking_id": "MHB-20260614-D7979E7C",
+            "clock_booking_id": "36600950",
+            "clock_reservation_id": "36600950",
+            "amount": 150,
+            "currency": "EUR",
+            "checkin": "2026-07-19",
+            "checkout": "2026-07-20",
+            "room_id": 45,
+            "assigned_room_id": 143,
+            "rate_plan_id": 6,
+            "guest_form": {
+                "first_name": "MHB",
+                "last_name": "E2E STRIPE",
+                "email": "mhb-e2e-20260614-full-stripe@example.test",
+                "phone_country_code": "+355",
+                "phone_number": "690000000",
+                "phone": "+355690000000",
+                "country": "AL",
+                "special_requests": "MHB-E2E-20260614-FULL disposable sandbox record for stripe",
+                "marketing_opt_in": "",
+                "room_guest_count": {
+                    "143": "1"
+                },
+                "room_guest_first_name": {
+                    "143": "MHB"
+                },
+                "room_guest_last_name": {
+                    "143": "E2E"
+                }
+            },
+            "checkout_url": "https://checkout.stripe.com/c/pay/cs_test_a1LMNGhUF0qZjOgJUx7vIiiHTyezoMUVBu706Z9NO3xTdmip6XWmdsqpAt#fidnandhYHdWcXxpYCc%2FJ2FgY2RwaXEnKSdicGRmZGhqaWBTZHdsZGtxJz8nZmprcXdqaScpJ2R1bE5gfCc%2FJ3VuWnFgdnFaMDRRRFBLbUdDQ2lDR3c1TkwyYXNyVkByZ1V%2FQVZjYk9JY0FjcWNkQ2tmf0J8QkI9PDdCVDBdTW5gNj1ublZLYFU3bWlqMHZtdkhxR0tpa2RHSH0yN2IwQF01NUNCYzNVc2NNJyknY3dqaFZgd3Ngdyc%2FcXdwYCknZ2RmbmJ3anBrYUZqaWp3Jz8nJmNjY2NjYycpJ2lkfGpwcVF8dWAnPyd2bGtiaWBabHFgaCcpJ2BrZGdpYFVpZGZgbWppYWB3dic%2FcXdwYHgl",
+            "provider_session_id": "cs_test_a1LMNGhUF0qZjOgJUx7vIiiHTyezoMUVBu706Z9NO3xTdmip6XWmdsqpAt",
+            "checkout_mode": "",
+            "created_at_utc": "2026-06-14T12:43:43+00:00",
+            "stripe_session": {
+                "id": "cs_test_a1LMNGhUF0qZjOgJUx7vIiiHTyezoMUVBu706Z9NO3xTdmip6XWmdsqpAt",
+                "payment_status": "paid",
+                "status": "complete",
+                "payment_intent": "pi_3TiDQfBFFlFBr0KI03wxcnDr"
+            },
+            "payment_id": 65,
+            "provider_payment_reference": "pi_3TiDQfBFFlFBr0KI03wxcnDr",
+            "payment_intent": "pi_3TiDQfBFFlFBr0KI03wxcnDr",
+            "duplicate_checkout_replay_status": 200,
+            "cancelled": true,
+            "clock_cancel_result": "success",
+            "refund_id": 15,
+            "provider_refund_id": "re_3TiDQfBFFlFBr0KI0c4steub",
+            "duplicate_refund_replay_status": 200
+        }
+    },
+    "correlation_id": "MHB-E2E-20260614-FULL",
+    "updated_at_utc": "2026-06-14T12:48:22+00:00",
+    "archived_gateways": {
+        "stripe_contaminated_duplicate_replay_20260614124229": {
+            "success": true,
+            "gateway": "stripe",
+            "reservation_id": 133,
+            "booking_id": "MHB-20260614-4417F113",
+            "clock_booking_id": "36600645",
+            "clock_reservation_id": "36600645",
+            "amount": 150,
+            "currency": "EUR",
+            "checkin": "2026-07-19",
+            "checkout": "2026-07-20",
+            "room_id": 45,
+            "assigned_room_id": 144,
+            "rate_plan_id": 6,
+            "guest_form": {
+                "first_name": "MHB",
+                "last_name": "E2E STRIPE",
+                "email": "mhb-e2e-20260614-full-stripe@example.test",
+                "phone_country_code": "+355",
+                "phone_number": "690000000",
+                "phone": "+355690000000",
+                "country": "AL",
+                "special_requests": "MHB-E2E-20260614-FULL disposable sandbox record for stripe",
+                "marketing_opt_in": "",
+                "room_guest_count": {
+                    "144": "1"
+                },
+                "room_guest_first_name": {
+                    "144": "MHB"
+                },
+                "room_guest_last_name": {
+                    "144": "E2E"
+                }
+            },
+            "checkout_url": "https://checkout.stripe.com/c/pay/cs_test_a1UazVlBkgjyUKPGep4FIhCRQyoEqsO0h4sOrH8OC5FR0qjiRo3yXXbnOI#fidnandhYHdWcXxpYCc%2FJ2FgY2RwaXEnKSdicGRmZGhqaWBTZHdsZGtxJz8nZmprcXdqaScpJ2R1bE5gfCc%2FJ3VuWnFgdnFaMDRRRFBLbUdDQ2lDR3c1TkwyYXNyVkByZ1V%2FQVZjYk9JY0FjcWNkQ2tmf0J8QkI9PDdCVDBdTW5gNj1ublZLYFU3bWlqMHZtdkhxR0tpa2RHSH0yN2IwQF01NUNCYzNVc2NNJyknY3dqaFZgd3Ngdyc%2FcXdwYCknZ2RmbmJ3anBrYUZqaWp3Jz8nJmNjY2NjYycpJ2lkfGpwcVF8dWAnPyd2bGtiaWBabHFgaCcpJ2BrZGdpYFVpZGZgbWppYWB3dic%2FcXdwYHgl",
+            "provider_session_id": "cs_test_a1UazVlBkgjyUKPGep4FIhCRQyoEqsO0h4sOrH8OC5FR0qjiRo3yXXbnOI",
+            "checkout_mode": "",
+            "created_at_utc": "2026-06-14T12:18:54+00:00",
+            "stripe_session": {
+                "id": "cs_test_a1UazVlBkgjyUKPGep4FIhCRQyoEqsO0h4sOrH8OC5FR0qjiRo3yXXbnOI",
+                "payment_status": "paid",
+                "status": "complete",
+                "payment_intent": "pi_3TiDDHBFFlFBr0KI0AdPd7Mf"
+            },
+            "payment_id": 62,
+            "provider_payment_reference": "re_3TiDDHBFFlFBr0KI0LGKwdID",
+            "payment_intent": "pi_3TiDDHBFFlFBr0KI0AdPd7Mf",
+            "duplicate_checkout_replay_status": 200,
+            "cancelled": true,
+            "clock_cancel_result": "success",
+            "refund_id": 11,
+            "provider_refund_id": "re_3TiDDHBFFlFBr0KI0LGKwdID",
+            "duplicate_refund_replay_status": 200
+        }
+    }
+}

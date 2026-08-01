@@ -1,0 +1,7 @@
+.claude/
+.playwright-cli/
+.worktrees/
+must-hotel-booking-*.zip
+tools/backups/
+tmp/
+tmp/vendor-docs/clock/

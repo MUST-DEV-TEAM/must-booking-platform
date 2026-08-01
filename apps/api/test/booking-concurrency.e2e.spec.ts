@@ -8,6 +8,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { LocalPmsProvider } from '../src/booking/local-pms.provider';
 import { QuoteService } from '../src/booking/quote.service';
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
+import { PAYMENT_PROVIDER } from '../src/payments/payment.provider';
+import type { PaymentProvider } from '@must/domain-contracts';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 
 const admin = new PrismaClient({
@@ -30,6 +32,29 @@ describe('LocalPmsProvider concurrent booking creation', () => {
       verificationToken = new URL(command.verificationUrl).searchParams.get('token')!;
     },
     async sendWelcomeEmail() {},
+    async sendPasswordResetEmail() {},
+    async sendPaymentConfirmationEmail() {},
+    async sendRefundConfirmationEmail() {},
+  };
+  const payments: PaymentProvider = {
+    async createCheckoutSession(_context, command) {
+      return {
+        ok: true,
+        value: {
+          id: `cs_test_${command.bookingId}`,
+          url: `https://checkout.stripe.test/${command.bookingId}`,
+        },
+      };
+    },
+    async verifyWebhookEvent() {
+      return { ok: false, error: { code: 'NOT_IMPLEMENTED', message: '', retryable: false } };
+    },
+    async refund() {
+      return { ok: false, error: { code: 'NOT_IMPLEMENTED', message: '', retryable: false } };
+    },
+    async getPayment() {
+      return null;
+    },
   };
 
   beforeAll(async () => {
@@ -43,6 +68,8 @@ describe('LocalPmsProvider concurrent booking creation', () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(MAIL_PROVIDER)
       .useValue(mail)
+      .overrideProvider(PAYMENT_PROVIDER)
+      .useValue(payments)
       .compile();
     app = moduleRef.createNestApplication();
     await app.init();
@@ -89,6 +116,11 @@ describe('LocalPmsProvider concurrent booking creation', () => {
       .post('/auth/email-verification/confirm')
       .send({ token: verificationToken })
       .expect(204);
+    await request(app!.getHttpServer())
+      .patch(`${propertyUrl}/payment-gateways`)
+      .set('Cookie', cookie)
+      .send({ stripe: true, pokpay: false, payAtHotel: false })
+      .expect(200);
     const roomType = await request(app!.getHttpServer())
       .post(`${propertyUrl}/room-types`)
       .set('Cookie', cookie)
@@ -151,6 +183,7 @@ describe('LocalPmsProvider concurrent booking creation', () => {
         total: firstQuote.total,
         quoteToken: firstQuote.quoteToken,
         quoteSessionId: firstSessionId,
+        paymentMethod: 'stripe',
       }),
       provider.createBooking(context, {
         idempotencyKey: randomUUID(),
@@ -168,12 +201,13 @@ describe('LocalPmsProvider concurrent booking creation', () => {
         total: secondQuote.total,
         quoteToken: secondQuote.quoteToken,
         quoteSessionId: secondSessionId,
+        paymentMethod: 'stripe',
       }),
     ]);
 
     expect(
       results.map((result) => (result.ok ? result.value.status : result.error.code)).sort(),
-    ).toEqual(['AVAILABILITY_FAILED', 'CONFIRMED']);
+    ).toEqual(['AVAILABILITY_FAILED', 'PAYMENT_PENDING']);
     const inventory = await admin.$queryRaw<Array<{ availableUnits: number; bookedUnits: number }>>`
       SELECT available_units AS "availableUnits", booked_units AS "bookedUnits"
       FROM inventory_units

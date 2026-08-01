@@ -1,0 +1,312 @@
+.must-hotel-booking-widget-booking-search {
+    width: 100% !important;
+    max-width: 100%;
+    display: block !important;
+    flex: 1 1 100%;
+    box-sizing: border-box;
+}
+
+.elementor-widget-must_hotel_booking_booking_search,
+.elementor-widget-must_hotel_booking_booking_search .elementor-widget-container,
+.elementor-widget-must-hotel-booking-booking-search,
+.elementor-widget-must-hotel-booking-booking-search .elementor-widget-container,
+[class*='elementor-widget-must_hotel_booking_booking_search'],
+[class*='elementor-widget-must_hotel_booking_booking_search'] .elementor-widget-container,
+[class*='elementor-widget-must-hotel-booking-booking-search'],
+[class*='elementor-widget-must-hotel-booking-booking-search'] .elementor-widget-container {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.must-hotel-booking-widget-booking-search .screen-reader-text {
+    position: absolute !important;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.must-hotel-booking-widget-booking-search .must-hotel-booking-wbe-inline-warning {
+    padding: 18px 20px;
+    border: 1px solid #f2c078;
+    background: #fff4e5;
+    color: #141414;
+}
+
+.must-hotel-booking-widget-booking-search .must-hotel-booking-wbe-inline-warning p {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+.must-hotel-booking-widget-booking-search .must-hotel-booking-wbe-inline-warning a {
+    color: inherit;
+    font-weight: 600;
+}
+
+.must-hotel-booking-widget-booking-search .must-hotel-booking-booking-search {
+    display: flex !important;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: clamp(18px, 4vw, 60px);
+    width: 100% !important;
+    padding: 75px 60px;
+    background: #141414;
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
+    margin: 0;
+    font-family: inherit;
+}
+
+.must-hotel-booking-widget-booking-search .must-hotel-booking-booking-search-fields {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 15px;
+}
+
+.must-hotel-booking-widget-booking-search .must-hotel-booking-field {
+    position: relative;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    width: 228px;
+    max-width: 228px;
+    flex: 0 1 228px;
+    min-width: 0;
+    height: 50px;
+    padding: 10px 20px;
+    border: 1px solid #F5F3EC;
+    box-sizing: border-box;
+}
+
+.must-hotel-booking-widget-booking-search .must-hotel-booking-field-checkout {
+    width: 245px;
+    max-width: 245px;
+    flex-basis: 245px;
+}
+
+.must-hotel-booking-widget-booking-search .must-hotel-booking-field-guests {
+    width: 244px;
+    max-width: 244px;
+    flex-basis: 244px;
+}
+
+.must-hotel-booking-widget-booking-search .must-hotel-booking-field input {
+    width: 100%;
+    min-width: 0;
+    height: 30px;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: #F5F3EC;
+    font-family: inherit;
+    font-style: normal;
+    font-weight: 500;
+    font-size: 20px;
+    line-height: 1.2;
+    letter-spacing: -0.011em;
+    padding: 0;
+    margin: 0;
+    box-shadow: none;
+}
+
+.must-hotel-booking-widget-booking-search .must-hotel-booking-field input::placeholder {
+    color: #F5F3EC;
+    opacity: 1;
+}
+
+
+.must-hotel-booking-widget-booking-search .must-hotel-booking-field input[type='number']::-webkit-outer-spin-button,
+.must-hotel-booking-widget-booking-search .must-hotel-booking-field input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.must-hotel-booking-widget-booking-search .must-hotel-booking-field-icon {
+    width: 17px;
+    height: 17px;
+    min-width: 17px;
+    object-fit: contain;
+}
+
+.must-hotel-booking-widget-booking-search .must-hotel-booking-submit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+
+.must-hotel-booking-widget-booking-search .must-hotel-booking-submit button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    border: 0;
+    border-bottom: 1.5px solid #F5F3EC;
+    background: transparent;
+    color: #F5F3EC;
+    padding: 0 0 2px;
+    margin: 0;
+    cursor: pointer;
+    font-family: inherit;
+    transition: opacity 0.2s ease;
+    border-radius: 0px;
+}
+
+.must-hotel-booking-widget-booking-search .must-hotel-booking-submit button:hover {
+    opacity: 0.82;
+    border-bottom-color: none;
+}
+
+.must-hotel-booking-widget-booking-search .must-hotel-booking-submit button:focus-visible,
+.must-hotel-booking-widget-booking-search .must-hotel-booking-field input:focus-visible {
+    outline: none;
+    outline-offset: none;
+}
+
+.must-hotel-booking-widget-booking-search .must-hotel-booking-submit-text {
+    font-style: normal;
+    font-weight: 400;
+    font-size: 28px;
+    line-height: 1.2;
+    letter-spacing: -0.011em;
+    color: inherit;
+}
+
+.must-hotel-booking-widget-booking-search .must-hotel-booking-submit-icon {
+    width: 26px;
+    height: 26px;
+    object-fit: contain;
+}
+
+.must-hotel-booking-widget-booking-search .flatpickr-calendar {
+    font-family: inherit;
+    z-index: 99999;
+    max-width: min(320px, calc(100vw - 16px));
+}
+
+@media (max-width: 1366px) {
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-booking-search {
+        gap: 16px;
+    }
+
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-field {
+        width: 210px;
+        max-width: 210px;
+        flex-basis: 210px;
+        height: 52px;
+    }
+
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-field-checkout {
+        width: 220px;
+        max-width: 220px;
+        flex-basis: 220px;
+    }
+
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-field-guests {
+        width: 210px;
+        max-width: 210px;
+        flex-basis: 210px;
+    }
+}
+
+@media (max-width: 1200px) {
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-booking-search {
+        display: grid !important;
+        grid-template-columns: 1fr;
+        align-items: stretch;
+        gap: 25px;
+        padding: 26px 24px;
+    }
+
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-booking-search-fields {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        flex: none;
+    }
+
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-field,
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-field-checkout,
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-field-guests {
+        width: 100%;
+        max-width: 100%;
+        flex: none;
+        height: 52px;
+    }
+
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-field-guests {
+        grid-column: 1 / -1;
+    }
+
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-submit {
+        width: 100%;
+        justify-content: flex-start;
+        align-self: stretch;
+    }
+}
+
+@media (max-width: 767px) {
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-booking-search {
+        padding: 18px 14px;
+    }
+
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-booking-search-fields {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-field,
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-field-checkout,
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-field-guests {
+        width: 100%;
+        height: 50px;
+        padding-left: 12px;
+        padding-right: 12px;
+        gap: 10px;
+    }
+
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-submit {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-submit button {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-submit-text {
+        font-size: clamp(22px, 6.2vw, 24px);
+    }
+}
+
+@media (max-width: 480px) {
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-field input {
+        font-size: 15px;
+    }
+
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-submit-text {
+        font-size: 20px;
+    }
+
+    .must-hotel-booking-widget-booking-search .must-hotel-booking-submit-icon {
+        width: 22px;
+        height: 22px;
+    }
+}

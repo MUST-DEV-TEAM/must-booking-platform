@@ -1,0 +1,267 @@
+.support {
+  align-items: center;
+  align-self: stretch;
+  display: flex;
+  flex: 0 0 1.5rem;
+  font-size: 0.625rem;
+  gap: 0.3125rem;
+  justify-content: flex-end;
+  line-height: 1.2;
+}
+
+.supportLabel,
+.noticeDescription,
+.userMeta {
+  color: var(--must-color-text-secondary);
+}
+
+.supportLink,
+.secondaryLink {
+  color: var(--must-color-ink);
+  font-size: 0.625rem;
+  font-weight: 650;
+  line-height: 1.2;
+  text-decoration: none;
+}
+
+.supportLink:hover,
+.secondaryLink:hover {
+  color: var(--must-color-ink-hover);
+}
+
+.badge {
+  align-items: center;
+  align-self: flex-start;
+  border-radius: var(--must-radius-control);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0.5625rem;
+  font-weight: 650;
+  gap: 0.4375rem;
+  height: 1.75rem;
+  letter-spacing: 0.01em;
+  margin-top: 1.625rem;
+  padding: 0 0.5625rem;
+}
+
+.warningBadge {
+  background: var(--must-color-warning-surface);
+  border: 1px solid var(--must-color-warning);
+  color: var(--must-color-warning);
+}
+
+.successBadge {
+  background: var(--must-color-success-surface);
+  border: 1px solid var(--must-color-border-strong);
+  color: var(--must-color-success);
+}
+
+.badgeIcon {
+  height: 0.75rem;
+  width: 0.75rem;
+}
+
+.formTitle {
+  font-size: 2rem;
+  font-weight: 600;
+  line-height: 1.2;
+  margin: 1.375rem 0 0.625rem;
+}
+
+.formDescription {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  margin: 0;
+  max-width: 34rem;
+}
+
+.notice,
+.userCard {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  max-width: 42rem;
+  padding: 1rem;
+}
+
+.notice {
+  margin-top: 1.875rem;
+}
+
+.warningNotice {
+  background: var(--must-color-warning-surface);
+  border-color: var(--must-color-warning);
+}
+
+.successNotice {
+  background: var(--must-color-success-surface);
+  border-color: var(--must-color-border-strong);
+}
+
+.noticeIcon,
+.userAvatar {
+  align-items: center;
+  border-radius: var(--must-radius-control);
+  display: inline-flex;
+  flex: 0 0 2.25rem;
+  height: 2.25rem;
+  justify-content: center;
+  width: 2.25rem;
+}
+
+.warningNotice .noticeIcon {
+  background: var(--must-color-warning-surface);
+}
+
+.successNotice .noticeIcon {
+  background: var(--must-color-surface);
+}
+
+.noticeCopy,
+.userCopy {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.noticeTitle,
+.userName {
+  color: var(--must-color-text-primary);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  line-height: 0.9375rem;
+}
+
+.warningNotice .noticeTitle {
+  color: var(--must-color-warning);
+}
+
+.noticeDescription,
+.userMeta {
+  font-size: 0.625rem;
+  line-height: 0.875rem;
+}
+
+.userCard {
+  border-radius: var(--must-radius-card);
+  margin-top: 1.875rem;
+}
+
+.userAvatar {
+  background: var(--must-color-surface-selected);
+  color: var(--must-color-ink);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  max-width: 42rem;
+}
+
+.actionButton {
+  min-height: 3rem;
+}
+
+.primaryAction {
+  flex: 1 1 14rem;
+}
+
+.secondaryAction {
+  flex: 1 1 12rem;
+}
+
+.secondaryAction,
+.secondaryLink {
+  align-items: center;
+  background: var(--must-color-surface);
+  border: 1px solid var(--must-color-border);
+  border-radius: var(--must-radius-input);
+  color: var(--must-color-text-primary);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.75rem;
+  font-weight: 650;
+  justify-content: center;
+  padding: 0.625rem 1rem;
+  text-decoration: none;
+}
+
+.secondaryAction:hover,
+.secondaryLink:hover {
+  background: var(--must-color-canvas);
+  color: var(--must-color-text-primary);
+}
+
+.submitArrow {
+  height: 1rem;
+  margin-left: 0.625rem;
+  width: 1rem;
+}
+
+.illustration {
+  align-items: center;
+  background: var(--must-color-success-surface);
+  border-radius: 50%;
+  display: flex;
+  height: 5.25rem;
+  justify-content: center;
+  margin: 1.75rem auto 0;
+  width: 5.25rem;
+}
+
+.illustration img {
+  height: 2.375rem;
+  width: 2.375rem;
+}
+
+.errorAlert {
+  align-items: center;
+  background: var(--must-color-danger-surface);
+  border-color: var(--must-color-danger);
+  color: var(--must-color-danger);
+  display: flex;
+  font-size: 0.6875rem;
+  gap: 0.75rem;
+  line-height: 1.35;
+  margin-top: 1.5rem;
+  padding: 0.875rem 1rem;
+}
+
+.errorIcon {
+  flex: 0 0 1.125rem;
+  height: 1.125rem;
+  width: 1.125rem;
+}
+
+.loadingCopy {
+  margin-top: 1.875rem;
+}
+
+@media (max-width: 767px) {
+  .formTitle {
+    font-size: 1.75rem;
+    margin-top: 1.5rem;
+  }
+
+  .formDescription {
+    max-width: none;
+  }
+
+  .actions {
+    flex-direction: column;
+  }
+
+  .actionButton {
+    width: 100%;
+  }
+
+  .notice,
+  .userCard,
+  .errorAlert {
+    margin-top: 1.75rem;
+  }
+}

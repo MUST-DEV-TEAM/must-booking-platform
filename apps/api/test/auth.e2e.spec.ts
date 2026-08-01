@@ -28,6 +28,7 @@ describe('authentication endpoints', () => {
         command: Parameters<MailProvider['sendVerificationEmail']>[0];
       }
     | { kind: 'welcome'; command: Parameters<MailProvider['sendWelcomeEmail']>[0] }
+    | { kind: 'password-reset'; command: Parameters<MailProvider['sendPasswordResetEmail']>[0] }
   > = [];
   const mail: MailProvider = {
     async sendVerificationEmail(command) {
@@ -38,6 +39,11 @@ describe('authentication endpoints', () => {
       if (failWelcomeEmail) throw new Error('simulated welcome email failure');
       sentEmails.push({ kind: 'welcome', command });
     },
+    async sendPasswordResetEmail(command) {
+      sentEmails.push({ kind: 'password-reset', command });
+    },
+    async sendPaymentConfirmationEmail() {},
+    async sendRefundConfirmationEmail() {},
   };
   const email = `auth-${randomUUID()}@example.test`;
   let userId: string | undefined;
@@ -208,7 +214,9 @@ describe('authentication endpoints', () => {
     expect(
       (await request(app.getHttpServer()).get('/auth/session').set('Cookie', cookie).expect(200))
         .body,
-    ).toEqual({ user: { id: userId, email, emailVerified: true } });
+    ).toEqual({
+      user: { id: userId, email, emailVerified: true, isPlatformAdmin: false },
+    });
     await request(app.getHttpServer())
       .post(`/tenants/${organizationId}/staff-invitations`)
       .set('Cookie', cookie)
@@ -236,6 +244,28 @@ describe('authentication endpoints', () => {
 
   it('does not treat a missing user as email-verified', async () => {
     expect(await app.get(AuthService).isEmailVerified(randomUUID())).toBe(false);
+  });
+
+  it('issues a reset token, emails the reset URL, and accepts the new password', async () => {
+    const resetRequest = await request(app.getHttpServer())
+      .post('/auth/password-reset/request')
+      .send({ email })
+      .expect(202);
+    expect(resetRequest.body).toEqual({ accepted: true });
+    const resetEmail = sentEmails.at(-1);
+    if (!resetEmail || resetEmail.kind !== 'password-reset')
+      throw new Error('Password reset email was not sent.');
+    const resetToken = new URL(resetEmail.command.resetUrl).searchParams.get('token');
+    expect(resetToken).toBeTruthy();
+
+    await request(app.getHttpServer())
+      .post('/auth/password-reset/confirm')
+      .send({ token: resetToken, password: 'new-correct-horse-battery' })
+      .expect(204);
+    await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email, password: 'new-correct-horse-battery' })
+      .expect(201);
   });
 
   it('rolls back the organization and property when user creation fails', async () => {

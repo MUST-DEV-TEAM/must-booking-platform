@@ -6,3 +6,4 @@ coverage/
 docs/
 next-env.d.ts
 pnpm-lock.yaml
+apps/wordpress-plugin/

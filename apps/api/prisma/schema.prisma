@@ -37,6 +37,18 @@ enum BookingStatus {
   EXPIRED
 }
 
+enum BookingPaymentMethod {
+  STRIPE_CHECKOUT
+  POKPAY
+  PAY_AT_HOTEL
+  FREE
+}
+
+enum PaymentKind {
+  CHARGE
+  REFUND
+}
+
 model Organization {
   id           String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name         String             @db.VarChar(200)
@@ -70,6 +82,7 @@ model User {
   email           String             @unique @db.VarChar(320)
   passwordHash    String?            @map("password_hash")
   emailVerifiedAt DateTime?          @map("email_verified_at") @db.Timestamptz(6)
+  isPlatformAdmin Boolean            @default(false) @map("is_platform_admin")
   createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   memberships     TenantMembership[]
@@ -84,6 +97,10 @@ model Property {
   slug              String                    @db.VarChar(100)
   address           String?                   @db.VarChar(500)
   timezone          String?                   @db.VarChar(100)
+  publicWebsiteOrigin String?                 @map("public_website_origin") @db.VarChar(500)
+  stripeEnabled     Boolean                   @default(false) @map("stripe_enabled")
+  pokpayEnabled     Boolean                   @default(false) @map("pokpay_enabled")
+  payAtHotelEnabled Boolean                   @default(false) @map("pay_at_hotel_enabled")
   createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   organization      Organization              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
@@ -95,6 +112,8 @@ model Property {
   ratePlans         RatePlan[]
   rateRules         RateRule[]
   bookings          Booking[]
+  payments          Payment[]
+  paymentProviderSessions PaymentProviderSession[]
   amenities         Amenity[]
   roomTypeAmenities RoomTypeAmenity[]
 
@@ -321,8 +340,11 @@ model Booking {
   propertyId                 String        @map("property_id") @db.Uuid
   roomTypeId                 String        @map("room_type_id") @db.Uuid
   guestId                    String?       @map("guest_id") @db.Uuid
+  guestSessionId             String        @map("guest_session_id") @db.Uuid
+  guestReturnUrl             String?       @map("guest_return_url") @db.VarChar(2000)
   externalReference          String        @map("external_reference") @db.VarChar(200)
   status                     BookingStatus @default(DRAFT)
+  paymentMethod              BookingPaymentMethod @default(STRIPE_CHECKOUT) @map("payment_method")
   startsOn                   DateTime      @map("starts_on") @db.Date
   endsOn                     DateTime      @map("ends_on") @db.Date
   ratePlanId                 String        @map("rate_plan_id") @db.Uuid
@@ -336,6 +358,8 @@ model Booking {
   property                   Property      @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
   roomType                   RoomType      @relation(fields: [tenantId, propertyId, roomTypeId], references: [tenantId, propertyId, id], onDelete: Restrict)
   ratePlan                   RatePlan      @relation(fields: [tenantId, propertyId, ratePlanId], references: [tenantId, propertyId, id], onDelete: Restrict)
+  payments                   Payment[]
+  paymentProviderSessions    PaymentProviderSession[]
 
   @@unique([tenantId, propertyId, id])
   @@unique([tenantId, propertyId, externalReference])
@@ -345,13 +369,55 @@ model Booking {
   @@map("bookings")
 }
 
+model Payment {
+  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String      @map("tenant_id") @db.Uuid
+  propertyId        String      @map("property_id") @db.Uuid
+  bookingId         String      @map("booking_id") @db.Uuid
+  kind              PaymentKind
+  provider          String      @db.VarChar(50)
+  externalPaymentId String      @map("external_payment_id") @db.VarChar(320)
+  status            String      @db.VarChar(32)
+  amount            Decimal     @db.Decimal(12, 2)
+  currency          String      @db.VarChar(3)
+  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  property          Property    @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  booking           Booking     @relation(fields: [tenantId, propertyId, bookingId], references: [tenantId, propertyId, id], onDelete: Restrict)
+
+  @@unique([tenantId, externalPaymentId])
+  @@index([tenantId, propertyId, bookingId, createdAt])
+  @@map("payments")
+}
+
+model PaymentProviderSession {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  propertyId        String   @map("property_id") @db.Uuid
+  bookingId         String   @map("booking_id") @db.Uuid
+  provider          String   @db.VarChar(50)
+  externalPaymentId String   @map("external_payment_id") @db.VarChar(320)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  property          Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  booking           Booking  @relation(fields: [tenantId, propertyId, bookingId], references: [tenantId, propertyId, id], onDelete: Restrict)
+
+  @@unique([tenantId, provider, externalPaymentId])
+  @@unique([tenantId, propertyId, bookingId, provider])
+  @@index([tenantId, propertyId, bookingId])
+  @@map("payment_provider_sessions")
+}
+
 model Guest {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId  String   @map("tenant_id") @db.Uuid
-  email     String   @db.VarChar(320)
-  phone     String?  @db.VarChar(50)
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  email         String   @db.VarChar(320)
+  phone         String?  @db.VarChar(50)
+  streetAddress String?  @map("street_address") @db.VarChar(255)
+  addressLine2  String?  @map("address_line_2") @db.VarChar(255)
+  city          String?  @db.VarChar(100)
+  county        String?  @db.VarChar(100)
+  postcode      String?  @db.VarChar(30)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([tenantId, id])
   @@index([tenantId, createdAt])

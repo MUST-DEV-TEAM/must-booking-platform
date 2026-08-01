@@ -22,9 +22,15 @@ Shared schema + `tenant_id` + Postgres row-level security (RLS) as the default, 
 ## Roles (initial draft, refine before auth implementation)
 
 - **Platform admin** (MUST staff): cross-tenant support/ops access, no default access to guest PII.
+  Platform-admin accounts are represented by `users.is_platform_admin`, provisioned only through
+  the internal seed path (never public signup), and cannot also have a tenant membership.
 - **Tenant owner/admin**: full access within their tenant, manages subscription and staff.
 - **Property staff**: capability-gated access scoped to one or more properties within the tenant (mirrors the predecessor plugin's staff-portal capability model).
 - **Guest**: no account; interacts only through the public booking widget and signed links (booking confirmation, cancellation), consistent with the predecessor system's model — no separate guest login area unless a future decision changes this.
+
+Platform-admin and tenant-member roles are mutually exclusive at the database boundary. The
+platform-admin flag defaults to false; migration triggers reject adding a tenant membership to an
+admin account or promoting an account that already belongs to a tenant.
 
 ## Audit context
 

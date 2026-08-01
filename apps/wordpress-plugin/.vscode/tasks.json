@@ -1,0 +1,41 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Release MUST Hotel Booking",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/tools/release-plugin.ps1",
+        "-Version",
+        "${input:releaseVersion}",
+        "-Changes",
+        "${input:releaseChanges}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "clear": true
+      },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "releaseVersion",
+      "type": "promptString",
+      "description": "New release version, for example 0.4.19"
+    },
+    {
+      "id": "releaseChanges",
+      "type": "promptString",
+      "description": "Changelog items separated by semicolons"
+    }
+  ]
+}

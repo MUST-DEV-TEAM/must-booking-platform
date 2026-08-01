@@ -10,9 +10,11 @@
   "scripts": {
     "build": "pnpm --recursive run build",
     "lint": "eslint .",
+    "lint:wordpress-plugin": "powershell -NoProfile -ExecutionPolicy Bypass -File apps/wordpress-plugin/tools/lint-php.ps1",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "pnpm --recursive run test"
+    "test": "pnpm --recursive run test",
+    "e2e": "pnpm --filter web e2e"
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",

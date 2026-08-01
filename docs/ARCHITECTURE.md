@@ -46,6 +46,8 @@ Tenant admin/staff web app (Next.js)      WordPress plugin (retrofitted, ADR-001
 
 Platform Billing Service and Guest Payment Service are separate services with separate data stores/ledgers even though both may use Stripe as a provider — one uses Stripe Billing (subscriptions), the other Stripe Checkout/PokPay (one-off guest payments). See `BILLING.md` and `PROJECT_CONTEXT.md`.
 
+Each property configures its enabled guest payment methods (Stripe, PokPay, and/or pay at hotel). A non-zero booking must explicitly select a method enabled for that property; a zero-total booking remains `FREE` and needs no gateway.
+
 ## Tech stack
 
 - **Backend**: TypeScript, Node.js LTS, NestJS, PostgreSQL, Redis, BullMQ, OpenAPI, runtime request/response validation.
@@ -63,6 +65,7 @@ apps/
 packages/
   shared-types/     cross-app TypeScript types/contracts
   domain-contracts/ provider interfaces (PmsProvider, PaymentProvider, BillingProvider)
+  ui/               versioned design tokens and reusable accessible React UI primitives for apps/web
 docs/
   decisions/        ADRs
   source/           original briefs (e.g. Clock PMS+ integration PDF)

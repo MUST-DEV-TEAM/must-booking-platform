@@ -79,8 +79,8 @@ export class PublicTenantScopedGuard implements CanActivate {
     if (!this.cookie(request.headers.cookie, 'must_guest_session')) {
       request.res.cookie('must_guest_session', guestSessionId, {
         httpOnly: true,
-        sameSite: 'lax',
-        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'none',
+        secure: true,
       });
     }
     request.tenantContext = { tenantId, propertyId };

@@ -28,7 +28,7 @@ Tenant staff can configure their hotel's sellable inventory entirely locally —
 
 ## Explicitly not included
 
-- Any Clock/PMS-backed inventory (Milestone 9).
+- Any Clock/PMS-backed inventory (Milestone 10).
 - The actual booking/checkout flow (Milestone 4-6).
 
 ## Tasks

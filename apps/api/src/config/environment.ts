@@ -4,7 +4,15 @@ export interface Environment {
   REDIS_URL: string;
   WEB_APP_URL: string;
   RESEND_API_KEY?: string;
+  RESEND_API_BASE_URL?: string;
   MAIL_FROM_EMAIL?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  POKPAY_KEY_ID?: string;
+  POKPAY_KEY_SECRET?: string;
+  POKPAY_MERCHANT_ID?: string;
+  POKPAY_WEBHOOK_URL?: string;
+  POKPAY_API_BASE_URL?: string;
 }
 
 const requiredEnvironmentVariables = [

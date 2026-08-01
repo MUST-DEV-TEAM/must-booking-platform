@@ -3,11 +3,18 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
+import Stripe from 'stripe';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { LocalPmsProvider, PMS_PROVIDER } from '../src/booking/local-pms.provider';
 import { QuoteService } from '../src/booking/quote.service';
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
+import { PAYMENT_PROVIDER } from '../src/payments/payment.provider';
+import { PaymentExpiryService } from '../src/payments/payment-expiry.service';
+import { PokPayPaymentProvider } from '../src/payments/pokpay-payment.provider';
+import { PaymentProviderRegistry } from '../src/payments/payment-provider-registry';
+import { StripePaymentProvider } from '../src/payments/stripe-payment.provider';
+import type { PaymentProvider } from '@must/domain-contracts';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 
 const isoDateFromToday = (offsetDays: number) => {
@@ -24,6 +31,9 @@ const admin = new PrismaClient({
   },
 });
 
+const stripeSecretKey = 'sk_test_webhook_e2e';
+const stripeWebhookSecret = 'whsec_webhook_e2e';
+
 describe('LocalPmsProvider', () => {
   let app: INestApplication | undefined;
   let tenantId: string;
@@ -33,12 +43,100 @@ describe('LocalPmsProvider', () => {
   let ratePlanId: string;
   let cookie: string;
   let verificationToken = '';
+  let failPaymentConfirmationDelivery = false;
+  const paymentConfirmationEmails: Parameters<MailProvider['sendPaymentConfirmationEmail']>[0][] =
+    [];
+  const refundConfirmationEmails: Parameters<MailProvider['sendRefundConfirmationEmail']>[0][] = [];
+  const refundCommands: Parameters<PaymentProvider['refund']>[1][] = [];
+  const pokpayOrders = new Map<string, { amount: string; currency: string; status: string }>();
+  let pokpayAmountOverride: string | undefined;
+  const stripe = new StripePaymentProvider();
   const email = `local-pms-${randomUUID()}@example.test`;
   const mail: MailProvider = {
     async sendVerificationEmail(command) {
       verificationToken = new URL(command.verificationUrl).searchParams.get('token')!;
     },
     async sendWelcomeEmail() {},
+    async sendPasswordResetEmail() {},
+    async sendPaymentConfirmationEmail(command) {
+      if (failPaymentConfirmationDelivery) throw new Error('simulated payment email failure');
+      paymentConfirmationEmails.push(command);
+    },
+    async sendRefundConfirmationEmail(command) {
+      refundConfirmationEmails.push(command);
+    },
+  };
+  const payments: PaymentProvider = {
+    async createCheckoutSession(_context, command) {
+      return {
+        ok: true,
+        value: {
+          id: `cs_test_${command.bookingId}`,
+          url: `https://checkout.stripe.test/${command.bookingId}`,
+        },
+      };
+    },
+    async verifyWebhookEvent(context, rawBody, signature) {
+      return stripe.verifyWebhookEvent(context, rawBody, signature);
+    },
+    async refund(_context, command) {
+      refundCommands.push(command);
+      return {
+        ok: true,
+        value: {
+          id: `re_test_${command.idempotencyKey}`,
+          bookingId: command.paymentId,
+          amount: command.amount,
+          status: 'succeeded',
+        },
+      };
+    },
+    async getPayment() {
+      return null;
+    },
+  };
+  const pokpay: PaymentProvider = {
+    async createCheckoutSession(_context, command) {
+      const id = `pok_test_${command.bookingId}`;
+      pokpayOrders.set(id, {
+        amount: command.amount.amount,
+        currency: command.amount.currency,
+        status: 'COMPLETED',
+      });
+      return { ok: true, value: { id, url: `https://pay.pokpay.test/${id}` } };
+    },
+    async verifyWebhookEvent() {
+      return {
+        ok: false,
+        error: {
+          code: 'NOT_USED',
+          message: 'PokPay uses an authoritative re-read.',
+          retryable: false,
+        },
+      };
+    },
+    async refund(_context, command) {
+      return {
+        ok: true,
+        value: {
+          id: `${command.paymentId}:refund`,
+          bookingId: command.paymentId,
+          amount: command.amount,
+          status: 'REFUNDED',
+        },
+      };
+    },
+    async getPayment(_context, paymentId) {
+      const order = pokpayOrders.get(paymentId);
+      return order
+        ? {
+            id: paymentId,
+            bookingId: paymentId,
+            amount: { amount: pokpayAmountOverride ?? order.amount, currency: order.currency },
+            status: order.status,
+          }
+        : null;
+    },
   };
 
   beforeAll(async () => {
@@ -47,19 +145,28 @@ describe('LocalPmsProvider', () => {
       'postgresql://must_booking_app:must_booking_app_dev@localhost:5432/must_booking';
     process.env.REDIS_URL = 'redis://localhost:6379';
     process.env.WEB_APP_URL = 'http://localhost:3001';
+    process.env.STRIPE_SECRET_KEY = stripeSecretKey;
+    process.env.STRIPE_WEBHOOK_SECRET = stripeWebhookSecret;
     await clearSignupRateLimits();
     const { AppModule } = await import('../src/app.module');
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(MAIL_PROVIDER)
       .useValue(mail)
+      .overrideProvider(PAYMENT_PROVIDER)
+      .useValue(payments)
+      .overrideProvider(PokPayPaymentProvider)
+      .useValue(pokpay)
       .compile();
-    app = moduleRef.createNestApplication();
+    app = moduleRef.createNestApplication({ rawBody: true });
     await app.init();
+    app.get(PaymentProviderRegistry).pokpay = pokpay as PokPayPaymentProvider;
   });
 
   afterAll(async () => {
     if (tenantId) {
       await admin.$executeRaw`DELETE FROM integration_operations WHERE tenant_id = ${tenantId}::uuid`;
+      await admin.$executeRaw`DELETE FROM payments WHERE tenant_id = ${tenantId}::uuid`;
+      await admin.$executeRaw`DELETE FROM payment_provider_sessions WHERE tenant_id = ${tenantId}::uuid`;
       await admin.$executeRaw`DELETE FROM bookings WHERE tenant_id = ${tenantId}::uuid`;
       await admin.$executeRaw`DELETE FROM guests WHERE tenant_id = ${tenantId}::uuid`;
       await admin.$executeRaw`DELETE FROM inventory_units WHERE tenant_id = ${tenantId}::uuid`;
@@ -76,7 +183,7 @@ describe('LocalPmsProvider', () => {
     await admin.$disconnect();
   });
 
-  it('implements the local provider contract with synchronous booking confirmation', async () => {
+  it('creates a checkout session and leaves paid bookings payment-pending', async () => {
     const signup = await request(app!.getHttpServer())
       .post('/auth/signup')
       .send({
@@ -122,6 +229,7 @@ describe('LocalPmsProvider', () => {
       .expect(201);
 
     const provider = app!.get(LocalPmsProvider);
+    const quotes = app!.get(QuoteService);
     expect(app!.get<LocalPmsProvider>(PMS_PROVIDER)).toBe(provider);
     const context = { tenantId, propertyId };
     await expect(provider.testConnection(context)).resolves.toEqual({ ok: true, value: undefined });
@@ -168,10 +276,52 @@ describe('LocalPmsProvider', () => {
       ratePlanId,
       startsOn: '2026-09-01',
       endsOn: '2026-09-03',
-      guest: { email: 'guest@example.test', firstName: 'Guest', lastName: 'Example', phone: null },
+      guest: {
+        email: 'guest@example.test',
+        firstName: 'Guest',
+        lastName: 'Example',
+        phone: null,
+        streetAddress: '1 Guest Street',
+        addressLine2: 'Apartment 2',
+        city: 'Tirana',
+        county: 'Tirana County',
+        postcode: '1001',
+      },
       total: quote.body.total,
       quoteToken: quote.body.quoteToken,
+      paymentMethod: 'stripe' as const,
     };
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/bookings`)
+      .set('Cookie', guestCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send(bookingRequest)
+      .expect(201)
+      .expect((response) => {
+        expect(response.body).toMatchObject({
+          ok: false,
+          error: { code: 'PAYMENT_METHOD_NOT_ENABLED' },
+        });
+      });
+    await request(app!.getHttpServer())
+      .patch(`${propertyUrl}/payment-gateways`)
+      .set('Cookie', cookie)
+      .send({ stripe: true, pokpay: false, payAtHotel: false })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.paymentGateways).toEqual({
+          stripe: true,
+          pokpay: false,
+          payAtHotel: false,
+        });
+      });
+    await request(app!.getHttpServer())
+      .get(`${propertyUrl}/public/catalog`)
+      .set('Cookie', guestCookie)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.paymentMethods).toEqual(['stripe']);
+      });
     const bookingIdempotencyKey = randomUUID();
     const createdResponse = await request(app!.getHttpServer())
       .post(`${propertyUrl}/bookings`)
@@ -180,8 +330,39 @@ describe('LocalPmsProvider', () => {
       .send(bookingRequest)
       .expect(201);
     const created = createdResponse.body;
-    expect(created).toMatchObject({ ok: true, value: { status: 'CONFIRMED', version: 1 } });
+    expect(created).toMatchObject({
+      ok: true,
+      value: {
+        status: 'PAYMENT_PENDING',
+        paymentMethod: 'STRIPE_CHECKOUT',
+        version: 1,
+        checkoutUrl: expect.stringMatching(/^https:\/\/checkout\.stripe\.test\//),
+      },
+    });
     if (!created.ok) throw new Error('Expected local booking creation to succeed.');
+    const otherGuestQuote = await request(app!.getHttpServer())
+      .post(`${propertyUrl}/quotes`)
+      .send({ roomTypeId, ratePlanId, startsOn: '2026-09-01', endsOn: '2026-09-03' })
+      .expect(201);
+    const otherGuestCookie = otherGuestQuote.headers['set-cookie'][0] as string;
+    await request(app!.getHttpServer())
+      .patch(`${propertyUrl}/bookings/${created.value.id}`)
+      .set('Cookie', otherGuestCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ expectedVersion: created.value.version })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toMatchObject({ ok: false, error: { code: 'BOOKING_NOT_FOUND' } });
+      });
+    await request(app!.getHttpServer())
+      .delete(`${propertyUrl}/bookings/${created.value.id}`)
+      .set('Cookie', otherGuestCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ expectedVersion: created.value.version })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toMatchObject({ ok: false, error: { code: 'BOOKING_NOT_FOUND' } });
+      });
     await request(app!.getHttpServer())
       .get(`${propertyUrl}/bookings`)
       .set('Cookie', cookie)
@@ -193,13 +374,19 @@ describe('LocalPmsProvider', () => {
             guestId: created.value.guestId,
             guestEmail: 'guest@example.test',
             guestPhone: null,
+            guestStreetAddress: '1 Guest Street',
+            guestAddressLine2: 'Apartment 2',
+            guestCity: 'Tirana',
+            guestCounty: 'Tirana County',
+            guestPostcode: '1001',
             roomTypeId,
             roomTypeName: 'Provider Suite',
             ratePlanId,
             ratePlanName: 'Provider Flexible',
             startsOn: '2026-09-01',
             endsOn: '2026-09-03',
-            status: 'CONFIRMED',
+            status: 'PAYMENT_PENDING',
+            paymentMethod: 'STRIPE_CHECKOUT',
             total: { amount: '180.00', currency: 'EUR' },
           }),
         ]);
@@ -235,35 +422,251 @@ describe('LocalPmsProvider', () => {
     `;
     expect(operationRows).toEqual([{ attempts: 2, bookingCount: 1n }]);
 
+    const {
+      checkoutUrl: _checkoutUrl,
+      cancellationToken: _cancellationToken,
+      ...createdBooking
+    } = created.value;
+    void _checkoutUrl;
+    void _cancellationToken;
     await expect(provider.getBooking(context, created.value.externalBookingId!)).resolves.toEqual(
-      created.value,
+      createdBooking,
     );
     await expect(
       provider.findBookingByExternalReference(context, created.value.externalReference),
-    ).resolves.toEqual(created.value);
+    ).resolves.toEqual(createdBooking);
 
-    const updateIdempotencyKey = randomUUID();
-    const updateCommand = {
-      idempotencyKey: updateIdempotencyKey,
-      bookingId: created.value.id,
-      expectedVersion: created.value.version,
-      total: { amount: '190.00', currency: 'EUR' },
-    };
-    const updated = await provider.updateBooking(context, updateCommand);
-    expect(updated).toMatchObject({ ok: true, value: { version: 2, total: { amount: '190.00' } } });
-    if (!updated.ok) throw new Error('Expected local booking update to succeed.');
-    await expect(provider.updateBooking(context, updateCommand)).resolves.toEqual(updated);
+    await expect(
+      provider.updateBooking(context, {
+        idempotencyKey: randomUUID(),
+        bookingId: created.value.id,
+        guestSessionId: quoteSessionId,
+        expectedVersion: created.value.version,
+      }),
+    ).resolves.toEqual({ ok: true, value: createdBooking });
+    await expect(
+      provider.updateBooking(context, {
+        idempotencyKey: randomUUID(),
+        bookingId: created.value.id,
+        guestSessionId: quoteSessionId,
+        expectedVersion: created.value.version,
+        total: { amount: '190.00', currency: 'EUR' },
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'UNSUPPORTED_UPDATE' } });
+
+    const webhookPayload = JSON.stringify({
+      id: `evt_test_${randomUUID()}`,
+      object: 'event',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: `cs_test_${created.value.id}`,
+          object: 'checkout.session',
+          payment_status: 'paid',
+          metadata: {
+            tenantId,
+            propertyId,
+            bookingId: created.value.id,
+          },
+        },
+      },
+    });
+    const stripeSignature = new Stripe(stripeSecretKey).webhooks.generateTestHeaderString({
+      payload: webhookPayload,
+      secret: stripeWebhookSecret,
+    });
+    failPaymentConfirmationDelivery = true;
+    await request(app!.getHttpServer())
+      .post('/webhooks/stripe')
+      .set('Content-Type', 'application/json')
+      .set('Stripe-Signature', stripeSignature)
+      .send(webhookPayload)
+      .expect(200)
+      .expect({ received: true });
+    failPaymentConfirmationDelivery = false;
+    await expect(provider.getBooking(context, created.value.id)).resolves.toMatchObject({
+      status: 'CONFIRMED',
+      total: { amount: '180.00', currency: 'EUR' },
+    });
+    expect(paymentConfirmationEmails).toEqual([]);
+    const paymentRows = await admin.$queryRaw<
+      Array<{
+        kind: string;
+        provider: string;
+        externalPaymentId: string;
+        status: string;
+        amount: string;
+        currency: string;
+      }>
+    >`
+      SELECT kind::text AS kind, provider, external_payment_id AS "externalPaymentId", status,
+        amount::text AS amount, currency
+      FROM payments
+      WHERE tenant_id = ${tenantId}::uuid AND booking_id = ${created.value.id}::uuid
+    `;
+    expect(paymentRows).toEqual([
+      {
+        kind: 'CHARGE',
+        provider: 'stripe',
+        externalPaymentId: `cs_test_${created.value.id}`,
+        status: 'PAID',
+        amount: '180.00',
+        currency: 'EUR',
+      },
+    ]);
+
+    await request(app!.getHttpServer())
+      .post('/webhooks/stripe')
+      .set('Content-Type', 'application/json')
+      .set('Stripe-Signature', stripeSignature)
+      .send(webhookPayload)
+      .expect(200)
+      .expect({ received: true });
+    const duplicatePaymentRows = await admin.$queryRaw<Array<{ count: bigint }>>`
+      SELECT count(*)::bigint AS count
+      FROM payments
+      WHERE tenant_id = ${tenantId}::uuid AND booking_id = ${created.value.id}::uuid
+    `;
+    expect(duplicatePaymentRows).toEqual([{ count: 1n }]);
+    await expect(provider.getBooking(context, created.value.id)).resolves.toMatchObject({
+      status: 'CONFIRMED',
+    });
+    const bookingAuditRows = await admin.$queryRaw<Array<{ action: string }>>`
+      SELECT action FROM audit_logs
+      WHERE tenant_id = ${tenantId}::uuid AND target_id = ${created.value.id}::text
+      ORDER BY action
+    `;
+    expect(bookingAuditRows).toEqual([{ action: 'booking.created' }]);
 
     const cancelIdempotencyKey = randomUUID();
+    const cancellationEligibility = await admin.$queryRaw<Array<{ isFree: boolean }>>`
+      SELECT rp.free_cancellation_until_hours IS NOT NULL
+        AND CURRENT_TIMESTAMP <= (b.starts_on::timestamp AT TIME ZONE p.timezone)
+          - make_interval(hours => rp.free_cancellation_until_hours) AS "isFree"
+      FROM bookings b
+      JOIN rate_plans rp
+        ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
+      JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
+      WHERE b.id = ${created.value.id}::uuid
+    `;
+    expect(cancellationEligibility).toEqual([{ isFree: true }]);
     const cancelCommand = {
       idempotencyKey: cancelIdempotencyKey,
-      bookingId: updated.value.id,
-      expectedVersion: updated.value.version,
+      bookingId: created.value.id,
+      guestSessionId: quoteSessionId,
+      expectedVersion: created.value.version,
       reason: null,
     };
     const cancelled = await provider.cancelBooking(context, cancelCommand);
-    expect(cancelled).toMatchObject({ ok: true, value: { status: 'CANCELLED', version: 3 } });
+    expect(cancelled).toMatchObject({ ok: true, value: { status: 'CANCELLED', version: 2 } });
     await expect(provider.cancelBooking(context, cancelCommand)).resolves.toEqual(cancelled);
+    const automaticRefundRows = await admin.$queryRaw<
+      Array<{ kind: string; status: string; amount: string }>
+    >`
+      SELECT kind::text AS kind, status, amount::text AS amount
+      FROM payments
+      WHERE tenant_id = ${tenantId}::uuid AND booking_id = ${created.value.id}::uuid
+      ORDER BY kind
+    `;
+    expect(automaticRefundRows).toEqual([
+      { kind: 'CHARGE', status: 'PAID', amount: '180.00' },
+      { kind: 'REFUND', status: 'REFUNDED', amount: '180.00' },
+    ]);
+    expect(
+      refundCommands.filter(({ paymentId }) => paymentId === `cs_test_${created.value.id}`),
+    ).toHaveLength(1);
+    expect(refundConfirmationEmails).toEqual([
+      expect.objectContaining({
+        bookingId: created.value.id,
+        to: 'guest@example.test',
+        amount: { amount: '180.00', currency: 'EUR' },
+      }),
+    ]);
+
+    const concurrentStartsOn = '2026-10-01';
+    const concurrentEndsOn = '2026-10-03';
+    await request(app!.getHttpServer())
+      .put(`${propertyUrl}/inventory-units`)
+      .set('Cookie', cookie)
+      .send({
+        roomTypeId,
+        startsOn: concurrentStartsOn,
+        endsOn: concurrentEndsOn,
+        availableUnits: 1,
+      })
+      .expect(204);
+    const concurrentQuote = await quotes.create(tenantId, propertyId, quoteSessionId, {
+      roomTypeId,
+      ratePlanId,
+      startsOn: concurrentStartsOn,
+      endsOn: concurrentEndsOn,
+    });
+    const concurrentWebhookBooking = await provider.createBooking(context, {
+      idempotencyKey: randomUUID(),
+      externalReference: `must-${randomUUID()}`,
+      roomTypeId,
+      ratePlanId,
+      startsOn: concurrentStartsOn,
+      endsOn: concurrentEndsOn,
+      guest: {
+        email: `concurrent-webhook-${randomUUID()}@example.test`,
+        firstName: 'Concurrent',
+        lastName: 'Webhook',
+        phone: null,
+      },
+      total: concurrentQuote.total,
+      quoteToken: concurrentQuote.quoteToken,
+      quoteSessionId,
+      paymentMethod: 'stripe',
+    });
+    expect(concurrentWebhookBooking).toMatchObject({
+      ok: true,
+      value: { status: 'PAYMENT_PENDING' },
+    });
+    if (!concurrentWebhookBooking.ok) throw new Error('Expected concurrent webhook booking.');
+    const concurrentWebhookPayload = JSON.stringify({
+      id: `evt_test_concurrent_${randomUUID()}`,
+      object: 'event',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: `cs_test_${concurrentWebhookBooking.value.id}`,
+          object: 'checkout.session',
+          payment_status: 'paid',
+          metadata: { tenantId, propertyId, bookingId: concurrentWebhookBooking.value.id },
+        },
+      },
+    });
+    const concurrentWebhookSignature = new Stripe(
+      stripeSecretKey,
+    ).webhooks.generateTestHeaderString({
+      payload: concurrentWebhookPayload,
+      secret: stripeWebhookSecret,
+    });
+    await Promise.all(
+      [1, 2].map(() =>
+        request(app!.getHttpServer())
+          .post('/webhooks/stripe')
+          .set('Content-Type', 'application/json')
+          .set('Stripe-Signature', concurrentWebhookSignature)
+          .send(concurrentWebhookPayload)
+          .expect(200)
+          .expect({ received: true }),
+      ),
+    );
+    await expect(
+      provider.getBooking(context, concurrentWebhookBooking.value.id),
+    ).resolves.toMatchObject({
+      status: 'CONFIRMED',
+    });
+    const concurrentChargeRows = await admin.$queryRaw<Array<{ count: bigint }>>`
+      SELECT count(*)::bigint AS count
+      FROM payments
+      WHERE tenant_id = ${tenantId}::uuid
+        AND booking_id = ${concurrentWebhookBooking.value.id}::uuid
+        AND kind = 'CHARGE'::"PaymentKind"
+    `;
+    expect(concurrentChargeRows).toEqual([{ count: 1n }]);
 
     const bookingAuditEntries = await admin.$queryRaw<
       Array<{
@@ -282,13 +685,13 @@ describe('LocalPmsProvider', () => {
     >`
       SELECT action, target_id AS "targetId", actor_user_id AS "actorUserId", details
       FROM audit_logs
-      WHERE tenant_id = ${tenantId}::uuid AND target_id = ${updated.value.id}
+      WHERE tenant_id = ${tenantId}::uuid AND target_id = ${created.value.id}
       ORDER BY action
     `;
     expect(bookingAuditEntries).toEqual([
       expect.objectContaining({
         action: 'booking.cancelled',
-        targetId: updated.value.id,
+        targetId: created.value.id,
         actorUserId: null,
         details: expect.objectContaining({
           guestId: created.value.guestId,
@@ -301,10 +704,19 @@ describe('LocalPmsProvider', () => {
       }),
       {
         action: 'booking.created',
-        targetId: updated.value.id,
+        targetId: created.value.id,
         actorUserId: null,
         details: { guestId: created.value.guestId },
       },
+      expect.objectContaining({
+        action: 'payment.refunded',
+        targetId: created.value.id,
+        actorUserId: null,
+        details: expect.objectContaining({
+          chargeExternalPaymentId: `cs_test_${created.value.id}`,
+          amount: { amount: '180.00', currency: 'EUR' },
+        }),
+      }),
     ]);
     const freeCancellationPolicy = await admin.$queryRaw<
       Array<{ isFree: boolean; freeUntilHours: number | null; cutoffAt: Date | null }>
@@ -312,7 +724,7 @@ describe('LocalPmsProvider', () => {
       SELECT cancellation_is_free AS "isFree",
         cancellation_free_until_hours AS "freeUntilHours",
         cancellation_cutoff_at AS "cutoffAt"
-      FROM bookings WHERE id = ${updated.value.id}::uuid
+      FROM bookings WHERE id = ${created.value.id}::uuid
     `;
     expect(freeCancellationPolicy).toEqual([
       { isFree: true, freeUntilHours: 48, cutoffAt: expect.any(Date) },
@@ -325,6 +737,208 @@ describe('LocalPmsProvider', () => {
     });
     expect(availableAfterCancellation).toMatchObject({ ok: true, value: { availableUnits: 1 } });
 
+    const updatedGuestQuote = await quotes.create(tenantId, propertyId, quoteSessionId, {
+      roomTypeId,
+      ratePlanId,
+      startsOn: '2026-09-01',
+      endsOn: '2026-09-03',
+    });
+    const updatedGuestBooking = await provider.createBooking(context, {
+      ...bookingRequest,
+      idempotencyKey: randomUUID(),
+      externalReference: `must-${randomUUID()}`,
+      guest: {
+        ...bookingRequest.guest,
+        streetAddress: '99 Updated Avenue',
+        addressLine2: null,
+        city: 'Durrës',
+        county: 'Durrës County',
+        postcode: '2001',
+      },
+      total: updatedGuestQuote.total,
+      quoteToken: updatedGuestQuote.quoteToken,
+      quoteSessionId,
+    });
+    expect(updatedGuestBooking).toMatchObject({
+      ok: true,
+      value: { guestId: created.value.guestId },
+    });
+    const updatedGuestDetails = await admin.$queryRaw<
+      Array<{
+        streetAddress: string | null;
+        addressLine2: string | null;
+        city: string | null;
+        county: string | null;
+        postcode: string | null;
+      }>
+    >`
+      SELECT street_address AS "streetAddress", address_line_2 AS "addressLine2", city, county, postcode
+      FROM guests WHERE id = ${created.value.guestId}::uuid AND tenant_id = ${tenantId}::uuid
+    `;
+    expect(updatedGuestDetails).toEqual([
+      {
+        streetAddress: '99 Updated Avenue',
+        addressLine2: null,
+        city: 'Durrës',
+        county: 'Durrës County',
+        postcode: '2001',
+      },
+    ]);
+    if (!updatedGuestBooking.ok) throw new Error('Expected updated guest booking to succeed.');
+    await provider.cancelBooking(context, {
+      idempotencyKey: randomUUID(),
+      bookingId: updatedGuestBooking.value.id,
+      guestSessionId: quoteSessionId,
+      expectedVersion: updatedGuestBooking.value.version,
+      reason: null,
+    });
+    await request(app!.getHttpServer())
+      .patch(`${propertyUrl}/payment-gateways`)
+      .set('Cookie', cookie)
+      .send({ stripe: false, pokpay: false, payAtHotel: false })
+      .expect(200);
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/bookings`)
+      .set('Cookie', guestCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({
+        ...bookingRequest,
+        externalReference: `must-${randomUUID()}`,
+        paymentMethod: undefined,
+      })
+      .expect(201)
+      .expect((response) => {
+        expect(response.body).toMatchObject({
+          ok: false,
+          error: { code: 'PAYMENT_METHOD_REQUIRED' },
+        });
+      });
+
+    const zeroRatePlan = await request(app!.getHttpServer())
+      .post(`${propertyUrl}/rate-plans`)
+      .set('Cookie', cookie)
+      .send({ name: 'Provider Complimentary', currency: 'EUR' })
+      .expect(201);
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/rate-plans/${zeroRatePlan.body.id}/rules`)
+      .set('Cookie', cookie)
+      .send({ roomTypeId, startsOn: null, endsOn: null, amount: '0.00' })
+      .expect(201);
+    const zeroQuote = await quotes.create(tenantId, propertyId, quoteSessionId, {
+      roomTypeId,
+      ratePlanId: zeroRatePlan.body.id,
+      startsOn: '2026-09-01',
+      endsOn: '2026-09-03',
+    });
+    const zeroBooking = await provider.createBooking(context, {
+      idempotencyKey: randomUUID(),
+      externalReference: `must-${randomUUID()}`,
+      roomTypeId,
+      ratePlanId: zeroRatePlan.body.id,
+      startsOn: '2026-09-01',
+      endsOn: '2026-09-03',
+      guest: {
+        email: `complimentary-${randomUUID()}@example.test`,
+        firstName: 'Complimentary',
+        lastName: 'Guest',
+        phone: null,
+      },
+      total: zeroQuote.total,
+      quoteToken: zeroQuote.quoteToken,
+      quoteSessionId,
+    });
+    expect(zeroBooking).toMatchObject({
+      ok: true,
+      value: { status: 'CONFIRMED', paymentMethod: 'FREE' },
+    });
+    if (!zeroBooking.ok) throw new Error('Expected zero-amount booking to succeed.');
+    expect(zeroBooking.value).not.toHaveProperty('checkoutUrl');
+    await provider.cancelBooking(context, {
+      idempotencyKey: randomUUID(),
+      bookingId: zeroBooking.value.id,
+      guestSessionId: quoteSessionId,
+      expectedVersion: zeroBooking.value.version,
+      reason: null,
+    });
+
+    await request(app!.getHttpServer())
+      .patch(`${propertyUrl}/payment-gateways`)
+      .set('Cookie', cookie)
+      .send({ stripe: true, pokpay: false, payAtHotel: true })
+      .expect(200);
+    await admin.$executeRaw`
+      UPDATE properties SET public_website_origin = 'https://hotel.example.test'
+      WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
+    `;
+    const payAtHotelEmailCount = paymentConfirmationEmails.length;
+    const payAtHotelIdempotencyKey = randomUUID();
+    const payAtHotelRequest = {
+      ...bookingRequest,
+      externalReference: `must-${randomUUID()}`,
+      guest: {
+        email: `pay-at-hotel-${randomUUID()}@example.test`,
+        firstName: 'Pay',
+        lastName: 'At Hotel',
+        phone: null,
+      },
+      payAtHotel: true,
+      paymentMethod: 'pay_at_hotel',
+      returnUrl: 'https://hotel.example.test/booking-confirmation',
+    };
+    const payAtHotelBooking = await request(app!.getHttpServer())
+      .post(`${propertyUrl}/bookings`)
+      .set('Cookie', guestCookie)
+      .set('Idempotency-Key', payAtHotelIdempotencyKey)
+      .send(payAtHotelRequest)
+      .expect(201);
+    expect(payAtHotelBooking.body).toMatchObject({
+      ok: true,
+      value: { status: 'CONFIRMED', paymentMethod: 'PAY_AT_HOTEL' },
+    });
+    expect(payAtHotelBooking.body.value).not.toHaveProperty('checkoutUrl');
+    expect(paymentConfirmationEmails).toHaveLength(payAtHotelEmailCount + 1);
+    expect(paymentConfirmationEmails.at(-1)).toMatchObject({
+      bookingId: payAtHotelBooking.body.value.id,
+      paymentId: `pay-at-hotel:${payAtHotelBooking.body.value.id}`,
+    });
+    expect(paymentConfirmationEmails.at(-1)?.cancellationUrl).toContain('must_action=cancel');
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/bookings`)
+      .set('Cookie', guestCookie)
+      .set('Idempotency-Key', payAtHotelIdempotencyKey)
+      .send(payAtHotelRequest)
+      .expect(201);
+    expect(paymentConfirmationEmails).toHaveLength(payAtHotelEmailCount + 1);
+    const payAtHotelPayments = await admin.$queryRaw<Array<{ count: bigint }>>`
+      SELECT count(*)::bigint AS count
+      FROM payments
+      WHERE tenant_id = ${tenantId}::uuid AND booking_id = ${payAtHotelBooking.body.value.id}::uuid
+    `;
+    expect(payAtHotelPayments).toEqual([{ count: 0n }]);
+    await request(app!.getHttpServer())
+      .get(`${propertyUrl}/bookings`)
+      .set('Cookie', cookie)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              id: payAtHotelBooking.body.value.id,
+              status: 'CONFIRMED',
+              paymentMethod: 'PAY_AT_HOTEL',
+              total: { amount: '180.00', currency: 'EUR' },
+            }),
+          ]),
+        );
+      });
+    await provider.cancelBooking(context, {
+      idempotencyKey: randomUUID(),
+      bookingId: payAtHotelBooking.body.value.id,
+      guestSessionId: quoteSessionId,
+      expectedVersion: payAtHotelBooking.body.value.version,
+      reason: null,
+    });
+
     const draftBookingId = randomUUID();
     const draftGuestId = randomUUID();
     await admin.$executeRaw`
@@ -334,10 +948,11 @@ describe('LocalPmsProvider', () => {
     await admin.$executeRaw`
       INSERT INTO bookings (
         id, tenant_id, property_id, room_type_id, guest_id, external_reference,
-        status, starts_on, ends_on, rate_plan_id, total_amount
+        guest_session_id, status, starts_on, ends_on, rate_plan_id, total_amount
       ) VALUES (
         ${draftBookingId}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid,
-        ${draftGuestId}::uuid, ${`must-${randomUUID()}`}, 'DRAFT'::"BookingStatus",
+        ${draftGuestId}::uuid, ${`must-${randomUUID()}`}, ${quoteSessionId}::uuid,
+        'DRAFT'::"BookingStatus",
         '2026-09-01'::date, '2026-09-03'::date, ${ratePlanId}::uuid, 180.00
       )
     `;
@@ -345,6 +960,7 @@ describe('LocalPmsProvider', () => {
       provider.cancelBooking(context, {
         idempotencyKey: randomUUID(),
         bookingId: draftBookingId,
+        guestSessionId: quoteSessionId,
         expectedVersion: 1,
         reason: null,
       }),
@@ -360,7 +976,6 @@ describe('LocalPmsProvider', () => {
       value: { availableUnits: 1 },
     });
 
-    const quotes = app!.get(QuoteService);
     const expiredQuote = await quotes.create(
       tenantId,
       propertyId,
@@ -387,6 +1002,7 @@ describe('LocalPmsProvider', () => {
         total: expiredQuote.total,
         quoteToken: expiredQuote.quoteToken,
         quoteSessionId,
+        paymentMethod: 'stripe',
       }),
     ).resolves.toMatchObject({ ok: false, error: { code: 'QUOTE_EXPIRED' } });
     await expect(
@@ -413,6 +1029,7 @@ describe('LocalPmsProvider', () => {
         total: quote.body.total,
         quoteToken: `${quote.body.quoteToken}x`,
         quoteSessionId,
+        paymentMethod: 'stripe',
       }),
     ).resolves.toMatchObject({ ok: false, error: { code: 'QUOTE_INVALID' } });
     await expect(
@@ -437,10 +1054,213 @@ describe('LocalPmsProvider', () => {
       total: quote.body.total,
       quoteToken: quote.body.quoteToken,
       quoteSessionId,
+      paymentMethod: 'stripe',
     });
-    expect(firstBooking).toMatchObject({ ok: true, value: { status: 'CONFIRMED' } });
+    expect(firstBooking).toMatchObject({ ok: true, value: { status: 'PAYMENT_PENDING' } });
     if (!firstBooking.ok) throw new Error('Expected matching guest booking to succeed.');
     expect(firstBooking.value.guestId).toBe(created.value.guestId);
+
+    const manualRefundWebhookPayload = JSON.stringify({
+      id: `evt_test_manual_refund_${randomUUID()}`,
+      object: 'event',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: `cs_test_${firstBooking.value.id}`,
+          object: 'checkout.session',
+          payment_status: 'paid',
+          metadata: { tenantId, propertyId, bookingId: firstBooking.value.id },
+        },
+      },
+    });
+    const manualRefundSignature = new Stripe(stripeSecretKey).webhooks.generateTestHeaderString({
+      payload: manualRefundWebhookPayload,
+      secret: stripeWebhookSecret,
+    });
+    await request(app!.getHttpServer())
+      .post('/webhooks/stripe')
+      .set('Content-Type', 'application/json')
+      .set('Stripe-Signature', manualRefundSignature)
+      .send(manualRefundWebhookPayload)
+      .expect(200);
+    expect(paymentConfirmationEmails).toEqual(
+      expect.arrayContaining([
+        {
+          bookingId: firstBooking.value.id,
+          paymentId: `cs_test_${firstBooking.value.id}`,
+          to: 'guest@example.test',
+          amount: { amount: '180.00', currency: 'EUR' },
+        },
+      ]),
+    );
+    expect(
+      paymentConfirmationEmails.filter(
+        ({ bookingId }) => bookingId === concurrentWebhookBooking.value.id,
+      ),
+    ).toHaveLength(1);
+    const manualRefundKey = randomUUID();
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/payments/refunds`)
+      .set('Cookie', guestCookie)
+      .set('Idempotency-Key', manualRefundKey)
+      .send({ bookingId: firstBooking.value.id, amount: { amount: '50.00', currency: 'EUR' } })
+      .expect(401);
+    const manualRefund = await request(app!.getHttpServer())
+      .post(`${propertyUrl}/payments/refunds`)
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', manualRefundKey)
+      .send({ bookingId: firstBooking.value.id, amount: { amount: '50.00', currency: 'EUR' } })
+      .expect(200);
+    expect(manualRefund.body).toMatchObject({
+      ok: true,
+      value: { amount: { amount: '50.00', currency: 'EUR' }, status: 'succeeded' },
+    });
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/payments/refunds`)
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', manualRefundKey)
+      .send({ bookingId: firstBooking.value.id, amount: { amount: '50.00', currency: 'EUR' } })
+      .expect(200)
+      .expect(manualRefund.body);
+    expect(refundConfirmationEmails).toEqual([
+      expect.objectContaining({
+        bookingId: created.value.id,
+        amount: { amount: '180.00', currency: 'EUR' },
+      }),
+      expect.objectContaining({
+        bookingId: firstBooking.value.id,
+        to: 'guest@example.test',
+        amount: { amount: '50.00', currency: 'EUR' },
+      }),
+    ]);
+
+    const expiryStartsOn = '2026-11-01';
+    const expiryEndsOn = '2026-11-03';
+    await request(app!.getHttpServer())
+      .put(`${propertyUrl}/inventory-units`)
+      .set('Cookie', cookie)
+      .send({
+        roomTypeId,
+        startsOn: expiryStartsOn,
+        endsOn: expiryEndsOn,
+        availableUnits: 1,
+      })
+      .expect(204);
+    const expiryQuote = await quotes.create(tenantId, propertyId, quoteSessionId, {
+      roomTypeId,
+      ratePlanId,
+      startsOn: expiryStartsOn,
+      endsOn: expiryEndsOn,
+    });
+    const expiringBooking = await provider.createBooking(context, {
+      idempotencyKey: randomUUID(),
+      externalReference: `must-${randomUUID()}`,
+      roomTypeId,
+      ratePlanId,
+      startsOn: expiryStartsOn,
+      endsOn: expiryEndsOn,
+      guest: {
+        email: `expiry-${randomUUID()}@example.test`,
+        firstName: 'Expiry',
+        lastName: 'Guest',
+        phone: null,
+      },
+      total: expiryQuote.total,
+      quoteToken: expiryQuote.quoteToken,
+      quoteSessionId,
+      paymentMethod: 'stripe',
+    });
+    expect(expiringBooking).toMatchObject({ ok: true, value: { status: 'PAYMENT_PENDING' } });
+    if (!expiringBooking.ok) throw new Error('Expected expiring booking to succeed.');
+    await admin.$executeRaw`
+      UPDATE bookings
+      SET created_at = CURRENT_TIMESTAMP - INTERVAL '31 minutes'
+      WHERE id = ${expiringBooking.value.id}::uuid
+    `;
+
+    const expiry = app!.get(PaymentExpiryService);
+    await expect(expiry.sweep()).resolves.toEqual({ expired: 1 });
+    await expect(provider.getBooking(context, expiringBooking.value.id)).resolves.toMatchObject({
+      status: 'EXPIRED',
+    });
+    await expect(
+      provider.getAvailability(context, {
+        roomTypeId,
+        startsOn: expiryStartsOn,
+        endsOn: expiryEndsOn,
+      }),
+    ).resolves.toMatchObject({ ok: true, value: { availableUnits: 1 } });
+
+    const lateWebhookPayload = JSON.stringify({
+      id: `evt_test_late_${randomUUID()}`,
+      object: 'event',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: `cs_test_${expiringBooking.value.id}`,
+          object: 'checkout.session',
+          payment_status: 'paid',
+          metadata: {
+            tenantId,
+            propertyId,
+            bookingId: expiringBooking.value.id,
+          },
+        },
+      },
+    });
+    const lateStripeSignature = new Stripe(stripeSecretKey).webhooks.generateTestHeaderString({
+      payload: lateWebhookPayload,
+      secret: stripeWebhookSecret,
+    });
+    await request(app!.getHttpServer())
+      .post('/webhooks/stripe')
+      .set('Content-Type', 'application/json')
+      .set('Stripe-Signature', lateStripeSignature)
+      .send(lateWebhookPayload)
+      .expect(200)
+      .expect({ received: true });
+    await request(app!.getHttpServer())
+      .post('/webhooks/stripe')
+      .set('Content-Type', 'application/json')
+      .set('Stripe-Signature', lateStripeSignature)
+      .send(lateWebhookPayload)
+      .expect(200)
+      .expect({ received: true });
+    await expect(provider.getBooking(context, expiringBooking.value.id)).resolves.toMatchObject({
+      status: 'EXPIRED',
+    });
+    const latePaymentRows = await admin.$queryRaw<
+      Array<{ status: string; count: bigint; expiryAction: string; lateWebhookAction: string }>
+    >`
+      SELECT p.status, count(*)::bigint AS count,
+        (SELECT action FROM audit_logs WHERE tenant_id = ${tenantId}::uuid
+          AND target_id = ${expiringBooking.value.id}::text
+          AND action = 'booking.payment_expired') AS "expiryAction",
+        (SELECT action FROM audit_logs WHERE tenant_id = ${tenantId}::uuid
+          AND target_id = ${expiringBooking.value.id}::text
+          AND action = 'payment.late_webhook_rejected') AS "lateWebhookAction"
+      FROM payments p
+      WHERE p.tenant_id = ${tenantId}::uuid AND p.booking_id = ${expiringBooking.value.id}::uuid
+      GROUP BY p.status
+      ORDER BY p.status
+    `;
+    expect(latePaymentRows).toEqual([
+      {
+        status: 'LATE_AFTER_EXPIRY',
+        count: 1n,
+        expiryAction: 'booking.payment_expired',
+        lateWebhookAction: 'payment.late_webhook_rejected',
+      },
+      {
+        status: 'REFUNDED',
+        count: 1n,
+        expiryAction: 'booking.payment_expired',
+        lateWebhookAction: 'payment.late_webhook_rejected',
+      },
+    ]);
+    expect(
+      refundConfirmationEmails.filter((email) => email.bookingId === expiringBooking.value.id),
+    ).toHaveLength(1);
 
     const pastStartsOn = isoDateFromToday(-1);
     const pastEndsOn = isoDateFromToday(0);
@@ -481,12 +1301,14 @@ describe('LocalPmsProvider', () => {
       total: pastQuote.total,
       quoteToken: pastQuote.quoteToken,
       quoteSessionId,
+      paymentMethod: 'stripe',
     });
     if (!pastCutoffBooking.ok) throw new Error('Expected past-cutoff booking to succeed.');
     await expect(
       provider.cancelBooking(context, {
         idempotencyKey: randomUUID(),
         bookingId: pastCutoffBooking.value.id,
+        guestSessionId: quoteSessionId,
         expectedVersion: pastCutoffBooking.value.version,
         reason: null,
       }),
@@ -502,6 +1324,94 @@ describe('LocalPmsProvider', () => {
     expect(pastCutoffPolicy).toEqual([
       { isFree: false, freeUntilHours: 0, cutoffAt: expect.any(Date) },
     ]);
+
+    await request(app!.getHttpServer())
+      .patch(`${propertyUrl}/payment-gateways`)
+      .set('Cookie', cookie)
+      .send({ stripe: true, pokpay: true, payAtHotel: true })
+      .expect(200);
+    const createPokpayBooking = async (startsOn: string, endsOn: string) => {
+      await request(app!.getHttpServer())
+        .put(`${propertyUrl}/inventory-units`)
+        .set('Cookie', cookie)
+        .send({ roomTypeId, startsOn, endsOn, availableUnits: 1 })
+        .expect(204);
+      const quote = await quotes.create(tenantId, propertyId, quoteSessionId, {
+        roomTypeId,
+        ratePlanId,
+        startsOn,
+        endsOn,
+      });
+      const booking = await provider.createBooking(context, {
+        idempotencyKey: randomUUID(),
+        externalReference: `must-${randomUUID()}`,
+        roomTypeId,
+        ratePlanId,
+        startsOn,
+        endsOn,
+        guest: {
+          email: `pokpay-${randomUUID()}@example.test`,
+          firstName: 'Pok',
+          lastName: 'Pay',
+          phone: null,
+        },
+        total: quote.total,
+        quoteToken: quote.quoteToken,
+        quoteSessionId,
+        paymentMethod: 'pokpay',
+      });
+      if (!booking.ok) throw new Error(`Expected PokPay booking to succeed: ${booking.error.code}`);
+      expect(booking.value).toMatchObject({ status: 'PAYMENT_PENDING', paymentMethod: 'POKPAY' });
+      return booking.value;
+    };
+
+    await request(app!.getHttpServer())
+      .post('/webhooks/pokpay')
+      .send({ orderId: `pok_test_unbound_${randomUUID()}` })
+      .expect(400);
+
+    const mismatchedPokpayBooking = await createPokpayBooking('2026-12-01', '2026-12-03');
+    pokpayAmountOverride = '1.00';
+    await request(app!.getHttpServer())
+      .post('/webhooks/pokpay')
+      .send({ orderId: `pok_test_${mismatchedPokpayBooking.id}` })
+      .expect(400);
+    pokpayAmountOverride = undefined;
+    await expect(provider.getBooking(context, mismatchedPokpayBooking.id)).resolves.toMatchObject({
+      status: 'PAYMENT_PENDING',
+    });
+
+    const duplicatePokpayBooking = await createPokpayBooking('2026-12-04', '2026-12-06');
+    const duplicateOrderId = `pok_test_${duplicatePokpayBooking.id}`;
+    await request(app!.getHttpServer())
+      .post('/webhooks/pokpay')
+      .send({ orderId: duplicateOrderId })
+      .expect(200);
+    await request(app!.getHttpServer())
+      .post('/webhooks/pokpay')
+      .send({ orderId: duplicateOrderId })
+      .expect(200);
+    await expect(provider.getBooking(context, duplicatePokpayBooking.id)).resolves.toMatchObject({
+      status: 'CONFIRMED',
+    });
+    const duplicatePokpayCharges = await admin.$queryRaw<Array<{ count: bigint }>>`
+      SELECT count(*)::bigint AS count FROM payments
+      WHERE tenant_id = ${tenantId}::uuid AND booking_id = ${duplicatePokpayBooking.id}::uuid
+        AND provider = 'pokpay' AND kind = 'CHARGE'::"PaymentKind"
+    `;
+    expect(duplicatePokpayCharges).toEqual([{ count: 1n }]);
+    expect(
+      paymentConfirmationEmails.filter((email) => email.bookingId === duplicatePokpayBooking.id),
+    ).toHaveLength(1);
+
+    const polledPokpayBooking = await createPokpayBooking('2026-12-07', '2026-12-09');
+    await expect(app!.get(PaymentExpiryService).sweep()).resolves.toEqual({ expired: 0 });
+    await expect(provider.getBooking(context, polledPokpayBooking.id)).resolves.toMatchObject({
+      status: 'CONFIRMED',
+    });
+    expect(
+      paymentConfirmationEmails.filter((email) => email.bookingId === polledPokpayBooking.id),
+    ).toHaveLength(1);
 
     const unavailableReference = `must-${randomUUID()}`;
     const unavailableQuote = await request(app!.getHttpServer())
@@ -526,6 +1436,7 @@ describe('LocalPmsProvider', () => {
         total: unavailableQuote.body.total,
         quoteToken: unavailableQuote.body.quoteToken,
         quoteSessionId,
+        paymentMethod: 'stripe',
       }),
     ).resolves.toMatchObject({ ok: false, error: { code: 'AVAILABILITY_FAILED' } });
     await expect(

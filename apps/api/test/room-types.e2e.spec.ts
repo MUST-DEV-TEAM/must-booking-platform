@@ -31,6 +31,9 @@ describe('room types', () => {
       token = new URL(command.verificationUrl).searchParams.get('token')!;
     },
     async sendWelcomeEmail() {},
+    async sendPasswordResetEmail() {},
+    async sendPaymentConfirmationEmail() {},
+    async sendRefundConfirmationEmail() {},
   };
   const storage: StorageProvider = {
     async createPresignedUpload(command) {

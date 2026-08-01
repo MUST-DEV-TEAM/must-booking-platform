@@ -3,6 +3,11 @@
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+import { Alert, Badge, Button, Card, Heading, Text, TextInput } from '@must/ui';
+
+import { authAssets, AuthShell } from './auth-shell';
+import styles from './signup.module.css';
+
 type SignupFields = {
   organizationName: string;
   propertyName: string;
@@ -24,6 +29,7 @@ const initialFields: SignupFields = {
 export function SignupForm() {
   const router = useRouter();
   const [fields, setFields] = useState(initialFields);
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -59,78 +65,154 @@ export function SignupForm() {
   }
 
   return (
-    <form onSubmit={submit}>
-      <fieldset disabled={submitting}>
-        <legend>Your hotel</legend>
-        <label>
-          Organization name
-          <input
-            name="organizationName"
-            value={fields.organizationName}
-            onChange={(event) => setFields({ ...fields, organizationName: event.target.value })}
-            autoComplete="organization"
-            required
-          />
-        </label>
-        <label>
-          First property name
-          <input
-            name="propertyName"
-            value={fields.propertyName}
-            onChange={(event) => setFields({ ...fields, propertyName: event.target.value })}
-            required
-          />
-        </label>
-        <label>
-          Property address
-          <textarea
-            name="propertyAddress"
-            value={fields.propertyAddress}
-            onChange={(event) => setFields({ ...fields, propertyAddress: event.target.value })}
-            required
-          />
-        </label>
-        <label>
-          Property timezone
-          <input
-            name="propertyTimezone"
-            value={fields.propertyTimezone}
-            onChange={(event) => setFields({ ...fields, propertyTimezone: event.target.value })}
-            autoComplete="off"
-            required
-          />
-        </label>
-      </fieldset>
+    <AuthShell sectionLabelledBy="signup-title">
+      <div className={styles.support}>
+        <span className={styles.supportLabel}>Already have an account?</span>
+        <a className={styles.supportLink} href="/login">
+          Sign in
+        </a>
+      </div>
 
-      <fieldset disabled={submitting}>
-        <legend>Your admin account</legend>
-        <label>
-          Email address
-          <input
-            name="email"
-            type="email"
-            value={fields.email}
-            onChange={(event) => setFields({ ...fields, email: event.target.value })}
-            autoComplete="email"
-            required
-          />
-        </label>
-        <label>
-          Password
-          <input
-            name="password"
-            type="password"
-            value={fields.password}
-            onChange={(event) => setFields({ ...fields, password: event.target.value })}
-            autoComplete="new-password"
-            minLength={12}
-            required
-          />
-        </label>
-      </fieldset>
+      <Badge className={styles.planBadge} tone="success">
+        <img alt="" className={styles.badgeIcon} src={authAssets.check} />
+        <span>FREE PLAN · NO CARD REQUIRED</span>
+      </Badge>
+      <Heading className={styles.formTitle} id="signup-title">
+        Create your workspace
+      </Heading>
+      <Text className={styles.formDescription} tone="secondary">
+        Set up your hotel operations workspace and start managing stays with the permanent Free
+        plan.
+      </Text>
 
-      {error ? <p role="alert">{error}</p> : null}
-      <button type="submit">{submitting ? 'Creating workspace…' : 'Create free workspace'}</button>
-    </form>
+      {error ? (
+        <Alert className={styles.errorAlert} id="signup-error" role="alert" tone="danger">
+          <img alt="" className={styles.errorIcon} src={authAssets.shieldAlert} />
+          <span>{error}</span>
+        </Alert>
+      ) : null}
+
+      <form
+        aria-describedby={error ? 'signup-error' : undefined}
+        className={styles.form}
+        onSubmit={submit}
+      >
+        <fieldset className={styles.section} disabled={submitting}>
+          <legend className={styles.sectionTitle}>Your hotel</legend>
+          <div className={styles.fields}>
+            <div className={styles.field}>
+              <TextInput
+                autoComplete="organization"
+                label="Organization name"
+                name="organizationName"
+                onChange={(event) => setFields({ ...fields, organizationName: event.target.value })}
+                required
+                value={fields.organizationName}
+              />
+            </div>
+            <div className={styles.field}>
+              <TextInput
+                label="First property name"
+                name="propertyName"
+                onChange={(event) => setFields({ ...fields, propertyName: event.target.value })}
+                required
+                value={fields.propertyName}
+              />
+            </div>
+            <label className={`${styles.field} ${styles.fieldFull}`} htmlFor="property-address">
+              <span className={styles.fieldLabel}>Property address</span>
+              <textarea
+                id="property-address"
+                name="propertyAddress"
+                onChange={(event) => setFields({ ...fields, propertyAddress: event.target.value })}
+                required
+                rows={3}
+                value={fields.propertyAddress}
+              />
+            </label>
+            <div className={styles.field}>
+              <TextInput
+                autoComplete="off"
+                label="Property timezone"
+                name="propertyTimezone"
+                onChange={(event) => setFields({ ...fields, propertyTimezone: event.target.value })}
+                required
+                value={fields.propertyTimezone}
+              />
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset className={styles.section} disabled={submitting}>
+          <legend className={styles.sectionTitle}>Your admin account</legend>
+          <div className={styles.fields}>
+            <div className={styles.field}>
+              <TextInput
+                autoComplete="email"
+                label="Email address"
+                name="email"
+                onChange={(event) => setFields({ ...fields, email: event.target.value })}
+                placeholder="name@hotel.com"
+                required
+                startAdornment={<img alt="" height="18" src={authAssets.email} width="18" />}
+                type="email"
+                value={fields.email}
+              />
+            </div>
+            <div className={styles.field}>
+              <TextInput
+                autoComplete="new-password"
+                endAdornment={
+                  <button
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    aria-pressed={showPassword}
+                    className={styles.passwordToggle}
+                    onClick={() => setShowPassword((visible) => !visible)}
+                    type="button"
+                  >
+                    <img
+                      alt=""
+                      height="16"
+                      src={showPassword ? authAssets.eyeOff : authAssets.eye}
+                      width="16"
+                    />
+                  </button>
+                }
+                label="Password"
+                minLength={12}
+                name="password"
+                onChange={(event) => setFields({ ...fields, password: event.target.value })}
+                placeholder="At least 12 characters"
+                required
+                startAdornment={<img alt="" height="18" src={authAssets.lock} width="18" />}
+                type={showPassword ? 'text' : 'password'}
+                value={fields.password}
+              />
+            </div>
+          </div>
+        </fieldset>
+
+        <Text className={styles.passwordHint} tone="secondary">
+          Use at least 12 characters. You can add staff and properties after your workspace is
+          created.
+        </Text>
+        <Button className={styles.submitButton} disabled={submitting} type="submit">
+          {submitting ? 'Creating workspace…' : 'Create free workspace'}
+          <img alt="" className={styles.submitArrow} src={authAssets.arrowRight} />
+        </Button>
+      </form>
+
+      <Card className={styles.freePlanNote}>
+        <span className={styles.freePlanIcon}>
+          <img alt="" height="18" src={authAssets.shieldCheckExact} width="18" />
+        </span>
+        <span className={styles.freePlanCopy}>
+          <span className={styles.freePlanTitle}>A simple place to start</span>
+          <span className={styles.freePlanDescription}>
+            No payment card is required. Your workspace starts on MUST&apos;s permanent Free plan.
+          </span>
+        </span>
+      </Card>
+    </AuthShell>
   );
 }

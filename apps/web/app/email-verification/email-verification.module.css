@@ -1,0 +1,156 @@
+.support {
+  align-items: center;
+  align-self: stretch;
+  display: flex;
+  flex: 0 0 1.5rem;
+  font-size: 0.625rem;
+  gap: 0.3125rem;
+  justify-content: flex-end;
+  line-height: 1.2;
+}
+
+.supportLabel {
+  color: var(--must-color-text-secondary);
+}
+
+.supportLink,
+.backLink {
+  color: var(--must-color-ink);
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+}
+
+.supportLink:hover,
+.backLink:hover {
+  color: var(--must-color-ink-hover);
+}
+
+.statusBadge,
+.errorBadge {
+  align-items: center;
+  align-self: flex-start;
+  border-radius: var(--must-radius-control);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0.5625rem;
+  font-weight: 650;
+  gap: 0.4375rem;
+  height: 1.75rem;
+  letter-spacing: 0.01em;
+  margin-top: 1.625rem;
+  padding: 0 0.5625rem;
+}
+
+.statusBadge {
+  background: var(--must-color-success-surface);
+  border: 1px solid var(--must-color-border-strong);
+  color: var(--must-color-success);
+}
+
+.errorBadge {
+  background: var(--must-color-danger-surface);
+  border: 1px solid var(--must-color-danger);
+  color: var(--must-color-danger);
+}
+
+.badgeIcon {
+  height: 0.75rem;
+  width: 0.75rem;
+}
+
+.formTitle {
+  font-size: 2rem;
+  font-weight: 600;
+  line-height: 1.2;
+  margin: 1.375rem 0 0.625rem;
+}
+
+.formDescription {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  margin: 0;
+  max-width: 34rem;
+}
+
+.statusCard {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 2rem;
+  max-width: 42rem;
+  min-height: 5.5rem;
+  padding: 1rem;
+}
+
+.statusIcon {
+  align-items: center;
+  background: var(--must-color-success-surface);
+  border-radius: var(--must-radius-control);
+  display: inline-flex;
+  flex: 0 0 2.25rem;
+  height: 2.25rem;
+  justify-content: center;
+  width: 2.25rem;
+}
+
+.statusCopy {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.statusTitle {
+  color: var(--must-color-text-primary);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  line-height: 0.9375rem;
+}
+
+.statusDescription {
+  color: var(--must-color-text-secondary);
+  font-size: 0.625rem;
+  line-height: 0.875rem;
+}
+
+.errorAlert {
+  align-items: center;
+  background: var(--must-color-danger-surface);
+  border-color: var(--must-color-danger);
+  color: var(--must-color-danger);
+  display: flex;
+  font-size: 0.6875rem;
+  gap: 0.75rem;
+  line-height: 1.35;
+  margin-top: 2rem;
+  padding: 0.875rem 1rem;
+}
+
+.errorIcon {
+  flex: 0 0 1.125rem;
+  height: 1.125rem;
+  width: 1.125rem;
+}
+
+.backLink {
+  align-self: flex-start;
+  font-size: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+@media (max-width: 767px) {
+  .formTitle {
+    font-size: 1.75rem;
+    margin-top: 1.5rem;
+  }
+
+  .formDescription {
+    max-width: none;
+  }
+
+  .statusCard,
+  .errorAlert {
+    margin-top: 1.75rem;
+  }
+}

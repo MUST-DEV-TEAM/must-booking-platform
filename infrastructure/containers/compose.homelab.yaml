@@ -1,0 +1,81 @@
+name: must-booking
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: must_booking
+      POSTGRES_USER: must_booking
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - redis-data:/data
+    networks:
+      - internal
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/api.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APP_PORT: 3000
+      DATABASE_URL: postgresql://must_booking_app:must_booking_app_dev@postgres:5432/must_booking?schema=public
+      MIGRATION_DATABASE_URL: postgresql://must_booking:${POSTGRES_PASSWORD}@postgres:5432/must_booking?schema=public
+      REDIS_URL: redis://redis:6379
+      WEB_APP_URL: ${WEB_APP_URL}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      MAIL_FROM_EMAIL: ${MAIL_FROM_EMAIL:-}
+      PLATFORM_ADMIN_EMAIL: ${PLATFORM_ADMIN_EMAIL:-}
+      PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD:-}
+      QUOTE_SIGNING_SECRET: ${QUOTE_SIGNING_SECRET}
+    ports:
+      - '4010:3000'
+    networks:
+      - internal
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/web.Dockerfile
+      args:
+        API_URL: http://api:3000
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      API_URL: http://api:3000
+    ports:
+      - '4011:3001'
+    networks:
+      - internal
+
+networks:
+  internal:
+
+volumes:
+  postgres-data:
+  redis-data:

@@ -1,0 +1,1265 @@
+@font-face {
+    font-family: 'PP Neue Montreal';
+    src: local('PP Neue Montreal'), local('PPNeueMontreal');
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'PP Neue Montreal';
+    src: local('PP Neue Montreal Medium'), local('PPNeueMontreal-Medium'), local('PPNeueMontreal');
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+}
+
+.must-hotel-booking-page-single-room {
+    overflow-x: hidden;
+}
+
+.must-hotel-booking-page-single-room .must-hotel-booking-single-room {
+    --must-single-room-gutter-x: 140px;
+    --must-single-room-gutter-y: 140px;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0 auto;
+    padding: var(--must-single-room-gutter-y) var(--must-single-room-gutter-x);
+    color: #141414;
+    font-family: 'PP Neue Montreal', sans-serif;
+}
+
+.must-hotel-booking-page-single-room .must-hotel-booking-single-room :is(h1, h2, h3, h4, h5, h6, p, a, span, li, label, button, input, select, textarea) {
+    font-family: 'PP Neue Montreal', sans-serif;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.12fr);
+    gap: 150px;
+    align-items: stretch;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-content {
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-title {
+    margin: 0;
+    font-size: 60px;
+    line-height: 1;
+    letter-spacing: -0.022em;
+    font-weight: 500;
+    color: #1e1e1e;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-actions {
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 50px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-action-link,
+.must-hotel-booking-single-room .must-hotel-booking-single-room-terms-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    color: #141414;
+    text-decoration: none;
+    border-bottom: 1.5px solid #141414;
+    padding-bottom: 2px;
+    font-size: 28px;
+    line-height: 1;
+    letter-spacing: -0.011em;
+    font-weight: 400;
+    transition: opacity 0.2s ease;
+}
+
+.must-hotel-booking-single-room button.must-hotel-booking-single-room-action-link,
+.must-hotel-booking-single-room button.must-hotel-booking-related-room-book {
+    border-top: 0;
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0 !important;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    box-shadow: none;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.must-hotel-booking-single-room button.must-hotel-booking-single-room-action-link {
+    padding: 0 0 2px;
+}
+
+.must-hotel-booking-single-room button.must-hotel-booking-related-room-book {
+    padding: 0 0 1px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-action-link img,
+.must-hotel-booking-single-room .must-hotel-booking-single-room-terms-link img {
+    width: 26px;
+    height: 26px;
+    object-fit: contain;
+    filter: brightness(0) saturate(100%);
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-action-link:hover,
+.must-hotel-booking-single-room .must-hotel-booking-single-room-terms-link:hover {
+    opacity: 0.78;
+    border-bottom-color: #141414;
+}
+
+.must-hotel-booking-single-room button.must-hotel-booking-single-room-action-link:hover,
+.must-hotel-booking-single-room button.must-hotel-booking-single-room-action-link:focus,
+.must-hotel-booking-single-room button.must-hotel-booking-single-room-action-link:active,
+.must-hotel-booking-single-room button.must-hotel-booking-related-room-book:hover,
+.must-hotel-booking-single-room button.must-hotel-booking-related-room-book:focus,
+.must-hotel-booking-single-room button.must-hotel-booking-related-room-book:active {
+    color: #141414 !important;
+    background: transparent !important;
+    border-bottom-color: #141414 !important;
+    box-shadow: none !important;
+    opacity: 1;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-action-link:focus-visible,
+.must-hotel-booking-single-room .must-hotel-booking-single-room-terms-link:focus-visible,
+.must-hotel-booking-single-room .must-hotel-booking-related-room-book:focus-visible,
+.must-hotel-booking-single-room .must-hotel-booking-related-room-details:focus-visible {
+    outline: 2px solid #141414;
+    outline-offset: 4px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-meta {
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 18px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-meta p {
+    margin: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-family: 'PP Neue Montreal';
+    font-weight: 500;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-meta img {
+    width: 15px;
+    height: 15px;
+    object-fit: contain;
+    filter: brightness(0) saturate(100%) invert(83%) sepia(14%) saturate(324%) hue-rotate(165deg) brightness(88%) contrast(90%);
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-description {
+    margin: 0;
+    max-width: 620px;
+    font-size: 17px;
+    line-height: 1.35;
+    font-weight: 500;
+    color: #1e1e1e;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-price {
+    padding-left: 18px;
+    border-left: 1px solid rgba(20, 20, 20, 0.28);
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-section {
+    margin: 0;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-section h2 {
+    margin: 0 0 12px;
+    font-size: 28px;
+    line-height: 1;
+    font-weight: 500;
+    color: #1e1e1e;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-section p {
+    margin: 0;
+    font-size: 16px;
+    line-height: 120%;
+    font-weight: 500;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-amenities-grid {
+    margin-top: 20px;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(84px, 1fr));
+    gap: 30px 15px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-amenity-item {
+    max-width: 100px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    font-family: 'PP Neue Montreal';
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 1.2;
+    width: 100px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-amenity-icon-wrap {
+    width: 55px;
+    height: 50px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #fff;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-amenity-icon-wrap img {
+    object-fit: contain;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-terms-link {
+    margin-top: 0;
+    width: fit-content;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-wbe-inline-warning {
+    width: 100%;
+    max-width: 560px;
+    padding: 14px 16px;
+    border: 1px solid #f2c078;
+    background: #fff4e5;
+    color: #141414;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-wbe-inline-warning p {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-wbe-inline-warning a {
+    color: inherit;
+    font-weight: 600;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-media {
+    min-width: 0;
+    align-self: stretch;
+    height: 100%;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) auto;
+    gap: 12px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-main-media {
+    margin: 0;
+    min-height: 0;
+    height: 100%;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-main-image-trigger {
+    width: 100%;
+    height: 100%;
+    display: block;
+    border: 0;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    cursor: zoom-in;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-main-image,
+.must-hotel-booking-single-room .must-hotel-booking-single-room-image-placeholder {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    object-fit: cover;
+    display: block;
+    background: #f0f0f0;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-image-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 20px;
+    border: 1px solid #d7d7d7;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-thumbs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-thumb-button {
+    width: 100%;
+    border: 0;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    cursor: zoom-in;
+    opacity: 0.9;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-thumb-button.is-active {
+    opacity: 1;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-thumb-button img {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    display: block;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-single-room-thumb-placeholder {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    display: block;
+    background: #ebebeb;
+    border: 1px solid #dedede;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-rooms-section {
+    position: relative;
+    width: calc(100% + var(--must-single-room-gutter-x) + var(--must-single-room-gutter-x));
+    margin-top: 110px;
+    margin-left: calc(0px - var(--must-single-room-gutter-x));
+    margin-right: calc(0px - var(--must-single-room-gutter-x));
+    background: #fff;
+    min-height: 1015px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-rooms-inner {
+    box-sizing: border-box;
+    width: 100%;
+    margin: 0 auto;
+    padding: 140px;
+    display: flex;
+    flex-direction: column;
+    gap: 80px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-rooms-kicker {
+    margin: 0;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 15px;
+    width: 100%;
+    min-height: 30px;
+    font-family: 'Apercu Mono', 'PP Neue Montreal', sans-serif;
+    font-style: normal;
+    font-weight: 400;
+    font-size: 20px;
+    line-height: 150%;
+    letter-spacing: -0.011em;
+    text-transform: uppercase;
+    color: #1e1e1e;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-rooms-kicker::after {
+    content: '';
+    flex: 1 1 auto;
+    min-width: 0;
+    border-top: 1px solid #c2bfaf;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-rooms-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 80px;
+    align-items: start;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-card {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-media {
+    position: relative;
+    overflow: hidden;
+    background: #f2f2f2;
+    height: 525px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-image-trigger {
+    width: 100%;
+    height: 100%;
+    display: block;
+    border: 0;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    cursor: zoom-in;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-image,
+.must-hotel-booking-single-room .must-hotel-booking-related-room-image-placeholder {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-image-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #5c5c5c;
+    font-size: 14px;
+    background: #e6e6e6;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 38px;
+    height: 38px;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-arrow:hover {
+    background: transparent;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-arrow img {
+    width: 37px;
+    height: 37px;
+    object-fit: contain;
+    filter: brightness(0) invert(1);
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-arrow-prev {
+    left: 12px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-arrow-prev img {
+    transform: rotate(180deg);
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-arrow-next {
+    right: 12px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-content {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-content h3 {
+    margin: 0;
+    font-size: 24px;
+    line-height: 1;
+    font-weight: 500;
+    color: #1e1e1e;
+    min-height: 53px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-actions {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    width: 100%;
+    min-height: 50px;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-book {
+    display: inline-flex;
+    align-items: center;
+    gap: clamp(6px, 0.6vw, 10px);
+    color: #141414;
+    text-decoration: none;
+    border-bottom: 1.5px solid #141414;
+    padding-bottom: 1px;
+    font-family: 'PP Neue Montreal', sans-serif;
+    font-style: normal;
+    font-weight: 400;
+    font-size: clamp(20px, 2vw, 24px);
+    line-height: 1;
+    letter-spacing: -0.011em;
+    white-space: nowrap;
+    transition: opacity 0.2s ease;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-book span,
+.must-hotel-booking-single-room .must-hotel-booking-related-room-details span {
+    white-space: nowrap;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-book img {
+    width: clamp(20px, 1.8vw, 26px);
+    height: clamp(20px, 1.8vw, 26px);
+    object-fit: contain;
+    filter: brightness(0) saturate(100%);
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-details {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(10px, 1.2vw, 20px);
+    height: clamp(42px, 3.5vw, 50px);
+    width: clamp(185px, 16vw, 225px);
+    padding: clamp(8px, 0.6vw, 10px) clamp(16px, 2vw, 36px);
+    border: 1px solid #141414;
+    background: transparent;
+    color: #141414;
+    text-decoration: none;
+    font-family: 'PP Neue Montreal', sans-serif;
+    font-style: normal;
+    font-weight: 500;
+    font-size: clamp(15px, 1.3vw, 20px);
+    line-height: 1.5;
+    letter-spacing: -0.011em;
+    white-space: nowrap;
+    flex: 0 0 auto;
+    transition: opacity 0.2s ease;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-details img {
+    width: clamp(16px, 1.4vw, 21px);
+    height: clamp(11px, 1vw, 15px);
+    object-fit: contain;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-book:hover,
+.must-hotel-booking-single-room .must-hotel-booking-related-room-details:hover {
+    opacity: 0.8;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-related-room-book:hover {
+    border-bottom-color: #141414;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-included-accommodations-section {
+    position: relative;
+    width: calc(100% + var(--must-single-room-gutter-x) + var(--must-single-room-gutter-x));
+    margin-top: 60px;
+    margin-left: calc(0px - var(--must-single-room-gutter-x));
+    margin-right: calc(0px - var(--must-single-room-gutter-x));
+    background: #f5f3ec;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-included-accommodations-inner {
+    box-sizing: border-box;
+    width: 100%;
+    margin: 0 auto;
+    padding: 60px 140px;
+    display: flex;
+    flex-direction: column;
+    gap: 60px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-included-accommodations-kicker {
+    margin: 0;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 2px;
+    width: 100%;
+    min-height: 30px;
+    font-family: 'Apercu Mono', 'PP Neue Montreal', sans-serif;
+    font-style: normal;
+    font-weight: 400;
+    font-size: 20px;
+    line-height: 150%;
+    letter-spacing: -0.011em;
+    text-transform: uppercase;
+    color: #1e1e1e;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-included-accommodations-kicker::after {
+    content: '';
+    flex: 1 1 auto;
+    min-width: 0;
+    border-top: 1px solid #c2bfaf;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-included-accommodations-title {
+    margin: 0;
+    font-family: 'PP Neue Montreal', sans-serif;
+    font-style: normal;
+    font-weight: 500;
+    font-size: clamp(42px, 3.1vw, 60px);
+    line-height: 1;
+    letter-spacing: -0.022em;
+    color: #1e1e1e;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-included-accommodations-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-included-accommodations-card {
+    box-sizing: border-box;
+    min-height: 218px;
+    border: 2px solid #141414;
+    padding: 35px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-included-accommodations-icon-wrap {
+    width: 55px;
+    height: 55px;
+    background: #141414;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-included-accommodations-icon-wrap img {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+}
+
+.must-hotel-booking-single-room .must-hotel-booking-included-accommodations-card h3 {
+    margin: 0;
+    font-family: 'PP Neue Montreal', sans-serif;
+    font-style: normal;
+    font-weight: 400;
+    font-size: 32px;
+    line-height: 1.05;
+    color: #141414;
+}
+
+body.must-hotel-booking-single-room-lightbox-open {
+    overflow: hidden;
+}
+
+.must-hotel-booking-single-room-lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 999999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.must-hotel-booking-single-room-lightbox.is-open {
+    opacity: 1;
+    visibility: visible;
+}
+
+.must-hotel-booking-single-room-lightbox .must-hotel-booking-single-room-lightbox-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.86);
+}
+
+.must-hotel-booking-single-room-lightbox .must-hotel-booking-single-room-lightbox-dialog {
+    position: relative;
+    width: min(1240px, 100%);
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.must-hotel-booking-single-room-lightbox .must-hotel-booking-single-room-lightbox-figure {
+    width: 100%;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+.must-hotel-booking-single-room-lightbox .must-hotel-booking-single-room-lightbox-image {
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    max-height: calc(100vh - 130px);
+    object-fit: contain;
+    border-radius: 10px;
+    display: block;
+}
+
+.must-hotel-booking-single-room-lightbox .must-hotel-booking-single-room-lightbox-caption {
+    color: #fff;
+    font-size: 14px;
+    line-height: 1.4;
+    text-align: center;
+}
+
+.must-hotel-booking-single-room-lightbox .must-hotel-booking-single-room-lightbox-close,
+.must-hotel-booking-single-room-lightbox .must-hotel-booking-single-room-lightbox-nav {
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    background: rgba(18, 18, 18, 0.6);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.must-hotel-booking-single-room-lightbox .must-hotel-booking-single-room-lightbox-close {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    font-size: 28px;
+    line-height: 1;
+}
+
+.must-hotel-booking-single-room-lightbox .must-hotel-booking-single-room-lightbox-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    font-size: 24px;
+    line-height: 1;
+}
+
+.must-hotel-booking-single-room-lightbox .must-hotel-booking-single-room-lightbox-prev {
+    left: 12px;
+}
+
+.must-hotel-booking-single-room-lightbox .must-hotel-booking-single-room-lightbox-next {
+    right: 12px;
+}
+
+@media (max-width: 1600px) {
+    .must-hotel-booking-page-single-room .must-hotel-booking-single-room {
+        --must-single-room-gutter-x: 120px;
+        --must-single-room-gutter-y: 120px;
+        padding: var(--must-single-room-gutter-y) var(--must-single-room-gutter-x);
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-grid {
+        gap: 120px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-rooms-grid {
+        gap: 60px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-media {
+        height: 470px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-inner {
+        padding: 60px 120px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-card {
+        min-height: 200px;
+        padding: 28px;
+    }
+}
+
+@media (max-width: 1360px) {
+    .must-hotel-booking-page-single-room .must-hotel-booking-single-room {
+        --must-single-room-gutter-x: 96px;
+        --must-single-room-gutter-y: 96px;
+        padding: var(--must-single-room-gutter-y) var(--must-single-room-gutter-x);
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-grid {
+        gap: 90px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-content {
+        gap: 22px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-amenities-grid {
+        grid-template-columns: repeat(4, minmax(90px, 1fr));
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-rooms-inner {
+        padding: 70px 96px;
+        gap: 56px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-rooms-grid {
+        gap: 44px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-media {
+        height: 390px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-actions {
+        gap: 26px;
+        width: 100%;
+        min-height: 46px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-book {
+        font-size: 24px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-book img {
+        width: 24px;
+        height: 24px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-details {
+        width: 220px;
+        height: 46px;
+        padding: 8px 24px;
+        gap: 14px;
+        font-size: 18px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-inner {
+        padding: 60px 96px;
+        gap: 48px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-card h3 {
+        font-size: clamp(24px, 2.2vw, 30px);
+    }
+}
+
+@media (max-width: 1199px) {
+    .must-hotel-booking-page-single-room .must-hotel-booking-single-room {
+        --must-single-room-gutter-x: 50px;
+        --must-single-room-gutter-y: 100px;
+        padding: var(--must-single-room-gutter-y) var(--must-single-room-gutter-x);
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-grid {
+        grid-template-columns: 1fr;
+        gap: 30px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-content {
+        height: auto;
+        gap: 22px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-media {
+        order: -1;
+        height: auto;
+        grid-template-rows: auto auto;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-main-media,
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-main-image-trigger {
+        height: auto;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-main-image,
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-image-placeholder {
+        height: auto;
+        aspect-ratio: 4 / 3;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-amenities-grid {
+        max-width: none;
+        grid-template-columns: repeat(4, minmax(90px, 1fr));
+        gap: 16px 14px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-rooms-section {
+        min-height: 0;
+        margin-top: 76px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-rooms-inner {
+        padding: 60px 75px;
+        gap: 40px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-rooms-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 28px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-media {
+        height: clamp(270px, 34vw, 360px);
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-actions {
+        gap: 16px;
+        align-items: flex-start;
+        min-height: 42px;
+        flex-wrap: wrap;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-book {
+        font-size: 22px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-book img {
+        width: 22px;
+        height: 22px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-details {
+        width: 210px;
+        height: 44px;
+        padding: 8px 18px;
+        gap: 10px;
+        font-size: 16px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-content h3 {
+        min-height: 0;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-section {
+        margin-top: 48px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-inner {
+        padding: 60px 75px;
+        gap: 40px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-card {
+        min-height: 182px;
+        padding: 24px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-icon-wrap {
+        width: 50px;
+        height: 50px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-icon-wrap img {
+        width: 24px;
+        height: 24px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-card h3 {
+        font-size: clamp(22px, 2.4vw, 28px);
+    }
+}
+
+@media (max-width: 991px) {
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-title {
+        font-size: clamp(30px, 5.2vw, 46px);
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-actions {
+        gap: 18px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-main-image,
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-image-placeholder {
+        aspect-ratio: 5 / 4;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-action-link,
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-terms-link {
+        font-size: clamp(18px, 3vw, 24px);
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-amenities-grid {
+        grid-template-columns: repeat(3, minmax(90px, 1fr));
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-content h3 {
+        font-size: clamp(20px, 2.8vw, 26px);
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-actions {
+        width: 100%;
+        gap: 12px;
+        align-items: center;
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-book {
+        font-size: clamp(20px, 3.2vw, 24px);
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-details {
+        width: 100%;
+        min-height: 44px;
+        height: auto;
+        justify-content: space-between;
+        font-size: 16px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-inner {
+        gap: 34px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-kicker {
+        font-size: 16px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-title {
+        font-size: clamp(36px, 6vw, 50px);
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .must-hotel-booking-single-room-lightbox {
+        padding: 16px;
+    }
+
+    .must-hotel-booking-single-room-lightbox .must-hotel-booking-single-room-lightbox-image {
+        max-height: calc(100vh - 170px);
+    }
+}
+
+@media (max-width: 767px) {
+    .must-hotel-booking-page-single-room .must-hotel-booking-single-room {
+        --must-single-room-gutter-x: 20px;
+        --must-single-room-gutter-y: 50px;
+        padding: var(--must-single-room-gutter-y) var(--must-single-room-gutter-x);
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-grid {
+        gap: 22px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-content {
+        gap: 18px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-actions {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 14px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-action-link,
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-terms-link {
+        font-size: clamp(18px, 5.4vw, 22px);
+        max-width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-meta p {
+        font-size: 15px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-section h2 {
+        font-size: clamp(22px, 7vw, 30px);
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-section p {
+        font-size: 14px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-amenities-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px 12px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-amenity-item {
+        max-width: none;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-amenity-icon-wrap {
+        width: 40px;
+        height: 40px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-thumbs {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-rooms-section {
+        margin-top: 56px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-rooms-inner {
+        padding: 40px 30px;
+        gap: 24px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-rooms-grid {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-media {
+        height: clamp(220px, 58vw, 360px);
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-rooms-kicker {
+        font-size: 14px;
+        min-height: 22px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-arrow {
+        width: 34px;
+        height: 34px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-actions {
+        gap: 12px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-details {
+        width: 100%;
+        min-height: 42px;
+        padding: 8px 14px;
+        font-size: 15px;
+        gap: 10px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-book {
+        font-size: clamp(19px, 5.3vw, 22px);
+        max-width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-book img {
+        width: 20px;
+        height: 20px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-section {
+        margin-top: 40px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-inner {
+        padding: 40px 30px;
+        gap: 30px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-kicker {
+        font-size: 14px;
+        min-height: 22px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-title {
+        font-size: clamp(30px, 9vw, 40px);
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-card {
+        min-height: 156px;
+        padding: 20px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-card h3 {
+        font-size: clamp(21px, 7vw, 28px);
+    }
+
+    .must-hotel-booking-single-room-lightbox {
+        padding: 12px;
+    }
+
+    .must-hotel-booking-single-room-lightbox .must-hotel-booking-single-room-lightbox-close {
+        top: 4px;
+        right: 4px;
+        width: 38px;
+        height: 38px;
+    }
+
+    .must-hotel-booking-single-room-lightbox .must-hotel-booking-single-room-lightbox-nav {
+        width: 38px;
+        height: 38px;
+    }
+}
+
+@media (max-width: 480px) {
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-title {
+        font-size: clamp(28px, 9vw, 36px);
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-action-link,
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-terms-link {
+        font-size: 18px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-single-room-amenity-item {
+        font-size: 13px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-details {
+        width: 100%;
+        justify-content: space-between;
+        font-size: 14px;
+        padding: 8px 12px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-book {
+        font-size: 18px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-related-room-book img {
+        width: 18px;
+        height: 18px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-card {
+        min-height: 145px;
+        padding: 18px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-icon-wrap {
+        width: 45px;
+        height: 45px;
+    }
+
+    .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-icon-wrap img {
+        width: 20px;
+        height: 20px;
+    }
+
+    .must-hotel-booking-single-room-lightbox .must-hotel-booking-single-room-lightbox-caption {
+        font-size: 13px;
+    }
+}

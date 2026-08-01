@@ -15,12 +15,13 @@ import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { AuditLogService } from '../tenancy/audit-log.service';
 import { MAIL_PROVIDER, type MailProvider } from '../mail/mail.provider';
 
-type AuthUser = {
+type AuthUserRecord = {
   id: string;
   email: string;
   passwordHash: string | null;
   emailVerifiedAt: Date | null;
 };
+type AuthUser = AuthUserRecord & { isPlatformAdmin: boolean };
 type Session = { userId: string };
 type EmailVerificationToken = { userId: string; email: string; organizationName: string };
 type SignupInput = {
@@ -135,9 +136,10 @@ export class AuthService implements OnModuleDestroy {
     };
   }
 
-  async login(
-    input: unknown,
-  ): Promise<{ sessionId: string; user: { id: string; email: string; emailVerified: boolean } }> {
+  async login(input: unknown): Promise<{
+    sessionId: string;
+    user: { id: string; email: string; emailVerified: boolean; isPlatformAdmin: boolean };
+  }> {
     const { email, password } = this.credentials(input);
     const user = await this.findUser(email);
     if (!user?.passwordHash || !(await bcrypt.compare(password, user.passwordHash))) {
@@ -152,7 +154,12 @@ export class AuthService implements OnModuleDestroy {
     });
     return {
       sessionId,
-      user: { id: user.id, email: user.email, emailVerified: user.emailVerifiedAt !== null },
+      user: {
+        id: user.id,
+        email: user.email,
+        emailVerified: user.emailVerifiedAt !== null,
+        isPlatformAdmin: user.isPlatformAdmin,
+      },
     };
   }
 
@@ -181,14 +188,22 @@ export class AuthService implements OnModuleDestroy {
     }
   }
 
-  async getSessionUser(
-    sessionId: string | undefined,
-  ): Promise<{ id: string; email: string; emailVerified: boolean } | null> {
+  async getSessionUser(sessionId: string | undefined): Promise<{
+    id: string;
+    email: string;
+    emailVerified: boolean;
+    isPlatformAdmin: boolean;
+  } | null> {
     const userId = await this.getSessionUserId(sessionId);
     if (!userId) return null;
     const user = await this.findUserById(userId);
     return user
-      ? { id: user.id, email: user.email, emailVerified: user.emailVerifiedAt !== null }
+      ? {
+          id: user.id,
+          email: user.email,
+          emailVerified: user.emailVerifiedAt !== null,
+          isPlatformAdmin: user.isPlatformAdmin,
+        }
       : null;
   }
 
@@ -212,7 +227,14 @@ export class AuthService implements OnModuleDestroy {
   async requestPasswordReset(input: unknown): Promise<void> {
     const email = this.email(input);
     const user = await this.findUser(email);
-    if (user) await this.issueToken('password-reset', user.id, 3_600);
+    if (user) {
+      const resetToken = await this.issueToken('password-reset', user.id, 3_600);
+      await this.sendPasswordResetEmailSafely({
+        userId: user.id,
+        to: user.email,
+        resetToken,
+      });
+    }
   }
 
   async resetPassword(input: unknown): Promise<void> {
@@ -255,23 +277,32 @@ export class AuthService implements OnModuleDestroy {
   }
 
   private async findUser(email: string): Promise<AuthUser | null> {
-    const rows = await this.database.$queryRaw<AuthUser[]>`
+    const rows = await this.database.$queryRaw<AuthUserRecord[]>`
       SELECT id, email, password_hash AS "passwordHash", email_verified_at AS "emailVerifiedAt"
       FROM "auth_get_user_by_email"(${email})
     `;
-    return rows[0] ?? null;
+    return rows[0] ? this.withPlatformRole(rows[0]) : null;
   }
 
-  private async findUserById(userId: string): Promise<Omit<AuthUser, 'passwordHash'> | null> {
-    const rows = await this.database.$queryRaw<
-      Array<Omit<AuthUser, 'passwordHash'>>
-    >`SELECT id, email, email_verified_at AS "emailVerifiedAt" FROM "auth_get_user_by_id"(${userId}::uuid)`;
-    return rows[0] ?? null;
+  private async findUserById(userId: string): Promise<AuthUser | null> {
+    const rows = await this.database.$queryRaw<AuthUserRecord[]>`
+      SELECT id, email, NULL::text AS "passwordHash", email_verified_at AS "emailVerifiedAt"
+      FROM "auth_get_user_by_id"(${userId}::uuid)
+    `;
+    return rows[0] ? this.withPlatformRole(rows[0]) : null;
   }
 
-  private async issueToken(kind: string, userId: string, ttl: number): Promise<void> {
+  private async withPlatformRole(user: AuthUserRecord): Promise<AuthUser> {
+    const rows = await this.database.$queryRaw<Array<{ isPlatformAdmin: boolean }>>`
+      SELECT "auth_is_platform_admin"(${user.id}::uuid) AS "isPlatformAdmin"
+    `;
+    return { ...user, isPlatformAdmin: rows[0]?.isPlatformAdmin === true };
+  }
+
+  private async issueToken(kind: string, userId: string, ttl: number): Promise<string> {
     const token = randomBytes(32).toString('base64url');
     await this.set(`auth:${kind}:${this.hash(token)}`, userId, ttl);
+    return token;
   }
 
   private async issueEmailVerificationToken(value: EmailVerificationToken): Promise<string> {
@@ -332,11 +363,39 @@ export class AuthService implements OnModuleDestroy {
     }
   }
 
-  private logMailFailure(kind: 'verification' | 'welcome', userId: string, error: unknown): void {
+  private async sendPasswordResetEmailSafely(
+    command: Omit<Parameters<MailProvider['sendPasswordResetEmail']>[0], 'resetUrl'> & {
+      resetToken: string;
+    },
+  ) {
+    try {
+      await this.mail.sendPasswordResetEmail({
+        userId: command.userId,
+        to: command.to,
+        resetUrl: this.passwordResetUrl(command.resetToken),
+      });
+    } catch (error) {
+      this.logMailFailure('password-reset', command.userId, error);
+    }
+  }
+
+  private logMailFailure(
+    kind: 'verification' | 'welcome' | 'password-reset',
+    userId: string,
+    error: unknown,
+  ): void {
     this.logger.error(
       `Unable to send ${kind} email for user ${userId}; continuing core action.`,
       error instanceof Error ? error.stack : String(error),
     );
+  }
+
+  private passwordResetUrl(token: string): string {
+    const baseUrl = process.env.WEB_APP_URL?.trim();
+    if (!baseUrl) throw new Error('WEB_APP_URL must be configured before sending email.');
+    const url = new URL('/reset-password', baseUrl);
+    url.searchParams.set('token', token);
+    return url.toString();
   }
 
   private async consumeToken(kind: string, token: string): Promise<string | null> {

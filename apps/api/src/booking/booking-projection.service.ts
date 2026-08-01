@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { BookingStatus } from '@must/domain-contracts';
+import { BookingPaymentMethod, BookingStatus } from '@must/domain-contracts';
 
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 
@@ -8,6 +8,11 @@ export type BookingProjection = {
   guestId: string;
   guestEmail: string;
   guestPhone: string | null;
+  guestStreetAddress: string | null;
+  guestAddressLine2: string | null;
+  guestCity: string | null;
+  guestCounty: string | null;
+  guestPostcode: string | null;
   roomTypeId: string;
   roomTypeName: string;
   ratePlanId: string;
@@ -15,6 +20,7 @@ export type BookingProjection = {
   startsOn: string;
   endsOn: string;
   status: BookingStatus;
+  paymentMethod: BookingPaymentMethod;
   total: { amount: string; currency: string };
   externalReference: string;
   version: number;
@@ -39,9 +45,12 @@ export class BookingProjectionService {
           >
         >`
         SELECT b.id, b.guest_id AS "guestId", g.email AS "guestEmail", g.phone AS "guestPhone",
+          g.street_address AS "guestStreetAddress", g.address_line_2 AS "guestAddressLine2",
+          g.city AS "guestCity", g.county AS "guestCounty", g.postcode AS "guestPostcode",
           b.room_type_id AS "roomTypeId", rt.name AS "roomTypeName",
           b.rate_plan_id AS "ratePlanId", rp.name AS "ratePlanName",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
+          b.payment_method AS "paymentMethod",
           b.total_amount::text AS "totalAmount", rp.currency, b.external_reference AS "externalReference",
           b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
         FROM bookings b

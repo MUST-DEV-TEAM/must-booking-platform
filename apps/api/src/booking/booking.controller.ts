@@ -11,15 +11,18 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import type { GuestPaymentMethod } from '@must/domain-contracts';
 
 import { PublicTenantScoped } from '../tenancy/tenant-context.decorator';
 import { Role, Roles } from '../tenancy/roles.decorator';
 import { TenantScoped } from '../tenancy/tenant-context.decorator';
 import { LocalPmsProvider } from './local-pms.provider';
 import { BookingProjectionService } from './booking-projection.service';
+import { CancellationLinkService } from './cancellation-link.service';
 
 type GuestBookingRequest = {
   tenantContext: { tenantId: string; propertyId: string };
@@ -31,6 +34,7 @@ export class BookingController {
   constructor(
     @Inject(LocalPmsProvider) private readonly provider: LocalPmsProvider,
     @Inject(BookingProjectionService) private readonly projections: BookingProjectionService,
+    @Inject(CancellationLinkService) private readonly cancellations: CancellationLinkService,
   ) {}
 
   @Get()
@@ -47,13 +51,34 @@ export class BookingController {
     @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Req() request: GuestBookingRequest,
   ) {
-    return this.noConflict(
+    const result = this.noConflict(
       await this.provider.createBooking(request.tenantContext, {
         ...this.createInput(body),
         idempotencyKey: this.idempotencyKey(idempotencyKey),
         quoteSessionId: request.guestSessionId,
       }),
     );
+    if (result.ok) {
+      return {
+        ...result,
+        value: {
+          ...result.value,
+          cancellationToken: this.cancellations.create(
+            {
+              tenantId: request.tenantContext.tenantId,
+              propertyId: request.tenantContext.propertyId,
+              bookingId: result.value.id,
+              guestSessionId: request.guestSessionId,
+            },
+            30 * 24 * 60 * 60,
+            new Date(
+              new Date(result.value.createdAt).valueOf() + 30 * 24 * 60 * 60 * 1000,
+            ).toISOString(),
+          ),
+        },
+      };
+    }
+    return result;
   }
 
   @Patch(':bookingId')
@@ -69,6 +94,7 @@ export class BookingController {
       await this.provider.updateBooking(request.tenantContext, {
         idempotencyKey: this.idempotencyKey(idempotencyKey),
         bookingId,
+        guestSessionId: request.guestSessionId,
         expectedVersion: typeof value.expectedVersion === 'number' ? value.expectedVersion : NaN,
         total: this.money(value.total),
       }),
@@ -81,6 +107,7 @@ export class BookingController {
   async cancel(
     @Param('bookingId') bookingId: string,
     @Body() body: unknown,
+    @Query('cancellationToken') queryToken: string | undefined,
     @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Req() request: GuestBookingRequest,
   ) {
@@ -89,6 +116,7 @@ export class BookingController {
       await this.provider.cancelBooking(request.tenantContext, {
         idempotencyKey: this.idempotencyKey(idempotencyKey),
         bookingId,
+        guestSessionId: this.cancellationSession(body, queryToken, request, bookingId),
         expectedVersion: typeof value.expectedVersion === 'number' ? value.expectedVersion : NaN,
         reason: typeof value.reason === 'string' ? value.reason : null,
       }),
@@ -112,10 +140,33 @@ export class BookingController {
         firstName: typeof guest.firstName === 'string' ? guest.firstName : '',
         lastName: typeof guest.lastName === 'string' ? guest.lastName : '',
         phone: typeof guest.phone === 'string' ? guest.phone : null,
+        streetAddress: this.optionalNullableString(guest.streetAddress),
+        addressLine2: this.optionalNullableString(guest.addressLine2),
+        city: this.optionalNullableString(guest.city),
+        county: this.optionalNullableString(guest.county),
+        postcode: this.optionalNullableString(guest.postcode),
       },
       total: this.money(value.total) ?? { amount: '', currency: '' },
+      paymentMethod:
+        value.paymentMethod === 'stripe' ||
+        value.paymentMethod === 'pokpay' ||
+        value.paymentMethod === 'pay_at_hotel'
+          ? value.paymentMethod
+          : (undefined as GuestPaymentMethod | undefined),
+      payAtHotel: typeof value.payAtHotel === 'boolean' ? value.payAtHotel : undefined,
       quoteToken: typeof value.quoteToken === 'string' ? value.quoteToken : '',
+      returnUrl: typeof value.returnUrl === 'string' ? value.returnUrl : undefined,
     };
+  }
+
+  /**
+   * Distinguishes an absent/non-string field (undefined — leave the guest's existing value
+   * untouched) from an explicit `null` (clear it) from a real string (set it).
+   */
+  private optionalNullableString(value: unknown): string | null | undefined {
+    if (typeof value === 'string') return value;
+    if (value === null) return null;
+    return undefined;
   }
 
   private money(value: unknown): { amount: string; currency: string } | undefined {
@@ -123,6 +174,23 @@ export class BookingController {
     const money = value as Record<string, unknown>;
     if (typeof money.amount !== 'string' || typeof money.currency !== 'string') return undefined;
     return { amount: money.amount, currency: money.currency };
+  }
+
+  private cancellationSession(
+    body: unknown,
+    queryToken: string | undefined,
+    request: GuestBookingRequest,
+    bookingId: string,
+  ): string {
+    const value = (body ?? {}) as Record<string, unknown>;
+    const token =
+      typeof value.cancellationToken === 'string' ? value.cancellationToken : queryToken;
+    if (!token) return request.guestSessionId;
+    return this.cancellations.verify(token, {
+      tenantId: request.tenantContext.tenantId,
+      propertyId: request.tenantContext.propertyId,
+      bookingId,
+    }).guestSessionId;
   }
 
   private idempotencyKey(value: string | undefined): string {

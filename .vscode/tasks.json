@@ -1,0 +1,60 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Infra: Postgres + Redis",
+      "detail": "Starts the local Postgres/Redis containers (requires Docker Desktop already running).",
+      "type": "shell",
+      "command": "docker",
+      "args": ["compose", "up", "-d"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "silent", "panel": "shared", "group": "app" },
+      "problemMatcher": []
+    },
+    {
+      "label": "API: NestJS (dev)",
+      "detail": "Runs the API in watch mode on http://localhost:3000.",
+      "type": "shell",
+      "command": "pnpm",
+      "args": ["run", "start:dev"],
+      "options": { "cwd": "${workspaceFolder}/apps/api" },
+      "isBackground": true,
+      "presentation": { "reveal": "always", "panel": "dedicated", "group": "app" },
+      "problemMatcher": {
+        "pattern": { "regexp": "^never-matches$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": "Nest application successfully started"
+        }
+      },
+      "dependsOn": ["Infra: Postgres + Redis"]
+    },
+    {
+      "label": "Web: Next.js (dev)",
+      "detail": "Runs the tenant dashboard in watch mode on http://localhost:3001.",
+      "type": "shell",
+      "command": "pnpm",
+      "args": ["run", "dev"],
+      "options": { "cwd": "${workspaceFolder}/apps/web" },
+      "isBackground": true,
+      "presentation": { "reveal": "always", "panel": "dedicated", "group": "app" },
+      "problemMatcher": {
+        "pattern": { "regexp": "^never-matches$" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": "Ready in"
+        }
+      }
+    },
+    {
+      "label": "Start App (API + Web)",
+      "detail": "Starts infra, then the API and web dev servers together.",
+      "dependsOn": ["API: NestJS (dev)", "Web: Next.js (dev)"],
+      "dependsOrder": "parallel",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": []
+    }
+  ]
+}

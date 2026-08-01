@@ -30,7 +30,7 @@ Organization (tenant), Property, and User models exist in the database with Post
 7. Cross-tenant isolation test suite: attempt cross-tenant reads/writes and assert they fail, at both the RLS layer and the application layer.
 8. Admin API surface for managing users/roles within a tenant (list/invite/remove/change role).
 9. Email verification flow (ties into Milestone 2's signup, built here as the reusable primitive).
-10. Audit logging for auth-sensitive actions (login, role change, invite) — minimal now, extensible later (Milestone 10 observability).
+10. Audit logging for auth-sensitive actions (login, role change, invite) — minimal now, extensible later (Milestone 11 observability).
 
 ## Explicitly not included
 

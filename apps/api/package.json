@@ -7,6 +7,7 @@
     "prisma": "prisma",
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
+    "seed:platform-admin": "node --env-file-if-exists=.env --import=tsx scripts/seed-platform-admin.ts",
     "start": "node dist/main.js",
     "start:dev": "tsx watch src/main.ts",
     "test": "vitest run"
@@ -22,10 +23,13 @@
     "@nestjs/platform-express": "^11.1.6",
     "@prisma/client": "^6.16.0",
     "bcrypt": "^6.0.0",
+    "bullmq": "^6.0.0",
+    "ioredis": "^5.11.1",
     "nestjs-pino": "^4.4.0",
     "redis": "^6.1.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "stripe": "^22.4.0"
   },
   "devDependencies": {
     "@nestjs/testing": "^11.1.6",

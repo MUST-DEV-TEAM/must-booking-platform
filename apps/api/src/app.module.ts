@@ -26,6 +26,8 @@ import { AuditLogController } from './tenancy/audit-log.controller';
 import { AuditLogService } from './tenancy/audit-log.service';
 import { MAIL_PROVIDER } from './mail/mail.provider';
 import { ResendMailProvider } from './mail/resend-mail.provider';
+import { PaymentNotificationService } from './mail/payment-notification.service';
+import { BookingConfirmationNotificationService } from './mail/booking-confirmation-notification.service';
 import { PlanUsageController } from './tenancy/plan-usage.controller';
 import { PlanUsageService } from './tenancy/plan-usage.service';
 import { PropertiesController } from './tenancy/properties.controller';
@@ -42,12 +44,29 @@ import { AmenitiesController } from './tenancy/amenities.controller';
 import { AmenitiesService } from './tenancy/amenities.service';
 import { AvailabilityController } from './tenancy/availability.controller';
 import { AvailabilityService } from './tenancy/availability.service';
+import { PublicAvailabilityController } from './tenancy/public-availability.controller';
+import { PublicCatalogController } from './tenancy/public-catalog.controller';
+import { PublicCatalogService } from './tenancy/public-catalog.service';
+import { PublicCorsService } from './tenancy/public-cors.service';
 import { BookingStateMachine } from './booking/booking-state-machine';
 import { LocalPmsProvider, PMS_PROVIDER } from './booking/local-pms.provider';
 import { QuoteController } from './booking/quote.controller';
 import { QuoteService } from './booking/quote.service';
 import { BookingController } from './booking/booking.controller';
+import { PublicBookingController } from './booking/public-booking.controller';
 import { BookingProjectionService } from './booking/booking-projection.service';
+import { CancellationLinkService } from './booking/cancellation-link.service';
+import { PAYMENT_PROVIDER } from './payments/payment.provider';
+import { StripePaymentProvider } from './payments/stripe-payment.provider';
+import { PokPayPaymentProvider } from './payments/pokpay-payment.provider';
+import { PaymentProviderRegistry } from './payments/payment-provider-registry';
+import { PokPayPaymentService } from './payments/pokpay-payment.service';
+import { PokPayWebhookController } from './payments/pokpay-webhook.controller';
+import { StripeWebhookController } from './payments/stripe-webhook.controller';
+import { StripeWebhookService } from './payments/stripe-webhook.service';
+import { PaymentExpiryService } from './payments/payment-expiry.service';
+import { PaymentRefundController } from './payments/payment-refund.controller';
+import { PaymentRefundService } from './payments/payment-refund.service';
 
 @Module({
   imports: [
@@ -95,8 +114,14 @@ import { BookingProjectionService } from './booking/booking-projection.service';
     RatePlansController,
     AmenitiesController,
     AvailabilityController,
+    PublicAvailabilityController,
+    PublicCatalogController,
     QuoteController,
     BookingController,
+    PublicBookingController,
+    StripeWebhookController,
+    PokPayWebhookController,
+    PaymentRefundController,
   ],
   providers: [
     TenantDatabaseService,
@@ -106,6 +131,7 @@ import { BookingProjectionService } from './booking/booking-projection.service';
     SignupRateLimiterService,
     TenantContextGuard,
     PublicTenantScopedGuard,
+    PublicCorsService,
     RolesGuard,
     CapabilitiesGuard,
     PropertyRoleTemplatesService,
@@ -119,14 +145,26 @@ import { BookingProjectionService } from './booking/booking-projection.service';
     RatePlansService,
     AmenitiesService,
     AvailabilityService,
+    PublicCatalogService,
     BookingStateMachine,
     BookingProjectionService,
+    CancellationLinkService,
     QuoteService,
     LocalPmsProvider,
     { provide: PMS_PROVIDER, useExisting: LocalPmsProvider },
+    StripePaymentProvider,
+    PokPayPaymentProvider,
+    PaymentProviderRegistry,
+    PokPayPaymentService,
+    StripeWebhookService,
+    PaymentExpiryService,
+    PaymentRefundService,
+    { provide: PAYMENT_PROVIDER, useExisting: StripePaymentProvider },
     R2StorageProvider,
     { provide: STORAGE_PROVIDER, useExisting: R2StorageProvider },
     ResendMailProvider,
+    PaymentNotificationService,
+    BookingConfirmationNotificationService,
     { provide: MAIL_PROVIDER, useExisting: ResendMailProvider },
     { provide: APP_GUARD, useExisting: TenantContextGuard },
     { provide: APP_GUARD, useExisting: PublicTenantScopedGuard },

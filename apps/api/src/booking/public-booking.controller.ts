@@ -1,0 +1,26 @@
+import { Controller, Get, Inject, NotFoundException, Param, Req } from '@nestjs/common';
+
+import { PublicTenantScoped } from '../tenancy/tenant-context.decorator';
+import { LocalPmsProvider } from './local-pms.provider';
+
+type GuestBookingRequest = {
+  tenantContext: { tenantId: string; propertyId: string };
+  guestSessionId: string;
+};
+
+@Controller('tenants/:tenantId/properties/:propertyId/public/bookings')
+export class PublicBookingController {
+  constructor(@Inject(LocalPmsProvider) private readonly provider: LocalPmsProvider) {}
+
+  @Get(':bookingId')
+  @PublicTenantScoped({ propertyParam: 'propertyId' })
+  async get(@Param('bookingId') bookingId: string, @Req() request: GuestBookingRequest) {
+    const booking = await this.provider.getGuestBooking(
+      request.tenantContext,
+      bookingId,
+      request.guestSessionId,
+    );
+    if (!booking) throw new NotFoundException('Booking was not found.');
+    return booking;
+  }
+}

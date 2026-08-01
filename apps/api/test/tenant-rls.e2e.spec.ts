@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { TenantDatabaseService } from '../src/tenancy/tenant-database.service';
@@ -31,6 +31,8 @@ const tenantTables = [
   'audit_logs',
   'guests',
   'integration_operations',
+  'bookings',
+  'payments',
 ] as const;
 
 async function asRuntimeRole<T>(

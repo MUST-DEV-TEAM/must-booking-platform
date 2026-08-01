@@ -1,0 +1,283 @@
+.support {
+  align-items: center;
+  align-self: stretch;
+  display: flex;
+  flex: 0 0 1.5rem;
+  font-size: 0.625rem;
+  gap: 0.3125rem;
+  justify-content: flex-end;
+  line-height: 1.2;
+}
+
+.supportLabel {
+  color: var(--must-color-text-secondary);
+}
+
+.supportLink {
+  color: var(--must-color-ink);
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+}
+
+.supportLink:hover {
+  color: var(--must-color-ink-hover);
+}
+
+.planBadge {
+  align-items: center;
+  align-self: flex-start;
+  background: var(--must-color-success-surface);
+  border: 1px solid var(--must-color-border-strong);
+  border-radius: var(--must-radius-control);
+  color: var(--must-color-success);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0.5625rem;
+  font-weight: 650;
+  gap: 0.4375rem;
+  height: 1.75rem;
+  letter-spacing: 0.01em;
+  margin-top: 1.625rem;
+  padding: 0 0.5625rem;
+}
+
+.badgeIcon {
+  height: 0.75rem;
+  width: 0.75rem;
+}
+
+.formTitle {
+  font-size: 2rem;
+  font-weight: 600;
+  line-height: 1.2;
+  margin: 1.375rem 0 0.625rem;
+}
+
+.formDescription {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  margin: 0;
+  max-width: 34rem;
+}
+
+.errorAlert {
+  align-items: center;
+  background: var(--must-color-danger-surface);
+  border-color: var(--must-color-danger);
+  border-radius: var(--must-radius-input);
+  color: var(--must-color-danger);
+  display: flex;
+  font-size: 0.6875rem;
+  gap: 0.75rem;
+  line-height: 1.35;
+  margin-top: 1.375rem;
+  padding: 0.875rem 1rem;
+}
+
+.errorIcon {
+  flex: 0 0 1.125rem;
+  height: 1.125rem;
+  width: 1.125rem;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  margin-top: 1.875rem;
+  max-width: 42rem;
+}
+
+.section {
+  border: 0;
+  margin: 0;
+  min-inline-size: 0;
+  padding: 0;
+}
+
+.section + .section {
+  border-top: 1px solid var(--must-color-border);
+  padding-top: 1.5rem;
+}
+
+.sectionTitle {
+  color: var(--must-color-text-primary);
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1.2;
+  margin-bottom: 1rem;
+  padding: 0;
+}
+
+.fields {
+  display: grid;
+  gap: 1.125rem 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.field {
+  min-width: 0;
+}
+
+.field :global(.must-field) {
+  gap: 0.4375rem;
+}
+
+.field :global(.must-field__label),
+.fieldLabel {
+  font-size: 0.6875rem;
+  line-height: 1.2;
+}
+
+.field :global(.must-input) {
+  font-size: 0.6875rem;
+  line-height: 1.125rem;
+  min-height: 3rem;
+}
+
+.field :global(.must-input:focus-visible),
+.field textarea:focus-visible {
+  box-shadow: var(--must-focus-ring);
+}
+
+.fieldFull {
+  grid-column: 1 / -1;
+}
+
+.fieldLabel {
+  color: var(--must-color-text-primary);
+  display: block;
+  font-weight: 650;
+  margin-bottom: 0.4375rem;
+}
+
+.field textarea {
+  background: var(--must-color-surface);
+  border: 1px solid var(--must-color-border);
+  border-radius: var(--must-radius-input);
+  color: var(--must-color-text-primary);
+  display: block;
+  font: inherit;
+  font-size: 0.6875rem;
+  line-height: 1.125rem;
+  min-height: 5.75rem;
+  padding: 0.75rem;
+  resize: vertical;
+  transition: border-color var(--must-motion-fast) ease;
+  width: 100%;
+}
+
+.field textarea:hover {
+  border-color: var(--must-color-border-strong);
+}
+
+.field textarea:focus-visible {
+  border-color: var(--must-color-ink);
+  outline: 0;
+}
+
+.passwordToggle {
+  align-items: center;
+  display: inline-flex;
+  height: 1rem;
+  justify-content: center;
+  width: 1rem;
+}
+
+.passwordToggle:focus-visible {
+  border-radius: var(--must-radius-control);
+  box-shadow: var(--must-focus-ring);
+  outline: 0;
+}
+
+.passwordToggle img {
+  display: block;
+  height: 1rem;
+  width: 1rem;
+}
+
+.passwordHint {
+  font-size: 0.625rem;
+  line-height: 1.4;
+  margin: -0.5rem 0 0;
+}
+
+.submitButton {
+  align-self: flex-start;
+  gap: 0.625rem;
+  min-height: 3rem;
+  width: 100%;
+}
+
+.submitArrow {
+  height: 1rem;
+  width: 1rem;
+}
+
+.freePlanNote {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  max-width: 42rem;
+  padding: 1rem;
+}
+
+.freePlanIcon {
+  align-items: center;
+  background: var(--must-color-success-surface);
+  border-radius: var(--must-radius-control);
+  display: inline-flex;
+  flex: 0 0 2.25rem;
+  height: 2.25rem;
+  justify-content: center;
+  width: 2.25rem;
+}
+
+.freePlanCopy {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.freePlanTitle {
+  color: var(--must-color-text-primary);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  line-height: 0.9375rem;
+}
+
+.freePlanDescription {
+  color: var(--must-color-text-secondary);
+  font-size: 0.625rem;
+  line-height: 0.875rem;
+}
+
+@media (max-width: 767px) {
+  .formTitle {
+    font-size: 1.75rem;
+    margin-top: 1.5rem;
+  }
+
+  .formDescription {
+    max-width: none;
+  }
+
+  .form {
+    margin-top: 1.875rem;
+  }
+
+  .fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fieldFull {
+    grid-column: auto;
+  }
+
+  .freePlanNote {
+    margin-top: 1.5rem;
+  }
+}

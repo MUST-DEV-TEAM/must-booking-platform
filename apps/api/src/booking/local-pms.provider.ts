@@ -1,13 +1,15 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   type AvailabilityQuery,
   type AvailabilityResult,
   type Booking,
+  BookingPaymentMethod,
   BookingStatus,
   type CancelBookingCommand,
   type CatalogItem,
   type CreateBookingCommand,
+  type GuestPaymentMethod,
   type Page,
   type PmsProvider,
   type PmsProviderContext,
@@ -18,6 +20,10 @@ import {
 import { AvailabilityService } from '../tenancy/availability.service';
 import { AuditLogService } from '../tenancy/audit-log.service';
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
+import { PaymentProviderRegistry } from '../payments/payment-provider-registry';
+import { PaymentRefundService, type RefundConfirmation } from '../payments/payment-refund.service';
+import { PaymentNotificationService } from '../mail/payment-notification.service';
+import { BookingConfirmationNotificationService } from '../mail/booking-confirmation-notification.service';
 import { BookingStateMachine } from './booking-state-machine';
 import { QuoteService } from './quote.service';
 
@@ -25,7 +31,8 @@ export const PMS_PROVIDER = Symbol('PMS_PROVIDER');
 
 export type LocalCreateBookingCommand = CreateBookingCommand & {
   quoteToken?: string;
-  quoteSessionId?: string;
+  quoteSessionId: string;
+  returnUrl?: string;
 };
 
 type BookingRow = {
@@ -34,10 +41,12 @@ type BookingRow = {
   propertyId: string;
   roomTypeId: string;
   guestId: string | null;
+  guestSessionId: string;
   ratePlanId: string;
   startsOn: string;
   endsOn: string;
   status: BookingStatus;
+  paymentMethod: BookingPaymentMethod;
   totalAmount: string;
   currency: string;
   externalReference: string;
@@ -48,8 +57,16 @@ type BookingRow = {
 
 type IntegrationOperationRow = {
   requestHash: string;
-  result: Result<Booking> | null;
+  result: Result<BookingWithCheckout> | null;
 };
+
+type BookingWithCheckout = Booking & { checkoutUrl?: string };
+
+class CheckoutSessionCreationError extends Error {
+  constructor(readonly result: Result<never>) {
+    super(result.ok ? 'Checkout session creation failed.' : result.error.message);
+  }
+}
 
 type CancellationPolicy = {
   freeCancellationUntilHours: number | null;
@@ -65,6 +82,11 @@ export class LocalPmsProvider implements PmsProvider {
     @Inject(AuditLogService) private readonly audit: AuditLogService,
     @Inject(BookingStateMachine) private readonly stateMachine: BookingStateMachine,
     @Inject(QuoteService) private readonly quotes: QuoteService,
+    @Inject(PaymentProviderRegistry) private readonly paymentProviders: PaymentProviderRegistry,
+    @Inject(PaymentRefundService) private readonly refunds: PaymentRefundService,
+    @Inject(PaymentNotificationService) private readonly notifications: PaymentNotificationService,
+    @Inject(BookingConfirmationNotificationService)
+    private readonly confirmations: BookingConfirmationNotificationService,
   ) {}
 
   async testConnection(context: PmsProviderContext): Promise<Result<void>> {
@@ -142,10 +164,22 @@ export class LocalPmsProvider implements PmsProvider {
     });
   }
 
+  async getGuestBooking(
+    context: PmsProviderContext,
+    bookingId: string,
+    guestSessionId: string,
+  ): Promise<Booking | null> {
+    return this.database.withTenantTransaction(context, async (tx) => {
+      const row = await this.bookingById(tx, context, bookingId);
+      if (!row || row.guestSessionId !== guestSessionId) return null;
+      return this.toBooking(row);
+    });
+  }
+
   async createBooking(
     context: PmsProviderContext,
     command: LocalCreateBookingCommand,
-  ): Promise<Result<Booking>> {
+  ): Promise<Result<BookingWithCheckout>> {
     if (
       !this.validStay(command.startsOn, command.endsOn) ||
       !this.validAmount(command.total.amount)
@@ -153,140 +187,210 @@ export class LocalPmsProvider implements PmsProvider {
       return this.failure('INVALID_BOOKING_COMMAND', 'Booking dates or total are invalid.');
     }
 
-    return this.database.withTenantTransaction(context, async (tx) => {
-      // Serialize the complete booking transaction before it obtains booking or guest row locks.
-      // reserveBookedUnits takes this same transaction-scoped lock again before its range update.
-      await this.availability.lockBookedUnits(
-        tx,
-        context.tenantId,
-        context.propertyId,
-        command.roomTypeId,
-      );
-      return this.withIdempotency(
-        tx,
-        context,
-        command.idempotencyKey,
-        command,
-        null,
-        command.externalReference,
-        async () => {
-          const resolvedGuest = await this.resolveGuest(tx, context.tenantId, command.guest);
-          if (!resolvedGuest.ok) return resolvedGuest;
-          const guestId = resolvedGuest.value;
-          const catalogError = await this.validateCatalog(
-            tx,
-            context,
-            command.roomTypeId,
-            command.ratePlanId,
-            command.total.currency,
-          );
-          if (catalogError) return catalogError;
+    let payAtHotelConfirmationBookingId: string | null = null;
+    try {
+      const result = await this.database.withTenantTransaction(context, async (tx) => {
+        // Serialize the complete booking transaction before it obtains booking or guest row locks.
+        // reserveBookedUnits takes this same transaction-scoped lock again before its range update.
+        await this.availability.lockBookedUnits(
+          tx,
+          context.tenantId,
+          context.propertyId,
+          command.roomTypeId,
+        );
+        return this.withIdempotency(
+          tx,
+          context,
+          command.idempotencyKey,
+          command,
+          null,
+          command.externalReference,
+          async () => {
+            const catalogError = await this.validateCatalog(
+              tx,
+              context,
+              command.roomTypeId,
+              command.ratePlanId,
+              command.total.currency,
+            );
+            if (catalogError) return catalogError;
+            const paymentMethod = await this.paymentMethod(tx, context, command);
+            if (!paymentMethod.ok) return paymentMethod;
+            const resolvedGuest = await this.resolveGuest(tx, context.tenantId, command.guest);
+            if (!resolvedGuest.ok) return resolvedGuest;
+            const guestId = resolvedGuest.value;
 
-          const inserted = await tx.$queryRaw<Array<{ id: string }>>`
+            const inserted = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO bookings (
           tenant_id, property_id, room_type_id, guest_id, external_reference,
-          status, starts_on, ends_on, rate_plan_id, total_amount
+          guest_session_id, status, payment_method, starts_on, ends_on, rate_plan_id, total_amount
         ) VALUES (
           ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${command.roomTypeId}::uuid,
-          ${guestId}::uuid, ${command.externalReference}, ${BookingStatus.DRAFT}::"BookingStatus",
+          ${guestId}::uuid, ${command.externalReference}, ${command.quoteSessionId}::uuid,
+          ${BookingStatus.DRAFT}::"BookingStatus",
+          ${paymentMethod.value}::"BookingPaymentMethod",
           ${command.startsOn}::date, ${command.endsOn}::date, ${command.ratePlanId}::uuid,
           ${command.total.amount}::numeric
         )
         RETURNING id
       `;
-          const bookingId = inserted[0]!.id;
-          await this.audit.recordInTransaction(tx, {
-            tenantId: context.tenantId,
-            propertyId: context.propertyId,
-            actorUserId: null,
-            action: 'booking.created',
-            targetType: 'booking',
-            targetId: bookingId,
-            details: { guestId },
-          });
-          let status = BookingStatus.DRAFT;
-          status = await this.transition(tx, context, bookingId, status, BookingStatus.QUOTED);
-          status = await this.transition(
-            tx,
-            context,
-            bookingId,
-            status,
-            BookingStatus.INVENTORY_REVALIDATING,
-          );
-          const quoteError = this.quotes.validate(command.quoteToken, command.quoteSessionId, {
-            tenantId: context.tenantId,
-            propertyId: context.propertyId,
-            roomTypeId: command.roomTypeId,
-            ratePlanId: command.ratePlanId,
-            startsOn: command.startsOn,
-            endsOn: command.endsOn,
-            total: command.total,
-          });
-          if (quoteError) {
-            await this.transition(
+            const bookingId = inserted[0]!.id;
+            const guestReturnUrl = await this.validatedGuestReturnUrl(
+              tx,
+              context,
+              command.returnUrl,
+            );
+            if (guestReturnUrl)
+              await tx.$executeRaw`UPDATE bookings SET guest_return_url = ${guestReturnUrl} WHERE id = ${bookingId}::uuid`;
+            await this.audit.recordInTransaction(tx, {
+              tenantId: context.tenantId,
+              propertyId: context.propertyId,
+              actorUserId: null,
+              action: 'booking.created',
+              targetType: 'booking',
+              targetId: bookingId,
+              details: { guestId },
+            });
+            let status = BookingStatus.DRAFT;
+            status = await this.transition(tx, context, bookingId, status, BookingStatus.QUOTED);
+            status = await this.transition(
               tx,
               context,
               bookingId,
               status,
-              BookingStatus.AVAILABILITY_FAILED,
+              BookingStatus.INVENTORY_REVALIDATING,
             );
-            return this.failure(quoteError.code, quoteError.message);
-          }
-          status = await this.transition(
-            tx,
-            context,
-            bookingId,
-            status,
-            BookingStatus.PAYMENT_NOT_REQUIRED,
-          );
-          status = await this.transition(
-            tx,
-            context,
-            bookingId,
-            status,
-            BookingStatus.PMS_CREATION_PENDING,
-          );
-
-          const reserved = await this.availability.reserveBookedUnits(
-            tx,
-            context.tenantId,
-            context.propertyId,
-            {
+            const quoteError = this.quotes.validate(command.quoteToken, command.quoteSessionId, {
+              tenantId: context.tenantId,
+              propertyId: context.propertyId,
               roomTypeId: command.roomTypeId,
+              ratePlanId: command.ratePlanId,
               startsOn: command.startsOn,
               endsOn: command.endsOn,
-              units: 1,
-            },
-          );
-          if (!reserved) {
-            await this.transition(
+              total: command.total,
+            });
+            if (quoteError) {
+              await this.transition(
+                tx,
+                context,
+                bookingId,
+                status,
+                BookingStatus.AVAILABILITY_FAILED,
+              );
+              return this.failure(quoteError.code, quoteError.message);
+            }
+            const reserved = await this.availability.reserveBookedUnits(
+              tx,
+              context.tenantId,
+              context.propertyId,
+              {
+                roomTypeId: command.roomTypeId,
+                startsOn: command.startsOn,
+                endsOn: command.endsOn,
+                units: 1,
+              },
+            );
+            if (!reserved) {
+              await this.transition(
+                tx,
+                context,
+                bookingId,
+                status,
+                BookingStatus.AVAILABILITY_FAILED,
+              );
+              return this.failure(
+                'AVAILABILITY_FAILED',
+                'Inventory is no longer available for the requested stay.',
+              );
+            }
+
+            if (
+              paymentMethod.value === BookingPaymentMethod.STRIPE_CHECKOUT ||
+              paymentMethod.value === BookingPaymentMethod.POKPAY
+            ) {
+              status = await this.transition(
+                tx,
+                context,
+                bookingId,
+                status,
+                BookingStatus.PAYMENT_PENDING,
+              );
+              const provider = this.paymentProviders.forBookingMethod(paymentMethod.value);
+              if (!provider)
+                return this.failure(
+                  'PAYMENT_PROVIDER_NOT_AVAILABLE',
+                  'Payment provider is unavailable.',
+                );
+              const checkout = await provider.createCheckoutSession(context, {
+                idempotencyKey: command.idempotencyKey,
+                bookingId,
+                amount: command.total,
+                successUrl: this.checkoutReturnUrl(bookingId, 'success', guestReturnUrl),
+                cancelUrl: this.checkoutReturnUrl(bookingId, 'cancel', guestReturnUrl),
+              });
+              if (!checkout.ok) throw new CheckoutSessionCreationError(checkout);
+              if (paymentMethod.value === BookingPaymentMethod.POKPAY) {
+                await tx.$executeRaw`
+                  INSERT INTO payment_provider_sessions (
+                    tenant_id, property_id, booking_id, provider, external_payment_id
+                  ) VALUES (
+                    ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${bookingId}::uuid,
+                    'pokpay', ${checkout.value.id}
+                  )
+                  ON CONFLICT (tenant_id, property_id, booking_id, provider) DO NOTHING
+                `;
+              }
+              const row = await this.bookingById(tx, context, bookingId);
+              const booking = row && this.toBooking(row);
+              return booking
+                ? { ok: true, value: { ...booking, checkoutUrl: checkout.value.url } }
+                : this.failure('BOOKING_NOT_FOUND', 'Created booking could not be loaded.');
+            }
+
+            status = await this.transition(
               tx,
               context,
               bookingId,
               status,
-              BookingStatus.AVAILABILITY_FAILED,
+              BookingStatus.PAYMENT_NOT_REQUIRED,
             );
-            return this.failure(
-              'AVAILABILITY_FAILED',
-              'Inventory is no longer available for the requested stay.',
+            status = await this.transition(
+              tx,
+              context,
+              bookingId,
+              status,
+              BookingStatus.PMS_CREATION_PENDING,
             );
-          }
 
-          status = await this.transition(
-            tx,
-            context,
-            bookingId,
-            status,
-            BookingStatus.PMS_CONFIRMATION_PENDING,
-          );
-          await this.transition(tx, context, bookingId, status, BookingStatus.CONFIRMED);
-          const row = await this.bookingById(tx, context, bookingId);
-          return row && this.toBooking(row)
-            ? { ok: true, value: this.toBooking(row)! }
-            : this.failure('BOOKING_NOT_FOUND', 'Created booking could not be loaded.');
-        },
-      );
-    });
+            status = await this.transition(
+              tx,
+              context,
+              bookingId,
+              status,
+              BookingStatus.PMS_CONFIRMATION_PENDING,
+            );
+            await this.transition(tx, context, bookingId, status, BookingStatus.CONFIRMED);
+            const row = await this.bookingById(tx, context, bookingId);
+            const booking = row && this.toBooking(row);
+            if (booking?.paymentMethod === BookingPaymentMethod.PAY_AT_HOTEL)
+              payAtHotelConfirmationBookingId = booking.id;
+            return booking
+              ? { ok: true, value: booking }
+              : this.failure('BOOKING_NOT_FOUND', 'Created booking could not be loaded.');
+          },
+        );
+      });
+      if (payAtHotelConfirmationBookingId)
+        await this.confirmations.sendAfterConfirmation(
+          context,
+          payAtHotelConfirmationBookingId,
+          `pay-at-hotel:${payAtHotelConfirmationBookingId}`,
+        );
+      return result;
+    } catch (error) {
+      if (error instanceof CheckoutSessionCreationError) return error.result;
+      throw error;
+    }
   }
 
   async updateBooking(
@@ -319,6 +423,8 @@ export class LocalPmsProvider implements PmsProvider {
         async () => {
           const row = await this.bookingById(tx, context, command.bookingId);
           if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
+          if (row.guestSessionId !== command.guestSessionId)
+            return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
           if (row.version !== command.expectedVersion)
             return this.failure(
               'VERSION_CONFLICT',
@@ -328,6 +434,18 @@ export class LocalPmsProvider implements PmsProvider {
           const booking = this.toBooking(row);
           if (!booking) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
           if (!command.total) return { ok: true, value: booking };
+          if (
+            ![
+              BookingStatus.DRAFT,
+              BookingStatus.QUOTED,
+              BookingStatus.INVENTORY_REVALIDATING,
+            ].includes(row.status)
+          ) {
+            return this.failure(
+              'UNSUPPORTED_UPDATE',
+              'Booking total cannot be changed after inventory reservation or payment has begun.',
+            );
+          }
           if (command.total.currency !== row.currency)
             return this.failure(
               'CURRENCY_MISMATCH',
@@ -351,11 +469,80 @@ export class LocalPmsProvider implements PmsProvider {
     );
   }
 
+  async continueAfterPayment(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    bookingId: string,
+  ): Promise<Result<Booking>> {
+    const row = await this.bookingById(tx, context, bookingId);
+    if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
+    if (row.status !== BookingStatus.PAYMENT_PENDING) {
+      return this.failure(
+        'INVALID_BOOKING_STATE',
+        `Booking cannot be confirmed from ${row.status}.`,
+      );
+    }
+
+    let status = await this.transition(
+      tx,
+      context,
+      bookingId,
+      row.status,
+      BookingStatus.PMS_CREATION_PENDING,
+    );
+    status = await this.transition(
+      tx,
+      context,
+      bookingId,
+      status,
+      BookingStatus.PMS_CONFIRMATION_PENDING,
+    );
+    await this.transition(tx, context, bookingId, status, BookingStatus.CONFIRMED);
+    const confirmed = await this.bookingById(tx, context, bookingId);
+    return confirmed && this.toBooking(confirmed)
+      ? { ok: true, value: this.toBooking(confirmed)! }
+      : this.failure('BOOKING_NOT_FOUND', 'Confirmed booking could not be loaded.');
+  }
+
+  async expirePaymentPending(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    bookingId: string,
+    cutoffAt: Date,
+  ): Promise<boolean> {
+    const row = await this.bookingById(tx, context, bookingId);
+    if (
+      !row ||
+      row.status !== BookingStatus.PAYMENT_PENDING ||
+      row.createdAt.getTime() > cutoffAt.getTime()
+    ) {
+      return false;
+    }
+    await this.availability.releaseBookedUnits(tx, context.tenantId, context.propertyId, {
+      roomTypeId: row.roomTypeId,
+      startsOn: row.startsOn,
+      endsOn: row.endsOn,
+      units: 1,
+    });
+    await this.transition(tx, context, bookingId, row.status, BookingStatus.EXPIRED);
+    await this.audit.recordInTransaction(tx, {
+      tenantId: context.tenantId,
+      propertyId: context.propertyId,
+      actorUserId: null,
+      action: 'booking.payment_expired',
+      targetType: 'booking',
+      targetId: bookingId,
+      details: { cutoffAt: cutoffAt.toISOString() },
+    });
+    return true;
+  }
+
   async cancelBooking(
     context: PmsProviderContext,
     command: CancelBookingCommand,
   ): Promise<Result<Booking>> {
-    return this.database.withTenantTransaction(context, (tx) =>
+    let refundConfirmation: RefundConfirmation | null = null;
+    const result = await this.database.withTenantTransaction(context, (tx) =>
       this.withIdempotency(
         tx,
         context,
@@ -366,6 +553,8 @@ export class LocalPmsProvider implements PmsProvider {
         async () => {
           const row = await this.bookingById(tx, context, command.bookingId);
           if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
+          if (row.guestSessionId !== command.guestSessionId)
+            return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
           if (row.version !== command.expectedVersion)
             return this.failure(
               'VERSION_CONFLICT',
@@ -380,7 +569,21 @@ export class LocalPmsProvider implements PmsProvider {
               `Booking cannot be cancelled from ${row.status}.`,
             );
 
+          const cancellationPolicy = await this.cancellationPolicy(tx, context, row.id);
+          if (cancellationPolicy.isFree) {
+            const refunded = await this.refunds.refundPaidChargeForBooking(
+              tx,
+              context,
+              row.id,
+              `cancellation-refund:${command.idempotencyKey}`,
+            );
+            if (!refunded.result.ok)
+              return this.failure(refunded.result.error.code, refunded.result.error.message);
+            refundConfirmation = refunded.confirmation;
+          }
+
           if (
+            row.status === BookingStatus.PAYMENT_PENDING ||
             row.status === BookingStatus.PMS_CONFIRMATION_PENDING ||
             row.status === BookingStatus.CONFIRMED
           ) {
@@ -391,7 +594,6 @@ export class LocalPmsProvider implements PmsProvider {
               units: 1,
             });
           }
-          const cancellationPolicy = await this.cancellationPolicy(tx, context, row.id);
           this.stateMachine.transition(row.status, BookingStatus.CANCELLED);
           await tx.$executeRaw`
         UPDATE bookings
@@ -429,6 +631,9 @@ export class LocalPmsProvider implements PmsProvider {
         },
       ),
     );
+    if (refundConfirmation)
+      await this.notifications.sendRefundConfirmationEmailSafely(refundConfirmation);
+    return result;
   }
 
   private async withIdempotency(
@@ -438,8 +643,8 @@ export class LocalPmsProvider implements PmsProvider {
     request: object,
     aggregateId: string | null,
     externalReference: string | null,
-    execute: () => Promise<Result<Booking>>,
-  ): Promise<Result<Booking>> {
+    execute: () => Promise<Result<BookingWithCheckout>>,
+  ): Promise<Result<BookingWithCheckout>> {
     if (!idempotencyKey.trim())
       return this.failure('IDEMPOTENCY_KEY_REQUIRED', 'An idempotency key is required.');
     const requestHash = this.requestHash(request);
@@ -583,12 +788,29 @@ export class LocalPmsProvider implements PmsProvider {
       SELECT id FROM guests
       WHERE tenant_id = ${tenantId}::uuid AND lower(email) = ${email}
     `;
-    if (existing[0]) return { ok: true, value: existing[0].id };
+    if (existing[0]) {
+      await tx.$executeRaw`
+        UPDATE guests
+        SET street_address = CASE WHEN ${guest.streetAddress !== undefined} THEN ${guest.streetAddress ?? null} ELSE street_address END,
+          address_line_2 = CASE WHEN ${guest.addressLine2 !== undefined} THEN ${guest.addressLine2 ?? null} ELSE address_line_2 END,
+          city = CASE WHEN ${guest.city !== undefined} THEN ${guest.city ?? null} ELSE city END,
+          county = CASE WHEN ${guest.county !== undefined} THEN ${guest.county ?? null} ELSE county END,
+          postcode = CASE WHEN ${guest.postcode !== undefined} THEN ${guest.postcode ?? null} ELSE postcode END,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ${existing[0].id}::uuid AND tenant_id = ${tenantId}::uuid
+      `;
+      return { ok: true, value: existing[0].id };
+    }
 
     const id = randomUUID();
     const inserted = await tx.$queryRaw<Array<{ id: string }>>`
-      INSERT INTO guests (id, tenant_id, email, phone)
-      VALUES (${id}::uuid, ${tenantId}::uuid, ${email}, ${guest.phone})
+      INSERT INTO guests (
+        id, tenant_id, email, phone, street_address, address_line_2, city, county, postcode
+      ) VALUES (
+        ${id}::uuid, ${tenantId}::uuid, ${email}, ${guest.phone},
+        ${guest.streetAddress ?? null}, ${guest.addressLine2 ?? null}, ${guest.city ?? null},
+        ${guest.county ?? null}, ${guest.postcode ?? null}
+      )
       ON CONFLICT (tenant_id, lower(email)) DO NOTHING
       RETURNING id
     `;
@@ -626,8 +848,10 @@ export class LocalPmsProvider implements PmsProvider {
   ): Promise<BookingRow | null> {
     const rows = await tx.$queryRaw<BookingRow[]>`
       SELECT b.id, b.tenant_id AS "tenantId", b.property_id AS "propertyId",
-        b.room_type_id AS "roomTypeId", b.guest_id AS "guestId", b.rate_plan_id AS "ratePlanId",
+        b.room_type_id AS "roomTypeId", b.guest_id AS "guestId",
+        b.guest_session_id AS "guestSessionId", b.rate_plan_id AS "ratePlanId",
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
+        b.payment_method AS "paymentMethod",
         b.total_amount::text AS "totalAmount", rp.currency, b.external_reference AS "externalReference",
         b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
       FROM bookings b JOIN rate_plans rp
@@ -648,6 +872,7 @@ export class LocalPmsProvider implements PmsProvider {
       SELECT b.id, b.tenant_id AS "tenantId", b.property_id AS "propertyId",
         b.room_type_id AS "roomTypeId", b.guest_id AS "guestId", b.rate_plan_id AS "ratePlanId",
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
+        b.payment_method AS "paymentMethod",
         b.total_amount::text AS "totalAmount", rp.currency, b.external_reference AS "externalReference",
         b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
       FROM bookings b JOIN rate_plans rp
@@ -670,6 +895,7 @@ export class LocalPmsProvider implements PmsProvider {
       startsOn: row.startsOn,
       endsOn: row.endsOn,
       status: row.status,
+      paymentMethod: row.paymentMethod,
       total: { amount: row.totalAmount, currency: row.currency },
       externalReference: row.externalReference,
       externalBookingId: row.id,
@@ -695,6 +921,117 @@ export class LocalPmsProvider implements PmsProvider {
 
   private validAmount(amount: string): boolean {
     return /^\d+(?:\.\d{1,2})?$/.test(amount);
+  }
+
+  private requiresCheckout(amount: string): boolean {
+    const [whole, fraction = ''] = amount.split('.');
+    return BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0')) > 0n;
+  }
+
+  private async paymentMethod(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    command: CreateBookingCommand,
+  ): Promise<Result<BookingPaymentMethod>> {
+    if (!this.requiresCheckout(command.total.amount))
+      return { ok: true, value: BookingPaymentMethod.FREE };
+
+    const selected = this.requestedPaymentMethod(command);
+    if (!selected)
+      return this.failure(
+        'PAYMENT_METHOD_REQUIRED',
+        'Select an enabled payment method before creating a non-zero-total booking.',
+      );
+
+    const properties = await tx.$queryRaw<
+      Array<{ stripeEnabled: boolean; pokpayEnabled: boolean; payAtHotelEnabled: boolean }>
+    >`
+      SELECT stripe_enabled AS "stripeEnabled", pokpay_enabled AS "pokpayEnabled",
+        pay_at_hotel_enabled AS "payAtHotelEnabled"
+      FROM properties
+      WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
+    `;
+    const property = properties[0];
+    const enabled =
+      (selected === 'stripe' && property?.stripeEnabled) ||
+      (selected === 'pokpay' && property?.pokpayEnabled) ||
+      (selected === 'pay_at_hotel' && property?.payAtHotelEnabled);
+    if (!enabled)
+      return this.failure(
+        'PAYMENT_METHOD_NOT_ENABLED',
+        'The selected payment method is not enabled for this property.',
+      );
+    return {
+      ok: true,
+      value:
+        selected === 'stripe'
+          ? BookingPaymentMethod.STRIPE_CHECKOUT
+          : selected === 'pokpay'
+            ? BookingPaymentMethod.POKPAY
+            : BookingPaymentMethod.PAY_AT_HOTEL,
+    };
+  }
+
+  private requestedPaymentMethod(command: CreateBookingCommand): GuestPaymentMethod | null {
+    const legacySelection =
+      command.payAtHotel === undefined ? undefined : command.payAtHotel ? 'pay_at_hotel' : 'stripe';
+    if (command.paymentMethod && legacySelection && command.paymentMethod !== legacySelection) {
+      return null;
+    }
+    return command.paymentMethod ?? legacySelection ?? null;
+  }
+
+  private checkoutReturnUrl(
+    bookingId: string,
+    outcome: 'success' | 'cancel',
+    returnUrl?: string | null,
+  ): string {
+    if (!returnUrl)
+      return new URL(
+        `/bookings/${bookingId}/payment/${outcome}`,
+        process.env.WEB_APP_URL!,
+      ).toString();
+
+    const candidate = new URL(returnUrl);
+    candidate.searchParams.set('booking_id', bookingId);
+    candidate.searchParams.set('outcome', outcome);
+    return candidate.toString();
+  }
+
+  private async validatedGuestReturnUrl(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    returnUrl?: string,
+  ): Promise<string | null> {
+    if (!returnUrl) return null;
+    let candidate: URL;
+    try {
+      candidate = new URL(returnUrl);
+    } catch {
+      throw new BadRequestException('returnUrl must be a valid URL.');
+    }
+    if (
+      !['http:', 'https:'].includes(candidate.protocol) ||
+      candidate.username ||
+      candidate.password ||
+      candidate.hash
+    )
+      throw new BadRequestException(
+        'returnUrl must be an http(s) URL without credentials or a fragment.',
+      );
+
+    const properties = await tx.$queryRaw<Array<{ publicWebsiteOrigin: string | null }>>`
+      SELECT public_website_origin AS "publicWebsiteOrigin"
+      FROM properties
+      WHERE id = ${context.propertyId}::uuid AND tenant_id = ${context.tenantId}::uuid
+    `;
+    if (
+      !properties[0]?.publicWebsiteOrigin ||
+      candidate.origin !== properties[0].publicWebsiteOrigin
+    )
+      throw new BadRequestException('returnUrl must use the property public website origin.');
+
+    return candidate.toString();
   }
 
   private failure(code: string, message: string, retryable = false): Result<never> {

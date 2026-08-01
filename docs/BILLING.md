@@ -6,7 +6,7 @@ All decisions below are accepted (2026-07-27) — see `decisions/` for full cont
 
 ## Plans (ADR-0007)
 
-Flat tiered plans — the shape is confirmed. The table below is an **illustrative example only**, not a final catalog; real tier count/names/limits are confirmed together with the owner at Milestone 8 (Platform Billing) kickoff — see `docs/roadmap/milestones/08-platform-billing.md`.
+Flat tiered plans — the shape is confirmed. The table below is an **illustrative example only**, not a final catalog; real tier count/names/limits are confirmed together with the owner at Milestone 11 (Platform Billing) kickoff — see `docs/roadmap/milestones/11-platform-billing.md`.
 
 | Plan | Properties | Staff seats | PMS connections |
 | --- | --- | --- | --- |
@@ -28,7 +28,7 @@ Stripe Billing (subscriptions, invoicing, customer portal) is the implementation
 
 ## Onboarding (ADR-0008)
 
-Self-serve signup, no payment card required upfront. New tenants land directly on the **Free** plan, which is **permanent** (no expiry) — Free and "free trial" are separate concepts. A tenant may separately start an optional, time-boxed **paid-plan trial** (illustrative: 14 days) from the dashboard at any time; if not converted to a paid subscription before it ends, the tenant reverts to Free (not locked, not deleted). Upgrading to a paid plan (or starting a trial) is a self-serve in-app action that invokes Stripe Billing. Which tier(s) offer a trial and the exact trial length are confirmed at Milestone 8 kickoff.
+Self-serve signup, no payment card required upfront. New tenants land directly on the **Free** plan, which is **permanent** (no expiry) — Free and "free trial" are separate concepts. A tenant may separately start an optional, time-boxed **paid-plan trial** (illustrative: 14 days) from the dashboard at any time; if not converted to a paid subscription before it ends, the tenant reverts to Free (not locked, not deleted). Upgrading to a paid plan (or starting a trial) is a self-serve in-app action that invokes Stripe Billing. Which tier(s) offer a trial and the exact trial length are confirmed at Milestone 11 kickoff.
 
 ## Data retention after cancellation (ADR-0009)
 

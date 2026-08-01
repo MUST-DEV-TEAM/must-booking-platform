@@ -28,6 +28,9 @@ describe('properties', () => {
       token = new URL(x.verificationUrl).searchParams.get('token')!;
     },
     async sendWelcomeEmail() {},
+    async sendPasswordResetEmail() {},
+    async sendPaymentConfirmationEmail() {},
+    async sendRefundConfirmationEmail() {},
   };
   beforeAll(async () => {
     process.env.APP_PORT = '3000';
@@ -94,6 +97,19 @@ describe('properties', () => {
       .post('/auth/email-verification/confirm')
       .send({ token })
       .expect(204);
+    const firstPropertyId = signup.body.property.id as string;
+    await request(app.getHttpServer())
+      .patch(`/tenants/${tenantId}/properties/${firstPropertyId}/payment-gateways`)
+      .set('Cookie', cookie)
+      .send({ stripe: false, pokpay: true, payAtHotel: true })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.paymentGateways).toEqual({
+          stripe: false,
+          pokpay: true,
+          payAtHotel: true,
+        });
+      });
     planId = randomUUID();
     await admin.$executeRaw`INSERT INTO plans (id,name,max_properties,max_staff_seats,pms_enabled,max_pms_connections_per_property) VALUES (${planId}::uuid, ${`Properties ${planId}`}, 2, 3, false, 0)`;
     await admin.$executeRaw`UPDATE organizations SET plan_id=${planId}::uuid WHERE id=${tenantId}::uuid`;
@@ -103,6 +119,11 @@ describe('properties', () => {
       .set('Cookie', cookie)
       .send({ name: 'Second Property', address: '2 Main Street', timezone: 'Europe/Tirane' })
       .expect(201);
+    expect(created.body.paymentGateways).toEqual({
+      stripe: false,
+      pokpay: false,
+      payAtHotel: false,
+    });
     expect(
       (
         await request(app.getHttpServer())
@@ -135,5 +156,9 @@ describe('properties', () => {
       Array<{ action: string; target_id: string }>
     >`SELECT action,target_id FROM audit_logs WHERE tenant_id=${tenantId}::uuid`;
     expect(logs).toContainEqual({ action: 'property.created', target_id: created.body.id });
+    expect(logs).toContainEqual({
+      action: 'property.payment_gateways_updated',
+      target_id: firstPropertyId,
+    });
   });
 });

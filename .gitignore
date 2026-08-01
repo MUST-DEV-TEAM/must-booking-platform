@@ -10,3 +10,6 @@ build/
 coverage/
 .claude/
 *.tsbuildinfo
+apps/api/.dev-certs/
+.playwright-mcp/
+output/playwright/

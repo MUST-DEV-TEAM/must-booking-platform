@@ -15,7 +15,7 @@ Options presented were: self-serve signup with card required upfront, self-serve
 
 ## Decision
 
-Self-serve signup, no payment card required upfront. A new tenant signs up and lands directly on the **Free** plan (ADR-0007's illustrative shape: 1 property, 3 staff seats, no PMS connection — exact numbers finalized at Milestone 8).
+Self-serve signup, no payment card required upfront. A new tenant signs up and lands directly on the **Free** plan (ADR-0007's illustrative shape: 1 property, 3 staff seats, no PMS connection — exact numbers finalized at Milestone 9).
 
 **Corrected 2026-07-27 (owner review round two):** Free plan and free trial are two separate concepts, not one. The original version of this ADR conflated them by making the Free plan itself expire after 30 days — that is wrong and is superseded by this text:
 
@@ -31,5 +31,5 @@ Accepted by the owner on 2026-07-27; refined by the owner on 2026-07-27 (second 
 - A scheduled job (BullMQ) acts on `trial_ends_at` only for tenants who started a paid-plan trial: on expiry without conversion, downgrade to Free plan limits/features (not a lock, not a deletion — Free is a normal, supported permanent state).
 - Upgrading to Basic (or a future paid tier), or starting a paid-plan trial, is a self-serve in-app action that does invoke Stripe Billing (ADR-0003) — this is the first point a payment method may be collected (trials still do not require a card upfront), not signup itself.
 - Because self-serve is confirmed, ADR-0003 (billing provider) and ADR-0007 (pricing model) needed to be resolved before Phase 0 closes — both are now accepted, so this no longer sequences ahead of them.
-- **To confirm at Milestone 8 kickoff**: which paid tier(s) offer a trial, the trial length (illustrative: 14 days), and whether a tenant can retrigger a trial more than once (abuse guardrail). Free-plan permanence itself is settled by this ADR and is not open at Milestone 8.
+- **To confirm at Milestone 9 kickoff**: which paid tier(s) offer a trial, the trial length (illustrative: 14 days), and whether a tenant can retrigger a trial more than once (abuse guardrail). Free-plan permanence itself is settled by this ADR and is not open at Milestone 9.
 - Trial-abuse guardrails (e.g. rate-limiting signups per email/IP, verifying email before activation, limiting one paid-plan trial per tenant) are an implementation detail to include given no card gates signup or trial start.

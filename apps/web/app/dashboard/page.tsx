@@ -1,5 +1,10 @@
+import { AuthRouteGuard } from '../auth-routing';
 import { TenantPicker } from './tenant-picker';
 
 export default function DashboardPage() {
-  return <TenantPicker />;
+  return (
+    <AuthRouteGuard audience="tenant">
+      <TenantPicker />
+    </AuthRouteGuard>
+  );
 }

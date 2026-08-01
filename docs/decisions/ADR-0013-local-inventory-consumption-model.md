@@ -16,7 +16,7 @@ Milestone 3's `inventory_units` table stores `available_units` as a staff-set co
 
 Option 1: add `booked_units` to `inventory_units`, keep `available_units` as staff's configured capacity, and derive sellable inventory as `available_units - booked_units` at read time.
 
-This is the conventional PMS/channel-manager pattern (allotment vs. sold count kept separate) and is what Milestone 9's Clock adapter will eventually need to reconcile against too — Clock's own availability data is itself a derived "capacity minus sold" number, not a raw allotment.
+This is the conventional PMS/channel-manager pattern (allotment vs. sold count kept separate) and is what Milestone 10's Clock adapter will eventually need to reconcile against too — Clock's own availability data is itself a derived "capacity minus sold" number, not a raw allotment.
 
 ## Consequences
 

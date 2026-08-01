@@ -1,0 +1,96 @@
+.must-hotel-booking-rooms-text-grid-widget {
+    --must-hotel-booking-rooms-text-grid-text-color: #16212b;
+    --must-hotel-booking-rooms-text-grid-hover-color: #0f766e;
+    --must-hotel-booking-rooms-text-grid-current-color: #0f766e;
+    --must-hotel-booking-rooms-text-grid-background: transparent;
+    --must-hotel-booking-rooms-text-grid-hover-background: rgba(15, 118, 110, 0.04);
+    --must-hotel-booking-rooms-text-grid-current-background: rgba(15, 118, 110, 0.08);
+    --must-hotel-booking-rooms-text-grid-radius: 18px;
+    --must-hotel-booking-rooms-text-grid-transition-duration: 220ms;
+    width: 100%;
+    max-width: 100%;
+    font-family: var(--must-hotel-booking-rooms-text-grid-font-family, inherit);
+    box-sizing: border-box;
+}
+
+.elementor-widget-must-rooms-text-grid,
+.elementor-widget-must-rooms-text-grid .elementor-widget-container,
+[class*='elementor-widget-must-rooms-text-grid'],
+[class*='elementor-widget-must-rooms-text-grid'] .elementor-widget-container {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-list {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    column-gap: 24px;
+    row-gap: 16px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-item {
+    min-width: 0;
+}
+
+.must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-item-inner {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 10px 0;
+    background: var(--must-hotel-booking-rooms-text-grid-background);
+    border: 0 solid transparent;
+    border-radius: var(--must-hotel-booking-rooms-text-grid-radius);
+    color: var(--must-hotel-booking-rooms-text-grid-text-color);
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1.35;
+    letter-spacing: -0.01em;
+    text-decoration: none;
+    transition:
+        color var(--must-hotel-booking-rooms-text-grid-transition-duration) ease,
+        background-color var(--must-hotel-booking-rooms-text-grid-transition-duration) ease,
+        border-color var(--must-hotel-booking-rooms-text-grid-transition-duration) ease,
+        box-shadow var(--must-hotel-booking-rooms-text-grid-transition-duration) ease;
+}
+
+.must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-link:hover,
+.must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-link:focus-visible {
+    color: var(--must-hotel-booking-rooms-text-grid-hover-color);
+    background: var(--must-hotel-booking-rooms-text-grid-hover-background);
+}
+
+.must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-link:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 3px;
+}
+
+.must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-item.is-current .must-hotel-booking-rooms-text-grid-item-inner {
+    color: var(--must-hotel-booking-rooms-text-grid-current-color);
+    background: var(--must-hotel-booking-rooms-text-grid-current-background);
+}
+
+.must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-empty {
+    margin: 0;
+    color: var(--must-hotel-booking-rooms-text-grid-text-color);
+    font-family: inherit;
+    line-height: 1.5;
+}
+
+@media (max-width: 1024px) {
+    .must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-item-inner {
+        font-size: 20px;
+    }
+}
+
+@media (max-width: 767px) {
+    .must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-item-inner {
+        font-size: 18px;
+        line-height: 1.4;
+    }
+}

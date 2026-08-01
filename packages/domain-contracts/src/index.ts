@@ -16,6 +16,20 @@ export interface MailProvider {
     to: string;
     organizationName: string;
   }): Promise<void>;
+  sendPasswordResetEmail(command: { userId: string; to: string; resetUrl: string }): Promise<void>;
+  sendPaymentConfirmationEmail(command: {
+    bookingId: string;
+    paymentId: string;
+    to: string;
+    amount: Money;
+    cancellationUrl?: string;
+  }): Promise<void>;
+  sendRefundConfirmationEmail(command: {
+    bookingId: string;
+    refundId: string;
+    to: string;
+    amount: Money;
+  }): Promise<void>;
 }
 
 export interface StorageProvider {
@@ -45,6 +59,15 @@ export enum BookingStatus {
   EXPIRED = 'EXPIRED',
 }
 
+export enum BookingPaymentMethod {
+  STRIPE_CHECKOUT = 'STRIPE_CHECKOUT',
+  POKPAY = 'POKPAY',
+  PAY_AT_HOTEL = 'PAY_AT_HOTEL',
+  FREE = 'FREE',
+}
+
+export type GuestPaymentMethod = 'stripe' | 'pokpay' | 'pay_at_hotel';
+
 export interface ResultError {
   code: string;
   message: string;
@@ -68,6 +91,11 @@ export interface GuestDetails {
   firstName: string;
   lastName: string;
   phone: string | null;
+  streetAddress?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  county?: string | null;
+  postcode?: string | null;
 }
 
 export interface Booking {
@@ -80,6 +108,7 @@ export interface Booking {
   startsOn: string;
   endsOn: string;
   status: BookingStatus;
+  paymentMethod: BookingPaymentMethod;
   total: Money;
   externalReference: string;
   externalBookingId: string | null;
@@ -128,11 +157,14 @@ export interface CreateBookingCommand {
   endsOn: string;
   guest: GuestDetails;
   total: Money;
+  paymentMethod?: GuestPaymentMethod;
+  payAtHotel?: boolean;
 }
 
 export interface UpdateBookingCommand {
   idempotencyKey: string;
   bookingId: string;
+  guestSessionId?: string;
   expectedVersion: number;
   roomTypeId?: string;
   ratePlanId?: string;
@@ -145,6 +177,7 @@ export interface UpdateBookingCommand {
 export interface CancelBookingCommand {
   idempotencyKey: string;
   bookingId: string;
+  guestSessionId?: string;
   expectedVersion: number;
   reason: string | null;
 }
@@ -217,7 +250,11 @@ export interface Payment {
 export interface PaymentWebhookEvent {
   id: string;
   type: string;
-  paymentId: string;
+  externalPaymentId: string;
+  tenantId?: string;
+  propertyId?: string;
+  bookingId?: string;
+  paymentStatus?: string;
 }
 
 export interface PaymentProvider {
