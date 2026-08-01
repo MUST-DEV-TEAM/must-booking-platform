@@ -5,8 +5,16 @@ set -euo pipefail
 cd "$(dirname "$0")"
 REPO_ROOT="$(cd ../.. && pwd)"
 
-git -C "$REPO_ROOT" fetch origin main
-git -C "$REPO_ROOT" reset --hard origin/main
+if [ -z "${DEPLOY_SH_PULLED:-}" ]; then
+  git -C "$REPO_ROOT" fetch origin main
+  git -C "$REPO_ROOT" reset --hard origin/main
+  # git reset --hard just overwrote this very file on disk. A script that
+  # keeps executing from its already-open file descriptor after that is
+  # undefined behavior in bash -- re-exec so everything past this point
+  # runs from the freshly-pulled version, not a stale read/buffer.
+  export DEPLOY_SH_PULLED=1
+  exec bash "$REPO_ROOT/infrastructure/containers/deploy.sh"
+fi
 
 docker compose -f compose.homelab.yaml --env-file .env build
 docker compose -f compose.homelab.yaml --env-file .env up -d postgres redis
