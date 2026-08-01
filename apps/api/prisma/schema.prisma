@@ -49,9 +49,15 @@ enum PaymentKind {
   REFUND
 }
 
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+}
+
 model Organization {
   id           String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name         String             @db.VarChar(200)
+  status       OrganizationStatus @default(ACTIVE)
   planId       String             @default("00000000-0000-0000-0000-000000000001") @map("plan_id") @db.Uuid
   createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
