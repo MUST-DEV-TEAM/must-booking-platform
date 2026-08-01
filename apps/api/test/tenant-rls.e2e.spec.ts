@@ -252,4 +252,68 @@ describe('tenant row-level security', () => {
 
     expect(context).toEqual([{ tenantId: tenantA, propertyId: propertyA }]);
   });
+
+  it('allows platform admins to read only the carved-out tables across tenants', async () => {
+    const visible = await tenantDatabase.withPlatformAdminTransaction(
+      { role: 'platform_admin' },
+      async (transaction) => {
+        const context = await transaction.$queryRaw<Array<{ role: string }>>`
+          SELECT current_setting('app.role') AS "role"
+        `;
+        const organizations = await transaction.$queryRaw<Array<{ id: string }>>`
+          SELECT "id" FROM "organizations" WHERE "id" IN (${tenantA}::uuid, ${tenantB}::uuid)
+          ORDER BY "id"
+        `;
+        const users = await transaction.$queryRaw<Array<{ id: string }>>`
+          SELECT "id" FROM "users" WHERE "id" IN (${userA}::uuid, ${userB}::uuid) ORDER BY "id"
+        `;
+        const memberships = await transaction.$queryRaw<Array<{ tenantId: string }>>`
+          SELECT "tenant_id" AS "tenantId" FROM "tenant_memberships"
+          WHERE "tenant_id" IN (${tenantA}::uuid, ${tenantB}::uuid) ORDER BY "tenant_id"
+        `;
+        const properties = await transaction.$queryRaw<Array<{ id: string }>>`
+          SELECT "id" FROM "properties" WHERE "id" IN (${propertyA}::uuid, ${propertyB}::uuid)
+        `;
+
+        return { context, organizations, users, memberships, properties };
+      },
+    );
+
+    expect(visible.context).toEqual([{ role: 'platform_admin' }]);
+    expect(visible.organizations).toEqual(
+      [{ id: tenantA }, { id: tenantB }].sort((a, b) => a.id.localeCompare(b.id)),
+    );
+    expect(visible.users).toEqual(
+      [{ id: userA }, { id: userB }].sort((a, b) => a.id.localeCompare(b.id)),
+    );
+    expect(visible.memberships).toEqual(
+      [{ tenantId: tenantA }, { tenantId: tenantB }].sort((a, b) =>
+        a.tenantId.localeCompare(b.tenantId),
+      ),
+    );
+    expect(visible.properties).toEqual([]);
+  });
+
+  it('does not grant platform admins write access anywhere', async () => {
+    const affectedRows = await tenantDatabase.withPlatformAdminTransaction(
+      { role: 'platform_admin' },
+      async (transaction) => ({
+        organization: await transaction.$executeRaw`
+          UPDATE "organizations" SET "name" = 'Platform write blocked' WHERE "id" = ${tenantA}::uuid
+        `,
+        user: await transaction.$executeRaw`
+          UPDATE "users" SET "email" = 'platform-write-blocked@example.test' WHERE "id" = ${userA}::uuid
+        `,
+        membership: await transaction.$executeRaw`
+          UPDATE "tenant_memberships" SET "role" = 'ADMIN'
+          WHERE "tenant_id" = ${tenantA}::uuid AND "user_id" = ${userA}::uuid
+        `,
+        property: await transaction.$executeRaw`
+          UPDATE "properties" SET "name" = 'Platform write blocked' WHERE "id" = ${propertyA}::uuid
+        `,
+      }),
+    );
+
+    expect(affectedRows).toEqual({ organization: 0, user: 0, membership: 0, property: 0 });
+  });
 });
