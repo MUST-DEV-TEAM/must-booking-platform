@@ -9,10 +9,41 @@ on:
 permissions:
   contents: read
 
+env:
+  APP_PORT: 3000
+  DATABASE_URL: postgresql://must_booking_app:must_booking_app_dev@localhost:5432/must_booking?schema=public
+  MIGRATION_DATABASE_URL: postgresql://must_booking:must_booking_dev@localhost:5432/must_booking?schema=public
+  REDIS_URL: redis://localhost:6379
+  WEB_APP_URL: http://localhost:3001
+  QUOTE_SIGNING_SECRET: ci-only-quote-signing-secret-not-a-real-value
+
 jobs:
   verify:
     name: Build, lint, and test
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: must_booking
+          POSTGRES_USER: must_booking
+          POSTGRES_PASSWORD: must_booking_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U must_booking -d must_booking"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -39,6 +70,9 @@ jobs:
 
       - name: Check formatting
         run: pnpm -w format:check
+
+      - name: Apply database migrations
+        run: pnpm --filter api prisma migrate deploy
 
       - name: Test workspace
         run: pnpm -w test
