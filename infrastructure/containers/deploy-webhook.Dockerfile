@@ -1,6 +1,6 @@
 FROM node:22-alpine
 
-RUN apk add --no-cache docker-cli docker-cli-compose git bash \
+RUN apk add --no-cache docker-cli docker-cli-compose git bash curl \
  && git config --global --add safe.directory /deploy
 
 WORKDIR /app
