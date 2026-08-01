@@ -67,6 +67,8 @@ import { StripeWebhookService } from './payments/stripe-webhook.service';
 import { PaymentExpiryService } from './payments/payment-expiry.service';
 import { PaymentRefundController } from './payments/payment-refund.controller';
 import { PaymentRefundService } from './payments/payment-refund.service';
+import { PlatformAdminController } from './platform/platform-admin.controller';
+import { PlatformAdminService } from './platform/platform-admin.service';
 
 @Module({
   imports: [
@@ -122,6 +124,7 @@ import { PaymentRefundService } from './payments/payment-refund.service';
     StripeWebhookController,
     PokPayWebhookController,
     PaymentRefundController,
+    PlatformAdminController,
   ],
   providers: [
     TenantDatabaseService,
@@ -159,6 +162,7 @@ import { PaymentRefundService } from './payments/payment-refund.service';
     StripeWebhookService,
     PaymentExpiryService,
     PaymentRefundService,
+    PlatformAdminService,
     { provide: PAYMENT_PROVIDER, useExisting: StripePaymentProvider },
     R2StorageProvider,
     { provide: STORAGE_PROVIDER, useExisting: R2StorageProvider },

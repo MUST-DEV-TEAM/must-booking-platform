@@ -4,18 +4,25 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 
+import { AuthService } from '../auth/auth.service';
 import { REQUIRED_ROLES, Role } from './roles.decorator';
 import { TenantDatabaseService } from './tenant-database.service';
 
-type ContextRequest = { tenantContext?: { userId: string; tenantId: string; propertyId?: string } };
+type ContextRequest = {
+  headers: { cookie?: string };
+  tenantContext?: { userId: string; tenantId: string; propertyId?: string };
+  platformContext?: { userId: string };
+};
 
 @Injectable()
 export class RolesGuard implements CanActivate {
   constructor(
     @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(AuthService) private readonly auth: AuthService,
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
   ) {}
 
@@ -26,7 +33,18 @@ export class RolesGuard implements CanActivate {
     ]);
     if (!required?.length) return true;
 
-    const tenantContext = context.switchToHttp().getRequest<ContextRequest>().tenantContext;
+    const request = context.switchToHttp().getRequest<ContextRequest>();
+    if (required.includes(Role.PlatformAdmin)) {
+      const user = await this.auth.getSessionUser(
+        this.cookie(request.headers.cookie, 'must_session'),
+      );
+      if (!user) throw new UnauthorizedException('A valid session is required.');
+      if (!user.isPlatformAdmin) throw new ForbiddenException('Insufficient role.');
+      request.platformContext = { userId: user.id };
+      return true;
+    }
+
+    const tenantContext = request.tenantContext;
     if (!tenantContext)
       throw new ForbiddenException('A tenant context is required for role checks.');
 
@@ -59,5 +77,12 @@ export class RolesGuard implements CanActivate {
       }
       return roles;
     });
+  }
+
+  private cookie(header: string | undefined, name: string): string | undefined {
+    return header
+      ?.split(';')
+      .map((part) => part.trim().split('=', 2))
+      .find(([key]) => key === name)?.[1];
   }
 }

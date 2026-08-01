@@ -227,14 +227,16 @@ export class AuthService implements OnModuleDestroy {
   async requestPasswordReset(input: unknown): Promise<void> {
     const email = this.email(input);
     const user = await this.findUser(email);
-    if (user) {
-      const resetToken = await this.issueToken('password-reset', user.id, 3_600);
-      await this.sendPasswordResetEmailSafely({
-        userId: user.id,
-        to: user.email,
-        resetToken,
-      });
-    }
+    if (user) await this.triggerPasswordReset(user);
+  }
+
+  async triggerPasswordReset(user: { id: string; email: string }): Promise<void> {
+    const resetToken = await this.issueToken('password-reset', user.id, 3_600);
+    await this.sendPasswordResetEmailSafely({
+      userId: user.id,
+      to: user.email,
+      resetToken,
+    });
   }
 
   async resetPassword(input: unknown): Promise<void> {

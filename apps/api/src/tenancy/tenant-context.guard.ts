@@ -16,6 +16,7 @@ import {
   type TenantScopeOptions,
 } from './tenant-context.decorator';
 import { TenantDatabaseService } from './tenant-database.service';
+import { REQUIRED_ROLES, Role } from './roles.decorator';
 
 type RequestWithContext = {
   headers: { cookie?: string };
@@ -48,16 +49,24 @@ export class TenantContextGuard implements CanActivate {
     )
       return true;
 
+    const scope = this.reflector.getAllAndOverride<TenantScopeOptions>(TENANT_SCOPE, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    const requiredRoles = this.reflector.getAllAndOverride<Role[]>(REQUIRED_ROLES, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    // Platform routes deliberately have no tenant context. RolesGuard resolves
+    // their session and verifies the platform role before the handler runs.
+    if (!scope && requiredRoles?.includes(Role.PlatformAdmin)) return true;
+
     const request = context.switchToHttp().getRequest<RequestWithContext>();
     const userId = await this.auth.getSessionUserId(
       this.cookie(request.headers.cookie, 'must_session'),
     );
     if (!userId) throw new UnauthorizedException('A valid session is required.');
 
-    const scope = this.reflector.getAllAndOverride<TenantScopeOptions>(TENANT_SCOPE, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
     if (!scope) throw new ForbiddenException('Authenticated routes must declare a tenant scope.');
 
     const tenantId = request.params[scope.tenantParam ?? 'tenantId'];
