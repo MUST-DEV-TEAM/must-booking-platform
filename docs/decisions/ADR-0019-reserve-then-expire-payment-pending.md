@@ -19,6 +19,17 @@ Reserve inventory immediately when the booking enters `PAYMENT_PENDING` (the sam
 - If Stripe's webhook reports payment success for a booking that has *already* expired and released its inventory (a slow guest, or webhook delivery delay past the expiry sweep), that is a real edge case Milestone 5's webhook-handling task must resolve explicitly (e.g. re-attempt reservation, or refund and notify) — not silently ignored. Flagged here so it isn't lost; the exact resolution is Milestone 5 task-level work.
 - Reserve-on-confirm (the alternative) is not used: it would mean a guest's card can be successfully charged and then immediately require a compensating refund if someone else took the last unit during their checkout — a strictly worse failure mode than a timeout releasing an unpaid hold.
 
+## Implementation detail (Milestone 5, Task 5)
+
+The payment hold is **30 minutes**. A BullMQ worker sweeps once per minute, expires eligible
+`PAYMENT_PENDING` bookings, and releases their booked inventory in the same tenant-scoped
+transaction.
+
+A verified payment webhook that arrives after expiry deliberately does not re-reserve or confirm
+the booking. It records an immutable `CHARGE` ledger row with status `LATE_AFTER_EXPIRY`, writes an
+audit entry, immediately issues an idempotent refund through the Task 6 shared refund flow, and leaves
+the booking `EXPIRED`.
+
 ## Alternatives considered
 
 - Reserve only after payment succeeds (webhook re-runs the availability check/reservation): rejected per the owner's explicit preference — trades a rare, guest-favorable failure mode (a false "still available" during checkout, resolved by expiry) for a rare but worse one (a successful charge immediately followed by a forced refund).
