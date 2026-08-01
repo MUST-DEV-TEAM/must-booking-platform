@@ -11,8 +11,6 @@ import styles from './signup.module.css';
 type SignupFields = {
   organizationName: string;
   propertyName: string;
-  propertyAddress: string;
-  propertyTimezone: string;
   email: string;
   password: string;
 };
@@ -20,8 +18,6 @@ type SignupFields = {
 const initialFields: SignupFields = {
   organizationName: '',
   propertyName: '',
-  propertyAddress: '',
-  propertyTimezone: 'Europe/Tirane',
   email: '',
   password: '',
 };
@@ -117,27 +113,6 @@ export function SignupForm() {
                 onChange={(event) => setFields({ ...fields, propertyName: event.target.value })}
                 required
                 value={fields.propertyName}
-              />
-            </div>
-            <label className={`${styles.field} ${styles.fieldFull}`} htmlFor="property-address">
-              <span className={styles.fieldLabel}>Property address</span>
-              <textarea
-                id="property-address"
-                name="propertyAddress"
-                onChange={(event) => setFields({ ...fields, propertyAddress: event.target.value })}
-                required
-                rows={3}
-                value={fields.propertyAddress}
-              />
-            </label>
-            <div className={styles.field}>
-              <TextInput
-                autoComplete="off"
-                label="Property timezone"
-                name="propertyTimezone"
-                onChange={(event) => setFields({ ...fields, propertyTimezone: event.target.value })}
-                required
-                value={fields.propertyTimezone}
               />
             </div>
           </div>

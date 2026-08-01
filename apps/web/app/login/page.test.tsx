@@ -21,6 +21,8 @@ describe('Login page', () => {
     expect(markup).toContain('Password');
     expect(markup).toContain('Remember this device for 30 days');
     expect(markup).toContain('Forgot password?');
+    expect(markup).toContain('Sign up');
+    expect(markup).toContain('href="/signup"');
     expect(markup).toContain('Protected hotel operations');
     expect(markup).toContain('Terms &amp; Conditions');
     expect(markup).toContain('Privacy Policy');

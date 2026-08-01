@@ -1,10 +1,5 @@
-import { HomeAuthRedirect } from './auth-routing';
-import { SignupForm } from './signup-form';
+import { redirect } from 'next/navigation';
 
 export default function Home() {
-  return (
-    <HomeAuthRedirect>
-      <SignupForm />
-    </HomeAuthRedirect>
-  );
+  redirect('/login');
 }

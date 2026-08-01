@@ -174,10 +174,15 @@ export default function LoginPage() {
             Forgot password?
           </a>
         </div>
-        <Button className={styles.submitButton} disabled={submitting} type="submit">
-          {error ? 'Try again' : submitting ? 'Signing in…' : 'Sign in'}
-          <img alt="" className={styles.submitArrow} src={authAssets.arrowRight} />
-        </Button>
+        <div className={styles.actions}>
+          <Button className={styles.actionButton} disabled={submitting} type="submit">
+            {error ? 'Try again' : submitting ? 'Signing in…' : 'Sign in'}
+            <img alt="" className={styles.submitArrow} src={authAssets.arrowRight} />
+          </Button>
+          <a className={`${styles.actionButton} must-button must-button--secondary`} href="/signup">
+            Sign up
+          </a>
+        </div>
       </form>
 
       {!error ? (

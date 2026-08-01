@@ -426,8 +426,8 @@ export class AuthService implements OnModuleDestroy {
     const { email, password } = this.credentials(input);
     const organizationName = this.field(input, 'organizationName');
     const propertyName = this.field(input, 'propertyName');
-    const propertyAddress = this.field(input, 'propertyAddress');
-    const propertyTimezone = this.field(input, 'propertyTimezone');
+    const propertyAddress = this.optionalField(input, 'propertyAddress', '');
+    const propertyTimezone = this.optionalField(input, 'propertyTimezone', 'UTC');
 
     if (organizationName.length > 200 || propertyName.length > 200)
       throw new BadRequestException(
@@ -467,6 +467,13 @@ export class AuthService implements OnModuleDestroy {
     if (typeof value !== 'string' || value.trim() === '')
       throw new BadRequestException(`${field} is required.`);
     return value.trim();
+  }
+  private optionalField(input: unknown, field: string, fallback: string): string {
+    const value =
+      typeof input === 'object' && input !== null
+        ? (input as Record<string, unknown>)[field]
+        : undefined;
+    return value === undefined ? fallback : this.field(input, field);
   }
   private hash(value: string): string {
     return createHash('sha256').update(value).digest('hex');

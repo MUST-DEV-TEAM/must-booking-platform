@@ -89,8 +89,6 @@ describe('authentication endpoints', () => {
       .send({
         organizationName: 'MUST Test Hotels',
         propertyName: 'MUST Test Hotel',
-        propertyAddress: '1 Example Street, Tirana',
-        propertyTimezone: 'Europe/Tirane',
         email,
         password,
       })
@@ -113,8 +111,8 @@ describe('authentication endpoints', () => {
       property: {
         id: propertyId,
         name: 'MUST Test Hotel',
-        address: '1 Example Street, Tirana',
-        timezone: 'Europe/Tirane',
+        address: '',
+        timezone: 'UTC',
       },
     });
 
@@ -195,8 +193,8 @@ describe('authentication endpoints', () => {
     expect(stored[0]).toMatchObject({
       planName: 'Free',
       membershipRole: 'OWNER',
-      address: '1 Example Street, Tirana',
-      timezone: 'Europe/Tirane',
+      address: '',
+      timezone: 'UTC',
     });
     expect(stored[0].passwordHash).not.toBe(password);
     expect(stored[0].passwordHash).toMatch(/^\$2[aby]\$/);
@@ -244,6 +242,24 @@ describe('authentication endpoints', () => {
 
   it('does not treat a missing user as email-verified', async () => {
     expect(await app.get(AuthService).isEmailVerified(randomUUID())).toBe(false);
+  });
+
+  it('still rejects an invalid supplied property timezone during signup', async () => {
+    await request(app.getHttpServer())
+      .post('/auth/signup')
+      .send({
+        organizationName: 'Invalid timezone Hotels',
+        propertyName: 'Invalid timezone Property',
+        propertyTimezone: 'Not/AZone',
+        email: `invalid-timezone-${randomUUID()}@example.test`,
+        password: 'correct-horse-battery-staple',
+      })
+      .expect(400)
+      .expect({
+        message: 'propertyTimezone must be a valid IANA timezone.',
+        error: 'Bad Request',
+        statusCode: 400,
+      });
   });
 
   it('issues a reset token, emails the reset URL, and accepts the new password', async () => {
