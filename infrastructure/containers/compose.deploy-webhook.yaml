@@ -13,6 +13,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${MUST_BOOKING_CHECKOUT}:/deploy
+      # The checkout's local git config references this credential file by its
+      # absolute host path (see CONTRIBUTING.md's homelab deploy setup), so it
+      # must be mounted at that same path for git inside the container to find it.
+      - ${GIT_CREDENTIALS_FILE}:${GIT_CREDENTIALS_FILE}:ro
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://localhost:8090/health']
       interval: 10s
