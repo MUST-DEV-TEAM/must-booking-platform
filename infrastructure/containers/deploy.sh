@@ -13,3 +13,19 @@ docker compose -f compose.homelab.yaml --env-file .env up -d postgres redis
 docker compose -f compose.homelab.yaml --env-file .env run --rm api pnpm --filter api prisma migrate deploy
 docker compose -f compose.homelab.yaml --env-file .env up -d
 docker compose -f compose.homelab.yaml --env-file .env ps
+
+# Cache-busting: Cloudflare edge-caches this app's pages aggressively (observed
+# s-maxage=31536000 on Next.js's own headers), so a stale build can keep being
+# served after a deploy unless purged. Optional -- .env credentials are not
+# required to exist to demo/staging environment other people set up.
+CF_TOKEN=$(grep -m1 '^CLOUDFLARE_API_TOKEN=' .env 2>/dev/null | cut -d= -f2-)
+CF_ZONE=$(grep -m1 '^CLOUDFLARE_ZONE_ID=' .env 2>/dev/null | cut -d= -f2-)
+if [ -n "$CF_TOKEN" ] && [ -n "$CF_ZONE" ]; then
+  curl -sS -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/purge_cache" \
+    -H "Authorization: Bearer $CF_TOKEN" \
+    -H 'Content-Type: application/json' \
+    --data '{"purge_everything":true}'
+  echo "Purged Cloudflare cache."
+else
+  echo "CLOUDFLARE_API_TOKEN/CLOUDFLARE_ZONE_ID not set -- skipping cache purge."
+fi
