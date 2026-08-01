@@ -5,6 +5,9 @@ RUN corepack enable
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY apps/api/package.json apps/api/package.json
+# apps/api's postinstall runs `prisma generate`, which needs the schema present
+# before `pnpm install` runs below -- copy it ahead of the dependency-caching install.
+COPY apps/api/prisma apps/api/prisma
 COPY packages/domain-contracts/package.json packages/domain-contracts/package.json
 COPY packages/shared-types/package.json packages/shared-types/package.json
 RUN pnpm install --frozen-lockfile
@@ -15,7 +18,6 @@ COPY apps/api apps/api
 
 RUN pnpm --filter @must/shared-types build \
  && pnpm --filter @must/domain-contracts build \
- && pnpm --filter api prisma:generate \
  && pnpm --filter api build
 
 ENV NODE_ENV=production

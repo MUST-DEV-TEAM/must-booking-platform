@@ -6,6 +6,10 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY apps/web/package.json apps/web/package.json
 COPY apps/api/package.json apps/api/package.json
+# apps/api's postinstall runs `prisma generate`, needed because apps/web's e2e test
+# helpers import @prisma/client's generated types (resolved from the same pnpm
+# virtual-store entry apps/api uses) -- the schema must be present before install runs.
+COPY apps/api/prisma apps/api/prisma
 COPY packages/ui/package.json packages/ui/package.json
 COPY packages/domain-contracts/package.json packages/domain-contracts/package.json
 COPY packages/shared-types/package.json packages/shared-types/package.json
@@ -13,12 +17,6 @@ RUN pnpm install --frozen-lockfile
 
 COPY packages/ui packages/ui
 COPY apps/web apps/web
-COPY apps/api/prisma apps/api/prisma
-
-# apps/web's e2e test helpers import @prisma/client's generated types; the client is
-# resolved from the same pnpm virtual-store entry apps/api uses, so it must be
-# generated here too even though this image only ships the web app.
-RUN pnpm --filter api exec prisma generate
 
 # next.config.ts's rewrites() reads API_URL when `next build` computes the routing
 # manifest, not at container start — it must be set here, not just at `docker run` time.
