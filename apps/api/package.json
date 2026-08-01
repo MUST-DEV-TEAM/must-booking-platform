@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
+    "postinstall": "prisma generate",
     "build": "tsc --project tsconfig.build.json",
     "prisma": "prisma",
     "prisma:generate": "prisma generate",
