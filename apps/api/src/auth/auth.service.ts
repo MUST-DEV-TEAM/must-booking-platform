@@ -13,6 +13,7 @@ import { createClient, type RedisClientType } from 'redis';
 
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { AuditLogService } from '../tenancy/audit-log.service';
+import { PropertyRoleTemplatesService } from '../tenancy/property-role-templates.service';
 import { MAIL_PROVIDER, type MailProvider } from '../mail/mail.provider';
 
 type AuthUserRecord = {
@@ -48,6 +49,7 @@ export class AuthService implements OnModuleDestroy {
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(AuditLogService) private readonly auditLogs: AuditLogService,
+    @Inject(PropertyRoleTemplatesService) private readonly templates: PropertyRoleTemplatesService,
     @Inject(MAIL_PROVIDER) private readonly mail: MailProvider,
   ) {
     this.redis = createClient({ url: process.env.REDIS_URL });
@@ -81,6 +83,7 @@ export class AuthService implements OnModuleDestroy {
             ${command.propertyTimezone}
           )
         `;
+        await this.templates.ensureBuiltInTemplatesInTransaction(tx, organizationId, propertyId);
         await tx.$executeRaw`
           INSERT INTO "users" ("id", "email", "password_hash")
           VALUES (${userId}::uuid, ${command.email}, ${passwordHash})

@@ -17,6 +17,8 @@ import { TenantContextGuard } from './tenancy/tenant-context.guard';
 import { PublicTenantScopedGuard } from './tenancy/public-tenant-scoped.guard';
 import { RolesGuard } from './tenancy/roles.guard';
 import { CapabilitiesGuard } from './tenancy/capabilities.guard';
+import { CapabilitiesService } from './tenancy/capabilities.service';
+import { CapabilitiesController } from './tenancy/capabilities.controller';
 import { PropertyRoleTemplatesService } from './tenancy/property-role-templates.service';
 import { StaffInviteService } from './tenancy/staff-invite.service';
 import { StaffInviteController } from './tenancy/staff-invite.controller';
@@ -132,6 +134,7 @@ import { ProviderHealthService } from './platform/provider-health.service';
     RatePlansController,
     AmenitiesController,
     AvailabilityController,
+    CapabilitiesController,
     PublicAvailabilityController,
     PublicCatalogController,
     QuoteController,
@@ -155,6 +158,7 @@ import { ProviderHealthService } from './platform/provider-health.service';
     PublicCorsService,
     RolesGuard,
     CapabilitiesGuard,
+    CapabilitiesService,
     PropertyRoleTemplatesService,
     StaffInviteService,
     AdminStaffService,

@@ -58,6 +58,11 @@ describe('rate plans', () => {
       await admin.$executeRaw`DELETE FROM rate_rules WHERE tenant_id = ${tenantId}::uuid`;
       await admin.$executeRaw`DELETE FROM rate_plans WHERE tenant_id = ${tenantId}::uuid`;
       await admin.$executeRaw`DELETE FROM room_types WHERE tenant_id = ${tenantId}::uuid`;
+      await admin.$executeRaw`DELETE FROM property_staff_capability_overrides WHERE tenant_id = ${tenantId}::uuid`;
+      await admin.$executeRaw`DELETE FROM property_staff_assignments WHERE tenant_id = ${tenantId}::uuid`;
+      await admin.$executeRaw`DELETE FROM property_role_template_capabilities WHERE tenant_id = ${tenantId}::uuid`;
+      await admin.$executeRaw`DELETE FROM property_role_templates WHERE tenant_id = ${tenantId}::uuid`;
+      await admin.$executeRaw`DELETE FROM capabilities WHERE tenant_id = ${tenantId}::uuid`;
       await admin.$executeRaw`DELETE FROM tenant_memberships WHERE tenant_id = ${tenantId}::uuid`;
     }
     if (propertyId) await admin.$executeRaw`DELETE FROM properties WHERE id = ${propertyId}::uuid`;

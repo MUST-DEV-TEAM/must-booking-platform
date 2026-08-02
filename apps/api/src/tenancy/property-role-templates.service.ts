@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 
-import { TenantDatabaseService } from './tenant-database.service';
+import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 
 const builtInCapabilities = [
   ['staff.invite', 'Invite property staff'],
@@ -83,38 +83,46 @@ export class PropertyRoleTemplatesService {
   }
 
   async ensureBuiltInTemplates(tenantId: string, propertyId: string): Promise<void> {
-    await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      for (const [key, description] of builtInCapabilities) {
-        await tx.$executeRaw`
+    await this.database.withTenantTransaction({ tenantId, propertyId }, (tx) =>
+      this.ensureBuiltInTemplatesInTransaction(tx, tenantId, propertyId),
+    );
+  }
+
+  async ensureBuiltInTemplatesInTransaction(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+  ): Promise<void> {
+    for (const [key, description] of builtInCapabilities) {
+      await tx.$executeRaw`
           INSERT INTO "capabilities" ("tenant_id", "key", "description") VALUES (${tenantId}::uuid, ${key}, ${description})
           ON CONFLICT ("tenant_id", "key") DO NOTHING
         `;
-      }
-      for (const name of ['Property Manager', 'Front Desk']) {
-        await tx.$executeRaw`
+    }
+    for (const name of ['Property Manager', 'Front Desk']) {
+      await tx.$executeRaw`
           INSERT INTO "property_role_templates" ("tenant_id", "property_id", "name", "kind") VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${name}, 'BUILT_IN')
           ON CONFLICT ("tenant_id", "property_id", "name") DO NOTHING
         `;
-      }
-      const templates = await tx.$queryRaw<Array<{ id: string; name: string }>>`
+    }
+    const templates = await tx.$queryRaw<Array<{ id: string; name: string }>>`
         SELECT "id", "name" FROM "property_role_templates" WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid AND "kind" = 'BUILT_IN'
       `;
-      const capabilities = await tx.$queryRaw<Array<{ id: string; key: string }>>`
+    const capabilities = await tx.$queryRaw<Array<{ id: string; key: string }>>`
         SELECT "id", "key" FROM "capabilities" WHERE "tenant_id" = ${tenantId}::uuid
       `;
-      for (const template of templates) {
-        const allowed =
-          template.name === 'Property Manager'
-            ? capabilities
-            : capabilities.filter((capability) => capability.key === 'guests.manage');
-        for (const capability of allowed) {
-          await tx.$executeRaw`
+    for (const template of templates) {
+      const allowed =
+        template.name === 'Property Manager'
+          ? capabilities
+          : capabilities.filter((capability) => capability.key === 'guests.manage');
+      for (const capability of allowed) {
+        await tx.$executeRaw`
             INSERT INTO "property_role_template_capabilities" ("tenant_id", "property_id", "role_template_id", "capability_id") VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${template.id}::uuid, ${capability.id}::uuid)
             ON CONFLICT ("tenant_id", "property_id", "role_template_id", "capability_id") DO NOTHING
           `;
-        }
       }
-    });
+    }
   }
 
   async createCustomTemplate(

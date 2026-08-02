@@ -71,6 +71,13 @@ describe('authentication endpoints', () => {
       await migrationPrisma.$executeRaw`DELETE FROM "audit_logs" WHERE "tenant_id" = ${organizationId}::uuid`;
     if (userId)
       await migrationPrisma.$executeRaw`DELETE FROM "audit_logs" WHERE "actor_user_id" = ${userId}::uuid`;
+    if (organizationId) {
+      await migrationPrisma.$executeRaw`DELETE FROM "property_staff_capability_overrides" WHERE "tenant_id" = ${organizationId}::uuid`;
+      await migrationPrisma.$executeRaw`DELETE FROM "property_staff_assignments" WHERE "tenant_id" = ${organizationId}::uuid`;
+      await migrationPrisma.$executeRaw`DELETE FROM "property_role_template_capabilities" WHERE "tenant_id" = ${organizationId}::uuid`;
+      await migrationPrisma.$executeRaw`DELETE FROM "property_role_templates" WHERE "tenant_id" = ${organizationId}::uuid`;
+      await migrationPrisma.$executeRaw`DELETE FROM "capabilities" WHERE "tenant_id" = ${organizationId}::uuid`;
+    }
     if (organizationId && userId)
       await migrationPrisma.$executeRaw`DELETE FROM "tenant_memberships" WHERE "tenant_id" = ${organizationId}::uuid AND "user_id" = ${userId}::uuid`;
     if (propertyId)
@@ -361,6 +368,13 @@ describe('authentication endpoints', () => {
         await migrationPrisma.$executeRaw`DELETE FROM "audit_logs" WHERE "tenant_id" = ${failureOrganizationId}::uuid`;
       if (failureUserId)
         await migrationPrisma.$executeRaw`DELETE FROM "audit_logs" WHERE "actor_user_id" = ${failureUserId}::uuid`;
+      if (failureOrganizationId) {
+        await migrationPrisma.$executeRaw`DELETE FROM "property_staff_capability_overrides" WHERE "tenant_id" = ${failureOrganizationId}::uuid`;
+        await migrationPrisma.$executeRaw`DELETE FROM "property_staff_assignments" WHERE "tenant_id" = ${failureOrganizationId}::uuid`;
+        await migrationPrisma.$executeRaw`DELETE FROM "property_role_template_capabilities" WHERE "tenant_id" = ${failureOrganizationId}::uuid`;
+        await migrationPrisma.$executeRaw`DELETE FROM "property_role_templates" WHERE "tenant_id" = ${failureOrganizationId}::uuid`;
+        await migrationPrisma.$executeRaw`DELETE FROM "capabilities" WHERE "tenant_id" = ${failureOrganizationId}::uuid`;
+      }
       if (failureOrganizationId && failureUserId)
         await migrationPrisma.$executeRaw`DELETE FROM "tenant_memberships" WHERE "tenant_id" = ${failureOrganizationId}::uuid AND "user_id" = ${failureUserId}::uuid`;
       if (failurePropertyId)
@@ -402,6 +416,13 @@ describe('authentication endpoints', () => {
         await migrationPrisma.$executeRaw`DELETE FROM "audit_logs" WHERE "tenant_id" = ${configurationFailureOrganizationId}::uuid`;
       if (configurationFailureUserId)
         await migrationPrisma.$executeRaw`DELETE FROM "audit_logs" WHERE "actor_user_id" = ${configurationFailureUserId}::uuid`;
+      if (configurationFailureOrganizationId) {
+        await migrationPrisma.$executeRaw`DELETE FROM "property_staff_capability_overrides" WHERE "tenant_id" = ${configurationFailureOrganizationId}::uuid`;
+        await migrationPrisma.$executeRaw`DELETE FROM "property_staff_assignments" WHERE "tenant_id" = ${configurationFailureOrganizationId}::uuid`;
+        await migrationPrisma.$executeRaw`DELETE FROM "property_role_template_capabilities" WHERE "tenant_id" = ${configurationFailureOrganizationId}::uuid`;
+        await migrationPrisma.$executeRaw`DELETE FROM "property_role_templates" WHERE "tenant_id" = ${configurationFailureOrganizationId}::uuid`;
+        await migrationPrisma.$executeRaw`DELETE FROM "capabilities" WHERE "tenant_id" = ${configurationFailureOrganizationId}::uuid`;
+      }
       if (configurationFailureOrganizationId && configurationFailureUserId)
         await migrationPrisma.$executeRaw`DELETE FROM "tenant_memberships" WHERE "tenant_id" = ${configurationFailureOrganizationId}::uuid AND "user_id" = ${configurationFailureUserId}::uuid`;
       if (configurationFailurePropertyId)

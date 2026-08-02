@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { CapabilitiesGuard } from '../src/tenancy/capabilities.guard';
+import { CapabilitiesService } from '../src/tenancy/capabilities.service';
 import { PropertyRoleTemplatesService } from '../src/tenancy/property-role-templates.service';
 import { TenantDatabaseService } from '../src/tenancy/tenant-database.service';
 
@@ -23,9 +24,10 @@ const database = new TenantDatabaseService({
   },
 });
 const templates = new PropertyRoleTemplatesService(database);
+const capabilities = new CapabilitiesService(database);
 const guard = new CapabilitiesGuard(
   { getAllAndOverride: () => 'settings.manage' } as never,
-  database,
+  capabilities,
 );
 
 describe('property staff capabilities', () => {
@@ -96,5 +98,16 @@ describe('property staff capabilities', () => {
     await expect(guard.canActivate(executionContext)).rejects.toBeInstanceOf(ForbiddenException);
     await templates.setCapabilityOverride(tenantId, propertyId, userId, 'settings.manage', true);
     await expect(guard.canActivate(executionContext)).resolves.toBe(true);
+
+    const propertyManagerTemplate = await migrationPrisma.$queryRaw<
+      Array<{ id: string }>
+    >`SELECT "id" FROM "property_role_templates" WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid AND "name" = 'Property Manager'`;
+    await migrationPrisma.$executeRaw`
+      UPDATE "property_staff_assignments" SET "role_template_id" = ${propertyManagerTemplate[0].id}::uuid
+      WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid AND "user_id" = ${userId}::uuid
+    `;
+    await expect(guard.canActivate(executionContext)).resolves.toBe(true);
+    await templates.setCapabilityOverride(tenantId, propertyId, userId, 'settings.manage', false);
+    await expect(guard.canActivate(executionContext)).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
