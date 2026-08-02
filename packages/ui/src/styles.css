@@ -317,15 +317,20 @@ body {
   font-size: 0.8125rem;
   overflow-wrap: anywhere;
 }
-.must-desktop-header__profile a,
-.must-shell-profile a {
+.must-desktop-header__profile button,
+.must-shell-profile button {
+  background: none;
+  border: none;
   color: var(--must-color-ink);
+  cursor: pointer;
+  font: inherit;
   font-size: 0.8125rem;
   font-weight: 700;
+  padding: 0;
   text-decoration: none;
 }
-.must-desktop-header__profile a:hover,
-.must-shell-profile a:hover {
+.must-desktop-header__profile button:hover,
+.must-shell-profile button:hover {
   text-decoration: underline;
 }
 .must-app-shell__content {

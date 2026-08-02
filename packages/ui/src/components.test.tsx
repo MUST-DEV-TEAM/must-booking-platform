@@ -15,7 +15,7 @@ describe('dashboard shell', () => {
     expect(markup).toContain('<svg');
   });
 
-  it('renders the MUST Hotel brand and profile footer with logout link', () => {
+  it('renders the MUST Hotel brand and profile footer with a logout button', () => {
     const markup = renderToStaticMarkup(
       <SidebarNavigation items={navigation} userEmail="admin@example.com" />,
     );
@@ -23,7 +23,8 @@ describe('dashboard shell', () => {
     expect(markup).toContain('MUST Hotel');
     expect(markup).toContain('/auth/portal-m-mark.svg');
     expect(markup).toContain('admin@example.com');
-    expect(markup).toContain('/login?reason=logout-confirmation');
+    expect(markup).toContain('<button');
+    expect(markup).toContain('Log out');
   });
 
   it('renders the desktop header title and matching user menu', () => {
@@ -35,7 +36,8 @@ describe('dashboard shell', () => {
 
     expect(markup).toContain('Platform operations');
     expect(markup).toContain('admin@example.com');
-    expect(markup).toContain('/login?reason=logout-confirmation');
+    expect(markup).toContain('<button');
+    expect(markup).toContain('Log out');
   });
 
   it('defaults the brand link to /platform but lets a consumer override it', () => {

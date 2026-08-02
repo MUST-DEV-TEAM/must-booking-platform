@@ -173,6 +173,21 @@ function NavigationLinks({
   );
 }
 
+async function logOut() {
+  await fetch('/api/auth/logout', { credentials: 'include', method: 'POST' }).catch(
+    () => undefined,
+  );
+  window.location.href = '/';
+}
+
+function LogOutButton() {
+  return (
+    <button onClick={() => void logOut()} type="button">
+      Log out
+    </button>
+  );
+}
+
 export function SidebarNavigation({
   items,
   className,
@@ -192,7 +207,7 @@ export function SidebarNavigation({
       <NavigationLinks items={items} />
       <div className="must-shell-profile">
         <span className="must-shell-profile__email">{userEmail ?? 'Signed-in user'}</span>
-        <a href="/login?reason=logout-confirmation">Log out</a>
+        <LogOutButton />
       </div>
     </aside>
   );
@@ -332,7 +347,7 @@ export function AppShell({
             <Heading level={2}>{title}</Heading>
             <div className="must-desktop-header__profile">
               <span>{userEmail ?? 'Signed-in user'}</span>
-              <a href="/login?reason=logout-confirmation">Log out</a>
+              <LogOutButton />
             </div>
           </div>
         </header>
