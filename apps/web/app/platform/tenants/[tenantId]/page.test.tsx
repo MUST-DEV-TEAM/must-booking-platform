@@ -1,6 +1,9 @@
-import { createElement } from 'react';
+// @vitest-environment jsdom
+
+import { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { TenantDetailView } from './page';
 
@@ -25,11 +28,18 @@ describe('Platform tenant detail page', () => {
     expect(
       renderToStaticMarkup(
         createElement(TenantDetailView, { tenant: null, loading: true, notFound: false, health }),
-      ),
+      ).toString(),
     ).toContain('Loading tenant'));
+
   it('renders populated tenant details and disabled action placeholders', () => {
     const markup = renderToStaticMarkup(
-      createElement(TenantDetailView, { tenant, loading: false, notFound: false, health }),
+      createElement(TenantDetailView, {
+        tenant,
+        loading: false,
+        notFound: false,
+        health,
+        onTransition: vi.fn(),
+      }),
     );
     expect(markup).toContain('Acme Hotel');
     expect(markup).toContain('owner@acme.test');
@@ -37,10 +47,57 @@ describe('Platform tenant detail page', () => {
     expect(markup).toContain('Suspend tenant');
     expect(markup).toContain('disabled');
   });
+
   it('renders not-found state', () =>
     expect(
       renderToStaticMarkup(
         createElement(TenantDetailView, { tenant: null, loading: false, notFound: true, health }),
-      ),
+      ).toString(),
     ).toContain('Tenant not found'));
+
+  it('calls suspend, shows pending, and surfaces a 409 conflict', async () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    let resolveTransition!: () => void;
+    const onTransition = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveTransition = resolve;
+        }),
+    );
+    await act(async () => {
+      root.render(
+        createElement(TenantDetailView, {
+          tenant,
+          loading: false,
+          notFound: false,
+          health,
+          onTransition,
+        }),
+      );
+    });
+    const button = Array.from(container.querySelectorAll('button')).find((item) =>
+      item.textContent?.includes('Suspend'),
+    )!;
+    await act(async () => {
+      button.click();
+    });
+    expect(onTransition).toHaveBeenCalledWith('ACTIVE');
+    expect(container.textContent).toContain('Updating');
+    await act(async () => {
+      resolveTransition();
+    });
+    onTransition.mockRejectedValueOnce(Object.assign(new Error('conflict'), { status: 409 }));
+    await act(async () => {
+      button.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain('status changed elsewhere');
+    root.unmount();
+    container.remove();
+  });
 });

@@ -163,4 +163,25 @@ describe('platform dashboard home', () => {
       .expect(404);
     await request(app.getHttpServer()).get(`/platform/tenants/${organizationId}`).expect(401);
   });
+
+  it('reflects a suspend action after re-fetching tenant detail', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email, password })
+      .expect(201);
+    const cookie = login.headers['set-cookie'][0] as string;
+    await request(app.getHttpServer())
+      .post(`/platform/tenants/${organizationId}/suspend`)
+      .set('Cookie', cookie)
+      .expect(201);
+    await request(app.getHttpServer())
+      .get(`/platform/tenants/${organizationId}`)
+      .set('Cookie', cookie)
+      .expect(200)
+      .expect((response) => expect(response.body.status).toBe('SUSPENDED'));
+    await request(app.getHttpServer())
+      .post(`/platform/tenants/${organizationId}/reactivate`)
+      .set('Cookie', cookie)
+      .expect(201);
+  });
 });

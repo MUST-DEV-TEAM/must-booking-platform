@@ -33,12 +33,16 @@ export function TenantDetailView({
   loading,
   notFound,
   health,
+  onTransition,
 }: {
   tenant: PlatformTenantDetail | null;
   loading: boolean;
   notFound: boolean;
   health: { stripe: ProviderHealth; pokpay: ProviderHealth };
+  onTransition?: (status: 'ACTIVE' | 'SUSPENDED') => Promise<void>;
 }) {
+  const [transitionPending, setTransitionPending] = useState(false);
+  const [transitionError, setTransitionError] = useState<string | null>(null);
   if (loading)
     return (
       <Stack className={styles.page} gap="lg">
@@ -114,11 +118,35 @@ export function TenantDetailView({
       <Card>
         <Heading level={2}>Administrative actions</Heading>
         <Text tone="secondary">
-          These controls will be available in the next dashboard updates.
+          Tenant status changes are audit-logged and applied from the platform service.
         </Text>
+        {transitionError ? <Text className={styles.error}>{transitionError}</Text> : null}
         <div className={detailStyles.actions}>
-          <Button disabled variant="secondary">
-            {tenant.status === 'ACTIVE' ? 'Suspend tenant' : 'Reactivate tenant'}
+          <Button
+            disabled={transitionPending || !onTransition}
+            onClick={async () => {
+              if (!onTransition) return;
+              setTransitionPending(true);
+              setTransitionError(null);
+              try {
+                await onTransition(tenant.status);
+              } catch (error) {
+                setTransitionError(
+                  error instanceof Error && 'status' in error && error.status === 409
+                    ? 'This tenant status changed elsewhere. Refreshing the latest state is required.'
+                    : 'Unable to update tenant status. Please try again.',
+                );
+              } finally {
+                setTransitionPending(false);
+              }
+            }}
+            variant="secondary"
+          >
+            {transitionPending
+              ? 'Updating…'
+              : tenant.status === 'ACTIVE'
+                ? 'Suspend tenant'
+                : 'Reactivate tenant'}
           </Button>
           <Button disabled variant="secondary">
             Trigger password reset
@@ -175,22 +203,27 @@ export default function PlatformTenantDetailPage({
     pokpay: { status: 'checking' as const },
   });
 
+  const refreshTenant = async (tenantId: string) => {
+    const [response, healthResponse] = await Promise.all([
+      fetch(`/api/platform/tenants/${tenantId}`, { credentials: 'include' }),
+      fetch('/api/platform/provider-health', { credentials: 'include' }),
+    ]);
+    if (response.status === 404) {
+      setNotFound(true);
+      return;
+    }
+    if (!response.ok) throw new Error('Unable to load tenant.');
+    setTenant((await response.json()) as PlatformTenantDetail);
+    if (healthResponse.ok) setHealth((await healthResponse.json()) as typeof health);
+  };
+
   useEffect(() => {
     let active = true;
     void params
       .then(async ({ tenantId }) => {
-        const [response, healthResponse] = await Promise.all([
-          fetch(`/api/platform/tenants/${tenantId}`, { credentials: 'include' }),
-          fetch('/api/platform/provider-health', { credentials: 'include' }),
-        ]);
         if (!active) return;
-        if (response.status === 404) {
-          setNotFound(true);
-          return;
-        }
-        if (!response.ok) throw new Error('Unable to load tenant.');
-        setTenant((await response.json()) as PlatformTenantDetail);
-        if (healthResponse.ok) setHealth((await healthResponse.json()) as typeof health);
+        await refreshTenant(tenantId);
+        return tenantId;
       })
       .catch(() => {
         if (active) setNotFound(false);
@@ -206,7 +239,29 @@ export default function PlatformTenantDetailPage({
   return (
     <AuthRouteGuard audience="platform">
       <AppShell navigation={navigation} title="Platform operations">
-        <TenantDetailView tenant={tenant} loading={loading} notFound={notFound} health={health} />
+        <TenantDetailView
+          tenant={tenant}
+          loading={loading}
+          notFound={notFound}
+          health={health}
+          onTransition={async (status) => {
+            if (!tenant) return;
+            const action = status === 'ACTIVE' ? 'suspend' : 'reactivate';
+            const response = await fetch(`/api/platform/tenants/${tenant.id}/${action}`, {
+              credentials: 'include',
+              method: 'POST',
+            });
+            if (!response.ok) {
+              const error = new Error('Unable to update tenant status.') as Error & {
+                status?: number;
+              };
+              error.status = response.status;
+              if (response.status === 409) await refreshTenant(tenant.id);
+              throw error;
+            }
+            await refreshTenant(tenant.id);
+          }}
+        />
       </AppShell>
     </AuthRouteGuard>
   );
