@@ -1,15 +1,17 @@
 'use client';
 
 import { AppShell, Badge, Card, Heading, Stack, Text, TextInput } from '@must/ui';
+import { Building2, History, LayoutDashboard } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { AuthRouteGuard } from '../../auth-routing';
+import { AuthRouteGuard, fetchSessionUser } from '../../auth-routing';
 import styles from '../platform.module.css';
 import listStyles from './tenant-list.module.css';
 
-const navigation = [
-  { href: '/platform', label: 'Overview' },
-  { href: '/platform/tenants', label: 'Tenants', current: true },
+export const navigation = [
+  { href: '/platform', label: 'Overview', icon: LayoutDashboard },
+  { href: '/platform/tenants', label: 'Tenants', current: true, icon: Building2 },
+  { href: '/platform/audit', label: 'Audit Log', icon: History },
 ] as const;
 
 export type PlatformTenant = {
@@ -104,6 +106,13 @@ export default function PlatformTenantsPage() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string>();
+
+  useEffect(() => {
+    void fetchSessionUser()
+      .then((user) => setUserEmail(user?.email))
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -125,7 +134,7 @@ export default function PlatformTenantsPage() {
 
   return (
     <AuthRouteGuard audience="platform">
-      <AppShell navigation={navigation} title="Platform operations">
+      <AppShell navigation={navigation} title="Platform operations" userEmail={userEmail}>
         {error ? <Text className={styles.error}>{error}</Text> : null}
         <TenantListView
           tenants={tenants}

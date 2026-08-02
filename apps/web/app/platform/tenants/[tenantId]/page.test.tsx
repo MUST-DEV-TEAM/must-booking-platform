@@ -5,7 +5,8 @@ import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import { TenantDetailView } from './page';
+import { AppShell } from '@must/ui';
+import { navigation, TenantDetailView } from './page';
 
 const tenant = {
   id: 'tenant-1',
@@ -55,6 +56,23 @@ describe('Platform tenant detail page', () => {
         createElement(TenantDetailView, { tenant: null, loading: false, notFound: true, health }),
       ).toString(),
     ).toContain('Tenant not found'));
+
+  it('renders the complete platform navigation with the signed-in email', () => {
+    const markup = renderToStaticMarkup(
+      createElement(AppShell, {
+        navigation,
+        title: 'Platform operations',
+        userEmail: 'admin@example.com',
+        children: null,
+      }),
+    );
+    expect(markup).toContain('Overview');
+    expect(markup).toContain('Tenants');
+    expect(markup).toContain('Audit Log');
+    expect(markup).toContain('<svg');
+    expect(markup).toContain('admin@example.com');
+    expect(markup).not.toContain('Signed-in user');
+  });
 
   it('calls suspend, shows pending, and surfaces a 409 conflict', async () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;

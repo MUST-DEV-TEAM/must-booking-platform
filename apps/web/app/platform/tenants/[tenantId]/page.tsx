@@ -1,15 +1,17 @@
 'use client';
 
 import { AppShell, Badge, Button, Card, Heading, Stack, Text } from '@must/ui';
+import { Building2, History, LayoutDashboard } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { AuthRouteGuard } from '../../../auth-routing';
+import { AuthRouteGuard, fetchSessionUser } from '../../../auth-routing';
 import styles from '../../platform.module.css';
 import detailStyles from './tenant-detail.module.css';
 
-const navigation = [
-  { href: '/platform', label: 'Overview' },
-  { href: '/platform/tenants', label: 'Tenants', current: true },
+export const navigation = [
+  { href: '/platform', label: 'Overview', icon: LayoutDashboard },
+  { href: '/platform/tenants', label: 'Tenants', current: true, icon: Building2 },
+  { href: '/platform/audit', label: 'Audit Log', icon: History },
 ] as const;
 
 export type PlatformTenantDetail = {
@@ -237,6 +239,13 @@ export default function PlatformTenantDetailPage({
     stripe: { status: 'checking' as const },
     pokpay: { status: 'checking' as const },
   });
+  const [userEmail, setUserEmail] = useState<string>();
+
+  useEffect(() => {
+    void fetchSessionUser()
+      .then((user) => setUserEmail(user?.email))
+      .catch(() => undefined);
+  }, []);
 
   const refreshTenant = async (tenantId: string) => {
     const [response, healthResponse] = await Promise.all([
@@ -273,7 +282,7 @@ export default function PlatformTenantDetailPage({
 
   return (
     <AuthRouteGuard audience="platform">
-      <AppShell navigation={navigation} title="Platform operations">
+      <AppShell navigation={navigation} title="Platform operations" userEmail={userEmail}>
         <TenantDetailView
           tenant={tenant}
           loading={loading}

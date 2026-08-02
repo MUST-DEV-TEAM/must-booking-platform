@@ -2,7 +2,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import { TenantListView } from './page';
+import { AppShell } from '@must/ui';
+import { navigation, TenantListView } from './page';
 
 describe('Platform tenants page', () => {
   it('renders its loading state', () => {
@@ -39,5 +40,23 @@ describe('Platform tenants page', () => {
     expect(markup).toContain('owner@acme.test');
     expect(markup).toContain('suspended');
     expect(markup).toContain('/platform/tenants/tenant-1');
+  });
+
+  it('renders the complete platform navigation with the signed-in email', () => {
+    const markup = renderToStaticMarkup(
+      createElement(AppShell, {
+        navigation,
+        title: 'Platform operations',
+        userEmail: 'admin@example.com',
+        children: null,
+      }),
+    );
+    expect(markup.match(/href="\/platform\//g)).toHaveLength(2);
+    expect(markup).toContain('Overview');
+    expect(markup).toContain('Tenants');
+    expect(markup).toContain('Audit Log');
+    expect(markup).toContain('<svg');
+    expect(markup).toContain('admin@example.com');
+    expect(markup).not.toContain('Signed-in user');
   });
 });

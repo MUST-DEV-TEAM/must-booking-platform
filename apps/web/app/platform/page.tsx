@@ -1,12 +1,17 @@
 'use client';
 
 import { AppShell, Badge, Card, Heading, Stack, Text } from '@must/ui';
+import { Building2, History, LayoutDashboard } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { AuthRouteGuard } from '../auth-routing';
+import { AuthRouteGuard, fetchSessionUser } from '../auth-routing';
 import styles from './platform.module.css';
 
-const platformNavigation = [{ href: '/platform', label: 'Overview', current: true }] as const;
+export const platformNavigation = [
+  { href: '/platform', label: 'Overview', current: true, icon: LayoutDashboard },
+  { href: '/platform/tenants', label: 'Tenants', icon: Building2 },
+  { href: '/platform/audit', label: 'Audit Log', icon: History },
+] as const;
 
 type ProviderHealth = {
   status: 'checking' | 'healthy' | 'unhealthy';
@@ -40,6 +45,13 @@ export default function PlatformPage() {
   const [dashboard, setDashboard] = useState<DashboardHome | null>(null);
   const [health, setHealth] = useState(initialHealth);
   const [error, setError] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string>();
+
+  useEffect(() => {
+    void fetchSessionUser()
+      .then((user) => setUserEmail(user?.email))
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -69,7 +81,7 @@ export default function PlatformPage() {
 
   return (
     <AuthRouteGuard audience="platform">
-      <AppShell navigation={platformNavigation} title="Platform operations">
+      <AppShell navigation={platformNavigation} title="Platform operations" userEmail={userEmail}>
         <Stack className={styles.page} gap="lg">
           <header className={styles.header}>
             <div>
