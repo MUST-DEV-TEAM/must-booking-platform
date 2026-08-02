@@ -1,0 +1,45 @@
+.page {
+  margin: 0 auto;
+  max-width: 62rem;
+}
+.grid {
+  display: grid;
+  gap: var(--must-space-12);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: var(--must-space-16);
+}
+.page label {
+  display: grid;
+  gap: var(--must-space-4);
+  font-weight: 600;
+}
+.page input,
+.page select {
+  border: 1px solid var(--must-color-border);
+  border-radius: var(--must-radius-control);
+  min-height: 2.5rem;
+  padding: 0 var(--must-space-8);
+}
+.page button {
+  background: var(--must-color-action-primary);
+  border: 0;
+  border-radius: var(--must-radius-control);
+  color: var(--must-color-text-inverse);
+  font: inherit;
+  font-weight: 600;
+  margin-top: var(--must-space-12);
+  padding: var(--must-space-12);
+}
+.total {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: var(--must-space-16) 0;
+}
+.message {
+  margin-top: var(--must-space-16);
+}
+@media (max-width: 600px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
