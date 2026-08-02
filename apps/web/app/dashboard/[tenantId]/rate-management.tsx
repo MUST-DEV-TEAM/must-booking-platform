@@ -1,5 +1,6 @@
 'use client';
 
+import { Card, Heading, Stack, Text } from '@must/ui';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 
 type Property = { id: string; name: string };
@@ -25,7 +26,13 @@ const weekdays = [
 ];
 const allWeekdays = weekdays.map((day) => day.value);
 
-export function RateManagement({ tenantId }: { tenantId: string }) {
+export function RateManagement({
+  tenantId,
+  propertyId: selectedPropertyId,
+}: {
+  tenantId: string;
+  propertyId?: string;
+}) {
   const [properties, setProperties] = useState<Property[] | null>(null);
   const [propertyId, setPropertyId] = useState('');
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
@@ -42,10 +49,14 @@ export function RateManagement({ tenantId }: { tenantId: string }) {
       .then(async (response) => (response.ok ? ((await response.json()) as Property[]) : []))
       .then((items) => {
         setProperties(items);
-        setPropertyId((current) => current || items[0]?.id || '');
+        setPropertyId((current) => selectedPropertyId || current || items[0]?.id || '');
       })
       .catch(() => setProperties([]));
-  }, [tenantId]);
+  }, [selectedPropertyId, tenantId]);
+
+  useEffect(() => {
+    if (selectedPropertyId) setPropertyId(selectedPropertyId);
+  }, [selectedPropertyId]);
 
   useEffect(() => {
     if (!propertyId) return;
@@ -226,207 +237,285 @@ export function RateManagement({ tenantId }: { tenantId: string }) {
   }
 
   return (
-    <section>
-      <h2>Rate plans and calendar overrides</h2>
-      <p>
-        Set each room type’s all-year base rate, then add seasonal or weekday-specific overrides.
-      </p>
-      <label>
-        Property
-        <select value={propertyId} onChange={(event) => setPropertyId(event.target.value)}>
-          <option value="">Select a property</option>
-          {properties?.map((property) => (
-            <option key={property.id} value={property.id}>
-              {property.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      {propertyId ? (
-        <>
-          <h3>Add rate plan</h3>
-          <form onSubmit={submitRatePlan}>
-            <label>
-              Name
-              <input name="name" required />
-            </label>
-            <label>
-              Currency
-              <input name="currency" required defaultValue="EUR" maxLength={3} />
-            </label>
-            <button>Add rate plan</button>
-          </form>
-          <label>
-            Rate plan
+    <Stack gap="lg">
+      <header>
+        <Text tone="secondary">PRICING</Text>
+        <Heading>Rate plans and calendar overrides</Heading>
+        <Text tone="secondary">
+          Set each room type’s all-year base rate, then add seasonal or weekday-specific overrides.
+        </Text>
+      </header>
+      {!selectedPropertyId ? (
+        <Card>
+          <label className="must-field">
+            <span className="must-field__label">Property</span>
             <select
-              value={selectedPlanId}
-              onChange={(event) => setSelectedPlanId(event.target.value)}
+              className="must-input"
+              value={propertyId}
+              onChange={(event) => setPropertyId(event.target.value)}
             >
-              <option value="">Select a rate plan</option>
-              {ratePlans.map((plan) => (
-                <option key={plan.id} value={plan.id}>
-                  {plan.name} ({plan.currency}){plan.isActive ? '' : ' — inactive'}
+              <option value="">Select a property</option>
+              {properties?.map((property) => (
+                <option key={property.id} value={property.id}>
+                  {property.name}
                 </option>
               ))}
             </select>
           </label>
-          {selectedPlanId ? (
-            <>
-              <h3>Manage selected rate plan</h3>
-              {ratePlans
-                .filter((plan) => plan.id === selectedPlanId)
-                .map((plan) => (
-                  <form key={plan.id} onSubmit={updateRatePlan}>
-                    <label>
-                      Name
-                      <input name="name" required defaultValue={plan.name} />
-                    </label>
-                    <label>
-                      Currency
-                      <input name="currency" required defaultValue={plan.currency} maxLength={3} />
-                    </label>
-                    <label>
-                      <input name="isActive" type="checkbox" defaultChecked={plan.isActive} />
-                      Active
-                    </label>
-                    <button>Save rate plan</button>
-                    <button type="button" onClick={() => void deleteRatePlan()}>
-                      Delete rate plan
-                    </button>
-                  </form>
+        </Card>
+      ) : null}
+      {propertyId ? (
+        <Stack gap="lg">
+          <Card>
+            <Heading level={2}>Add rate plan</Heading>
+            <form className="must-stack must-stack--md" onSubmit={submitRatePlan}>
+              <label className="must-field">
+                Name
+                <input className="must-input" name="name" required />
+              </label>
+              <label className="must-field">
+                Currency
+                <input
+                  className="must-input"
+                  name="currency"
+                  required
+                  defaultValue="EUR"
+                  maxLength={3}
+                />
+              </label>
+              <button className="must-button must-button--primary">Add rate plan</button>
+            </form>
+          </Card>
+          <Card>
+            <label className="must-field">
+              <span className="must-field__label">Rate plan</span>
+              <select
+                className="must-input"
+                value={selectedPlanId}
+                onChange={(event) => setSelectedPlanId(event.target.value)}
+              >
+                <option value="">Select a rate plan</option>
+                {ratePlans.map((plan) => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.name} ({plan.currency}){plan.isActive ? '' : ' — inactive'}
+                  </option>
                 ))}
-              <h3>Base rates</h3>
-              <p>Base rates apply every day unless a dated override matches.</p>
-              <ul>
-                {roomTypes.map((roomType) => (
-                  <li key={roomType.id}>
-                    {roomType.name}: {baseRates.get(roomType.id)?.amount || 'Not set'}
-                    {baseRates.get(roomType.id) ? (
+              </select>
+            </label>
+            {selectedPlanId ? (
+              <>
+                <Heading level={2}>Manage selected rate plan</Heading>
+                {ratePlans
+                  .filter((plan) => plan.id === selectedPlanId)
+                  .map((plan) => (
+                    <form
+                      className="must-stack must-stack--md"
+                      key={plan.id}
+                      onSubmit={updateRatePlan}
+                    >
+                      <label className="must-field">
+                        Name
+                        <input
+                          className="must-input"
+                          name="name"
+                          required
+                          defaultValue={plan.name}
+                        />
+                      </label>
+                      <label className="must-field">
+                        Currency
+                        <input
+                          className="must-input"
+                          name="currency"
+                          required
+                          defaultValue={plan.currency}
+                          maxLength={3}
+                        />
+                      </label>
+                      <label className="must-field">
+                        <input
+                          className="must-input"
+                          name="isActive"
+                          type="checkbox"
+                          defaultChecked={plan.isActive}
+                        />
+                        Active
+                      </label>
+                      <button className="must-button must-button--primary">Save rate plan</button>
                       <button
+                        className="must-button must-button--danger"
                         type="button"
-                        onClick={() => void deleteRule(baseRates.get(roomType.id)!.id)}
+                        onClick={() => void deleteRatePlan()}
                       >
-                        Remove base rate
+                        Delete rate plan
                       </button>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-              <form onSubmit={submitBaseRate}>
-                <label>
-                  Room type
-                  <select name="roomTypeId" required>
-                    <option value="">Select a room type</option>
-                    {roomTypes
-                      .filter((roomType) => !baseRates.has(roomType.id))
-                      .map((roomType) => (
+                    </form>
+                  ))}
+                <Heading level={2}>Base rates</Heading>
+                <p>Base rates apply every day unless a dated override matches.</p>
+                <ul>
+                  {roomTypes.map((roomType) => (
+                    <li key={roomType.id}>
+                      {roomType.name}: {baseRates.get(roomType.id)?.amount || 'Not set'}
+                      {baseRates.get(roomType.id) ? (
+                        <button
+                          className="must-button must-button--danger"
+                          type="button"
+                          onClick={() => void deleteRule(baseRates.get(roomType.id)!.id)}
+                        >
+                          Remove base rate
+                        </button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+                <form className="must-stack must-stack--md" onSubmit={submitBaseRate}>
+                  <label className="must-field">
+                    Room type
+                    <select className="must-input" name="roomTypeId" required>
+                      <option value="">Select a room type</option>
+                      {roomTypes
+                        .filter((roomType) => !baseRates.has(roomType.id))
+                        .map((roomType) => (
+                          <option key={roomType.id} value={roomType.id}>
+                            {roomType.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <label className="must-field">
+                    Base rate amount
+                    <input
+                      className="must-input"
+                      name="amount"
+                      required
+                      inputMode="decimal"
+                      placeholder="100.00"
+                    />
+                  </label>
+                  <button className="must-button must-button--primary">Set base rate</button>
+                </form>
+                <Heading level={2}>Add dated override</Heading>
+                <form className="must-stack must-stack--md" onSubmit={submitOverride}>
+                  <label className="must-field">
+                    Room type
+                    <select className="must-input" name="roomTypeId" required>
+                      <option value="">Select a room type</option>
+                      {roomTypes.map((roomType) => (
                         <option key={roomType.id} value={roomType.id}>
                           {roomType.name}
                         </option>
                       ))}
-                  </select>
-                </label>
-                <label>
-                  Base rate amount
-                  <input name="amount" required inputMode="decimal" placeholder="100.00" />
-                </label>
-                <button>Set base rate</button>
-              </form>
-              <h3>Add dated override</h3>
-              <form onSubmit={submitOverride}>
-                <label>
-                  Room type
-                  <select name="roomTypeId" required>
-                    <option value="">Select a room type</option>
-                    {roomTypes.map((roomType) => (
-                      <option key={roomType.id} value={roomType.id}>
-                        {roomType.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Starts on
-                  <input name="startsOn" required type="date" />
-                </label>
-                <label>
-                  Ends on
-                  <input name="endsOn" required type="date" />
-                </label>
-                <label>
-                  Override amount
-                  <input name="amount" required inputMode="decimal" placeholder="125.00" />
-                </label>
-                <fieldset>
-                  <legend>Applies on</legend>
-                  {weekdays.map((day) => (
-                    <label key={day.value}>
-                      <input name={`weekday-${day.value}`} type="checkbox" defaultChecked />
-                      {day.label}
-                    </label>
-                  ))}
-                </fieldset>
-                <button>Add calendar override</button>
-              </form>
-              <h3>Override calendar</h3>
-              <p>
-                <button type="button" onClick={() => setMonth(addMonths(month, -1))}>
-                  Previous month
-                </button>{' '}
-                <strong>
-                  {month.toLocaleString(undefined, { month: 'long', year: 'numeric' })}
-                </strong>{' '}
-                <button type="button" onClick={() => setMonth(addMonths(month, 1))}>
-                  Next month
-                </button>
-              </p>
-              <table>
-                <caption>Dated overrides by day</caption>
-                <thead>
-                  <tr>
+                    </select>
+                  </label>
+                  <label className="must-field">
+                    Starts on
+                    <input className="must-input" name="startsOn" required type="date" />
+                  </label>
+                  <label className="must-field">
+                    Ends on
+                    <input className="must-input" name="endsOn" required type="date" />
+                  </label>
+                  <label className="must-field">
+                    Override amount
+                    <input
+                      className="must-input"
+                      name="amount"
+                      required
+                      inputMode="decimal"
+                      placeholder="125.00"
+                    />
+                  </label>
+                  <fieldset>
+                    <legend>Applies on</legend>
                     {weekdays.map((day) => (
-                      <th key={day.value}>{day.label}</th>
+                      <label className="must-field" key={day.value}>
+                        <input
+                          className="must-input"
+                          name={`weekday-${day.value}`}
+                          type="checkbox"
+                          defaultChecked
+                        />
+                        {day.label}
+                      </label>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {calendarWeeks(calendarDays).map((week, index) => (
-                    <tr key={index}>
-                      {week.map((date, dayIndex) => (
-                        <td key={date?.toISOString() || `blank-${index}-${dayIndex}`}>
-                          {date ? (
-                            <CalendarCell date={date} rules={rules} roomTypes={roomTypes} />
-                          ) : null}
-                        </td>
+                  </fieldset>
+                  <button className="must-button must-button--primary">
+                    Add calendar override
+                  </button>
+                </form>
+                <Heading level={2}>Override calendar</Heading>
+                <p>
+                  <button
+                    className="must-button must-button--secondary"
+                    type="button"
+                    onClick={() => setMonth(addMonths(month, -1))}
+                  >
+                    Previous month
+                  </button>{' '}
+                  <strong>
+                    {month.toLocaleString(undefined, { month: 'long', year: 'numeric' })}
+                  </strong>{' '}
+                  <button
+                    className="must-button must-button--secondary"
+                    type="button"
+                    onClick={() => setMonth(addMonths(month, 1))}
+                  >
+                    Next month
+                  </button>
+                </p>
+                <table>
+                  <caption>Dated overrides by day</caption>
+                  <thead>
+                    <tr>
+                      {weekdays.map((day) => (
+                        <th key={day.value}>{day.label}</th>
                       ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-              <h4>Dated overrides</h4>
-              <ul>
-                {rules
-                  .filter((rule) => rule.startsOn !== null)
-                  .map((rule) => (
-                    <li key={rule.id}>
-                      {roomTypes.find((roomType) => roomType.id === rule.roomTypeId)?.name ||
-                        'Room type'}
-                      : {rule.amount} from {dateOnly(rule.startsOn)} to {dateOnly(rule.endsOn)} (
-                      {rule.weekdays.map((day) => weekdays[day].label).join(', ')})
-                      <button type="button" onClick={() => void deleteRule(rule.id)}>
-                        Remove override
-                      </button>
-                    </li>
-                  ))}
-              </ul>
-            </>
-          ) : (
-            <p>Create or select a rate plan to set rates.</p>
-          )}
-        </>
+                  </thead>
+                  <tbody>
+                    {calendarWeeks(calendarDays).map((week, index) => (
+                      <tr key={index}>
+                        {week.map((date, dayIndex) => (
+                          <td key={date?.toISOString() || `blank-${index}-${dayIndex}`}>
+                            {date ? (
+                              <CalendarCell date={date} rules={rules} roomTypes={roomTypes} />
+                            ) : null}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <Heading level={3}>Dated overrides</Heading>
+                <ul>
+                  {rules
+                    .filter((rule) => rule.startsOn !== null)
+                    .map((rule) => (
+                      <li key={rule.id}>
+                        {roomTypes.find((roomType) => roomType.id === rule.roomTypeId)?.name ||
+                          'Room type'}
+                        : {rule.amount} from {dateOnly(rule.startsOn)} to {dateOnly(rule.endsOn)} (
+                        {rule.weekdays.map((day) => weekdays[day].label).join(', ')})
+                        <button
+                          className="must-button must-button--danger"
+                          type="button"
+                          onClick={() => void deleteRule(rule.id)}
+                        >
+                          Remove override
+                        </button>
+                      </li>
+                    ))}
+                </ul>
+              </>
+            ) : (
+              <p>Create or select a rate plan to set rates.</p>
+            )}
+          </Card>
+        </Stack>
       ) : null}
       {message ? <p role="alert">{message}</p> : null}
-    </section>
+    </Stack>
   );
 }
 
