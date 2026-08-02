@@ -304,6 +304,79 @@ describe('LocalPmsProvider', () => {
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn: null, endsOn: null, amount: '90.00' })
       .expect(201);
+    const reportGuestId = randomUUID();
+    const reportBookingOneId = randomUUID();
+    const reportBookingTwoId = randomUUID();
+    const reportCancelledBookingId = randomUUID();
+    await admin.$executeRaw`
+      INSERT INTO guests (id, tenant_id, email)
+      VALUES (${reportGuestId}::uuid, ${tenantId}::uuid, 'reports@example.test')
+    `;
+    await admin.$executeRaw`
+      INSERT INTO inventory_units (tenant_id, property_id, room_type_id, stays_on, available_units)
+      VALUES
+        (${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid, '2040-01-01'::date, 2),
+        (${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid, '2040-01-02'::date, 4),
+        (${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid, '2040-01-03'::date, 2)
+    `;
+    await admin.$executeRaw`
+      INSERT INTO bookings (
+        id, tenant_id, property_id, room_type_id, guest_id, external_reference, guest_session_id,
+        status, payment_method, starts_on, ends_on, rate_plan_id, total_amount, created_at
+      ) VALUES
+        (
+          ${reportBookingOneId}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid,
+          ${reportGuestId}::uuid, 'report-one', NULL, 'CONFIRMED'::"BookingStatus",
+          'PAY_AT_HOTEL'::"BookingPaymentMethod", '2040-01-01'::date, '2040-01-03'::date,
+          ${ratePlanId}::uuid, 100.00, '2040-01-01T12:00:00Z'::timestamptz
+        ), (
+          ${reportBookingTwoId}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid,
+          ${reportGuestId}::uuid, 'report-two', NULL, 'CONFIRMED'::"BookingStatus",
+          'PAY_AT_HOTEL'::"BookingPaymentMethod", '2040-01-02'::date, '2040-01-04'::date,
+          ${ratePlanId}::uuid, 50.00, '2040-01-02T12:00:00Z'::timestamptz
+        ), (
+          ${reportCancelledBookingId}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid,
+          ${reportGuestId}::uuid, 'report-cancelled', NULL, 'CANCELLED'::"BookingStatus",
+          'PAY_AT_HOTEL'::"BookingPaymentMethod", '2040-01-03'::date, '2040-01-04'::date,
+          ${ratePlanId}::uuid, 50.00, '2040-01-03T12:00:00Z'::timestamptz
+        )
+    `;
+    await admin.$executeRaw`
+      INSERT INTO payments (
+        tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency, created_at
+      ) VALUES
+        (${tenantId}::uuid, ${propertyId}::uuid, ${reportBookingOneId}::uuid,
+          'CHARGE'::"PaymentKind", 'manual', 'report-charge-one', 'succeeded', 100.00, 'EUR', '2040-01-01T13:00:00Z'::timestamptz),
+        (${tenantId}::uuid, ${propertyId}::uuid, ${reportBookingTwoId}::uuid,
+          'CHARGE'::"PaymentKind", 'manual', 'report-charge-two', 'succeeded', 50.00, 'EUR', '2040-01-02T13:00:00Z'::timestamptz),
+        (${tenantId}::uuid, ${propertyId}::uuid, ${reportBookingOneId}::uuid,
+          'REFUND'::"PaymentKind", 'manual', 'report-refund', 'succeeded', 25.00, 'EUR', '2040-01-03T13:00:00Z'::timestamptz)
+    `;
+    const reports = await request(app!.getHttpServer())
+      .get(`${propertyUrl}/reports?from=2040-01-01&to=2040-01-03`)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(reports.body).toMatchObject({
+      from: '2040-01-01',
+      to: '2040-01-03',
+      occupancy: [
+        { date: '2040-01-01', bookedRoomNights: 1, availableRoomNights: 2, rate: 50 },
+        { date: '2040-01-02', bookedRoomNights: 2, availableRoomNights: 4, rate: 50 },
+        { date: '2040-01-03', bookedRoomNights: 1, availableRoomNights: 2, rate: 50 },
+      ],
+      bookingsCreated: [
+        { date: '2040-01-01', count: 1 },
+        { date: '2040-01-02', count: 1 },
+        { date: '2040-01-03', count: 1 },
+      ],
+      revenue: [
+        { date: '2040-01-01', currency: 'EUR', amount: '100.00' },
+        { date: '2040-01-02', currency: 'EUR', amount: '50.00' },
+        { date: '2040-01-03', currency: 'EUR', amount: '-25.00' },
+      ],
+      cancellationRate: { createdBookings: 3, cancelledBookings: 1 },
+    });
+    expect(reports.body.cancellationRate.rate).toBeCloseTo(100 / 3);
 
     const provider = app!.get(LocalPmsProvider);
     const quotes = app!.get(QuoteService);

@@ -24,6 +24,8 @@ import { AdminStaffController } from './tenancy/admin-staff.controller';
 import { AdminStaffService } from './tenancy/admin-staff.service';
 import { GuestsController } from './tenancy/guests.controller';
 import { GuestsService } from './tenancy/guests.service';
+import { ReportsController } from './tenancy/reports.controller';
+import { ReportsService } from './tenancy/reports.service';
 import { AuditLogController } from './tenancy/audit-log.controller';
 import { AuditLogService } from './tenancy/audit-log.service';
 import { MAIL_PROVIDER } from './mail/mail.provider';
@@ -115,6 +117,7 @@ import { ProviderHealthService } from './platform/provider-health.service';
     StaffInviteController,
     AdminStaffController,
     GuestsController,
+    ReportsController,
     AuditLogController,
     PlanUsageController,
     PropertiesController,
@@ -150,6 +153,7 @@ import { ProviderHealthService } from './platform/provider-health.service';
     StaffInviteService,
     AdminStaffService,
     GuestsService,
+    ReportsService,
     AuditLogService,
     PlanUsageService,
     PropertiesService,
