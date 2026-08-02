@@ -182,6 +182,19 @@ describe('properties', () => {
         expect(response.body.message).toBe('Bookings can be made at most 10 days in advance.');
       });
     await rulesQuote(dateFromToday(1), dateFromToday(3)).expect(201);
+    await request(app.getHttpServer())
+      .patch(`/tenants/${tenantId}/properties/${firstPropertyId}`)
+      .set('Cookie', cookie)
+      .send({ minStayNights: 3 })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.minStayNights).toBe(3);
+      });
+    await rulesQuote(dateFromToday(1), dateFromToday(3))
+      .expect(400)
+      .expect((response) => {
+        expect(response.body.message).toBe('A minimum stay of 3 nights is required.');
+      });
     planId = randomUUID();
     await admin.$executeRaw`INSERT INTO plans (id,name,max_properties,max_staff_seats,pms_enabled,max_pms_connections_per_property) VALUES (${planId}::uuid, ${`Properties ${planId}`}, 2, 3, false, 0)`;
     await admin.$executeRaw`UPDATE organizations SET plan_id=${planId}::uuid WHERE id=${tenantId}::uuid`;

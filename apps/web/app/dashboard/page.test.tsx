@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { DashboardShell } from './dashboard-shell';
+import { DashboardShell, dashboardNavigation } from './dashboard-shell';
 
 const user = {
   id: 'user-1',
@@ -90,5 +90,14 @@ describe('Tenant dashboard shell', () => {
     expect(singleProperty).not.toContain('Switch property');
     expect(multipleProperties).toContain('Switch property');
     expect(multipleProperties).toContain('Coast Hotel');
+  });
+
+  it('links an owner to Settings', () => {
+    expect(dashboardNavigation('tenant-1', 'property-1', 'OWNER')).toContainEqual(
+      expect.objectContaining({
+        label: 'Settings',
+        href: '/dashboard/tenant-1?propertyId=property-1&section=settings',
+      }),
+    );
   });
 });

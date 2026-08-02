@@ -24,6 +24,7 @@ import { DashboardPayments } from './payments';
 import { DashboardGuests } from './guests';
 import { DashboardStaff } from './staff';
 import { DashboardReservations } from './reservations';
+import { DashboardSettings } from './settings';
 
 type TenantRole = 'OWNER' | 'ADMIN' | 'STAFF';
 type Membership = { tenantId: string; role: TenantRole };
@@ -180,6 +181,9 @@ export function DashboardShell({
       ) : null}
       {selectedProperty && role && section === 'staff' && role !== 'STAFF' ? (
         <DashboardStaff tenantId={tenantId} propertyId={selectedProperty.id} />
+      ) : null}
+      {selectedProperty && role && section === 'settings' && role !== 'STAFF' ? (
+        <DashboardSettings tenantId={tenantId} propertyId={selectedProperty.id} />
       ) : null}
     </AppShell>
   );
