@@ -13,6 +13,18 @@ import Stripe from 'stripe';
 
 @Injectable()
 export class StripePaymentProvider implements PaymentProvider {
+  async checkHealth(): Promise<{ ok: boolean; error?: string }> {
+    const secretKey = this.secretKey();
+    if (!secretKey) return { ok: false, error: 'Stripe is not configured.' };
+
+    try {
+      await new Stripe(secretKey).balance.retrieve();
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Stripe balance check failed.' };
+    }
+  }
+
   async createCheckoutSession(
     context: PaymentProviderContext,
     command: CreateCheckoutSessionCommand,

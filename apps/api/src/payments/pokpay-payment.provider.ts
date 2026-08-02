@@ -34,6 +34,14 @@ type PokPayConfiguration = {
 
 @Injectable()
 export class PokPayPaymentProvider implements PaymentProvider {
+  async checkHealth(): Promise<{ ok: boolean; error?: string }> {
+    const configuration = this.healthConfiguration();
+    if (!configuration.ok) return { ok: false, error: configuration.error.message };
+
+    const authenticated = await this.authenticate(configuration.value);
+    return authenticated.ok ? { ok: true } : { ok: false, error: authenticated.error.message };
+  }
+
   async createCheckoutSession(
     context: PaymentProviderContext,
     command: CreateCheckoutSessionCommand,
@@ -159,20 +167,35 @@ export class PokPayPaymentProvider implements PaymentProvider {
     return { ok: true, value: { baseUrl, keyId, keySecret, merchantId, webhookUrl } };
   }
 
+  private healthConfiguration(): Result<PokPayConfiguration> {
+    const keyId = process.env.POKPAY_KEY_ID?.trim();
+    const keySecret = process.env.POKPAY_KEY_SECRET?.trim();
+    const merchantId = process.env.POKPAY_MERCHANT_ID?.trim();
+    const baseUrl = (
+      process.env.POKPAY_API_BASE_URL?.trim() || 'https://api-staging.pokpay.io'
+    ).replace(/\/$/, '');
+    if (!keyId || !keySecret || !merchantId)
+      return this.failure('POKPAY_NOT_CONFIGURED', 'PokPay is not configured for health checks.');
+    if (baseUrl !== 'https://api-staging.pokpay.io')
+      return this.failure(
+        'POKPAY_TEST_MODE_REQUIRED',
+        'Only PokPay staging may be used at this stage.',
+      );
+    return {
+      ok: true,
+      value: { baseUrl, keyId, keySecret, merchantId, webhookUrl: '' },
+    };
+  }
+
   private async authenticatedRequest(
     configuration: PokPayConfiguration,
     request: { method: 'GET' | 'POST'; path: string; body?: object },
   ): Promise<Result<PokPayResponse>> {
     try {
-      const login = await fetch(`${configuration.baseUrl}/auth/sdk/login`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ keyId: configuration.keyId, keySecret: configuration.keySecret }),
-      });
-      const loginBody = (await login.json()) as PokPayResponse;
-      const token = loginBody.data?.accessToken;
-      if (!login.ok || !token)
-        return this.failure('POKPAY_AUTH_FAILED', 'PokPay authentication failed.', true);
+      const authenticated = await this.authenticate(configuration);
+      if (!authenticated.ok) return authenticated;
+
+      const token = authenticated.value;
       const response = await fetch(`${configuration.baseUrl}${request.path}`, {
         method: request.method,
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
@@ -192,6 +215,23 @@ export class PokPayPaymentProvider implements PaymentProvider {
         'PokPay could not process the payment request.',
         true,
       );
+    }
+  }
+
+  private async authenticate(configuration: PokPayConfiguration): Promise<Result<string>> {
+    try {
+      const login = await fetch(`${configuration.baseUrl}/auth/sdk/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ keyId: configuration.keyId, keySecret: configuration.keySecret }),
+      });
+      const loginBody = (await login.json()) as PokPayResponse;
+      const token = loginBody.data?.accessToken;
+      if (!login.ok || !token)
+        return this.failure('POKPAY_AUTH_FAILED', 'PokPay authentication failed.', true);
+      return { ok: true, value: token };
+    } catch {
+      return this.failure('POKPAY_AUTH_FAILED', 'PokPay authentication failed.', true);
     }
   }
 

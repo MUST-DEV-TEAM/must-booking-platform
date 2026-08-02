@@ -1,14 +1,23 @@
-import { Controller, HttpCode, Inject, Param, Post, Req } from '@nestjs/common';
+import { Controller, Get, HttpCode, Inject, Param, Post, Req } from '@nestjs/common';
 
 import { Role, Roles } from '../tenancy/roles.decorator';
 import { PlatformAdminService } from './platform-admin.service';
+import { ProviderHealthService } from './provider-health.service';
 
 type PlatformRequest = { platformContext: { userId: string } };
 
 @Controller('platform')
 @Roles(Role.PlatformAdmin)
 export class PlatformAdminController {
-  constructor(@Inject(PlatformAdminService) private readonly platformAdmin: PlatformAdminService) {}
+  constructor(
+    @Inject(PlatformAdminService) private readonly platformAdmin: PlatformAdminService,
+    @Inject(ProviderHealthService) private readonly providerHealth: ProviderHealthService,
+  ) {}
+
+  @Get('provider-health')
+  providerHealthStatus() {
+    return this.providerHealth.getHealth();
+  }
 
   @Post('tenants/:tenantId/suspend')
   suspend(@Param('tenantId') tenantId: string, @Req() request: PlatformRequest) {

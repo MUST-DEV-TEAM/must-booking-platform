@@ -78,6 +78,21 @@ describe('PokPayPaymentProvider', () => {
       error: { code: 'POKPAY_AUTHORITATIVE_REREAD_REQUIRED' },
     });
   });
+
+  it('reports health from a successful authentication-token request', async () => {
+    process.env.POKPAY_KEY_ID = 'key-id';
+    process.env.POKPAY_KEY_SECRET = 'key-secret';
+    process.env.POKPAY_MERCHANT_ID = 'merchant-id';
+    const fetchMock = vi.fn().mockResolvedValue(json({ data: { accessToken: 'token' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(new PokPayPaymentProvider().checkHealth()).resolves.toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api-staging.pokpay.io/auth/sdk/login',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
 });
 
 function json(body: object): Response {

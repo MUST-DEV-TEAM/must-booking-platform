@@ -69,6 +69,7 @@ import { PaymentRefundController } from './payments/payment-refund.controller';
 import { PaymentRefundService } from './payments/payment-refund.service';
 import { PlatformAdminController } from './platform/platform-admin.controller';
 import { PlatformAdminService } from './platform/platform-admin.service';
+import { ProviderHealthService } from './platform/provider-health.service';
 
 @Module({
   imports: [
@@ -163,6 +164,7 @@ import { PlatformAdminService } from './platform/platform-admin.service';
     PaymentExpiryService,
     PaymentRefundService,
     PlatformAdminService,
+    ProviderHealthService,
     { provide: PAYMENT_PROVIDER, useExisting: StripePaymentProvider },
     R2StorageProvider,
     { provide: STORAGE_PROVIDER, useExisting: R2StorageProvider },

@@ -76,6 +76,20 @@ describe('StripePaymentProvider.refund', () => {
   });
 });
 
+describe('StripePaymentProvider.checkHealth', () => {
+  it('uses the Stripe balance endpoint', async () => {
+    process.env.STRIPE_SECRET_KEY = secretKey;
+    const stripe = new Stripe(secretKey);
+    const balance = Object.getPrototypeOf(stripe.balance) as {
+      retrieve: () => Promise<Stripe.Balance>;
+    };
+    const retrieve = vi.spyOn(balance, 'retrieve').mockResolvedValue({} as Stripe.Balance);
+
+    await expect(new StripePaymentProvider().checkHealth()).resolves.toEqual({ ok: true });
+    expect(retrieve).toHaveBeenCalledOnce();
+  });
+});
+
 describe('StripePaymentProvider.verifyWebhookEvent', () => {
   it('accepts a valid signed Checkout payment event and returns only verified metadata', async () => {
     process.env.STRIPE_SECRET_KEY = secretKey;
