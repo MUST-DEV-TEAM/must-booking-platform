@@ -357,7 +357,7 @@ model Booking {
   propertyId                 String        @map("property_id") @db.Uuid
   roomTypeId                 String        @map("room_type_id") @db.Uuid
   guestId                    String?       @map("guest_id") @db.Uuid
-  guestSessionId             String        @map("guest_session_id") @db.Uuid
+  guestSessionId             String?       @map("guest_session_id") @db.Uuid
   guestReturnUrl             String?       @map("guest_return_url") @db.VarChar(2000)
   externalReference          String        @map("external_reference") @db.VarChar(200)
   status                     BookingStatus @default(DRAFT)

@@ -1161,11 +1161,137 @@ describe('LocalPmsProvider', () => {
       .set('Idempotency-Key', randomUUID())
       .send({ method: 'cash' })
       .expect(403);
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/staff-bookings`)
+      .set('Cookie', propertyStaffCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({
+        roomTypeId,
+        ratePlanId,
+        startsOn: '2030-12-01',
+        endsOn: '2030-12-03',
+        guest: {
+          email: `staff-denied-${randomUUID()}@example.test`,
+          firstName: 'Denied',
+          lastName: 'Staff',
+        },
+      })
+      .expect(403);
     await admin.$executeRaw`
       UPDATE property_staff_assignments
       SET "role_template_id" = ${propertyManagerTemplateId}::uuid
       WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid
         AND "user_id" = ${propertyStaffUserId}::uuid
+    `;
+    await admin.$executeRaw`
+      UPDATE properties SET min_stay_nights = 2
+      WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
+    `;
+    await request(app!.getHttpServer())
+      .put(`${propertyUrl}/inventory-units`)
+      .set('Cookie', cookie)
+      .send({
+        roomTypeId,
+        startsOn: '2030-12-01',
+        endsOn: '2030-12-03',
+        availableUnits: 1,
+      })
+      .expect(204);
+    const staffBookingRequest = {
+      roomTypeId,
+      ratePlanId,
+      startsOn: '2030-12-01',
+      endsOn: '2030-12-03',
+      guest: {
+        email: `staff-booking-${randomUUID()}@example.test`,
+        firstName: 'Staff',
+        lastName: 'Booking',
+        phone: '+355000001',
+      },
+    };
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/staff-bookings`)
+      .set('Cookie', propertyStaffCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ ...staffBookingRequest, endsOn: '2030-12-02' })
+      .expect(400)
+      .expect((response) => {
+        expect(response.body.message).toBe('A minimum stay of 2 nights is required.');
+      });
+    const staffBookingKey = randomUUID();
+    const staffBooking = await request(app!.getHttpServer())
+      .post(`${propertyUrl}/staff-bookings`)
+      .set('Cookie', propertyStaffCookie)
+      .set('Idempotency-Key', staffBookingKey)
+      .send(staffBookingRequest)
+      .expect(201);
+    expect(staffBooking.body).toMatchObject({
+      ok: true,
+      value: { status: 'CONFIRMED', paymentMethod: 'PAY_AT_HOTEL' },
+    });
+    expect(staffBooking.body.value).not.toHaveProperty('checkoutUrl');
+    const staffBookingGuestSession = await admin.$queryRaw<
+      Array<{ guestSessionId: string | null }>
+    >`
+      SELECT guest_session_id AS "guestSessionId"
+      FROM bookings
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND id = ${staffBooking.body.value.id}::uuid
+    `;
+    expect(staffBookingGuestSession).toEqual([{ guestSessionId: null }]);
+    const forgedGuestCookie = `must_guest_session=${propertyStaffUserId}`;
+    await request(app!.getHttpServer())
+      .patch(`${propertyUrl}/bookings/${staffBooking.body.value.id}`)
+      .set('Cookie', forgedGuestCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ expectedVersion: staffBooking.body.value.version })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toMatchObject({ ok: false, error: { code: 'BOOKING_NOT_FOUND' } });
+      });
+    await request(app!.getHttpServer())
+      .delete(`${propertyUrl}/bookings/${staffBooking.body.value.id}`)
+      .set('Cookie', forgedGuestCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ expectedVersion: staffBooking.body.value.version })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toMatchObject({ ok: false, error: { code: 'BOOKING_NOT_FOUND' } });
+      });
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/staff-bookings`)
+      .set('Cookie', propertyStaffCookie)
+      .set('Idempotency-Key', staffBookingKey)
+      .send(staffBookingRequest)
+      .expect(201)
+      .expect(staffBooking.body);
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/staff-bookings`)
+      .set('Cookie', propertyStaffCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ ...staffBookingRequest, externalReference: `must-${randomUUID()}` })
+      .expect(201)
+      .expect((response) => {
+        expect(response.body).toMatchObject({ ok: false, error: { code: 'AVAILABILITY_FAILED' } });
+      });
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/bookings/${staffBooking.body.value.id}/manual-payment`)
+      .set('Cookie', propertyStaffCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ method: 'bank_transfer' })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toMatchObject({
+          ok: true,
+          value: {
+            bookingId: staffBooking.body.value.id,
+            amount: { amount: '180.00', currency: 'EUR' },
+          },
+        });
+      });
+    await admin.$executeRaw`
+      UPDATE properties SET min_stay_nights = NULL
+      WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
     `;
     const manualPaymentKey = randomUUID();
     const manualPayment = await request(app!.getHttpServer())

@@ -31,7 +31,9 @@ export const PMS_PROVIDER = Symbol('PMS_PROVIDER');
 
 export type LocalCreateBookingCommand = CreateBookingCommand & {
   quoteToken?: string;
-  quoteSessionId: string;
+  quoteSessionId?: string;
+  staffActorId?: string;
+  skipQuoteValidation?: boolean;
   returnUrl?: string;
 };
 
@@ -41,7 +43,7 @@ type BookingRow = {
   propertyId: string;
   roomTypeId: string;
   guestId: string | null;
-  guestSessionId: string;
+  guestSessionId: string | null;
   ratePlanId: string;
   startsOn: string;
   endsOn: string;
@@ -182,7 +184,8 @@ export class LocalPmsProvider implements PmsProvider {
   ): Promise<Result<BookingWithCheckout>> {
     if (
       !this.validStay(command.startsOn, command.endsOn) ||
-      !this.validAmount(command.total.amount)
+      !this.validAmount(command.total.amount) ||
+      !(command.quoteSessionId ?? command.staffActorId)
     ) {
       return this.failure('INVALID_BOOKING_COMMAND', 'Booking dates or total are invalid.');
     }
@@ -226,7 +229,7 @@ export class LocalPmsProvider implements PmsProvider {
           guest_session_id, status, payment_method, starts_on, ends_on, rate_plan_id, total_amount
         ) VALUES (
           ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${command.roomTypeId}::uuid,
-          ${guestId}::uuid, ${command.externalReference}, ${command.quoteSessionId}::uuid,
+          ${guestId}::uuid, ${command.externalReference}, ${command.quoteSessionId ?? null}::uuid,
           ${BookingStatus.DRAFT}::"BookingStatus",
           ${paymentMethod.value}::"BookingPaymentMethod",
           ${command.startsOn}::date, ${command.endsOn}::date, ${command.ratePlanId}::uuid,
@@ -245,7 +248,7 @@ export class LocalPmsProvider implements PmsProvider {
             await this.audit.recordInTransaction(tx, {
               tenantId: context.tenantId,
               propertyId: context.propertyId,
-              actorUserId: null,
+              actorUserId: command.staffActorId ?? null,
               action: 'booking.created',
               targetType: 'booking',
               targetId: bookingId,
@@ -260,24 +263,26 @@ export class LocalPmsProvider implements PmsProvider {
               status,
               BookingStatus.INVENTORY_REVALIDATING,
             );
-            const quoteError = this.quotes.validate(command.quoteToken, command.quoteSessionId, {
-              tenantId: context.tenantId,
-              propertyId: context.propertyId,
-              roomTypeId: command.roomTypeId,
-              ratePlanId: command.ratePlanId,
-              startsOn: command.startsOn,
-              endsOn: command.endsOn,
-              total: command.total,
-            });
-            if (quoteError) {
-              await this.transition(
-                tx,
-                context,
-                bookingId,
-                status,
-                BookingStatus.AVAILABILITY_FAILED,
-              );
-              return this.failure(quoteError.code, quoteError.message);
+            if (!command.skipQuoteValidation) {
+              const quoteError = this.quotes.validate(command.quoteToken, command.quoteSessionId, {
+                tenantId: context.tenantId,
+                propertyId: context.propertyId,
+                roomTypeId: command.roomTypeId,
+                ratePlanId: command.ratePlanId,
+                startsOn: command.startsOn,
+                endsOn: command.endsOn,
+                total: command.total,
+              });
+              if (quoteError) {
+                await this.transition(
+                  tx,
+                  context,
+                  bookingId,
+                  status,
+                  BookingStatus.AVAILABILITY_FAILED,
+                );
+                return this.failure(quoteError.code, quoteError.message);
+              }
             }
             const reserved = await this.availability.reserveBookedUnits(
               tx,

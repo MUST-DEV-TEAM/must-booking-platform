@@ -53,6 +53,7 @@ import { LocalPmsProvider, PMS_PROVIDER } from './booking/local-pms.provider';
 import { QuoteController } from './booking/quote.controller';
 import { QuoteService } from './booking/quote.service';
 import { BookingController } from './booking/booking.controller';
+import { StaffBookingController } from './booking/staff-booking.controller';
 import { PublicBookingController } from './booking/public-booking.controller';
 import { BookingProjectionService } from './booking/booking-projection.service';
 import { CancellationLinkService } from './booking/cancellation-link.service';
@@ -123,6 +124,7 @@ import { ProviderHealthService } from './platform/provider-health.service';
     PublicCatalogController,
     QuoteController,
     BookingController,
+    StaffBookingController,
     PublicBookingController,
     StripeWebhookController,
     PokPayWebhookController,

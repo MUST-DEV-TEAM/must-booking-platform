@@ -1,5 +1,6 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import type { Money } from '@must/domain-contracts';
 
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 
@@ -32,30 +33,31 @@ export class QuoteService {
     input: QuoteInput,
     ttlSeconds = 15 * 60,
   ): Promise<QuotePayload & { quoteToken: string }> {
-    this.validInput(input);
     if (!sessionId) throw new BadRequestException('A valid session is required to create a quote.');
     if (!Number.isInteger(ttlSeconds) || ttlSeconds < 1)
       throw new BadRequestException('Quote expiry must be a positive number of seconds.');
 
-    const quote = await this.database.withTenantTransaction(
-      { tenantId, propertyId },
-      async (tx) => {
-        const properties = await tx.$queryRaw<
-          Array<{
-            minStayNights: number | null;
-            maxStayNights: number | null;
-            advanceBookingDays: number | null;
-          }>
-        >`
-          SELECT min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
-            advance_booking_days AS "advanceBookingDays"
-          FROM properties WHERE id = ${propertyId}::uuid
-        `;
-        if (!properties[0]) throw new NotFoundException('Property was not found.');
-        this.enforceBookingRules(input, properties[0]);
-        const rows = await tx.$queryRaw<
-          Array<{ currency: string; amount: string; pricedNights: bigint }>
-        >`
+    const quote = await this.price(tenantId, propertyId, input);
+
+    const payload: QuotePayload = {
+      version: 1,
+      tenantId,
+      propertyId,
+      ...input,
+      total: quote,
+      expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
+      sessionBinding: this.sessionBinding(sessionId),
+    };
+    return { ...payload, quoteToken: this.sign(payload) };
+  }
+
+  async price(tenantId: string, propertyId: string, input: QuoteInput): Promise<Money> {
+    this.validInput(input);
+    await this.enforceBookingRules(tenantId, propertyId, input);
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const rows = await tx.$queryRaw<
+        Array<{ currency: string; amount: string; pricedNights: bigint }>
+      >`
         SELECT rp.currency, COALESCE(SUM(resolved.amount), 0)::text AS amount,
           COUNT(resolved.amount)::bigint AS "pricedNights"
         FROM rate_plans rp
@@ -85,25 +87,35 @@ export class QuoteService {
           AND rp.is_active = true
         GROUP BY rp.currency
       `;
-        const row = rows[0];
-        if (!row) throw new NotFoundException('Active rate plan was not found.');
-        const nightCount = this.nightCount(input.startsOn, input.endsOn);
-        if (Number(row.pricedNights) !== nightCount)
-          throw new BadRequestException('The requested stay does not have a rate for every night.');
-        return { amount: row.amount, currency: row.currency };
-      },
-    );
+      const row = rows[0];
+      if (!row) throw new NotFoundException('Active rate plan was not found.');
+      const nightCount = this.nightCount(input.startsOn, input.endsOn);
+      if (Number(row.pricedNights) !== nightCount)
+        throw new BadRequestException('The requested stay does not have a rate for every night.');
+      return { amount: row.amount, currency: row.currency };
+    });
+  }
 
-    const payload: QuotePayload = {
-      version: 1,
-      tenantId,
-      propertyId,
-      ...input,
-      total: quote,
-      expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
-      sessionBinding: this.sessionBinding(sessionId),
-    };
-    return { ...payload, quoteToken: this.sign(payload) };
+  async enforceBookingRules(
+    tenantId: string,
+    propertyId: string,
+    input: QuoteInput,
+  ): Promise<void> {
+    await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const properties = await tx.$queryRaw<
+        Array<{
+          minStayNights: number | null;
+          maxStayNights: number | null;
+          advanceBookingDays: number | null;
+        }>
+      >`
+        SELECT min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
+          advance_booking_days AS "advanceBookingDays"
+        FROM properties WHERE id = ${propertyId}::uuid
+      `;
+      if (!properties[0]) throw new NotFoundException('Property was not found.');
+      this.validateBookingRules(input, properties[0]);
+    });
   }
 
   validate(
@@ -213,7 +225,7 @@ export class QuoteService {
     return (Date.parse(`${endsOn}T00:00:00Z`) - Date.parse(`${startsOn}T00:00:00Z`)) / 86_400_000;
   }
 
-  private enforceBookingRules(
+  private validateBookingRules(
     input: QuoteInput,
     rules: {
       minStayNights: number | null;
