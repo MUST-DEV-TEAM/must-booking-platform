@@ -6,6 +6,8 @@ import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 export type BookingProjection = {
   id: string;
   guestId: string;
+  guestFirstName: string | null;
+  guestLastName: string | null;
   guestEmail: string;
   guestPhone: string | null;
   guestStreetAddress: string | null;
@@ -44,7 +46,8 @@ export class BookingProjectionService {
             }
           >
         >`
-        SELECT b.id, b.guest_id AS "guestId", g.email AS "guestEmail", g.phone AS "guestPhone",
+        SELECT b.id, b.guest_id AS "guestId", g.first_name AS "guestFirstName",
+          g.last_name AS "guestLastName", g.email AS "guestEmail", g.phone AS "guestPhone",
           g.street_address AS "guestStreetAddress", g.address_line_2 AS "guestAddressLine2",
           g.city AS "guestCity", g.county AS "guestCounty", g.postcode AS "guestPostcode",
           b.room_type_id AS "roomTypeId", rt.name AS "roomTypeName",

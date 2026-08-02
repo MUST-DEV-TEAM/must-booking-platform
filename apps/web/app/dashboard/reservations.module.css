@@ -1,0 +1,119 @@
+.page {
+  margin: 0 auto;
+  max-width: 78rem;
+}
+.heading {
+  display: flex;
+  justify-content: space-between;
+}
+.eyebrow {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-bottom: var(--must-space-8);
+}
+.filters {
+  display: grid;
+  gap: var(--must-space-12);
+  grid-template-columns: 2fr repeat(3, minmax(8rem, 1fr));
+}
+.filters label {
+  display: grid;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  gap: var(--must-space-4);
+}
+.filters input,
+.filters select {
+  background: var(--must-color-surface);
+  border: 1px solid var(--must-color-border);
+  border-radius: var(--must-radius-control);
+  color: var(--must-color-ink);
+  min-height: 2.5rem;
+  padding: 0 var(--must-space-8);
+}
+.tableWrap {
+  overflow-x: auto;
+}
+.table {
+  border-collapse: collapse;
+  margin-top: var(--must-space-16);
+  min-width: 50rem;
+  width: 100%;
+}
+.table th {
+  color: var(--must-color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+}
+.table td,
+.table th {
+  border-top: 1px solid var(--must-color-border);
+  padding: var(--must-space-12) var(--must-space-8);
+  vertical-align: top;
+}
+.table td span {
+  color: var(--must-color-text-secondary);
+  display: block;
+  font-size: 0.8125rem;
+  margin-top: var(--must-space-4);
+}
+.table button {
+  background: transparent;
+  border: 1px solid var(--must-color-border);
+  border-radius: var(--must-radius-control);
+  color: var(--must-color-action-primary);
+  cursor: pointer;
+  font: inherit;
+  padding: var(--must-space-8);
+  white-space: nowrap;
+}
+.status {
+  text-transform: capitalize;
+}
+.empty {
+  margin-top: var(--must-space-16);
+}
+.details {
+  display: grid;
+  gap: var(--must-space-16);
+}
+.detailsHeading {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--must-space-16);
+}
+.details dl {
+  display: grid;
+  gap: var(--must-space-12);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+}
+.details dt {
+  color: var(--must-color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.details dd {
+  margin: var(--must-space-4) 0 0;
+}
+.error {
+  color: var(--must-color-danger);
+}
+@media (max-width: 800px) {
+  .filters,
+  .details dl {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 560px) {
+  .filters,
+  .details dl {
+    grid-template-columns: 1fr;
+  }
+}

@@ -823,6 +823,8 @@ describe('LocalPmsProvider', () => {
             expect.objectContaining({
               id: created.value.id,
               guestId: created.value.guestId,
+              guestFirstName: 'Updated',
+              guestLastName: 'Directory',
               guestEmail: 'guest@example.test',
               guestPhone: null,
               guestStreetAddress: '1 Guest Street',
