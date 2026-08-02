@@ -1,5 +1,6 @@
 'use client';
 
+import { Card, Heading, Stack, Text } from '@must/ui';
 import { FormEvent, useEffect, useState } from 'react';
 
 type Property = { id: string; name: string };
@@ -16,7 +17,13 @@ type RoomTypeForm = {
 
 const emptyRoomTypeForm: RoomTypeForm = { name: '', description: '', maxOccupancy: '2' };
 
-export function RoomManagement({ tenantId }: { tenantId: string }) {
+export function RoomManagement({
+  tenantId,
+  propertyId: selectedPropertyId,
+}: {
+  tenantId: string;
+  propertyId?: string;
+}) {
   const [properties, setProperties] = useState<Property[] | null>(null);
   const [propertyId, setPropertyId] = useState('');
   const [roomTypes, setRoomTypes] = useState<RoomType[] | null>(null);
@@ -38,10 +45,14 @@ export function RoomManagement({ tenantId }: { tenantId: string }) {
       .then(async (response) => (response.ok ? ((await response.json()) as Property[]) : []))
       .then((items) => {
         setProperties(items);
-        setPropertyId((current) => current || items[0]?.id || '');
+        setPropertyId((current) => selectedPropertyId || current || items[0]?.id || '');
       })
       .catch(() => setProperties([]));
-  }, [tenantId]);
+  }, [selectedPropertyId, tenantId]);
+
+  useEffect(() => {
+    if (selectedPropertyId) setPropertyId(selectedPropertyId);
+  }, [selectedPropertyId]);
 
   useEffect(() => {
     if (!propertyId) {
@@ -254,73 +265,96 @@ export function RoomManagement({ tenantId }: { tenantId: string }) {
   }
 
   return (
-    <section>
-      <h2>Rooms and room types</h2>
-      <p>Set up the sellable room types and the physical rooms in each property.</p>
-      <label>
-        Property
-        <select value={propertyId} onChange={(event) => setPropertyId(event.target.value)}>
-          <option value="">Select a property</option>
-          {properties?.map((property) => (
-            <option key={property.id} value={property.id}>
-              {property.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      {properties?.length === 0 ? <p>Create a property before adding rooms.</p> : null}
+    <Stack gap="lg">
+      <header>
+        <Text tone="secondary">PROPERTY SETUP</Text>
+        <Heading>Rooms and room types</Heading>
+        <Text tone="secondary">
+          Set up the sellable room types and the physical rooms in each property.
+        </Text>
+      </header>
+      {!selectedPropertyId ? (
+        <Card>
+          <label className="must-field">
+            <span className="must-field__label">Property</span>
+            <select
+              className="must-input"
+              value={propertyId}
+              onChange={(event) => setPropertyId(event.target.value)}
+            >
+              <option value="">Select a property</option>
+              {properties?.map((property) => (
+                <option key={property.id} value={property.id}>
+                  {property.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {properties?.length === 0 ? <Text>Create a property before adding rooms.</Text> : null}
+        </Card>
+      ) : null}
       {propertyId ? (
-        <>
-          <h3>{editingRoomTypeId ? 'Edit room type' : 'Add room type'}</h3>
-          <form onSubmit={submitRoomType}>
-            <label>
-              Name
-              <input
-                required
-                value={roomTypeForm.name}
-                onChange={(event) => setRoomTypeForm({ ...roomTypeForm, name: event.target.value })}
-              />
-            </label>
-            <label>
-              Description
-              <textarea
-                value={roomTypeForm.description}
-                onChange={(event) =>
-                  setRoomTypeForm({ ...roomTypeForm, description: event.target.value })
-                }
-              />
-            </label>
-            <label>
-              Maximum occupancy
-              <input
-                required
-                min="1"
-                type="number"
-                value={roomTypeForm.maxOccupancy}
-                onChange={(event) =>
-                  setRoomTypeForm({ ...roomTypeForm, maxOccupancy: event.target.value })
-                }
-              />
-            </label>
-            <button>{editingRoomTypeId ? 'Save room type' : 'Add room type'}</button>
-            {editingRoomTypeId ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingRoomTypeId(null);
-                  setRoomTypeForm(emptyRoomTypeForm);
-                }}
-              >
-                Cancel edit
+        <Stack gap="lg">
+          <Card>
+            <Heading level={2}>{editingRoomTypeId ? 'Edit room type' : 'Add room type'}</Heading>
+            <form className="must-stack must-stack--md" onSubmit={submitRoomType}>
+              <label className="must-field">
+                Name
+                <input
+                  className="must-input"
+                  required
+                  value={roomTypeForm.name}
+                  onChange={(event) =>
+                    setRoomTypeForm({ ...roomTypeForm, name: event.target.value })
+                  }
+                />
+              </label>
+              <label className="must-field">
+                Description
+                <textarea
+                  className="must-input"
+                  value={roomTypeForm.description}
+                  onChange={(event) =>
+                    setRoomTypeForm({ ...roomTypeForm, description: event.target.value })
+                  }
+                />
+              </label>
+              <label className="must-field">
+                Maximum occupancy
+                <input
+                  className="must-input"
+                  required
+                  min="1"
+                  type="number"
+                  value={roomTypeForm.maxOccupancy}
+                  onChange={(event) =>
+                    setRoomTypeForm({ ...roomTypeForm, maxOccupancy: event.target.value })
+                  }
+                />
+              </label>
+              <button className="must-button must-button--primary">
+                {editingRoomTypeId ? 'Save room type' : 'Add room type'}
               </button>
-            ) : null}
-          </form>
-          <h3>Configured room types</h3>
+              {editingRoomTypeId ? (
+                <button
+                  className="must-button must-button--secondary"
+                  type="button"
+                  onClick={() => {
+                    setEditingRoomTypeId(null);
+                    setRoomTypeForm(emptyRoomTypeForm);
+                  }}
+                >
+                  Cancel edit
+                </button>
+              ) : null}
+            </form>
+          </Card>
+          <Heading level={2}>Configured room types</Heading>
           {roomTypes === null ? <p>Loading room types…</p> : null}
           {roomTypes?.length === 0 ? <p>No room types yet.</p> : null}
           {roomTypes?.map((roomType) => (
-            <article key={roomType.id}>
-              <h4>{roomType.name}</h4>
+            <Card key={roomType.id}>
+              <Heading level={3}>{roomType.name}</Heading>
               <p>
                 {roomType.description || 'No description.'} Maximum occupancy:{' '}
                 {roomType.maxOccupancy}.
@@ -331,6 +365,7 @@ export function RoomManagement({ tenantId }: { tenantId: string }) {
                   'None'}
               </p>
               <button
+                className="must-button must-button--secondary"
                 type="button"
                 onClick={() => {
                   setEditingRoomTypeId(roomType.id);
@@ -343,14 +378,19 @@ export function RoomManagement({ tenantId }: { tenantId: string }) {
               >
                 Edit room type
               </button>
-              <button type="button" onClick={() => void deleteRoomType(roomType.id)}>
+              <button
+                className="must-button must-button--danger"
+                type="button"
+                onClick={() => void deleteRoomType(roomType.id)}
+              >
                 Delete room type
               </button>
               <div>
-                <h5>Amenities</h5>
+                <Heading level={3}>Amenities</Heading>
                 {amenities.map((amenity) => (
-                  <label key={amenity.id}>
+                  <label className="must-field" key={amenity.id}>
                     <input
+                      className="must-input"
                       type="checkbox"
                       checked={roomTypeAmenities[roomType.id]?.some(
                         (assignedAmenity) => assignedAmenity.id === amenity.id,
@@ -362,14 +402,15 @@ export function RoomManagement({ tenantId }: { tenantId: string }) {
                 ))}
               </div>
               <div>
-                <h5>Photos</h5>
+                <Heading level={3}>Photos</Heading>
                 {images[roomType.id]?.map((image) => (
                   // Images are public marketing content; the URL is issued by the tenant-scoped API.
                   <img key={image.id} src={image.url} alt={`${roomType.name} room`} width="160" />
                 ))}
-                <label>
+                <label className="must-field">
                   Upload photo
                   <input
+                    className="must-input"
                     type="file"
                     accept="image/jpeg,image/png,image/webp"
                     onChange={(event) => void uploadImage(roomType.id, event.target.files?.[0])}
@@ -377,12 +418,13 @@ export function RoomManagement({ tenantId }: { tenantId: string }) {
                 </label>
               </div>
               <div>
-                <h5>Physical rooms</h5>
+                <Heading level={3}>Physical rooms</Heading>
                 <ul>
                   {rooms[roomType.id]?.map((room) => (
                     <li key={room.id}>
                       {room.name}{' '}
                       <button
+                        className="must-button must-button--secondary"
                         type="button"
                         onClick={() => {
                           setEditingRoom({ roomTypeId: roomType.id, roomId: room.id });
@@ -391,16 +433,24 @@ export function RoomManagement({ tenantId }: { tenantId: string }) {
                       >
                         Edit
                       </button>{' '}
-                      <button type="button" onClick={() => void deleteRoom(roomType.id, room.id)}>
+                      <button
+                        className="must-button must-button--danger"
+                        type="button"
+                        onClick={() => void deleteRoom(roomType.id, room.id)}
+                      >
                         Delete
                       </button>
                     </li>
                   ))}
                 </ul>
-                <form onSubmit={(event) => void submitRoom(event, roomType.id)}>
-                  <label>
+                <form
+                  className="must-stack must-stack--sm"
+                  onSubmit={(event) => void submitRoom(event, roomType.id)}
+                >
+                  <label className="must-field">
                     {editingRoom?.roomTypeId === roomType.id ? 'Room name' : 'New room name'}
                     <input
+                      className="must-input"
                       required
                       value={roomNames[roomType.id] || ''}
                       onChange={(event) =>
@@ -411,41 +461,48 @@ export function RoomManagement({ tenantId }: { tenantId: string }) {
                       }
                     />
                   </label>
-                  <button>
+                  <button className="must-button must-button--primary">
                     {editingRoom?.roomTypeId === roomType.id ? 'Save room' : 'Add room'}
                   </button>
                 </form>
               </div>
-            </article>
+            </Card>
           ))}
-          <h3>Amenities</h3>
-          <p>Create property amenities, then tag the room types above.</p>
-          <form onSubmit={submitAmenity}>
-            <label>
-              Amenity name
-              <input
-                required
-                maxLength={100}
-                value={amenityName}
-                onChange={(event) => setAmenityName(event.target.value)}
-              />
-            </label>
-            <button>Add amenity</button>
-          </form>
-          <ul>
-            {amenities.map((amenity) => (
-              <li key={amenity.id}>
-                {amenity.name}{' '}
-                <button type="button" onClick={() => void deleteAmenity(amenity.id)}>
-                  Delete amenity
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
+          <Card>
+            <Heading level={2}>Amenities</Heading>
+            <p>Create property amenities, then tag the room types above.</p>
+            <form className="must-stack must-stack--sm" onSubmit={submitAmenity}>
+              <label className="must-field">
+                Amenity name
+                <input
+                  className="must-input"
+                  required
+                  maxLength={100}
+                  value={amenityName}
+                  onChange={(event) => setAmenityName(event.target.value)}
+                />
+              </label>
+              <button className="must-button must-button--primary">Add amenity</button>
+            </form>
+            <ul>
+              {amenities.map((amenity) => (
+                <li key={amenity.id}>
+                  {amenity.name}{' '}
+                  <button
+                    className="must-button must-button--danger"
+                    type="button"
+                    onClick={() => void deleteAmenity(amenity.id)}
+                  >
+                    Delete amenity
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </Stack>
       ) : null}
       {message ? <p role="alert">{message}</p> : null}
-    </section>
+    </Stack>
   );
 }
 

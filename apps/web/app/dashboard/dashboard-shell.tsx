@@ -26,6 +26,7 @@ import { DashboardStaff } from './staff';
 import { DashboardReservations } from './reservations';
 import { DashboardSettings } from './settings';
 import { DashboardNotifications } from './notifications';
+import { RoomManagement } from './[tenantId]/room-management';
 
 type TenantRole = 'OWNER' | 'ADMIN' | 'STAFF';
 type Membership = { tenantId: string; role: TenantRole };
@@ -184,6 +185,9 @@ export function DashboardShell({
       ) : null}
       {selectedProperty && role && section === 'guests' ? (
         <DashboardGuests tenantId={tenantId} propertyId={selectedProperty.id} />
+      ) : null}
+      {selectedProperty && role && section === 'accommodations' && role !== 'STAFF' ? (
+        <RoomManagement propertyId={selectedProperty.id} tenantId={tenantId} />
       ) : null}
       {selectedProperty && role && section === 'staff' && role !== 'STAFF' ? (
         <DashboardStaff tenantId={tenantId} propertyId={selectedProperty.id} />
