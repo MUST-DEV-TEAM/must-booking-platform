@@ -67,6 +67,8 @@ import { StripeWebhookService } from './payments/stripe-webhook.service';
 import { PaymentExpiryService } from './payments/payment-expiry.service';
 import { PaymentRefundController } from './payments/payment-refund.controller';
 import { PaymentRefundService } from './payments/payment-refund.service';
+import { ManualPaymentController } from './payments/manual-payment.controller';
+import { ManualPaymentService } from './payments/manual-payment.service';
 import { PlatformAdminController } from './platform/platform-admin.controller';
 import { PlatformAdminService } from './platform/platform-admin.service';
 import { ProviderHealthService } from './platform/provider-health.service';
@@ -125,6 +127,7 @@ import { ProviderHealthService } from './platform/provider-health.service';
     StripeWebhookController,
     PokPayWebhookController,
     PaymentRefundController,
+    ManualPaymentController,
     PlatformAdminController,
   ],
   providers: [
@@ -163,6 +166,7 @@ import { ProviderHealthService } from './platform/provider-health.service';
     StripeWebhookService,
     PaymentExpiryService,
     PaymentRefundService,
+    ManualPaymentService,
     PlatformAdminService,
     ProviderHealthService,
     { provide: PAYMENT_PROVIDER, useExisting: StripePaymentProvider },

@@ -393,6 +393,7 @@ model Payment {
   bookingId         String      @map("booking_id") @db.Uuid
   kind              PaymentKind
   provider          String      @db.VarChar(50)
+  method            String?     @db.VarChar(50)
   externalPaymentId String      @map("external_payment_id") @db.VarChar(320)
   status            String      @db.VarChar(32)
   amount            Decimal     @db.Decimal(12, 2)

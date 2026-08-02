@@ -1155,12 +1155,110 @@ describe('LocalPmsProvider', () => {
       .set('Idempotency-Key', randomUUID())
       .send({ bookingId: firstBooking.value.id, amount: { amount: '20.00', currency: 'EUR' } })
       .expect(403);
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/bookings/${payAtHotelBooking.body.value.id}/manual-payment`)
+      .set('Cookie', propertyStaffCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ method: 'cash' })
+      .expect(403);
     await admin.$executeRaw`
       UPDATE property_staff_assignments
       SET "role_template_id" = ${propertyManagerTemplateId}::uuid
       WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid
         AND "user_id" = ${propertyStaffUserId}::uuid
     `;
+    const manualPaymentKey = randomUUID();
+    const manualPayment = await request(app!.getHttpServer())
+      .post(`${propertyUrl}/bookings/${payAtHotelBooking.body.value.id}/manual-payment`)
+      .set('Cookie', propertyStaffCookie)
+      .set('Idempotency-Key', manualPaymentKey)
+      .send({ method: 'cash', amount: { amount: '150.00', currency: 'EUR' } })
+      .expect(200);
+    expect(manualPayment.body).toMatchObject({
+      ok: true,
+      value: {
+        bookingId: payAtHotelBooking.body.value.id,
+        amount: { amount: '150.00', currency: 'EUR' },
+        provider: 'manual',
+        method: 'cash',
+        status: 'succeeded',
+        externalPaymentId: expect.stringMatching(/^manual:cash:/),
+      },
+    });
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/bookings/${payAtHotelBooking.body.value.id}/manual-payment`)
+      .set('Cookie', propertyStaffCookie)
+      .set('Idempotency-Key', manualPaymentKey)
+      .send({ method: 'cash', amount: { amount: '150.00', currency: 'EUR' } })
+      .expect(200)
+      .expect(manualPayment.body);
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/bookings/${payAtHotelBooking.body.value.id}/manual-payment`)
+      .set('Cookie', propertyStaffCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ method: 'cash', amount: { amount: '50.00', currency: 'EUR' } })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual({
+          ok: false,
+          error: {
+            code: 'INVALID_PAYMENT_AMOUNT',
+            message:
+              'Payment amount must be a positive amount no greater than the remaining booking balance.',
+            retryable: false,
+          },
+        });
+      });
+    const manualPayments = await admin.$queryRaw<
+      Array<{
+        kind: string;
+        provider: string;
+        method: string | null;
+        status: string;
+        amount: string;
+        currency: string;
+        externalPaymentId: string;
+      }>
+    >`
+      SELECT kind::text AS "kind", provider, method, status, amount::text AS amount, currency,
+        external_payment_id AS "externalPaymentId"
+      FROM payments
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND booking_id = ${payAtHotelBooking.body.value.id}::uuid AND provider = 'manual'
+    `;
+    expect(manualPayments).toEqual([
+      {
+        kind: 'CHARGE',
+        provider: 'manual',
+        method: 'cash',
+        status: 'succeeded',
+        amount: '150.00',
+        currency: 'EUR',
+        externalPaymentId: manualPayment.body.value.externalPaymentId,
+      },
+    ]);
+    const manualPaymentAudit = await admin.$queryRaw<Array<{ action: string }>>`
+      SELECT action FROM audit_logs
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND target_id = ${payAtHotelBooking.body.value.id} AND action = 'payment.manual_recorded'
+    `;
+    expect(manualPaymentAudit).toEqual([{ action: 'payment.manual_recorded' }]);
+    await request(app!.getHttpServer())
+      .post(
+        `/tenants/${randomUUID()}/properties/${propertyId}/bookings/${payAtHotelBooking.body.value.id}/manual-payment`,
+      )
+      .set('Cookie', propertyStaffCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ method: 'cash' })
+      .expect(403);
+    await request(app!.getHttpServer())
+      .post(
+        `/tenants/${tenantId}/properties/${randomUUID()}/bookings/${payAtHotelBooking.body.value.id}/manual-payment`,
+      )
+      .set('Cookie', propertyStaffCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ method: 'cash' })
+      .expect(403);
     const propertyStaffRefund = await request(app!.getHttpServer())
       .post(`${propertyUrl}/payments/refunds`)
       .set('Cookie', propertyStaffCookie)
