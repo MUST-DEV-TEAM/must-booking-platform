@@ -111,6 +111,46 @@ describe('platform-admin actions', () => {
       .expect({ accepted: true });
     expect(resetEmails).toHaveLength(1);
     expect(resetEmails[0]).toMatchObject({ userId: tenantUserId, to: tenantEmail });
+
+    const auditRows = await migrationPrisma.$queryRaw<
+      Array<{
+        action: string;
+        actorUserId: string;
+        actorType: string;
+        tenantId: string;
+        targetId: string;
+      }>
+    >`
+      SELECT "action", "actor_user_id" AS "actorUserId", "actor_type"::text AS "actorType",
+        "tenant_id" AS "tenantId", "target_id" AS "targetId"
+      FROM "audit_logs"
+      WHERE "tenant_id" = ${organizationId}::uuid
+        AND "actor_user_id" = ${platformUserId}::uuid
+      ORDER BY "action"
+    `;
+    expect(auditRows).toEqual([
+      {
+        action: 'platform.tenant.reactivated',
+        actorUserId: platformUserId,
+        actorType: 'PLATFORM_ADMIN',
+        tenantId: organizationId,
+        targetId: organizationId,
+      },
+      {
+        action: 'platform.tenant.suspended',
+        actorUserId: platformUserId,
+        actorType: 'PLATFORM_ADMIN',
+        tenantId: organizationId,
+        targetId: organizationId,
+      },
+      {
+        action: 'platform.user.password_reset_requested',
+        actorUserId: platformUserId,
+        actorType: 'PLATFORM_ADMIN',
+        tenantId: organizationId,
+        targetId: tenantUserId,
+      },
+    ]);
   });
 
   it('rejects a tenant-membership session on every platform action route', async () => {

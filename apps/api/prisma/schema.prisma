@@ -54,6 +54,11 @@ enum OrganizationStatus {
   SUSPENDED
 }
 
+enum AuditActorType {
+  TENANT_USER
+  PLATFORM_ADMIN
+}
+
 model Organization {
   id           String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name         String             @db.VarChar(200)
@@ -231,6 +236,7 @@ model AuditLog {
   tenantId    String?  @map("tenant_id") @db.Uuid
   propertyId  String?  @map("property_id") @db.Uuid
   actorUserId String?  @map("actor_user_id") @db.Uuid
+  actorType   AuditActorType @default(TENANT_USER) @map("actor_type")
   action      String   @db.VarChar(100)
   targetType  String   @map("target_type") @db.VarChar(100)
   targetId    String   @map("target_id") @db.VarChar(320)

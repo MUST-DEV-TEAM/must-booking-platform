@@ -2,8 +2,11 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 
+export type AuditActorType = 'TENANT_USER' | 'PLATFORM_ADMIN';
+
 export interface AuditEntry {
   actorUserId: string | null;
+  actorType?: AuditActorType;
   action: string;
   targetType: string;
   targetId: string;
@@ -19,8 +22,8 @@ export class AuditLogService {
   async record(entry: AuditEntry): Promise<void> {
     if (!entry.tenantId) {
       await this.database.$executeRaw`
-        INSERT INTO "audit_logs" ("actor_user_id", "action", "target_type", "target_id", "details")
-        VALUES (${entry.actorUserId}::uuid, ${entry.action}, ${entry.targetType}, ${entry.targetId}, ${JSON.stringify(entry.details ?? {})}::jsonb)
+        INSERT INTO "audit_logs" ("actor_user_id", "actor_type", "action", "target_type", "target_id", "details")
+        VALUES (${entry.actorUserId}::uuid, ${entry.actorType ?? 'TENANT_USER'}::"AuditActorType", ${entry.action}, ${entry.targetType}, ${entry.targetId}, ${JSON.stringify(entry.details ?? {})}::jsonb)
       `;
       return;
     }
@@ -32,8 +35,8 @@ export class AuditLogService {
 
   async recordInTransaction(tx: TenantTransaction, entry: AuditEntry): Promise<void> {
     await tx.$executeRaw`
-      INSERT INTO "audit_logs" ("tenant_id", "property_id", "actor_user_id", "action", "target_type", "target_id", "details")
-      VALUES (${entry.tenantId ?? null}::uuid, ${entry.propertyId ?? null}::uuid, ${entry.actorUserId}::uuid, ${entry.action}, ${entry.targetType}, ${entry.targetId}, ${JSON.stringify(entry.details ?? {})}::jsonb)
+      INSERT INTO "audit_logs" ("tenant_id", "property_id", "actor_user_id", "actor_type", "action", "target_type", "target_id", "details")
+      VALUES (${entry.tenantId ?? null}::uuid, ${entry.propertyId ?? null}::uuid, ${entry.actorUserId}::uuid, ${entry.actorType ?? 'TENANT_USER'}::"AuditActorType", ${entry.action}, ${entry.targetType}, ${entry.targetId}, ${JSON.stringify(entry.details ?? {})}::jsonb)
     `;
   }
 
@@ -41,6 +44,7 @@ export class AuditLogService {
     Array<{
       id: string;
       actorUserId: string | null;
+      actorType: AuditActorType;
       action: string;
       targetType: string;
       targetId: string;
@@ -56,6 +60,7 @@ export class AuditLogService {
           Array<{
             id: string;
             actorUserId: string | null;
+            actorType: AuditActorType;
             action: string;
             targetType: string;
             targetId: string;
@@ -64,7 +69,7 @@ export class AuditLogService {
             createdAt: Date;
           }>
         >`
-        SELECT "id", "actor_user_id" AS "actorUserId", "action", "target_type" AS "targetType",
+        SELECT "id", "actor_user_id" AS "actorUserId", "actor_type" AS "actorType", "action", "target_type" AS "targetType",
           "target_id" AS "targetId", "property_id" AS "propertyId", "details", "created_at" AS "createdAt"
         FROM "audit_logs"
         WHERE "tenant_id" = ${tenantId}::uuid
