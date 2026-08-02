@@ -16,6 +16,72 @@ const builtInCapabilities = [
 export class PropertyRoleTemplatesService {
   constructor(@Inject(TenantDatabaseService) private readonly database: TenantDatabaseService) {}
 
+  async listTemplates(tenantId: string, propertyId: string) {
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const rows = await tx.$queryRaw<
+        Array<{
+          id: string;
+          name: string;
+          kind: 'BUILT_IN' | 'CUSTOM';
+          capabilityKey: string | null;
+          capabilityDescription: string | null;
+        }>
+      >`
+        SELECT prt."id", prt."name", prt."kind"::text AS "kind",
+          c."key" AS "capabilityKey", c."description" AS "capabilityDescription"
+        FROM "property_role_templates" prt
+        LEFT JOIN "property_role_template_capabilities" rtc
+          ON rtc."tenant_id" = prt."tenant_id"
+          AND rtc."property_id" = prt."property_id"
+          AND rtc."role_template_id" = prt."id"
+        LEFT JOIN "capabilities" c
+          ON c."tenant_id" = rtc."tenant_id" AND c."id" = rtc."capability_id"
+        WHERE prt."tenant_id" = ${tenantId}::uuid AND prt."property_id" = ${propertyId}::uuid
+        ORDER BY prt."kind", prt."name", c."key"
+      `;
+      const templates = new Map<
+        string,
+        {
+          id: string;
+          name: string;
+          kind: 'BUILT_IN' | 'CUSTOM';
+          capabilities: Array<{ key: string; description: string | null }>;
+        }
+      >();
+      for (const row of rows) {
+        let template = templates.get(row.id);
+        if (!template) {
+          template = { id: row.id, name: row.name, kind: row.kind, capabilities: [] };
+          templates.set(row.id, template);
+        }
+        if (row.capabilityKey)
+          template.capabilities.push({
+            key: row.capabilityKey,
+            description: row.capabilityDescription,
+          });
+      }
+      return [...templates.values()];
+    });
+  }
+
+  async missingCapabilityKeys(
+    tenantId: string,
+    propertyId: string,
+    capabilityKeys: string[],
+  ): Promise<string[]> {
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const existing = new Set<string>();
+      for (const key of capabilityKeys) {
+        const rows = await tx.$queryRaw<Array<{ key: string }>>`
+          SELECT "key" FROM "capabilities"
+          WHERE "tenant_id" = ${tenantId}::uuid AND "key" = ${key}
+        `;
+        if (rows[0]) existing.add(rows[0].key);
+      }
+      return capabilityKeys.filter((key) => !existing.has(key));
+    });
+  }
+
   async ensureBuiltInTemplates(tenantId: string, propertyId: string): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       for (const [key, description] of builtInCapabilities) {

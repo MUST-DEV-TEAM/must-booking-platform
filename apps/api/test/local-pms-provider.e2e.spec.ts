@@ -211,11 +211,76 @@ describe('LocalPmsProvider', () => {
     cookie = signup.headers['set-cookie'][0];
     const propertyUrl = `/tenants/${tenantId}/properties/${propertyId}`;
     await app!.get(PropertyRoleTemplatesService).ensureBuiltInTemplates(tenantId, propertyId);
-
     await request(app!.getHttpServer())
       .post('/auth/email-verification/confirm')
       .send({ token: verificationToken })
       .expect(204);
+
+    await request(app!.getHttpServer())
+      .get(`${propertyUrl}/role-templates`)
+      .set('Cookie', cookie)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              name: 'Front Desk',
+              kind: 'BUILT_IN',
+              capabilities: [
+                {
+                  key: 'guests.manage',
+                  description: 'Manage guests',
+                },
+              ],
+            }),
+            expect.objectContaining({
+              name: 'Property Manager',
+              kind: 'BUILT_IN',
+              capabilities: [
+                expect.objectContaining({ key: 'bookings.manage' }),
+                expect.objectContaining({ key: 'guests.manage' }),
+                expect.objectContaining({ key: 'payments.refund' }),
+                expect.objectContaining({ key: 'reports.view' }),
+                expect.objectContaining({ key: 'settings.manage' }),
+                expect.objectContaining({ key: 'staff.invite' }),
+                expect.objectContaining({ key: 'staff.manage_permissions' }),
+              ],
+            }),
+          ]),
+        );
+      });
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/role-templates`)
+      .set('Cookie', cookie)
+      .send({ name: 'Invalid template', capabilityKeys: ['does.not.exist'] })
+      .expect(400)
+      .expect((response) => {
+        expect(response.body.message).toBe('Unknown capability key(s): does.not.exist.');
+      });
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/role-templates`)
+      .set('Cookie', cookie)
+      .send({ name: 'Night Auditor', capabilityKeys: ['bookings.manage', 'guests.manage'] })
+      .expect(201);
+    await request(app!.getHttpServer())
+      .get(`${propertyUrl}/role-templates`)
+      .set('Cookie', cookie)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              name: 'Night Auditor',
+              kind: 'CUSTOM',
+              capabilities: [
+                expect.objectContaining({ key: 'bookings.manage' }),
+                expect.objectContaining({ key: 'guests.manage' }),
+              ],
+            }),
+          ]),
+        );
+      });
+
     const roomType = await request(app!.getHttpServer())
       .post(`${propertyUrl}/room-types`)
       .set('Cookie', cookie)

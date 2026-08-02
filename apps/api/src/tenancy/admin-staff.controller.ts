@@ -8,6 +8,7 @@ import {
   Inject,
   Param,
   Patch,
+  Post,
   Put,
   Req,
 } from '@nestjs/common';
@@ -17,10 +18,15 @@ import { AdminStaffService } from './admin-staff.service';
 import { Role, Roles } from './roles.decorator';
 import { TenantScoped } from './tenant-context.decorator';
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
+import { PropertyRoleTemplatesService } from './property-role-templates.service';
 
 @Controller('tenants/:tenantId')
 export class AdminStaffController {
-  constructor(@Inject(AdminStaffService) private readonly staff: AdminStaffService) {}
+  constructor(
+    @Inject(AdminStaffService) private readonly staff: AdminStaffService,
+    @Inject(PropertyRoleTemplatesService)
+    private readonly templates: PropertyRoleTemplatesService,
+  ) {}
 
   @Get('memberships')
   @TenantScoped()
@@ -77,6 +83,42 @@ export class AdminStaffController {
     );
   }
 
+  @Get('properties/:propertyId/role-templates')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('staff.manage_permissions')
+  listRoleTemplates(@Req() request: { tenantContext: { tenantId: string; propertyId: string } }) {
+    return this.templates.listTemplates(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+    );
+  }
+
+  @Post('properties/:propertyId/role-templates')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('staff.manage_permissions')
+  @RequiresVerifiedEmail()
+  async createRoleTemplate(
+    @Body() body: unknown,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string } },
+  ): Promise<void> {
+    const { name, capabilityKeys } = this.createTemplateInput(body);
+    const missing = await this.templates.missingCapabilityKeys(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      capabilityKeys,
+    );
+    if (missing.length)
+      throw new BadRequestException(`Unknown capability key(s): ${missing.join(', ')}.`);
+    await this.templates.createCustomTemplate(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      name,
+      capabilityKeys,
+    );
+  }
+
   @Put('properties/:propertyId/staff/:userId')
   @HttpCode(204)
   @TenantScoped({ propertyParam: 'propertyId' })
@@ -120,5 +162,22 @@ export class AdminStaffController {
       body.granted,
       request.tenantContext.userId,
     );
+  }
+
+  private createTemplateInput(body: unknown): { name: string; capabilityKeys: string[] } {
+    const value = (body ?? {}) as Record<string, unknown>;
+    if (typeof value.name !== 'string' || !value.name.trim())
+      throw new BadRequestException('name is required.');
+    if (
+      !Array.isArray(value.capabilityKeys) ||
+      !value.capabilityKeys.every((key) => typeof key === 'string')
+    )
+      throw new BadRequestException('capabilityKeys must be an array of strings.');
+    const capabilityKeys = value.capabilityKeys.map((key) => key.trim());
+    if (capabilityKeys.some((key) => !key))
+      throw new BadRequestException('capabilityKeys must not contain empty values.');
+    if (new Set(capabilityKeys).size !== capabilityKeys.length)
+      throw new BadRequestException('capabilityKeys must not contain duplicates.');
+    return { name: value.name.trim(), capabilityKeys };
   }
 }
