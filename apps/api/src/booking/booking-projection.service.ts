@@ -24,6 +24,8 @@ export type BookingProjection = {
   status: BookingStatus;
   paymentMethod: BookingPaymentMethod;
   total: { amount: string; currency: string };
+  paidAmount: string;
+  refundedAmount: string;
   externalReference: string;
   version: number;
   createdAt: Date;
@@ -55,6 +57,8 @@ export class BookingProjectionService {
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
           b.payment_method AS "paymentMethod",
           b.total_amount::text AS "totalAmount", rp.currency, b.external_reference AS "externalReference",
+          COALESCE(payment_totals."paidAmount", 0)::text AS "paidAmount",
+          COALESCE(payment_totals."refundedAmount", 0)::text AS "refundedAmount",
           b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
         FROM bookings b
         JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
@@ -62,6 +66,12 @@ export class BookingProjectionService {
           ON rt.tenant_id = b.tenant_id AND rt.property_id = b.property_id AND rt.id = b.room_type_id
         JOIN rate_plans rp
           ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
+        LEFT JOIN LATERAL (
+          SELECT SUM(CASE WHEN p.kind = 'CHARGE' AND p.status = 'succeeded' THEN p.amount ELSE 0 END) AS "paidAmount",
+            SUM(CASE WHEN p.kind = 'REFUND' THEN p.amount ELSE 0 END) AS "refundedAmount"
+          FROM payments p
+          WHERE p.tenant_id = b.tenant_id AND p.property_id = b.property_id AND p.booking_id = b.id
+        ) payment_totals ON TRUE
         WHERE b.tenant_id = ${tenantId}::uuid AND b.property_id = ${propertyId}::uuid
         ORDER BY b.starts_on DESC, b.created_at DESC, b.id DESC
       `,

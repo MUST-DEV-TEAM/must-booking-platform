@@ -20,6 +20,7 @@ import styles from './dashboard-shell.module.css';
 import { DashboardOverview } from './overview';
 import { DashboardCalendar } from './calendar';
 import { WalkInBooking } from './walk-in-booking';
+import { DashboardPayments } from './payments';
 import { DashboardReservations } from './reservations';
 
 type TenantRole = 'OWNER' | 'ADMIN' | 'STAFF';
@@ -168,6 +169,9 @@ export function DashboardShell({
       ) : null}
       {selectedProperty && role && section === 'walk-in' ? (
         <WalkInBooking tenantId={tenantId} propertyId={selectedProperty.id} />
+      ) : null}
+      {selectedProperty && role && section === 'payments' ? (
+        <DashboardPayments tenantId={tenantId} propertyId={selectedProperty.id} />
       ) : null}
     </AppShell>
   );

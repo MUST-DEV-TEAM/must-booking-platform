@@ -26,6 +26,8 @@ export type Reservation = {
   status: string;
   paymentMethod: string;
   total: { amount: string; currency: string };
+  paidAmount: string;
+  refundedAmount: string;
   externalReference: string;
   version: number;
   createdAt: string;
