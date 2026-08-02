@@ -164,6 +164,26 @@ export class AdminStaffController {
     );
   }
 
+  @Delete('properties/:propertyId/staff/:userId/capabilities/:capabilityKey')
+  @HttpCode(204)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('staff.manage_permissions')
+  @RequiresVerifiedEmail()
+  async clearCapabilityOverride(
+    @Param('userId') userId: string,
+    @Param('capabilityKey') capabilityKey: string,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
+  ): Promise<void> {
+    await this.staff.clearCapabilityOverride(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      userId,
+      capabilityKey,
+      request.tenantContext.userId,
+    );
+  }
+
   private createTemplateInput(body: unknown): { name: string; capabilityKeys: string[] } {
     const value = (body ?? {}) as Record<string, unknown>;
     if (typeof value.name !== 'string' || !value.name.trim())

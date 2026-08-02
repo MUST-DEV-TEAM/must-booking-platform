@@ -185,6 +185,33 @@ describe('tenant staff administration', () => {
     `;
     expect(overrides).toEqual([{ granted: false }]);
 
+    const staffAfterOverride = await request(app.getHttpServer())
+      .get(`/tenants/${tenantId}/properties/${propertyId}/staff`)
+      .set('Cookie', adminCookie)
+      .expect(200);
+    expect(staffAfterOverride.body[0].overrides).toEqual([
+      { capabilityKey: 'settings.manage', granted: false },
+    ]);
+
+    await request(app.getHttpServer())
+      .delete(
+        `/tenants/${tenantId}/properties/${propertyId}/staff/${targetId}/capabilities/settings.manage`,
+      )
+      .set('Cookie', adminCookie)
+      .expect(204);
+    const clearedOverrides = await migrationPrisma.$queryRaw<Array<{ granted: boolean }>>`
+      SELECT "granted" FROM "property_staff_capability_overrides" o
+      JOIN "capabilities" c ON c."tenant_id" = o."tenant_id" AND c."id" = o."capability_id"
+      WHERE o."tenant_id" = ${tenantId}::uuid AND o."property_id" = ${propertyId}::uuid
+        AND o."user_id" = ${targetId}::uuid AND c."key" = 'settings.manage'
+    `;
+    expect(clearedOverrides).toEqual([]);
+    const staffAfterClear = await request(app.getHttpServer())
+      .get(`/tenants/${tenantId}/properties/${propertyId}/staff`)
+      .set('Cookie', adminCookie)
+      .expect(200);
+    expect(staffAfterClear.body[0].overrides).toEqual([]);
+
     await request(app.getHttpServer())
       .get(`/tenants/${otherTenantId}/memberships`)
       .set('Cookie', adminCookie)

@@ -201,6 +201,42 @@ export class AdminStaffService {
     });
   }
 
+  async clearCapabilityOverride(
+    tenantId: string,
+    propertyId: string,
+    userId: string,
+    capabilityKey: string,
+    actorUserId: string,
+  ): Promise<void> {
+    if (!capabilityKey.trim()) throw new BadRequestException('Capability key is required.');
+    await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const assignment = await tx.$queryRaw<Array<{ found: number }>>`
+        SELECT 1 AS found FROM "property_staff_assignments"
+        WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid AND "user_id" = ${userId}::uuid
+      `;
+      if (!assignment[0]) throw new NotFoundException('Property staff assignment not found.');
+      const capability = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "capabilities"
+        WHERE "tenant_id" = ${tenantId}::uuid AND "key" = ${capabilityKey}
+      `;
+      if (!capability[0]) throw new NotFoundException('Capability not found.');
+      await tx.$executeRaw`
+        DELETE FROM "property_staff_capability_overrides"
+        WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid
+          AND "user_id" = ${userId}::uuid AND "capability_id" = ${capability[0].id}::uuid
+      `;
+      await this.auditLogs.recordInTransaction(tx, {
+        tenantId,
+        propertyId,
+        actorUserId,
+        action: 'capability.override_cleared',
+        targetType: 'user',
+        targetId: userId,
+        details: { capabilityKey },
+      });
+    });
+  }
+
   private async requireStaffAndTemplate(
     tx: TenantTransaction,
     tenantId: string,
