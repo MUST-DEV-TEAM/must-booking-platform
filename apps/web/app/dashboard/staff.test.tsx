@@ -41,6 +41,90 @@ describe('Staff', () => {
     expect(JSON.parse(calls[1][1].body)).toEqual({ granted: false });
     await act(async () => r.unmount());
   });
+  it('creates a role template with a capability subset and assigning it takes effect exactly', async () => {
+    let currentStaff = [
+      {
+        userId: 'u',
+        email: 'staff@test',
+        roleTemplateId: 'a',
+        roleTemplateName: 'A',
+        overrides: [],
+      },
+    ];
+    let currentTemplates = [
+      { id: 'a', name: 'A', capabilities: [{ key: 'payments.refund' }] },
+      {
+        id: 'pm',
+        name: 'Property Manager',
+        capabilities: [
+          { key: 'guests.manage' },
+          { key: 'reports.view' },
+          { key: 'bookings.manage' },
+        ],
+      },
+    ];
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      const href = String(url);
+      if (method === 'POST' && href.endsWith('/role-templates')) {
+        const body = JSON.parse(init!.body as string) as { name: string; capabilityKeys: string[] };
+        currentTemplates = [
+          ...currentTemplates,
+          {
+            id: 'custom',
+            name: body.name,
+            capabilities: body.capabilityKeys.map((key) => ({ key })),
+          },
+        ];
+        return Promise.resolve(new Response(JSON.stringify({ ok: true })));
+      }
+      if (method === 'PUT' && href.endsWith('/staff/u')) {
+        const body = JSON.parse(init!.body as string) as { roleTemplateId: string };
+        currentStaff = [{ ...currentStaff[0], roleTemplateId: body.roleTemplateId }];
+        return Promise.resolve(new Response(JSON.stringify({ ok: true })));
+      }
+      if (href.endsWith('/staff'))
+        return Promise.resolve(new Response(JSON.stringify(currentStaff)));
+      if (href.endsWith('/role-templates'))
+        return Promise.resolve(new Response(JSON.stringify(currentTemplates)));
+      if (href.endsWith('/plan-usage'))
+        return Promise.resolve(
+          new Response(JSON.stringify({ plan: { maxStaffSeats: 2 }, usage: { staffSeats: 1 } })),
+        );
+      return Promise.resolve(new Response(JSON.stringify({ ok: true })));
+    });
+    vi.stubGlobal('fetch', fetch);
+    const { c, r } = await mount(fetch as never);
+
+    await value(c.querySelector('[placeholder="Template name"]')!, 'Finance');
+    const checkboxes = Array.from(c.querySelectorAll('input[type="checkbox"]'));
+    expect(checkboxes).toHaveLength(3);
+    await act(async () => {
+      checkboxes[0].click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      checkboxes[1].click();
+      await Promise.resolve();
+    });
+    await click(c, 'Create template');
+    expect(currentTemplates.find((t) => t.id === 'custom')).toEqual({
+      id: 'custom',
+      name: 'Finance',
+      capabilities: [{ key: 'guests.manage' }, { key: 'reports.view' }],
+    });
+
+    const assignSelect = c.querySelectorAll('select')[1] as HTMLSelectElement;
+    await value(assignSelect, 'custom');
+    expect(currentStaff[0].roleTemplateId).toBe('custom');
+
+    expect(c.querySelector('[aria-label="staff@test guests.manage"]')).not.toBeNull();
+    expect(c.querySelector('[aria-label="staff@test reports.view"]')).not.toBeNull();
+    expect(c.querySelector('[aria-label="staff@test bookings.manage"]')).toBeNull();
+    expect(c.querySelector('[aria-label="staff@test payments.refund"]')).toBeNull();
+
+    await act(async () => r.unmount());
+  });
   it('disables invite at cap', async () => {
     const { c, r } = await mount(mock({ staffSeats: 2, maxStaffSeats: 2 }));
     expect(

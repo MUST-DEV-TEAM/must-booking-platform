@@ -18,6 +18,8 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
   const [email, setEmail] = useState('');
   const [inviteTemplateId, setInviteTemplateId] = useState('');
   const [message, setMessage] = useState('');
+  const [templateName, setTemplateName] = useState('');
+  const [templateCapabilities, setTemplateCapabilities] = useState<string[]>([]);
   const load = () =>
     void Promise.all([
       fetch(`${base}/properties/${propertyId}/staff`, { credentials: 'include' }).then((r) =>
@@ -36,6 +38,21 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
   if (!staff || !templates || !usage) return <Text>Loading staff…</Text>;
   const capped = usage.usage.staffSeats >= usage.plan.maxStaffSeats;
   const selectedInviteTemplate = inviteTemplateId || templates[0]?.id;
+  const capabilityOptions =
+    templates.find((template) => template.name === 'Property Manager')?.capabilities ?? [];
+  async function createTemplate() {
+    const response = await fetch(`${base}/properties/${propertyId}/role-templates`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: templateName, capabilityKeys: templateCapabilities }),
+    });
+    if (response.ok) {
+      setTemplateName('');
+      setTemplateCapabilities([]);
+      load();
+    } else setMessage('Unable to create role template.');
+  }
   async function invite() {
     const response = await fetch(`${base}/staff-invitations`, {
       method: 'POST',
@@ -90,6 +107,33 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
         </button>
         {capped ? <Text>Upgrade to unlock more staff seats.</Text> : null}
         {message ? <div role="alert">{message}</div> : null}
+      </Card>
+      <Card>
+        <Heading level={2}>Create role template</Heading>
+        <input
+          value={templateName}
+          onChange={(e) => setTemplateName(e.target.value)}
+          placeholder="Template name"
+        />
+        {capabilityOptions.map((capability) => (
+          <label key={capability.key}>
+            <input
+              type="checkbox"
+              checked={templateCapabilities.includes(capability.key)}
+              onChange={(e) =>
+                setTemplateCapabilities(
+                  e.target.checked
+                    ? [...templateCapabilities, capability.key]
+                    : templateCapabilities.filter((key) => key !== capability.key),
+                )
+              }
+            />
+            {capability.key}
+          </label>
+        ))}
+        <button disabled={!templateName} onClick={createTemplate}>
+          Create template
+        </button>
       </Card>
       {staff.map((s) => {
         const t = templates.find((x) => x.id === s.roleTemplateId);
