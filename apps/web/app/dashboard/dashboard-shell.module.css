@@ -1,0 +1,22 @@
+.propertySwitcher {
+  align-items: center;
+  display: flex;
+  gap: var(--must-space-8);
+  margin: 0 auto;
+  max-width: 78rem;
+}
+
+.propertySwitcher span {
+  color: var(--must-color-text-secondary);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.propertySwitcher select {
+  background: var(--must-color-surface);
+  border: 1px solid var(--must-color-border);
+  border-radius: var(--must-radius-control);
+  color: var(--must-color-text-primary);
+  font: inherit;
+  padding: var(--must-space-8) var(--must-space-12);
+}
