@@ -123,13 +123,14 @@ export class PlatformAdminService {
             status: OrganizationStatus;
             createdAt: Date;
             ownerEmail: string | null;
+            ownerUserId: string | null;
           }>
         >`
           SELECT o."id", o."name", o."status"::text AS "status", o."created_at" AS "createdAt",
-            owner."email" AS "ownerEmail"
+            owner."email" AS "ownerEmail", owner."userId" AS "ownerUserId"
           FROM "organizations" o
           LEFT JOIN LATERAL (
-            SELECT u."email"
+            SELECT u."id" AS "userId", u."email"
             FROM "tenant_memberships" tm
             JOIN "users" u ON u."id" = tm."user_id"
             WHERE tm."tenant_id" = o."id" AND tm."role" = 'OWNER'::"TenantMembershipRole"
@@ -323,6 +324,7 @@ export interface PlatformTenant {
 }
 
 export interface PlatformTenantDetail extends PlatformTenant {
+  ownerUserId: string | null;
   propertyCount: number;
   stripeEnabled: boolean;
   pokpayEnabled: boolean;

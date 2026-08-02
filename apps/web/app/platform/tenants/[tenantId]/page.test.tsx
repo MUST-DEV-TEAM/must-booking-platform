@@ -12,6 +12,7 @@ const tenant = {
   name: 'Acme Hotel',
   status: 'ACTIVE' as const,
   ownerEmail: 'owner@acme.test',
+  ownerUserId: 'owner-1',
   createdAt: '2026-08-01T00:00:00.000Z',
   propertyCount: 3,
   stripeEnabled: true,
@@ -39,13 +40,13 @@ describe('Platform tenant detail page', () => {
         notFound: false,
         health,
         onTransition: vi.fn(),
+        onPasswordReset: vi.fn(),
       }),
     );
     expect(markup).toContain('Acme Hotel');
     expect(markup).toContain('owner@acme.test');
     expect(markup).toContain('Enabled on 2 of 3 properties');
     expect(markup).toContain('Suspend tenant');
-    expect(markup).toContain('disabled');
   });
 
   it('renders not-found state', () =>
@@ -97,6 +98,60 @@ describe('Platform tenant detail page', () => {
       await Promise.resolve();
     });
     expect(container.textContent).toContain('status changed elsewhere');
+    root.unmount();
+    container.remove();
+  });
+
+  it('triggers the owner reset and disables it when no owner exists', async () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    let resolveReset!: () => void;
+    const onPasswordReset = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveReset = resolve;
+        }),
+    );
+    await act(async () => {
+      root.render(
+        createElement(TenantDetailView, {
+          tenant,
+          loading: false,
+          notFound: false,
+          health,
+          onTransition: vi.fn(),
+          onPasswordReset,
+        }),
+      );
+    });
+    const button = Array.from(container.querySelectorAll('button')).find((item) =>
+      item.textContent?.includes('Reset owner'),
+    )!;
+    await act(async () => {
+      button.click();
+    });
+    expect(onPasswordReset).toHaveBeenCalledWith('owner-1');
+    expect(container.textContent).toContain('Sending');
+    await act(async () => {
+      resolveReset();
+    });
+    expect(container.textContent).toContain('Reset email queued');
+    await act(async () => {
+      root.render(
+        createElement(TenantDetailView, {
+          tenant: { ...tenant, ownerEmail: null, ownerUserId: null },
+          loading: false,
+          notFound: false,
+          health,
+          onTransition: vi.fn(),
+          onPasswordReset,
+        }),
+      );
+    });
+    const disabledButton = container.querySelectorAll('button')[1];
+    expect(disabledButton).toHaveProperty('disabled', true);
     root.unmount();
     container.remove();
   });

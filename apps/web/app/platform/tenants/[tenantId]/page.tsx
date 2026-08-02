@@ -17,6 +17,7 @@ export type PlatformTenantDetail = {
   name: string;
   status: 'ACTIVE' | 'SUSPENDED';
   ownerEmail: string | null;
+  ownerUserId: string | null;
   createdAt: string;
   propertyCount: number;
   stripeEnabled: boolean;
@@ -34,15 +35,20 @@ export function TenantDetailView({
   notFound,
   health,
   onTransition,
+  onPasswordReset,
 }: {
   tenant: PlatformTenantDetail | null;
   loading: boolean;
   notFound: boolean;
   health: { stripe: ProviderHealth; pokpay: ProviderHealth };
   onTransition?: (status: 'ACTIVE' | 'SUSPENDED') => Promise<void>;
+  onPasswordReset?: (userId: string) => Promise<void>;
 }) {
   const [transitionPending, setTransitionPending] = useState(false);
   const [transitionError, setTransitionError] = useState<string | null>(null);
+  const [resetPending, setResetPending] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
   if (loading)
     return (
       <Stack className={styles.page} gap="lg">
@@ -121,6 +127,10 @@ export function TenantDetailView({
           Tenant status changes are audit-logged and applied from the platform service.
         </Text>
         {transitionError ? <Text className={styles.error}>{transitionError}</Text> : null}
+        {resetError ? <Text className={styles.error}>{resetError}</Text> : null}
+        {resetSuccess ? (
+          <Text tone="secondary">Password-reset email queued for the tenant owner.</Text>
+        ) : null}
         <div className={detailStyles.actions}>
           <Button
             disabled={transitionPending || !onTransition}
@@ -148,9 +158,34 @@ export function TenantDetailView({
                 ? 'Suspend tenant'
                 : 'Reactivate tenant'}
           </Button>
-          <Button disabled variant="secondary">
-            Trigger password reset
+          <Button
+            disabled={resetPending || !tenant.ownerUserId || !onPasswordReset}
+            onClick={async () => {
+              if (!tenant.ownerUserId || !onPasswordReset) return;
+              setResetPending(true);
+              setResetSuccess(false);
+              setResetError(null);
+              try {
+                await onPasswordReset(tenant.ownerUserId);
+                setResetSuccess(true);
+              } catch {
+                setResetError('Unable to queue a password-reset email. Please try again.');
+              } finally {
+                setResetPending(false);
+              }
+            }}
+            variant="secondary"
+            title={!tenant.ownerUserId ? 'No tenant owner is available to reset.' : undefined}
+          >
+            {resetPending
+              ? 'Sending…'
+              : resetSuccess
+                ? 'Reset email queued'
+                : 'Reset owner password'}
           </Button>
+          {!tenant.ownerUserId ? (
+            <Text tone="secondary">Password reset unavailable: this tenant has no owner.</Text>
+          ) : null}
         </div>
       </Card>
     </Stack>
@@ -260,6 +295,16 @@ export default function PlatformTenantDetailPage({
               throw error;
             }
             await refreshTenant(tenant.id);
+          }}
+          onPasswordReset={async (userId) => {
+            const response = await fetch(
+              `/api/platform/tenants/${tenant?.id}/users/${userId}/reset-password`,
+              {
+                credentials: 'include',
+                method: 'POST',
+              },
+            );
+            if (!response.ok) throw new Error('Unable to queue password reset.');
           }}
         />
       </AppShell>

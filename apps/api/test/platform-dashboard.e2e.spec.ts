@@ -26,10 +26,13 @@ describe('platform dashboard home', () => {
   const email = `platform-dashboard-${randomUUID()}@must.al`;
   const ownerEmail = `owner-dashboard-${randomUUID()}@must.al`;
   const password = 'correct-horse-battery-staple';
+  const resetEmails: Parameters<MailProvider['sendPasswordResetEmail']>[0][] = [];
   const mail: MailProvider = {
     async sendVerificationEmail() {},
     async sendWelcomeEmail() {},
-    async sendPasswordResetEmail() {},
+    async sendPasswordResetEmail(command) {
+      resetEmails.push(command);
+    },
     async sendPaymentConfirmationEmail() {},
     async sendRefundConfirmationEmail() {},
   };
@@ -183,5 +186,19 @@ describe('platform dashboard home', () => {
       .post(`/platform/tenants/${organizationId}/reactivate`)
       .set('Cookie', cookie)
       .expect(201);
+  });
+
+  it('triggers an owner password reset and passes the owner identity to mail', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email, password })
+      .expect(201);
+    const cookie = login.headers['set-cookie'][0] as string;
+    await request(app.getHttpServer())
+      .post(`/platform/tenants/${organizationId}/users/${ownerId}/reset-password`)
+      .set('Cookie', cookie)
+      .expect(202);
+    expect(resetEmails).toHaveLength(1);
+    expect(resetEmails[0]).toMatchObject({ userId: ownerId, to: ownerEmail });
   });
 });
