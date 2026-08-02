@@ -11,6 +11,7 @@ import { createClient, type RedisClientType } from 'redis';
 
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 import { AuditLogService } from './audit-log.service';
+import { NotificationsService } from './notifications.service';
 
 export interface StaffInvite {
   tenantId: string;
@@ -25,6 +26,7 @@ export class StaffInviteService implements OnModuleDestroy {
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(AuditLogService) private readonly auditLogs: AuditLogService,
+    @Inject(NotificationsService) private readonly notifications: NotificationsService,
   ) {
     this.redis = createClient({ url: process.env.REDIS_URL });
   }
@@ -32,9 +34,24 @@ export class StaffInviteService implements OnModuleDestroy {
   async invite(command: StaffInvite, actorUserId: string): Promise<string> {
     if (!command.assignments.length)
       throw new BadRequestException('At least one property assignment is required.');
-    await this.database.withTenantTransaction({ tenantId: command.tenantId }, (tx) =>
-      this.ensureStaffSeatAvailable(tx, command.tenantId, { email: command.email }),
-    );
+    try {
+      await this.database.withTenantTransaction({ tenantId: command.tenantId }, (tx) =>
+        this.ensureStaffSeatAvailable(tx, command.tenantId, { email: command.email }),
+      );
+    } catch (error) {
+      if (error instanceof StaffSeatLimitReachedError) {
+        await Promise.all(
+          [...new Set(command.assignments.map((assignment) => assignment.propertyId))].map(
+            (propertyId) =>
+              this.notifications.record(command.tenantId, propertyId, 'STAFF_SEAT_CAP_REACHED', {
+                maxStaffSeats: error.maxStaffSeats,
+                staffSeats: error.staffSeats,
+              }),
+          ),
+        );
+      }
+      throw error;
+    }
     const token = randomBytes(32).toString('base64url');
     await this.client().then((redis) =>
       redis.set(`auth:staff-invite:${this.hash(token)}`, JSON.stringify(command), { EX: 604800 }),
@@ -199,7 +216,16 @@ export class StaffInviteService implements OnModuleDestroy {
       WHERE "tenant_id" = ${tenantId}::uuid
     `;
     if ((memberships[0]?.count ?? 0) >= plan[0].maxStaffSeats) {
-      throw new ConflictException('The current plan has reached its staff-seat limit.');
+      throw new StaffSeatLimitReachedError(plan[0].maxStaffSeats, memberships[0]?.count ?? 0);
     }
+  }
+}
+
+class StaffSeatLimitReachedError extends ConflictException {
+  constructor(
+    readonly maxStaffSeats: number,
+    readonly staffSeats: number,
+  ) {
+    super('The current plan has reached its staff-seat limit.');
   }
 }

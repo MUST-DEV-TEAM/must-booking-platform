@@ -11,6 +11,7 @@ import { AuditLogService } from '../tenancy/audit-log.service';
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { PaymentNotificationService } from '../mail/payment-notification.service';
 import { PaymentProviderRegistry } from './payment-provider-registry';
+import { NotificationsService } from '../tenancy/notifications.service';
 
 type Charge = {
   id: string;
@@ -49,6 +50,7 @@ export class PaymentRefundService {
     @Inject(AuditLogService) private readonly audit: AuditLogService,
     @Inject(PaymentProviderRegistry) private readonly paymentProviders: PaymentProviderRegistry,
     @Inject(PaymentNotificationService) private readonly notifications: PaymentNotificationService,
+    @Inject(NotificationsService) private readonly inAppNotifications: NotificationsService,
   ) {}
 
   async refundPaidChargeForBooking(
@@ -114,6 +116,12 @@ export class PaymentRefundService {
           refundExternalPaymentId: refunded.value.id,
           amount: command.amount,
         },
+      });
+      await this.inAppNotifications.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        type: 'PAYMENT_REFUNDED',
+        payload: { bookingId, refundId: refunded.value.id, amount: command.amount },
       });
       const guest = await tx.$queryRaw<Array<{ email: string }>>`
         SELECT g.email

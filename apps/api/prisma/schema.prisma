@@ -128,6 +128,7 @@ model Property {
   ratePlans         RatePlan[]
   rateRules         RateRule[]
   bookings          Booking[]
+  notifications     Notification[]
   payments          Payment[]
   paymentProviderSessions PaymentProviderSession[]
   amenities         Amenity[]
@@ -251,6 +252,21 @@ model AuditLog {
   @@index([tenantId, createdAt])
   @@index([actorUserId, createdAt])
   @@map("audit_logs")
+}
+
+model Notification {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  type       String   @db.VarChar(100)
+  payload    Json     @default("{}")
+  readAt     DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  property   Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+
+  @@index([tenantId, propertyId, createdAt])
+  @@index([tenantId, propertyId, readAt])
+  @@map("notifications")
 }
 
 model RoomType {

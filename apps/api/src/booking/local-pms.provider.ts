@@ -26,6 +26,7 @@ import { PaymentNotificationService } from '../mail/payment-notification.service
 import { BookingConfirmationNotificationService } from '../mail/booking-confirmation-notification.service';
 import { BookingStateMachine } from './booking-state-machine';
 import { QuoteService } from './quote.service';
+import { NotificationsService } from '../tenancy/notifications.service';
 
 export const PMS_PROVIDER = Symbol('PMS_PROVIDER');
 
@@ -89,6 +90,7 @@ export class LocalPmsProvider implements PmsProvider {
     @Inject(PaymentNotificationService) private readonly notifications: PaymentNotificationService,
     @Inject(BookingConfirmationNotificationService)
     private readonly confirmations: BookingConfirmationNotificationService,
+    @Inject(NotificationsService) private readonly notificationsService: NotificationsService,
   ) {}
 
   async testConnection(context: PmsProviderContext): Promise<Result<void>> {
@@ -253,6 +255,12 @@ export class LocalPmsProvider implements PmsProvider {
               targetType: 'booking',
               targetId: bookingId,
               details: { guestId },
+            });
+            await this.notificationsService.recordInTransaction(tx, {
+              tenantId: context.tenantId,
+              propertyId: context.propertyId,
+              type: 'BOOKING_CREATED',
+              payload: { bookingId, guestId },
             });
             let status = BookingStatus.DRAFT;
             status = await this.transition(tx, context, bookingId, status, BookingStatus.QUOTED);
@@ -847,7 +855,25 @@ export class LocalPmsProvider implements PmsProvider {
       WHERE id = ${bookingId}::uuid AND tenant_id = ${context.tenantId}::uuid
         AND property_id = ${context.propertyId}::uuid
     `;
+    if (this.needsAttention(status)) {
+      await this.notificationsService.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        type: 'BOOKING_NEEDS_ATTENTION',
+        payload: { bookingId, from, status },
+      });
+    }
     return status;
+  }
+
+  private needsAttention(status: BookingStatus): boolean {
+    return [
+      BookingStatus.MANUAL_REVIEW,
+      BookingStatus.PAYMENT_FAILED,
+      BookingStatus.AVAILABILITY_FAILED,
+      BookingStatus.PMS_REJECTED,
+      BookingStatus.PMS_UNKNOWN_RESULT,
+    ].includes(status);
   }
 
   private async bookingById(

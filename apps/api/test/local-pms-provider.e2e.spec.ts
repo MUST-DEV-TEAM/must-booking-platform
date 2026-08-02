@@ -42,6 +42,7 @@ describe('LocalPmsProvider', () => {
   let propertyId: string;
   let userId: string;
   let propertyStaffUserId: string;
+  let crossPropertyStaffUserId: string;
   let roomTypeId: string;
   let ratePlanId: string;
   let cookie: string;
@@ -182,6 +183,7 @@ describe('LocalPmsProvider', () => {
       await admin.$executeRaw`DELETE FROM rate_plans WHERE tenant_id = ${tenantId}::uuid`;
       await admin.$executeRaw`DELETE FROM room_types WHERE tenant_id = ${tenantId}::uuid`;
       await admin.$executeRaw`DELETE FROM audit_logs WHERE tenant_id = ${tenantId}::uuid`;
+      await admin.$executeRaw`DELETE FROM notifications WHERE tenant_id = ${tenantId}::uuid`;
       await admin.$executeRaw`DELETE FROM tenant_memberships WHERE tenant_id = ${tenantId}::uuid`;
     }
     if (tenantId)
@@ -190,6 +192,8 @@ describe('LocalPmsProvider', () => {
     if (userId) await admin.$executeRaw`DELETE FROM users WHERE id = ${userId}::uuid`;
     if (propertyStaffUserId)
       await admin.$executeRaw`DELETE FROM users WHERE id = ${propertyStaffUserId}::uuid`;
+    if (crossPropertyStaffUserId)
+      await admin.$executeRaw`DELETE FROM users WHERE id = ${crossPropertyStaffUserId}::uuid`;
     if (app) await app.close();
     await admin.$disconnect();
   });
@@ -490,6 +494,31 @@ describe('LocalPmsProvider', () => {
       },
     });
     if (!created.ok) throw new Error('Expected local booking creation to succeed.');
+    const createdNotifications = await admin.$queryRaw<Array<{ type: string }>>`
+      SELECT type FROM notifications
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND type = 'BOOKING_CREATED' AND payload->>'bookingId' = ${created.value.id}
+    `;
+    expect(createdNotifications).toEqual([{ type: 'BOOKING_CREATED' }]);
+    const notificationPage = await request(app!.getHttpServer())
+      .get(`${propertyUrl}/notifications?page=1&pageSize=20`)
+      .set('Cookie', cookie)
+      .expect(200);
+    const createdNotification = notificationPage.body.items.find(
+      (item: { type: string; payload: { bookingId?: string } }) =>
+        item.type === 'BOOKING_CREATED' && item.payload.bookingId === created.value.id,
+    );
+    expect(createdNotification).toEqual(expect.objectContaining({ readAt: null }));
+    if (!createdNotification) throw new Error('Expected booking-created notification.');
+    const firstMarkRead = await request(app!.getHttpServer())
+      .patch(`${propertyUrl}/notifications/${createdNotification.id}`)
+      .set('Cookie', cookie)
+      .expect(200);
+    const secondMarkRead = await request(app!.getHttpServer())
+      .patch(`${propertyUrl}/notifications/${createdNotification.id}`)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(secondMarkRead.body.readAt).toBe(firstMarkRead.body.readAt);
     const otherGuestQuote = await request(app!.getHttpServer())
       .post(`${propertyUrl}/quotes`)
       .send({ roomTypeId, ratePlanId, startsOn: '2026-09-01', endsOn: '2026-09-03' })
@@ -602,6 +631,20 @@ describe('LocalPmsProvider', () => {
       INSERT INTO rate_plans (id, tenant_id, property_id, name, currency)
       VALUES (${otherRatePlanId}::uuid, ${tenantId}::uuid, ${otherPropertyId}::uuid, 'Other rate', 'EUR')
     `;
+    const otherPropertyNotification = await admin.$queryRaw<Array<{ id: string }>>`
+      INSERT INTO notifications (tenant_id, property_id, type, payload)
+      VALUES (${tenantId}::uuid, ${otherPropertyId}::uuid, 'BOOKING_CREATED', '{"bookingId":"other"}'::jsonb)
+      RETURNING id
+    `;
+    await request(app!.getHttpServer())
+      .get(`${propertyUrl}/notifications`)
+      .set('Cookie', cookie)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.items).not.toContainEqual(
+          expect.objectContaining({ id: otherPropertyNotification[0].id }),
+        );
+      });
     await admin.$executeRaw`
       INSERT INTO bookings (
         tenant_id, property_id, room_type_id, guest_id, external_reference, guest_session_id,
@@ -1350,6 +1393,12 @@ describe('LocalPmsProvider', () => {
     ).resolves.toMatchObject({
       status: 'AVAILABILITY_FAILED',
     });
+    const attentionNotifications = await admin.$queryRaw<Array<{ type: string }>>`
+      SELECT type FROM notifications
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND type = 'BOOKING_NEEDS_ATTENTION' AND payload->>'status' = 'AVAILABILITY_FAILED'
+    `;
+    expect(attentionNotifications).toHaveLength(1);
 
     const tamperedReference = `must-${randomUUID()}`;
     await expect(
@@ -1478,6 +1527,43 @@ describe('LocalPmsProvider', () => {
         .send({ email: propertyStaffEmail, password: propertyStaffPassword })
         .expect(201)
     ).headers['set-cookie'][0] as string;
+    await app!.get(PropertyRoleTemplatesService).ensureBuiltInTemplates(tenantId, otherPropertyId);
+    const otherFrontDeskTemplate = await admin.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM property_role_templates
+      WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${otherPropertyId}::uuid
+        AND "name" = 'Front Desk'
+    `;
+    expect(otherFrontDeskTemplate).toHaveLength(1);
+    crossPropertyStaffUserId = randomUUID();
+    const crossPropertyStaffEmail = `notifications-staff-${crossPropertyStaffUserId}@example.test`;
+    const crossPropertyStaffPassword = 'correct-horse-battery-staple';
+    const crossPropertyStaffPasswordHash = await bcrypt.hash(crossPropertyStaffPassword, 12);
+    await admin.$executeRaw`
+      INSERT INTO users ("id", "email", "password_hash", "email_verified_at")
+      VALUES (${crossPropertyStaffUserId}::uuid, ${crossPropertyStaffEmail}, ${crossPropertyStaffPasswordHash}, CURRENT_TIMESTAMP)
+    `;
+    await admin.$executeRaw`
+      INSERT INTO tenant_memberships ("tenant_id", "user_id", "role")
+      VALUES (${tenantId}::uuid, ${crossPropertyStaffUserId}::uuid, 'STAFF')
+    `;
+    await admin.$executeRaw`
+      INSERT INTO property_staff_assignments ("tenant_id", "property_id", "user_id", "role_template_id")
+      VALUES (${tenantId}::uuid, ${otherPropertyId}::uuid, ${crossPropertyStaffUserId}::uuid, ${otherFrontDeskTemplate[0].id}::uuid)
+    `;
+    const crossPropertyStaffCookie = (
+      await request(app!.getHttpServer())
+        .post('/auth/login')
+        .send({ email: crossPropertyStaffEmail, password: crossPropertyStaffPassword })
+        .expect(201)
+    ).headers['set-cookie'][0] as string;
+    await request(app!.getHttpServer())
+      .get(`${propertyUrl}/notifications`)
+      .set('Cookie', crossPropertyStaffCookie)
+      .expect(403);
+    await request(app!.getHttpServer())
+      .patch(`${propertyUrl}/notifications/${createdNotification.id}`)
+      .set('Cookie', crossPropertyStaffCookie)
+      .expect(403);
     await request(app!.getHttpServer())
       .post(`${propertyUrl}/payments/refunds`)
       .set('Cookie', propertyStaffCookie)
@@ -1734,6 +1820,12 @@ describe('LocalPmsProvider', () => {
       ok: true,
       value: { amount: { amount: '50.00', currency: 'EUR' }, status: 'succeeded' },
     });
+    const refundNotifications = await admin.$queryRaw<Array<{ type: string }>>`
+      SELECT type FROM notifications
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND type = 'PAYMENT_REFUNDED' AND payload->>'bookingId' = ${firstBooking.value.id}
+    `;
+    expect(refundNotifications).toHaveLength(2);
     await request(app!.getHttpServer())
       .post(`${propertyUrl}/payments/refunds`)
       .set('Cookie', cookie)

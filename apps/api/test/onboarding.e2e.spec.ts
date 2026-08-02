@@ -66,6 +66,7 @@ describe('self-serve onboarding', () => {
 
   afterAll(async () => {
     if (tenantId) {
+      await migrationPrisma.$executeRaw`DELETE FROM "notifications" WHERE "tenant_id" = ${tenantId}::uuid`;
       await migrationPrisma.$executeRaw`DELETE FROM "audit_logs" WHERE "tenant_id" = ${tenantId}::uuid`;
       await migrationPrisma.$executeRaw`DELETE FROM "property_staff_capability_overrides" WHERE "tenant_id" = ${tenantId}::uuid`;
       await migrationPrisma.$executeRaw`DELETE FROM "property_staff_assignments" WHERE "tenant_id" = ${tenantId}::uuid`;
@@ -167,6 +168,12 @@ describe('self-serve onboarding', () => {
         assignments: [{ propertyId, roleTemplateId }],
       })
       .expect(409);
+    const seatCapNotifications = await migrationPrisma.$queryRaw<Array<{ type: string }>>`
+      SELECT "type" FROM "notifications"
+      WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid
+        AND "type" = 'STAFF_SEAT_CAP_REACHED'
+    `;
+    expect(seatCapNotifications).toEqual([{ type: 'STAFF_SEAT_CAP_REACHED' }]);
     expect(
       (
         await request(app.getHttpServer())
