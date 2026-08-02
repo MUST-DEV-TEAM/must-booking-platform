@@ -14,6 +14,11 @@ const admin = new PrismaClient({
     },
   },
 });
+const dateFromToday = (offset: number) => {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + offset);
+  return date.toISOString().slice(0, 10);
+};
 describe('properties', () => {
   let app: INestApplication;
   let tenantId: string;
@@ -49,6 +54,9 @@ describe('properties', () => {
   });
   afterAll(async () => {
     if (tenantId) {
+      await admin.$executeRaw`DELETE FROM rate_rules WHERE tenant_id=${tenantId}::uuid`;
+      await admin.$executeRaw`DELETE FROM rate_plans WHERE tenant_id=${tenantId}::uuid`;
+      await admin.$executeRaw`DELETE FROM room_types WHERE tenant_id=${tenantId}::uuid`;
       await admin.$executeRaw`DELETE FROM audit_logs WHERE tenant_id=${tenantId}::uuid`;
       await admin.$executeRaw`DELETE FROM tenant_memberships WHERE tenant_id=${tenantId}::uuid`;
       await admin.$executeRaw`DELETE FROM properties WHERE tenant_id=${tenantId}::uuid`;
@@ -110,6 +118,65 @@ describe('properties', () => {
           payAtHotel: true,
         });
       });
+    const updated = await request(app.getHttpServer())
+      .patch(`/tenants/${tenantId}/properties/${firstPropertyId}`)
+      .set('Cookie', cookie)
+      .send({
+        name: 'Updated Property',
+        address: '2 Updated Street',
+        timezone: 'Europe/Paris',
+        minStayNights: 2,
+        maxStayNights: 3,
+        checkInTime: 'whenever guests arrive',
+        checkOutTime: 'after breakfast',
+        advanceBookingDays: 10,
+      })
+      .expect(200);
+    expect(updated.body).toMatchObject({
+      id: firstPropertyId,
+      name: 'Updated Property',
+      address: '2 Updated Street',
+      timezone: 'Europe/Paris',
+      minStayNights: 2,
+      maxStayNights: 3,
+      checkInTime: 'whenever guests arrive',
+      checkOutTime: 'after breakfast',
+      advanceBookingDays: 10,
+    });
+    const roomTypeId = randomUUID();
+    const ratePlanId = randomUUID();
+    await admin.$executeRaw`
+      INSERT INTO room_types (id, tenant_id, property_id, name, max_occupancy)
+      VALUES (${roomTypeId}::uuid, ${tenantId}::uuid, ${firstPropertyId}::uuid, 'Rules room', 2)
+    `;
+    await admin.$executeRaw`
+      INSERT INTO rate_plans (id, tenant_id, property_id, name, currency)
+      VALUES (${ratePlanId}::uuid, ${tenantId}::uuid, ${firstPropertyId}::uuid, 'Rules rate', 'EUR')
+    `;
+    await admin.$executeRaw`
+      INSERT INTO rate_rules (tenant_id, property_id, rate_plan_id, room_type_id, starts_on, ends_on, amount)
+      VALUES (${tenantId}::uuid, ${firstPropertyId}::uuid, ${ratePlanId}::uuid, ${roomTypeId}::uuid, NULL, NULL, 100.00)
+    `;
+    const rulesQuote = (startsOn: string, endsOn: string) =>
+      request(app.getHttpServer())
+        .post(`/tenants/${tenantId}/properties/${firstPropertyId}/quotes`)
+        .send({ roomTypeId, ratePlanId, startsOn, endsOn });
+    await rulesQuote(dateFromToday(1), dateFromToday(2))
+      .expect(400)
+      .expect((response) => {
+        expect(response.body.message).toBe('A minimum stay of 2 nights is required.');
+      });
+    await rulesQuote(dateFromToday(1), dateFromToday(5))
+      .expect(400)
+      .expect((response) => {
+        expect(response.body.message).toBe('A maximum stay of 3 nights is allowed.');
+      });
+    await rulesQuote(dateFromToday(11), dateFromToday(13))
+      .expect(400)
+      .expect((response) => {
+        expect(response.body.message).toBe('Bookings can be made at most 10 days in advance.');
+      });
+    await rulesQuote(dateFromToday(1), dateFromToday(3)).expect(201);
     planId = randomUUID();
     await admin.$executeRaw`INSERT INTO plans (id,name,max_properties,max_staff_seats,pms_enabled,max_pms_connections_per_property) VALUES (${planId}::uuid, ${`Properties ${planId}`}, 2, 3, false, 0)`;
     await admin.$executeRaw`UPDATE organizations SET plan_id=${planId}::uuid WHERE id=${tenantId}::uuid`;

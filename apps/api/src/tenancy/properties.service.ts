@@ -9,6 +9,11 @@ type Property = {
   address: string;
   timezone: string;
   publicWebsiteOrigin: string | null;
+  minStayNights: number | null;
+  maxStayNights: number | null;
+  checkInTime: string | null;
+  checkOutTime: string | null;
+  advanceBookingDays: number | null;
   paymentGateways: { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
 };
 @Injectable()
@@ -21,9 +26,10 @@ export class PropertiesService {
     return this.database.withTenantTransaction(
       { tenantId },
       (tx) =>
-        tx.$queryRaw<
-          Property[]
-        >`SELECT id, name, address, timezone, public_website_origin AS "publicWebsiteOrigin",
+        tx.$queryRaw<Property[]>`SELECT id, name, address, timezone,
+          min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
+          check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
+          advance_booking_days AS "advanceBookingDays", public_website_origin AS "publicWebsiteOrigin",
           json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
           FROM properties ORDER BY created_at`,
     );
@@ -49,7 +55,11 @@ export class PropertiesService {
       }-${id.slice(0, 8)}`;
       const rows = await tx.$queryRaw<
         Property[]
-      >`INSERT INTO properties (id, tenant_id, name, slug, address, timezone) VALUES (${id}::uuid, ${tenantId}::uuid, ${input.name}, ${slug}, ${input.address}, ${input.timezone}) RETURNING id, name, address, timezone, public_website_origin AS "publicWebsiteOrigin", json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"`;
+      >`INSERT INTO properties (id, tenant_id, name, slug, address, timezone) VALUES (${id}::uuid, ${tenantId}::uuid, ${input.name}, ${slug}, ${input.address}, ${input.timezone}) RETURNING id, name, address, timezone,
+        min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
+        check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
+        advance_booking_days AS "advanceBookingDays", public_website_origin AS "publicWebsiteOrigin",
+        json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"`;
       await this.audit.recordInTransaction(tx, {
         tenantId,
         propertyId: id,
@@ -57,6 +67,61 @@ export class PropertiesService {
         action: 'property.created',
         targetType: 'property',
         targetId: id,
+      });
+      return rows[0];
+    });
+  }
+  async update(
+    tenantId: string,
+    propertyId: string,
+    actorUserId: string,
+    body: unknown,
+  ): Promise<Property> {
+    const input = this.updateInput(body);
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const existing = await tx.$queryRaw<Array<Property>>`
+        SELECT id, name, address, timezone,
+          min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
+          check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
+          advance_booking_days AS "advanceBookingDays", public_website_origin AS "publicWebsiteOrigin",
+          json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
+        FROM properties WHERE id = ${propertyId}::uuid
+      `;
+      if (!existing[0]) throw new BadRequestException('Property not found.');
+      const nextMinStayNights =
+        input.minStayNights === undefined ? existing[0].minStayNights : input.minStayNights;
+      const nextMaxStayNights =
+        input.maxStayNights === undefined ? existing[0].maxStayNights : input.maxStayNights;
+      if (
+        nextMinStayNights !== null &&
+        nextMaxStayNights !== null &&
+        nextMinStayNights > nextMaxStayNights
+      )
+        throw new BadRequestException('minStayNights cannot exceed maxStayNights.');
+      const rows = await tx.$queryRaw<Property[]>`
+        UPDATE properties
+        SET name = CASE WHEN ${input.name !== undefined} THEN ${input.name} ELSE name END,
+          address = CASE WHEN ${input.address !== undefined} THEN ${input.address} ELSE address END,
+          timezone = CASE WHEN ${input.timezone !== undefined} THEN ${input.timezone} ELSE timezone END,
+          min_stay_nights = CASE WHEN ${input.minStayNights !== undefined} THEN ${input.minStayNights} ELSE min_stay_nights END,
+          max_stay_nights = CASE WHEN ${input.maxStayNights !== undefined} THEN ${input.maxStayNights} ELSE max_stay_nights END,
+          check_in_time = CASE WHEN ${input.checkInTime !== undefined} THEN ${input.checkInTime} ELSE check_in_time END,
+          check_out_time = CASE WHEN ${input.checkOutTime !== undefined} THEN ${input.checkOutTime} ELSE check_out_time END,
+          advance_booking_days = CASE WHEN ${input.advanceBookingDays !== undefined} THEN ${input.advanceBookingDays} ELSE advance_booking_days END
+        WHERE id = ${propertyId}::uuid
+        RETURNING id, name, address, timezone,
+          min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
+          check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
+          advance_booking_days AS "advanceBookingDays", public_website_origin AS "publicWebsiteOrigin",
+          json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
+      `;
+      await this.audit.recordInTransaction(tx, {
+        tenantId,
+        propertyId,
+        actorUserId,
+        action: 'property.updated',
+        targetType: 'property',
+        targetId: propertyId,
       });
       return rows[0];
     });
@@ -73,7 +138,10 @@ export class PropertiesService {
         UPDATE properties
         SET public_website_origin = ${origin}
         WHERE id = ${propertyId}::uuid
-        RETURNING id, name, address, timezone, public_website_origin AS "publicWebsiteOrigin",
+        RETURNING id, name, address, timezone,
+          min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
+          check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
+          advance_booking_days AS "advanceBookingDays", public_website_origin AS "publicWebsiteOrigin",
           json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
       `;
       if (!rows[0]) throw new BadRequestException('Property not found.');
@@ -101,7 +169,10 @@ export class PropertiesService {
         SET stripe_enabled = ${gateways.stripe}, pokpay_enabled = ${gateways.pokpay},
           pay_at_hotel_enabled = ${gateways.payAtHotel}
         WHERE id = ${propertyId}::uuid
-        RETURNING id, name, address, timezone, public_website_origin AS "publicWebsiteOrigin",
+        RETURNING id, name, address, timezone,
+          min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
+          check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
+          advance_booking_days AS "advanceBookingDays", public_website_origin AS "publicWebsiteOrigin",
           json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
       `;
       if (!rows[0]) throw new BadRequestException('Property not found.');
@@ -172,5 +243,84 @@ export class PropertiesService {
       throw new BadRequestException('stripe, pokpay, and payAtHotel must be booleans.');
     }
     return { stripe: value.stripe, pokpay: value.pokpay, payAtHotel: value.payAtHotel };
+  }
+  private updateInput(body: unknown): {
+    name?: string;
+    address?: string;
+    timezone?: string;
+    minStayNights?: number | null;
+    maxStayNights?: number | null;
+    checkInTime?: string | null;
+    checkOutTime?: string | null;
+    advanceBookingDays?: number | null;
+  } {
+    if (!body || typeof body !== 'object')
+      throw new BadRequestException('Property updates are required.');
+    const value = body as Record<string, unknown>;
+    const has = (key: string) => Object.hasOwn(value, key);
+    if (
+      ![
+        'name',
+        'address',
+        'timezone',
+        'minStayNights',
+        'maxStayNights',
+        'checkInTime',
+        'checkOutTime',
+        'advanceBookingDays',
+      ].some(has)
+    )
+      throw new BadRequestException('At least one property field is required.');
+    const text = (key: 'name' | 'address' | 'timezone', maxLength: number) => {
+      if (!has(key)) return undefined;
+      if (
+        typeof value[key] !== 'string' ||
+        !value[key].trim() ||
+        value[key].trim().length > maxLength
+      )
+        throw new BadRequestException(`Invalid ${key}.`);
+      return value[key].trim();
+    };
+    const name = text('name', 200);
+    const address = text('address', 500);
+    const timezone = text('timezone', 100);
+    if (timezone) {
+      try {
+        Intl.DateTimeFormat(undefined, { timeZone: timezone });
+      } catch {
+        throw new BadRequestException('timezone must be a valid IANA timezone.');
+      }
+    }
+    const optionalInteger = (key: 'minStayNights' | 'maxStayNights' | 'advanceBookingDays') => {
+      if (!has(key)) return undefined;
+      const number = value[key];
+      if (number === null) return null;
+      if (
+        typeof number !== 'number' ||
+        !Number.isInteger(number) ||
+        (key === 'advanceBookingDays' ? number < 0 : number < 1)
+      )
+        throw new BadRequestException(
+          `${key} must be ${key === 'advanceBookingDays' ? 'a non-negative' : 'a positive'} integer or null.`,
+        );
+      return number;
+    };
+    const optionalText = (key: 'checkInTime' | 'checkOutTime') => {
+      if (!has(key)) return undefined;
+      if (value[key] === null) return null;
+      if (typeof value[key] !== 'string')
+        throw new BadRequestException(`${key} must be a string or null.`);
+      return value[key];
+    };
+    return {
+      name,
+      address,
+      timezone,
+      minStayNights: optionalInteger('minStayNights'),
+      maxStayNights: optionalInteger('maxStayNights'),
+      checkInTime: optionalText('checkInTime'),
+      checkOutTime: optionalText('checkOutTime'),
+      advanceBookingDays: optionalInteger('advanceBookingDays'),
+    };
   }
 }

@@ -40,6 +40,19 @@ export class QuoteService {
     const quote = await this.database.withTenantTransaction(
       { tenantId, propertyId },
       async (tx) => {
+        const properties = await tx.$queryRaw<
+          Array<{
+            minStayNights: number | null;
+            maxStayNights: number | null;
+            advanceBookingDays: number | null;
+          }>
+        >`
+          SELECT min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
+            advance_booking_days AS "advanceBookingDays"
+          FROM properties WHERE id = ${propertyId}::uuid
+        `;
+        if (!properties[0]) throw new NotFoundException('Property was not found.');
+        this.enforceBookingRules(input, properties[0]);
         const rows = await tx.$queryRaw<
           Array<{ currency: string; amount: string; pricedNights: bigint }>
         >`
@@ -198,5 +211,28 @@ export class QuoteService {
 
   private nightCount(startsOn: string, endsOn: string): number {
     return (Date.parse(`${endsOn}T00:00:00Z`) - Date.parse(`${startsOn}T00:00:00Z`)) / 86_400_000;
+  }
+
+  private enforceBookingRules(
+    input: QuoteInput,
+    rules: {
+      minStayNights: number | null;
+      maxStayNights: number | null;
+      advanceBookingDays: number | null;
+    },
+  ): void {
+    const nights = this.nightCount(input.startsOn, input.endsOn);
+    if (rules.minStayNights !== null && nights < rules.minStayNights)
+      throw new BadRequestException(`A minimum stay of ${rules.minStayNights} nights is required.`);
+    if (rules.maxStayNights !== null && nights > rules.maxStayNights)
+      throw new BadRequestException(`A maximum stay of ${rules.maxStayNights} nights is allowed.`);
+    if (rules.advanceBookingDays !== null) {
+      const today = new Date().toISOString().slice(0, 10);
+      const daysAhead = this.nightCount(today, input.startsOn);
+      if (daysAhead > rules.advanceBookingDays)
+        throw new BadRequestException(
+          `Bookings can be made at most ${rules.advanceBookingDays} days in advance.`,
+        );
+    }
   }
 }
