@@ -101,20 +101,36 @@ export class AdminStaffService {
     tenantId: string,
     propertyId: string,
   ): Promise<
-    Array<{ userId: string; email: string; roleTemplateId: string; roleTemplateName: string }>
+    Array<{
+      userId: string;
+      email: string;
+      roleTemplateId: string;
+      roleTemplateName: string;
+      overrides: Array<{ capabilityKey: string; granted: boolean }>;
+    }>
   > {
     return this.database.withTenantTransaction(
       { tenantId, propertyId },
       (tx) =>
         tx.$queryRaw<
-          Array<{ userId: string; email: string; roleTemplateId: string; roleTemplateName: string }>
+          Array<{
+            userId: string;
+            email: string;
+            roleTemplateId: string;
+            roleTemplateName: string;
+            overrides: Array<{ capabilityKey: string; granted: boolean }>;
+          }>
         >`
-        SELECT psa."user_id" AS "userId", u."email", psa."role_template_id" AS "roleTemplateId", prt."name" AS "roleTemplateName"
+        SELECT psa."user_id" AS "userId", u."email", psa."role_template_id" AS "roleTemplateId", prt."name" AS "roleTemplateName",
+          COALESCE(json_agg(json_build_object('capabilityKey', c."key", 'granted', o."granted")) FILTER (WHERE o."capability_id" IS NOT NULL), '[]'::json) AS "overrides"
         FROM "property_staff_assignments" psa
         JOIN "users" u ON u."id" = psa."user_id"
         JOIN "property_role_templates" prt
           ON prt."tenant_id" = psa."tenant_id" AND prt."property_id" = psa."property_id" AND prt."id" = psa."role_template_id"
+        LEFT JOIN "property_staff_capability_overrides" o ON o."tenant_id" = psa."tenant_id" AND o."property_id" = psa."property_id" AND o."user_id" = psa."user_id"
+        LEFT JOIN "capabilities" c ON c."tenant_id" = o."tenant_id" AND c."id" = o."capability_id"
         WHERE psa."tenant_id" = ${tenantId}::uuid AND psa."property_id" = ${propertyId}::uuid
+        GROUP BY psa."user_id", u."email", psa."role_template_id", prt."name"
         ORDER BY u."email"
       `,
     );

@@ -159,6 +159,7 @@ describe('tenant staff administration', () => {
         email: targetEmail,
         roleTemplateId: frontDeskId,
         roleTemplateName: 'Front Desk',
+        overrides: [],
       },
     ]);
 
