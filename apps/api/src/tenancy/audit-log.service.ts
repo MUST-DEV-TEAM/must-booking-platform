@@ -78,4 +78,22 @@ export class AuditLogService {
       `,
     );
   }
+
+  async listForProperty(
+    tenantId: string,
+    propertyId: string,
+  ): Promise<Awaited<ReturnType<AuditLogService['list']>>> {
+    return this.database.withTenantTransaction(
+      { tenantId, propertyId },
+      (tx) =>
+        tx.$queryRaw<Awaited<ReturnType<AuditLogService['list']>>>`
+        SELECT "id", "actor_user_id" AS "actorUserId", "actor_type" AS "actorType", "action", "target_type" AS "targetType",
+          "target_id" AS "targetId", "property_id" AS "propertyId", "details", "created_at" AS "createdAt"
+        FROM "audit_logs"
+        WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid
+        ORDER BY "created_at" DESC
+        LIMIT 10
+      `,
+    );
+  }
 }

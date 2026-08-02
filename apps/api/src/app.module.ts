@@ -26,6 +26,8 @@ import { GuestsController } from './tenancy/guests.controller';
 import { GuestsService } from './tenancy/guests.service';
 import { ReportsController } from './tenancy/reports.controller';
 import { ReportsService } from './tenancy/reports.service';
+import { OverviewController } from './tenancy/overview.controller';
+import { OverviewService } from './tenancy/overview.service';
 import { NotificationsController } from './tenancy/notifications.controller';
 import { NotificationsService } from './tenancy/notifications.service';
 import { AuditLogController } from './tenancy/audit-log.controller';
@@ -120,6 +122,7 @@ import { ProviderHealthService } from './platform/provider-health.service';
     AdminStaffController,
     GuestsController,
     ReportsController,
+    OverviewController,
     NotificationsController,
     AuditLogController,
     PlanUsageController,
@@ -157,6 +160,7 @@ import { ProviderHealthService } from './platform/provider-health.service';
     AdminStaffService,
     GuestsService,
     ReportsService,
+    OverviewService,
     NotificationsService,
     AuditLogService,
     PlanUsageService,

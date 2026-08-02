@@ -25,6 +25,7 @@ import { PaymentRefundService, type RefundConfirmation } from '../payments/payme
 import { PaymentNotificationService } from '../mail/payment-notification.service';
 import { BookingConfirmationNotificationService } from '../mail/booking-confirmation-notification.service';
 import { BookingStateMachine } from './booking-state-machine';
+import { bookingNeedsAttention } from './booking-attention';
 import { QuoteService } from './quote.service';
 import { NotificationsService } from '../tenancy/notifications.service';
 
@@ -855,7 +856,7 @@ export class LocalPmsProvider implements PmsProvider {
       WHERE id = ${bookingId}::uuid AND tenant_id = ${context.tenantId}::uuid
         AND property_id = ${context.propertyId}::uuid
     `;
-    if (this.needsAttention(status)) {
+    if (bookingNeedsAttention(status)) {
       await this.notificationsService.recordInTransaction(tx, {
         tenantId: context.tenantId,
         propertyId: context.propertyId,
@@ -864,16 +865,6 @@ export class LocalPmsProvider implements PmsProvider {
       });
     }
     return status;
-  }
-
-  private needsAttention(status: BookingStatus): boolean {
-    return [
-      BookingStatus.MANUAL_REVIEW,
-      BookingStatus.PAYMENT_FAILED,
-      BookingStatus.AVAILABILITY_FAILED,
-      BookingStatus.PMS_REJECTED,
-      BookingStatus.PMS_UNKNOWN_RESULT,
-    ].includes(status);
   }
 
   private async bookingById(

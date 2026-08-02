@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react';
 
 import { fetchSessionUser, type SessionUser } from '../auth-routing';
 import styles from './dashboard-shell.module.css';
+import { DashboardOverview } from './overview';
 
 type TenantRole = 'OWNER' | 'ADMIN' | 'STAFF';
 type Membership = { tenantId: string; role: TenantRole };
@@ -48,6 +49,7 @@ export function dashboardNavigation(
   tenantId: string,
   propertyId: string,
   role: TenantRole,
+  currentSection = 'overview',
 ): NavigationItem[] {
   const items =
     role === 'STAFF'
@@ -61,7 +63,7 @@ export function dashboardNavigation(
   return items.map((item) => ({
     href: `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=${item.section}`,
     label: item.label,
-    current: item.section === 'overview',
+    current: item.section === currentSection,
     icon: item.icon,
   }));
 }
@@ -77,6 +79,7 @@ export function DashboardShell({
   const [role, setRole] = useState<TenantRole | undefined>(initialData?.role);
   const [properties, setProperties] = useState<Property[] | undefined>(initialData?.properties);
   const [selectedPropertyId, setSelectedPropertyId] = useState(initialData?.properties[0]?.id);
+  const [section, setSection] = useState('overview');
   const selectedProperty =
     properties?.find((property) => property.id === selectedPropertyId) ?? properties?.[0];
 
@@ -102,6 +105,7 @@ export function DashboardShell({
         );
         setProperties(propertyList);
         const requestedPropertyId = new URLSearchParams(window.location.search).get('propertyId');
+        setSection(new URLSearchParams(window.location.search).get('section') ?? 'overview');
         setSelectedPropertyId(
           propertyList.some((property) => property.id === requestedPropertyId)
             ? requestedPropertyId!
@@ -119,7 +123,9 @@ export function DashboardShell({
   }, [initialData, tenantId]);
 
   const navigation =
-    selectedProperty && role ? dashboardNavigation(tenantId, selectedProperty.id, role) : [];
+    selectedProperty && role
+      ? dashboardNavigation(tenantId, selectedProperty.id, role, section)
+      : [];
 
   return (
     <AppShell
@@ -136,6 +142,7 @@ export function DashboardShell({
             value={selectedProperty?.id ?? ''}
             onChange={(event) => {
               setSelectedPropertyId(event.target.value);
+              setSection('overview');
               window.location.href = `/dashboard/${tenantId}?propertyId=${encodeURIComponent(event.target.value)}&section=overview`;
             }}
           >
@@ -146,6 +153,9 @@ export function DashboardShell({
             ))}
           </select>
         </label>
+      ) : null}
+      {selectedProperty && role && section === 'overview' ? (
+        <DashboardOverview tenantId={tenantId} propertyId={selectedProperty.id} role={role} />
       ) : null}
     </AppShell>
   );

@@ -382,6 +382,75 @@ describe('LocalPmsProvider', () => {
     });
     expect(reports.body.cancellationRate.rate).toBeCloseTo(100 / 3);
 
+    const overviewToday = isoDateFromToday(0);
+    const overviewYesterday = isoDateFromToday(-1);
+    const overviewTomorrow = isoDateFromToday(1);
+    const overviewArrivalId = randomUUID();
+    const overviewDepartureId = randomUUID();
+    const overviewInHouseId = randomUUID();
+    const overviewAttentionId = randomUUID();
+    await admin.$executeRaw`
+      UPDATE properties SET timezone = 'UTC'
+      WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
+    `;
+    await admin.$executeRaw`
+      INSERT INTO inventory_units (tenant_id, property_id, room_type_id, stays_on, available_units)
+      VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid, ${overviewToday}::date, 3)
+      ON CONFLICT (tenant_id, property_id, room_type_id, stays_on)
+      DO UPDATE SET available_units = EXCLUDED.available_units
+    `;
+    await admin.$executeRaw`
+      INSERT INTO bookings (
+        id, tenant_id, property_id, room_type_id, guest_id, external_reference, guest_session_id,
+        status, payment_method, starts_on, ends_on, rate_plan_id, total_amount
+      ) VALUES
+        (${overviewArrivalId}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid,
+          ${reportGuestId}::uuid, ${`overview-arrival-${overviewArrivalId}`}, NULL,
+          'CONFIRMED'::"BookingStatus", 'PAY_AT_HOTEL'::"BookingPaymentMethod",
+          ${overviewToday}::date, ${overviewTomorrow}::date, ${ratePlanId}::uuid, 90.00),
+        (${overviewDepartureId}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid,
+          ${reportGuestId}::uuid, ${`overview-departure-${overviewDepartureId}`}, NULL,
+          'CONFIRMED'::"BookingStatus", 'PAY_AT_HOTEL'::"BookingPaymentMethod",
+          ${overviewYesterday}::date, ${overviewToday}::date, ${ratePlanId}::uuid, 90.00),
+        (${overviewInHouseId}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid,
+          ${reportGuestId}::uuid, ${`overview-in-house-${overviewInHouseId}`}, NULL,
+          'CONFIRMED'::"BookingStatus", 'PAY_AT_HOTEL'::"BookingPaymentMethod",
+          ${overviewYesterday}::date, ${overviewTomorrow}::date, ${ratePlanId}::uuid, 90.00),
+        (${overviewAttentionId}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid,
+          ${reportGuestId}::uuid, ${`overview-attention-${overviewAttentionId}`}, NULL,
+          'PAYMENT_FAILED'::"BookingStatus", 'PAY_AT_HOTEL'::"BookingPaymentMethod",
+          ${overviewToday}::date, ${overviewTomorrow}::date, ${ratePlanId}::uuid, 90.00)
+    `;
+    await admin.$executeRaw`
+      INSERT INTO audit_logs (tenant_id, property_id, actor_user_id, actor_type, action, target_type, target_id)
+      VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${userId}::uuid, 'TENANT_USER'::"AuditActorType",
+        'overview.fixture_created', 'booking', ${overviewArrivalId})
+    `;
+    const overview = await request(app!.getHttpServer())
+      .get(`${propertyUrl}/overview`)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(overview.body.kpis).toEqual({
+      date: overviewToday,
+      arrivals: 1,
+      departures: 1,
+      inHouse: 2,
+      bookedRoomNights: 2,
+      availableRoomNights: 3,
+      occupancyRate: 67,
+    });
+    expect(overview.body.needsAttention).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: overviewAttentionId, status: 'PAYMENT_FAILED' }),
+      ]),
+    );
+    expect(overview.body.needsAttention).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: overviewArrivalId })]),
+    );
+    expect(overview.body.recentActivity).toEqual(
+      expect.arrayContaining([expect.objectContaining({ action: 'overview.fixture_created' })]),
+    );
+
     const provider = app!.get(LocalPmsProvider);
     const quotes = app!.get(QuoteService);
     expect(app!.get<LocalPmsProvider>(PMS_PROVIDER)).toBe(provider);
