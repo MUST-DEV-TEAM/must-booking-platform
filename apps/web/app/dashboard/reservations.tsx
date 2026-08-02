@@ -52,13 +52,7 @@ export function DashboardReservations({
   useEffect(() => {
     if (initialBookings) return;
     let active = true;
-    void fetch(`/api/tenants/${tenantId}/properties/${propertyId}/bookings`, {
-      credentials: 'include',
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error('Unable to load reservations.');
-        return (await response.json()) as Reservation[];
-      })
+    void fetchPropertyBookings(tenantId, propertyId)
       .then((value) => {
         if (active) setBookings(value);
       })
@@ -197,6 +191,14 @@ export function DashboardReservations({
       ) : null}
     </Stack>
   );
+}
+
+export async function fetchPropertyBookings(tenantId: string, propertyId: string) {
+  const response = await fetch(`/api/tenants/${tenantId}/properties/${propertyId}/bookings`, {
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Unable to load reservations.');
+  return (await response.json()) as Reservation[];
 }
 
 export function filterReservations(

@@ -1,0 +1,132 @@
+.page {
+  margin: 0 auto;
+  max-width: 78rem;
+}
+.heading,
+.monthControls,
+.legend {
+  align-items: center;
+  display: flex;
+  gap: var(--must-space-12);
+  justify-content: space-between;
+}
+.eyebrow {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-bottom: var(--must-space-8);
+}
+.monthControls {
+  justify-content: flex-end;
+}
+.monthControls button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--must-color-border);
+  border-radius: var(--must-radius-control);
+  cursor: pointer;
+  display: inline-flex;
+  padding: var(--must-space-8);
+}
+.legend {
+  justify-content: flex-start;
+  margin-bottom: var(--must-space-12);
+}
+.legend span {
+  align-items: center;
+  display: inline-flex;
+  font-size: 0.8125rem;
+  gap: var(--must-space-4);
+}
+.legend i {
+  border-radius: 999px;
+  height: 0.625rem;
+  width: 0.625rem;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(8rem, 1fr));
+  overflow-x: auto;
+}
+.weekday {
+  color: var(--must-color-text-secondary);
+  font-size: 0.75rem;
+  padding: var(--must-space-8);
+  text-transform: uppercase;
+}
+.day,
+.emptyDay {
+  background: var(--must-color-surface);
+  border: 1px solid var(--must-color-border);
+  min-height: 8.5rem;
+  padding: var(--must-space-8);
+  text-align: left;
+}
+.day {
+  cursor: pointer;
+  display: grid;
+  gap: var(--must-space-8);
+}
+.day time {
+  font-weight: 700;
+}
+.day div {
+  display: grid;
+  gap: 0.2rem;
+}
+.day span {
+  border-left: 3px solid;
+  display: block;
+  font-size: 0.75rem;
+  overflow: hidden;
+  padding-left: var(--must-space-4);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.day span b {
+  font-weight: 600;
+}
+.available {
+  border-color: #31825f;
+  color: #1e6045;
+}
+.limited {
+  border-color: #c58918;
+  color: #8a5d00;
+}
+.unavailable {
+  border-color: #bd3d3d;
+  color: #9a2626;
+}
+.drillIn {
+  display: grid;
+  gap: var(--must-space-12);
+}
+.bookingColumns {
+  display: grid;
+  gap: var(--must-space-16);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.bookingColumns ul {
+  display: grid;
+  gap: var(--must-space-8);
+  list-style: none;
+  margin: var(--must-space-8) 0 0;
+  padding: 0;
+}
+.bookingColumns p {
+  margin-top: var(--must-space-4);
+}
+.error {
+  color: var(--must-color-danger);
+}
+@media (max-width: 800px) {
+  .heading,
+  .bookingColumns {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  .monthControls {
+    justify-content: flex-start;
+  }
+}

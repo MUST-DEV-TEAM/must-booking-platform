@@ -18,6 +18,7 @@ import { useEffect, useState } from 'react';
 import { fetchSessionUser, type SessionUser } from '../auth-routing';
 import styles from './dashboard-shell.module.css';
 import { DashboardOverview } from './overview';
+import { DashboardCalendar } from './calendar';
 import { DashboardReservations } from './reservations';
 
 type TenantRole = 'OWNER' | 'ADMIN' | 'STAFF';
@@ -160,6 +161,9 @@ export function DashboardShell({
       ) : null}
       {selectedProperty && role && section === 'reservations' ? (
         <DashboardReservations tenantId={tenantId} propertyId={selectedProperty.id} />
+      ) : null}
+      {selectedProperty && role && section === 'calendar' ? (
+        <DashboardCalendar tenantId={tenantId} propertyId={selectedProperty.id} />
       ) : null}
     </AppShell>
   );
