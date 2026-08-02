@@ -38,8 +38,8 @@ describe('platform dashboard home', () => {
     const hash = await bcrypt.hash(password, 12);
     await migrationPrisma.$executeRaw`INSERT INTO "organizations" ("id", "name") VALUES (${organizationId}::uuid, 'Dashboard tenant')`;
     await migrationPrisma.$executeRaw`
-      INSERT INTO "properties" ("id", "tenant_id", "name", "slug", "address", "timezone")
-      VALUES (${propertyId}::uuid, ${organizationId}::uuid, 'Dashboard property', 'dashboard-property', '', 'UTC')
+      INSERT INTO "properties" ("id", "tenant_id", "name", "slug", "address", "timezone", "stripe_enabled")
+      VALUES (${propertyId}::uuid, ${organizationId}::uuid, 'Dashboard property', 'dashboard-property', '', 'UTC', true)
     `;
     await migrationPrisma.$executeRaw`
       INSERT INTO "users" ("id", "email", "password_hash", "email_verified_at", "is_platform_admin")
@@ -135,5 +135,32 @@ describe('platform dashboard home', () => {
           expect.arrayContaining([expect.objectContaining({ id: organizationId })]),
         ),
       );
+  });
+
+  it('returns tenant detail and handles unknown tenants', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email, password })
+      .expect(201);
+    const cookie = login.headers['set-cookie'][0] as string;
+    await request(app.getHttpServer())
+      .get(`/platform/tenants/${organizationId}`)
+      .set('Cookie', cookie)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toMatchObject({
+          id: organizationId,
+          ownerEmail,
+          propertyCount: 1,
+          stripeEnabled: true,
+          stripeEnabledPropertyCount: 1,
+          pokpayEnabled: false,
+        });
+      });
+    await request(app.getHttpServer())
+      .get(`/platform/tenants/${randomUUID()}`)
+      .set('Cookie', cookie)
+      .expect(404);
+    await request(app.getHttpServer()).get(`/platform/tenants/${organizationId}`).expect(401);
   });
 });

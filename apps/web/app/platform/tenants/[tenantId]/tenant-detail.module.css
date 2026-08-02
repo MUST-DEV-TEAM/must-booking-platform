@@ -1,0 +1,44 @@
+.grid {
+  display: grid;
+  gap: var(--must-space-16);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.count {
+  color: var(--must-color-ink);
+  display: block;
+  font-size: 2rem;
+  margin-top: var(--must-space-12);
+}
+.providers {
+  display: grid;
+  gap: var(--must-space-12);
+  margin-top: var(--must-space-24);
+}
+.provider {
+  align-items: center;
+  border-top: 1px solid var(--must-color-border);
+  display: flex;
+  justify-content: space-between;
+  gap: var(--must-space-16);
+  padding-top: var(--must-space-12);
+}
+.provider p {
+  margin-top: var(--must-space-4);
+}
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--must-space-8);
+  justify-content: flex-end;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--must-space-12);
+  margin-top: var(--must-space-24);
+}
+@media (max-width: 560px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

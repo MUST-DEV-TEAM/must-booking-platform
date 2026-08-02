@@ -34,6 +34,11 @@ export class PlatformAdminController {
     );
   }
 
+  @Get('tenants/:tenantId')
+  tenant(@Param('tenantId') tenantId: string, @Req() request: PlatformRequest) {
+    return this.platformAdmin.getTenant(tenantId, request.platformContext.userId);
+  }
+
   @Post('tenants/:tenantId/suspend')
   suspend(@Param('tenantId') tenantId: string, @Req() request: PlatformRequest) {
     return this.platformAdmin.suspendTenant(tenantId, request.platformContext.userId);

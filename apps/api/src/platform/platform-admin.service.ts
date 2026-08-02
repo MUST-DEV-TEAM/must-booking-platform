@@ -112,6 +112,84 @@ export class PlatformAdminService {
     );
   }
 
+  async getTenant(tenantId: string, actorUserId: string): Promise<PlatformTenantDetail> {
+    const organization = await this.database.withPlatformAdminTransaction(
+      { role: 'platform_admin' },
+      (tx) =>
+        tx.$queryRaw<
+          Array<{
+            id: string;
+            name: string;
+            status: OrganizationStatus;
+            createdAt: Date;
+            ownerEmail: string | null;
+          }>
+        >`
+          SELECT o."id", o."name", o."status"::text AS "status", o."created_at" AS "createdAt",
+            owner."email" AS "ownerEmail"
+          FROM "organizations" o
+          LEFT JOIN LATERAL (
+            SELECT u."email"
+            FROM "tenant_memberships" tm
+            JOIN "users" u ON u."id" = tm."user_id"
+            WHERE tm."tenant_id" = o."id" AND tm."role" = 'OWNER'::"TenantMembershipRole"
+            ORDER BY tm."created_at" ASC
+            LIMIT 1
+          ) owner ON true
+          WHERE o."id" = ${tenantId}::uuid
+        `,
+    );
+    if (!organization[0]) throw new NotFoundException('Tenant not found.');
+
+    await this.auditLogs.record({
+      actorUserId,
+      actorType: 'PLATFORM_ADMIN',
+      action: 'platform.tenant.viewed',
+      targetType: 'organization',
+      targetId: tenantId,
+      tenantId,
+    });
+
+    const properties = await this.database.withTenantTransaction(
+      { tenantId },
+      (tx) =>
+        tx.$queryRaw<
+          [
+            {
+              propertyCount: number;
+              stripeEnabled: boolean;
+              pokpayEnabled: boolean;
+              payAtHotelEnabled: boolean;
+              stripeEnabledPropertyCount: number;
+              pokpayEnabledPropertyCount: number;
+              payAtHotelEnabledPropertyCount: number;
+            },
+          ]
+        >`
+        SELECT COUNT(*)::int AS "propertyCount",
+          COALESCE(BOOL_OR("stripe_enabled"), false) AS "stripeEnabled",
+          COALESCE(BOOL_OR("pokpay_enabled"), false) AS "pokpayEnabled",
+          COALESCE(BOOL_OR("pay_at_hotel_enabled"), false) AS "payAtHotelEnabled",
+          COUNT(*) FILTER (WHERE "stripe_enabled")::int AS "stripeEnabledPropertyCount",
+          COUNT(*) FILTER (WHERE "pokpay_enabled")::int AS "pokpayEnabledPropertyCount",
+          COUNT(*) FILTER (WHERE "pay_at_hotel_enabled")::int AS "payAtHotelEnabledPropertyCount"
+        FROM "properties"
+      `,
+    );
+    return {
+      ...organization[0],
+      ...(properties[0] ?? {
+        propertyCount: 0,
+        stripeEnabled: false,
+        pokpayEnabled: false,
+        payAtHotelEnabled: false,
+        stripeEnabledPropertyCount: 0,
+        pokpayEnabledPropertyCount: 0,
+        payAtHotelEnabledPropertyCount: 0,
+      }),
+    };
+  }
+
   suspendTenant(
     tenantId: string,
     actorUserId: string,
@@ -242,4 +320,14 @@ export interface PlatformTenant {
   status: OrganizationStatus;
   ownerEmail: string | null;
   createdAt: Date;
+}
+
+export interface PlatformTenantDetail extends PlatformTenant {
+  propertyCount: number;
+  stripeEnabled: boolean;
+  pokpayEnabled: boolean;
+  payAtHotelEnabled: boolean;
+  stripeEnabledPropertyCount: number;
+  pokpayEnabledPropertyCount: number;
+  payAtHotelEnabledPropertyCount: number;
 }
