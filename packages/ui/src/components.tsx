@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import type { LucideIcon } from 'lucide-react';
 
 type ClassName = { className?: string };
 
@@ -146,7 +147,7 @@ export function Stack({
   );
 }
 
-export type NavigationItem = { href: string; label: string; current?: boolean };
+export type NavigationItem = { href: string; label: string; current?: boolean; icon?: LucideIcon };
 
 function NavigationLinks({
   items,
@@ -164,6 +165,7 @@ function NavigationLinks({
           key={item.href}
           onClick={onNavigate}
         >
+          {item.icon ? <item.icon aria-hidden="true" size={18} strokeWidth={2} /> : null}
           {item.label}
         </a>
       ))}
@@ -174,10 +176,24 @@ function NavigationLinks({
 export function SidebarNavigation({
   items,
   className,
-}: { items: readonly NavigationItem[] } & ClassName) {
+  userEmail,
+  homeHref = '/platform',
+}: {
+  items: readonly NavigationItem[];
+  userEmail?: string;
+  homeHref?: string;
+} & ClassName) {
   return (
     <aside className={classNames('must-sidebar-navigation', className)}>
+      <a className="must-shell-brand" href={homeHref} aria-label="MUST Hotel home">
+        <img alt="" src="/auth/portal-m-mark.svg" />
+        <span>MUST Hotel</span>
+      </a>
       <NavigationLinks items={items} />
+      <div className="must-shell-profile">
+        <span className="must-shell-profile__email">{userEmail ?? 'Signed-in user'}</span>
+        <a href="/login?reason=logout-confirmation">Log out</a>
+      </div>
     </aside>
   );
 }
@@ -291,18 +307,34 @@ export function MobileDrawerNavigation({
 export function AppShell({
   navigation,
   title,
+  userEmail,
+  homeHref,
   children,
 }: {
   navigation: readonly NavigationItem[];
   title: string;
+  userEmail?: string;
+  homeHref?: string;
   children: ReactNode;
 }) {
   return (
     <div className="must-app-shell">
-      <SidebarNavigation className="must-app-shell__sidebar" items={navigation} />
+      <SidebarNavigation
+        className="must-app-shell__sidebar"
+        homeHref={homeHref}
+        items={navigation}
+        userEmail={userEmail}
+      />
       <div className="must-app-shell__main">
         <header className="must-app-shell__header">
           <MobileDrawerNavigation items={navigation} title={title} />
+          <div className="must-desktop-header">
+            <Heading level={2}>{title}</Heading>
+            <div className="must-desktop-header__profile">
+              <span>{userEmail ?? 'Signed-in user'}</span>
+              <a href="/login?reason=logout-confirmation">Log out</a>
+            </div>
+          </div>
         </header>
         <main className="must-app-shell__content">{children}</main>
       </div>

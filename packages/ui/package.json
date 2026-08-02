@@ -16,7 +16,8 @@
     "src/styles.css"
   ],
   "scripts": {
-    "build": "tsc --project tsconfig.build.json"
+    "build": "tsc --project tsconfig.build.json",
+    "test": "vitest run"
   },
   "peerDependencies": {
     "react": "^19.0.0",
@@ -24,6 +25,10 @@
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0"
+    "@types/react-dom": "^19.0.0",
+    "vitest": "^3.2.7"
+  },
+  "dependencies": {
+    "lucide-react": "^1.28.0"
   }
 }
