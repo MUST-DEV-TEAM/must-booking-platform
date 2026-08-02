@@ -12,6 +12,7 @@ import {
 import type { Money } from '@must/domain-contracts';
 
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
+import { RequiresCapability } from '../tenancy/capabilities.decorator';
 import { Role, Roles } from '../tenancy/roles.decorator';
 import { TenantScoped } from '../tenancy/tenant-context.decorator';
 import { PaymentRefundService } from './payment-refund.service';
@@ -24,6 +25,7 @@ export class PaymentRefundController {
   @HttpCode(200)
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('payments.refund')
   @RequiresVerifiedEmail()
   async refund(
     @Body() body: unknown,

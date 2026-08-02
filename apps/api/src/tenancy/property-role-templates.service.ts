@@ -8,6 +8,8 @@ const builtInCapabilities = [
   ['settings.manage', 'Manage property settings'],
   ['reports.view', 'View property reports'],
   ['guests.manage', 'Manage guests'],
+  ['bookings.manage', 'Manage bookings'],
+  ['payments.refund', 'Refund payments'],
 ] as const;
 
 @Injectable()

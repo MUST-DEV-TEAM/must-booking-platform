@@ -59,6 +59,35 @@ describe('property staff capabilities', () => {
     await migrationPrisma.$executeRaw`INSERT INTO "users" ("id", "email") VALUES (${userId}::uuid, ${`staff-${userId}@example.test`})`;
     await migrationPrisma.$executeRaw`INSERT INTO "tenant_memberships" ("tenant_id", "user_id", "role") VALUES (${tenantId}::uuid, ${userId}::uuid, 'STAFF')`;
     await templates.ensureBuiltInTemplates(tenantId, propertyId);
+    const seededCapabilities = await migrationPrisma.$queryRaw<
+      Array<{ name: string; capabilities: string[] }>
+    >`
+      SELECT prt."name", array_agg(c."key" ORDER BY c."key") AS "capabilities"
+      FROM "property_role_templates" prt
+      JOIN "property_role_template_capabilities" rtc
+        ON rtc."tenant_id" = prt."tenant_id"
+        AND rtc."property_id" = prt."property_id"
+        AND rtc."role_template_id" = prt."id"
+      JOIN "capabilities" c ON c."tenant_id" = rtc."tenant_id" AND c."id" = rtc."capability_id"
+      WHERE prt."tenant_id" = ${tenantId}::uuid AND prt."property_id" = ${propertyId}::uuid
+      GROUP BY prt."name"
+      ORDER BY prt."name"
+    `;
+    expect(seededCapabilities).toEqual([
+      { name: 'Front Desk', capabilities: ['guests.manage'] },
+      {
+        name: 'Property Manager',
+        capabilities: [
+          'bookings.manage',
+          'guests.manage',
+          'payments.refund',
+          'reports.view',
+          'settings.manage',
+          'staff.invite',
+          'staff.manage_permissions',
+        ],
+      },
+    ]);
     const template = await migrationPrisma.$queryRaw<
       Array<{ id: string }>
     >`SELECT "id" FROM "property_role_templates" WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid AND "name" = 'Front Desk'`;

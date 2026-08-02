@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import * as bcrypt from 'bcrypt';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import Stripe from 'stripe';
@@ -14,6 +15,7 @@ import { PaymentExpiryService } from '../src/payments/payment-expiry.service';
 import { PokPayPaymentProvider } from '../src/payments/pokpay-payment.provider';
 import { PaymentProviderRegistry } from '../src/payments/payment-provider-registry';
 import { StripePaymentProvider } from '../src/payments/stripe-payment.provider';
+import { PropertyRoleTemplatesService } from '../src/tenancy/property-role-templates.service';
 import type { PaymentProvider } from '@must/domain-contracts';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 
@@ -39,6 +41,7 @@ describe('LocalPmsProvider', () => {
   let tenantId: string;
   let propertyId: string;
   let userId: string;
+  let propertyStaffUserId: string;
   let roomTypeId: string;
   let ratePlanId: string;
   let cookie: string;
@@ -164,6 +167,11 @@ describe('LocalPmsProvider', () => {
 
   afterAll(async () => {
     if (tenantId) {
+      await admin.$executeRaw`DELETE FROM property_staff_capability_overrides WHERE tenant_id = ${tenantId}::uuid`;
+      await admin.$executeRaw`DELETE FROM property_staff_assignments WHERE tenant_id = ${tenantId}::uuid`;
+      await admin.$executeRaw`DELETE FROM property_role_template_capabilities WHERE tenant_id = ${tenantId}::uuid`;
+      await admin.$executeRaw`DELETE FROM property_role_templates WHERE tenant_id = ${tenantId}::uuid`;
+      await admin.$executeRaw`DELETE FROM capabilities WHERE tenant_id = ${tenantId}::uuid`;
       await admin.$executeRaw`DELETE FROM integration_operations WHERE tenant_id = ${tenantId}::uuid`;
       await admin.$executeRaw`DELETE FROM payments WHERE tenant_id = ${tenantId}::uuid`;
       await admin.$executeRaw`DELETE FROM payment_provider_sessions WHERE tenant_id = ${tenantId}::uuid`;
@@ -179,6 +187,8 @@ describe('LocalPmsProvider', () => {
     if (propertyId) await admin.$executeRaw`DELETE FROM properties WHERE id = ${propertyId}::uuid`;
     if (tenantId) await admin.$executeRaw`DELETE FROM organizations WHERE id = ${tenantId}::uuid`;
     if (userId) await admin.$executeRaw`DELETE FROM users WHERE id = ${userId}::uuid`;
+    if (propertyStaffUserId)
+      await admin.$executeRaw`DELETE FROM users WHERE id = ${propertyStaffUserId}::uuid`;
     if (app) await app.close();
     await admin.$disconnect();
   });
@@ -200,6 +210,7 @@ describe('LocalPmsProvider', () => {
     userId = signup.body.user.id;
     cookie = signup.headers['set-cookie'][0];
     const propertyUrl = `/tenants/${tenantId}/properties/${propertyId}`;
+    await app!.get(PropertyRoleTemplatesService).ensureBuiltInTemplates(tenantId, propertyId);
 
     await request(app!.getHttpServer())
       .post('/auth/email-verification/confirm')
@@ -1105,6 +1116,61 @@ describe('LocalPmsProvider', () => {
       .set('Idempotency-Key', manualRefundKey)
       .send({ bookingId: firstBooking.value.id, amount: { amount: '50.00', currency: 'EUR' } })
       .expect(401);
+    propertyStaffUserId = randomUUID();
+    const propertyStaffEmail = `refund-staff-${propertyStaffUserId}@example.test`;
+    const propertyStaffPassword = 'correct-horse-battery-staple';
+    const propertyStaffPasswordHash = await bcrypt.hash(propertyStaffPassword, 12);
+    await admin.$executeRaw`
+      INSERT INTO users ("id", "email", "password_hash", "email_verified_at")
+      VALUES (${propertyStaffUserId}::uuid, ${propertyStaffEmail}, ${propertyStaffPasswordHash}, CURRENT_TIMESTAMP)
+    `;
+    await admin.$executeRaw`
+      INSERT INTO tenant_memberships ("tenant_id", "user_id", "role")
+      VALUES (${tenantId}::uuid, ${propertyStaffUserId}::uuid, 'STAFF')
+    `;
+    const builtInTemplates = await admin.$queryRaw<Array<{ id: string; name: string }>>`
+      SELECT "id", "name" FROM property_role_templates
+      WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid
+        AND "name" IN ('Front Desk', 'Property Manager')
+    `;
+    const frontDeskTemplateId = builtInTemplates.find(({ name }) => name === 'Front Desk')?.id;
+    const propertyManagerTemplateId = builtInTemplates.find(
+      ({ name }) => name === 'Property Manager',
+    )?.id;
+    expect(frontDeskTemplateId).toEqual(expect.any(String));
+    expect(propertyManagerTemplateId).toEqual(expect.any(String));
+    await admin.$executeRaw`
+      INSERT INTO property_staff_assignments ("tenant_id", "property_id", "user_id", "role_template_id")
+      VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${propertyStaffUserId}::uuid, ${frontDeskTemplateId}::uuid)
+    `;
+    const propertyStaffCookie = (
+      await request(app!.getHttpServer())
+        .post('/auth/login')
+        .send({ email: propertyStaffEmail, password: propertyStaffPassword })
+        .expect(201)
+    ).headers['set-cookie'][0] as string;
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/payments/refunds`)
+      .set('Cookie', propertyStaffCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ bookingId: firstBooking.value.id, amount: { amount: '20.00', currency: 'EUR' } })
+      .expect(403);
+    await admin.$executeRaw`
+      UPDATE property_staff_assignments
+      SET "role_template_id" = ${propertyManagerTemplateId}::uuid
+      WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid
+        AND "user_id" = ${propertyStaffUserId}::uuid
+    `;
+    const propertyStaffRefund = await request(app!.getHttpServer())
+      .post(`${propertyUrl}/payments/refunds`)
+      .set('Cookie', propertyStaffCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ bookingId: firstBooking.value.id, amount: { amount: '20.00', currency: 'EUR' } })
+      .expect(200);
+    expect(propertyStaffRefund.body).toMatchObject({
+      ok: true,
+      value: { amount: { amount: '20.00', currency: 'EUR' } },
+    });
     const manualRefund = await request(app!.getHttpServer())
       .post(`${propertyUrl}/payments/refunds`)
       .set('Cookie', cookie)
@@ -1126,6 +1192,11 @@ describe('LocalPmsProvider', () => {
       expect.objectContaining({
         bookingId: created.value.id,
         amount: { amount: '180.00', currency: 'EUR' },
+      }),
+      expect.objectContaining({
+        bookingId: firstBooking.value.id,
+        to: 'guest@example.test',
+        amount: { amount: '20.00', currency: 'EUR' },
       }),
       expect.objectContaining({
         bookingId: firstBooking.value.id,
