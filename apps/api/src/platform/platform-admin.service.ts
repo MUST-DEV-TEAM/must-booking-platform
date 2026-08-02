@@ -4,7 +4,7 @@ import { AuthService } from '../auth/auth.service';
 import { AuditLogService } from '../tenancy/audit-log.service';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 
-type OrganizationStatus = 'ACTIVE' | 'SUSPENDED';
+export type OrganizationStatus = 'ACTIVE' | 'SUSPENDED';
 
 @Injectable()
 export class PlatformAdminService {
@@ -72,6 +72,44 @@ export class PlatformAdminService {
       },
       activity: inventory.activity,
     };
+  }
+
+  async listTenants(
+    search: string | undefined,
+    status: OrganizationStatus | undefined,
+    actorUserId: string,
+  ): Promise<PlatformTenant[]> {
+    await this.auditLogs.record({
+      actorUserId,
+      actorType: 'PLATFORM_ADMIN',
+      action: 'platform.tenants.listed',
+      targetType: 'tenant_list',
+      targetId: 'all',
+      details: { search: search?.trim() || null, status: status ?? null },
+    });
+    const normalizedSearch = search?.trim() ?? '';
+    return this.database.withPlatformAdminTransaction(
+      { role: 'platform_admin' },
+      (tx) =>
+        tx.$queryRaw<PlatformTenant[]>`
+        SELECT o."id", o."name", o."status"::text AS "status", o."created_at" AS "createdAt",
+          owner."email" AS "ownerEmail"
+        FROM "organizations" o
+        LEFT JOIN LATERAL (
+          SELECT u."email"
+          FROM "tenant_memberships" tm
+          JOIN "users" u ON u."id" = tm."user_id"
+          WHERE tm."tenant_id" = o."id" AND tm."role" = 'OWNER'::"TenantMembershipRole"
+          ORDER BY tm."created_at" ASC
+          LIMIT 1
+        ) owner ON true
+        WHERE (${normalizedSearch} = ''
+          OR o."name" ILIKE ${`%${normalizedSearch}%`}
+          OR COALESCE(owner."email", '') ILIKE ${`%${normalizedSearch}%`})
+          AND (${status ?? null}::text IS NULL OR o."status"::text = ${status ?? null})
+        ORDER BY o."created_at" DESC, o."name" ASC
+      `,
+    );
   }
 
   suspendTenant(
@@ -196,4 +234,12 @@ export interface PlatformDashboardHome {
     plans: Record<string, number>;
   };
   activity: PlatformActivity[];
+}
+
+export interface PlatformTenant {
+  id: string;
+  name: string;
+  status: OrganizationStatus;
+  ownerEmail: string | null;
+  createdAt: Date;
 }

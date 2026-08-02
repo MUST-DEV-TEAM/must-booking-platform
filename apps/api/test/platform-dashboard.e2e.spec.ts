@@ -22,7 +22,9 @@ describe('platform dashboard home', () => {
   const organizationId = randomUUID();
   const propertyId = randomUUID();
   const userId = randomUUID();
+  const ownerId = randomUUID();
   const email = `platform-dashboard-${randomUUID()}@must.al`;
+  const ownerEmail = `owner-dashboard-${randomUUID()}@must.al`;
   const password = 'correct-horse-battery-staple';
   const mail: MailProvider = {
     async sendVerificationEmail() {},
@@ -41,7 +43,13 @@ describe('platform dashboard home', () => {
     `;
     await migrationPrisma.$executeRaw`
       INSERT INTO "users" ("id", "email", "password_hash", "email_verified_at", "is_platform_admin")
-      VALUES (${userId}::uuid, ${email}, ${hash}, CURRENT_TIMESTAMP, true)
+      VALUES
+        (${userId}::uuid, ${email}, ${hash}, CURRENT_TIMESTAMP, true),
+        (${ownerId}::uuid, ${ownerEmail}, ${hash}, CURRENT_TIMESTAMP, false)
+    `;
+    await migrationPrisma.$executeRaw`
+      INSERT INTO "tenant_memberships" ("tenant_id", "user_id", "role")
+      VALUES (${organizationId}::uuid, ${ownerId}::uuid, 'OWNER')
     `;
     process.env.APP_PORT = '3000';
     process.env.DATABASE_URL =
@@ -59,8 +67,9 @@ describe('platform dashboard home', () => {
 
   afterAll(async () => {
     await migrationPrisma.$executeRaw`DELETE FROM "audit_logs" WHERE "actor_user_id" = ${userId}::uuid`;
+    await migrationPrisma.$executeRaw`DELETE FROM "tenant_memberships" WHERE "tenant_id" = ${organizationId}::uuid`;
     await migrationPrisma.$executeRaw`DELETE FROM "properties" WHERE "id" = ${propertyId}::uuid`;
-    await migrationPrisma.$executeRaw`DELETE FROM "users" WHERE "id" = ${userId}::uuid`;
+    await migrationPrisma.$executeRaw`DELETE FROM "users" WHERE "id" IN (${userId}::uuid, ${ownerId}::uuid)`;
     await migrationPrisma.$executeRaw`DELETE FROM "organizations" WHERE "id" = ${organizationId}::uuid`;
     await app.close();
     await migrationPrisma.$disconnect();
@@ -99,5 +108,32 @@ describe('platform dashboard home', () => {
 
   it('rejects an unauthenticated request', async () => {
     await request(app.getHttpServer()).get('/platform/dashboard').expect(401);
+  });
+
+  it('searches tenants by organization name or owner email', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email, password })
+      .expect(201);
+    const cookie = login.headers['set-cookie'][0] as string;
+
+    await request(app.getHttpServer())
+      .get('/platform/tenants?search=Dashboard')
+      .set('Cookie', cookie)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual(
+          expect.arrayContaining([expect.objectContaining({ id: organizationId, ownerEmail })]),
+        );
+      });
+    await request(app.getHttpServer())
+      .get(`/platform/tenants?search=${encodeURIComponent(ownerEmail)}`)
+      .set('Cookie', cookie)
+      .expect(200)
+      .expect((response) =>
+        expect(response.body).toEqual(
+          expect.arrayContaining([expect.objectContaining({ id: organizationId })]),
+        ),
+      );
   });
 });

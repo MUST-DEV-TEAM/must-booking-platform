@@ -1,7 +1,7 @@
 import { Controller, Get, HttpCode, Inject, Param, Post, Req } from '@nestjs/common';
 
 import { Role, Roles } from '../tenancy/roles.decorator';
-import { PlatformAdminService } from './platform-admin.service';
+import { PlatformAdminService, type OrganizationStatus } from './platform-admin.service';
 import { ProviderHealthService } from './provider-health.service';
 
 type PlatformRequest = { platformContext: { userId: string } };
@@ -22,6 +22,16 @@ export class PlatformAdminController {
   @Get('dashboard')
   dashboard(@Req() request: PlatformRequest) {
     return this.platformAdmin.dashboardHome(request.platformContext.userId);
+  }
+
+  @Get('tenants')
+  tenants(@Req() request: PlatformRequest & { query?: { search?: string; status?: string } }) {
+    const status = request.query?.status;
+    return this.platformAdmin.listTenants(
+      request.query?.search,
+      status === 'ACTIVE' || status === 'SUSPENDED' ? (status as OrganizationStatus) : undefined,
+      request.platformContext.userId,
+    );
   }
 
   @Post('tenants/:tenantId/suspend')
