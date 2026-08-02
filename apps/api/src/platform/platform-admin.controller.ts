@@ -34,6 +34,18 @@ export class PlatformAdminController {
     );
   }
 
+  @Get('audit')
+  audit(
+    @Req()
+    request: PlatformRequest & { query?: { page?: string; pageSize?: string } },
+  ) {
+    return this.platformAdmin.listAuditLog(
+      parsePositiveInteger(request.query?.page, 1),
+      Math.min(parsePositiveInteger(request.query?.pageSize, 50), 100),
+      request.platformContext.userId,
+    );
+  }
+
   @Get('tenants/:tenantId')
   tenant(@Param('tenantId') tenantId: string, @Req() request: PlatformRequest) {
     return this.platformAdmin.getTenant(tenantId, request.platformContext.userId);
@@ -59,4 +71,9 @@ export class PlatformAdminController {
     await this.platformAdmin.triggerPasswordReset(tenantId, userId, request.platformContext.userId);
     return { accepted: true };
   }
+}
+
+function parsePositiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? '', 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }

@@ -1,0 +1,24 @@
+.pager {
+  align-items: center;
+  border-top: 1px solid var(--must-color-border);
+  display: flex;
+  gap: var(--must-space-16);
+  justify-content: space-between;
+  margin-top: var(--must-space-16);
+  padding-top: var(--must-space-16);
+}
+.pagerActions {
+  display: flex;
+  gap: var(--must-space-8);
+}
+.pager button {
+  background: var(--must-color-surface);
+  border: 1px solid var(--must-color-border);
+  border-radius: var(--must-radius-control);
+  color: var(--must-color-ink);
+  font: inherit;
+  padding: var(--must-space-8) var(--must-space-12);
+}
+.pager button:disabled {
+  color: var(--must-color-text-tertiary);
+}

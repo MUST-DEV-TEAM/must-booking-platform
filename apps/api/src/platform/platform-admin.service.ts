@@ -112,6 +112,42 @@ export class PlatformAdminService {
     );
   }
 
+  async listAuditLog(
+    page: number,
+    pageSize: number,
+    actorUserId: string,
+  ): Promise<PlatformAuditLogPage> {
+    await this.auditLogs.record({
+      actorUserId,
+      actorType: 'PLATFORM_ADMIN',
+      action: 'platform.audit.listed',
+      targetType: 'audit_log',
+      targetId: 'all',
+      details: { page, pageSize },
+    });
+    const offset = (page - 1) * pageSize;
+    return this.database.withPlatformAdminTransaction({ role: 'platform_admin' }, async (tx) => {
+      const [items, total] = await Promise.all([
+        tx.$queryRaw<PlatformActivity[]>`
+          SELECT a."id", a."tenant_id" AS "tenantId", a."action", a."target_type" AS "targetType",
+            a."target_id" AS "targetId", a."actor_type" AS "actorType", a."created_at" AS "createdAt",
+            u."email" AS "actorEmail"
+          FROM "audit_logs" a
+          LEFT JOIN "users" u ON u."id" = a."actor_user_id"
+          WHERE a."actor_type" = 'PLATFORM_ADMIN'::"AuditActorType"
+          ORDER BY a."created_at" DESC, a."id" DESC
+          LIMIT ${pageSize} OFFSET ${offset}
+        `,
+        tx.$queryRaw<[{ count: number }]>`
+          SELECT COUNT(*)::int AS "count"
+          FROM "audit_logs"
+          WHERE "actor_type" = 'PLATFORM_ADMIN'::"AuditActorType"
+        `,
+      ]);
+      return { items, page, pageSize, total: total[0]?.count ?? 0 };
+    });
+  }
+
   async getTenant(tenantId: string, actorUserId: string): Promise<PlatformTenantDetail> {
     const organization = await this.database.withPlatformAdminTransaction(
       { role: 'platform_admin' },
@@ -313,6 +349,13 @@ export interface PlatformDashboardHome {
     plans: Record<string, number>;
   };
   activity: PlatformActivity[];
+}
+
+export interface PlatformAuditLogPage {
+  items: PlatformActivity[];
+  page: number;
+  pageSize: number;
+  total: number;
 }
 
 export interface PlatformTenant {
