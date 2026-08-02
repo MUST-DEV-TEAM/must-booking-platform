@@ -19,6 +19,11 @@ export class PlatformAdminController {
     return this.providerHealth.getHealth();
   }
 
+  @Get('dashboard')
+  dashboard(@Req() request: PlatformRequest) {
+    return this.platformAdmin.dashboardHome(request.platformContext.userId);
+  }
+
   @Post('tenants/:tenantId/suspend')
   suspend(@Param('tenantId') tenantId: string, @Req() request: PlatformRequest) {
     return this.platformAdmin.suspendTenant(tenantId, request.platformContext.userId);
