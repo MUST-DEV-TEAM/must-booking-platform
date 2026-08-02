@@ -788,6 +788,8 @@ export class LocalPmsProvider implements PmsProvider {
     guest: CreateBookingCommand['guest'],
   ): Promise<Result<string>> {
     const email = guest.email.trim().toLowerCase();
+    const firstName = guest.firstName?.trim() || null;
+    const lastName = guest.lastName?.trim() || null;
     if (!email) return this.failure('INVALID_GUEST_EMAIL', 'Guest email is required.');
     const existing = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id FROM guests
@@ -796,7 +798,9 @@ export class LocalPmsProvider implements PmsProvider {
     if (existing[0]) {
       await tx.$executeRaw`
         UPDATE guests
-        SET street_address = CASE WHEN ${guest.streetAddress !== undefined} THEN ${guest.streetAddress ?? null} ELSE street_address END,
+        SET first_name = CASE WHEN ${firstName !== null} THEN ${firstName} ELSE first_name END,
+          last_name = CASE WHEN ${lastName !== null} THEN ${lastName} ELSE last_name END,
+          street_address = CASE WHEN ${guest.streetAddress !== undefined} THEN ${guest.streetAddress ?? null} ELSE street_address END,
           address_line_2 = CASE WHEN ${guest.addressLine2 !== undefined} THEN ${guest.addressLine2 ?? null} ELSE address_line_2 END,
           city = CASE WHEN ${guest.city !== undefined} THEN ${guest.city ?? null} ELSE city END,
           county = CASE WHEN ${guest.county !== undefined} THEN ${guest.county ?? null} ELSE county END,
@@ -810,9 +814,9 @@ export class LocalPmsProvider implements PmsProvider {
     const id = randomUUID();
     const inserted = await tx.$queryRaw<Array<{ id: string }>>`
       INSERT INTO guests (
-        id, tenant_id, email, phone, street_address, address_line_2, city, county, postcode
+        id, tenant_id, email, first_name, last_name, phone, street_address, address_line_2, city, county, postcode
       ) VALUES (
-        ${id}::uuid, ${tenantId}::uuid, ${email}, ${guest.phone},
+        ${id}::uuid, ${tenantId}::uuid, ${email}, ${firstName}, ${lastName}, ${guest.phone},
         ${guest.streetAddress ?? null}, ${guest.addressLine2 ?? null}, ${guest.city ?? null},
         ${guest.county ?? null}, ${guest.postcode ?? null}
       )

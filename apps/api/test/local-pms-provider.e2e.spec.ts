@@ -184,7 +184,8 @@ describe('LocalPmsProvider', () => {
       await admin.$executeRaw`DELETE FROM audit_logs WHERE tenant_id = ${tenantId}::uuid`;
       await admin.$executeRaw`DELETE FROM tenant_memberships WHERE tenant_id = ${tenantId}::uuid`;
     }
-    if (propertyId) await admin.$executeRaw`DELETE FROM properties WHERE id = ${propertyId}::uuid`;
+    if (tenantId)
+      await admin.$executeRaw`DELETE FROM properties WHERE tenant_id = ${tenantId}::uuid`;
     if (tenantId) await admin.$executeRaw`DELETE FROM organizations WHERE id = ${tenantId}::uuid`;
     if (userId) await admin.$executeRaw`DELETE FROM users WHERE id = ${userId}::uuid`;
     if (propertyStaffUserId)
@@ -440,32 +441,222 @@ describe('LocalPmsProvider', () => {
         expect(response.body).toMatchObject({ ok: false, error: { code: 'BOOKING_NOT_FOUND' } });
       });
     await request(app!.getHttpServer())
-      .get(`${propertyUrl}/bookings`)
+      .put(`${propertyUrl}/inventory-units`)
+      .set('Cookie', cookie)
+      .send({
+        roomTypeId,
+        startsOn: '2031-01-01',
+        endsOn: '2031-02-03',
+        availableUnits: 1,
+      })
+      .expect(204);
+    const directoryGuest = {
+      ...bookingRequest.guest,
+      email: 'guest@example.test',
+      firstName: 'Updated',
+      lastName: 'Directory',
+    };
+    const directoryBookingOne = await provider.createBooking(context, {
+      idempotencyKey: randomUUID(),
+      externalReference: `must-${randomUUID()}`,
+      roomTypeId,
+      ratePlanId,
+      startsOn: '2031-01-01',
+      endsOn: '2031-01-03',
+      guest: directoryGuest,
+      total: quote.body.total,
+      paymentMethod: 'stripe',
+      quoteSessionId,
+      skipQuoteValidation: true,
+    });
+    const directoryBookingTwo = await provider.createBooking(context, {
+      idempotencyKey: randomUUID(),
+      externalReference: `must-${randomUUID()}`,
+      roomTypeId,
+      ratePlanId,
+      startsOn: '2031-01-05',
+      endsOn: '2031-01-07',
+      guest: directoryGuest,
+      total: quote.body.total,
+      paymentMethod: 'stripe',
+      quoteSessionId,
+      skipQuoteValidation: true,
+    });
+    const phoneGuestBooking = await provider.createBooking(context, {
+      idempotencyKey: randomUUID(),
+      externalReference: `must-${randomUUID()}`,
+      roomTypeId,
+      ratePlanId,
+      startsOn: '2031-02-01',
+      endsOn: '2031-02-03',
+      guest: {
+        ...bookingRequest.guest,
+        email: 'phone-directory@example.test',
+        firstName: 'Phone',
+        lastName: 'Directory',
+        phone: '+355-555-0101',
+      },
+      total: quote.body.total,
+      paymentMethod: 'stripe',
+      quoteSessionId,
+      skipQuoteValidation: true,
+    });
+    expect(directoryBookingOne).toMatchObject({ ok: true });
+    expect(directoryBookingTwo).toMatchObject({ ok: true });
+    expect(phoneGuestBooking).toMatchObject({ ok: true });
+    const refreshedGuest = await admin.$queryRaw<
+      Array<{ id: string; firstName: string | null; lastName: string | null }>
+    >`
+      SELECT id, first_name AS "firstName", last_name AS "lastName"
+      FROM guests
+      WHERE tenant_id = ${tenantId}::uuid AND email = 'guest@example.test'
+    `;
+    expect(refreshedGuest).toEqual([
+      { id: created.value.guestId, firstName: 'Updated', lastName: 'Directory' },
+    ]);
+    const otherPropertyId = randomUUID();
+    const otherRoomTypeId = randomUUID();
+    const otherRatePlanId = randomUUID();
+    await admin.$executeRaw`
+      INSERT INTO properties (id, tenant_id, name, slug)
+      VALUES (${otherPropertyId}::uuid, ${tenantId}::uuid, 'Other Directory Property', ${`other-${otherPropertyId}`})
+    `;
+    await admin.$executeRaw`
+      INSERT INTO room_types (id, tenant_id, property_id, name, max_occupancy)
+      VALUES (${otherRoomTypeId}::uuid, ${tenantId}::uuid, ${otherPropertyId}::uuid, 'Other room', 2)
+    `;
+    await admin.$executeRaw`
+      INSERT INTO rate_plans (id, tenant_id, property_id, name, currency)
+      VALUES (${otherRatePlanId}::uuid, ${tenantId}::uuid, ${otherPropertyId}::uuid, 'Other rate', 'EUR')
+    `;
+    await admin.$executeRaw`
+      INSERT INTO bookings (
+        tenant_id, property_id, room_type_id, guest_id, external_reference, guest_session_id,
+        status, payment_method, starts_on, ends_on, rate_plan_id, total_amount
+      ) VALUES (
+        ${tenantId}::uuid, ${otherPropertyId}::uuid, ${otherRoomTypeId}::uuid,
+        ${created.value.guestId}::uuid, ${`other-${randomUUID()}`}, NULL,
+        'CONFIRMED'::"BookingStatus", 'PAY_AT_HOTEL'::"BookingPaymentMethod",
+        '2031-03-01'::date, '2031-03-03'::date, ${otherRatePlanId}::uuid, 180.00
+      )
+    `;
+    const otherOnlyGuestId = randomUUID();
+    await admin.$executeRaw`
+      INSERT INTO guests (id, tenant_id, email, first_name, last_name, phone)
+      VALUES (
+        ${otherOnlyGuestId}::uuid, ${tenantId}::uuid, 'other-only@example.test',
+        'Other', 'Only', '+355-555-0999'
+      )
+    `;
+    await admin.$executeRaw`
+      INSERT INTO bookings (
+        tenant_id, property_id, room_type_id, guest_id, external_reference, guest_session_id,
+        status, payment_method, starts_on, ends_on, rate_plan_id, total_amount
+      ) VALUES (
+        ${tenantId}::uuid, ${otherPropertyId}::uuid, ${otherRoomTypeId}::uuid,
+        ${otherOnlyGuestId}::uuid, ${`other-only-${randomUUID()}`}, NULL,
+        'CONFIRMED'::"BookingStatus", 'PAY_AT_HOTEL'::"BookingPaymentMethod",
+        '2031-04-01'::date, '2031-04-03'::date, ${otherRatePlanId}::uuid, 180.00
+      )
+    `;
+    await request(app!.getHttpServer())
+      .get(`${propertyUrl}/guests?search=updated`)
+      .set('Cookie', cookie)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              id: created.value.guestId,
+              email: 'guest@example.test',
+              firstName: 'Updated',
+              lastName: 'Directory',
+              phone: null,
+              bookingCount: 3,
+              mostRecentStartsOn: '2031-01-05',
+              mostRecentEndsOn: '2031-01-07',
+            }),
+          ]),
+        );
+      });
+    await request(app!.getHttpServer())
+      .get(`${propertyUrl}/guests?search=guest@example`)
+      .set('Cookie', cookie)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual(
+          expect.arrayContaining([expect.objectContaining({ id: created.value.guestId })]),
+        );
+      });
+    await request(app!.getHttpServer())
+      .get(`${propertyUrl}/guests?search=other-only`)
+      .set('Cookie', cookie)
+      .expect(200)
+      .expect([]);
+    await request(app!.getHttpServer())
+      .get(`${propertyUrl}/guests?search=555-0101`)
       .set('Cookie', cookie)
       .expect(200)
       .expect((response) => {
         expect(response.body).toEqual([
           expect.objectContaining({
-            id: created.value.id,
-            guestId: created.value.guestId,
-            guestEmail: 'guest@example.test',
-            guestPhone: null,
-            guestStreetAddress: '1 Guest Street',
-            guestAddressLine2: 'Apartment 2',
-            guestCity: 'Tirana',
-            guestCounty: 'Tirana County',
-            guestPostcode: '1001',
-            roomTypeId,
-            roomTypeName: 'Provider Suite',
-            ratePlanId,
-            ratePlanName: 'Provider Flexible',
-            startsOn: '2026-09-01',
-            endsOn: '2026-09-03',
-            status: 'PAYMENT_PENDING',
-            paymentMethod: 'STRIPE_CHECKOUT',
-            total: { amount: '180.00', currency: 'EUR' },
+            email: 'phone-directory@example.test',
+            firstName: 'Phone',
+            phone: '+355-555-0101',
           }),
         ]);
+      });
+    const blankNameRepeat = await provider.createBooking(context, {
+      idempotencyKey: randomUUID(),
+      externalReference: `must-${randomUUID()}`,
+      roomTypeId,
+      ratePlanId,
+      startsOn: '2031-01-08',
+      endsOn: '2031-01-10',
+      guest: { ...directoryGuest, firstName: '', lastName: '' },
+      total: quote.body.total,
+      paymentMethod: 'stripe',
+      quoteSessionId,
+      skipQuoteValidation: true,
+    });
+    expect(blankNameRepeat).toMatchObject({ ok: true });
+    const nameAfterBlankRepeat = await admin.$queryRaw<
+      Array<{ firstName: string | null; lastName: string | null }>
+    >`
+      SELECT first_name AS "firstName", last_name AS "lastName"
+      FROM guests
+      WHERE tenant_id = ${tenantId}::uuid AND id = ${created.value.guestId}::uuid
+    `;
+    expect(nameAfterBlankRepeat).toEqual([{ firstName: 'Updated', lastName: 'Directory' }]);
+    await request(app!.getHttpServer())
+      .get(`${propertyUrl}/bookings`)
+      .set('Cookie', cookie)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              id: created.value.id,
+              guestId: created.value.guestId,
+              guestEmail: 'guest@example.test',
+              guestPhone: null,
+              guestStreetAddress: '1 Guest Street',
+              guestAddressLine2: 'Apartment 2',
+              guestCity: 'Tirana',
+              guestCounty: 'Tirana County',
+              guestPostcode: '1001',
+              roomTypeId,
+              roomTypeName: 'Provider Suite',
+              ratePlanId,
+              ratePlanName: 'Provider Flexible',
+              startsOn: '2026-09-01',
+              endsOn: '2026-09-03',
+              status: 'PAYMENT_PENDING',
+              paymentMethod: 'STRIPE_CHECKOUT',
+              total: { amount: '180.00', currency: 'EUR' },
+            }),
+          ]),
+        );
       });
     await expect(
       provider.createBooking(context, {
