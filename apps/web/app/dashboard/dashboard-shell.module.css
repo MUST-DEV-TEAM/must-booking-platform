@@ -20,3 +20,78 @@
   font: inherit;
   padding: var(--must-space-8) var(--must-space-12);
 }
+
+.notifications {
+  position: relative;
+}
+
+.notificationBell {
+  align-items: center;
+  background: none;
+  border: 0;
+  color: var(--must-color-ink);
+  cursor: pointer;
+  display: inline-flex;
+  padding: var(--must-space-4);
+  position: relative;
+}
+
+.notificationBadge {
+  align-items: center;
+  background: var(--must-color-danger);
+  border-radius: 999px;
+  color: var(--must-color-surface);
+  display: inline-flex;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  height: 1rem;
+  justify-content: center;
+  min-width: 1rem;
+  padding: 0 var(--must-space-4);
+  position: absolute;
+  right: -0.25rem;
+  top: -0.25rem;
+}
+
+.notificationPanel {
+  background: var(--must-color-surface);
+  border: 1px solid var(--must-color-border);
+  box-shadow: var(--must-shadow-float);
+  min-width: 19rem;
+  padding: var(--must-space-16);
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--must-space-8));
+  z-index: 10;
+}
+
+.notificationPanel h2 {
+  font-size: 1rem;
+  margin: 0 0 var(--must-space-12);
+}
+
+.notificationPanel ul {
+  display: grid;
+  gap: var(--must-space-8);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.notificationPanel li {
+  align-items: center;
+  display: flex;
+  gap: var(--must-space-8);
+  justify-content: space-between;
+}
+
+.notificationPanel button {
+  background: none;
+  border: 0;
+  color: var(--must-color-ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  padding: 0;
+}

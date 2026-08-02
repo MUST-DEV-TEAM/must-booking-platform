@@ -40,6 +40,21 @@ describe('dashboard shell', () => {
     expect(markup).toContain('Log out');
   });
 
+  it('renders supplied header actions in the shared header chrome', () => {
+    const markup = renderToStaticMarkup(
+      <AppShell
+        headerActions={<button type="button">Notifications</button>}
+        navigation={navigation}
+        title="Platform operations"
+      >
+        <p>Dashboard content</p>
+      </AppShell>,
+    );
+
+    expect(markup).toContain('must-app-shell__header-actions');
+    expect(markup).toContain('Notifications');
+  });
+
   it('defaults the brand link to /platform but lets a consumer override it', () => {
     const defaultMarkup = renderToStaticMarkup(<SidebarNavigation items={navigation} />);
     expect(defaultMarkup).toContain('href="/platform" aria-label="MUST Hotel home"');

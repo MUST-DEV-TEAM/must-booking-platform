@@ -324,12 +324,14 @@ export function AppShell({
   title,
   userEmail,
   homeHref,
+  headerActions,
   children,
 }: {
   navigation: readonly NavigationItem[];
   title: string;
   userEmail?: string;
   homeHref?: string;
+  headerActions?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -350,6 +352,9 @@ export function AppShell({
               <LogOutButton />
             </div>
           </div>
+          {headerActions ? (
+            <div className="must-app-shell__header-actions">{headerActions}</div>
+          ) : null}
         </header>
         <main className="must-app-shell__content">{children}</main>
       </div>

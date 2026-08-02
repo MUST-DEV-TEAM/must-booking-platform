@@ -295,9 +295,10 @@ body {
   min-width: 0;
 }
 .must-app-shell__header {
+  align-items: center;
   background: var(--must-color-surface);
   border-bottom: 1px solid var(--must-color-border);
-  display: block;
+  display: flex;
   padding: 0 var(--must-space-24);
 }
 .must-desktop-header {
@@ -305,6 +306,11 @@ body {
   display: flex;
   justify-content: space-between;
   min-height: 4.5rem;
+  flex: 1;
+}
+.must-app-shell__header-actions {
+  display: flex;
+  margin-left: var(--must-space-16);
 }
 .must-desktop-header__profile {
   align-items: center;
@@ -347,6 +353,9 @@ body {
     border-bottom: 1px solid var(--must-color-border);
     display: flex;
     padding: var(--must-space-12) var(--must-space-16);
+  }
+  .must-app-shell__header-actions {
+    margin-left: auto;
   }
   .must-desktop-header {
     display: none;

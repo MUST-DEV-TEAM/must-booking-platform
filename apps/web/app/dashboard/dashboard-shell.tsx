@@ -25,6 +25,7 @@ import { DashboardGuests } from './guests';
 import { DashboardStaff } from './staff';
 import { DashboardReservations } from './reservations';
 import { DashboardSettings } from './settings';
+import { DashboardNotifications } from './notifications';
 
 type TenantRole = 'OWNER' | 'ADMIN' | 'STAFF';
 type Membership = { tenantId: string; role: TenantRole };
@@ -140,6 +141,11 @@ export function DashboardShell({
       navigation={navigation}
       title={selectedProperty?.name ?? 'Hotel operations'}
       userEmail={user?.email}
+      headerActions={
+        selectedProperty && role ? (
+          <DashboardNotifications tenantId={tenantId} propertyId={selectedProperty.id} />
+        ) : undefined
+      }
     >
       {properties && properties.length > 1 ? (
         <label className={styles.propertySwitcher}>
