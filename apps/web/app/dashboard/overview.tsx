@@ -1,8 +1,8 @@
 'use client';
 
 import { Card, Heading, Stack, Text } from '@must/ui';
+import { useQuery } from '@tanstack/react-query';
 import { CalendarPlus, UserPlus } from 'lucide-react';
-import { useEffect, useState } from 'react';
 
 import styles from './overview.module.css';
 import { DashboardLoadingSkeleton } from './loading-skeleton';
@@ -46,36 +46,31 @@ export function DashboardOverview({
   role: 'OWNER' | 'ADMIN' | 'STAFF';
   initialOverview?: Overview;
 }) {
-  const [overview, setOverview] = useState<Overview | null | undefined>(initialOverview);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (initialOverview) return;
-    let active = true;
-    void fetch(`/api/tenants/${tenantId}/properties/${propertyId}/overview`, {
-      credentials: 'include',
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error('Unable to load the property overview.');
-        return (await response.json()) as Overview;
-      })
-      .then((value) => {
-        if (active) setOverview(value);
-      })
-      .catch((reason: unknown) => {
-        if (!active) return;
-        setOverview(null);
-        setError(
-          reason instanceof Error ? reason.message : 'Unable to load the property overview.',
-        );
+  const overviewQuery = useQuery({
+    queryKey: ['dashboard', 'overview', tenantId, propertyId],
+    queryFn: async () => {
+      const response = await fetch(`/api/tenants/${tenantId}/properties/${propertyId}/overview`, {
+        credentials: 'include',
       });
-    return () => {
-      active = false;
-    };
-  }, [initialOverview, propertyId, tenantId]);
+      if (!response.ok) throw new Error('Unable to load the property overview.');
+      return (await response.json()) as Overview;
+    },
+    initialData: initialOverview,
+    staleTime: initialOverview ? Infinity : 0,
+  });
 
-  if (overview === undefined) return <DashboardLoadingSkeleton label="Loading overview…" />;
-  if (!overview) return <Text className={styles.error}>{error}</Text>;
+  if (overviewQuery.isPending) return <DashboardLoadingSkeleton label="Loading overview…" />;
+  if (overviewQuery.isError)
+    return (
+      <div className={styles.error} role="alert">
+        <Text>{overviewQuery.error.message}</Text>
+        <button onClick={() => void overviewQuery.refetch()} type="button">
+          Retry
+        </button>
+      </div>
+    );
+
+  const overview = overviewQuery.data;
 
   return (
     <Stack className={styles.page} gap="lg">

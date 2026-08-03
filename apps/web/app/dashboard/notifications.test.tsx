@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DashboardNotifications } from './notifications';
+import { DashboardQueryProvider } from './query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -92,25 +93,62 @@ describe('DashboardNotifications', () => {
     );
     await act(async () => root.unmount());
   });
+
+  it('shows the query error and loads notifications after Retry succeeds', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 500 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items: notifications })));
+    vi.stubGlobal('fetch', fetch);
+    const { container, root } = await mount();
+
+    await click(container.querySelector('[aria-label="Notifications"]')!);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      'Unable to load notifications.',
+    );
+
+    await click(
+      Array.from(container.querySelectorAll('button')).find(
+        (button) => button.textContent === 'Retry',
+      )!,
+    );
+
+    expect(container.textContent).toContain('Booking created');
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await act(async () => root.unmount());
+  });
 });
 
 async function mount({ settle = true }: { settle?: boolean } = {}) {
   const container = document.createElement('div');
   const root = createRoot(container);
   await act(async () => {
-    root.render(createElement(DashboardNotifications, { tenantId: 't', propertyId: 'p' }));
-    if (settle) {
-      await Promise.resolve();
-      await Promise.resolve();
-    }
+    root.render(
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(DashboardNotifications, { tenantId: 't', propertyId: 'p' }),
+      ),
+    );
   });
+  if (settle) {
+    await act(async () => {
+      await settleQueries();
+    });
+  }
   return { container, root };
 }
 
 async function click(element: Element) {
   await act(async () => {
     (element as HTMLButtonElement).click();
-    await Promise.resolve();
-    await Promise.resolve();
+    await settleQueries();
   });
+}
+
+async function settleQueries() {
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    await Promise.resolve();
+  }
 }

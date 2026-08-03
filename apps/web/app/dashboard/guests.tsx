@@ -1,7 +1,8 @@
 'use client';
 import { Card, Heading, Stack, Text } from '@must/ui';
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { fetchPropertyBookings, type Reservation } from './reservations';
+import { fetchPropertyBookings } from './reservations';
 import { DashboardLoadingSkeleton } from './loading-skeleton';
 type Guest = {
   id: string;
@@ -22,33 +23,54 @@ export function DashboardGuests({
 }) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const [search, setSearch] = useState('');
-  const [guests, setGuests] = useState<Guest[]>();
-  const [bookings, setBookings] = useState<Reservation[]>();
   const [selected, setSelected] = useState<Guest>();
-  const [error, setError] = useState<string | null>(null);
+  const debouncedSearch = useDebouncedValue(search, 300);
+
+  const guestsQuery = useQuery({
+    queryKey: ['dashboard', 'guests', tenantId, propertyId, debouncedSearch],
+    queryFn: async () => {
+      const response = await fetch(
+        `${base}/guests${debouncedSearch ? `?search=${encodeURIComponent(debouncedSearch)}` : ''}`,
+        { credentials: 'include' },
+      );
+      if (!response.ok) throw new Error('Unable to load guests.');
+      return (await response.json()) as Guest[];
+    },
+  });
+  const bookingsQuery = useQuery({
+    queryKey: ['dashboard', 'guest-bookings', tenantId, propertyId],
+    queryFn: async () => {
+      try {
+        return await fetchPropertyBookings(tenantId, propertyId);
+      } catch {
+        throw new Error('Unable to load guest booking history.');
+      }
+    },
+  });
+
   useEffect(() => {
-    const timer = window.setTimeout(
-      () =>
-        void fetch(`${base}/guests${search ? `?search=${encodeURIComponent(search)}` : ''}`, {
-          credentials: 'include',
-        })
-          .then(async (r) => {
-            if (!r.ok) throw new Error('Unable to load guests.');
-            return r.json();
-          })
-          .then(setGuests)
-          .catch(() => setError('Unable to load guests.')),
-      300,
-    );
-    return () => clearTimeout(timer);
-  }, [base, search]);
-  useEffect(() => {
-    void fetchPropertyBookings(tenantId, propertyId)
-      .then(setBookings)
-      .catch(() => setError('Unable to load guest booking history.'));
+    setSelected(undefined);
   }, [tenantId, propertyId]);
-  if (error) return <Text>{error}</Text>;
-  if (!guests || !bookings) return <DashboardLoadingSkeleton label="Loading guests…" />;
+  if (guestsQuery.isPending || bookingsQuery.isPending)
+    return <DashboardLoadingSkeleton label="Loading guests…" />;
+  const error = guestsQuery.error ?? bookingsQuery.error;
+  if (error)
+    return (
+      <div role="alert">
+        <Text>{error.message}</Text>
+        <button
+          onClick={() => {
+            void guestsQuery.refetch();
+            void bookingsQuery.refetch();
+          }}
+          type="button"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  const guests = guestsQuery.data ?? [];
+  const bookings = bookingsQuery.data ?? [];
   const history = selected
     ? bookings.filter((b) => b.guestId === selected.id || b.guestEmail === selected.email)
     : [];
@@ -99,4 +121,15 @@ export function DashboardGuests({
       ) : null}
     </Stack>
   );
+}
+
+function useDebouncedValue(value: string, delay: number) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedValue(value), delay);
+    return () => window.clearTimeout(timer);
+  }, [delay, value]);
+
+  return debouncedValue;
 }
