@@ -2,10 +2,11 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { Money } from '@must/domain-contracts';
 
-import { TenantDatabaseService } from '../tenancy/tenant-database.service';
+import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 
 export type QuoteInput = {
   roomTypeId: string;
+  roomId?: string;
   ratePlanId: string;
   startsOn: string;
   endsOn: string;
@@ -55,11 +56,13 @@ export class QuoteService {
     this.validInput(input);
     await this.enforceBookingRules(tenantId, propertyId, input);
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      if (input.roomId)
+        await this.requireRoomForType(tx, tenantId, propertyId, input.roomId, input.roomTypeId);
       const rows = await tx.$queryRaw<
         Array<{ currency: string; amount: string; pricedNights: bigint }>
       >`
-        SELECT rp.currency, COALESCE(SUM(resolved.amount), 0)::text AS amount,
-          COUNT(resolved.amount)::bigint AS "pricedNights"
+        SELECT rp.currency, COALESCE(SUM(COALESCE(room_override.amount, resolved.amount)), 0)::text AS amount,
+          COUNT(COALESCE(room_override.amount, resolved.amount))::bigint AS "pricedNights"
         FROM rate_plans rp
         CROSS JOIN generate_series(
           ${input.startsOn}::date,
@@ -81,6 +84,11 @@ export class QuoteService {
           ORDER BY (rr.starts_on IS NULL), rr.created_at DESC
           LIMIT 1
         ) resolved ON TRUE
+        LEFT JOIN room_price_overrides room_override
+          ON room_override.tenant_id = ${tenantId}::uuid
+          AND room_override.property_id = ${propertyId}::uuid
+          AND room_override.rate_plan_id = rp.id
+          AND room_override.room_id = ${input.roomId ?? null}::uuid
         WHERE rp.id = ${input.ratePlanId}::uuid
           AND rp.tenant_id = ${tenantId}::uuid
           AND rp.property_id = ${propertyId}::uuid
@@ -138,6 +146,7 @@ export class QuoteService {
       payload.tenantId !== expected.tenantId ||
       payload.propertyId !== expected.propertyId ||
       payload.roomTypeId !== expected.roomTypeId ||
+      payload.roomId !== expected.roomId ||
       payload.ratePlanId !== expected.ratePlanId ||
       payload.startsOn !== expected.startsOn ||
       payload.endsOn !== expected.endsOn ||
@@ -172,6 +181,7 @@ export class QuoteService {
         typeof value.tenantId !== 'string' ||
         typeof value.propertyId !== 'string' ||
         typeof value.roomTypeId !== 'string' ||
+        (value.roomId !== undefined && typeof value.roomId !== 'string') ||
         typeof value.ratePlanId !== 'string' ||
         typeof value.startsOn !== 'string' ||
         typeof value.endsOn !== 'string' ||
@@ -213,6 +223,23 @@ export class QuoteService {
       throw new BadRequestException(
         'startsOn and endsOn must be a valid, non-empty ISO date range.',
       );
+  }
+
+  private async requireRoomForType(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    roomId: string,
+    roomTypeId: string,
+  ): Promise<void> {
+    const rooms = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM rooms
+      WHERE tenant_id = ${tenantId}::uuid
+        AND property_id = ${propertyId}::uuid
+        AND id = ${roomId}::uuid
+        AND room_type_id = ${roomTypeId}::uuid
+    `;
+    if (!rooms[0]) throw new NotFoundException('Room not found for this room type.');
   }
 
   private date(value: string): boolean {

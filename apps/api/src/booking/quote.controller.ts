@@ -27,6 +27,7 @@ export class QuoteController {
     const value = (body ?? {}) as Record<string, unknown>;
     return {
       roomTypeId: typeof value.roomTypeId === 'string' ? value.roomTypeId : '',
+      roomId: typeof value.roomId === 'string' ? value.roomId : undefined,
       ratePlanId: typeof value.ratePlanId === 'string' ? value.ratePlanId : '',
       startsOn: typeof value.startsOn === 'string' ? value.startsOn : '',
       endsOn: typeof value.endsOn === 'string' ? value.endsOn : '',

@@ -25,6 +25,10 @@ type RateRule = {
   weekdays: number[];
   amount: string;
 };
+type RoomPriceOverride = {
+  roomId: string;
+  amount: string;
+};
 
 type RatePlanInput = {
   name: string;
@@ -157,9 +161,93 @@ export class RatePlansService {
         );
       } catch (error: unknown) {
         if (this.isForeignKeyViolation(error))
-          throw new ConflictException('Cannot delete a rate plan that still has rate rules.');
+          throw new ConflictException(
+            'Cannot delete a rate plan that still has rate rules or room price overrides.',
+          );
         throw error;
       }
+    });
+  }
+
+  async listRoomPriceOverrides(
+    tenantId: string,
+    propertyId: string,
+    ratePlanId: string,
+  ): Promise<RoomPriceOverride[]> {
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      await this.requireRatePlan(tx, tenantId, propertyId, ratePlanId);
+      return tx.$queryRaw<RoomPriceOverride[]>`
+        SELECT room_id AS "roomId", amount::text AS amount
+        FROM room_price_overrides
+        WHERE tenant_id = ${tenantId}::uuid
+          AND property_id = ${propertyId}::uuid
+          AND rate_plan_id = ${ratePlanId}::uuid
+        ORDER BY room_id
+      `;
+    });
+  }
+
+  async setRoomPriceOverride(
+    tenantId: string,
+    propertyId: string,
+    ratePlanId: string,
+    roomId: string,
+    actorUserId: string,
+    body: unknown,
+  ): Promise<RoomPriceOverride> {
+    const amount = this.priceOverrideAmount(body);
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      await this.requireRatePlan(tx, tenantId, propertyId, ratePlanId);
+      await this.requireRoom(tx, tenantId, propertyId, roomId);
+      const rows = await tx.$queryRaw<RoomPriceOverride[]>`
+        INSERT INTO room_price_overrides (tenant_id, property_id, rate_plan_id, room_id, amount)
+        VALUES (
+          ${tenantId}::uuid, ${propertyId}::uuid, ${ratePlanId}::uuid, ${roomId}::uuid,
+          ${amount}::numeric
+        )
+        ON CONFLICT (tenant_id, property_id, rate_plan_id, room_id)
+        DO UPDATE SET amount = EXCLUDED.amount, updated_at = CURRENT_TIMESTAMP
+        RETURNING room_id AS "roomId", amount::text AS amount
+      `;
+      await this.record(
+        tx,
+        tenantId,
+        propertyId,
+        actorUserId,
+        'room_price_override.set',
+        'room_price_override',
+        `${ratePlanId}:${roomId}`,
+      );
+      return rows[0]!;
+    });
+  }
+
+  async removeRoomPriceOverride(
+    tenantId: string,
+    propertyId: string,
+    ratePlanId: string,
+    roomId: string,
+    actorUserId: string,
+  ): Promise<void> {
+    await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ roomId: string }>>`
+        DELETE FROM room_price_overrides
+        WHERE tenant_id = ${tenantId}::uuid
+          AND property_id = ${propertyId}::uuid
+          AND rate_plan_id = ${ratePlanId}::uuid
+          AND room_id = ${roomId}::uuid
+        RETURNING room_id AS "roomId"
+      `;
+      if (!rows[0]) throw new NotFoundException('Room price override not found.');
+      await this.record(
+        tx,
+        tenantId,
+        propertyId,
+        actorUserId,
+        'room_price_override.deleted',
+        'room_price_override',
+        `${ratePlanId}:${roomId}`,
+      );
     });
   }
 
@@ -303,6 +391,19 @@ export class RatePlansService {
     if (!rows[0]) throw new NotFoundException('Room type not found.');
   }
 
+  private async requireRoom(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    roomId: string,
+  ) {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM rooms
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomId}::uuid
+    `;
+    if (!rows[0]) throw new NotFoundException('Room not found.');
+  }
+
   private async rejectOverlap(
     tx: TenantTransaction,
     tenantId: string,
@@ -389,6 +490,16 @@ export class RatePlansService {
     if (startsOn === null && distinctWeekdays.length !== 7)
       throw new BadRequestException('A base rate must apply on all seven weekdays.');
     return { roomTypeId, startsOn, endsOn, weekdays: distinctWeekdays, amount };
+  }
+
+  private priceOverrideAmount(body: unknown): string {
+    const value = (body ?? {}) as Record<string, unknown>;
+    const amount = typeof value.amount === 'string' ? value.amount : '';
+    if (!/^\d{1,10}(?:\.\d{1,2})?$/.test(amount))
+      throw new BadRequestException(
+        'amount must be a non-negative decimal string with at most two decimal places.',
+      );
+    return amount;
   }
 
   private nullableDate(value: unknown, field: string): string | null {

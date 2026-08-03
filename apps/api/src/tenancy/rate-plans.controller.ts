@@ -79,6 +79,58 @@ export class RatePlansController {
     );
   }
 
+  @Get(':ratePlanId/room-price-overrides')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  listRoomPriceOverrides(
+    @Param('ratePlanId') ratePlanId: string,
+    @Req() request: TenantPropertyRequest,
+  ) {
+    return this.ratePlans.listRoomPriceOverrides(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      ratePlanId,
+    );
+  }
+
+  @Patch(':ratePlanId/rooms/:roomId/price-override')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresVerifiedEmail()
+  setRoomPriceOverride(
+    @Param('ratePlanId') ratePlanId: string,
+    @Param('roomId') roomId: string,
+    @Body() body: unknown,
+    @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
+  ) {
+    return this.ratePlans.setRoomPriceOverride(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      ratePlanId,
+      roomId,
+      request.tenantContext.userId,
+      body,
+    );
+  }
+
+  @Delete(':ratePlanId/rooms/:roomId/price-override')
+  @HttpCode(204)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresVerifiedEmail()
+  removeRoomPriceOverride(
+    @Param('ratePlanId') ratePlanId: string,
+    @Param('roomId') roomId: string,
+    @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
+  ) {
+    return this.ratePlans.removeRoomPriceOverride(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      ratePlanId,
+      roomId,
+      request.tenantContext.userId,
+    );
+  }
+
   @Get(':ratePlanId/rules')
   @TenantScoped({ propertyParam: 'propertyId' })
   listRules(@Param('ratePlanId') ratePlanId: string, @Req() request: TenantPropertyRequest) {

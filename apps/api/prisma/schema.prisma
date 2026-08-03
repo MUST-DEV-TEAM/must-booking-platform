@@ -129,6 +129,7 @@ model Property {
   inventoryUnits    InventoryUnit[]
   ratePlans         RatePlan[]
   rateRules         RateRule[]
+  roomPriceOverrides RoomPriceOverride[]
   bookings          Booking[]
   notifications     Notification[]
   payments          Payment[]
@@ -310,6 +311,7 @@ model Room {
   property   Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
   roomType   RoomType @relation(fields: [tenantId, propertyId, roomTypeId], references: [tenantId, propertyId, id], onDelete: Restrict)
   availability RoomAvailability[]
+  priceOverrides RoomPriceOverride[]
 
   @@unique([tenantId, propertyId, id])
   @@unique([tenantId, propertyId, name])
@@ -362,6 +364,7 @@ model RatePlan {
   updatedAt                  DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   property                   Property   @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
   rules                      RateRule[]
+  roomPriceOverrides         RoomPriceOverride[]
   bookings                   Booking[]
 
   @@unique([tenantId, propertyId, id])
@@ -390,6 +393,23 @@ model RateRule {
   @@index([tenantId, propertyId, ratePlanId])
   @@index([tenantId, propertyId, roomTypeId, startsOn, endsOn])
   @@map("rate_rules")
+}
+
+model RoomPriceOverride {
+  tenantId   String   @map("tenant_id") @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  ratePlanId String   @map("rate_plan_id") @db.Uuid
+  roomId     String   @map("room_id") @db.Uuid
+  amount     Decimal  @db.Decimal(12, 2)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property   Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  ratePlan   RatePlan @relation(fields: [tenantId, propertyId, ratePlanId], references: [tenantId, propertyId, id], onDelete: Restrict)
+  room       Room     @relation(fields: [tenantId, propertyId, roomId], references: [tenantId, propertyId, id], onDelete: Restrict)
+
+  @@id([tenantId, propertyId, ratePlanId, roomId])
+  @@index([tenantId, propertyId, roomId])
+  @@map("room_price_overrides")
 }
 
 model Booking {
