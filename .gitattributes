@@ -1,0 +1,16 @@
+# Normalize line endings to LF in the repository and on checkout,
+# regardless of a contributor's local core.autocrlf setting. Prevents
+# spurious "LF will be replaced by CRLF" noise and false-positive
+# `prettier --check` failures caused by CRLF-only working-copy diffs.
+* text=auto eol=lf
+
+# Explicitly binary, never touched by line-ending normalization.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
