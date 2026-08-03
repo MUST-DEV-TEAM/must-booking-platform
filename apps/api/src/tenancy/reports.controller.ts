@@ -11,7 +11,7 @@ export class ReportsController {
 
   @Get()
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
   @RequiresCapability('reports.view')
   get(
     @Query() query: unknown,

@@ -7,8 +7,8 @@ import { Role, Roles } from './roles.decorator';
 @Controller('tenants/:tenantId/properties')
 export class PropertiesController {
   constructor(@Inject(PropertiesService) private readonly properties: PropertiesService) {}
-  @Get() @TenantScoped() list(@Req() r: { tenantContext: { tenantId: string } }) {
-    return this.properties.list(r.tenantContext.tenantId);
+  @Get() @TenantScoped() list(@Req() r: { tenantContext: { tenantId: string; userId: string } }) {
+    return this.properties.list(r.tenantContext.tenantId, r.tenantContext.userId);
   }
   @Post()
   @TenantScoped()

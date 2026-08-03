@@ -15,26 +15,49 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
   const [staff, setStaff] = useState<Staff[]>();
   const [templates, setTemplates] = useState<Template[]>();
   const [usage, setUsage] = useState<Usage>();
+  const [error, setError] = useState('');
   const [email, setEmail] = useState('');
   const [inviteTemplateId, setInviteTemplateId] = useState('');
   const [message, setMessage] = useState('');
   const [templateName, setTemplateName] = useState('');
   const [templateCapabilities, setTemplateCapabilities] = useState<string[]>([]);
-  const load = () =>
+  const load = () => {
+    setError('');
     void Promise.all([
-      fetch(`${base}/properties/${propertyId}/staff`, { credentials: 'include' }).then((r) =>
-        r.json(),
-      ),
-      fetch(`${base}/properties/${propertyId}/role-templates`, { credentials: 'include' }).then(
-        (r) => r.json(),
-      ),
-      fetch(`${base}/plan-usage`, { credentials: 'include' }).then((r) => r.json()),
-    ]).then(([s, t, u]) => {
-      setStaff(s);
-      setTemplates(t);
-      setUsage(u);
-    });
+      fetch(`${base}/properties/${propertyId}/staff`, { credentials: 'include' }),
+      fetch(`${base}/properties/${propertyId}/role-templates`, { credentials: 'include' }),
+      fetch(`${base}/plan-usage`, { credentials: 'include' }),
+    ])
+      .then(async ([staffResponse, templatesResponse, usageResponse]) => {
+        if (!staffResponse.ok || !templatesResponse.ok || !usageResponse.ok)
+          throw new Error('Unable to load staff management data.');
+        return (await Promise.all([
+          staffResponse.json(),
+          templatesResponse.json(),
+          usageResponse.json(),
+        ])) as [Staff[], Template[], Usage];
+      })
+      .then(([nextStaff, nextTemplates, nextUsage]) => {
+        setStaff(nextStaff.map((member) => ({ ...member, overrides: member.overrides ?? [] })));
+        setTemplates(nextTemplates);
+        setUsage(nextUsage);
+      })
+      .catch((reason: unknown) =>
+        setError(
+          reason instanceof Error ? reason.message : 'Unable to load staff management data.',
+        ),
+      );
+  };
   useEffect(load, [base, propertyId]);
+  if ((!staff || !templates || !usage) && error)
+    return (
+      <Stack gap="sm">
+        <Text tone="secondary">{error}</Text>
+        <button className="must-button" onClick={load} type="button">
+          Retry
+        </button>
+      </Stack>
+    );
   if (!staff || !templates || !usage) return <Text>Loading staff…</Text>;
   const capped = usage.usage.staffSeats >= usage.plan.maxStaffSeats;
   const selectedInviteTemplate = inviteTemplateId || templates[0]?.id;

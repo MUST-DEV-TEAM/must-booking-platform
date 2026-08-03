@@ -4,6 +4,7 @@ import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator
 import { Role, Roles } from './roles.decorator';
 import { TenantScoped } from './tenant-context.decorator';
 import { AvailabilityService } from './availability.service';
+import { RequiresCapability } from './capabilities.decorator';
 
 type TenantPropertyRequest = { tenantContext: { tenantId: string; propertyId: string } };
 
@@ -13,6 +14,7 @@ export class AvailabilityController {
 
   @Get('availability')
   @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('calendar.view')
   getAvailability(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
     return this.availability.getAvailability(
       request.tenantContext.tenantId,

@@ -9,6 +9,9 @@ const builtInCapabilities = [
   ['reports.view', 'View property reports'],
   ['guests.manage', 'Manage guests'],
   ['bookings.manage', 'Manage bookings'],
+  ['calendar.view', 'View property calendar'],
+  ['accommodations.manage', 'Manage accommodations'],
+  ['rates.manage', 'Manage rates and pricing'],
   ['payments.refund', 'Refund payments'],
 ] as const;
 
@@ -115,7 +118,9 @@ export class PropertyRoleTemplatesService {
       const allowed =
         template.name === 'Property Manager'
           ? capabilities
-          : capabilities.filter((capability) => capability.key === 'guests.manage');
+          : capabilities.filter((capability) =>
+              ['bookings.manage', 'calendar.view', 'guests.manage'].includes(capability.key),
+            );
       for (const capability of allowed) {
         await tx.$executeRaw`
             INSERT INTO "property_role_template_capabilities" ("tenant_id", "property_id", "role_template_id", "capability_id") VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${template.id}::uuid, ${capability.id}::uuid)

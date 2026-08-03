@@ -1,5 +1,5 @@
 import { AuthRouteGuard } from '../../auth-routing';
-import { DashboardShell } from '../dashboard-shell';
+import { PropertyEntry } from '../property-entry';
 
 export default async function TenantDashboardPage({
   params,
@@ -9,7 +9,7 @@ export default async function TenantDashboardPage({
   const { tenantId } = await params;
   return (
     <AuthRouteGuard audience="tenant">
-      <DashboardShell tenantId={tenantId} />
+      <PropertyEntry tenantId={tenantId} />
     </AuthRouteGuard>
   );
 }

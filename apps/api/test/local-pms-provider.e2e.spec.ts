@@ -233,6 +233,14 @@ describe('LocalPmsProvider', () => {
               kind: 'BUILT_IN',
               capabilities: [
                 {
+                  key: 'bookings.manage',
+                  description: 'Manage bookings',
+                },
+                {
+                  key: 'calendar.view',
+                  description: 'View property calendar',
+                },
+                {
                   key: 'guests.manage',
                   description: 'Manage guests',
                 },
@@ -242,9 +250,12 @@ describe('LocalPmsProvider', () => {
               name: 'Property Manager',
               kind: 'BUILT_IN',
               capabilities: [
+                expect.objectContaining({ key: 'accommodations.manage' }),
                 expect.objectContaining({ key: 'bookings.manage' }),
+                expect.objectContaining({ key: 'calendar.view' }),
                 expect.objectContaining({ key: 'guests.manage' }),
                 expect.objectContaining({ key: 'payments.refund' }),
+                expect.objectContaining({ key: 'rates.manage' }),
                 expect.objectContaining({ key: 'reports.view' }),
                 expect.objectContaining({ key: 'settings.manage' }),
                 expect.objectContaining({ key: 'staff.invite' }),
@@ -1577,20 +1588,25 @@ describe('LocalPmsProvider', () => {
       INSERT INTO tenant_memberships ("tenant_id", "user_id", "role")
       VALUES (${tenantId}::uuid, ${propertyStaffUserId}::uuid, 'STAFF')
     `;
+    await app!
+      .get(PropertyRoleTemplatesService)
+      .createCustomTemplate(tenantId, propertyId, 'Restricted Desk', ['guests.manage']);
     const builtInTemplates = await admin.$queryRaw<Array<{ id: string; name: string }>>`
       SELECT "id", "name" FROM property_role_templates
       WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid
-        AND "name" IN ('Front Desk', 'Property Manager')
+        AND "name" IN ('Front Desk', 'Property Manager', 'Restricted Desk')
     `;
-    const frontDeskTemplateId = builtInTemplates.find(({ name }) => name === 'Front Desk')?.id;
+    const restrictedDeskTemplateId = builtInTemplates.find(
+      ({ name }) => name === 'Restricted Desk',
+    )?.id;
     const propertyManagerTemplateId = builtInTemplates.find(
       ({ name }) => name === 'Property Manager',
     )?.id;
-    expect(frontDeskTemplateId).toEqual(expect.any(String));
+    expect(restrictedDeskTemplateId).toEqual(expect.any(String));
     expect(propertyManagerTemplateId).toEqual(expect.any(String));
     await admin.$executeRaw`
       INSERT INTO property_staff_assignments ("tenant_id", "property_id", "user_id", "role_template_id")
-      VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${propertyStaffUserId}::uuid, ${frontDeskTemplateId}::uuid)
+      VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${propertyStaffUserId}::uuid, ${restrictedDeskTemplateId}::uuid)
     `;
     const propertyStaffCookie = (
       await request(app!.getHttpServer())

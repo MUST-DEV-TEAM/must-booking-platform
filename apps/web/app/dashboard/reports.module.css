@@ -1,0 +1,104 @@
+.page {
+  margin: 0 auto;
+  max-width: 78rem;
+}
+
+.heading {
+  align-items: end;
+  display: flex;
+  gap: var(--must-space-24);
+  justify-content: space-between;
+}
+
+.eyebrow {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-bottom: var(--must-space-8);
+}
+
+.dateRange {
+  align-items: end;
+  display: grid;
+  gap: var(--must-space-8);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: minmax(0, 18rem);
+}
+
+.summaryCard {
+  display: grid;
+  gap: var(--must-space-8);
+}
+
+.summaryCard strong {
+  color: var(--must-color-ink);
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.chart {
+  display: grid;
+  gap: var(--must-space-12);
+}
+
+.chartDescription {
+  margin-bottom: var(--must-space-8);
+}
+
+.revenueCharts {
+  display: grid;
+  gap: var(--must-space-24);
+}
+
+.currencyChart {
+  border-top: 1px solid var(--must-color-border);
+  padding-top: var(--must-space-16);
+}
+
+.currencyTitle {
+  font-weight: 700;
+}
+
+.tableWrap {
+  max-height: 20rem;
+  overflow: auto;
+}
+
+.tableWrap table {
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  width: 100%;
+}
+
+.tableWrap th,
+.tableWrap td {
+  border-top: 1px solid var(--must-color-border);
+  padding: var(--must-space-8);
+  text-align: left;
+}
+
+.tableWrap th {
+  color: var(--must-color-text-secondary);
+  font-size: 0.75rem;
+}
+
+.error {
+  color: var(--must-color-danger);
+}
+
+@media (max-width: 800px) {
+  .heading {
+    align-items: stretch;
+    display: grid;
+  }
+}
+
+@media (max-width: 560px) {
+  .dateRange {
+    grid-template-columns: 1fr;
+  }
+}

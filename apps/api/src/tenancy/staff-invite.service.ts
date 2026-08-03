@@ -87,7 +87,8 @@ export class StaffInviteService implements OnModuleDestroy {
       await this.database.withTenantTransaction({ tenantId: invite.tenantId }, async (tx) => {
         await this.ensureStaffSeatAvailable(tx, invite.tenantId, { email });
         await tx.$executeRaw`
-          INSERT INTO "users" ("id", "email", "password_hash") VALUES (${userId}::uuid, ${email.toLowerCase()}, ${await bcrypt.hash(password, 12)})
+          INSERT INTO "users" ("id", "email", "password_hash", "email_verified_at")
+          VALUES (${userId}::uuid, ${email.toLowerCase()}, ${await bcrypt.hash(password, 12)}, CURRENT_TIMESTAMP)
         `;
         await this.assignInvitation(tx, invite, userId);
       });

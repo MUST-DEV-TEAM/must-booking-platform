@@ -24,7 +24,7 @@ export class PropertiesService {
     @Inject(AuditLogService) private readonly audit: AuditLogService,
     @Inject(PropertyRoleTemplatesService) private readonly templates: PropertyRoleTemplatesService,
   ) {}
-  list(tenantId: string): Promise<Property[]> {
+  list(tenantId: string, userId: string): Promise<Property[]> {
     return this.database.withTenantTransaction(
       { tenantId },
       (tx) =>
@@ -33,7 +33,24 @@ export class PropertiesService {
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
           advance_booking_days AS "advanceBookingDays", public_website_origin AS "publicWebsiteOrigin",
           json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
-          FROM properties ORDER BY created_at`,
+          FROM properties p
+          WHERE EXISTS (
+            SELECT 1
+            FROM tenant_memberships tm
+            WHERE tm.tenant_id = p.tenant_id
+              AND tm.user_id = ${userId}::uuid
+              AND (
+                tm.role IN ('OWNER', 'ADMIN')
+                OR EXISTS (
+                  SELECT 1
+                  FROM property_staff_assignments psa
+                  WHERE psa.tenant_id = p.tenant_id
+                    AND psa.property_id = p.id
+                    AND psa.user_id = ${userId}::uuid
+                )
+              )
+          )
+          ORDER BY p.created_at`,
     );
   }
   async create(tenantId: string, actorUserId: string, body: unknown): Promise<Property> {

@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto';
 import type { GuestPaymentMethod } from '@must/domain-contracts';
 
 import { PublicTenantScoped } from '../tenancy/tenant-context.decorator';
+import { RequiresCapability } from '../tenancy/capabilities.decorator';
 import { Role, Roles } from '../tenancy/roles.decorator';
 import { TenantScoped } from '../tenancy/tenant-context.decorator';
 import { LocalPmsProvider } from './local-pms.provider';
@@ -40,6 +41,7 @@ export class BookingController {
   @Get()
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.manage')
   list(@Req() request: { tenantContext: { tenantId: string; propertyId: string } }) {
     return this.projections.list(request.tenantContext.tenantId, request.tenantContext.propertyId);
   }

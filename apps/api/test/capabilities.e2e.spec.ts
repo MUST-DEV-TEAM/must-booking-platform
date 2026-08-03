@@ -76,13 +76,19 @@ describe('property staff capabilities', () => {
       ORDER BY prt."name"
     `;
     expect(seededCapabilities).toEqual([
-      { name: 'Front Desk', capabilities: ['guests.manage'] },
+      {
+        name: 'Front Desk',
+        capabilities: ['bookings.manage', 'calendar.view', 'guests.manage'],
+      },
       {
         name: 'Property Manager',
         capabilities: [
+          'accommodations.manage',
           'bookings.manage',
+          'calendar.view',
           'guests.manage',
           'payments.refund',
+          'rates.manage',
           'reports.view',
           'settings.manage',
           'staff.invite',

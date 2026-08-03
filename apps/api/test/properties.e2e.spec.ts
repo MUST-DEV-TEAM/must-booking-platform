@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import * as bcrypt from 'bcrypt';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
@@ -23,6 +24,7 @@ describe('properties', () => {
   let app: INestApplication;
   let tenantId: string;
   let userId: string;
+  let staffUserId: string;
   let cookie: string;
   let planId: string;
   const email = `properties-${randomUUID()}@example.test`;
@@ -68,6 +70,7 @@ describe('properties', () => {
       await admin.$executeRaw`DELETE FROM organizations WHERE id=${tenantId}::uuid`;
     }
     if (userId) await admin.$executeRaw`DELETE FROM users WHERE id=${userId}::uuid`;
+    if (staffUserId) await admin.$executeRaw`DELETE FROM users WHERE id=${staffUserId}::uuid`;
     if (planId) await admin.$executeRaw`DELETE FROM plans WHERE id=${planId}::uuid`;
     await app.close();
     await admin.$disconnect();
@@ -221,6 +224,50 @@ describe('properties', () => {
         expect.objectContaining({ id: created.body.id, name: 'Second Property' }),
       ]),
     );
+    staffUserId = randomUUID();
+    const staffEmail = `property-list-staff-${staffUserId}@example.test`;
+    const staffPassword = 'correct-horse-battery-staple';
+    await admin.$executeRaw`
+      INSERT INTO users (id, email, password_hash, email_verified_at)
+      VALUES (${staffUserId}::uuid, ${staffEmail}, ${await bcrypt.hash(staffPassword, 12)}, CURRENT_TIMESTAMP)
+    `;
+    await admin.$executeRaw`
+      INSERT INTO tenant_memberships (tenant_id, user_id, role)
+      VALUES (${tenantId}::uuid, ${staffUserId}::uuid, 'STAFF')
+    `;
+    const frontDeskTemplate = await admin.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM property_role_templates
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${firstPropertyId}::uuid
+        AND name = 'Front Desk'
+    `;
+    await admin.$executeRaw`
+      INSERT INTO property_staff_assignments (tenant_id, property_id, user_id, role_template_id)
+      VALUES (${tenantId}::uuid, ${firstPropertyId}::uuid, ${staffUserId}::uuid, ${frontDeskTemplate[0].id}::uuid)
+    `;
+    const staffCookie = (
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: staffEmail, password: staffPassword })
+        .expect(201)
+    ).headers['set-cookie'][0] as string;
+    await request(app.getHttpServer())
+      .get(`/tenants/${tenantId}/properties`)
+      .set('Cookie', staffCookie)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toHaveLength(1);
+        expect(response.body[0]).toMatchObject({ id: firstPropertyId, name: 'Updated Property' });
+      });
+    await request(app.getHttpServer())
+      .get(`/tenants/${tenantId}/properties`)
+      .set('Cookie', cookie)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.map((property: { id: string }) => property.id)).toEqual([
+          firstPropertyId,
+          created.body.id,
+        ]);
+      });
     await request(app.getHttpServer())
       .post(`/tenants/${randomUUID()}/properties`)
       .set('Cookie', cookie)

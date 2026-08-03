@@ -134,6 +134,15 @@ describe('Staff', () => {
     expect(c.textContent).toContain('Upgrade to unlock more staff seats.');
     await act(async () => r.unmount());
   });
+  it('shows a retryable error when staff data cannot be loaded', async () => {
+    const fetch = vi.fn(() => Promise.resolve(new Response('Forbidden', { status: 403 })));
+    vi.stubGlobal('fetch', fetch);
+    const { c, r } = await mount(fetch as never);
+
+    expect(c.textContent).toContain('Unable to load staff management data.');
+    expect(c.textContent).toContain('Retry');
+    await act(async () => r.unmount());
+  });
 });
 function mock(u: { staffSeats: number; maxStaffSeats: number }) {
   const f = vi.fn((url: string) =>
