@@ -199,6 +199,20 @@ describe('tenant dashboard end-to-end flow', () => {
     expect(walkIn.body).toMatchObject({ ok: true, value: { status: 'CONFIRMED' } });
     const bookingId = walkIn.body.value.id as string;
 
+    const notifications = await request(app.getHttpServer())
+      .get(`${propertyUrl}/notifications?page=1&pageSize=20`)
+      .set('Cookie', ownerCookie)
+      .expect(200);
+    expect(notifications.body.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'BOOKING_CREATED',
+          readAt: null,
+          payload: expect.objectContaining({ bookingId }),
+        }),
+      ]),
+    );
+
     await request(app.getHttpServer())
       .post(`${propertyUrl}/bookings/${bookingId}/manual-payment`)
       .set('Cookie', ownerCookie)
@@ -255,13 +269,17 @@ describe('tenant dashboard end-to-end flow', () => {
     ) as { id?: string; capabilities?: Array<{ key: string }> } | undefined;
     expect(bookingsOnlyTemplate).toMatchObject({ capabilities: [{ key: 'bookings.manage' }] });
     if (!bookingsOnlyTemplate?.id) throw new Error('Expected the custom role template.');
+    const frontDeskTemplate = templates.body.find(
+      (template: { name: string }) => template.name === 'Front Desk',
+    ) as { id?: string } | undefined;
+    if (!frontDeskTemplate?.id) throw new Error('Expected the built-in Front Desk role template.');
 
     const invitation = await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/staff-invitations`)
       .set('Cookie', ownerCookie)
       .send({
         email: staffEmail,
-        assignments: [{ propertyId, roleTemplateId: bookingsOnlyTemplate.id }],
+        assignments: [{ propertyId, roleTemplateId: frontDeskTemplate.id }],
       })
       .expect(201);
     await request(app.getHttpServer())
@@ -275,6 +293,26 @@ describe('tenant dashboard end-to-end flow', () => {
     expect(staffLogin.body.user).toMatchObject({ email: staffEmail, emailVerified: true });
     staffCookie = staffLogin.headers['set-cookie'][0] as string;
     staffId = staffLogin.body.user.id;
+
+    await request(app.getHttpServer())
+      .put(`${propertyUrl}/staff/${staffId}`)
+      .set('Cookie', ownerCookie)
+      .send({ roleTemplateId: bookingsOnlyTemplate.id })
+      .expect(204);
+    const assignedStaff = await request(app.getHttpServer())
+      .get(`${propertyUrl}/staff`)
+      .set('Cookie', ownerCookie)
+      .expect(200);
+    expect(assignedStaff.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          userId: staffId,
+          email: staffEmail,
+          roleTemplateId: bookingsOnlyTemplate.id,
+          roleTemplateName: templateName,
+        }),
+      ]),
+    );
 
     await request(app.getHttpServer())
       .get(`${propertyUrl}/capabilities/mine`)
@@ -294,14 +332,6 @@ describe('tenant dashboard end-to-end flow', () => {
       })
       .expect(201);
     expect(staffBooking.body).toMatchObject({ ok: true, value: { status: 'CONFIRMED' } });
-
-    const notifications = await request(app.getHttpServer())
-      .get(`${propertyUrl}/notifications?page=1&pageSize=20`)
-      .set('Cookie', staffCookie)
-      .expect(200);
-    expect(notifications.body.items).toEqual(
-      expect.arrayContaining([expect.objectContaining({ type: 'BOOKING_CREATED', readAt: null })]),
-    );
 
     const rejectedRoutes = [
       () => request(app.getHttpServer()).get(`${propertyUrl}/staff`).set('Cookie', staffCookie),
