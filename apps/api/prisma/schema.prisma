@@ -312,6 +312,7 @@ model Room {
   roomType   RoomType @relation(fields: [tenantId, propertyId, roomTypeId], references: [tenantId, propertyId, id], onDelete: Restrict)
   availability RoomAvailability[]
   priceOverrides RoomPriceOverride[]
+  bookings Booking[]
 
   @@unique([tenantId, propertyId, id])
   @@unique([tenantId, propertyId, name])
@@ -417,6 +418,7 @@ model Booking {
   tenantId                   String        @map("tenant_id") @db.Uuid
   propertyId                 String        @map("property_id") @db.Uuid
   roomTypeId                 String        @map("room_type_id") @db.Uuid
+  roomId                     String?       @map("room_id") @db.Uuid
   guestId                    String?       @map("guest_id") @db.Uuid
   guestSessionId             String?       @map("guest_session_id") @db.Uuid
   guestReturnUrl             String?       @map("guest_return_url") @db.VarChar(2000)
@@ -435,6 +437,7 @@ model Booking {
   updatedAt                  DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   property                   Property      @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
   roomType                   RoomType      @relation(fields: [tenantId, propertyId, roomTypeId], references: [tenantId, propertyId, id], onDelete: Restrict)
+  room                       Room?         @relation(fields: [tenantId, propertyId, roomId], references: [tenantId, propertyId, id], onDelete: Restrict)
   ratePlan                   RatePlan      @relation(fields: [tenantId, propertyId, ratePlanId], references: [tenantId, propertyId, id], onDelete: Restrict)
   payments                   Payment[]
   paymentProviderSessions    PaymentProviderSession[]
@@ -443,6 +446,7 @@ model Booking {
   @@unique([tenantId, propertyId, externalReference])
   @@index([tenantId, propertyId, status])
   @@index([tenantId, propertyId, roomTypeId, startsOn, endsOn])
+  @@index([tenantId, propertyId, roomId, startsOn, endsOn])
   @@index([tenantId, propertyId, guestId])
   @@map("bookings")
 }

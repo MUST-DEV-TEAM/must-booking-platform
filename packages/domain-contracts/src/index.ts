@@ -103,6 +103,7 @@ export interface Booking {
   tenantId: string;
   propertyId: string;
   roomTypeId: string;
+  roomId: string | null;
   guestId: string;
   ratePlanId: string;
   startsOn: string;
@@ -152,6 +153,7 @@ export interface CreateBookingCommand {
   idempotencyKey: string;
   externalReference: string;
   roomTypeId: string;
+  roomId?: string;
   ratePlanId: string;
   startsOn: string;
   endsOn: string;

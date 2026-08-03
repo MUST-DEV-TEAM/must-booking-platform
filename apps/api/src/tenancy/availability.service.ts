@@ -34,6 +34,11 @@ export type InventoryBookedUnitsInput = {
   endsOn: string;
   units: number;
 };
+export type RoomBookedInput = {
+  roomId: string;
+  startsOn: string;
+  endsOn: string;
+};
 
 @Injectable()
 export class AvailabilityService {
@@ -125,27 +130,11 @@ export class AvailabilityService {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       await this.requireIndividualRoomMode(tx, propertyId);
       await this.requireRoom(tx, tenantId, propertyId, roomId);
-      const rows = await tx.$queryRaw<Array<{ isAvailable: boolean | null }>>`
-        WITH requested_nights AS (
-          SELECT generate_series(
-            ${input.startsOn}::date,
-            ${input.endsOn}::date - 1,
-            INTERVAL '1 day'
-          )::date AS stays_on
-        )
-        SELECT bool_and(COALESCE(room_availability.is_available, true)) AS "isAvailable"
-        FROM requested_nights
-        LEFT JOIN room_availability
-          ON room_availability.tenant_id = ${tenantId}::uuid
-          AND room_availability.property_id = ${propertyId}::uuid
-          AND room_availability.room_id = ${roomId}::uuid
-          AND room_availability.stays_on = requested_nights.stays_on
-      `;
       return {
         roomId,
         startsOn: input.startsOn,
         endsOn: input.endsOn,
-        isAvailable: rows[0]?.isAvailable ?? false,
+        isAvailable: await this.roomIsAvailable(tx, tenantId, propertyId, { roomId, ...input }),
       };
     });
   }
@@ -207,6 +196,29 @@ export class AvailabilityService {
     const inventoryLockKey = `${tenantId}:${propertyId}:${roomTypeId}`;
     await tx.$executeRaw`
       SELECT pg_advisory_xact_lock(hashtextextended(${inventoryLockKey}, 0))
+    `;
+  }
+
+  async reserveRoom(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    input: RoomBookedInput,
+  ): Promise<boolean> {
+    const reservation = this.roomBookedInput(input);
+    await this.lockRoom(tx, tenantId, propertyId, reservation.roomId);
+    return this.roomIsAvailable(tx, tenantId, propertyId, reservation);
+  }
+
+  async lockRoom(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    roomId: string,
+  ): Promise<void> {
+    const roomLockKey = `${tenantId}:${propertyId}:${roomId}`;
+    await tx.$executeRaw`
+      SELECT pg_advisory_xact_lock(hashtextextended(${roomLockKey}, 0))
     `;
   }
 
@@ -302,6 +314,53 @@ export class AvailabilityService {
     if (!Number.isInteger(input.units) || input.units < 1)
       throw new BadRequestException('units must be a positive integer.');
     return { ...range, units: input.units };
+  }
+
+  private roomBookedInput(input: RoomBookedInput): RoomBookedInput {
+    if (!input.roomId) throw new BadRequestException('roomId is required.');
+    return { roomId: input.roomId, ...this.rangeInput(input) };
+  }
+
+  private async roomIsAvailable(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    input: RoomBookedInput,
+  ): Promise<boolean> {
+    const rows = await tx.$queryRaw<Array<{ isAvailable: boolean }>>`
+      SELECT
+        NOT EXISTS (
+          SELECT 1
+          FROM room_availability
+          WHERE tenant_id = ${tenantId}::uuid
+            AND property_id = ${propertyId}::uuid
+            AND room_id = ${input.roomId}::uuid
+            AND stays_on >= ${input.startsOn}::date
+            AND stays_on < ${input.endsOn}::date
+            AND is_available = false
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM bookings
+          WHERE tenant_id = ${tenantId}::uuid
+            AND property_id = ${propertyId}::uuid
+            AND room_id = ${input.roomId}::uuid
+            AND starts_on < ${input.endsOn}::date
+            AND ends_on > ${input.startsOn}::date
+            AND status IN (
+              'PAYMENT_PENDING'::"BookingStatus",
+              'PAYMENT_NOT_REQUIRED'::"BookingStatus",
+              'PMS_CREATION_PENDING'::"BookingStatus",
+              'PMS_CONFIRMATION_PENDING'::"BookingStatus",
+              'CONFIRMED'::"BookingStatus",
+              'PAYMENT_FAILED'::"BookingStatus",
+              'PMS_UNKNOWN_RESULT'::"BookingStatus",
+              'PMS_REJECTED'::"BookingStatus",
+              'MANUAL_REVIEW'::"BookingStatus"
+            )
+        ) AS "isAvailable"
+    `;
+    return rows[0]?.isAvailable ?? false;
   }
 
   private nightCount(startsOn: string, endsOn: string): number {

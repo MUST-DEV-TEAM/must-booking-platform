@@ -44,6 +44,7 @@ type BookingRow = {
   tenantId: string;
   propertyId: string;
   roomTypeId: string;
+  roomId: string | null;
   guestId: string | null;
   guestSessionId: string | null;
   ratePlanId: string;
@@ -197,13 +198,21 @@ export class LocalPmsProvider implements PmsProvider {
     try {
       const result = await this.database.withTenantTransaction(context, async (tx) => {
         // Serialize the complete booking transaction before it obtains booking or guest row locks.
-        // reserveBookedUnits takes this same transaction-scoped lock again before its range update.
-        await this.availability.lockBookedUnits(
-          tx,
-          context.tenantId,
-          context.propertyId,
-          command.roomTypeId,
-        );
+        // The respective reservation method takes the same transaction-scoped lock again.
+        if (command.roomId)
+          await this.availability.lockRoom(
+            tx,
+            context.tenantId,
+            context.propertyId,
+            command.roomId,
+          );
+        else
+          await this.availability.lockBookedUnits(
+            tx,
+            context.tenantId,
+            context.propertyId,
+            command.roomTypeId,
+          );
         return this.withIdempotency(
           tx,
           context,
@@ -220,6 +229,8 @@ export class LocalPmsProvider implements PmsProvider {
               command.total.currency,
             );
             if (catalogError) return catalogError;
+            const roomSelectionError = await this.validateRoomSelection(tx, context, command);
+            if (roomSelectionError) return roomSelectionError;
             const paymentMethod = await this.paymentMethod(tx, context, command);
             if (!paymentMethod.ok) return paymentMethod;
             const resolvedGuest = await this.resolveGuest(tx, context.tenantId, command.guest);
@@ -228,11 +239,12 @@ export class LocalPmsProvider implements PmsProvider {
 
             const inserted = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO bookings (
-          tenant_id, property_id, room_type_id, guest_id, external_reference,
+          tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
           guest_session_id, status, payment_method, starts_on, ends_on, rate_plan_id, total_amount
         ) VALUES (
           ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${command.roomTypeId}::uuid,
-          ${guestId}::uuid, ${command.externalReference}, ${command.quoteSessionId ?? null}::uuid,
+          ${command.roomId ?? null}::uuid, ${guestId}::uuid, ${command.externalReference},
+          ${command.quoteSessionId ?? null}::uuid,
           ${BookingStatus.DRAFT}::"BookingStatus",
           ${paymentMethod.value}::"BookingPaymentMethod",
           ${command.startsOn}::date, ${command.endsOn}::date, ${command.ratePlanId}::uuid,
@@ -277,6 +289,7 @@ export class LocalPmsProvider implements PmsProvider {
                 tenantId: context.tenantId,
                 propertyId: context.propertyId,
                 roomTypeId: command.roomTypeId,
+                roomId: command.roomId,
                 ratePlanId: command.ratePlanId,
                 startsOn: command.startsOn,
                 endsOn: command.endsOn,
@@ -293,17 +306,23 @@ export class LocalPmsProvider implements PmsProvider {
                 return this.failure(quoteError.code, quoteError.message);
               }
             }
-            const reserved = await this.availability.reserveBookedUnits(
-              tx,
-              context.tenantId,
-              context.propertyId,
-              {
-                roomTypeId: command.roomTypeId,
-                startsOn: command.startsOn,
-                endsOn: command.endsOn,
-                units: 1,
-              },
-            );
+            const reserved = command.roomId
+              ? await this.availability.reserveRoom(tx, context.tenantId, context.propertyId, {
+                  roomId: command.roomId,
+                  startsOn: command.startsOn,
+                  endsOn: command.endsOn,
+                })
+              : await this.availability.reserveBookedUnits(
+                  tx,
+                  context.tenantId,
+                  context.propertyId,
+                  {
+                    roomTypeId: command.roomTypeId,
+                    startsOn: command.startsOn,
+                    endsOn: command.endsOn,
+                    units: 1,
+                  },
+                );
             if (!reserved) {
               await this.transition(
                 tx,
@@ -314,7 +333,9 @@ export class LocalPmsProvider implements PmsProvider {
               );
               return this.failure(
                 'AVAILABILITY_FAILED',
-                'Inventory is no longer available for the requested stay.',
+                command.roomId
+                  ? 'The selected room is no longer available for the requested stay.'
+                  : 'Inventory is no longer available for the requested stay.',
               );
             }
 
@@ -532,12 +553,13 @@ export class LocalPmsProvider implements PmsProvider {
     ) {
       return false;
     }
-    await this.availability.releaseBookedUnits(tx, context.tenantId, context.propertyId, {
-      roomTypeId: row.roomTypeId,
-      startsOn: row.startsOn,
-      endsOn: row.endsOn,
-      units: 1,
-    });
+    if (!row.roomId)
+      await this.availability.releaseBookedUnits(tx, context.tenantId, context.propertyId, {
+        roomTypeId: row.roomTypeId,
+        startsOn: row.startsOn,
+        endsOn: row.endsOn,
+        units: 1,
+      });
     await this.transition(tx, context, bookingId, row.status, BookingStatus.EXPIRED);
     await this.audit.recordInTransaction(tx, {
       tenantId: context.tenantId,
@@ -597,9 +619,10 @@ export class LocalPmsProvider implements PmsProvider {
           }
 
           if (
-            row.status === BookingStatus.PAYMENT_PENDING ||
-            row.status === BookingStatus.PMS_CONFIRMATION_PENDING ||
-            row.status === BookingStatus.CONFIRMED
+            !row.roomId &&
+            (row.status === BookingStatus.PAYMENT_PENDING ||
+              row.status === BookingStatus.PMS_CONFIRMATION_PENDING ||
+              row.status === BookingStatus.CONFIRMED)
           ) {
             await this.availability.releaseBookedUnits(tx, context.tenantId, context.propertyId, {
               roomTypeId: row.roomTypeId,
@@ -757,6 +780,43 @@ export class LocalPmsProvider implements PmsProvider {
         );
   }
 
+  private async validateRoomSelection(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    command: CreateBookingCommand,
+  ): Promise<Result<Booking> | null> {
+    const properties = await tx.$queryRaw<Array<{ bookingMode: string }>>`
+      SELECT booking_mode AS "bookingMode"
+      FROM properties
+      WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
+    `;
+    const property = properties[0];
+    if (!property) return this.failure('PROPERTY_NOT_FOUND', 'Property was not found.');
+    if (property.bookingMode === 'ROOM_TYPE_ONLY' && command.roomId)
+      return this.failure(
+        'ROOM_ID_NOT_ALLOWED',
+        'A specific room cannot be selected for a room-type-only property.',
+      );
+    if (property.bookingMode === 'INDIVIDUAL_ROOM_ONLY' && !command.roomId)
+      return this.failure(
+        'ROOM_ID_REQUIRED',
+        'A specific room is required for an individual-room-only property.',
+      );
+    if (!command.roomId) return null;
+
+    const rooms = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id
+      FROM rooms
+      WHERE tenant_id = ${context.tenantId}::uuid
+        AND property_id = ${context.propertyId}::uuid
+        AND id = ${command.roomId}::uuid
+        AND room_type_id = ${command.roomTypeId}::uuid
+    `;
+    return rooms[0]
+      ? null
+      : this.failure('ROOM_NOT_FOUND', 'Room was not found for the requested room type.');
+  }
+
   private async cancellationPolicy(
     tx: TenantTransaction,
     context: PmsProviderContext,
@@ -874,7 +934,7 @@ export class LocalPmsProvider implements PmsProvider {
   ): Promise<BookingRow | null> {
     const rows = await tx.$queryRaw<BookingRow[]>`
       SELECT b.id, b.tenant_id AS "tenantId", b.property_id AS "propertyId",
-        b.room_type_id AS "roomTypeId", b.guest_id AS "guestId",
+        b.room_type_id AS "roomTypeId", b.room_id AS "roomId", b.guest_id AS "guestId",
         b.guest_session_id AS "guestSessionId", b.rate_plan_id AS "ratePlanId",
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
         b.payment_method AS "paymentMethod",
@@ -896,7 +956,7 @@ export class LocalPmsProvider implements PmsProvider {
   ): Promise<BookingRow | null> {
     const rows = await tx.$queryRaw<BookingRow[]>`
       SELECT b.id, b.tenant_id AS "tenantId", b.property_id AS "propertyId",
-        b.room_type_id AS "roomTypeId", b.guest_id AS "guestId", b.rate_plan_id AS "ratePlanId",
+        b.room_type_id AS "roomTypeId", b.room_id AS "roomId", b.guest_id AS "guestId", b.rate_plan_id AS "ratePlanId",
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
         b.payment_method AS "paymentMethod",
         b.total_amount::text AS "totalAmount", rp.currency, b.external_reference AS "externalReference",
@@ -916,6 +976,7 @@ export class LocalPmsProvider implements PmsProvider {
       tenantId: row.tenantId,
       propertyId: row.propertyId,
       roomTypeId: row.roomTypeId,
+      roomId: row.roomId,
       guestId: row.guestId,
       ratePlanId: row.ratePlanId,
       startsOn: row.startsOn,
