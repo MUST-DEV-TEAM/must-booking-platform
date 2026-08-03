@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, Req } from '@nestjs/common';
+import { Controller, Get, Inject, Query, Req } from '@nestjs/common';
 
 import { PublicTenantScoped } from './tenant-context.decorator';
 import { PublicCatalogService } from './public-catalog.service';
@@ -9,10 +9,14 @@ export class PublicCatalogController {
 
   @Get('catalog')
   @PublicTenantScoped({ propertyParam: 'propertyId' })
-  getCatalog(@Req() request: { tenantContext: { tenantId: string; propertyId: string } }) {
+  getCatalog(
+    @Query() query: unknown,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string } },
+  ) {
     return this.catalog.getCatalog(
       request.tenantContext.tenantId,
       request.tenantContext.propertyId,
+      query,
     );
   }
 }

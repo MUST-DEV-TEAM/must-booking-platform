@@ -1,39 +1,57 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 
 import { TenantDatabaseService } from './tenant-database.service';
 
-export type PublicCatalog = {
-  paymentMethods: Array<'stripe' | 'pokpay' | 'pay_at_hotel'>;
-  roomTypes: Array<{
+type PublicCatalogRoom = {
+  id: string;
+  name: string;
+  isAvailable: boolean;
+};
+
+type PublicCatalogRoomType = {
+  id: string;
+  name: string;
+  description: string | null;
+  maxOccupancy: number;
+  amenities: Array<{ id: string; name: string }>;
+  ratePlans: Array<{
     id: string;
     name: string;
-    description: string | null;
-    maxOccupancy: number;
-    amenities: Array<{ id: string; name: string }>;
-    ratePlans: Array<{
-      id: string;
-      name: string;
-      currency: string;
-      freeCancellationUntilHours: number | null;
-    }>;
+    currency: string;
+    freeCancellationUntilHours: number | null;
   }>;
+};
+
+type PublicCatalogIndividualRoomType = PublicCatalogRoomType & {
+  rooms: PublicCatalogRoom[];
+};
+
+export type PublicCatalog = {
+  paymentMethods: Array<'stripe' | 'pokpay' | 'pay_at_hotel'>;
+  roomTypes: PublicCatalogRoomType[] | PublicCatalogIndividualRoomType[];
+  bookingMode?: 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
 };
 
 @Injectable()
 export class PublicCatalogService {
   constructor(@Inject(TenantDatabaseService) private readonly database: TenantDatabaseService) {}
 
-  async getCatalog(tenantId: string, propertyId: string): Promise<PublicCatalog> {
+  async getCatalog(tenantId: string, propertyId: string, query: unknown): Promise<PublicCatalog> {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const properties = await tx.$queryRaw<
-        Array<{ stripeEnabled: boolean; pokpayEnabled: boolean; payAtHotelEnabled: boolean }>
+        Array<{
+          stripeEnabled: boolean;
+          pokpayEnabled: boolean;
+          payAtHotelEnabled: boolean;
+          bookingMode: 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
+        }>
       >`
         SELECT stripe_enabled AS "stripeEnabled", pokpay_enabled AS "pokpayEnabled",
-          pay_at_hotel_enabled AS "payAtHotelEnabled"
+          pay_at_hotel_enabled AS "payAtHotelEnabled", booking_mode AS "bookingMode"
         FROM properties
         WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
       `;
-      const roomTypes = await tx.$queryRaw<PublicCatalog['roomTypes']>`
+      const roomTypes = await tx.$queryRaw<PublicCatalogRoomType[]>`
         SELECT
           rt.id,
           rt.name,
@@ -78,7 +96,74 @@ export class PublicCatalogService {
             ...(property.payAtHotelEnabled ? (['pay_at_hotel'] as const) : []),
           ]
         : [];
-      return { roomTypes, paymentMethods };
+      if (!property || property.bookingMode === 'ROOM_TYPE_ONLY')
+        return { roomTypes, paymentMethods };
+
+      const range = this.availabilityRange(query);
+      const rooms = await tx.$queryRaw<Array<PublicCatalogRoom & { roomTypeId: string }>>`
+        SELECT r.id, r.name, r.room_type_id AS "roomTypeId",
+          NOT EXISTS (
+            SELECT 1
+            FROM room_availability ra
+            WHERE ra.tenant_id = ${tenantId}::uuid
+              AND ra.property_id = ${propertyId}::uuid
+              AND ra.room_id = r.id
+              AND ra.stays_on >= ${range.startsOn}::date
+              AND ra.stays_on < ${range.endsOn}::date
+              AND ra.is_available = false
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM bookings b
+            WHERE b.tenant_id = ${tenantId}::uuid
+              AND b.property_id = ${propertyId}::uuid
+              AND b.room_id = r.id
+              AND b.starts_on < ${range.endsOn}::date
+              AND b.ends_on > ${range.startsOn}::date
+              AND b.status IN (
+                'PAYMENT_PENDING'::"BookingStatus",
+                'PAYMENT_NOT_REQUIRED'::"BookingStatus",
+                'PMS_CREATION_PENDING'::"BookingStatus",
+                'PMS_CONFIRMATION_PENDING'::"BookingStatus",
+                'CONFIRMED'::"BookingStatus",
+                'PAYMENT_FAILED'::"BookingStatus",
+                'PMS_UNKNOWN_RESULT'::"BookingStatus",
+                'PMS_REJECTED'::"BookingStatus",
+                'MANUAL_REVIEW'::"BookingStatus"
+              )
+          ) AS "isAvailable"
+        FROM rooms r
+        WHERE r.tenant_id = ${tenantId}::uuid AND r.property_id = ${propertyId}::uuid
+        ORDER BY r.created_at
+      `;
+      const roomsByType = new Map<string, PublicCatalogRoom[]>();
+      for (const { roomTypeId, ...room } of rooms)
+        roomsByType.set(roomTypeId, [...(roomsByType.get(roomTypeId) ?? []), room]);
+      return {
+        bookingMode: property.bookingMode,
+        roomTypes: roomTypes.map((roomType) => ({
+          ...roomType,
+          rooms: roomsByType.get(roomType.id) ?? [],
+        })),
+        paymentMethods,
+      };
     });
+  }
+
+  private availabilityRange(query: unknown): { startsOn: string; endsOn: string } {
+    const value = (query ?? {}) as Record<string, unknown>;
+    const startsOn = this.date(value.startsOn, 'startsOn');
+    const endsOn = this.date(value.endsOn, 'endsOn');
+    if (endsOn <= startsOn) throw new BadRequestException('endsOn must be after startsOn.');
+    return { startsOn, endsOn };
+  }
+
+  private date(value: unknown, field: string): string {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value))
+      throw new BadRequestException(`${field} must be an ISO date (YYYY-MM-DD).`);
+    const date = new Date(`${value}T00:00:00Z`);
+    if (Number.isNaN(date.valueOf()) || date.toISOString().slice(0, 10) !== value)
+      throw new BadRequestException(`${field} must be an ISO date (YYYY-MM-DD).`);
+    return value;
   }
 }

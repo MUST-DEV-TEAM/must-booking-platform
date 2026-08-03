@@ -114,6 +114,12 @@ describe('rooms', () => {
       .expect(201);
     const roomId = created.body.id as string;
 
+    await request(app.getHttpServer())
+      .post(`/tenants/${tenantId}/properties/${propertyId}/room-types/${roomTypeId}/rooms`)
+      .set('Cookie', cookie)
+      .send({ name: 'Room 101' })
+      .expect(409);
+
     const list = await request(app.getHttpServer())
       .get(`/tenants/${tenantId}/properties/${propertyId}/room-types/${roomTypeId}/rooms`)
       .set('Cookie', cookie)
