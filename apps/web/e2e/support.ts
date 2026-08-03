@@ -51,11 +51,9 @@ export function credentials(label: string): Credentials {
 }
 
 export async function signup(page: Page, account: Credentials): Promise<void> {
-  await page.goto('/');
+  await page.goto('/signup');
   await page.getByLabel('Organization name').fill(account.organizationName);
   await page.getByLabel('First property name').fill(account.propertyName);
-  await page.getByLabel('Property address').fill('1 E2E Test Street, Tirane');
-  await page.getByLabel('Property timezone').fill('Europe/Tirane');
   await page.getByLabel('Email address').fill(account.email);
   await page.getByLabel('Password', { exact: true }).fill(account.password);
   await page.getByRole('button', { name: 'Create free workspace' }).click();
@@ -166,9 +164,18 @@ export async function membershipCount(page: Page): Promise<number> {
 }
 
 export async function cleanupE2EData(): Promise<void> {
+  const emails = [...createdEmails];
+  if (emails.length > 0) {
+    const memberships = await database.$queryRaw<Array<{ tenantId: string }>>`
+      SELECT DISTINCT "tenant_id" AS "tenantId"
+      FROM "tenant_memberships"
+      WHERE "user_id" IN (SELECT "id" FROM "users" WHERE "email" IN (${Prisma.join(emails)}))
+    `;
+    for (const membership of memberships) createdTenantIds.add(membership.tenantId);
+  }
+
   for (const tenantId of createdTenantIds) await deleteTenant(tenantId);
 
-  const emails = [...createdEmails];
   if (emails.length > 0) {
     await database.$executeRaw`
       DELETE FROM "audit_logs"
@@ -190,6 +197,7 @@ export async function resetSignupRateLimit(): Promise<void> {
 export async function closeE2EDatabase(): Promise<void> {
   await database.$disconnect();
   if (redis.isOpen) await redis.quit();
+  redisConnection = undefined;
 }
 
 export async function capturedEmailLink(
@@ -227,6 +235,48 @@ function findLink(message: EmailMessage, expectedPath: string): string | undefin
 
 async function deleteTenant(tenantId: string): Promise<void> {
   await database.$transaction(async (transaction) => {
+    await transaction.$executeRaw`
+      DELETE FROM "integration_operations" WHERE "tenant_id" = ${tenantId}::uuid
+    `;
+    await transaction.$executeRaw`
+      DELETE FROM "payments" WHERE "tenant_id" = ${tenantId}::uuid
+    `;
+    await transaction.$executeRaw`
+      DELETE FROM "payment_provider_sessions" WHERE "tenant_id" = ${tenantId}::uuid
+    `;
+    await transaction.$executeRaw`DELETE FROM "bookings" WHERE "tenant_id" = ${tenantId}::uuid`;
+    await transaction.$executeRaw`
+      DELETE FROM "notifications" WHERE "tenant_id" = ${tenantId}::uuid
+    `;
+    await transaction.$executeRaw`DELETE FROM "guests" WHERE "tenant_id" = ${tenantId}::uuid`;
+    await transaction.$executeRaw`
+      DELETE FROM "availability_block_room_types" WHERE "tenant_id" = ${tenantId}::uuid
+    `;
+    await transaction.$executeRaw`
+      DELETE FROM "availability_block_rooms" WHERE "tenant_id" = ${tenantId}::uuid
+    `;
+    await transaction.$executeRaw`
+      DELETE FROM "availability_blocks" WHERE "tenant_id" = ${tenantId}::uuid
+    `;
+    await transaction.$executeRaw`
+      DELETE FROM "room_availability" WHERE "tenant_id" = ${tenantId}::uuid
+    `;
+    await transaction.$executeRaw`
+      DELETE FROM "inventory_units" WHERE "tenant_id" = ${tenantId}::uuid
+    `;
+    await transaction.$executeRaw`
+      DELETE FROM "room_price_overrides" WHERE "tenant_id" = ${tenantId}::uuid
+    `;
+    await transaction.$executeRaw`
+      DELETE FROM "rate_rules" WHERE "tenant_id" = ${tenantId}::uuid
+    `;
+    await transaction.$executeRaw`
+      DELETE FROM "rate_plans" WHERE "tenant_id" = ${tenantId}::uuid
+    `;
+    await transaction.$executeRaw`DELETE FROM "rooms" WHERE "tenant_id" = ${tenantId}::uuid`;
+    await transaction.$executeRaw`
+      DELETE FROM "room_types" WHERE "tenant_id" = ${tenantId}::uuid
+    `;
     await transaction.$executeRaw`
       DELETE FROM "property_staff_capability_overrides" WHERE "tenant_id" = ${tenantId}::uuid
     `;

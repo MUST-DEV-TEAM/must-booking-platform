@@ -16,7 +16,10 @@ type Property = {
   checkInTime: string | null;
   checkOutTime: string | null;
   advanceBookingDays: number | null;
+  bookingMode: BookingMode;
 };
+
+type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
 
 type PlanUsage = { plan: { name: string } };
 
@@ -54,6 +57,7 @@ export function DashboardSettings({
   const [property, setProperty] = useState<Property | null>(null);
   const [identity, setIdentity] = useState<IdentityFields | null>(null);
   const [rules, setRules] = useState<RuleFields | null>(null);
+  const [bookingMode, setBookingMode] = useState<BookingMode | null>(null);
   const [planName, setPlanName] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -76,6 +80,7 @@ export function DashboardSettings({
         setProperty(current);
         setIdentity({ name: current.name, address: current.address, timezone: current.timezone });
         setRules(rulesFrom(current));
+        setBookingMode(current.bookingMode);
         if (planResponse.ok) setPlanName(((await planResponse.json()) as PlanUsage).plan.name);
       })
       .catch((error: unknown) => {
@@ -105,6 +110,7 @@ export function DashboardSettings({
     setProperty(updated);
     setIdentity({ name: updated.name, address: updated.address, timezone: updated.timezone });
     setRules(rulesFrom(updated));
+    setBookingMode(updated.bookingMode);
     toast.success('Settings saved.');
     setSaving(false);
   }
@@ -130,6 +136,12 @@ export function DashboardSettings({
     void save(update);
   }
 
+  function saveBookingMode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!property || !bookingMode || bookingMode === property.bookingMode) return;
+    void save({ bookingMode });
+  }
+
   const numberRule = (key: 'minStayNights' | 'maxStayNights' | 'advanceBookingDays') =>
     rules?.[key] === null || rules?.[key] === undefined ? '' : String(rules[key]);
 
@@ -146,7 +158,7 @@ export function DashboardSettings({
         </button>
       </section>
     );
-  if (!property || !identity || !rules)
+  if (!property || !identity || !rules || !bookingMode)
     return (
       <section aria-label="Loading settings">
         <p>Loading settings…</p>
@@ -287,6 +299,34 @@ export function DashboardSettings({
             </button>
           </form>
         ) : null}
+      </section>
+
+      <section aria-labelledby="booking-mode-heading">
+        <h2 id="booking-mode-heading">Booking mode</h2>
+        <p>Choose whether guests book a room type, a specific room, or either option.</p>
+        <form onSubmit={saveBookingMode}>
+          <label>
+            Booking mode
+            <select
+              aria-label="Booking mode"
+              value={bookingMode}
+              onChange={(event) => setBookingMode(event.target.value as BookingMode)}
+            >
+              <option value="ROOM_TYPE_ONLY">Room-Type-Only</option>
+              <option value="INDIVIDUAL_ROOM_ONLY">Individual-Room-Only</option>
+              <option value="MIXED">Mixed</option>
+            </select>
+          </label>
+          <button disabled={saving}>
+            {saving ? (
+              <>
+                <Loader2 aria-hidden="true" size={16} /> Saving…
+              </>
+            ) : (
+              'Save booking mode'
+            )}
+          </button>
+        </form>
       </section>
 
       <section aria-labelledby="billing-account-heading">

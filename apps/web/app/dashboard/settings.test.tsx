@@ -17,6 +17,7 @@ let property = {
   checkInTime: '15:00',
   checkOutTime: '11:00',
   advanceBookingDays: 90,
+  bookingMode: 'ROOM_TYPE_ONLY' as 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED',
 };
 
 afterEach(() => vi.unstubAllGlobals());
@@ -37,7 +38,7 @@ describe('DashboardSettings', () => {
     await act(async () => root.unmount());
   });
 
-  it('round-trips identity and sends only the booking-rule field the form changed', async () => {
+  it('round-trips identity, booking rules, and booking mode with only changed fields', async () => {
     const fetch = vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method === 'PATCH') {
         property = {
@@ -74,6 +75,13 @@ describe('DashboardSettings', () => {
     await submit(container, 'Save booking rules');
     const patchCalls = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH');
     expect(JSON.parse(patchCalls[1][1]!.body as string)).toEqual({ minStayNights: 3 });
+
+    await select(container.querySelector('[aria-label="Booking mode"]')!, 'INDIVIDUAL_ROOM_ONLY');
+    await submit(container, 'Save booking mode');
+    const bookingModeRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[2];
+    expect(JSON.parse(bookingModeRequest[1]!.body as string)).toEqual({
+      bookingMode: 'INDIVIDUAL_ROOM_ONLY',
+    });
     await act(async () => root.unmount());
   });
 });
@@ -106,6 +114,15 @@ async function submit(container: HTMLElement, text: string) {
       .closest('form')!
       .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+async function select(element: Element, next: string) {
+  await act(async () => {
+    const input = element as HTMLSelectElement;
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!.set!.call(input, next);
+    input.dispatchEvent(new Event('change', { bubbles: true }));
     await Promise.resolve();
   });
 }
