@@ -196,12 +196,22 @@ describe('individual-room booking creation', () => {
       .set('Cookie', cookie)
       .send({ bookingMode: 'MIXED' })
       .expect(200);
+    await request(app.getHttpServer())
+      .put(`${propertyUrl}/rooms/${firstRoom.body.id}/availability`)
+      .set('Cookie', cookie)
+      .send({ startsOn, endsOn, isAvailable: false })
+      .expect(204);
     const mixedSession = randomUUID();
     const mixedQuote = await quote(mixedSession);
     await expect(booking(mixedQuote, mixedSession)).resolves.toMatchObject({
       ok: true,
-      value: { roomId: null },
+      value: { roomId: secondRoom.body.id },
     });
+    await request(app.getHttpServer())
+      .put(`${propertyUrl}/rooms/${firstRoom.body.id}/availability`)
+      .set('Cookie', cookie)
+      .send({ startsOn, endsOn, isAvailable: true })
+      .expect(204);
 
     await request(app.getHttpServer())
       .patch(propertyUrl)

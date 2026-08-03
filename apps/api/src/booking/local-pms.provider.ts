@@ -79,6 +79,8 @@ type CancellationPolicy = {
   isFree: boolean;
 };
 
+type RoomSelection = { autoAssign: boolean };
+
 @Injectable()
 export class LocalPmsProvider implements PmsProvider {
   constructor(
@@ -229,8 +231,8 @@ export class LocalPmsProvider implements PmsProvider {
               command.total.currency,
             );
             if (catalogError) return catalogError;
-            const roomSelectionError = await this.validateRoomSelection(tx, context, command);
-            if (roomSelectionError) return roomSelectionError;
+            const roomSelection = await this.validateRoomSelection(tx, context, command);
+            if ('ok' in roomSelection) return roomSelection;
             const paymentMethod = await this.paymentMethod(tx, context, command);
             if (!paymentMethod.ok) return paymentMethod;
             const resolvedGuest = await this.resolveGuest(tx, context.tenantId, command.guest);
@@ -306,23 +308,48 @@ export class LocalPmsProvider implements PmsProvider {
                 return this.failure(quoteError.code, quoteError.message);
               }
             }
-            const reserved = command.roomId
-              ? await this.availability.reserveRoom(tx, context.tenantId, context.propertyId, {
-                  roomId: command.roomId,
-                  startsOn: command.startsOn,
-                  endsOn: command.endsOn,
-                })
-              : await this.availability.reserveBookedUnits(
-                  tx,
-                  context.tenantId,
-                  context.propertyId,
-                  {
-                    roomTypeId: command.roomTypeId,
+            const autoAssignedRoomId = roomSelection.autoAssign
+              ? await this.reserveSamePricedRoom(tx, context, command)
+              : null;
+            if (roomSelection.autoAssign && !autoAssignedRoomId) {
+              await this.transition(
+                tx,
+                context,
+                bookingId,
+                status,
+                BookingStatus.AVAILABILITY_FAILED,
+              );
+              return this.failure(
+                'AUTO_ASSIGNMENT_UNAVAILABLE',
+                'No available room matches the quoted price for the requested stay.',
+              );
+            }
+            if (autoAssignedRoomId)
+              await tx.$executeRaw`
+                UPDATE bookings
+                SET room_id = ${autoAssignedRoomId}::uuid
+                WHERE id = ${bookingId}::uuid
+              `;
+
+            const reserved = roomSelection.autoAssign
+              ? true
+              : command.roomId
+                ? await this.availability.reserveRoom(tx, context.tenantId, context.propertyId, {
+                    roomId: command.roomId,
                     startsOn: command.startsOn,
                     endsOn: command.endsOn,
-                    units: 1,
-                  },
-                );
+                  })
+                : await this.availability.reserveBookedUnits(
+                    tx,
+                    context.tenantId,
+                    context.propertyId,
+                    {
+                      roomTypeId: command.roomTypeId,
+                      startsOn: command.startsOn,
+                      endsOn: command.endsOn,
+                      units: 1,
+                    },
+                  );
             if (!reserved) {
               await this.transition(
                 tx,
@@ -333,7 +360,7 @@ export class LocalPmsProvider implements PmsProvider {
               );
               return this.failure(
                 'AVAILABILITY_FAILED',
-                command.roomId
+                (autoAssignedRoomId ?? command.roomId)
                   ? 'The selected room is no longer available for the requested stay.'
                   : 'Inventory is no longer available for the requested stay.',
               );
@@ -784,7 +811,7 @@ export class LocalPmsProvider implements PmsProvider {
     tx: TenantTransaction,
     context: PmsProviderContext,
     command: CreateBookingCommand,
-  ): Promise<Result<Booking> | null> {
+  ): Promise<RoomSelection | Result<Booking>> {
     const properties = await tx.$queryRaw<Array<{ bookingMode: string }>>`
       SELECT booking_mode AS "bookingMode"
       FROM properties
@@ -802,7 +829,7 @@ export class LocalPmsProvider implements PmsProvider {
         'ROOM_ID_REQUIRED',
         'A specific room is required for an individual-room-only property.',
       );
-    if (!command.roomId) return null;
+    if (!command.roomId) return { autoAssign: property.bookingMode === 'MIXED' };
 
     const rooms = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id
@@ -813,8 +840,46 @@ export class LocalPmsProvider implements PmsProvider {
         AND room_type_id = ${command.roomTypeId}::uuid
     `;
     return rooms[0]
-      ? null
+      ? { autoAssign: false }
       : this.failure('ROOM_NOT_FOUND', 'Room was not found for the requested room type.');
+  }
+
+  private async reserveSamePricedRoom(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    command: CreateBookingCommand,
+  ): Promise<string | null> {
+    const rooms = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id
+      FROM rooms
+      WHERE tenant_id = ${context.tenantId}::uuid
+        AND property_id = ${context.propertyId}::uuid
+        AND room_type_id = ${command.roomTypeId}::uuid
+      ORDER BY created_at
+    `;
+    for (const room of rooms) {
+      const price = await this.quotes.price(context.tenantId, context.propertyId, {
+        roomTypeId: command.roomTypeId,
+        roomId: room.id,
+        ratePlanId: command.ratePlanId,
+        startsOn: command.startsOn,
+        endsOn: command.endsOn,
+      });
+      if (price.amount !== command.total.amount || price.currency !== command.total.currency)
+        continue;
+      const reserved = await this.availability.reserveRoom(
+        tx,
+        context.tenantId,
+        context.propertyId,
+        {
+          roomId: room.id,
+          startsOn: command.startsOn,
+          endsOn: command.endsOn,
+        },
+      );
+      if (reserved) return room.id;
+    }
+    return null;
   }
 
   private async cancellationPolicy(
