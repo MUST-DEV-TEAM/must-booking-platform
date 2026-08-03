@@ -1,24 +1,27 @@
 .propertySwitcher {
   align-items: center;
-  display: flex;
-  gap: var(--must-space-8);
-  margin: 0 auto;
-  max-width: 78rem;
-}
-
-.propertySwitcher span {
-  color: var(--must-color-text-secondary);
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-
-.propertySwitcher select {
   background: var(--must-color-surface);
   border: 1px solid var(--must-color-border);
   border-radius: var(--must-radius-control);
-  color: var(--must-color-text-primary);
+  display: inline-flex;
+  gap: var(--must-space-8);
+  height: 2.375rem;
+  padding: 0 var(--must-space-12);
+}
+
+.propertySwitcher svg {
+  color: var(--must-color-text-secondary);
+  flex-shrink: 0;
+}
+
+.propertySwitcher select {
+  background: none;
+  border: 0;
+  color: var(--must-color-text-secondary);
   font: inherit;
-  padding: var(--must-space-8) var(--must-space-12);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 0;
 }
 
 .notifications {
@@ -27,30 +30,30 @@
 
 .notificationBell {
   align-items: center;
-  background: none;
-  border: 0;
+  background: var(--must-color-surface);
+  border: 1px solid var(--must-color-border);
+  border-radius: var(--must-radius-control);
   color: var(--must-color-ink);
   cursor: pointer;
   display: inline-flex;
-  padding: var(--must-space-4);
-  position: relative;
+  gap: 0.3125rem;
+  height: 2.75rem;
+  justify-content: center;
+  padding: 0 var(--must-space-8);
 }
 
 .notificationBadge {
   align-items: center;
-  background: var(--must-color-danger);
+  background: var(--must-color-notification-badge);
   border-radius: 999px;
-  color: var(--must-color-surface);
+  color: white;
   display: inline-flex;
-  font-size: 0.6875rem;
+  font-size: 0.5625rem;
   font-weight: 700;
-  height: 1rem;
+  height: 1.125rem;
   justify-content: center;
-  min-width: 1rem;
-  padding: 0 var(--must-space-4);
-  position: absolute;
-  right: -0.25rem;
-  top: -0.25rem;
+  min-width: 1.125rem;
+  padding: 0 0.25rem;
 }
 
 .notificationPanel {

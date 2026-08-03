@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { fetchPropertyBookings, type Reservation } from './reservations';
+import { DashboardLoadingSkeleton } from './loading-skeleton';
 import styles from './calendar.module.css';
 
 type RoomType = { id: string; name: string };
@@ -82,7 +83,8 @@ export function DashboardCalendar({
   const days = useMemo(() => calendarDays(month), [month]);
   const selectedBookings = selectedDay && bookings ? bookingsForDay(bookings, selectedDay) : null;
 
-  if (calendarData === undefined || bookings === undefined) return <Text>Loading calendar…</Text>;
+  if (calendarData === undefined || bookings === undefined)
+    return <DashboardLoadingSkeleton label="Loading calendar…" />;
   if (!calendarData || !bookings) return <Text className={styles.error}>{error}</Text>;
 
   return (

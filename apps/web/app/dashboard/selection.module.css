@@ -1,0 +1,56 @@
+.page {
+  align-items: center;
+  background: linear-gradient(135deg, var(--must-color-page), var(--must-color-surface));
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--must-space-24);
+}
+.card {
+  max-width: 42rem;
+  padding: clamp(1.5rem, 4vw, 3rem);
+  width: 100%;
+}
+.eyebrow {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  margin: 0 0 var(--must-space-8);
+}
+.list {
+  display: grid;
+  gap: var(--must-space-12);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.choice {
+  align-items: center;
+  border: 1px solid var(--must-color-border);
+  color: var(--must-color-ink);
+  display: flex;
+  font-weight: 700;
+  justify-content: space-between;
+  padding: var(--must-space-16);
+  text-decoration: none;
+  transition:
+    border-color 0.15s ease,
+    transform 0.15s ease;
+}
+.choice:hover,
+.choice:focus-visible {
+  border-color: var(--must-color-ink);
+  outline: 0;
+  transform: translateY(-2px);
+}
+.choice small {
+  color: var(--must-color-text-secondary);
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  margin-top: 0.25rem;
+}
+.arrow {
+  color: var(--must-color-text-secondary);
+  font-size: 1.25rem;
+}

@@ -4,53 +4,60 @@ import { Card, Heading, Stack, Text } from '@must/ui';
 import { useEffect, useState } from 'react';
 
 import { DashboardShell } from './dashboard-shell';
+import styles from './selection.module.css';
 
 type Property = { id: string; name: string };
 
 export function PropertyEntry({ tenantId }: { tenantId: string }) {
   const [properties, setProperties] = useState<Property[] | null>(null);
-
   useEffect(() => {
     let active = true;
     void fetch(`/api/tenants/${tenantId}/properties`, { credentials: 'include' })
       .then(async (response) => (response.ok ? ((await response.json()) as Property[]) : []))
-      .then((value) => {
-        if (active) setProperties(value);
-      })
-      .catch(() => {
-        if (active) setProperties([]);
-      });
+      .then((value) => active && setProperties(value))
+      .catch(() => active && setProperties([]));
     return () => {
       active = false;
     };
   }, [tenantId]);
-
-  if (properties === null) return <Text>Loading properties…</Text>;
-  if (properties.length === 0) return <Text>No properties are available for this workspace.</Text>;
-
-  const requestedPropertyId = new URLSearchParams(window.location.search).get('propertyId');
-  if (
-    properties.length === 1 ||
-    properties.some((property) => property.id === requestedPropertyId)
-  ) {
+  if (properties === null)
+    return (
+      <main className={styles.page}>
+        <Text>Loading properties…</Text>
+      </main>
+    );
+  if (properties.length === 0)
+    return (
+      <main className={styles.page}>
+        <Text>No properties are available for this workspace.</Text>
+      </main>
+    );
+  const requested = new URLSearchParams(window.location.search).get('propertyId');
+  if (properties.length === 1 || properties.some((property) => property.id === requested))
     return <DashboardShell tenantId={tenantId} />;
-  }
-
   return (
-    <main>
-      <Card>
+    <main className={styles.page}>
+      <Card className={styles.card}>
         <Stack gap="lg">
           <header>
+            <p className={styles.eyebrow}>MUST BOOKING</p>
             <Heading>Choose a property</Heading>
-            <Text tone="secondary">Select the hotel you want to manage.</Text>
+            <Text tone="secondary">Select the hotel you want to manage today.</Text>
           </header>
-          <ul>
+          <ul className={styles.list}>
             {properties.map((property) => (
               <li key={property.id}>
                 <a
+                  className={styles.choice}
                   href={`/dashboard/${tenantId}?propertyId=${encodeURIComponent(property.id)}&section=overview`}
                 >
-                  {property.name}
+                  <span>
+                    <span>{property.name}</span>
+                    <small>Open operations dashboard</small>
+                  </span>
+                  <span className={styles.arrow} aria-hidden="true">
+                    →
+                  </span>
                 </a>
               </li>
             ))}

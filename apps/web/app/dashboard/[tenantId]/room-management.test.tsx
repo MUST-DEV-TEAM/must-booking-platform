@@ -5,11 +5,11 @@ import { describe, expect, it } from 'vitest';
 import { RoomManagement } from './room-management';
 
 describe('RoomManagement', () => {
-  it('renders inventory setup controls under the tenant-scoped dashboard', () => {
+  it('uses the shared dashboard skeleton during its initial load', () => {
     const markup = renderToStaticMarkup(createElement(RoomManagement, { tenantId: 'tenant-1' }));
 
-    expect(markup).toContain('Rooms and room types');
-    expect(markup).toContain('Select a property');
-    expect(markup).toContain('Set up the sellable room types');
+    expect(markup).toContain('aria-busy="true"');
+    expect(markup).toContain('Loading rooms');
+    expect(markup).toContain('must-skeleton');
   });
 });

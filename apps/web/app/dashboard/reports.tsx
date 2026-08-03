@@ -1,21 +1,16 @@
 'use client';
 
 import { Card, Heading, Stack, Text } from '@must/ui';
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 
+import { EChart, type ChartOption } from './echart';
+import { DashboardLoadingSkeleton } from './loading-skeleton';
 import styles from './reports.module.css';
+
+// Charts render to <canvas>, which cannot resolve CSS custom properties, so these mirror
+// --must-color-ink / --must-color-success from packages/ui/src/styles.css.
+const INK_COLOR = '#174c3c';
+const SUCCESS_COLOR = '#027a48';
 
 type PropertyReports = {
   from: string;
@@ -29,6 +24,13 @@ type PropertyReports = {
   bookingsCreated: Array<{ date: string; count: number }>;
   revenue: Array<{ date: string; currency: string; amount: string }>;
   cancellationRate: { createdBookings: number; cancelledBookings: number; rate: number | null };
+};
+
+type TooltipParam = {
+  axisValueLabel?: string;
+  name?: string;
+  seriesName?: string;
+  value?: unknown;
 };
 
 export function DashboardReports({
@@ -84,7 +86,7 @@ export function DashboardReports({
     setRange({ from, to });
   }
 
-  if (reports === undefined) return <Text>Loading reports…</Text>;
+  if (reports === undefined) return <DashboardLoadingSkeleton label="Loading reports…" />;
   if (!reports) return <Text className={styles.error}>{error}</Text>;
 
   return (
@@ -138,54 +140,104 @@ export function DashboardReports({
         </Card>
       </section>
 
-      <ReportChart
-        title="Occupancy"
-        description="Booked room-nights as a percentage of available room-nights."
-      >
-        <ResponsiveContainer height={280} width="100%">
-          <LineChart data={reports.occupancy} margin={{ left: -16, right: 12 }}>
-            <CartesianGrid stroke="var(--must-color-border)" strokeDasharray="3 3" />
-            <XAxis dataKey="date" tickFormatter={shortDate} />
-            <YAxis tickFormatter={(value) => `${value}%`} />
-            <Tooltip formatter={(value) => `${formatNumber(value)}%`} />
-            <Legend />
-            <Line dataKey="rate" name="Occupancy" stroke="var(--must-color-ink)" type="monotone" />
-          </LineChart>
-        </ResponsiveContainer>
-        <ReportTable headers={['Date', 'Booked', 'Available', 'Occupancy']}>
-          {reports.occupancy.map((day) => (
-            <tr key={day.date}>
-              <td>{day.date}</td>
-              <td>{day.bookedRoomNights}</td>
-              <td>{day.availableRoomNights}</td>
-              <td>{formatPercent(day.rate)}</td>
-            </tr>
-          ))}
-        </ReportTable>
-      </ReportChart>
-
-      <ReportChart title="Bookings created" description="New bookings created each day.">
-        <ResponsiveContainer height={280} width="100%">
-          <BarChart data={reports.bookingsCreated} margin={{ left: -16, right: 12 }}>
-            <CartesianGrid stroke="var(--must-color-border)" strokeDasharray="3 3" />
-            <XAxis dataKey="date" tickFormatter={shortDate} />
-            <YAxis allowDecimals={false} />
-            <Tooltip />
-            <Bar dataKey="count" fill="var(--must-color-ink)" name="Bookings" />
-          </BarChart>
-        </ResponsiveContainer>
-        <ReportTable headers={['Date', 'Bookings created']}>
-          {reports.bookingsCreated.map((day) => (
-            <tr key={day.date}>
-              <td>{day.date}</td>
-              <td>{day.count}</td>
-            </tr>
-          ))}
-        </ReportTable>
-      </ReportChart>
-
+      <OccupancyChart occupancy={reports.occupancy} />
+      <BookingsChart bookingsCreated={reports.bookingsCreated} />
       <RevenueCharts revenue={reports.revenue} />
     </Stack>
+  );
+}
+
+function OccupancyChart({ occupancy }: { occupancy: PropertyReports['occupancy'] }) {
+  const option = useMemo<ChartOption>(
+    () => ({
+      grid: { left: 8, right: 16, top: 32, bottom: 28, outerBoundsContain: 'axisLabel' },
+      legend: { data: ['Occupancy'] },
+      tooltip: {
+        trigger: 'axis',
+        formatter: (params) => {
+          const [point] = (Array.isArray(params) ? params : [params]) as TooltipParam[];
+          return `${point?.axisValueLabel ?? ''}<br/>${point?.seriesName}: ${formatNumber(point?.value)}%`;
+        },
+      },
+      xAxis: {
+        type: 'category',
+        boundaryGap: false,
+        data: occupancy.map((day) => day.date),
+        axisLabel: { formatter: shortDate },
+      },
+      yAxis: { type: 'value', axisLabel: { formatter: (value: number) => `${value}%` } },
+      series: [
+        {
+          name: 'Occupancy',
+          type: 'line',
+          smooth: true,
+          data: occupancy.map((day) => day.rate),
+          color: INK_COLOR,
+        },
+      ],
+    }),
+    [occupancy],
+  );
+
+  return (
+    <ReportChart
+      title="Occupancy"
+      description="Booked room-nights as a percentage of available room-nights."
+    >
+      <EChart option={option} />
+      <ReportTable headers={['Date', 'Booked', 'Available', 'Occupancy']}>
+        {occupancy.map((day) => (
+          <tr key={day.date}>
+            <td>{day.date}</td>
+            <td>{day.bookedRoomNights}</td>
+            <td>{day.availableRoomNights}</td>
+            <td>{formatPercent(day.rate)}</td>
+          </tr>
+        ))}
+      </ReportTable>
+    </ReportChart>
+  );
+}
+
+function BookingsChart({
+  bookingsCreated,
+}: {
+  bookingsCreated: PropertyReports['bookingsCreated'];
+}) {
+  const option = useMemo<ChartOption>(
+    () => ({
+      grid: { left: 8, right: 16, top: 24, bottom: 28, outerBoundsContain: 'axisLabel' },
+      tooltip: { trigger: 'axis' },
+      xAxis: {
+        type: 'category',
+        data: bookingsCreated.map((day) => day.date),
+        axisLabel: { formatter: shortDate },
+      },
+      yAxis: { type: 'value', minInterval: 1 },
+      series: [
+        {
+          name: 'Bookings',
+          type: 'bar',
+          data: bookingsCreated.map((day) => day.count),
+          color: INK_COLOR,
+        },
+      ],
+    }),
+    [bookingsCreated],
+  );
+
+  return (
+    <ReportChart title="Bookings created" description="New bookings created each day.">
+      <EChart option={option} />
+      <ReportTable headers={['Date', 'Bookings created']}>
+        {bookingsCreated.map((day) => (
+          <tr key={day.date}>
+            <td>{day.date}</td>
+            <td>{day.count}</td>
+          </tr>
+        ))}
+      </ReportTable>
+    </ReportChart>
   );
 }
 
@@ -200,25 +252,13 @@ function RevenueCharts({ revenue }: { revenue: PropertyReports['revenue'] }) {
       description="Succeeded charges minus refunds, shown separately for each currency."
     >
       <div className={styles.revenueCharts}>
-        {currencies.map((currency) => {
-          const days = revenue
-            .filter((day) => day.currency === currency)
-            .map((day) => ({ ...day, numericAmount: Number(day.amount) }));
-          return (
-            <div className={styles.currencyChart} key={currency}>
-              <Text className={styles.currencyTitle}>{currency}</Text>
-              <ResponsiveContainer height={260} width="100%">
-                <BarChart data={days} margin={{ left: -16, right: 12 }}>
-                  <CartesianGrid stroke="var(--must-color-border)" strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tickFormatter={shortDate} />
-                  <YAxis />
-                  <Tooltip formatter={(value) => formatCurrency(value, currency)} />
-                  <Bar dataKey="numericAmount" fill="var(--must-color-success)" name="Revenue" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          );
-        })}
+        {currencies.map((currency) => (
+          <CurrencyChart
+            currency={currency}
+            days={revenue.filter((day) => day.currency === currency)}
+            key={currency}
+          />
+        ))}
       </div>
       <ReportTable headers={['Date', 'Currency', 'Revenue']}>
         {revenue.map((day) => (
@@ -230,6 +270,43 @@ function RevenueCharts({ revenue }: { revenue: PropertyReports['revenue'] }) {
         ))}
       </ReportTable>
     </ReportChart>
+  );
+}
+
+function CurrencyChart({ currency, days }: { currency: string; days: PropertyReports['revenue'] }) {
+  const option = useMemo<ChartOption>(
+    () => ({
+      grid: { left: 8, right: 16, top: 24, bottom: 28, outerBoundsContain: 'axisLabel' },
+      tooltip: {
+        trigger: 'axis',
+        formatter: (params) => {
+          const [point] = (Array.isArray(params) ? params : [params]) as TooltipParam[];
+          return `${point?.axisValueLabel ?? ''}<br/>Revenue: ${formatCurrency(point?.value, currency)}`;
+        },
+      },
+      xAxis: {
+        type: 'category',
+        data: days.map((day) => day.date),
+        axisLabel: { formatter: shortDate },
+      },
+      yAxis: { type: 'value' },
+      series: [
+        {
+          name: 'Revenue',
+          type: 'bar',
+          data: days.map((day) => Number(day.amount)),
+          color: SUCCESS_COLOR,
+        },
+      ],
+    }),
+    [days, currency],
+  );
+
+  return (
+    <div className={styles.currencyChart}>
+      <Text className={styles.currencyTitle}>{currency}</Text>
+      <EChart height={260} option={option} />
+    </div>
   );
 }
 

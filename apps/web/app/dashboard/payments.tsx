@@ -1,7 +1,10 @@
 'use client';
 import { Card, Heading, Stack, Text } from '@must/ui';
 import { useEffect, useState } from 'react';
+import { Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { fetchPropertyBookings, type Reservation } from './reservations';
+import { DashboardLoadingSkeleton } from './loading-skeleton';
 const id = () => crypto.randomUUID();
 export function DashboardPayments({
   tenantId,
@@ -17,7 +20,7 @@ export function DashboardPayments({
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const [bookings, setBookings] = useState<Reservation[] | undefined>(initialBookings);
   const [capabilities, setCapabilities] = useState<string[] | undefined>(initialCapabilities);
-  const [message, setMessage] = useState('');
+  const [busyBookingId, setBusyBookingId] = useState<string | null>(null);
   useEffect(() => {
     if (!initialBookings) void fetchPropertyBookings(tenantId, propertyId).then(setBookings);
   }, [initialBookings, tenantId, propertyId]);
@@ -27,7 +30,8 @@ export function DashboardPayments({
         .then((r) => r.json())
         .then(setCapabilities);
   }, [base, initialCapabilities]);
-  async function action(url: string, body: unknown, success: string) {
+  async function action(bookingId: string, url: string, body: unknown, success: string) {
+    setBusyBookingId(bookingId);
     const r = await fetch(url, {
       method: 'POST',
       credentials: 'include',
@@ -37,10 +41,11 @@ export function DashboardPayments({
     const v = await r.json();
     if (v.ok) {
       void fetchPropertyBookings(tenantId, propertyId).then(setBookings);
-      setMessage(success);
-    } else setMessage(v.error?.message ?? 'Payment action failed.');
+      toast.success(success);
+    } else toast.error(v.error?.message ?? 'Payment action failed.');
+    setBusyBookingId(null);
   }
-  if (!bookings || !capabilities) return <Text>Loading payments…</Text>;
+  if (!bookings || !capabilities) return <DashboardLoadingSkeleton label="Loading payments…" />;
   const canRefund = capabilities.includes('payments.refund');
   return (
     <Stack gap="lg">
@@ -74,26 +79,38 @@ export function DashboardPayments({
                       <button
                         onClick={() =>
                           action(
+                            b.id,
                             `${base}/bookings/${b.id}/manual-payment`,
                             { method: 'cash' },
                             'Payment recorded.',
                           )
                         }
+                        disabled={busyBookingId === b.id}
                       >
-                        Settle
+                        {busyBookingId === b.id ? (
+                          <Loader2 aria-hidden="true" size={16} />
+                        ) : (
+                          'Settle'
+                        )}
                       </button>
                     ) : null}
                     {canRefund ? (
                       <button
                         onClick={() =>
                           action(
+                            b.id,
                             `${base}/payments/refunds`,
                             { bookingId: b.id },
                             'Refund recorded.',
                           )
                         }
+                        disabled={busyBookingId === b.id}
                       >
-                        Refund
+                        {busyBookingId === b.id ? (
+                          <Loader2 aria-hidden="true" size={16} />
+                        ) : (
+                          'Refund'
+                        )}
                       </button>
                     ) : null}
                   </td>
@@ -102,7 +119,6 @@ export function DashboardPayments({
             })}
           </tbody>
         </table>
-        {message ? <div role="alert">{message}</div> : null}
       </Card>
     </Stack>
   );

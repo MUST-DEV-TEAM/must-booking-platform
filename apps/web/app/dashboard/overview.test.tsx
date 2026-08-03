@@ -5,6 +5,19 @@ import { describe, expect, it } from 'vitest';
 import { DashboardOverview } from './overview';
 
 describe('DashboardOverview', () => {
+  it('renders an accessible skeleton before overview data is available', () => {
+    const markup = renderToStaticMarkup(
+      createElement(DashboardOverview, {
+        tenantId: 'tenant-1',
+        propertyId: 'property-1',
+        role: 'OWNER',
+      }),
+    );
+    expect(markup).toContain('aria-busy="true"');
+    expect(markup).toContain('Loading overview');
+    expect(markup).toContain('must-skeleton');
+  });
+
   it('renders KPI, needs-attention, activity, and owner quick-action data', () => {
     const markup = renderToStaticMarkup(
       createElement(DashboardOverview, {

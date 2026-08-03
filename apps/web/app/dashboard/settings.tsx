@@ -1,6 +1,8 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
+import { Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { PropertyManagement } from './[tenantId]/property-management';
 
@@ -53,11 +55,14 @@ export function DashboardSettings({
   const [identity, setIdentity] = useState<IdentityFields | null>(null);
   const [rules, setRules] = useState<RuleFields | null>(null);
   const [planName, setPlanName] = useState<string | null>(null);
-  const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [retry, setRetry] = useState(0);
   const base = `/api/tenants/${tenantId}`;
 
   useEffect(() => {
     let active = true;
+    setLoadError('');
     void Promise.all([
       fetch(`${base}/properties`, { credentials: 'include' }),
       fetch(`${base}/plan-usage`, { credentials: 'include' }),
@@ -74,16 +79,17 @@ export function DashboardSettings({
         if (planResponse.ok) setPlanName(((await planResponse.json()) as PlanUsage).plan.name);
       })
       .catch((error: unknown) => {
-        if (active) setMessage(error instanceof Error ? error.message : 'Unable to load settings.');
+        if (active)
+          setLoadError(error instanceof Error ? error.message : 'Unable to load settings.');
       });
     return () => {
       active = false;
     };
-  }, [base, propertyId]);
+  }, [base, propertyId, retry]);
 
   async function save(update: Partial<Property>) {
     if (!property || Object.keys(update).length === 0) return;
-    setMessage('');
+    setSaving(true);
     const response = await fetch(`${base}/properties/${propertyId}`, {
       method: 'PATCH',
       credentials: 'include',
@@ -91,14 +97,16 @@ export function DashboardSettings({
       body: JSON.stringify(update),
     });
     if (!response.ok) {
-      setMessage('Unable to save settings.');
+      toast.error('Unable to save settings.');
+      setSaving(false);
       return;
     }
     const updated = (await response.json()) as Property;
     setProperty(updated);
     setIdentity({ name: updated.name, address: updated.address, timezone: updated.timezone });
     setRules(rulesFrom(updated));
-    setMessage('Settings saved.');
+    toast.success('Settings saved.');
+    setSaving(false);
   }
 
   function saveIdentity(event: FormEvent<HTMLFormElement>) {
@@ -125,10 +133,29 @@ export function DashboardSettings({
   const numberRule = (key: 'minStayNights' | 'maxStayNights' | 'advanceBookingDays') =>
     rules?.[key] === null || rules?.[key] === undefined ? '' : String(rules[key]);
 
+  if (loadError && !property)
+    return (
+      <section aria-label="Settings unavailable">
+        <p>{loadError}</p>
+        <button
+          className="must-button"
+          type="button"
+          onClick={() => setRetry((value) => value + 1)}
+        >
+          Retry
+        </button>
+      </section>
+    );
+  if (!property || !identity || !rules)
+    return (
+      <section aria-label="Loading settings">
+        <p>Loading settings…</p>
+      </section>
+    );
+
   return (
     <section aria-labelledby="settings-heading">
       <h1 id="settings-heading">Settings</h1>
-      {message ? <p role="status">{message}</p> : null}
 
       <section aria-labelledby="hotel-identity-heading">
         <h2 id="hotel-identity-heading">Hotel identity</h2>
@@ -161,7 +188,15 @@ export function DashboardSettings({
                 onChange={(event) => setIdentity({ ...identity, timezone: event.target.value })}
               />
             </label>
-            <button>Save hotel identity</button>
+            <button disabled={saving}>
+              {saving ? (
+                <>
+                  <Loader2 aria-hidden="true" size={16} /> Saving…
+                </>
+              ) : (
+                'Save hotel identity'
+              )}
+            </button>
           </form>
         ) : null}
       </section>
@@ -241,7 +276,15 @@ export function DashboardSettings({
                 }
               />
             </label>
-            <button>Save booking rules</button>
+            <button disabled={saving}>
+              {saving ? (
+                <>
+                  <Loader2 aria-hidden="true" size={16} /> Saving…
+                </>
+              ) : (
+                'Save booking rules'
+              )}
+            </button>
           </form>
         ) : null}
       </section>

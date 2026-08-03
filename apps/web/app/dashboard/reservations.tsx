@@ -4,6 +4,7 @@ import { Card, Heading, Stack, Text } from '@must/ui';
 import { useEffect, useMemo, useState } from 'react';
 
 import styles from './reservations.module.css';
+import { DashboardLoadingSkeleton } from './loading-skeleton';
 
 export type Reservation = {
   id: string;
@@ -74,7 +75,7 @@ export function DashboardReservations({
   );
   const selectedBooking = bookings?.find((booking) => booking.id === selectedId) ?? null;
 
-  if (bookings === undefined) return <Text>Loading reservations…</Text>;
+  if (bookings === undefined) return <DashboardLoadingSkeleton label="Loading reservations…" />;
   if (!bookings) return <Text className={styles.error}>{error}</Text>;
 
   return (

@@ -1,6 +1,9 @@
 'use client';
 import { Card, Heading, Stack, Text } from '@must/ui';
+import { Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
+import { DashboardLoadingSkeleton } from './loading-skeleton';
 type Template = { id: string; name: string; capabilities: Array<{ key: string }> };
 type Staff = {
   userId: string;
@@ -18,7 +21,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
   const [error, setError] = useState('');
   const [email, setEmail] = useState('');
   const [inviteTemplateId, setInviteTemplateId] = useState('');
-  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
   const [templateName, setTemplateName] = useState('');
   const [templateCapabilities, setTemplateCapabilities] = useState<string[]>([]);
   const load = () => {
@@ -58,12 +61,13 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
         </button>
       </Stack>
     );
-  if (!staff || !templates || !usage) return <Text>Loading staff…</Text>;
+  if (!staff || !templates || !usage) return <DashboardLoadingSkeleton label="Loading staff…" />;
   const capped = usage.usage.staffSeats >= usage.plan.maxStaffSeats;
   const selectedInviteTemplate = inviteTemplateId || templates[0]?.id;
   const capabilityOptions =
     templates.find((template) => template.name === 'Property Manager')?.capabilities ?? [];
   async function createTemplate() {
+    setBusy('template');
     const response = await fetch(`${base}/properties/${propertyId}/role-templates`, {
       method: 'POST',
       credentials: 'include',
@@ -74,9 +78,12 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
       setTemplateName('');
       setTemplateCapabilities([]);
       load();
-    } else setMessage('Unable to create role template.');
+      toast.success('Role template created.');
+    } else toast.error('Unable to create role template.');
+    setBusy(null);
   }
   async function invite() {
+    setBusy('invite');
     const response = await fetch(`${base}/staff-invitations`, {
       method: 'POST',
       credentials: 'include',
@@ -86,17 +93,23 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
         assignments: [{ propertyId, roleTemplateId: selectedInviteTemplate }],
       }),
     });
-    setMessage(response.ok ? 'Invitation sent.' : 'Unable to send invitation.');
+    if (response.ok) toast.success('Invitation sent.');
+    else toast.error('Unable to send invitation.');
+    setBusy(null);
   }
   async function assign(userId: string, roleTemplateId: string) {
+    setBusy(`assign:${userId}`);
     const response = await fetch(`${base}/properties/${propertyId}/staff/${userId}`, {
       method: 'PUT',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ roleTemplateId }),
     });
-    if (response.ok) load();
-    else setMessage('Unable to update staff role.');
+    if (response.ok) {
+      load();
+      toast.success('Staff role updated.');
+    } else toast.error('Unable to update staff role.');
+    setBusy(null);
   }
   async function override(userId: string, key: string, value: string) {
     const url = `${base}/properties/${propertyId}/staff/${userId}/capabilities/${key}`;
@@ -106,8 +119,10 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
       headers: { 'Content-Type': 'application/json' },
       body: value === 'default' ? undefined : JSON.stringify({ granted: value === 'grant' }),
     });
-    if (response.ok) load();
-    else setMessage('Unable to update capability override.');
+    if (response.ok) {
+      load();
+      toast.success('Capability override updated.');
+    } else toast.error('Unable to update capability override.');
   }
   return (
     <Stack gap="lg">
@@ -125,11 +140,10 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
             </option>
           ))}
         </select>
-        <button disabled={capped || !email} onClick={invite}>
-          Invite staff
+        <button disabled={capped || !email || busy !== null} onClick={invite}>
+          {busy === 'invite' ? <Loader2 aria-hidden="true" size={16} /> : 'Invite staff'}
         </button>
         {capped ? <Text>Upgrade to unlock more staff seats.</Text> : null}
-        {message ? <div role="alert">{message}</div> : null}
       </Card>
       <Card>
         <Heading level={2}>Create role template</Heading>
@@ -154,8 +168,8 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
             {capability.key}
           </label>
         ))}
-        <button disabled={!templateName} onClick={createTemplate}>
-          Create template
+        <button disabled={!templateName || busy !== null} onClick={createTemplate}>
+          {busy === 'template' ? <Loader2 aria-hidden="true" size={16} /> : 'Create template'}
         </button>
       </Card>
       {staff.map((s) => {
@@ -163,7 +177,11 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
         return (
           <Card key={s.userId}>
             <strong>{s.email}</strong>
-            <select value={s.roleTemplateId} onChange={(e) => assign(s.userId, e.target.value)}>
+            <select
+              disabled={busy === `assign:${s.userId}`}
+              value={s.roleTemplateId}
+              onChange={(e) => assign(s.userId, e.target.value)}
+            >
               {templates.map((x) => (
                 <option key={x.id} value={x.id}>
                   {x.name}

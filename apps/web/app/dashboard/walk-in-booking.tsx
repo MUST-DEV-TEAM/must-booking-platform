@@ -1,6 +1,7 @@
 'use client';
 import { Card, Heading, Stack, Text } from '@must/ui';
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import styles from './walk-in-booking.module.css';
 
 type Room = { id: string; name: string };
@@ -19,7 +20,6 @@ export function WalkInBooking({ tenantId, propertyId }: { tenantId: string; prop
   const [quote, setQuote] = useState<Quote | null>(null);
   const [guest, setGuest] = useState({ firstName: '', lastName: '', email: '', phone: '' });
   const [method, setMethod] = useState<'cash' | 'card_in_person' | 'bank_transfer' | ''>('');
-  const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     void Promise.all([
@@ -31,11 +31,10 @@ export function WalkInBooking({ tenantId, propertyId }: { tenantId: string; prop
         setRooms(await a.json());
         setRates(await b.json());
       })
-      .catch((e: unknown) => setMessage(errorMessage(e)));
+      .catch((e: unknown) => toast.error(errorMessage(e)));
   }, [base]);
   async function search() {
     setBusy(true);
-    setMessage(null);
     setQuote(null);
     try {
       const input = { roomTypeId, ratePlanId, startsOn, endsOn };
@@ -49,7 +48,7 @@ export function WalkInBooking({ tenantId, propertyId }: { tenantId: string; prop
         throw new Error('No rooms are available for the selected stay.');
       setQuote(price);
     } catch (e) {
-      setMessage(errorMessage(e));
+      toast.error(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -57,7 +56,6 @@ export function WalkInBooking({ tenantId, propertyId }: { tenantId: string; prop
   async function create() {
     if (!quote) return;
     setBusy(true);
-    setMessage(null);
     try {
       const result = await post(
         `${base}/staff-bookings`,
@@ -76,12 +74,12 @@ export function WalkInBooking({ tenantId, propertyId }: { tenantId: string; prop
             paid.error?.message ?? 'Booking created, but payment could not be recorded.',
           );
       }
-      setMessage(
+      toast.success(
         method ? 'Booking created and payment recorded.' : 'Booking created as pay at hotel.',
       );
       setQuote(null);
     } catch (e) {
-      setMessage(errorMessage(e));
+      toast.error(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -188,11 +186,6 @@ export function WalkInBooking({ tenantId, propertyId }: { tenantId: string; prop
               Create booking
             </button>
           </>
-        ) : null}
-        {message ? (
-          <div role="alert" className={styles.message}>
-            {message}
-          </div>
         ) : null}
       </Card>
     </Stack>

@@ -2,6 +2,8 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi, afterEach } from 'vitest';
+const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+vi.mock('sonner', () => ({ toast }));
 import { DashboardStaff } from './staff';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const base = '/api/tenants/t';
@@ -39,6 +41,7 @@ describe('Staff', () => {
     expect(calls.map((x) => x[1].method)).toEqual(['PUT', 'PUT', 'DELETE']);
     expect(JSON.parse(calls[0][1].body)).toEqual({ granted: true });
     expect(JSON.parse(calls[1][1].body)).toEqual({ granted: false });
+    expect(toast.success).toHaveBeenCalledWith('Capability override updated.');
     await act(async () => r.unmount());
   });
   it('creates a role template with a capability subset and assigning it takes effect exactly', async () => {

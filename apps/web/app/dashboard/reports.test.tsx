@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
+import 'vitest-canvas-mock';
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { dashboardNavigation } from './dashboard-shell';
 import { DashboardReports } from './reports';
@@ -14,7 +15,7 @@ class ResizeObserver {
   disconnect() {}
 }
 
-vi.stubGlobal('ResizeObserver', ResizeObserver);
+beforeEach(() => vi.stubGlobal('ResizeObserver', ResizeObserver));
 
 const report = {
   from: '2026-08-01',
@@ -63,7 +64,7 @@ describe('DashboardReports', () => {
     expect(container.textContent).toContain('33.3%');
     expect(container.textContent).toContain('EUR 125.50');
     expect(container.textContent).toContain('USD 15.25');
-    expect(container.querySelectorAll('.recharts-responsive-container')).toHaveLength(4);
+    expect(container.querySelectorAll('.echart')).toHaveLength(4);
 
     await value(container.querySelector('[aria-label="Report start date"]')!, '2026-07-01');
     await value(container.querySelector('[aria-label="Report end date"]')!, '2026-07-31');

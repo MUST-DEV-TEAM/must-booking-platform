@@ -2,6 +2,7 @@
 import { Card, Heading, Stack, Text } from '@must/ui';
 import { useEffect, useState } from 'react';
 import { fetchPropertyBookings, type Reservation } from './reservations';
+import { DashboardLoadingSkeleton } from './loading-skeleton';
 type Guest = {
   id: string;
   email: string;
@@ -47,7 +48,7 @@ export function DashboardGuests({
       .catch(() => setError('Unable to load guest booking history.'));
   }, [tenantId, propertyId]);
   if (error) return <Text>{error}</Text>;
-  if (!guests || !bookings) return <Text>Loading guests…</Text>;
+  if (!guests || !bookings) return <DashboardLoadingSkeleton label="Loading guests…" />;
   const history = selected
     ? bookings.filter((b) => b.guestId === selected.id || b.guestEmail === selected.email)
     : [];

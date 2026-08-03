@@ -60,7 +60,7 @@ describe('Tenant dashboard shell', () => {
     for (const label of ['Overview', 'Reservations', 'Calendar', 'Payments', 'Guests'])
       expect(markup).toContain(label);
     for (const label of ['Accommodations', 'Rates &amp; Pricing', 'Staff', 'Settings', 'Reports'])
-      expect(markup).not.toContain(`>${label}<`);
+      expect(markup).not.toContain(`>${label}</a>`);
   });
 
   it('only renders the property switcher when multiple properties are available', () => {
@@ -130,7 +130,8 @@ describe('Tenant dashboard shell', () => {
       }),
     );
 
-    for (const label of ['Overview', 'Payments', 'Reports']) expect(markup).toContain(`>${label}<`);
+    for (const label of ['Overview', 'Payments', 'Reports'])
+      expect(markup).toContain(`>${label}</a>`);
     for (const label of [
       'Reservations',
       'Calendar',
@@ -140,7 +141,7 @@ describe('Tenant dashboard shell', () => {
       'Staff',
       'Settings',
     ])
-      expect(markup).not.toContain(`>${label}<`);
+      expect(markup).not.toContain(`>${label}</a>`);
   });
 
   it('hides tenant-administration destinations from staff even if a misconfigured template grants their capability keys', () => {
@@ -163,6 +164,6 @@ describe('Tenant dashboard shell', () => {
     );
 
     for (const label of ['Accommodations', 'Rates &amp; Pricing', 'Staff', 'Settings'])
-      expect(markup).not.toContain(`>${label}<`);
+      expect(markup).not.toContain(`>${label}</a>`);
   });
 });

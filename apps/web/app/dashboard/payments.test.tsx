@@ -2,6 +2,8 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
+const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+vi.mock('sonner', () => ({ toast }));
 import { DashboardPayments } from './payments';
 import type { Reservation } from './reservations';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -62,7 +64,7 @@ describe('Payments', () => {
       await Promise.resolve();
     });
     expect(c.textContent).toContain('Paid');
-    expect(c.textContent).toContain('Payment recorded.');
+    expect(toast.success).toHaveBeenCalledWith('Payment recorded.');
     await act(async () => r.unmount());
   });
   it('shows persisted paid and partial payment statuses on initial load', async () => {

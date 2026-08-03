@@ -2,6 +2,9 @@
 
 import { Card, Heading, Stack, Text } from '@must/ui';
 import { FormEvent, useEffect, useState } from 'react';
+import { toast } from 'sonner';
+
+import { DashboardLoadingSkeleton } from '../loading-skeleton';
 
 type Property = { id: string; name: string };
 type Room = { id: string; name: string };
@@ -38,7 +41,6 @@ export function RoomManagement({
   const [editingRoom, setEditingRoom] = useState<{ roomTypeId: string; roomId: string } | null>(
     null,
   );
-  const [message, setMessage] = useState('');
 
   useEffect(() => {
     void fetch(`/api/tenants/${tenantId}/properties`, { credentials: 'include' })
@@ -69,7 +71,7 @@ export function RoomManagement({
     ]);
     if (!response.ok) {
       setRoomTypes([]);
-      setMessage('Unable to load room types.');
+      toast.error('Unable to load room types.');
       return;
     }
     const items = (await response.json()) as RoomType[];
@@ -100,7 +102,7 @@ export function RoomManagement({
 
   async function submitRoomType(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setMessage('');
+    const isEditing = editingRoomTypeId !== null;
     const response = await fetch(
       editingRoomTypeId ? `${roomTypesUrl()}/${editingRoomTypeId}` : roomTypesUrl(),
       {
@@ -115,30 +117,30 @@ export function RoomManagement({
       },
     );
     if (!response.ok) {
-      setMessage(await errorMessage(response, 'Unable to save room type.'));
+      toast.error(await errorMessage(response, 'Unable to save room type.'));
       return;
     }
     setRoomTypeForm(emptyRoomTypeForm);
     setEditingRoomTypeId(null);
     await loadRoomTypes();
+    toast.success(isEditing ? 'Room type updated.' : 'Room type created.');
   }
 
   async function deleteRoomType(roomTypeId: string) {
-    setMessage('');
     const response = await fetch(`${roomTypesUrl()}/${roomTypeId}`, {
       method: 'DELETE',
       credentials: 'include',
     });
     if (!response.ok) {
-      setMessage(await errorMessage(response, 'Unable to delete room type.'));
+      toast.error(await errorMessage(response, 'Unable to delete room type.'));
       return;
     }
     await loadRoomTypes();
+    toast.success('Room type deleted.');
   }
 
   async function submitRoom(event: FormEvent<HTMLFormElement>, roomTypeId: string) {
     event.preventDefault();
-    setMessage('');
     const roomName = roomNames[roomTypeId]?.trim();
     if (!roomName) return;
     const currentEdit = editingRoom?.roomTypeId === roomTypeId ? editingRoom : null;
@@ -154,30 +156,30 @@ export function RoomManagement({
       },
     );
     if (!response.ok) {
-      setMessage(await errorMessage(response, 'Unable to save room.'));
+      toast.error(await errorMessage(response, 'Unable to save room.'));
       return;
     }
     setRoomNames((current) => ({ ...current, [roomTypeId]: '' }));
     setEditingRoom(null);
     await loadRoomDetails(roomTypeId);
+    toast.success(currentEdit ? 'Room updated.' : 'Room created.');
   }
 
   async function deleteRoom(roomTypeId: string, roomId: string) {
-    setMessage('');
     const response = await fetch(`${roomTypesUrl()}/${roomTypeId}/rooms/${roomId}`, {
       method: 'DELETE',
       credentials: 'include',
     });
     if (!response.ok) {
-      setMessage(await errorMessage(response, 'Unable to delete room.'));
+      toast.error(await errorMessage(response, 'Unable to delete room.'));
       return;
     }
     await loadRoomDetails(roomTypeId);
+    toast.success('Room deleted.');
   }
 
   async function uploadImage(roomTypeId: string, file: File | undefined) {
     if (!file) return;
-    setMessage('');
     const authorization = await fetch(`${roomTypesUrl()}/${roomTypeId}/images`, {
       method: 'POST',
       credentials: 'include',
@@ -185,7 +187,7 @@ export function RoomManagement({
       body: JSON.stringify({ contentType: file.type, contentLength: file.size }),
     });
     if (!authorization.ok) {
-      setMessage(await errorMessage(authorization, 'Unable to authorize image upload.'));
+      toast.error(await errorMessage(authorization, 'Unable to authorize image upload.'));
       return;
     }
     const { uploadUrl } = (await authorization.json()) as { uploadUrl: string };
@@ -195,17 +197,17 @@ export function RoomManagement({
       body: file,
     });
     if (!upload.ok) {
-      setMessage('The image could not be uploaded.');
+      toast.error('The image could not be uploaded.');
       return;
     }
     await loadRoomDetails(roomTypeId);
+    toast.success('Room photo uploaded.');
   }
 
   async function submitAmenity(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const name = amenityName.trim();
     if (!name) return;
-    setMessage('');
     const response = await fetch(`${propertyUrl()}/amenities`, {
       method: 'POST',
       credentials: 'include',
@@ -213,24 +215,25 @@ export function RoomManagement({
       body: JSON.stringify({ name }),
     });
     if (!response.ok) {
-      setMessage(await errorMessage(response, 'Unable to create amenity.'));
+      toast.error(await errorMessage(response, 'Unable to create amenity.'));
       return;
     }
     setAmenityName('');
     await loadRoomTypes();
+    toast.success('Amenity created.');
   }
 
   async function deleteAmenity(amenityId: string) {
-    setMessage('');
     const response = await fetch(`${propertyUrl()}/amenities/${amenityId}`, {
       method: 'DELETE',
       credentials: 'include',
     });
     if (!response.ok) {
-      setMessage(await errorMessage(response, 'Unable to delete amenity.'));
+      toast.error(await errorMessage(response, 'Unable to delete amenity.'));
       return;
     }
     await loadRoomTypes();
+    toast.success('Amenity deleted.');
   }
 
   async function toggleRoomTypeAmenity(roomTypeId: string, amenityId: string) {
@@ -238,7 +241,6 @@ export function RoomManagement({
     const amenityIds = current.some((amenity) => amenity.id === amenityId)
       ? current.filter((amenity) => amenity.id !== amenityId).map((amenity) => amenity.id)
       : [...current.map((amenity) => amenity.id), amenityId];
-    setMessage('');
     const response = await fetch(`${roomTypesUrl()}/${roomTypeId}/amenities`, {
       method: 'PUT',
       credentials: 'include',
@@ -246,7 +248,7 @@ export function RoomManagement({
       body: JSON.stringify({ amenityIds }),
     });
     if (!response.ok) {
-      setMessage(await errorMessage(response, 'Unable to update room type amenities.'));
+      toast.error(await errorMessage(response, 'Unable to update room type amenities.'));
       return;
     }
     const updated = (await response.json()) as Amenity[];
@@ -254,6 +256,7 @@ export function RoomManagement({
       ...currentAmenities,
       [roomTypeId]: updated,
     }));
+    toast.success('Room type amenities updated.');
   }
 
   function roomTypesUrl() {
@@ -263,6 +266,9 @@ export function RoomManagement({
   function propertyUrl() {
     return `/api/tenants/${tenantId}/properties/${propertyId}`;
   }
+
+  if (properties === null || (propertyId && roomTypes === null))
+    return <DashboardLoadingSkeleton label="Loading rooms…" />;
 
   return (
     <Stack gap="lg">
@@ -501,7 +507,6 @@ export function RoomManagement({
           </Card>
         </Stack>
       ) : null}
-      {message ? <p role="alert">{message}</p> : null}
     </Stack>
   );
 }

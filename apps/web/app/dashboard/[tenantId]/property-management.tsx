@@ -1,11 +1,11 @@
 'use client';
 import { FormEvent, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 type Property = { id: string; name: string; address: string; timezone: string };
 type Usage = { plan: { maxProperties: number }; usage: { properties: number } };
 export function PropertyManagement({ tenantId }: { tenantId: string }) {
   const [properties, setProperties] = useState<Property[] | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
-  const [message, setMessage] = useState('');
   const atCap = !!usage && usage.usage.properties >= usage.plan.maxProperties;
   const load = () =>
     Promise.all([
@@ -20,7 +20,6 @@ export function PropertyManagement({ tenantId }: { tenantId: string }) {
   }, [tenantId]);
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setMessage('');
     const f = new FormData(e.currentTarget);
     const r = await fetch(`/api/tenants/${tenantId}/properties`, {
       method: 'POST',
@@ -33,23 +32,22 @@ export function PropertyManagement({ tenantId }: { tenantId: string }) {
       }),
     });
     if (r.status === 409) {
-      setMessage('Upgrade to unlock more properties.');
+      toast.error('Upgrade to unlock more properties.');
       void load();
       return;
     }
     if (!r.ok) {
-      setMessage('Unable to create property.');
+      toast.error('Unable to create property.');
       return;
     }
     e.currentTarget.reset();
     void load();
+    toast.success('Property created.');
   }
   return (
     <section>
       <h2>Properties</h2>
-      {atCap || message.includes('Upgrade') ? (
-        <aside role="status">Upgrade to unlock more properties.</aside>
-      ) : null}
+      {atCap ? <aside role="status">Upgrade to unlock more properties.</aside> : null}
       <ul>
         {properties?.map((p) => (
           <li key={p.id}>
@@ -72,7 +70,6 @@ export function PropertyManagement({ tenantId }: { tenantId: string }) {
         </label>
         <button disabled={atCap}>Add property</button>
       </form>
-      {message && !message.includes('Upgrade') ? <p role="alert">{message}</p> : null}
     </section>
   );
 }

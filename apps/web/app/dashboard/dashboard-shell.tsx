@@ -7,6 +7,7 @@ import {
   CreditCard,
   FileChartColumn,
   Hotel,
+  Layers,
   LayoutDashboard,
   Settings,
   Tags,
@@ -33,6 +34,12 @@ import { RateManagement } from './[tenantId]/rate-management';
 type TenantRole = 'OWNER' | 'ADMIN' | 'STAFF';
 type Membership = { tenantId: string; role: TenantRole };
 type Property = { id: string; name: string };
+
+const roleLabels: Record<TenantRole, string> = {
+  OWNER: 'Owner',
+  ADMIN: 'Admin',
+  STAFF: 'Staff',
+};
 
 type InitialDashboardData = {
   user: SessionUser | null;
@@ -197,32 +204,35 @@ export function DashboardShell({
       navigation={navigation}
       title={selectedProperty?.name ?? 'Hotel operations'}
       userEmail={user?.email}
+      userRole={role ? roleLabels[role] : undefined}
       headerActions={
-        selectedProperty && role ? (
-          <DashboardNotifications tenantId={tenantId} propertyId={selectedProperty.id} />
-        ) : undefined
+        <>
+          {properties && properties.length > 1 && role !== 'STAFF' ? (
+            <label className={styles.propertySwitcher}>
+              <Layers aria-hidden="true" size={16} />
+              <select
+                aria-label="Switch property"
+                value={selectedProperty?.id ?? ''}
+                onChange={(event) => {
+                  setSelectedPropertyId(event.target.value);
+                  setSection('overview');
+                  window.location.href = `/dashboard/${tenantId}?propertyId=${encodeURIComponent(event.target.value)}&section=overview`;
+                }}
+              >
+                {properties.map((property) => (
+                  <option key={property.id} value={property.id}>
+                    {property.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {selectedProperty && role ? (
+            <DashboardNotifications tenantId={tenantId} propertyId={selectedProperty.id} />
+          ) : null}
+        </>
       }
     >
-      {properties && properties.length > 1 && role !== 'STAFF' ? (
-        <label className={styles.propertySwitcher}>
-          <span>Property</span>
-          <select
-            aria-label="Switch property"
-            value={selectedProperty?.id ?? ''}
-            onChange={(event) => {
-              setSelectedPropertyId(event.target.value);
-              setSection('overview');
-              window.location.href = `/dashboard/${tenantId}?propertyId=${encodeURIComponent(event.target.value)}&section=overview`;
-            }}
-          >
-            {properties.map((property) => (
-              <option key={property.id} value={property.id}>
-                {property.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
       {selectedProperty && role && canViewSection && section === 'overview' ? (
         <DashboardOverview tenantId={tenantId} propertyId={selectedProperty.id} role={role} />
       ) : null}

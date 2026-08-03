@@ -2,6 +2,7 @@
 
 import { Card, Heading, Stack, Text } from '@must/ui';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 
 type Property = { id: string; name: string };
 type RoomType = { id: string; name: string };
@@ -42,7 +43,6 @@ export function RateManagement({
   const [month, setMonth] = useState(
     () => new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   );
-  const [message, setMessage] = useState('');
 
   useEffect(() => {
     void fetch(`/api/tenants/${tenantId}/properties`, { credentials: 'include' })
@@ -104,7 +104,6 @@ export function RateManagement({
 
   async function submitRatePlan(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setMessage('');
     const form = event.currentTarget;
     const data = new FormData(form);
     const response = await fetch(ratePlansUrl(), {
@@ -118,17 +117,17 @@ export function RateManagement({
       }),
     });
     if (!response.ok) {
-      setMessage(await errorMessage(response, 'Unable to create rate plan.'));
+      toast.error(await errorMessage(response, 'Unable to create rate plan.'));
       return;
     }
     form.reset();
     await loadPropertyData();
+    toast.success('Rate plan created.');
   }
 
   async function submitBaseRate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedPlanId) return;
-    setMessage('');
     const form = event.currentTarget;
     const data = new FormData(form);
     const response = await fetch(`${ratePlansUrl()}/${selectedPlanId}/rules`, {
@@ -144,17 +143,17 @@ export function RateManagement({
       }),
     });
     if (!response.ok) {
-      setMessage(await errorMessage(response, 'Unable to set the base rate.'));
+      toast.error(await errorMessage(response, 'Unable to set the base rate.'));
       return;
     }
     form.reset();
     await loadRules(selectedPlanId);
+    toast.success('Base rate set.');
   }
 
   async function updateRatePlan(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedPlanId) return;
-    setMessage('');
     const form = new FormData(event.currentTarget);
     const response = await fetch(`${ratePlansUrl()}/${selectedPlanId}`, {
       method: 'PATCH',
@@ -167,32 +166,32 @@ export function RateManagement({
       }),
     });
     if (!response.ok) {
-      setMessage(await errorMessage(response, 'Unable to update rate plan.'));
+      toast.error(await errorMessage(response, 'Unable to update rate plan.'));
       return;
     }
     await loadPropertyData();
+    toast.success('Rate plan updated.');
   }
 
   async function deleteRatePlan() {
     if (!selectedPlanId) return;
-    setMessage('');
     const response = await fetch(`${ratePlansUrl()}/${selectedPlanId}`, {
       method: 'DELETE',
       credentials: 'include',
     });
     if (!response.ok) {
-      setMessage(await errorMessage(response, 'Unable to delete rate plan.'));
+      toast.error(await errorMessage(response, 'Unable to delete rate plan.'));
       return;
     }
     setSelectedPlanId('');
     setRules([]);
     await loadPropertyData();
+    toast.success('Rate plan deleted.');
   }
 
   async function submitOverride(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedPlanId) return;
-    setMessage('');
     const form = event.currentTarget;
     const data = new FormData(form);
     const selectedWeekdays = weekdays
@@ -211,25 +210,26 @@ export function RateManagement({
       }),
     });
     if (!response.ok) {
-      setMessage(await errorMessage(response, 'Unable to add the date override.'));
+      toast.error(await errorMessage(response, 'Unable to add the date override.'));
       return;
     }
     form.reset();
     await loadRules(selectedPlanId);
+    toast.success('Calendar override added.');
   }
 
   async function deleteRule(ruleId: string) {
     if (!selectedPlanId) return;
-    setMessage('');
     const response = await fetch(`${ratePlansUrl()}/${selectedPlanId}/rules/${ruleId}`, {
       method: 'DELETE',
       credentials: 'include',
     });
     if (!response.ok) {
-      setMessage(await errorMessage(response, 'Unable to delete the rate rule.'));
+      toast.error(await errorMessage(response, 'Unable to delete the rate rule.'));
       return;
     }
     await loadRules(selectedPlanId);
+    toast.success('Rate rule deleted.');
   }
 
   function ratePlansUrl() {
@@ -514,7 +514,6 @@ export function RateManagement({
           </Card>
         </Stack>
       ) : null}
-      {message ? <p role="alert">{message}</p> : null}
     </Stack>
   );
 }

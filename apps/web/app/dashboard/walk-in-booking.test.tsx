@@ -4,6 +4,9 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+vi.mock('sonner', () => ({ toast }));
+
 import { WalkInBooking } from './walk-in-booking';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -55,9 +58,7 @@ describe('WalkInBooking', () => {
       ([url]) => url === `${base}/bookings/booking-1/manual-payment`,
     )!;
     expect(JSON.parse(paymentCall[1].body)).toEqual({ method: 'cash' });
-    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-      'Booking created and payment recorded.',
-    );
+    expect(toast.success).toHaveBeenCalledWith('Booking created and payment recorded.');
     await act(async () => root.unmount());
     container.remove();
   });
@@ -83,9 +84,7 @@ describe('WalkInBooking', () => {
     await setValue(container.querySelector('input[type="date"]')!, '2026-08-10');
     await setValue(container.querySelectorAll('input[type="date"]')[1], '2026-08-11');
     await click(container, 'Search availability');
-    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-      'The minimum stay is 3 nights.',
-    );
+    expect(toast.error).toHaveBeenCalledWith('The minimum stay is 3 nights.');
     await act(async () => root.unmount());
     container.remove();
   });

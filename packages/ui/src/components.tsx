@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { ChevronDown, LogOut } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 type ClassName = { className?: string };
@@ -188,6 +189,57 @@ function LogOutButton() {
   );
 }
 
+function initialsFromEmail(email: string | undefined) {
+  const local = email?.split('@')[0] ?? '';
+  const parts = local.split(/[._-]+/).filter(Boolean);
+  const letters = parts.length > 1 ? [parts[0]?.[0], parts[1]?.[0]] : [local[0], local[1]];
+  return (
+    letters
+      .filter((letter): letter is string => Boolean(letter))
+      .join('')
+      .toUpperCase() || '?'
+  );
+}
+
+/** Header account trigger: avatar + name/role, opening a small session-actions dropdown. */
+function AccountMenu({ email, role }: { email?: string; role?: string }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="must-account-menu">
+      <button
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className="must-account-menu__trigger"
+        onClick={() => setOpen((value) => !value)}
+        type="button"
+      >
+        <span aria-hidden="true" className="must-avatar">
+          {initialsFromEmail(email)}
+        </span>
+        <span className="must-account-menu__identity">
+          <span className="must-account-menu__name">{email ?? 'Signed-in user'}</span>
+          {role ? <span className="must-account-menu__role">{role}</span> : null}
+        </span>
+        <ChevronDown aria-hidden="true" className="must-account-menu__chevron" size={16} />
+      </button>
+      {open ? (
+        <div className="must-account-menu__dropdown" role="menu">
+          <button
+            className="must-account-menu__item must-account-menu__item--danger"
+            onClick={() => void logOut()}
+            role="menuitem"
+            type="button"
+          >
+            <LogOut aria-hidden="true" size={16} />
+            Log out
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function SidebarNavigation({
   items,
   className,
@@ -323,6 +375,7 @@ export function AppShell({
   navigation,
   title,
   userEmail,
+  userRole,
   homeHref,
   headerActions,
   children,
@@ -330,6 +383,7 @@ export function AppShell({
   navigation: readonly NavigationItem[];
   title: string;
   userEmail?: string;
+  userRole?: string;
   homeHref?: string;
   headerActions?: ReactNode;
   children: ReactNode;
@@ -347,14 +401,11 @@ export function AppShell({
           <MobileDrawerNavigation items={navigation} title={title} />
           <div className="must-desktop-header">
             <Heading level={2}>{title}</Heading>
-            <div className="must-desktop-header__profile">
-              <span>{userEmail ?? 'Signed-in user'}</span>
-              <LogOutButton />
-            </div>
           </div>
-          {headerActions ? (
-            <div className="must-app-shell__header-actions">{headerActions}</div>
-          ) : null}
+          <div className="must-app-shell__header-actions">
+            {headerActions}
+            <AccountMenu email={userEmail} role={userRole} />
+          </div>
         </header>
         <main className="must-app-shell__content">{children}</main>
       </div>

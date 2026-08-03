@@ -5,6 +5,7 @@ import { CalendarPlus, UserPlus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import styles from './overview.module.css';
+import { DashboardLoadingSkeleton } from './loading-skeleton';
 
 type Overview = {
   kpis: {
@@ -73,7 +74,7 @@ export function DashboardOverview({
     };
   }, [initialOverview, propertyId, tenantId]);
 
-  if (overview === undefined) return <Text>Loading overview…</Text>;
+  if (overview === undefined) return <DashboardLoadingSkeleton label="Loading overview…" />;
   if (!overview) return <Text className={styles.error}>{error}</Text>;
 
   return (

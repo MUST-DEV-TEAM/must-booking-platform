@@ -35,6 +35,26 @@ const notifications = [
 afterEach(() => vi.unstubAllGlobals());
 
 describe('DashboardNotifications', () => {
+  it('uses the shared dashboard skeleton while notifications are loading', async () => {
+    let resolveFetch!: (value: Response) => void;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>((resolve) => (resolveFetch = resolve))),
+    );
+    const { container, root } = await mount({ settle: false });
+
+    await click(container.querySelector('[aria-label="Notifications"]')!);
+    expect(container.querySelector('[aria-busy="true"]')?.getAttribute('aria-label')).toBe(
+      'Loading notifications…',
+    );
+
+    await act(async () => {
+      resolveFetch(new Response(JSON.stringify({ items: [] })));
+      await Promise.resolve();
+    });
+    await act(async () => root.unmount());
+  });
+
   it('uses fetched unread rows for the badge and updates it after marking one read', async () => {
     const fetch = vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method === 'PATCH')
@@ -74,13 +94,15 @@ describe('DashboardNotifications', () => {
   });
 });
 
-async function mount() {
+async function mount({ settle = true }: { settle?: boolean } = {}) {
   const container = document.createElement('div');
   const root = createRoot(container);
   await act(async () => {
     root.render(createElement(DashboardNotifications, { tenantId: 't', propertyId: 'p' }));
-    await Promise.resolve();
-    await Promise.resolve();
+    if (settle) {
+      await Promise.resolve();
+      await Promise.resolve();
+    }
   });
   return { container, root };
 }

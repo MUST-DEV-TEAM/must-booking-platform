@@ -22,6 +22,21 @@ let property = {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('DashboardSettings', () => {
+  it('shows a retry control when the initial settings lookup fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{}', { status: 500 })),
+    );
+    const { container, root } = await mount();
+    expect(container.textContent).toContain('Unable to load property settings.');
+    expect(
+      Array.from(container.querySelectorAll('button')).some(
+        (button) => button.textContent === 'Retry',
+      ),
+    ).toBe(true);
+    await act(async () => root.unmount());
+  });
+
   it('round-trips identity and sends only the booking-rule field the form changed', async () => {
     const fetch = vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method === 'PATCH') {

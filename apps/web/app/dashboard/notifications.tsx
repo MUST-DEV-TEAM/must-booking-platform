@@ -4,6 +4,7 @@ import { Bell } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import styles from './dashboard-shell.module.css';
+import { DashboardLoadingSkeleton } from './loading-skeleton';
 
 type Notification = {
   id: string;
@@ -105,8 +106,10 @@ export function DashboardNotifications({
                 </li>
               ))}
             </ul>
+          ) : notifications === null ? (
+            <DashboardLoadingSkeleton label="Loading notifications…" />
           ) : (
-            <p>{notifications ? 'No notifications.' : 'Loading notifications…'}</p>
+            <p>No notifications.</p>
           )}
         </section>
       ) : null}
