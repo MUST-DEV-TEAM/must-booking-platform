@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   type Money,
   type Payment,
@@ -75,6 +75,8 @@ export class PaymentRefundService {
     charge: Pick<Charge, 'provider' | 'externalPaymentId' | 'amount' | 'currency'>,
     command: { amount: Money; idempotencyKey: string; actorUserId?: string },
   ): Promise<RefundChargeOutcome> {
+    if (charge.provider === 'manual')
+      return this.recordManualRefund(tx, context, bookingId, charge, command);
     const provider = this.paymentProviders.forProvider(charge.provider);
     if (!provider)
       return {
@@ -156,6 +158,7 @@ export class PaymentRefundService {
         const charge = await this.chargeForBooking(tx, context, command.bookingId, [
           'PAID',
           'LATE_AFTER_EXPIRY',
+          'succeeded',
         ]);
         if (!charge) return this.failure('CHARGE_NOT_FOUND', 'No refundable charge was found.');
         const alreadyRefunded = await this.refundedAmount(tx, context, command.bookingId);
@@ -190,6 +193,75 @@ export class PaymentRefundService {
     );
     if (confirmation) await this.notifications.sendRefundConfirmationEmailSafely(confirmation);
     return result;
+  }
+
+  private async recordManualRefund(
+    tx: TenantTransaction,
+    context: PaymentProviderContext,
+    bookingId: string,
+    charge: Pick<Charge, 'externalPaymentId' | 'amount' | 'currency'>,
+    command: { amount: Money; actorUserId?: string },
+  ): Promise<RefundChargeOutcome> {
+    const externalPaymentId = `manual:refund:${randomUUID()}`;
+    const inserted = await tx.$queryRaw<Array<{ id: string }>>`
+      INSERT INTO payments (
+        tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency
+      ) VALUES (
+        ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${bookingId}::uuid,
+        'REFUND'::"PaymentKind", 'manual', ${externalPaymentId}, 'REFUNDED',
+        ${command.amount.amount}::numeric, ${command.amount.currency}
+      )
+      ON CONFLICT (tenant_id, external_payment_id) DO NOTHING
+      RETURNING id
+    `;
+    let confirmation: RefundConfirmation | null = null;
+    if (inserted[0]) {
+      await this.audit.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        actorUserId: command.actorUserId ?? null,
+        action: 'payment.refunded',
+        targetType: 'booking',
+        targetId: bookingId,
+        details: {
+          chargeExternalPaymentId: charge.externalPaymentId,
+          refundExternalPaymentId: externalPaymentId,
+          amount: command.amount,
+        },
+      });
+      await this.inAppNotifications.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        type: 'PAYMENT_REFUNDED',
+        payload: { bookingId, refundId: externalPaymentId, amount: command.amount },
+      });
+      const guest = await tx.$queryRaw<Array<{ email: string }>>`
+        SELECT g.email
+        FROM bookings b
+        JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
+        WHERE b.id = ${bookingId}::uuid AND b.tenant_id = ${context.tenantId}::uuid
+          AND b.property_id = ${context.propertyId}::uuid
+      `;
+      if (guest[0])
+        confirmation = {
+          bookingId,
+          refundId: externalPaymentId,
+          to: guest[0].email,
+          amount: command.amount,
+        };
+    }
+    return {
+      result: {
+        ok: true,
+        value: {
+          id: externalPaymentId,
+          bookingId,
+          amount: command.amount,
+          status: 'REFUNDED',
+        },
+      },
+      confirmation,
+    };
   }
 
   private async chargeForBooking(

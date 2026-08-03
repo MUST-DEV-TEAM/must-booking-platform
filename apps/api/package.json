@@ -9,6 +9,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
     "seed:platform-admin": "node --env-file-if-exists=.env --import=tsx scripts/seed-platform-admin.ts",
+    "seed:local-demo": "node --env-file-if-exists=.env --import=tsx scripts/seed-local-demo.ts",
     "start": "node dist/main.js",
     "start:dev": "tsx watch src/main.ts",
     "test": "vitest run"

@@ -83,6 +83,7 @@ import { ManualPaymentService } from './payments/manual-payment.service';
 import { PlatformAdminController } from './platform/platform-admin.controller';
 import { PlatformAdminService } from './platform/platform-admin.service';
 import { ProviderHealthService } from './platform/provider-health.service';
+import { LocalDemoSeedService } from './tenancy/local-demo-seed.service';
 
 @Module({
   imports: [
@@ -191,6 +192,7 @@ import { ProviderHealthService } from './platform/provider-health.service';
     ManualPaymentService,
     PlatformAdminService,
     ProviderHealthService,
+    LocalDemoSeedService,
     { provide: PAYMENT_PROVIDER, useExisting: StripePaymentProvider },
     R2StorageProvider,
     { provide: STORAGE_PROVIDER, useExisting: R2StorageProvider },
