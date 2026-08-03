@@ -71,10 +71,6 @@ describe('page-visibility capabilities', () => {
     await app.init();
     const templates = moduleRef.get(PropertyRoleTemplatesService);
     await templates.ensureBuiltInTemplates(tenantId, propertyId);
-    await templates.createCustomTemplate(tenantId, propertyId, 'Finance', [
-      'reports.view',
-      'payments.refund',
-    ]);
     const templateRows = await migrationPrisma.$queryRaw<Array<{ id: string; name: string }>>`
       SELECT id, name FROM property_role_templates
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid

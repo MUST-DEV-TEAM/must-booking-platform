@@ -19,6 +19,13 @@ export interface StaffInvite {
   assignments: Array<{ propertyId: string; roleTemplateId: string; capabilityKeys?: string[] }>;
 }
 
+export type ProvisionedStaffAccount = {
+  userId: string;
+  email: string;
+  password: string;
+  roleTemplateName: 'Front Desk' | 'Property Manager' | 'Finance';
+};
+
 @Injectable()
 export class StaffInviteService implements OnModuleDestroy {
   private readonly redis: RedisClientType;
@@ -86,10 +93,7 @@ export class StaffInviteService implements OnModuleDestroy {
     try {
       await this.database.withTenantTransaction({ tenantId: invite.tenantId }, async (tx) => {
         await this.ensureStaffSeatAvailable(tx, invite.tenantId, { email });
-        await tx.$executeRaw`
-          INSERT INTO "users" ("id", "email", "password_hash", "email_verified_at")
-          VALUES (${userId}::uuid, ${email.toLowerCase()}, ${await bcrypt.hash(password, 12)}, CURRENT_TIMESTAMP)
-        `;
+        await this.createActiveStaffInTransaction(tx, userId, email, password);
         await this.assignInvitation(tx, invite, userId);
       });
     } catch (error: unknown) {
@@ -102,6 +106,41 @@ export class StaffInviteService implements OnModuleDestroy {
 
   async onModuleDestroy(): Promise<void> {
     if (this.redis.isOpen) await this.redis.quit();
+  }
+
+  async provisionForPropertyInTransaction(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+  ): Promise<ProvisionedStaffAccount[]> {
+    const templates = await tx.$queryRaw<
+      Array<{ id: string; name: ProvisionedStaffAccount['roleTemplateName'] }>
+    >`
+      SELECT "id", "name"
+      FROM "property_role_templates"
+      WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid
+        AND "name" IN ('Front Desk', 'Property Manager', 'Finance')
+    `;
+    const templateIds = new Map(templates.map((template) => [template.name, template.id]));
+    const accounts: ProvisionedStaffAccount[] = [];
+    for (const roleTemplateName of ['Front Desk', 'Property Manager', 'Finance'] as const) {
+      const roleTemplateId = templateIds.get(roleTemplateName);
+      if (!roleTemplateId)
+        throw new BadRequestException(`Missing ${roleTemplateName} role template.`);
+      const userId = randomUUID();
+      const password = randomBytes(24).toString('base64url');
+      const email = `${roleTemplateName.toLowerCase().replace(' ', '-')}+${propertyId}@staff.must.test`;
+      await this.createActiveStaffInTransaction(tx, userId, email, password);
+      await this.assignStaffInTransaction(
+        tx,
+        tenantId,
+        userId,
+        [{ propertyId, roleTemplateId }],
+        true,
+      );
+      accounts.push({ userId, email, password, roleTemplateName });
+    }
+    return accounts;
   }
 
   private async client(): Promise<RedisClientType> {
@@ -128,24 +167,7 @@ export class StaffInviteService implements OnModuleDestroy {
     invite: StaffInvite,
     userId: string,
   ): Promise<void> {
-    await this.ensureTenantMembershipAllowed(tx, userId);
-    await tx.$executeRaw`
-      INSERT INTO "tenant_memberships" ("tenant_id", "user_id", "role") VALUES (${invite.tenantId}::uuid, ${userId}::uuid, 'STAFF')
-      ON CONFLICT ("tenant_id", "user_id") DO NOTHING
-    `;
-    for (const assignment of invite.assignments) {
-      await tx.$executeRaw`
-        INSERT INTO "property_staff_assignments" ("tenant_id", "property_id", "user_id", "role_template_id") VALUES (${invite.tenantId}::uuid, ${assignment.propertyId}::uuid, ${userId}::uuid, ${assignment.roleTemplateId}::uuid)
-        ON CONFLICT ("tenant_id", "property_id", "user_id") DO UPDATE SET "role_template_id" = EXCLUDED."role_template_id"
-      `;
-      for (const key of assignment.capabilityKeys ?? []) {
-        await tx.$executeRaw`
-          INSERT INTO "property_staff_capability_overrides" ("tenant_id", "property_id", "user_id", "capability_id", "granted")
-          SELECT ${invite.tenantId}::uuid, ${assignment.propertyId}::uuid, ${userId}::uuid, "id", true FROM "capabilities" WHERE "tenant_id" = ${invite.tenantId}::uuid AND "key" = ${key}
-          ON CONFLICT ("tenant_id", "property_id", "user_id", "capability_id") DO UPDATE SET "granted" = true
-        `;
-      }
-    }
+    await this.assignStaffInTransaction(tx, invite.tenantId, userId, invite.assignments, false);
     await this.auditLogs.recordInTransaction(tx, {
       tenantId: invite.tenantId,
       actorUserId: userId,
@@ -154,6 +176,47 @@ export class StaffInviteService implements OnModuleDestroy {
       targetId: userId,
       details: { propertyIds: invite.assignments.map((assignment) => assignment.propertyId) },
     });
+  }
+
+  private async createActiveStaffInTransaction(
+    tx: TenantTransaction,
+    userId: string,
+    email: string,
+    password: string,
+  ): Promise<void> {
+    await this.ensureTenantMembershipAllowed(tx, userId);
+    await tx.$executeRaw`
+      INSERT INTO "users" ("id", "email", "password_hash", "email_verified_at")
+      VALUES (${userId}::uuid, ${email.toLowerCase()}, ${await bcrypt.hash(password, 12)}, CURRENT_TIMESTAMP)
+    `;
+  }
+
+  private async assignStaffInTransaction(
+    tx: TenantTransaction,
+    tenantId: string,
+    userId: string,
+    assignments: StaffInvite['assignments'],
+    autoProvisioned: boolean,
+  ): Promise<void> {
+    await this.ensureTenantMembershipAllowed(tx, userId);
+    await tx.$executeRaw`
+      INSERT INTO "tenant_memberships" ("tenant_id", "user_id", "role", "is_auto_provisioned")
+      VALUES (${tenantId}::uuid, ${userId}::uuid, 'STAFF', ${autoProvisioned})
+      ON CONFLICT ("tenant_id", "user_id") DO NOTHING
+    `;
+    for (const assignment of assignments) {
+      await tx.$executeRaw`
+        INSERT INTO "property_staff_assignments" ("tenant_id", "property_id", "user_id", "role_template_id") VALUES (${tenantId}::uuid, ${assignment.propertyId}::uuid, ${userId}::uuid, ${assignment.roleTemplateId}::uuid)
+        ON CONFLICT ("tenant_id", "property_id", "user_id") DO UPDATE SET "role_template_id" = EXCLUDED."role_template_id"
+      `;
+      for (const key of assignment.capabilityKeys ?? []) {
+        await tx.$executeRaw`
+          INSERT INTO "property_staff_capability_overrides" ("tenant_id", "property_id", "user_id", "capability_id", "granted")
+          SELECT ${tenantId}::uuid, ${assignment.propertyId}::uuid, ${userId}::uuid, "id", true FROM "capabilities" WHERE "tenant_id" = ${tenantId}::uuid AND "key" = ${key}
+          ON CONFLICT ("tenant_id", "property_id", "user_id", "capability_id") DO UPDATE SET "granted" = true
+        `;
+      }
+    }
   }
 
   private async ensureTenantMembershipAllowed(
@@ -214,7 +277,7 @@ export class StaffInviteService implements OnModuleDestroy {
     const memberships = await tx.$queryRaw<Array<{ count: number }>>`
       SELECT COUNT(*)::integer AS "count"
       FROM "tenant_memberships"
-      WHERE "tenant_id" = ${tenantId}::uuid
+      WHERE "tenant_id" = ${tenantId}::uuid AND NOT "is_auto_provisioned"
     `;
     if ((memberships[0]?.count ?? 0) >= plan[0].maxStaffSeats) {
       throw new StaffSeatLimitReachedError(plan[0].maxStaffSeats, memberships[0]?.count ?? 0);

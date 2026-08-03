@@ -25,7 +25,7 @@ Shared schema + `tenant_id` + Postgres row-level security (RLS) as the default, 
   Platform-admin accounts are represented by `users.is_platform_admin`, provisioned only through
   the internal seed path (never public signup), and cannot also have a tenant membership.
 - **Tenant owner/admin**: full access within their tenant, manages subscription and staff.
-- **Property staff**: capability-gated access scoped to one or more properties within the tenant (mirrors the predecessor plugin's staff-portal capability model).
+- **Property staff**: capability-gated access scoped to one or more properties within the tenant (mirrors the predecessor plugin's staff-portal capability model). Each newly created property includes three active generic accounts — Front Desk, Property Manager, and Finance — assigned to its matching built-in templates. Their generated credentials are returned only in that property's creation response; they are cap-exempt, but otherwise behave as ordinary staff accounts and may be renamed, reassigned, or removed. Manually invited staff remain subject to the plan's staff-seat limit.
 - **Guest**: no account; interacts only through the public booking widget and signed links (booking confirmation, cancellation), consistent with the predecessor system's model — no separate guest login area unless a future decision changes this.
 
 Platform-admin and tenant-member roles are mutually exclusive at the database boundary. The

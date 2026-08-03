@@ -39,7 +39,8 @@ export class PlanUsageService {
             p."pms_enabled" AS "pmsEnabled",
             p."max_pms_connections_per_property" AS "maxPmsConnectionsPerProperty",
             (SELECT COUNT(*)::integer FROM "properties" WHERE "tenant_id" = o."id") AS "properties",
-            (SELECT COUNT(*)::integer FROM "tenant_memberships" WHERE "tenant_id" = o."id") AS "staffSeats"
+            (SELECT COUNT(*)::integer FROM "tenant_memberships"
+              WHERE "tenant_id" = o."id" AND NOT "is_auto_provisioned") AS "staffSeats"
           FROM "organizations" o
           JOIN "plans" p ON p."id" = o."plan_id"
           WHERE o."id" = ${tenantId}::uuid

@@ -102,7 +102,7 @@ export class PropertyRoleTemplatesService {
           ON CONFLICT ("tenant_id", "key") DO NOTHING
         `;
     }
-    for (const name of ['Property Manager', 'Front Desk']) {
+    for (const name of ['Property Manager', 'Front Desk', 'Finance']) {
       await tx.$executeRaw`
           INSERT INTO "property_role_templates" ("tenant_id", "property_id", "name", "kind") VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${name}, 'BUILT_IN')
           ON CONFLICT ("tenant_id", "property_id", "name") DO NOTHING
@@ -118,9 +118,13 @@ export class PropertyRoleTemplatesService {
       const allowed =
         template.name === 'Property Manager'
           ? capabilities
-          : capabilities.filter((capability) =>
-              ['bookings.manage', 'calendar.view', 'guests.manage'].includes(capability.key),
-            );
+          : template.name === 'Finance'
+            ? capabilities.filter((capability) =>
+                ['reports.view', 'payments.refund'].includes(capability.key),
+              )
+            : capabilities.filter((capability) =>
+                ['bookings.manage', 'calendar.view', 'guests.manage'].includes(capability.key),
+              );
       for (const capability of allowed) {
         await tx.$executeRaw`
             INSERT INTO "property_role_template_capabilities" ("tenant_id", "property_id", "role_template_id", "capability_id") VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${template.id}::uuid, ${capability.id}::uuid)

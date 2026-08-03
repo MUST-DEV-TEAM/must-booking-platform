@@ -77,6 +77,10 @@ describe('property staff capabilities', () => {
     `;
     expect(seededCapabilities).toEqual([
       {
+        name: 'Finance',
+        capabilities: ['payments.refund', 'reports.view'],
+      },
+      {
         name: 'Front Desk',
         capabilities: ['bookings.manage', 'calendar.view', 'guests.manage'],
       },

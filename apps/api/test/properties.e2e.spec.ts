@@ -212,6 +212,79 @@ describe('properties', () => {
       pokpay: false,
       payAtHotel: false,
     });
+    expect(created.body.provisionedStaff).toHaveLength(3);
+    expect(
+      created.body.provisionedStaff
+        .map((account: { roleTemplateName: string }) => account.roleTemplateName)
+        .sort(),
+    ).toEqual(['Finance', 'Front Desk', 'Property Manager']);
+    for (const account of created.body.provisionedStaff as Array<{
+      email: string;
+      password: string;
+    }>) {
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: account.email, password: account.password })
+        .expect(201);
+    }
+    const provisionedAssignments = await admin.$queryRaw<
+      Array<{ roleTemplateName: string; autoProvisioned: boolean }>
+    >`
+      SELECT prt.name AS "roleTemplateName", tm.is_auto_provisioned AS "autoProvisioned"
+      FROM property_staff_assignments psa
+      JOIN tenant_memberships tm
+        ON tm.tenant_id = psa.tenant_id AND tm.user_id = psa.user_id
+      JOIN property_role_templates prt
+        ON prt.tenant_id = psa.tenant_id AND prt.property_id = psa.property_id
+          AND prt.id = psa.role_template_id
+      WHERE psa.tenant_id = ${tenantId}::uuid AND psa.property_id = ${created.body.id}::uuid
+      ORDER BY prt.name
+    `;
+    expect(provisionedAssignments).toEqual([
+      { roleTemplateName: 'Finance', autoProvisioned: true },
+      { roleTemplateName: 'Front Desk', autoProvisioned: true },
+      { roleTemplateName: 'Property Manager', autoProvisioned: true },
+    ]);
+    const financeAccount = created.body.provisionedStaff.find(
+      (account: { roleTemplateName: string }) => account.roleTemplateName === 'Finance',
+    ) as { userId: string } | undefined;
+    const propertyManagerAccount = created.body.provisionedStaff.find(
+      (account: { roleTemplateName: string }) => account.roleTemplateName === 'Property Manager',
+    ) as { userId: string } | undefined;
+    const secondPropertyFrontDeskTemplate = await admin.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM property_role_templates
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${created.body.id}::uuid
+        AND name = 'Front Desk'
+    `;
+    if (!financeAccount || !propertyManagerAccount || !secondPropertyFrontDeskTemplate[0])
+      throw new Error('Expected all provisioned staff accounts and templates.');
+    await request(app.getHttpServer())
+      .put(`/tenants/${tenantId}/properties/${created.body.id}/staff/${financeAccount.userId}`)
+      .set('Cookie', cookie)
+      .send({ roleTemplateId: secondPropertyFrontDeskTemplate[0].id })
+      .expect(204);
+    await request(app.getHttpServer())
+      .delete(`/tenants/${tenantId}/memberships/${propertyManagerAccount.userId}`)
+      .set('Cookie', cookie)
+      .expect(204);
+    const remainingProvisionedAssignments = await admin.$queryRaw<
+      Array<{ userId: string; roleTemplateName: string }>
+    >`
+      SELECT psa.user_id AS "userId", prt.name AS "roleTemplateName"
+      FROM property_staff_assignments psa
+      JOIN property_role_templates prt
+        ON prt.tenant_id = psa.tenant_id AND prt.property_id = psa.property_id
+          AND prt.id = psa.role_template_id
+      WHERE psa.tenant_id = ${tenantId}::uuid AND psa.property_id = ${created.body.id}::uuid
+      ORDER BY psa.user_id
+    `;
+    expect(remainingProvisionedAssignments).toEqual(
+      expect.arrayContaining([
+        { userId: financeAccount.userId, roleTemplateName: 'Front Desk' },
+        expect.objectContaining({ roleTemplateName: 'Front Desk' }),
+      ]),
+    );
+    expect(remainingProvisionedAssignments).toHaveLength(2);
     expect(
       (
         await request(app.getHttpServer())
