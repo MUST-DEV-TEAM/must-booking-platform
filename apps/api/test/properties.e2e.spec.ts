@@ -267,6 +267,10 @@ describe('properties', () => {
       .delete(`/tenants/${tenantId}/memberships/${propertyManagerAccount.userId}`)
       .set('Cookie', cookie)
       .expect(204);
+    const deletedProvisionedUser = await admin.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM users WHERE id = ${propertyManagerAccount.userId}::uuid
+    `;
+    expect(deletedProvisionedUser).toEqual([]);
     const remainingProvisionedAssignments = await admin.$queryRaw<
       Array<{ userId: string; roleTemplateName: string }>
     >`

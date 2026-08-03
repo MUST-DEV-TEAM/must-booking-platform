@@ -93,7 +93,7 @@ export class StaffInviteService implements OnModuleDestroy {
     try {
       await this.database.withTenantTransaction({ tenantId: invite.tenantId }, async (tx) => {
         await this.ensureStaffSeatAvailable(tx, invite.tenantId, { email });
-        await this.createActiveStaffInTransaction(tx, userId, email, password);
+        await this.createActiveStaffInTransaction(tx, userId, email, password, false);
         await this.assignInvitation(tx, invite, userId);
       });
     } catch (error: unknown) {
@@ -130,7 +130,7 @@ export class StaffInviteService implements OnModuleDestroy {
       const userId = randomUUID();
       const password = randomBytes(24).toString('base64url');
       const email = `${roleTemplateName.toLowerCase().replace(' ', '-')}+${propertyId}@staff.must.test`;
-      await this.createActiveStaffInTransaction(tx, userId, email, password);
+      await this.createActiveStaffInTransaction(tx, userId, email, password, true);
       await this.assignStaffInTransaction(
         tx,
         tenantId,
@@ -183,11 +183,12 @@ export class StaffInviteService implements OnModuleDestroy {
     userId: string,
     email: string,
     password: string,
+    autoProvisioned: boolean,
   ): Promise<void> {
     await this.ensureTenantMembershipAllowed(tx, userId);
     await tx.$executeRaw`
-      INSERT INTO "users" ("id", "email", "password_hash", "email_verified_at")
-      VALUES (${userId}::uuid, ${email.toLowerCase()}, ${await bcrypt.hash(password, 12)}, CURRENT_TIMESTAMP)
+      INSERT INTO "users" ("id", "email", "password_hash", "email_verified_at", "is_auto_provisioned")
+      VALUES (${userId}::uuid, ${email.toLowerCase()}, ${await bcrypt.hash(password, 12)}, CURRENT_TIMESTAMP, ${autoProvisioned})
     `;
   }
 
