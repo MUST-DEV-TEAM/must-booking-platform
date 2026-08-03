@@ -1,4 +1,4 @@
-# Milestone 12: Clock PMS+ Adapter (Basic Integration)
+# Milestone 11: Clock PMS+ Adapter (Basic Integration)
 
 Status: Not started
 Depends on: Milestone 4 (booking domain/`PmsProvider`); reference material: `docs/source/clock-pms-integration.pdf`
@@ -7,7 +7,7 @@ Depends on: Milestone 4 (booking domain/`PmsProvider`); reference material: `doc
 
 ## Goal
 
-A first working `ClockPmsProvider`, sandbox-validated, covering the core loop: connect, catalog sync, availability, and booking create/update/cancel. This is deliberately **basic**, not the full production-grade integration the source brief specifies (full webhook reconciliation, WAF handling, complete observability, all deliverable documents) — that hardening is Milestone 13 and beyond. Done means: a real Clock sandbox account can be connected, its catalog synced, and a booking created/cancelled through `ClockPmsProvider`, end to end.
+A first working `ClockPmsProvider`, sandbox-validated, covering the core loop: connect, catalog sync, availability, and booking create/update/cancel. This is deliberately **basic**, not the full production-grade integration the source brief specifies (full webhook reconciliation, WAF handling, complete observability, all deliverable documents) — that hardening is Milestone 12 and beyond. Done means: a real Clock sandbox account can be connected, its catalog synced, and a booking created/cancelled through `ClockPmsProvider`, end to end.
 
 ## Draft task areas (not final — define the real 10 tasks at kickoff)
 
@@ -18,11 +18,11 @@ A first working `ClockPmsProvider`, sandbox-validated, covering the core loop: c
 5. Catalog sync: initial full sync with preview/confirm, per source brief section 14 — room types, rooms, rates, mapped into local catalog mapping tables (section 13).
 6. Availability query integration (`getAvailability`), with the endpoint-matrix caveat from section 16 (short-lived cache only, final check before booking).
 7. `createBooking`/`updateBooking`/`cancelBooking` on `ClockPmsProvider`, idempotent per section 18-19's pattern (reuse Milestone 4's `integration_operations` design).
-8. Webhook endpoint skeleton (SNS-shaped, section 20): signature verification, dedup, fast-2xx-then-queue — event *hydration* can be minimal/manual-triggered for this milestone; full reconciliation is Milestone 13+.
+8. Webhook endpoint skeleton (SNS-shaped, section 20): signature verification, dedup, fast-2xx-then-queue — event *hydration* can be minimal/manual-triggered for this milestone; full reconciliation is Milestone 12+.
 9. Sandbox validation report: for every endpoint used, record verification status per source brief section 39 (`CONFIRMED_BY_DOCS` / `CONFIRMED_IN_SANDBOX` / etc.) — start of `CLOCK_ENDPOINT_MATRIX.md`.
 10. Manual-review queue stub for unknown/ambiguous Clock results (section 26) — doesn't need full automation yet, but must not silently misclassify an unknown result as success.
 
-## Explicitly not included (deferred to post-Milestone-13 hardening backlog)
+## Explicitly not included (deferred to post-Milestone-12 hardening backlog)
 
 - Full reconciliation jobs, WAF-suspicion circuit breakers, complete observability/alerting (source brief sections 22, 12, 28).
 - All the source brief's deliverable documents beyond the endpoint matrix (`CLOCK_ARCHITECTURE.md`, `CLOCK_WEBHOOK_FLOW.md`, etc.) — written up properly before any production activation, not required for this milestone's sandbox-only scope.

@@ -28,7 +28,7 @@ The owner also provided a screenshot of the legacy plugin's real guest-booking f
 - `billingAddress` (street, city, postcode, country)
 - `taxId` (VAT number)
 
-Note: `billingAddress`/`taxId` conceptually belong on `Organization`, but actually collecting/editing them is likely Milestone 11 (Platform Billing)'s job, not something built as part of this ADR's own follow-up work — this decision fixes where the fields live, not when they get built.
+Note: `billingAddress`/`taxId` conceptually belong on `Organization`, but actually collecting/editing them is likely Milestone 13 (Platform Billing, moved to last per ADR-0025)'s job, not something built as part of this ADR's own follow-up work — this decision fixes where the fields live, not when they get built.
 
 **`Property`**:
 - `phone`, `contactEmail` (structured phone) — the property's own guest-facing contact info, distinct from the organization's business contact

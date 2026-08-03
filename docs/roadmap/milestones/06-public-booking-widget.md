@@ -1,6 +1,6 @@
 # Milestone 6: WordPress Plugin Retrofit (Guest-Facing Frontend)
 
-Status: Paused (2026-07-31) — backend milestones (5, 7+) take priority; WordPress integration resumes in one consolidated pass before Milestone 11. Task 11 (E2E) is functionally verified by curl/headless-browser simulation but still needs the owner's own live-browser pass; Task 12 is blocked on Milestone 5 tasks 11-13. Neither is being actively worked right now.
+Status: Paused (2026-07-31) — backend milestones (5, 7+) take priority; WordPress integration resumes in one consolidated pass before Milestone 12 (Integration & Initial Release Readiness). Task 11 (E2E) is functionally verified by curl/headless-browser simulation but still needs the owner's own live-browser pass; Task 12 is blocked on Milestone 5 tasks 11-13. Neither is being actively worked right now.
 Depends on: Milestone 5
 
 ## Goal
