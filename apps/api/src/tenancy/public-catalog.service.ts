@@ -129,7 +129,34 @@ export class PublicCatalogService {
                 'PAYMENT_FAILED'::"BookingStatus",
                 'PMS_UNKNOWN_RESULT'::"BookingStatus",
                 'PMS_REJECTED'::"BookingStatus",
-                'MANUAL_REVIEW'::"BookingStatus"
+              'MANUAL_REVIEW'::"BookingStatus"
+            )
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM availability_blocks ab
+            WHERE ab.tenant_id = ${tenantId}::uuid
+              AND ab.property_id = ${propertyId}::uuid
+              AND ab.starts_on < ${range.endsOn}::date
+              AND ab.ends_on > ${range.startsOn}::date
+              AND (
+                ab.blocks_all
+                OR EXISTS (
+                  SELECT 1
+                  FROM availability_block_rooms abr
+                  WHERE abr.tenant_id = ab.tenant_id
+                    AND abr.property_id = ab.property_id
+                    AND abr.block_id = ab.id
+                    AND abr.room_id = r.id
+                )
+                OR EXISTS (
+                  SELECT 1
+                  FROM availability_block_room_types abrt
+                  WHERE abrt.tenant_id = ab.tenant_id
+                    AND abrt.property_id = ab.property_id
+                    AND abrt.block_id = ab.id
+                    AND abrt.room_type_id = r.room_type_id
+                )
               )
           ) AS "isAvailable"
         FROM rooms r

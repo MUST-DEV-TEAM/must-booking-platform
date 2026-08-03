@@ -1,4 +1,15 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Put, Query, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  Post,
+  Put,
+  Query,
+  Req,
+} from '@nestjs/common';
 
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 import { Role, Roles } from './roles.decorator';
@@ -70,6 +81,22 @@ export class AvailabilityController {
       request.tenantContext.tenantId,
       request.tenantContext.propertyId,
       roomId,
+      request.tenantContext.userId,
+      body,
+    );
+  }
+
+  @Post('availability-blocks')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresVerifiedEmail()
+  createAvailabilityBlock(
+    @Body() body: unknown,
+    @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
+  ) {
+    return this.availability.createAvailabilityBlock(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
       request.tenantContext.userId,
       body,
     );

@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 
 import { AuditLogService } from './audit-log.service';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
@@ -27,6 +28,14 @@ type RoomAvailabilityInput = {
   endsOn: string;
   isAvailable: boolean;
 };
+type AvailabilityBlockInput = {
+  startsOn: string;
+  endsOn: string;
+  all: boolean;
+  roomTypeIds: string[];
+  roomIds: string[];
+};
+type AvailabilityBlock = AvailabilityBlockInput & { id: string };
 
 export type InventoryBookedUnitsInput = {
   roomTypeId: string;
@@ -63,9 +72,30 @@ export class AvailabilityService {
             INTERVAL '1 day'
           )::date AS stays_on
         )
-        SELECT MIN(
-          COALESCE(inventory_units.available_units, 0) - COALESCE(inventory_units.booked_units, 0)
-        )::integer AS "availableUnits"
+        SELECT CASE
+          WHEN EXISTS (
+            SELECT 1
+            FROM availability_blocks ab
+            WHERE ab.tenant_id = ${tenantId}::uuid
+              AND ab.property_id = ${propertyId}::uuid
+              AND ab.starts_on < ${input.endsOn}::date
+              AND ab.ends_on > ${input.startsOn}::date
+              AND (
+                ab.blocks_all
+                OR EXISTS (
+                  SELECT 1
+                  FROM availability_block_room_types abrt
+                  WHERE abrt.tenant_id = ab.tenant_id
+                    AND abrt.property_id = ab.property_id
+                    AND abrt.block_id = ab.id
+                    AND abrt.room_type_id = ${input.roomTypeId}::uuid
+                )
+              )
+          ) THEN 0
+          ELSE COALESCE(MIN(
+            COALESCE(inventory_units.available_units, 0) - COALESCE(inventory_units.booked_units, 0)
+          ), 0)::integer
+        END::integer AS "availableUnits"
         FROM requested_nights
         LEFT JOIN inventory_units
           ON inventory_units.tenant_id = ${tenantId}::uuid
@@ -178,6 +208,54 @@ export class AvailabilityService {
     });
   }
 
+  async createAvailabilityBlock(
+    tenantId: string,
+    propertyId: string,
+    actorUserId: string,
+    body: unknown,
+  ): Promise<AvailabilityBlock> {
+    const input = this.availabilityBlockInput(body);
+    const id = randomUUID();
+    await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      if (input.roomIds.length > 0) await this.requireIndividualRoomMode(tx, propertyId);
+      for (const roomTypeId of input.roomTypeIds)
+        await this.requireRoomType(tx, tenantId, propertyId, roomTypeId);
+      for (const roomId of input.roomIds) await this.requireRoom(tx, tenantId, propertyId, roomId);
+
+      await tx.$executeRaw`
+        INSERT INTO availability_blocks (id, tenant_id, property_id, starts_on, ends_on, blocks_all)
+        VALUES (
+          ${id}::uuid,
+          ${tenantId}::uuid,
+          ${propertyId}::uuid,
+          ${input.startsOn}::date,
+          ${input.endsOn}::date,
+          ${input.all}
+        )
+      `;
+      for (const roomTypeId of input.roomTypeIds)
+        await tx.$executeRaw`
+          INSERT INTO availability_block_room_types (tenant_id, property_id, block_id, room_type_id)
+          VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${id}::uuid, ${roomTypeId}::uuid)
+        `;
+      for (const roomId of input.roomIds)
+        await tx.$executeRaw`
+          INSERT INTO availability_block_rooms (tenant_id, property_id, block_id, room_id)
+          VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${id}::uuid, ${roomId}::uuid)
+        `;
+      await this.audit.recordInTransaction(tx, {
+        tenantId,
+        propertyId,
+        actorUserId,
+        action: 'availability_blocks.create',
+        targetType: 'availability_block',
+        targetId: id,
+        details: input,
+      });
+    });
+    return { id, ...input };
+  }
+
   async reserveBookedUnits(
     tx: TenantTransaction,
     tenantId: string,
@@ -264,6 +342,27 @@ export class AvailabilityService {
     return { ...input, isAvailable: value.isAvailable };
   }
 
+  private availabilityBlockInput(body: unknown): AvailabilityBlockInput {
+    const range = this.rangeInput(body);
+    const value = (body ?? {}) as Record<string, unknown>;
+    const all = value.all === undefined ? false : value.all;
+    if (typeof all !== 'boolean') throw new BadRequestException('all must be a boolean.');
+    const roomTypeIds = this.targetIds(value.roomTypeIds, 'roomTypeIds');
+    const roomIds = this.targetIds(value.roomIds, 'roomIds');
+    if (!all && roomTypeIds.length === 0 && roomIds.length === 0)
+      throw new BadRequestException('At least one availability-block target is required.');
+    return { ...range, all, roomTypeIds, roomIds };
+  }
+
+  private targetIds(value: unknown, field: string): string[] {
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || value.some((id) => typeof id !== 'string' || !id))
+      throw new BadRequestException(`${field} must be an array of IDs.`);
+    if (new Set(value).size !== value.length)
+      throw new BadRequestException(`${field} must not contain duplicate IDs.`);
+    return value;
+  }
+
   private async adjustBookedUnits(
     tx: TenantTransaction,
     tenantId: string,
@@ -273,6 +372,11 @@ export class AvailabilityService {
   ): Promise<boolean> {
     const adjustment = this.bookedUnitsInput(input);
     await this.lockBookedUnits(tx, tenantId, propertyId, adjustment.roomTypeId);
+    if (
+      direction === 1 &&
+      (await this.roomTypeIsBlocked(tx, tenantId, propertyId, adjustment.roomTypeId, adjustment))
+    )
+      return false;
 
     const rows = await tx.$queryRaw<
       Array<{ staysOn: Date; availableUnits: number; bookedUnits: number }>
@@ -358,9 +462,71 @@ export class AvailabilityService {
               'PMS_REJECTED'::"BookingStatus",
               'MANUAL_REVIEW'::"BookingStatus"
             )
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM availability_blocks ab
+          WHERE ab.tenant_id = ${tenantId}::uuid
+            AND ab.property_id = ${propertyId}::uuid
+            AND ab.starts_on < ${input.endsOn}::date
+            AND ab.ends_on > ${input.startsOn}::date
+            AND (
+              ab.blocks_all
+              OR EXISTS (
+                SELECT 1
+                FROM availability_block_rooms abr
+                WHERE abr.tenant_id = ab.tenant_id
+                  AND abr.property_id = ab.property_id
+                  AND abr.block_id = ab.id
+                  AND abr.room_id = ${input.roomId}::uuid
+              )
+              OR EXISTS (
+                SELECT 1
+                FROM availability_block_room_types abrt
+                JOIN rooms r
+                  ON r.tenant_id = ${tenantId}::uuid
+                  AND r.property_id = ${propertyId}::uuid
+                  AND r.id = ${input.roomId}::uuid
+                WHERE abrt.tenant_id = ab.tenant_id
+                  AND abrt.property_id = ab.property_id
+                  AND abrt.block_id = ab.id
+                  AND abrt.room_type_id = r.room_type_id
+              )
+            )
         ) AS "isAvailable"
     `;
     return rows[0]?.isAvailable ?? false;
+  }
+
+  private async roomTypeIsBlocked(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    roomTypeId: string,
+    range: Pick<RoomBookedInput, 'startsOn' | 'endsOn'>,
+  ): Promise<boolean> {
+    const rows = await tx.$queryRaw<Array<{ isBlocked: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM availability_blocks ab
+        WHERE ab.tenant_id = ${tenantId}::uuid
+          AND ab.property_id = ${propertyId}::uuid
+          AND ab.starts_on < ${range.endsOn}::date
+          AND ab.ends_on > ${range.startsOn}::date
+          AND (
+            ab.blocks_all
+            OR EXISTS (
+              SELECT 1
+              FROM availability_block_room_types abrt
+              WHERE abrt.tenant_id = ab.tenant_id
+                AND abrt.property_id = ab.property_id
+                AND abrt.block_id = ab.id
+                AND abrt.room_type_id = ${roomTypeId}::uuid
+            )
+          )
+      ) AS "isBlocked"
+    `;
+    return rows[0]?.isBlocked ?? false;
   }
 
   private nightCount(startsOn: string, endsOn: string): number {

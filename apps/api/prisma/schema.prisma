@@ -336,6 +336,42 @@ model RoomAvailability {
   @@map("room_availability")
 }
 
+model AvailabilityBlock {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  startsOn   DateTime @map("starts_on") @db.Date
+  endsOn     DateTime @map("ends_on") @db.Date
+  blocksAll  Boolean  @default(false) @map("blocks_all")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, propertyId, id])
+  @@index([tenantId, propertyId, startsOn, endsOn])
+  @@map("availability_blocks")
+}
+
+model AvailabilityBlockRoomType {
+  tenantId   String @map("tenant_id") @db.Uuid
+  propertyId String @map("property_id") @db.Uuid
+  blockId    String @map("block_id") @db.Uuid
+  roomTypeId String @map("room_type_id") @db.Uuid
+
+  @@id([tenantId, propertyId, blockId, roomTypeId])
+  @@index([tenantId, propertyId, roomTypeId])
+  @@map("availability_block_room_types")
+}
+
+model AvailabilityBlockRoom {
+  tenantId   String @map("tenant_id") @db.Uuid
+  propertyId String @map("property_id") @db.Uuid
+  blockId    String @map("block_id") @db.Uuid
+  roomId     String @map("room_id") @db.Uuid
+
+  @@id([tenantId, propertyId, blockId, roomId])
+  @@index([tenantId, propertyId, roomId])
+  @@map("availability_block_rooms")
+}
+
 model InventoryUnit {
   tenantId       String   @map("tenant_id") @db.Uuid
   propertyId     String   @map("property_id") @db.Uuid
