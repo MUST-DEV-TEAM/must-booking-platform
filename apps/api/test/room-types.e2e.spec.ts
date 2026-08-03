@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { STORAGE_PROVIDER, type StorageProvider } from '../src/storage/storage.provider';
+import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 
 const admin = new PrismaClient({
@@ -65,20 +66,7 @@ describe('room types', () => {
   });
 
   afterAll(async () => {
-    if (tenantId) {
-      await admin.$executeRaw`DELETE FROM audit_logs WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM room_type_images WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM rooms WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM room_types WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM property_staff_capability_overrides WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM property_staff_assignments WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM property_role_template_capabilities WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM property_role_templates WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM capabilities WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM tenant_memberships WHERE tenant_id = ${tenantId}::uuid`;
-    }
-    if (propertyId) await admin.$executeRaw`DELETE FROM properties WHERE id = ${propertyId}::uuid`;
-    if (tenantId) await admin.$executeRaw`DELETE FROM organizations WHERE id = ${tenantId}::uuid`;
+    if (tenantId) await cleanupTenant(admin, tenantId);
     if (userId) await admin.$executeRaw`DELETE FROM users WHERE id = ${userId}::uuid`;
     await app.close();
     await admin.$disconnect();

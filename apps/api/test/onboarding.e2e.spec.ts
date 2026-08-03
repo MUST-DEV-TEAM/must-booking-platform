@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { PropertyRoleTemplatesService } from '../src/tenancy/property-role-templates.service';
+import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 
 const migrationPrisma = new PrismaClient({
@@ -65,20 +66,7 @@ describe('self-serve onboarding', () => {
   });
 
   afterAll(async () => {
-    if (tenantId) {
-      await migrationPrisma.$executeRaw`DELETE FROM "notifications" WHERE "tenant_id" = ${tenantId}::uuid`;
-      await migrationPrisma.$executeRaw`DELETE FROM "audit_logs" WHERE "tenant_id" = ${tenantId}::uuid`;
-      await migrationPrisma.$executeRaw`DELETE FROM "property_staff_capability_overrides" WHERE "tenant_id" = ${tenantId}::uuid`;
-      await migrationPrisma.$executeRaw`DELETE FROM "property_staff_assignments" WHERE "tenant_id" = ${tenantId}::uuid`;
-      await migrationPrisma.$executeRaw`DELETE FROM "property_role_template_capabilities" WHERE "tenant_id" = ${tenantId}::uuid`;
-      await migrationPrisma.$executeRaw`DELETE FROM "property_role_templates" WHERE "tenant_id" = ${tenantId}::uuid`;
-      await migrationPrisma.$executeRaw`DELETE FROM "capabilities" WHERE "tenant_id" = ${tenantId}::uuid`;
-      await migrationPrisma.$executeRaw`DELETE FROM "tenant_memberships" WHERE "tenant_id" = ${tenantId}::uuid`;
-    }
-    if (propertyId)
-      await migrationPrisma.$executeRaw`DELETE FROM "properties" WHERE "id" = ${propertyId}::uuid`;
-    if (tenantId)
-      await migrationPrisma.$executeRaw`DELETE FROM "organizations" WHERE "id" = ${tenantId}::uuid`;
+    if (tenantId) await cleanupTenant(migrationPrisma, tenantId);
     await migrationPrisma.$executeRaw`DELETE FROM "users" WHERE "email" IN (${ownerEmail}, ${staffEmails[0]}, ${staffEmails[1]})`;
     await app.close();
     await migrationPrisma.$disconnect();

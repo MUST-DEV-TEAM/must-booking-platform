@@ -7,6 +7,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
+import { cleanupTenant } from './helpers/cleanup-tenant';
 
 const database = new PrismaClient({
   datasources: {
@@ -58,28 +59,7 @@ describe('tenant dashboard end-to-end flow', () => {
   });
 
   afterAll(async () => {
-    if (tenantId) {
-      await database.$transaction(async (tx) => {
-        await tx.$executeRaw`DELETE FROM property_staff_capability_overrides WHERE tenant_id = ${tenantId}::uuid`;
-        await tx.$executeRaw`DELETE FROM property_staff_assignments WHERE tenant_id = ${tenantId}::uuid`;
-        await tx.$executeRaw`DELETE FROM property_role_template_capabilities WHERE tenant_id = ${tenantId}::uuid`;
-        await tx.$executeRaw`DELETE FROM property_role_templates WHERE tenant_id = ${tenantId}::uuid`;
-        await tx.$executeRaw`DELETE FROM capabilities WHERE tenant_id = ${tenantId}::uuid`;
-        await tx.$executeRaw`DELETE FROM integration_operations WHERE tenant_id = ${tenantId}::uuid`;
-        await tx.$executeRaw`DELETE FROM payments WHERE tenant_id = ${tenantId}::uuid`;
-        await tx.$executeRaw`DELETE FROM bookings WHERE tenant_id = ${tenantId}::uuid`;
-        await tx.$executeRaw`DELETE FROM guests WHERE tenant_id = ${tenantId}::uuid`;
-        await tx.$executeRaw`DELETE FROM inventory_units WHERE tenant_id = ${tenantId}::uuid`;
-        await tx.$executeRaw`DELETE FROM rate_rules WHERE tenant_id = ${tenantId}::uuid`;
-        await tx.$executeRaw`DELETE FROM rate_plans WHERE tenant_id = ${tenantId}::uuid`;
-        await tx.$executeRaw`DELETE FROM room_types WHERE tenant_id = ${tenantId}::uuid`;
-        await tx.$executeRaw`DELETE FROM notifications WHERE tenant_id = ${tenantId}::uuid`;
-        await tx.$executeRaw`DELETE FROM audit_logs WHERE tenant_id = ${tenantId}::uuid`;
-        await tx.$executeRaw`DELETE FROM tenant_memberships WHERE tenant_id = ${tenantId}::uuid`;
-        await tx.$executeRaw`DELETE FROM properties WHERE tenant_id = ${tenantId}::uuid`;
-        await tx.$executeRaw`DELETE FROM organizations WHERE id = ${tenantId}::uuid`;
-      });
-    }
+    if (tenantId) await database.$transaction((tx) => cleanupTenant(tx, tenantId));
     if (ownerId || staffId) {
       await database.$executeRaw`
         DELETE FROM users WHERE id IN (${ownerId || randomUUID()}::uuid, ${staffId || randomUUID()}::uuid)

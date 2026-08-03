@@ -12,6 +12,7 @@ import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { AvailabilityService } from '../src/tenancy/availability.service';
 import { TenantDatabaseService } from '../src/tenancy/tenant-database.service';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
+import { cleanupTenant } from './helpers/cleanup-tenant';
 
 const admin = new PrismaClient({
   datasources: {
@@ -58,28 +59,7 @@ describe('manual availability blocks', () => {
 
   afterAll(async () => {
     if (tenantId) {
-      await admin.$executeRaw`DELETE FROM integration_operations WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM bookings WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM notifications WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM guests WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM availability_block_room_types WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM availability_block_rooms WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM availability_blocks WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM room_availability WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM inventory_units WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM rate_rules WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM rate_plans WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM rooms WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM room_types WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM audit_logs WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM property_staff_capability_overrides WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM property_staff_assignments WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM property_role_template_capabilities WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM property_role_templates WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM capabilities WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM tenant_memberships WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM properties WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM organizations WHERE id = ${tenantId}::uuid`;
+      await cleanupTenant(admin, tenantId);
     }
     if (ownerId) await admin.$executeRaw`DELETE FROM users WHERE id = ${ownerId}::uuid`;
     await app.close();

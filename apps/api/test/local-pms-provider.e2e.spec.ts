@@ -17,6 +17,7 @@ import { PaymentProviderRegistry } from '../src/payments/payment-provider-regist
 import { StripePaymentProvider } from '../src/payments/stripe-payment.provider';
 import { PropertyRoleTemplatesService } from '../src/tenancy/property-role-templates.service';
 import type { PaymentProvider } from '@must/domain-contracts';
+import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 
 const isoDateFromToday = (offsetDays: number) => {
@@ -167,28 +168,7 @@ describe('LocalPmsProvider', () => {
   });
 
   afterAll(async () => {
-    if (tenantId) {
-      await admin.$executeRaw`DELETE FROM property_staff_capability_overrides WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM property_staff_assignments WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM property_role_template_capabilities WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM property_role_templates WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM capabilities WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM integration_operations WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM payments WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM payment_provider_sessions WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM bookings WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM guests WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM inventory_units WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM rate_rules WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM rate_plans WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM room_types WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM audit_logs WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM notifications WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM tenant_memberships WHERE tenant_id = ${tenantId}::uuid`;
-    }
-    if (tenantId)
-      await admin.$executeRaw`DELETE FROM properties WHERE tenant_id = ${tenantId}::uuid`;
-    if (tenantId) await admin.$executeRaw`DELETE FROM organizations WHERE id = ${tenantId}::uuid`;
+    if (tenantId) await cleanupTenant(admin, tenantId);
     if (userId) await admin.$executeRaw`DELETE FROM users WHERE id = ${userId}::uuid`;
     if (propertyStaffUserId)
       await admin.$executeRaw`DELETE FROM users WHERE id = ${propertyStaffUserId}::uuid`;

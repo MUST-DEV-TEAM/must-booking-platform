@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { LocalDemoSeedService } from '../src/tenancy/local-demo-seed.service';
+import { cleanupTenant } from './helpers/cleanup-tenant';
 
 const admin = new PrismaClient({
   datasources: {
@@ -52,29 +53,7 @@ describe('local demo seed', () => {
   });
 
   afterAll(async () => {
-    if (tenantId) {
-      await admin.$executeRaw`DELETE FROM notifications WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM payments WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM integration_operations WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM bookings WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM inventory_units WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM room_type_amenities WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM rooms WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM amenities WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM rate_rules WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM rate_plans WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM room_types WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM audit_logs WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM property_staff_capability_overrides WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM property_staff_assignments WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM property_role_template_capabilities WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM property_role_templates WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM capabilities WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM tenant_memberships WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM guests WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM properties WHERE tenant_id = ${tenantId}::uuid`;
-      await admin.$executeRaw`DELETE FROM organizations WHERE id = ${tenantId}::uuid`;
-    }
+    if (tenantId) await cleanupTenant(admin, tenantId);
     if (ownerUserId) await admin.$executeRaw`DELETE FROM users WHERE id = ${ownerUserId}::uuid`;
     if (planId) await admin.$executeRaw`DELETE FROM plans WHERE id = ${planId}::uuid`;
     process.env.NODE_ENV = previousNodeEnv;
