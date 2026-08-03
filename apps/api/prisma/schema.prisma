@@ -125,6 +125,7 @@ model Property {
   staffAssignments  PropertyStaffAssignment[]
   roomTypes         RoomType[]
   rooms             Room[]
+  roomAvailability  RoomAvailability[]
   inventoryUnits    InventoryUnit[]
   ratePlans         RatePlan[]
   rateRules         RateRule[]
@@ -308,11 +309,28 @@ model Room {
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   property   Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
   roomType   RoomType @relation(fields: [tenantId, propertyId, roomTypeId], references: [tenantId, propertyId, id], onDelete: Restrict)
+  availability RoomAvailability[]
 
   @@unique([tenantId, propertyId, id])
   @@unique([tenantId, propertyId, name])
   @@index([tenantId, propertyId, roomTypeId])
   @@map("rooms")
+}
+
+model RoomAvailability {
+  tenantId   String   @map("tenant_id") @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  roomId     String   @map("room_id") @db.Uuid
+  staysOn    DateTime @map("stays_on") @db.Date
+  isAvailable Boolean @default(true) @map("is_available")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property   Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  room       Room     @relation(fields: [tenantId, propertyId, roomId], references: [tenantId, propertyId, id], onDelete: Restrict)
+
+  @@id([tenantId, propertyId, roomId, staysOn])
+  @@index([tenantId, propertyId, roomId, staysOn])
+  @@map("room_availability")
 }
 
 model InventoryUnit {

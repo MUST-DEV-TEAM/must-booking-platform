@@ -10,11 +10,22 @@ type Availability = {
   isAvailable: boolean;
   availableUnits: number;
 };
+type RoomAvailability = {
+  roomId: string;
+  startsOn: string;
+  endsOn: string;
+  isAvailable: boolean;
+};
 type InventoryInput = {
   roomTypeId: string;
   startsOn: string;
   endsOn: string;
   availableUnits: number;
+};
+type RoomAvailabilityInput = {
+  startsOn: string;
+  endsOn: string;
+  isAvailable: boolean;
 };
 
 export type InventoryBookedUnitsInput = {
@@ -104,6 +115,80 @@ export class AvailabilityService {
     });
   }
 
+  async getRoomAvailability(
+    tenantId: string,
+    propertyId: string,
+    roomId: string,
+    query: unknown,
+  ): Promise<RoomAvailability> {
+    const input = this.rangeInput(query);
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      await this.requireIndividualRoomMode(tx, propertyId);
+      await this.requireRoom(tx, tenantId, propertyId, roomId);
+      const rows = await tx.$queryRaw<Array<{ isAvailable: boolean | null }>>`
+        WITH requested_nights AS (
+          SELECT generate_series(
+            ${input.startsOn}::date,
+            ${input.endsOn}::date - 1,
+            INTERVAL '1 day'
+          )::date AS stays_on
+        )
+        SELECT bool_and(COALESCE(room_availability.is_available, true)) AS "isAvailable"
+        FROM requested_nights
+        LEFT JOIN room_availability
+          ON room_availability.tenant_id = ${tenantId}::uuid
+          AND room_availability.property_id = ${propertyId}::uuid
+          AND room_availability.room_id = ${roomId}::uuid
+          AND room_availability.stays_on = requested_nights.stays_on
+      `;
+      return {
+        roomId,
+        startsOn: input.startsOn,
+        endsOn: input.endsOn,
+        isAvailable: rows[0]?.isAvailable ?? false,
+      };
+    });
+  }
+
+  async setRoomAvailability(
+    tenantId: string,
+    propertyId: string,
+    roomId: string,
+    actorUserId: string,
+    body: unknown,
+  ): Promise<void> {
+    const input = this.roomAvailabilityInput(body);
+    await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      await this.requireIndividualRoomMode(tx, propertyId);
+      await this.requireRoom(tx, tenantId, propertyId, roomId);
+      await tx.$executeRaw`
+        INSERT INTO room_availability (tenant_id, property_id, room_id, stays_on, is_available)
+        SELECT
+          ${tenantId}::uuid,
+          ${propertyId}::uuid,
+          ${roomId}::uuid,
+          requested_nights.stays_on::date,
+          ${input.isAvailable}
+        FROM generate_series(
+          ${input.startsOn}::date,
+          ${input.endsOn}::date - 1,
+          INTERVAL '1 day'
+        ) AS requested_nights(stays_on)
+        ON CONFLICT (tenant_id, property_id, room_id, stays_on)
+        DO UPDATE SET is_available = EXCLUDED.is_available, updated_at = CURRENT_TIMESTAMP
+      `;
+      await this.audit.recordInTransaction(tx, {
+        tenantId,
+        propertyId,
+        actorUserId,
+        action: 'room_availability.set',
+        targetType: 'room',
+        targetId: roomId,
+        details: input,
+      });
+    });
+  }
+
   async reserveBookedUnits(
     tx: TenantTransaction,
     tenantId: string,
@@ -139,10 +224,15 @@ export class AvailabilityService {
     const value = (query ?? {}) as Record<string, unknown>;
     const roomTypeId = typeof value.roomTypeId === 'string' ? value.roomTypeId : '';
     if (!roomTypeId) throw new BadRequestException('roomTypeId is required.');
+    return { roomTypeId, ...this.rangeInput(value) };
+  }
+
+  private rangeInput(query: unknown): Pick<InventoryInput, 'startsOn' | 'endsOn'> {
+    const value = (query ?? {}) as Record<string, unknown>;
     const startsOn = this.date(value.startsOn, 'startsOn');
     const endsOn = this.date(value.endsOn, 'endsOn');
     if (endsOn <= startsOn) throw new BadRequestException('endsOn must be after startsOn.');
-    return { roomTypeId, startsOn, endsOn };
+    return { startsOn, endsOn };
   }
 
   private inventoryInput(body: unknown): InventoryInput {
@@ -152,6 +242,14 @@ export class AvailabilityService {
     if (!Number.isInteger(availableUnits) || availableUnits < 0)
       throw new BadRequestException('availableUnits must be a non-negative integer.');
     return { ...input, availableUnits };
+  }
+
+  private roomAvailabilityInput(body: unknown): RoomAvailabilityInput {
+    const input = this.rangeInput(body);
+    const value = (body ?? {}) as Record<string, unknown>;
+    if (typeof value.isAvailable !== 'boolean')
+      throw new BadRequestException('isAvailable must be a boolean.');
+    return { ...input, isAvailable: value.isAvailable };
   }
 
   private async adjustBookedUnits(
@@ -230,5 +328,29 @@ export class AvailabilityService {
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomTypeId}::uuid
     `;
     if (!rows[0]) throw new NotFoundException('Room type not found.');
+  }
+
+  private async requireRoom(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    roomId: string,
+  ) {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM rooms
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomId}::uuid
+    `;
+    if (!rows[0]) throw new NotFoundException('Room not found.');
+  }
+
+  private async requireIndividualRoomMode(tx: TenantTransaction, propertyId: string) {
+    const rows = await tx.$queryRaw<Array<{ bookingMode: string }>>`
+      SELECT booking_mode AS "bookingMode" FROM properties WHERE id = ${propertyId}::uuid
+    `;
+    if (!rows[0]) throw new NotFoundException('Property not found.');
+    if (rows[0].bookingMode === 'ROOM_TYPE_ONLY')
+      throw new BadRequestException(
+        'Room-level availability is only available for individual-room properties.',
+      );
   }
 }

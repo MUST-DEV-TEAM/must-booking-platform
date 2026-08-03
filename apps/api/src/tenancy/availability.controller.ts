@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Inject, Put, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Param, Put, Query, Req } from '@nestjs/common';
 
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 import { Role, Roles } from './roles.decorator';
@@ -23,6 +23,22 @@ export class AvailabilityController {
     );
   }
 
+  @Get('rooms/:roomId/availability')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('calendar.view')
+  getRoomAvailability(
+    @Param('roomId') roomId: string,
+    @Query() query: unknown,
+    @Req() request: TenantPropertyRequest,
+  ) {
+    return this.availability.getRoomAvailability(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      roomId,
+      query,
+    );
+  }
+
   @Put('inventory-units')
   @HttpCode(204)
   @TenantScoped({ propertyParam: 'propertyId' })
@@ -35,6 +51,25 @@ export class AvailabilityController {
     return this.availability.setInventory(
       request.tenantContext.tenantId,
       request.tenantContext.propertyId,
+      request.tenantContext.userId,
+      body,
+    );
+  }
+
+  @Put('rooms/:roomId/availability')
+  @HttpCode(204)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresVerifiedEmail()
+  setRoomAvailability(
+    @Param('roomId') roomId: string,
+    @Body() body: unknown,
+    @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
+  ) {
+    return this.availability.setRoomAvailability(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      roomId,
       request.tenantContext.userId,
       body,
     );
