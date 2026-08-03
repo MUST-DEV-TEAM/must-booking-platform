@@ -33,7 +33,8 @@ import { RateManagement } from './[tenantId]/rate-management';
 
 type TenantRole = 'OWNER' | 'ADMIN' | 'STAFF';
 type Membership = { tenantId: string; role: TenantRole };
-type Property = { id: string; name: string };
+type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
+type Property = { id: string; name: string; bookingMode?: BookingMode };
 
 const roleLabels: Record<TenantRole, string> = {
   OWNER: 'Owner',
@@ -240,7 +241,12 @@ export function DashboardShell({
         <DashboardReservations tenantId={tenantId} propertyId={selectedProperty.id} />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'calendar' ? (
-        <DashboardCalendar tenantId={tenantId} propertyId={selectedProperty.id} />
+        <DashboardCalendar
+          tenantId={tenantId}
+          propertyId={selectedProperty.id}
+          bookingMode={selectedProperty.bookingMode}
+          canManageAvailability={role === 'OWNER' || role === 'ADMIN'}
+        />
       ) : null}
       {selectedProperty &&
       role &&

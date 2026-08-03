@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Manrope } from 'next/font/google';
 import type { ReactNode } from 'react';
 import { Toaster } from 'sonner';
+import 'react-day-picker/style.css';
 
 import '@must/ui/styles.css';
 

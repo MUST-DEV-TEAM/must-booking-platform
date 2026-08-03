@@ -102,6 +102,43 @@
   display: grid;
   gap: var(--must-space-12);
 }
+.blocking,
+.blockingForm {
+  display: grid;
+  gap: var(--must-space-16);
+}
+.blockingForm fieldset,
+.blockingForm label {
+  display: grid;
+  gap: var(--must-space-8);
+}
+.blockingForm fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.blockingForm legend {
+  font-weight: 700;
+  margin-bottom: var(--must-space-8);
+}
+.blockingForm select {
+  border: 1px solid var(--must-color-border);
+  border-radius: var(--must-radius-control);
+  min-height: 7rem;
+  padding: var(--must-space-8);
+}
+.checkbox {
+  align-items: center;
+  display: flex !important;
+  gap: var(--must-space-8) !important;
+}
+.blockingForm button {
+  align-items: center;
+  display: inline-flex;
+  gap: var(--must-space-8);
+  justify-content: center;
+  width: fit-content;
+}
 .bookingColumns {
   display: grid;
   gap: var(--must-space-16);

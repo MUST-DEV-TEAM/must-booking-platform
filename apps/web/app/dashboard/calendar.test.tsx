@@ -97,6 +97,24 @@ describe('Dashboard calendar', () => {
     expect(markup).toContain('Deluxe King');
     expect(markup).toContain('Standard Double');
     expect(markup).toContain('Sold out');
+    expect(markup).not.toContain('Block availability');
+  });
+
+  it('shows combined availability-block targets only to an Owner/Admin and allows room targets in Mixed mode', () => {
+    const markup = renderToStaticMarkup(
+      createElement(DashboardCalendar, {
+        ...props,
+        bookingMode: 'MIXED' as const,
+        canManageAvailability: true,
+        initialRooms: [{ id: 'deluxe-101', name: '101', roomTypeId: 'deluxe' }],
+      }),
+    );
+
+    expect(markup).toContain('Block availability');
+    expect(markup).toContain('Block all room types');
+    expect(markup).toContain('Room types to block');
+    expect(markup).toContain('Specific rooms to block');
+    expect(markup).toContain('Deluxe King — 101');
   });
 
   it('classifies arrivals, departures, and in-house bookings for a selected day', () => {
