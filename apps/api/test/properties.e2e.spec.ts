@@ -114,6 +114,7 @@ describe('properties', () => {
       .send({ token })
       .expect(204);
     const firstPropertyId = signup.body.property.id as string;
+    expect(signup.body.property.bookingMode).toBe('ROOM_TYPE_ONLY');
     await request(app.getHttpServer())
       .patch(`/tenants/${tenantId}/properties/${firstPropertyId}/payment-gateways`)
       .set('Cookie', cookie)
@@ -133,6 +134,7 @@ describe('properties', () => {
         name: 'Updated Property',
         address: '2 Updated Street',
         timezone: 'Europe/Paris',
+        bookingMode: 'MIXED',
         minStayNights: 2,
         maxStayNights: 3,
         checkInTime: 'whenever guests arrive',
@@ -145,6 +147,7 @@ describe('properties', () => {
       name: 'Updated Property',
       address: '2 Updated Street',
       timezone: 'Europe/Paris',
+      bookingMode: 'MIXED',
       minStayNights: 2,
       maxStayNights: 3,
       checkInTime: 'whenever guests arrive',
@@ -212,6 +215,7 @@ describe('properties', () => {
       pokpay: false,
       payAtHotel: false,
     });
+    expect(created.body.bookingMode).toBe('ROOM_TYPE_ONLY');
     expect(created.body.provisionedStaff).toHaveLength(3);
     expect(
       created.body.provisionedStaff
@@ -351,6 +355,11 @@ describe('properties', () => {
       .send({ name: 'Outside', address: '3 Main Street', timezone: 'Europe/Tirane' })
       .expect(403);
     await request(app.getHttpServer())
+      .patch(`/tenants/${randomUUID()}/properties/${firstPropertyId}`)
+      .set('Cookie', cookie)
+      .send({ bookingMode: 'INDIVIDUAL_ROOM_ONLY' })
+      .expect(403);
+    await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties`)
       .set('Cookie', cookie)
       .send({ name: 'Third', address: '3 Main Street', timezone: 'Europe/Tirane' })
@@ -360,6 +369,11 @@ describe('properties', () => {
       .post(`/tenants/${tenantId}/properties`)
       .set('Cookie', cookie)
       .send({ name: 'Staff property', address: '4 Main Street', timezone: 'Europe/Tirane' })
+      .expect(403);
+    await request(app.getHttpServer())
+      .patch(`/tenants/${tenantId}/properties/${firstPropertyId}`)
+      .set('Cookie', cookie)
+      .send({ bookingMode: 'INDIVIDUAL_ROOM_ONLY' })
       .expect(403);
     const logs = await admin.$queryRaw<
       Array<{ action: string; target_id: string }>

@@ -120,6 +120,7 @@ describe('authentication endpoints', () => {
         name: 'MUST Test Hotel',
         address: '',
         timezone: 'UTC',
+        bookingMode: 'ROOM_TYPE_ONLY',
       },
       provisionedStaff: expect.arrayContaining([
         expect.objectContaining({ roleTemplateName: 'Front Desk' }),

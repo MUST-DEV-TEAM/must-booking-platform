@@ -5,11 +5,13 @@ import { AuditLogService } from './audit-log.service';
 import { PropertyRoleTemplatesService } from './property-role-templates.service';
 import { StaffInviteService, type ProvisionedStaffAccount } from './staff-invite.service';
 
+type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
 type Property = {
   id: string;
   name: string;
   address: string;
   timezone: string;
+  bookingMode: BookingMode;
   publicWebsiteOrigin: string | null;
   minStayNights: number | null;
   maxStayNights: number | null;
@@ -32,6 +34,7 @@ export class PropertiesService {
       { tenantId },
       (tx) =>
         tx.$queryRaw<Property[]>`SELECT id, name, address, timezone,
+          booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
           advance_booking_days AS "advanceBookingDays", public_website_origin AS "publicWebsiteOrigin",
@@ -78,6 +81,7 @@ export class PropertiesService {
       const rows = await tx.$queryRaw<
         Property[]
       >`INSERT INTO properties (id, tenant_id, name, slug, address, timezone) VALUES (${id}::uuid, ${tenantId}::uuid, ${input.name}, ${slug}, ${input.address}, ${input.timezone}) RETURNING id, name, address, timezone,
+        booking_mode AS "bookingMode",
         min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
         check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
         advance_booking_days AS "advanceBookingDays", public_website_origin AS "publicWebsiteOrigin",
@@ -109,6 +113,7 @@ export class PropertiesService {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const existing = await tx.$queryRaw<Array<Property>>`
         SELECT id, name, address, timezone,
+          booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
           advance_booking_days AS "advanceBookingDays", public_website_origin AS "publicWebsiteOrigin",
@@ -131,6 +136,7 @@ export class PropertiesService {
         SET name = CASE WHEN ${input.name !== undefined} THEN ${input.name} ELSE name END,
           address = CASE WHEN ${input.address !== undefined} THEN ${input.address} ELSE address END,
           timezone = CASE WHEN ${input.timezone !== undefined} THEN ${input.timezone} ELSE timezone END,
+          booking_mode = CASE WHEN ${input.bookingMode !== undefined} THEN ${input.bookingMode}::"PropertyBookingMode" ELSE booking_mode END,
           min_stay_nights = CASE WHEN ${input.minStayNights !== undefined} THEN ${input.minStayNights} ELSE min_stay_nights END,
           max_stay_nights = CASE WHEN ${input.maxStayNights !== undefined} THEN ${input.maxStayNights} ELSE max_stay_nights END,
           check_in_time = CASE WHEN ${input.checkInTime !== undefined} THEN ${input.checkInTime} ELSE check_in_time END,
@@ -138,6 +144,7 @@ export class PropertiesService {
           advance_booking_days = CASE WHEN ${input.advanceBookingDays !== undefined} THEN ${input.advanceBookingDays} ELSE advance_booking_days END
         WHERE id = ${propertyId}::uuid
         RETURNING id, name, address, timezone,
+          booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
           advance_booking_days AS "advanceBookingDays", public_website_origin AS "publicWebsiteOrigin",
@@ -167,6 +174,7 @@ export class PropertiesService {
         SET public_website_origin = ${origin}
         WHERE id = ${propertyId}::uuid
         RETURNING id, name, address, timezone,
+          booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
           advance_booking_days AS "advanceBookingDays", public_website_origin AS "publicWebsiteOrigin",
@@ -198,6 +206,7 @@ export class PropertiesService {
           pay_at_hotel_enabled = ${gateways.payAtHotel}
         WHERE id = ${propertyId}::uuid
         RETURNING id, name, address, timezone,
+          booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
           advance_booking_days AS "advanceBookingDays", public_website_origin AS "publicWebsiteOrigin",
@@ -276,6 +285,7 @@ export class PropertiesService {
     name?: string;
     address?: string;
     timezone?: string;
+    bookingMode?: BookingMode;
     minStayNights?: number | null;
     maxStayNights?: number | null;
     checkInTime?: string | null;
@@ -291,6 +301,7 @@ export class PropertiesService {
         'name',
         'address',
         'timezone',
+        'bookingMode',
         'minStayNights',
         'maxStayNights',
         'checkInTime',
@@ -319,6 +330,13 @@ export class PropertiesService {
         throw new BadRequestException('timezone must be a valid IANA timezone.');
       }
     }
+    const bookingMode = (() => {
+      if (!has('bookingMode')) return undefined;
+      const mode = value.bookingMode;
+      if (mode === 'ROOM_TYPE_ONLY' || mode === 'INDIVIDUAL_ROOM_ONLY' || mode === 'MIXED')
+        return mode;
+      throw new BadRequestException('bookingMode must be a valid booking mode.');
+    })();
     const optionalInteger = (key: 'minStayNights' | 'maxStayNights' | 'advanceBookingDays') => {
       if (!has(key)) return undefined;
       const number = value[key];
@@ -344,6 +362,7 @@ export class PropertiesService {
       name,
       address,
       timezone,
+      bookingMode,
       minStayNights: optionalInteger('minStayNights'),
       maxStayNights: optionalInteger('maxStayNights'),
       checkInTime: optionalText('checkInTime'),

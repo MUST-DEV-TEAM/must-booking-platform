@@ -108,6 +108,7 @@ model Property {
   slug              String                    @db.VarChar(100)
   address           String?                   @db.VarChar(500)
   timezone          String?                   @db.VarChar(100)
+  bookingMode       PropertyBookingMode       @default(ROOM_TYPE_ONLY) @map("booking_mode")
   minStayNights     Int?                      @map("min_stay_nights")
   maxStayNights     Int?                      @map("max_stay_nights")
   checkInTime       String?                   @map("check_in_time")
@@ -138,6 +139,12 @@ model Property {
   @@unique([tenantId, slug])
   @@index([tenantId])
   @@map("properties")
+}
+
+enum PropertyBookingMode {
+  ROOM_TYPE_ONLY
+  INDIVIDUAL_ROOM_ONLY
+  MIXED
 }
 
 model TenantMembership {

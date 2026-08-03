@@ -38,7 +38,13 @@ type SignupResult = {
   sessionId: string;
   user: { id: string; email: string; emailVerified: boolean };
   organization: { id: string; name: string };
-  property: { id: string; name: string; address: string; timezone: string };
+  property: {
+    id: string;
+    name: string;
+    address: string;
+    timezone: string;
+    bookingMode: 'ROOM_TYPE_ONLY';
+  };
   provisionedStaff: ProvisionedStaffAccount[];
 };
 
@@ -144,6 +150,7 @@ export class AuthService implements OnModuleDestroy {
         name: command.propertyName,
         address: command.propertyAddress,
         timezone: command.propertyTimezone,
+        bookingMode: 'ROOM_TYPE_ONLY',
       },
       provisionedStaff,
     };
