@@ -203,6 +203,9 @@ async function click(c: HTMLElement, t: string) {
     Array.from(c.querySelectorAll('button'))
       .find((x) => x.textContent === t)!
       .click();
-    await Promise.resolve();
+    for (let iteration = 0; iteration < 4; iteration += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
+      await Promise.resolve();
+    }
   });
 }
