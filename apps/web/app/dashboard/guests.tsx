@@ -1,7 +1,8 @@
 'use client';
 import { Card, Heading, Stack, Text } from '@must/ui';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
+import { useEffect, useMemo, useState } from 'react';
 import { fetchPropertyBookings } from './reservations';
 import { DashboardLoadingSkeleton } from './loading-skeleton';
 type Guest = {
@@ -51,6 +52,36 @@ export function DashboardGuests({
   useEffect(() => {
     setSelected(undefined);
   }, [tenantId, propertyId]);
+  const guests = guestsQuery.data ?? [];
+  const bookings = bookingsQuery.data ?? [];
+  const columns = useMemo<ColumnDef<Guest>[]>(
+    () => [
+      {
+        id: 'guest',
+        header: 'Guest',
+        cell: ({ row }) => (
+          <button onClick={() => setSelected(row.original)}>{guestName(row.original)}</button>
+        ),
+      },
+      {
+        id: 'details',
+        header: 'Details',
+        cell: ({ row }) => (
+          <Text tone="secondary">
+            {row.original.email} · {row.original.bookingCount} bookings · latest{' '}
+            {row.original.mostRecentStartsOn}
+          </Text>
+        ),
+      },
+    ],
+    [],
+  );
+  const table = useReactTable({
+    data: guests,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    getRowId: (guest) => guest.id,
+  });
   if (guestsQuery.isPending || bookingsQuery.isPending)
     return <DashboardLoadingSkeleton label="Loading guests…" />;
   const error = guestsQuery.error ?? bookingsQuery.error;
@@ -69,8 +100,6 @@ export function DashboardGuests({
         </button>
       </div>
     );
-  const guests = guestsQuery.data ?? [];
-  const bookings = bookingsQuery.data ?? [];
   const history = selected
     ? bookings.filter((b) => b.guestId === selected.id || b.guestEmail === selected.email)
     : [];
@@ -87,18 +116,30 @@ export function DashboardGuests({
         placeholder="Name, email, or phone"
       />
       <Card>
-        <ul>
-          {guests.map((g) => (
-            <li key={g.id}>
-              <button onClick={() => setSelected(g)}>
-                {[g.firstName, g.lastName].filter(Boolean).join(' ') || g.email}
-              </button>
-              <Text tone="secondary">
-                {g.email} · {g.bookingCount} bookings · latest {g.mostRecentStartsOn}
-              </Text>
-            </li>
-          ))}
-        </ul>
+        <table>
+          <thead>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <th key={header.id} colSpan={header.colSpan}>
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(header.column.columnDef.header, header.getContext())}
+                  </th>
+                ))}
+              </tr>
+            ))}
+          </thead>
+          <tbody>
+            {table.getRowModel().rows.map((row) => (
+              <tr key={row.id}>
+                {row.getVisibleCells().map((cell) => (
+                  <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </Card>
       {selected ? (
         <Card>
@@ -121,6 +162,10 @@ export function DashboardGuests({
       ) : null}
     </Stack>
   );
+}
+
+function guestName(guest: Pick<Guest, 'firstName' | 'lastName' | 'email'>) {
+  return [guest.firstName, guest.lastName].filter(Boolean).join(' ') || guest.email;
 }
 
 function useDebouncedValue(value: string, delay: number) {
