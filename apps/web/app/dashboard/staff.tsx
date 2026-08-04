@@ -1,7 +1,8 @@
 'use client';
 import { Card, Heading, Stack, Text } from '@must/ui';
+import { useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { DashboardLoadingSkeleton } from './loading-skeleton';
 type Template = { id: string; name: string; capabilities: Array<{ key: string }> };
@@ -15,53 +16,45 @@ type Staff = {
 type Usage = { plan: { maxStaffSeats: number }; usage: { staffSeats: number } };
 export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; propertyId: string }) {
   const base = `/api/tenants/${tenantId}`;
-  const [staff, setStaff] = useState<Staff[]>();
-  const [templates, setTemplates] = useState<Template[]>();
-  const [usage, setUsage] = useState<Usage>();
-  const [error, setError] = useState('');
   const [email, setEmail] = useState('');
   const [inviteTemplateId, setInviteTemplateId] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [templateName, setTemplateName] = useState('');
   const [templateCapabilities, setTemplateCapabilities] = useState<string[]>([]);
-  const load = () => {
-    setError('');
-    void Promise.all([
-      fetch(`${base}/properties/${propertyId}/staff`, { credentials: 'include' }),
-      fetch(`${base}/properties/${propertyId}/role-templates`, { credentials: 'include' }),
-      fetch(`${base}/plan-usage`, { credentials: 'include' }),
-    ])
-      .then(async ([staffResponse, templatesResponse, usageResponse]) => {
-        if (!staffResponse.ok || !templatesResponse.ok || !usageResponse.ok)
-          throw new Error('Unable to load staff management data.');
-        return (await Promise.all([
-          staffResponse.json(),
-          templatesResponse.json(),
-          usageResponse.json(),
-        ])) as [Staff[], Template[], Usage];
-      })
-      .then(([nextStaff, nextTemplates, nextUsage]) => {
-        setStaff(nextStaff.map((member) => ({ ...member, overrides: member.overrides ?? [] })));
-        setTemplates(nextTemplates);
-        setUsage(nextUsage);
-      })
-      .catch((reason: unknown) =>
-        setError(
-          reason instanceof Error ? reason.message : 'Unable to load staff management data.',
-        ),
-      );
-  };
-  useEffect(load, [base, propertyId]);
-  if ((!staff || !templates || !usage) && error)
+  const staffQuery = useQuery({
+    queryKey: ['dashboard', 'staff', tenantId, propertyId],
+    queryFn: async () => {
+      const [staffResponse, templatesResponse, usageResponse] = await Promise.all([
+        fetch(`${base}/properties/${propertyId}/staff`, { credentials: 'include' }),
+        fetch(`${base}/properties/${propertyId}/role-templates`, { credentials: 'include' }),
+        fetch(`${base}/plan-usage`, { credentials: 'include' }),
+      ]);
+      if (!staffResponse.ok || !templatesResponse.ok || !usageResponse.ok)
+        throw new Error('Unable to load staff management data.');
+      const [staff, templates, usage] = (await Promise.all([
+        staffResponse.json(),
+        templatesResponse.json(),
+        usageResponse.json(),
+      ])) as [Staff[], Template[], Usage];
+      return {
+        staff: staff.map((member) => ({ ...member, overrides: member.overrides ?? [] })),
+        templates,
+        usage,
+      };
+    },
+  });
+  const load = () => void staffQuery.refetch();
+  if (staffQuery.isError)
     return (
       <Stack gap="sm">
-        <Text tone="secondary">{error}</Text>
+        <Text tone="secondary">{staffQuery.error.message}</Text>
         <button className="must-button" onClick={load} type="button">
           Retry
         </button>
       </Stack>
     );
-  if (!staff || !templates || !usage) return <DashboardLoadingSkeleton label="Loading staff…" />;
+  if (staffQuery.isPending) return <DashboardLoadingSkeleton label="Loading staff…" />;
+  const { staff, templates, usage } = staffQuery.data;
   const capped = usage.usage.staffSeats >= usage.plan.maxStaffSeats;
   const selectedInviteTemplate = inviteTemplateId || templates[0]?.id;
   const capabilityOptions =

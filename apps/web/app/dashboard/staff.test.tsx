@@ -5,6 +5,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('sonner', () => ({ toast }));
 import { DashboardStaff } from './staff';
+import { DashboardQueryProvider } from './query-provider';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const base = '/api/tenants/t';
 const staff = [
@@ -171,9 +172,19 @@ async function mount(f?: ReturnType<typeof mock>) {
   const c = document.createElement('div');
   const r = createRoot(c);
   await act(async () => {
-    r.render(createElement(DashboardStaff, { tenantId: 't', propertyId: 'p' }));
-    await Promise.resolve();
-    await Promise.resolve();
+    r.render(
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(DashboardStaff, { tenantId: 't', propertyId: 'p' }),
+      ),
+    );
+  });
+  await act(async () => {
+    for (let iteration = 0; iteration < 4; iteration += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
+      await Promise.resolve();
+    }
   });
   return { c, r };
 }
@@ -181,7 +192,10 @@ async function value(e: HTMLInputElement | HTMLSelectElement, v: string) {
   await act(async () => {
     Object.getOwnPropertyDescriptor(Object.getPrototypeOf(e), 'value')!.set!.call(e, v);
     e.dispatchEvent(new Event('change', { bubbles: true }));
-    await Promise.resolve();
+    for (let iteration = 0; iteration < 4; iteration += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
+      await Promise.resolve();
+    }
   });
 }
 async function click(c: HTMLElement, t: string) {
