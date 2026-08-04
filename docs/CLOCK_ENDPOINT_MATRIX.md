@@ -16,6 +16,7 @@ Sandbox used for verification: HOTEL DEMO account (`support@must.al`), `sky-eu1.
 
 ## Notes
 
+- **Task 6**: `ClockPmsProvider.testConnection` and the tenant-facing "Test connection" button now both run the full stack for real — HTTP client, rate limiter, circuit breaker, error classification — against the real sandbox, not just the raw Digest probe done at kickoff. Confirmed: a valid connection succeeds end-to-end, and an invalid API key produces a clean, correctly-classified failure rather than a crash or a false success. Clock's 401-on-bad-credentials body is **plain text** (`HTTP Digest: Access denied.`), not JSON — `classifyClockHttpResponse` handles both shapes.
 - `room_types` and `rooms` were confirmed reachable and correctly shaped with **real data already present in the sandbox account** (e.g. room type "Standard Rooms", room "Direct Pool") — not empty-state guesses.
 - The account/subscription ID pair in the URL path (`172528`/`16307` for this sandbox) — which one is the "Clock account ID" vs. "subscription ID" per source brief section 8's terminology is not yet disambiguated; both are opaque path segments as far as the HTTP client (Task 4) is concerned, so this doesn't block implementation, only the deliverable docs' precision.
 - `/rates_availability`, booking creation, and guest search remain the highest-priority endpoints to confirm for real (Tasks 7, 8, 10) — this table will be updated as each is actually exercised against the sandbox, not assumed from the legacy plugin's changelog prose.

@@ -88,6 +88,12 @@ import { CredentialCipherService } from './integrations/credential-cipher';
 import { ConnectionTestRegistry } from './integrations/connection-tester';
 import { IntegrationConnectionsService } from './integrations/integration-connections.service';
 import { IntegrationConnectionsController } from './integrations/integration-connections.controller';
+import { ClockHttpClient } from './integrations/clock/clock-http-client';
+import { ClockRateLimiterService } from './integrations/clock/clock-rate-limiter';
+import { ClockCircuitBreakerService } from './integrations/clock/clock-circuit-breaker';
+import { ClockConnectionPingService } from './integrations/clock/clock-connection-ping';
+import { ClockConnectionTester } from './integrations/clock/clock-connection-tester';
+import { ClockPmsProvider } from './integrations/clock/clock-pms.provider';
 
 @Module({
   imports: [
@@ -201,6 +207,12 @@ import { IntegrationConnectionsController } from './integrations/integration-con
     CredentialCipherService,
     ConnectionTestRegistry,
     IntegrationConnectionsService,
+    { provide: ClockHttpClient, useFactory: () => new ClockHttpClient() },
+    ClockRateLimiterService,
+    ClockCircuitBreakerService,
+    ClockConnectionPingService,
+    ClockConnectionTester,
+    ClockPmsProvider,
     { provide: PAYMENT_PROVIDER, useExisting: StripePaymentProvider },
     R2StorageProvider,
     { provide: STORAGE_PROVIDER, useExisting: R2StorageProvider },

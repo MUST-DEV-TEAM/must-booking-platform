@@ -165,6 +165,42 @@ export class IntegrationConnectionsService {
     );
   }
 
+  /**
+   * Internal-only: the decrypted credentials for a property's active PMS
+   * connection (if any). Never exposed through the controller — the only
+   * callers are PMS provider implementations (e.g. ClockPmsProvider) that
+   * need real credentials to make outbound calls on the tenant's behalf.
+   */
+  async activePmsConnectionCredentials(
+    tenantId: string,
+    propertyId: string,
+  ): Promise<{
+    connectionId: string;
+    provider: ConnectionProvider;
+    credentials: Record<string, string>;
+  } | null> {
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const rows = await tx.$queryRawUnsafe<
+        Array<{ connectionId: string; provider: ConnectionProvider; encryptedCredentials: string }>
+      >(
+        `SELECT c.id AS "connectionId", c.provider, c.encrypted_credentials AS "encryptedCredentials"
+         FROM integration_connections c
+         JOIN property_integration_connections pic
+           ON pic.tenant_id = c.tenant_id AND pic.connection_id = c.id
+         WHERE c.tenant_id = $1::uuid AND pic.property_id = $2::uuid
+           AND c.kind = 'PMS' AND pic.enabled = true`,
+        tenantId,
+        propertyId,
+      );
+      if (!rows[0]) return null;
+      return {
+        connectionId: rows[0].connectionId,
+        provider: rows[0].provider,
+        credentials: this.cipher.decrypt(rows[0].encryptedCredentials),
+      };
+    });
+  }
+
   async setPropertyConnection(
     tenantId: string,
     propertyId: string,
