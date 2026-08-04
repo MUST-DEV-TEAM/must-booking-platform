@@ -24,7 +24,7 @@ export interface ClockRequestOptions {
   api: ClockApiFamily;
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   path: string; // e.g. "/room_types" — leading slash, no query string
-  query?: Record<string, string>;
+  query?: Record<string, string | string[]>;
   body?: unknown;
   timeoutMs?: number;
 }
@@ -157,8 +157,14 @@ export class ClockHttpClient implements OnModuleDestroy {
   private buildUrl(credentials: ClockConnectionCredentials, options: ClockRequestOptions): URL {
     const base = `${this.protocol}//${credentials.host}/${options.api}/${credentials.accountId}/${credentials.subscriptionId}${options.path}`;
     const url = new URL(base);
-    for (const [key, value] of Object.entries(options.query ?? {}))
-      url.searchParams.set(key, value);
+    for (const [key, value] of Object.entries(options.query ?? {})) {
+      // Clock's Rails backend expects repeated `key[]=value` entries for
+      // array params (CONFIRMED_BY_DOCS — the official rates_availability
+      // spec), not a single comma-joined value.
+      if (Array.isArray(value))
+        for (const entry of value) url.searchParams.append(`${key}[]`, entry);
+      else url.searchParams.set(key, value);
+    }
     return url;
   }
 }

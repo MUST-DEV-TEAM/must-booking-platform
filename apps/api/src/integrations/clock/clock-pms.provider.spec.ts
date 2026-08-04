@@ -16,6 +16,7 @@ describe('ClockPmsProvider.testConnection', () => {
       ping as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     const result = await provider.testConnection(context);
@@ -41,6 +42,7 @@ describe('ClockPmsProvider.testConnection', () => {
     const provider = new ClockPmsProvider(
       connections as never,
       ping as never,
+      {} as never,
       {} as never,
       {} as never,
     );
@@ -72,6 +74,7 @@ describe('ClockPmsProvider.testConnection', () => {
       ping as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     const result = await provider.testConnection(context);
@@ -92,6 +95,7 @@ describe('ClockPmsProvider.testConnection', () => {
     const provider = new ClockPmsProvider(
       connections as never,
       ping as never,
+      {} as never,
       {} as never,
       {} as never,
     );
@@ -127,6 +131,7 @@ describe('ClockPmsProvider.syncCatalog', () => {
       ping as never,
       catalogSync as never,
       database as never,
+      {} as never,
     );
 
     const result = await provider.syncCatalog(context);
@@ -139,14 +144,49 @@ describe('ClockPmsProvider.syncCatalog', () => {
   });
 });
 
+describe('ClockPmsProvider.getAvailability', () => {
+  it('delegates to ClockAvailabilityService with the tenant/property ids split out of context', async () => {
+    const availabilityResult = {
+      ok: true as const,
+      value: {
+        roomTypeId: 'rt-1',
+        startsOn: '2026-08-10',
+        endsOn: '2026-08-12',
+        isAvailable: true,
+        availableUnits: 3,
+      },
+    };
+    const availability = { getAvailability: vi.fn().mockResolvedValue(availabilityResult) };
+    const provider = new ClockPmsProvider(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      availability as never,
+    );
+    const query = { roomTypeId: 'rt-1', startsOn: '2026-08-10', endsOn: '2026-08-12' };
+
+    const result = await provider.getAvailability(context, query);
+
+    expect(availability.getAvailability).toHaveBeenCalledWith(
+      context.tenantId,
+      context.propertyId,
+      query,
+    );
+    expect(result).toEqual(availabilityResult);
+  });
+});
+
 describe('ClockPmsProvider unimplemented methods', () => {
-  const provider = new ClockPmsProvider({} as never, {} as never, {} as never, {} as never);
+  const provider = new ClockPmsProvider(
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
+  );
 
   it.each([
-    [
-      'getAvailability',
-      () => provider.getAvailability(context, { roomTypeId: 'r', startsOn: 'a', endsOn: 'b' }),
-    ],
     ['getBooking', () => provider.getBooking(context, 'ext-1')],
     [
       'findBookingByExternalReference',

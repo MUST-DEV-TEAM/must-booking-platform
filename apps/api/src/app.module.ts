@@ -96,6 +96,7 @@ import { ClockConnectionTester } from './integrations/clock/clock-connection-tes
 import { ClockPmsProvider } from './integrations/clock/clock-pms.provider';
 import { ClockCatalogSyncService } from './integrations/clock/clock-catalog-sync.service';
 import { ClockCatalogSyncController } from './integrations/clock/clock-catalog-sync.controller';
+import { ClockAvailabilityService } from './integrations/clock/clock-availability.service';
 
 @Module({
   imports: [
@@ -217,6 +218,7 @@ import { ClockCatalogSyncController } from './integrations/clock/clock-catalog-s
     ClockConnectionTester,
     ClockPmsProvider,
     ClockCatalogSyncService,
+    ClockAvailabilityService,
     { provide: PAYMENT_PROVIDER, useExisting: StripePaymentProvider },
     R2StorageProvider,
     { provide: STORAGE_PROVIDER, useExisting: R2StorageProvider },

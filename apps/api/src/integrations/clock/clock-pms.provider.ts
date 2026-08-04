@@ -14,6 +14,7 @@ import {
 } from '@must/domain-contracts';
 
 import { IntegrationConnectionsService } from '../integration-connections.service';
+import { ClockAvailabilityService } from './clock-availability.service';
 import { ClockCatalogSyncService } from './clock-catalog-sync.service';
 import { ClockConnectionPingService } from './clock-connection-ping';
 import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
@@ -21,12 +22,12 @@ import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
 export const CLOCK_PMS_PROVIDER = Symbol('CLOCK_PMS_PROVIDER');
 
 /**
- * Real ClockPmsProvider. Only testConnection is implemented so far
- * (Milestone 11 Task 6) — catalog sync (Task 7), availability (Task 8), and
- * booking CRUD (Task 10) land as their own dedicated, individually-verified
- * tasks rather than being stubbed out speculatively here. This is not the
- * DI-bound PMS_PROVIDER yet (LocalPmsProvider still is) — swapping which
- * provider a property actually uses is a later task's job, not this one's.
+ * Real ClockPmsProvider. testConnection (Task 6), syncCatalog (Task 7), and
+ * getAvailability (Task 8) are implemented — booking CRUD (Task 10) lands as
+ * its own dedicated, individually-verified task rather than being stubbed
+ * out speculatively here. This is not the DI-bound PMS_PROVIDER yet
+ * (LocalPmsProvider still is) — swapping which provider a property actually
+ * uses is a later task's job, not this one's.
  */
 @Injectable()
 export class ClockPmsProvider implements PmsProvider {
@@ -36,6 +37,7 @@ export class ClockPmsProvider implements PmsProvider {
     @Inject(ClockConnectionPingService) private readonly ping: ClockConnectionPingService,
     @Inject(ClockCatalogSyncService) private readonly catalogSync: ClockCatalogSyncService,
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
+    @Inject(ClockAvailabilityService) private readonly availability: ClockAvailabilityService,
   ) {}
 
   async testConnection(context: PmsProviderContext): Promise<Result<void>> {
@@ -90,9 +92,7 @@ export class ClockPmsProvider implements PmsProvider {
     context: PmsProviderContext,
     query: AvailabilityQuery,
   ): Promise<Result<AvailabilityResult>> {
-    void context;
-    void query;
-    throw notImplemented('getAvailability', 8);
+    return this.availability.getAvailability(context.tenantId, context.propertyId, query);
   }
 
   getBooking(context: PmsProviderContext, externalBookingId: string): Promise<Booking | null> {
