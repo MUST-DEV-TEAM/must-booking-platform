@@ -1,6 +1,7 @@
 'use client';
 import { Card, Heading, Stack, Text } from '@must/ui';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchPropertyBookings, type Reservation } from './reservations';
@@ -62,6 +63,70 @@ export function DashboardPayments({
     },
     onError: (error) => toast.error(error.message),
   });
+  const bookings = bookingsQuery.data ?? [];
+  const capabilities = capabilitiesQuery.data ?? [];
+  const busyBookingId = actionMutation.isPending ? actionMutation.variables?.bookingId : null;
+  const canRefund = capabilities.includes('payments.refund');
+  const columns: ColumnDef<Reservation>[] = [
+    {
+      accessorKey: 'guestEmail',
+      header: 'Booking',
+    },
+    {
+      id: 'amount',
+      header: 'Amount',
+      cell: ({ row }) => `${row.original.total.amount} ${row.original.total.currency}`,
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      cell: ({ row }) => paymentStatus(row.original),
+    },
+    {
+      id: 'actions',
+      header: '',
+      cell: ({ row }) => {
+        const booking = row.original;
+        const status = paymentStatus(booking);
+        const unpaid = booking.paymentMethod === 'PAY_AT_HOTEL' && status.startsWith('Unpaid');
+        return (
+          <>
+            {unpaid ? (
+              <button
+                onClick={() =>
+                  actionMutation.mutate({
+                    bookingId: booking.id,
+                    url: `${base}/bookings/${booking.id}/manual-payment`,
+                    body: { method: 'cash' },
+                    success: 'Payment recorded.',
+                  })
+                }
+                disabled={busyBookingId === booking.id}
+              >
+                {busyBookingId === booking.id ? <Loader2 aria-hidden="true" size={16} /> : 'Settle'}
+              </button>
+            ) : null}
+            {canRefund ? (
+              <button
+                onClick={() =>
+                  actionMutation.mutate({
+                    bookingId: booking.id,
+                    url: `${base}/payments/refunds`,
+                    body: { bookingId: booking.id },
+                    success: 'Refund recorded.',
+                  })
+                }
+                disabled={busyBookingId === booking.id}
+              >
+                {busyBookingId === booking.id ? <Loader2 aria-hidden="true" size={16} /> : 'Refund'}
+              </button>
+            ) : null}
+          </>
+        );
+      },
+    },
+  ];
+  const table = useReactTable({ data: bookings, columns, getCoreRowModel: getCoreRowModel() });
   if (bookingsQuery.isPending || capabilitiesQuery.isPending)
     return <DashboardLoadingSkeleton label="Loading payments…" />;
   const loadError = bookingsQuery.error ?? capabilitiesQuery.error;
@@ -80,10 +145,6 @@ export function DashboardPayments({
         </button>
       </div>
     );
-  const bookings = bookingsQuery.data ?? [];
-  const capabilities = capabilitiesQuery.data ?? [];
-  const busyBookingId = actionMutation.isPending ? actionMutation.variables?.bookingId : null;
-  const canRefund = capabilities.includes('payments.refund');
   return (
     <Stack gap="lg">
       <header>
@@ -93,67 +154,26 @@ export function DashboardPayments({
       <Card>
         <table>
           <thead>
-            <tr>
-              <th>Booking</th>
-              <th>Amount</th>
-              <th>Status</th>
-              <th />
-            </tr>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <th key={header.id} colSpan={header.colSpan}>
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(header.column.columnDef.header, header.getContext())}
+                  </th>
+                ))}
+              </tr>
+            ))}
           </thead>
           <tbody>
-            {bookings.map((b) => {
-              const status = paymentStatus(b);
-              const unpaid = b.paymentMethod === 'PAY_AT_HOTEL' && status.startsWith('Unpaid');
-              return (
-                <tr key={b.id}>
-                  <td>{b.guestEmail}</td>
-                  <td>
-                    {b.total.amount} {b.total.currency}
-                  </td>
-                  <td>{status}</td>
-                  <td>
-                    {unpaid ? (
-                      <button
-                        onClick={() =>
-                          actionMutation.mutate({
-                            bookingId: b.id,
-                            url: `${base}/bookings/${b.id}/manual-payment`,
-                            body: { method: 'cash' },
-                            success: 'Payment recorded.',
-                          })
-                        }
-                        disabled={busyBookingId === b.id}
-                      >
-                        {busyBookingId === b.id ? (
-                          <Loader2 aria-hidden="true" size={16} />
-                        ) : (
-                          'Settle'
-                        )}
-                      </button>
-                    ) : null}
-                    {canRefund ? (
-                      <button
-                        onClick={() =>
-                          actionMutation.mutate({
-                            bookingId: b.id,
-                            url: `${base}/payments/refunds`,
-                            body: { bookingId: b.id },
-                            success: 'Refund recorded.',
-                          })
-                        }
-                        disabled={busyBookingId === b.id}
-                      >
-                        {busyBookingId === b.id ? (
-                          <Loader2 aria-hidden="true" size={16} />
-                        ) : (
-                          'Refund'
-                        )}
-                      </button>
-                    ) : null}
-                  </td>
-                </tr>
-              );
-            })}
+            {table.getRowModel().rows.map((row) => (
+              <tr key={row.id}>
+                {row.getVisibleCells().map((cell) => (
+                  <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                ))}
+              </tr>
+            ))}
           </tbody>
         </table>
       </Card>
