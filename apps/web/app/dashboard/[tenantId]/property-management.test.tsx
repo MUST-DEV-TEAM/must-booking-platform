@@ -32,7 +32,7 @@ describe('PropertyManagement', () => {
     );
     const { container, root } = await mount(false);
 
-    expect(container.textContent).toContain('Loading propertiesâ€¦');
+    expect(container.textContent).toContain('Loading properties…');
     resolveProperties!(propertiesResponse());
     resolveUsage!(usageResponse());
     await settle();

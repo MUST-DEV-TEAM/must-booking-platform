@@ -72,7 +72,7 @@ export function PropertyManagement({ tenantId }: { tenantId: string }) {
   if (propertiesQuery.isPending)
     return (
       <section aria-label="Loading properties">
-        <p>Loading propertiesâ€¦</p>
+        <p>Loading properties…</p>
       </section>
     );
   if (propertiesQuery.isError)
