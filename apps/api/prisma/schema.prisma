@@ -612,6 +612,10 @@ model IntegrationConnection {
   status               IntegrationConnectionStatus  @default(PENDING)
   lastTestedAt         DateTime?                    @map("last_tested_at") @db.Timestamptz(6)
   lastTestResult       String?                      @map("last_test_result") @db.VarChar(500)
+  // Random, unguessable id used in the public webhook URL path (source brief
+  // section 27/29: "random webhook installation ID") — never the internal
+  // `id`, so the callback URL doesn't expose or enumerate connection rows.
+  webhookPublicId      String                       @unique @default(dbgenerated("gen_random_uuid()")) @map("webhook_public_id") @db.Uuid
   createdAt            DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime                     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -673,6 +677,41 @@ model ClockCatalogMapping {
   @@unique([tenantId, connectionId, entityType, externalEntityId])
   @@index([tenantId, propertyId, syncStatus])
   @@map("clock_catalog_mappings")
+}
+
+enum ProviderEventStatus {
+  RECEIVED
+  QUEUED
+  HYDRATED
+  IGNORED
+  FAILED
+}
+
+// Milestone 11 Task 11 (source brief section 20/21): every inbound webhook
+// notification, stored durably BEFORE the 2xx response and BEFORE any queue
+// hand-off, so "did we already see this event" survives a crash/retry.
+// Generic "provider_events" naming (not "clock_events") per the brief —
+// this table isn't meant to be Clock-specific if another PMS's webhooks
+// land here later.
+model ProviderEvent {
+  id            String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String              @map("tenant_id") @db.Uuid
+  propertyId    String              @map("property_id") @db.Uuid
+  connectionId  String              @map("connection_id") @db.Uuid
+  provider      IntegrationProvider
+  eventId       String              @map("event_id") @db.VarChar(200)
+  eventType     String              @map("event_type") @db.VarChar(200)
+  objectId      String?             @map("object_id") @db.VarChar(200)
+  payloadHash   String              @map("payload_hash") @db.VarChar(64)
+  rawPayload    Json                @map("raw_payload")
+  status        ProviderEventStatus @default(RECEIVED)
+  attempts      Int                 @default(0)
+  createdAt     DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([connectionId, eventId])
+  @@index([tenantId, propertyId, status])
+  @@map("provider_events")
 }
 
 model Amenity {

@@ -21,6 +21,7 @@ export interface ConnectionSummary {
   status: ConnectionStatus;
   lastTestedAt: string | null;
   lastTestResult: string | null;
+  webhookPublicId: string;
   createdAt: string;
 }
 
@@ -34,7 +35,7 @@ export interface PropertyConnectionAssignment {
 
 const SUMMARY_COLUMNS = `id, kind, provider, name, status,
   last_tested_at AS "lastTestedAt", last_test_result AS "lastTestResult",
-  created_at AS "createdAt"`;
+  webhook_public_id AS "webhookPublicId", created_at AS "createdAt"`;
 
 @Injectable()
 export class IntegrationConnectionsService {

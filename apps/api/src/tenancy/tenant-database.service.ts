@@ -58,6 +58,24 @@ export class TenantDatabaseService extends PrismaClient implements OnModuleDestr
     });
   }
 
+  /**
+   * The public webhook endpoint doesn't know a request's tenant until it has
+   * looked the connection up by its random webhookPublicId — this is that
+   * one lookup, running under the read-only "webhook_gateway" RLS carve-out
+   * instead of a real tenant context (which isn't known yet).
+   */
+  async withWebhookGatewayLookup<T>(
+    operation: (transaction: TenantTransaction) => Promise<T>,
+  ): Promise<T> {
+    return this.$transaction(async (transaction) => {
+      await transaction.$executeRaw`
+        SELECT set_config('app.role', 'webhook_gateway', true)
+      `;
+
+      return operation(transaction);
+    });
+  }
+
   async onModuleDestroy(): Promise<void> {
     await this.$disconnect();
   }
