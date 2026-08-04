@@ -99,12 +99,12 @@ async function mount() {
       ),
     );
   });
-  await act(async () => {
-    for (let iteration = 0; iteration < 4; iteration += 1) {
+  for (let iteration = 0; iteration < 8; iteration += 1) {
+    await act(async () => {
       await new Promise((resolve) => window.setTimeout(resolve, 20));
       await Promise.resolve();
-    }
-  });
+    });
+  }
   return { container, root };
 }
 
