@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { DashboardShell, dashboardNavigation } from './dashboard-shell';
+import { DashboardQueryProvider } from './query-provider';
 
 const user = {
   id: 'user-1',
@@ -14,14 +15,18 @@ const user = {
 describe('Tenant dashboard shell', () => {
   it('renders all navigation destinations for an owner', () => {
     const markup = renderToStaticMarkup(
-      createElement(DashboardShell, {
-        tenantId: 'tenant-1',
-        initialData: {
-          user,
-          role: 'OWNER',
-          properties: [{ id: 'property-1', name: 'Grand Hotel' }],
-        },
-      }),
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(DashboardShell, {
+          tenantId: 'tenant-1',
+          initialData: {
+            user,
+            role: 'OWNER',
+            properties: [{ id: 'property-1', name: 'Grand Hotel' }],
+          },
+        }),
+      ),
     );
 
     const labels = [
@@ -46,15 +51,19 @@ describe('Tenant dashboard shell', () => {
 
   it('shows property-staff destinations granted by their capabilities', () => {
     const markup = renderToStaticMarkup(
-      createElement(DashboardShell, {
-        tenantId: 'tenant-1',
-        initialData: {
-          user,
-          role: 'STAFF',
-          properties: [{ id: 'property-1', name: 'Grand Hotel' }],
-          capabilities: ['bookings.manage', 'calendar.view', 'payments.refund', 'guests.manage'],
-        },
-      }),
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(DashboardShell, {
+          tenantId: 'tenant-1',
+          initialData: {
+            user,
+            role: 'STAFF',
+            properties: [{ id: 'property-1', name: 'Grand Hotel' }],
+            capabilities: ['bookings.manage', 'calendar.view', 'payments.refund', 'guests.manage'],
+          },
+        }),
+      ),
     );
 
     for (const label of ['Overview', 'Reservations', 'Calendar', 'Payments', 'Guests'])
@@ -65,41 +74,53 @@ describe('Tenant dashboard shell', () => {
 
   it('only renders the property switcher when multiple properties are available', () => {
     const singleProperty = renderToStaticMarkup(
-      createElement(DashboardShell, {
-        tenantId: 'tenant-1',
-        initialData: {
-          user,
-          role: 'OWNER',
-          properties: [{ id: 'property-1', name: 'Grand Hotel' }],
-        },
-      }),
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(DashboardShell, {
+          tenantId: 'tenant-1',
+          initialData: {
+            user,
+            role: 'OWNER',
+            properties: [{ id: 'property-1', name: 'Grand Hotel' }],
+          },
+        }),
+      ),
     );
     const multipleProperties = renderToStaticMarkup(
-      createElement(DashboardShell, {
-        tenantId: 'tenant-1',
-        initialData: {
-          user,
-          role: 'OWNER',
-          properties: [
-            { id: 'property-1', name: 'Grand Hotel' },
-            { id: 'property-2', name: 'Coast Hotel' },
-          ],
-        },
-      }),
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(DashboardShell, {
+          tenantId: 'tenant-1',
+          initialData: {
+            user,
+            role: 'OWNER',
+            properties: [
+              { id: 'property-1', name: 'Grand Hotel' },
+              { id: 'property-2', name: 'Coast Hotel' },
+            ],
+          },
+        }),
+      ),
     );
     const staffWithMultipleProperties = renderToStaticMarkup(
-      createElement(DashboardShell, {
-        tenantId: 'tenant-1',
-        initialData: {
-          user,
-          role: 'STAFF',
-          properties: [
-            { id: 'property-1', name: 'Grand Hotel' },
-            { id: 'property-2', name: 'Coast Hotel' },
-          ],
-          capabilities: ['bookings.manage'],
-        },
-      }),
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(DashboardShell, {
+          tenantId: 'tenant-1',
+          initialData: {
+            user,
+            role: 'STAFF',
+            properties: [
+              { id: 'property-1', name: 'Grand Hotel' },
+              { id: 'property-2', name: 'Coast Hotel' },
+            ],
+            capabilities: ['bookings.manage'],
+          },
+        }),
+      ),
     );
 
     expect(singleProperty).not.toContain('Switch property');
@@ -119,15 +140,19 @@ describe('Tenant dashboard shell', () => {
 
   it('shows a Finance property-staff session only Overview, Payments, and Reports', () => {
     const markup = renderToStaticMarkup(
-      createElement(DashboardShell, {
-        tenantId: 'tenant-1',
-        initialData: {
-          user: { ...user, email: 'finance@example.test' },
-          role: 'STAFF',
-          properties: [{ id: 'property-1', name: 'Grand Hotel' }],
-          capabilities: ['payments.refund', 'reports.view'],
-        },
-      }),
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(DashboardShell, {
+          tenantId: 'tenant-1',
+          initialData: {
+            user: { ...user, email: 'finance@example.test' },
+            role: 'STAFF',
+            properties: [{ id: 'property-1', name: 'Grand Hotel' }],
+            capabilities: ['payments.refund', 'reports.view'],
+          },
+        }),
+      ),
     );
 
     for (const label of ['Overview', 'Payments', 'Reports'])
@@ -146,21 +171,25 @@ describe('Tenant dashboard shell', () => {
 
   it('hides tenant-administration destinations from staff even if a misconfigured template grants their capability keys', () => {
     const markup = renderToStaticMarkup(
-      createElement(DashboardShell, {
-        tenantId: 'tenant-1',
-        initialData: {
-          user,
-          role: 'STAFF',
-          properties: [{ id: 'property-1', name: 'Grand Hotel' }],
-          capabilities: [
-            'accommodations.manage',
-            'rates.manage',
-            'staff.invite',
-            'staff.manage_permissions',
-            'settings.manage',
-          ],
-        },
-      }),
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(DashboardShell, {
+          tenantId: 'tenant-1',
+          initialData: {
+            user,
+            role: 'STAFF',
+            properties: [{ id: 'property-1', name: 'Grand Hotel' }],
+            capabilities: [
+              'accommodations.manage',
+              'rates.manage',
+              'staff.invite',
+              'staff.manage_permissions',
+              'settings.manage',
+            ],
+          },
+        }),
+      ),
     );
 
     for (const label of ['Accommodations', 'Rates &amp; Pricing', 'Staff', 'Settings'])

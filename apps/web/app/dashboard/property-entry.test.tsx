@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { PropertyEntry } from './property-entry';
+import { DashboardQueryProvider } from './query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -72,13 +73,21 @@ async function mount(properties: Array<{ id: string; name: string }>) {
           }),
         ),
       );
+    if (url.endsWith('/notifications?page=1&pageSize=20'))
+      return Promise.resolve(new Response(JSON.stringify({ items: [] })));
     return Promise.resolve(new Response(JSON.stringify(properties)));
   });
   vi.stubGlobal('fetch', fetch);
   const container = document.createElement('div');
   const root = createRoot(container);
   await act(async () => {
-    root.render(createElement(PropertyEntry, { tenantId: 'tenant-1' }));
+    root.render(
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(PropertyEntry, { tenantId: 'tenant-1' }),
+      ),
+    );
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();

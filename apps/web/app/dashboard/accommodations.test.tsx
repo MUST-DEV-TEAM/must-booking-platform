@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DashboardShell } from './dashboard-shell';
+import { DashboardQueryProvider } from './query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -41,7 +42,13 @@ describe('Accommodations dashboard route', () => {
     const root = createRoot(container);
 
     await act(async () => {
-      root.render(createElement(DashboardShell, { tenantId: 't' }));
+      root.render(
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(DashboardShell, { tenantId: 't' }),
+        ),
+      );
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
