@@ -15,6 +15,7 @@ import {
 
 import { IntegrationConnectionsService } from '../integration-connections.service';
 import { ClockAvailabilityService } from './clock-availability.service';
+import { ClockBookingService } from './clock-booking.service';
 import { ClockCatalogSyncService } from './clock-catalog-sync.service';
 import { ClockConnectionPingService } from './clock-connection-ping';
 import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
@@ -22,12 +23,11 @@ import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
 export const CLOCK_PMS_PROVIDER = Symbol('CLOCK_PMS_PROVIDER');
 
 /**
- * Real ClockPmsProvider. testConnection (Task 6), syncCatalog (Task 7), and
- * getAvailability (Task 8) are implemented — booking CRUD (Task 10) lands as
- * its own dedicated, individually-verified task rather than being stubbed
- * out speculatively here. This is not the DI-bound PMS_PROVIDER yet
- * (LocalPmsProvider still is) — swapping which provider a property actually
- * uses is a later task's job, not this one's.
+ * Real ClockPmsProvider. testConnection (Task 6), syncCatalog (Task 7),
+ * getAvailability (Task 8), and booking CRUD (Task 10) are implemented. This
+ * is not the DI-bound PMS_PROVIDER yet (LocalPmsProvider still is) —
+ * swapping which provider a property actually uses is a later task's job,
+ * not this one's.
  */
 @Injectable()
 export class ClockPmsProvider implements PmsProvider {
@@ -38,6 +38,7 @@ export class ClockPmsProvider implements PmsProvider {
     @Inject(ClockCatalogSyncService) private readonly catalogSync: ClockCatalogSyncService,
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(ClockAvailabilityService) private readonly availability: ClockAvailabilityService,
+    @Inject(ClockBookingService) private readonly booking: ClockBookingService,
   ) {}
 
   async testConnection(context: PmsProviderContext): Promise<Result<void>> {
@@ -96,50 +97,34 @@ export class ClockPmsProvider implements PmsProvider {
   }
 
   getBooking(context: PmsProviderContext, externalBookingId: string): Promise<Booking | null> {
-    void context;
-    void externalBookingId;
-    throw notImplemented('getBooking', 10);
+    return this.booking.getBooking(context, externalBookingId);
   }
 
   findBookingByExternalReference(
     context: PmsProviderContext,
     reference: string,
   ): Promise<Booking | null> {
-    void context;
-    void reference;
-    throw notImplemented('findBookingByExternalReference', 10);
+    return this.booking.findBookingByExternalReference(context, reference);
   }
 
   createBooking(
     context: PmsProviderContext,
     command: CreateBookingCommand,
   ): Promise<Result<Booking>> {
-    void context;
-    void command;
-    throw notImplemented('createBooking', 10);
+    return this.booking.createBooking(context, command);
   }
 
   updateBooking(
     context: PmsProviderContext,
     command: UpdateBookingCommand,
   ): Promise<Result<Booking>> {
-    void context;
-    void command;
-    throw notImplemented('updateBooking', 10);
+    return this.booking.updateBooking(context, command);
   }
 
   cancelBooking(
     context: PmsProviderContext,
     command: CancelBookingCommand,
   ): Promise<Result<Booking>> {
-    void context;
-    void command;
-    throw notImplemented('cancelBooking', 10);
+    return this.booking.cancelBooking(context, command);
   }
-}
-
-function notImplemented(method: string, task: number): Error {
-  return new Error(
-    `ClockPmsProvider.${method} is not implemented yet — lands in Milestone 11 Task ${task}.`,
-  );
 }

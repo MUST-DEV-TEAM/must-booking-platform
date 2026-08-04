@@ -97,6 +97,7 @@ import { ClockPmsProvider } from './integrations/clock/clock-pms.provider';
 import { ClockCatalogSyncService } from './integrations/clock/clock-catalog-sync.service';
 import { ClockCatalogSyncController } from './integrations/clock/clock-catalog-sync.controller';
 import { ClockAvailabilityService } from './integrations/clock/clock-availability.service';
+import { ClockBookingService } from './integrations/clock/clock-booking.service';
 import { ClockQueueService } from './integrations/clock/clock-queue.service';
 import { ClockWorkerService } from './integrations/clock/clock-worker.service';
 
@@ -221,6 +222,7 @@ import { ClockWorkerService } from './integrations/clock/clock-worker.service';
     ClockPmsProvider,
     ClockCatalogSyncService,
     ClockAvailabilityService,
+    ClockBookingService,
     ClockQueueService,
     ClockWorkerService,
     { provide: PAYMENT_PROVIDER, useExisting: StripePaymentProvider },

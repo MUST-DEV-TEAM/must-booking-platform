@@ -17,6 +17,7 @@ describe('ClockPmsProvider.testConnection', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     const result = await provider.testConnection(context);
@@ -42,6 +43,7 @@ describe('ClockPmsProvider.testConnection', () => {
     const provider = new ClockPmsProvider(
       connections as never,
       ping as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -75,6 +77,7 @@ describe('ClockPmsProvider.testConnection', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     const result = await provider.testConnection(context);
@@ -95,6 +98,7 @@ describe('ClockPmsProvider.testConnection', () => {
     const provider = new ClockPmsProvider(
       connections as never,
       ping as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -132,6 +136,7 @@ describe('ClockPmsProvider.syncCatalog', () => {
       catalogSync as never,
       database as never,
       {} as never,
+      {} as never,
     );
 
     const result = await provider.syncCatalog(context);
@@ -163,6 +168,7 @@ describe('ClockPmsProvider.getAvailability', () => {
       {} as never,
       {} as never,
       availability as never,
+      {} as never,
     );
     const query = { roomTypeId: 'rt-1', startsOn: '2026-08-10', endsOn: '2026-08-12' };
 
@@ -177,25 +183,76 @@ describe('ClockPmsProvider.getAvailability', () => {
   });
 });
 
-describe('ClockPmsProvider unimplemented methods', () => {
-  const provider = new ClockPmsProvider(
-    {} as never,
-    {} as never,
-    {} as never,
-    {} as never,
-    {} as never,
-  );
+describe('ClockPmsProvider booking CRUD delegation', () => {
+  function providerWithBooking(booking: Record<string, ReturnType<typeof vi.fn>>) {
+    return new ClockPmsProvider(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      booking as never,
+    );
+  }
 
-  it.each([
-    ['getBooking', () => provider.getBooking(context, 'ext-1')],
-    [
-      'findBookingByExternalReference',
-      () => provider.findBookingByExternalReference(context, 'ref-1'),
-    ],
-  ])(
-    '%s throws a clear not-implemented error rather than silently returning nothing',
-    (_name, call) => {
-      expect(call).toThrow(/not implemented yet/);
-    },
-  );
+  it('createBooking delegates to ClockBookingService', async () => {
+    const bookingResult = { ok: true as const, value: { id: 'b1' } as never };
+    const booking = { createBooking: vi.fn().mockResolvedValue(bookingResult) };
+    const provider = providerWithBooking(booking);
+    const command = { idempotencyKey: 'k1' } as never;
+
+    const result = await provider.createBooking(context, command);
+
+    expect(booking.createBooking).toHaveBeenCalledWith(context, command);
+    expect(result).toBe(bookingResult);
+  });
+
+  it('updateBooking delegates to ClockBookingService', async () => {
+    const bookingResult = { ok: true as const, value: { id: 'b1' } as never };
+    const booking = { updateBooking: vi.fn().mockResolvedValue(bookingResult) };
+    const provider = providerWithBooking(booking);
+    const command = { idempotencyKey: 'k1', bookingId: 'b1', expectedVersion: 1 } as never;
+
+    const result = await provider.updateBooking(context, command);
+
+    expect(booking.updateBooking).toHaveBeenCalledWith(context, command);
+    expect(result).toBe(bookingResult);
+  });
+
+  it('cancelBooking delegates to ClockBookingService', async () => {
+    const bookingResult = { ok: true as const, value: { id: 'b1' } as never };
+    const booking = { cancelBooking: vi.fn().mockResolvedValue(bookingResult) };
+    const provider = providerWithBooking(booking);
+    const command = {
+      idempotencyKey: 'k1',
+      bookingId: 'b1',
+      expectedVersion: 1,
+      reason: null,
+    } as never;
+
+    const result = await provider.cancelBooking(context, command);
+
+    expect(booking.cancelBooking).toHaveBeenCalledWith(context, command);
+    expect(result).toBe(bookingResult);
+  });
+
+  it('getBooking delegates to ClockBookingService', async () => {
+    const booking = { getBooking: vi.fn().mockResolvedValue(null) };
+    const provider = providerWithBooking(booking);
+
+    const result = await provider.getBooking(context, 'ext-1');
+
+    expect(booking.getBooking).toHaveBeenCalledWith(context, 'ext-1');
+    expect(result).toBeNull();
+  });
+
+  it('findBookingByExternalReference delegates to ClockBookingService', async () => {
+    const booking = { findBookingByExternalReference: vi.fn().mockResolvedValue(null) };
+    const provider = providerWithBooking(booking);
+
+    const result = await provider.findBookingByExternalReference(context, 'ref-1');
+
+    expect(booking.findBookingByExternalReference).toHaveBeenCalledWith(context, 'ref-1');
+    expect(result).toBeNull();
+  });
 });
