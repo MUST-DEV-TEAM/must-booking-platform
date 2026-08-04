@@ -1,7 +1,7 @@
 # Milestone 11: Clock PMS+ Adapter (Basic Integration)
 
 Status: Not started
-Depends on: Milestone 4 (booking domain/`PmsProvider`); reference material: `docs/source/clock-pms-integration.pdf`
+Depends on: Milestone 4 (booking domain/`PmsProvider`); [ADR-0026](../../decisions/ADR-0026-tenant-integration-connections.md) (tenant-owned integration connections — this milestone builds that foundation, then Clock on top of it); reference material: `docs/source/clock-pms-integration.pdf`
 
 **Carried forward from Milestone 2 (Task 7, 2026-07-28):** Milestone 2's Free-plan limit enforcement could not gate PMS connections — no PMS-connection endpoint existed at all yet. When this milestone builds Task 3's per-tenant Clock connection settings/admin UI (the actual "connect a PMS" mutation point), add enforcement of `plans.pms_enabled` there: a plan without PMS access must have connection attempts rejected outright (feature gate, not a count), per ADR-0007.
 
@@ -13,7 +13,7 @@ A first working `ClockPmsProvider`, sandbox-validated, covering the core loop: c
 
 1. Clock HTTP client: Digest Authentication, connection pooling, TLS, timeouts, structured logging (source brief section 9).
 2. Rate limiting (4 req/s per API user via Redis, source brief section 10) and basic error classification (section 11).
-3. Credential storage/config: per-tenant Clock connection settings, encrypted at rest, admin UI for entering them (source brief section 8).
+3. Generic Integration Connection foundation per ADR-0026 (not Clock-specific): tenant-owned connection storage covering both PMS and payment-gateway connections, encrypted credentials, masked display, test-connection flow, per-property assignment, tenant admin UI. Clock connection settings (source brief section 8) are the first real consumer of this foundation.
 4. Test-connection flow (`testConnection` on `PmsProvider`).
 5. Catalog sync: initial full sync with preview/confirm, per source brief section 14 — room types, rooms, rates, mapped into local catalog mapping tables (section 13).
 6. Availability query integration (`getAvailability`), with the endpoint-matrix caveat from section 16 (short-lived cache only, final check before booking).
