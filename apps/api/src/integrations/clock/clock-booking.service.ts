@@ -20,6 +20,7 @@ import { NotificationsService } from '../../tenancy/notifications.service';
 import { BookingStateMachine } from '../../booking/booking-state-machine';
 import { bookingNeedsAttention } from '../../booking/booking-attention';
 import { IntegrationConnectionsService } from '../integration-connections.service';
+import { ManualReviewService } from '../manual-review.service';
 import { ClockCircuitBreakerService, CircuitOpenError } from './clock-circuit-breaker';
 import { parseClockCredentials } from './clock-credentials';
 import {
@@ -44,6 +45,17 @@ interface ClockBookingResource {
   id: number;
   lock_version: number;
   status: string;
+}
+
+/** Exported for unit testing (Task 12: schema_mismatch must have real, tested detection). */
+export function isClockBookingResource(value: unknown): value is ClockBookingResource {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    typeof (value as ClockBookingResource).id === 'number' &&
+    typeof (value as ClockBookingResource).lock_version === 'number' &&
+    typeof (value as ClockBookingResource).status === 'string'
+  );
 }
 
 type BookingRow = {
@@ -79,6 +91,7 @@ export class ClockBookingService {
     private readonly connections: IntegrationConnectionsService,
     @Inject(AuditLogService) private readonly audit: AuditLogService,
     @Inject(NotificationsService) private readonly notifications: NotificationsService,
+    @Inject(ManualReviewService) private readonly manualReview: ManualReviewService,
     @Inject(BookingStateMachine) private readonly stateMachine: BookingStateMachine,
     @Inject(ClockHttpClient) private readonly client: ClockHttpClient,
     @Inject(ClockRateLimiterService) private readonly rateLimiter: ClockRateLimiterService,
@@ -213,6 +226,20 @@ export class ClockBookingService {
                 status,
                 BookingStatus.PMS_UNKNOWN_RESULT,
               );
+              // Section 26: an unknown result must never be silently treated
+              // as success or quietly retried away — it needs a human to look.
+              await this.manualReview.recordInTransaction(tx, {
+                tenantId: context.tenantId,
+                propertyId: context.propertyId,
+                category: 'UNKNOWN_RESULT',
+                referenceType: 'booking',
+                referenceId: bookingId,
+                message: `Booking creation timed out and could not be confirmed against Clock: ${response.error.message}`,
+                context: {
+                  externalReference: command.externalReference,
+                  errorCode: response.error.code,
+                },
+              });
               return this.failure(
                 response.error.code,
                 response.error.message,
@@ -221,6 +248,27 @@ export class ClockBookingService {
             }
             await this.transition(tx, context, bookingId, status, BookingStatus.PMS_REJECTED);
             return this.failure(response.error.code, response.error.message, false);
+          }
+
+          // Clock returned 2xx, but section 26 still requires us to never
+          // trust an unrecognized shape as a real confirmation.
+          if (!isClockBookingResource(response.value)) {
+            await this.transition(tx, context, bookingId, status, BookingStatus.PMS_UNKNOWN_RESULT);
+            await this.manualReview.recordInTransaction(tx, {
+              tenantId: context.tenantId,
+              propertyId: context.propertyId,
+              category: 'SCHEMA_MISMATCH',
+              referenceType: 'booking',
+              referenceId: bookingId,
+              message:
+                'Clock returned a 2xx booking-create response that did not match the expected shape.',
+              context: { externalReference: command.externalReference, response: response.value },
+            });
+            return this.failure(
+              'clock_schema_mismatch',
+              'Clock returned an unrecognized booking response shape.',
+              false,
+            );
           }
 
           await tx.$executeRaw`

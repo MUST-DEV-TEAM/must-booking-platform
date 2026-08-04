@@ -23,6 +23,16 @@ export type PlatformIntegrationConnection = {
   lastTestedAt: string | null;
   lastTestResult: string | null;
 };
+export type ManualReviewItemSummary = {
+  id: string;
+  category: string;
+  referenceType: string;
+  referenceId: string | null;
+  message: string;
+  status: 'OPEN' | 'RESOLVED';
+  createdAt: string;
+  resolvedAt: string | null;
+};
 export type PlatformTenantDetail = {
   id: string;
   name: string;
@@ -38,6 +48,16 @@ export type PlatformTenantDetail = {
   pokpayEnabledPropertyCount: number;
   payAtHotelEnabledPropertyCount: number;
   connections: PlatformIntegrationConnection[];
+  manualReviewItems: ManualReviewItemSummary[];
+};
+const categoryLabels: Record<string, string> = {
+  UNKNOWN_RESULT: 'Unknown result',
+  DUPLICATE: 'Duplicate',
+  MISSING_MAPPING: 'Missing mapping',
+  SIMULTANEOUS_CHANGE: 'Simultaneous change',
+  PAYMENT_BOOKING_MISMATCH: 'Payment/booking mismatch',
+  UNKNOWN_STATUS: 'Unknown status',
+  SCHEMA_MISMATCH: 'Schema mismatch',
 };
 const providerLabels: Record<PlatformIntegrationConnection['provider'], string> = {
   STRIPE: 'Stripe',
@@ -53,6 +73,7 @@ export function TenantDetailView({
   health,
   onTransition,
   onPasswordReset,
+  onResolveManualReview,
 }: {
   tenant: PlatformTenantDetail | null;
   loading: boolean;
@@ -60,12 +81,14 @@ export function TenantDetailView({
   health: { stripe: ProviderHealth; pokpay: ProviderHealth };
   onTransition?: (status: 'ACTIVE' | 'SUSPENDED') => Promise<void>;
   onPasswordReset?: (userId: string) => Promise<void>;
+  onResolveManualReview?: (itemId: string) => Promise<void>;
 }) {
   const [transitionPending, setTransitionPending] = useState(false);
   const [transitionError, setTransitionError] = useState<string | null>(null);
   const [resetPending, setResetPending] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
+  const [resolvingItemId, setResolvingItemId] = useState<string | null>(null);
   if (loading)
     return (
       <Stack className={styles.page} gap="lg">
@@ -172,6 +195,52 @@ export function TenantDetailView({
                   >
                     {connection.status.toLowerCase()}
                   </Badge>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+      <Card>
+        <Heading level={2}>Manual review</Heading>
+        <Text tone="secondary">
+          Clock results MUST could not confidently classify — an unknown result is never treated as
+          success automatically.
+        </Text>
+        {tenant.manualReviewItems.length === 0 ? (
+          <Text tone="secondary">Nothing needs review.</Text>
+        ) : (
+          <div className={detailStyles.providers}>
+            {tenant.manualReviewItems.map((item) => (
+              <div className={detailStyles.provider} key={item.id}>
+                <div>
+                  <strong>{categoryLabels[item.category] ?? item.category}</strong>
+                  <Text tone="secondary">
+                    {item.message}
+                    {item.referenceId ? ` · ${item.referenceType} ${item.referenceId}` : ''}
+                    {` · ${formatDate(item.createdAt)}`}
+                  </Text>
+                </div>
+                <div className={detailStyles.badges}>
+                  <Badge tone={item.status === 'OPEN' ? 'warning' : 'success'}>
+                    {item.status.toLowerCase()}
+                  </Badge>
+                  {item.status === 'OPEN' && onResolveManualReview ? (
+                    <Button
+                      disabled={resolvingItemId === item.id}
+                      onClick={async () => {
+                        setResolvingItemId(item.id);
+                        try {
+                          await onResolveManualReview(item.id);
+                        } finally {
+                          setResolvingItemId(null);
+                        }
+                      }}
+                      variant="secondary"
+                    >
+                      {resolvingItemId === item.id ? 'Marking…' : 'Mark reviewed'}
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             ))}
@@ -369,6 +438,15 @@ export default function PlatformTenantDetailPage({
               },
             );
             if (!response.ok) throw new Error('Unable to queue password reset.');
+          }}
+          onResolveManualReview={async (itemId) => {
+            if (!tenant) return;
+            const response = await fetch(
+              `/api/platform/tenants/${tenant.id}/manual-review/${itemId}/resolve`,
+              { credentials: 'include', method: 'POST' },
+            );
+            if (!response.ok) throw new Error('Unable to mark this item reviewed.');
+            await refreshTenant(tenant.id);
           }}
         />
       </AppShell>

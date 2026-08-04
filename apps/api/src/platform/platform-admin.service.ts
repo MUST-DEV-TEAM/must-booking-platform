@@ -3,6 +3,7 @@ import { ConflictException, Inject, Injectable, NotFoundException } from '@nestj
 import { AuthService } from '../auth/auth.service';
 import { AuditLogService } from '../tenancy/audit-log.service';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
+import { ManualReviewService } from '../integrations/manual-review.service';
 
 export type OrganizationStatus = 'ACTIVE' | 'SUSPENDED';
 
@@ -12,6 +13,7 @@ export class PlatformAdminService {
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(AuditLogService) private readonly auditLogs: AuditLogService,
+    @Inject(ManualReviewService) private readonly manualReview: ManualReviewService,
   ) {}
 
   async dashboardHome(actorUserId: string): Promise<PlatformDashboardHome> {
@@ -226,6 +228,7 @@ export class PlatformAdminService {
         ORDER BY "created_at"
       `,
     );
+    const manualReviewItems = await this.manualReview.list(tenantId);
     return {
       ...organization[0],
       ...(properties[0] ?? {
@@ -238,7 +241,24 @@ export class PlatformAdminService {
         payAtHotelEnabledPropertyCount: 0,
       }),
       connections,
+      manualReviewItems,
     };
+  }
+
+  async resolveManualReviewItem(
+    tenantId: string,
+    itemId: string,
+    actorUserId: string,
+  ): Promise<void> {
+    await this.manualReview.resolve(tenantId, itemId, actorUserId);
+    await this.auditLogs.record({
+      actorUserId,
+      actorType: 'PLATFORM_ADMIN',
+      action: 'platform.manual_review.resolved',
+      targetType: 'manual_review_item',
+      targetId: itemId,
+      tenantId,
+    });
   }
 
   suspendTenant(
@@ -390,6 +410,7 @@ export interface PlatformTenantDetail extends PlatformTenant {
   pokpayEnabledPropertyCount: number;
   payAtHotelEnabledPropertyCount: number;
   connections: PlatformIntegrationConnection[];
+  manualReviewItems: ManualReviewItemSummary[];
 }
 
 export interface PlatformIntegrationConnection {
@@ -400,4 +421,15 @@ export interface PlatformIntegrationConnection {
   status: 'PENDING' | 'CONNECTED' | 'FAILED';
   lastTestedAt: Date | null;
   lastTestResult: string | null;
+}
+
+export interface ManualReviewItemSummary {
+  id: string;
+  category: string;
+  referenceType: string;
+  referenceId: string | null;
+  message: string;
+  status: 'OPEN' | 'RESOLVED';
+  createdAt: string;
+  resolvedAt: string | null;
 }

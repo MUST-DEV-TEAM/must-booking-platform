@@ -88,6 +88,7 @@ import { CredentialCipherService } from './integrations/credential-cipher';
 import { ConnectionTestRegistry } from './integrations/connection-tester';
 import { IntegrationConnectionsService } from './integrations/integration-connections.service';
 import { IntegrationConnectionsController } from './integrations/integration-connections.controller';
+import { ManualReviewService } from './integrations/manual-review.service';
 import { ClockHttpClient } from './integrations/clock/clock-http-client';
 import { ClockRateLimiterService } from './integrations/clock/clock-rate-limiter';
 import { ClockCircuitBreakerService } from './integrations/clock/clock-circuit-breaker';
@@ -234,6 +235,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
       useFactory: () => new ClockWebhookVerificationService(),
     },
     ClockWebhookService,
+    ManualReviewService,
     { provide: PAYMENT_PROVIDER, useExisting: StripePaymentProvider },
     R2StorageProvider,
     { provide: STORAGE_PROVIDER, useExisting: R2StorageProvider },

@@ -33,6 +33,18 @@ const tenant = {
       lastTestResult: 'OK',
     },
   ],
+  manualReviewItems: [
+    {
+      id: 'review-1',
+      category: 'UNKNOWN_RESULT',
+      referenceType: 'booking',
+      referenceId: 'booking-1',
+      message: 'Booking creation timed out and could not be confirmed against Clock.',
+      status: 'OPEN' as const,
+      createdAt: '2026-08-04T11:00:00.000Z',
+      resolvedAt: null,
+    },
+  ],
 };
 const health = { stripe: { status: 'healthy' as const }, pokpay: { status: 'checking' as const } };
 
@@ -76,6 +88,60 @@ describe('Platform tenant detail page', () => {
       }),
     );
     expect(markup).toContain('No integration connections configured.');
+  });
+
+  it('shows an empty state when there is nothing to review', () => {
+    const markup = renderToStaticMarkup(
+      createElement(TenantDetailView, {
+        tenant: { ...tenant, manualReviewItems: [] },
+        loading: false,
+        notFound: false,
+        health,
+        onTransition: vi.fn(),
+        onPasswordReset: vi.fn(),
+      }),
+    );
+    expect(markup).toContain('Nothing needs review.');
+  });
+
+  it('lists an open manual review item and resolves it on click', async () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    let resolveClick!: () => void;
+    const onResolveManualReview = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveClick = resolve;
+        }),
+    );
+    await act(async () => {
+      root.render(
+        createElement(TenantDetailView, {
+          tenant,
+          loading: false,
+          notFound: false,
+          health,
+          onResolveManualReview,
+        }),
+      );
+    });
+    expect(container.textContent).toContain('Unknown result');
+    expect(container.textContent).toContain('booking booking-1');
+    const button = Array.from(container.querySelectorAll('button')).find((item) =>
+      item.textContent?.includes('Mark reviewed'),
+    )!;
+    await act(async () => {
+      button.click();
+    });
+    expect(onResolveManualReview).toHaveBeenCalledWith('review-1');
+    expect(container.textContent).toContain('Marking…');
+    await act(async () => {
+      resolveClick();
+    });
+    root.unmount();
+    container.remove();
   });
 
   it('renders not-found state', () =>

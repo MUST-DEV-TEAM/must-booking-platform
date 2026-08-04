@@ -679,6 +679,46 @@ model ClockCatalogMapping {
   @@map("clock_catalog_mappings")
 }
 
+enum ManualReviewCategory {
+  UNKNOWN_RESULT
+  DUPLICATE
+  MISSING_MAPPING
+  SIMULTANEOUS_CHANGE
+  PAYMENT_BOOKING_MISMATCH
+  UNKNOWN_STATUS
+  SCHEMA_MISMATCH
+}
+
+enum ManualReviewStatus {
+  OPEN
+  RESOLVED
+}
+
+// Milestone 11 Task 12 (source brief section 26): every trigger the brief
+// lists gets a category here so the schema doesn't need to change as later
+// tasks/milestones wire up the triggers that don't have real producing code
+// yet (payment sync, full reconciliation) — see the milestone doc for which
+// categories this milestone actually raises for real vs. schema-ready-only.
+model ManualReviewItem {
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String               @map("tenant_id") @db.Uuid
+  propertyId       String               @map("property_id") @db.Uuid
+  connectionId     String?              @map("connection_id") @db.Uuid
+  category         ManualReviewCategory
+  referenceType    String               @map("reference_type") @db.VarChar(50)
+  referenceId      String?              @map("reference_id") @db.VarChar(200)
+  message          String               @db.VarChar(1000)
+  context          Json?
+  status           ManualReviewStatus   @default(OPEN)
+  resolvedAt       DateTime?            @map("resolved_at") @db.Timestamptz(6)
+  resolvedByUserId String?              @map("resolved_by_user_id") @db.Uuid
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, propertyId, status])
+  @@map("manual_review_items")
+}
+
 enum ProviderEventStatus {
   RECEIVED
   QUEUED

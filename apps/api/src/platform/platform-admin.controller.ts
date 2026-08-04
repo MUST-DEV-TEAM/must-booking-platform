@@ -71,6 +71,20 @@ export class PlatformAdminController {
     await this.platformAdmin.triggerPasswordReset(tenantId, userId, request.platformContext.userId);
     return { accepted: true };
   }
+
+  @Post('tenants/:tenantId/manual-review/:itemId/resolve')
+  async resolveManualReview(
+    @Param('tenantId') tenantId: string,
+    @Param('itemId') itemId: string,
+    @Req() request: PlatformRequest,
+  ) {
+    await this.platformAdmin.resolveManualReviewItem(
+      tenantId,
+      itemId,
+      request.platformContext.userId,
+    );
+    return { resolved: true };
+  }
 }
 
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
