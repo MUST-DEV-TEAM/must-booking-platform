@@ -70,7 +70,10 @@ describe('Payments', () => {
       Array.from(c.querySelectorAll('button'))
         .find((x) => x.textContent === 'Settle')!
         .click();
-      await Promise.resolve();
+      for (let iteration = 0; iteration < 4; iteration += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 20));
+        await Promise.resolve();
+      }
     });
     expect(c.textContent).toContain('Paid');
     expect(toast.success).toHaveBeenCalledWith('Payment recorded.');

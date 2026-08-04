@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DashboardSettings } from './settings';
+import { DashboardQueryProvider } from './query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -90,10 +91,19 @@ async function mount() {
   const container = document.createElement('div');
   const root = createRoot(container);
   await act(async () => {
-    root.render(createElement(DashboardSettings, { tenantId: 't', propertyId: 'p' }));
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    root.render(
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(DashboardSettings, { tenantId: 't', propertyId: 'p' }),
+      ),
+    );
+  });
+  await act(async () => {
+    for (let iteration = 0; iteration < 4; iteration += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
+      await Promise.resolve();
+    }
   });
   return { container, root };
 }
@@ -113,8 +123,10 @@ async function submit(container: HTMLElement, text: string) {
       .find((button) => button.textContent === text)!
       .closest('form')!
       .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    await Promise.resolve();
-    await Promise.resolve();
+    for (let iteration = 0; iteration < 4; iteration += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
+      await Promise.resolve();
+    }
   });
 }
 

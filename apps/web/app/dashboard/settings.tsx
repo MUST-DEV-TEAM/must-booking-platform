@@ -1,5 +1,6 @@
 'use client';
 
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FormEvent, useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -54,65 +55,62 @@ export function DashboardSettings({
   tenantId: string;
   propertyId: string;
 }) {
-  const [property, setProperty] = useState<Property | null>(null);
   const [identity, setIdentity] = useState<IdentityFields | null>(null);
   const [rules, setRules] = useState<RuleFields | null>(null);
   const [bookingMode, setBookingMode] = useState<BookingMode | null>(null);
-  const [planName, setPlanName] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [loadError, setLoadError] = useState('');
-  const [retry, setRetry] = useState(0);
   const base = `/api/tenants/${tenantId}`;
+  const queryClient = useQueryClient();
+  const settingsQuery = useQuery({
+    queryKey: ['dashboard', 'settings', tenantId, propertyId],
+    queryFn: async () => {
+      const [propertiesResponse, planResponse] = await Promise.all([
+        fetch(`${base}/properties`, { credentials: 'include' }),
+        fetch(`${base}/plan-usage`, { credentials: 'include' }),
+      ]);
+      if (!propertiesResponse.ok) throw new Error('Unable to load property settings.');
+      const properties = (await propertiesResponse.json()) as Property[];
+      const property = properties.find((item) => item.id === propertyId);
+      if (!property) throw new Error('Property settings were not found.');
+      return {
+        property,
+        planName: planResponse.ok ? ((await planResponse.json()) as PlanUsage).plan.name : null,
+      };
+    },
+  });
+  const property = settingsQuery.data?.property ?? null;
+  const planName = settingsQuery.data?.planName ?? null;
 
   useEffect(() => {
-    let active = true;
-    setLoadError('');
-    void Promise.all([
-      fetch(`${base}/properties`, { credentials: 'include' }),
-      fetch(`${base}/plan-usage`, { credentials: 'include' }),
-    ])
-      .then(async ([propertiesResponse, planResponse]) => {
-        if (!active) return;
-        if (!propertiesResponse.ok) throw new Error('Unable to load property settings.');
-        const properties = (await propertiesResponse.json()) as Property[];
-        const current = properties.find((item) => item.id === propertyId);
-        if (!current) throw new Error('Property settings were not found.');
-        setProperty(current);
-        setIdentity({ name: current.name, address: current.address, timezone: current.timezone });
-        setRules(rulesFrom(current));
-        setBookingMode(current.bookingMode);
-        if (planResponse.ok) setPlanName(((await planResponse.json()) as PlanUsage).plan.name);
-      })
-      .catch((error: unknown) => {
-        if (active)
-          setLoadError(error instanceof Error ? error.message : 'Unable to load settings.');
+    if (!property) return;
+    setIdentity({ name: property.name, address: property.address, timezone: property.timezone });
+    setRules(rulesFrom(property));
+    setBookingMode(property.bookingMode);
+  }, [property]);
+
+  const saveMutation = useMutation({
+    mutationFn: async (update: Partial<Property>) => {
+      const response = await fetch(`${base}/properties/${propertyId}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(update),
       });
-    return () => {
-      active = false;
-    };
-  }, [base, propertyId, retry]);
+      if (!response.ok) throw new Error('Unable to save settings.');
+      return (await response.json()) as Property;
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData<{ property: Property; planName: string | null }>(
+        ['dashboard', 'settings', tenantId, propertyId],
+        (current) => ({ property: updated, planName: current?.planName ?? null }),
+      );
+      toast.success('Settings saved.');
+    },
+    onError: () => toast.error('Unable to save settings.'),
+  });
 
   async function save(update: Partial<Property>) {
     if (!property || Object.keys(update).length === 0) return;
-    setSaving(true);
-    const response = await fetch(`${base}/properties/${propertyId}`, {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(update),
-    });
-    if (!response.ok) {
-      toast.error('Unable to save settings.');
-      setSaving(false);
-      return;
-    }
-    const updated = (await response.json()) as Property;
-    setProperty(updated);
-    setIdentity({ name: updated.name, address: updated.address, timezone: updated.timezone });
-    setRules(rulesFrom(updated));
-    setBookingMode(updated.bookingMode);
-    toast.success('Settings saved.');
-    setSaving(false);
+    saveMutation.mutate(update);
   }
 
   function saveIdentity(event: FormEvent<HTMLFormElement>) {
@@ -145,15 +143,17 @@ export function DashboardSettings({
   const numberRule = (key: 'minStayNights' | 'maxStayNights' | 'advanceBookingDays') =>
     rules?.[key] === null || rules?.[key] === undefined ? '' : String(rules[key]);
 
-  if (loadError && !property)
+  if (settingsQuery.isPending)
+    return (
+      <section aria-label="Loading settings">
+        <p>Loading settings…</p>
+      </section>
+    );
+  if (settingsQuery.isError)
     return (
       <section aria-label="Settings unavailable">
-        <p>{loadError}</p>
-        <button
-          className="must-button"
-          type="button"
-          onClick={() => setRetry((value) => value + 1)}
-        >
+        <p>{settingsQuery.error.message}</p>
+        <button className="must-button" type="button" onClick={() => void settingsQuery.refetch()}>
           Retry
         </button>
       </section>
@@ -200,8 +200,8 @@ export function DashboardSettings({
                 onChange={(event) => setIdentity({ ...identity, timezone: event.target.value })}
               />
             </label>
-            <button disabled={saving}>
-              {saving ? (
+            <button disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? (
                 <>
                   <Loader2 aria-hidden="true" size={16} /> Saving…
                 </>
@@ -288,8 +288,8 @@ export function DashboardSettings({
                 }
               />
             </label>
-            <button disabled={saving}>
-              {saving ? (
+            <button disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? (
                 <>
                   <Loader2 aria-hidden="true" size={16} /> Saving…
                 </>
@@ -317,8 +317,8 @@ export function DashboardSettings({
               <option value="MIXED">Mixed</option>
             </select>
           </label>
-          <button disabled={saving}>
-            {saving ? (
+          <button disabled={saveMutation.isPending}>
+            {saveMutation.isPending ? (
               <>
                 <Loader2 aria-hidden="true" size={16} /> Saving…
               </>
