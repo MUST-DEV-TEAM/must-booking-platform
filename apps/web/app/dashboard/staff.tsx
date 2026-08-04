@@ -1,8 +1,9 @@
 'use client';
 import { Card, Heading, Stack, Text } from '@must/ui';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { Loader2 } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { DashboardLoadingSkeleton } from './loading-skeleton';
 type Template = { id: string; name: string; capabilities: Array<{ key: string }> };
@@ -124,6 +125,79 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
       : assignMutation.isPending
         ? `assign:${assignMutation.variables.userId}`
         : null;
+  const columns = useMemo<ColumnDef<Staff>[]>(
+    () => [
+      {
+        accessorKey: 'email',
+        header: 'Staff member',
+        cell: ({ row }) => <strong>{row.original.email}</strong>,
+      },
+      {
+        id: 'role',
+        header: 'Role template',
+        cell: ({ row }) => (
+          <select
+            disabled={busy === `assign:${row.original.userId}`}
+            value={row.original.roleTemplateId}
+            onChange={(event) =>
+              assignMutation.mutate({
+                userId: row.original.userId,
+                roleTemplateId: event.target.value,
+              })
+            }
+          >
+            {templates.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.name}
+              </option>
+            ))}
+          </select>
+        ),
+      },
+      {
+        id: 'capabilities',
+        header: 'Capability overrides',
+        cell: ({ row }) => {
+          const template = templates.find(
+            (candidate) => candidate.id === row.original.roleTemplateId,
+          );
+          return template?.capabilities.map((capability) => {
+            const override = row.original.overrides.find(
+              (candidate) => candidate.capabilityKey === capability.key,
+            );
+            const state = !override ? 'default' : override.granted ? 'grant' : 'revoke';
+            return (
+              <label key={capability.key}>
+                {capability.key}
+                <select
+                  aria-label={`${row.original.email} ${capability.key}`}
+                  value={state}
+                  onChange={(event) =>
+                    overrideMutation.mutate({
+                      userId: row.original.userId,
+                      key: capability.key,
+                      value: event.target.value,
+                    })
+                  }
+                >
+                  <option value="default">Template default</option>
+                  <option value="grant">Explicitly granted</option>
+                  <option value="revoke">Explicitly revoked</option>
+                </select>
+              </label>
+            );
+          });
+        },
+      },
+    ],
+    [assignMutation.mutate, busy, overrideMutation.mutate, templates],
+  );
+  const table = useReactTable({
+    data: staff,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    getRowId: (member) => member.userId,
+  });
   if (staffQuery.isError)
     return (
       <Stack gap="sm">
@@ -188,51 +262,32 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
           {busy === 'template' ? <Loader2 aria-hidden="true" size={16} /> : 'Create template'}
         </button>
       </Card>
-      {staff.map((s) => {
-        const t = templates.find((x) => x.id === s.roleTemplateId);
-        return (
-          <Card key={s.userId}>
-            <strong>{s.email}</strong>
-            <select
-              disabled={busy === `assign:${s.userId}`}
-              value={s.roleTemplateId}
-              onChange={(e) =>
-                assignMutation.mutate({ userId: s.userId, roleTemplateId: e.target.value })
-              }
-            >
-              {templates.map((x) => (
-                <option key={x.id} value={x.id}>
-                  {x.name}
-                </option>
-              ))}
-            </select>
-            {t?.capabilities.map((c) => {
-              const o = s.overrides.find((x) => x.capabilityKey === c.key);
-              const state = !o ? 'default' : o.granted ? 'grant' : 'revoke';
-              return (
-                <label key={c.key}>
-                  {c.key}
-                  <select
-                    aria-label={`${s.email} ${c.key}`}
-                    value={state}
-                    onChange={(e) =>
-                      overrideMutation.mutate({
-                        userId: s.userId,
-                        key: c.key,
-                        value: e.target.value,
-                      })
-                    }
-                  >
-                    <option value="default">Template default</option>
-                    <option value="grant">Explicitly granted</option>
-                    <option value="revoke">Explicitly revoked</option>
-                  </select>
-                </label>
-              );
-            })}
-          </Card>
-        );
-      })}
+      <Card>
+        <table>
+          <thead>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <th key={header.id} colSpan={header.colSpan}>
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(header.column.columnDef.header, header.getContext())}
+                  </th>
+                ))}
+              </tr>
+            ))}
+          </thead>
+          <tbody>
+            {table.getRowModel().rows.map((row) => (
+              <tr key={row.id}>
+                {row.getVisibleCells().map((cell) => (
+                  <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
     </Stack>
   );
 }
