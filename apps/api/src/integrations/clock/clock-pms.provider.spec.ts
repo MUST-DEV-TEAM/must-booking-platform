@@ -11,7 +11,12 @@ describe('ClockPmsProvider.testConnection', () => {
   it('reports a clear configuration error when the property has no active PMS connection', async () => {
     const connections = { activePmsConnectionCredentials: vi.fn().mockResolvedValue(null) };
     const ping = { ping: vi.fn() };
-    const provider = new ClockPmsProvider(connections as never, ping as never);
+    const provider = new ClockPmsProvider(
+      connections as never,
+      ping as never,
+      {} as never,
+      {} as never,
+    );
 
     const result = await provider.testConnection(context);
 
@@ -33,7 +38,12 @@ describe('ClockPmsProvider.testConnection', () => {
         .mockResolvedValue({ connectionId: 'c1', provider: 'STRIPE', credentials: {} }),
     };
     const ping = { ping: vi.fn() };
-    const provider = new ClockPmsProvider(connections as never, ping as never);
+    const provider = new ClockPmsProvider(
+      connections as never,
+      ping as never,
+      {} as never,
+      {} as never,
+    );
 
     const result = await provider.testConnection(context);
 
@@ -57,7 +67,12 @@ describe('ClockPmsProvider.testConnection', () => {
     const ping = {
       ping: vi.fn().mockResolvedValue({ ok: true, message: 'Connected to Clock successfully.' }),
     };
-    const provider = new ClockPmsProvider(connections as never, ping as never);
+    const provider = new ClockPmsProvider(
+      connections as never,
+      ping as never,
+      {} as never,
+      {} as never,
+    );
 
     const result = await provider.testConnection(context);
 
@@ -74,7 +89,12 @@ describe('ClockPmsProvider.testConnection', () => {
     const ping = {
       ping: vi.fn().mockResolvedValue({ ok: false, message: 'Clock rejected the credentials.' }),
     };
-    const provider = new ClockPmsProvider(connections as never, ping as never);
+    const provider = new ClockPmsProvider(
+      connections as never,
+      ping as never,
+      {} as never,
+      {} as never,
+    );
 
     const result = await provider.testConnection(context);
 
@@ -89,11 +109,40 @@ describe('ClockPmsProvider.testConnection', () => {
   });
 });
 
+describe('ClockPmsProvider.syncCatalog', () => {
+  it('syncs proposals then returns the confirmed local room types', async () => {
+    const connections = { activePmsConnectionCredentials: vi.fn() };
+    const ping = { ping: vi.fn() };
+    const catalogSync = {
+      sync: vi.fn().mockResolvedValue({ connectionId: 'c1', proposed: 2, updated: 0 }),
+    };
+    const roomTypeRows = [{ id: 'rt-1', name: 'Standard', maxOccupancy: 2 }];
+    const database = {
+      withTenantTransaction: vi.fn((_ctx, callback) =>
+        callback({ $queryRaw: vi.fn().mockResolvedValue(roomTypeRows) }),
+      ),
+    };
+    const provider = new ClockPmsProvider(
+      connections as never,
+      ping as never,
+      catalogSync as never,
+      database as never,
+    );
+
+    const result = await provider.syncCatalog(context);
+
+    expect(catalogSync.sync).toHaveBeenCalledWith(context.tenantId, context.propertyId, null);
+    expect(result).toEqual({
+      items: [{ kind: 'room_type', id: 'rt-1', name: 'Standard', maxOccupancy: 2 }],
+      nextCursor: null,
+    });
+  });
+});
+
 describe('ClockPmsProvider unimplemented methods', () => {
-  const provider = new ClockPmsProvider({} as never, {} as never);
+  const provider = new ClockPmsProvider({} as never, {} as never, {} as never, {} as never);
 
   it.each([
-    ['syncCatalog', () => provider.syncCatalog(context)],
     [
       'getAvailability',
       () => provider.getAvailability(context, { roomTypeId: 'r', startsOn: 'a', endsOn: 'b' }),

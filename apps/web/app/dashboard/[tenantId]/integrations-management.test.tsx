@@ -125,6 +125,54 @@ describe('IntegrationsManagement', () => {
   });
 });
 
+describe('ClockCatalogSync', () => {
+  it('shows only when a Clock PMS connection is active, and lists proposed mappings', async () => {
+    const clockConnection = {
+      ...connection,
+      id: 'conn-clock',
+      provider: 'CLOCK_PMS' as const,
+      kind: 'PMS' as const,
+    };
+    const fetch = vi.fn(async (url: string) => {
+      if (url === '/api/tenants/t/integration-connections')
+        return new Response(JSON.stringify([clockConnection]));
+      if (url === '/api/tenants/t/properties/p/integration-connections')
+        return new Response(
+          JSON.stringify([
+            {
+              connectionId: 'conn-clock',
+              kind: 'PMS',
+              provider: 'CLOCK_PMS',
+              name: 'Clock',
+              enabled: true,
+            },
+          ]),
+        );
+      if (url === '/api/tenants/t/properties/p/clock-catalog/mappings')
+        return new Response(
+          JSON.stringify([
+            {
+              id: 'm1',
+              entityType: 'ROOM_TYPE',
+              externalEntityId: '1',
+              externalParentId: null,
+              externalName: 'Standard',
+              syncStatus: 'PROPOSED',
+              localEntityId: null,
+            },
+          ]),
+        );
+      return new Response(JSON.stringify([]));
+    });
+    vi.stubGlobal('fetch', fetch);
+    const { container, root } = await mount();
+
+    expect(container.textContent).toContain('Clock catalog sync');
+    expect(container.textContent).toContain('Standard');
+    await act(async () => root.unmount());
+  });
+});
+
 async function mount() {
   const container = document.createElement('div');
   const root = createRoot(container);

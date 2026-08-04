@@ -1,30 +1,19 @@
 import { Inject, Injectable } from '@nestjs/common';
 
 import { ClockCircuitBreakerService, CircuitOpenError } from './clock-circuit-breaker';
+import { parseClockCredentials } from './clock-credentials';
 import {
   classifyClockClientFailure,
   classifyClockHttpResponse,
   classifyConfigurationError,
 } from './clock-error-classification';
-import {
-  ClockHttpClient,
-  ClockHttpError,
-  type ClockConnectionCredentials,
-} from './clock-http-client';
+import { ClockHttpClient, ClockHttpError } from './clock-http-client';
 import { ClockRateLimiterService } from './clock-rate-limiter';
 
 export interface ClockPingResult {
   ok: boolean;
   message: string;
 }
-
-const REQUIRED_CREDENTIAL_FIELDS: Array<keyof ClockConnectionCredentials> = [
-  'host',
-  'accountId',
-  'subscriptionId',
-  'apiUser',
-  'apiKey',
-];
 
 /**
  * The one place that actually calls Clock through the full stack (client +
@@ -88,27 +77,10 @@ export class ClockConnectionPingService {
     }
   }
 
-  private parseCredentials(
-    rawCredentials: Record<string, string>,
-  ): { ok: true; value: ClockConnectionCredentials } | { ok: false; message: string } {
-    const missing = REQUIRED_CREDENTIAL_FIELDS.filter((field) => !rawCredentials[field]?.trim());
-    if (missing.length > 0) {
-      return {
-        ok: false,
-        message: classifyConfigurationError(
-          `Missing required Clock credential field(s): ${missing.join(', ')}.`,
-        ).message,
-      };
-    }
-    return {
-      ok: true,
-      value: {
-        host: rawCredentials.host.trim(),
-        accountId: rawCredentials.accountId.trim(),
-        subscriptionId: rawCredentials.subscriptionId.trim(),
-        apiUser: rawCredentials.apiUser.trim(),
-        apiKey: rawCredentials.apiKey,
-      },
-    };
+  private parseCredentials(rawCredentials: Record<string, string>) {
+    const parsed = parseClockCredentials(rawCredentials);
+    if (!parsed.ok)
+      return { ok: false as const, message: classifyConfigurationError(parsed.message).message };
+    return parsed;
   }
 }

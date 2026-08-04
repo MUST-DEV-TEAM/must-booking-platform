@@ -94,6 +94,8 @@ import { ClockCircuitBreakerService } from './integrations/clock/clock-circuit-b
 import { ClockConnectionPingService } from './integrations/clock/clock-connection-ping';
 import { ClockConnectionTester } from './integrations/clock/clock-connection-tester';
 import { ClockPmsProvider } from './integrations/clock/clock-pms.provider';
+import { ClockCatalogSyncService } from './integrations/clock/clock-catalog-sync.service';
+import { ClockCatalogSyncController } from './integrations/clock/clock-catalog-sync.controller';
 
 @Module({
   imports: [
@@ -158,6 +160,7 @@ import { ClockPmsProvider } from './integrations/clock/clock-pms.provider';
     ManualPaymentController,
     PlatformAdminController,
     IntegrationConnectionsController,
+    ClockCatalogSyncController,
   ],
   providers: [
     TenantDatabaseService,
@@ -213,6 +216,7 @@ import { ClockPmsProvider } from './integrations/clock/clock-pms.provider';
     ClockConnectionPingService,
     ClockConnectionTester,
     ClockPmsProvider,
+    ClockCatalogSyncService,
     { provide: PAYMENT_PROVIDER, useExisting: StripePaymentProvider },
     R2StorageProvider,
     { provide: STORAGE_PROVIDER, useExisting: R2StorageProvider },

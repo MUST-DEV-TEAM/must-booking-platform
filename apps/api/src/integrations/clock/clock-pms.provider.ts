@@ -14,7 +14,9 @@ import {
 } from '@must/domain-contracts';
 
 import { IntegrationConnectionsService } from '../integration-connections.service';
+import { ClockCatalogSyncService } from './clock-catalog-sync.service';
 import { ClockConnectionPingService } from './clock-connection-ping';
+import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
 
 export const CLOCK_PMS_PROVIDER = Symbol('CLOCK_PMS_PROVIDER');
 
@@ -32,6 +34,8 @@ export class ClockPmsProvider implements PmsProvider {
     @Inject(IntegrationConnectionsService)
     private readonly connections: IntegrationConnectionsService,
     @Inject(ClockConnectionPingService) private readonly ping: ClockConnectionPingService,
+    @Inject(ClockCatalogSyncService) private readonly catalogSync: ClockCatalogSyncService,
+    @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
   ) {}
 
   async testConnection(context: PmsProviderContext): Promise<Result<void>> {
@@ -58,10 +62,28 @@ export class ClockPmsProvider implements PmsProvider {
     };
   }
 
-  syncCatalog(context: PmsProviderContext, cursor?: string): Promise<Page<CatalogItem>> {
-    void context;
-    void cursor;
-    throw notImplemented('syncCatalog', 7);
+  async syncCatalog(context: PmsProviderContext, cursor?: string): Promise<Page<CatalogItem>> {
+    void cursor; // Clock's full room-type/room list is small enough per property to not need pagination yet.
+    await this.catalogSync.sync(context.tenantId, context.propertyId, null);
+    // syncCatalog stages proposals (Task 7) and never auto-applies them — the
+    // domain contract's returned items are the CONFIRMED local catalog, same
+    // as LocalPmsProvider returns its own local room types.
+    const roomTypes = await this.database.withTenantTransaction(
+      context,
+      (tx) =>
+        tx.$queryRaw<Array<{ id: string; name: string; maxOccupancy: number }>>`
+        SELECT id, name, max_occupancy AS "maxOccupancy" FROM room_types
+      `,
+    );
+    return {
+      items: roomTypes.map((roomType) => ({
+        kind: 'room_type' as const,
+        id: roomType.id,
+        name: roomType.name,
+        maxOccupancy: roomType.maxOccupancy,
+      })),
+      nextCursor: null,
+    };
   }
 
   getAvailability(

@@ -173,6 +173,9 @@ export function IntegrationsManagement({
   const enabledByConnectionId = new Map(
     propertyConnections.map((entry) => [entry.connectionId, entry.enabled]),
   );
+  const activeClockConnectionId = propertyConnections.find(
+    (entry) => entry.provider === 'CLOCK_PMS' && entry.enabled,
+  )?.connectionId;
 
   function submitConnection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -260,6 +263,9 @@ export function IntegrationsManagement({
           ))}
         </>
       ) : null}
+      {activeClockConnectionId ? (
+        <ClockCatalogSync tenantId={tenantId} propertyId={propertyId} />
+      ) : null}
       <Card>
         <Heading level={3}>Add a connection</Heading>
         <form className="must-stack must-stack--md" onSubmit={submitConnection}>
@@ -334,6 +340,118 @@ export function IntegrationsManagement({
         </form>
       </Card>
     </Stack>
+  );
+}
+
+type ClockCatalogMapping = {
+  id: string;
+  entityType: 'ROOM_TYPE' | 'ROOM';
+  externalEntityId: string;
+  externalParentId: string | null;
+  externalName: string;
+  syncStatus: 'PROPOSED' | 'CONFIRMED' | 'REJECTED';
+  localEntityId: string | null;
+};
+
+function ClockCatalogSync({ tenantId, propertyId }: { tenantId: string; propertyId: string }) {
+  const queryClient = useQueryClient();
+  const base = `/api/tenants/${tenantId}/properties/${propertyId}/clock-catalog`;
+  const mappingsQueryKey = ['dashboard', 'clock-catalog-mappings', tenantId, propertyId] as const;
+
+  const mappingsQuery = useQuery({
+    queryKey: mappingsQueryKey,
+    queryFn: async (): Promise<ClockCatalogMapping[]> => {
+      const response = await fetch(`${base}/mappings`, { credentials: 'include' });
+      if (!response.ok) throw new Error('Unable to load Clock catalog mappings.');
+      return (await response.json()) as ClockCatalogMapping[];
+    },
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`${base}/sync`, { method: 'POST', credentials: 'include' });
+      if (!response.ok)
+        throw new Error(await errorMessage(response, 'Unable to sync the Clock catalog.'));
+      return (await response.json()) as { proposed: number; updated: number };
+    },
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: mappingsQueryKey });
+      toast.success(`Synced: ${result.proposed} new, ${result.updated} updated.`);
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Unable to sync the Clock catalog.'),
+  });
+
+  const decisionMutation = useMutation({
+    mutationFn: async ({
+      mappingId,
+      decision,
+    }: {
+      mappingId: string;
+      decision: 'confirm' | 'reject';
+    }) => {
+      const response = await fetch(`${base}/mappings/${mappingId}/${decision}`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!response.ok)
+        throw new Error(await errorMessage(response, 'Unable to update this mapping.'));
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: mappingsQueryKey });
+      toast.success('Mapping updated.');
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Unable to update this mapping.'),
+  });
+
+  const proposed = (mappingsQuery.data ?? []).filter(
+    (mapping) => mapping.syncStatus === 'PROPOSED',
+  );
+
+  return (
+    <Card>
+      <Heading level={3}>Clock catalog sync</Heading>
+      <Text tone="secondary">
+        Pulls room types and rooms from Clock. Nothing is applied to your local catalog until you
+        confirm each one below.
+      </Text>
+      <button
+        className="must-button must-button--primary"
+        type="button"
+        disabled={syncMutation.isPending}
+        onClick={() => syncMutation.mutate()}
+      >
+        {syncMutation.isPending ? 'Syncing…' : 'Sync catalog from Clock'}
+      </button>
+      {mappingsQuery.isPending ? <Text>Loading mappings…</Text> : null}
+      {proposed.length === 0 && !mappingsQuery.isPending ? (
+        <Text tone="secondary">No pending proposals.</Text>
+      ) : null}
+      {proposed.map((mapping) => (
+        <div key={mapping.id} className="must-field">
+          <Text>
+            {mapping.entityType === 'ROOM_TYPE' ? 'Room type' : 'Room'}: {mapping.externalName}
+          </Text>
+          <button
+            className="must-button must-button--primary"
+            type="button"
+            disabled={decisionMutation.isPending}
+            onClick={() => decisionMutation.mutate({ mappingId: mapping.id, decision: 'confirm' })}
+          >
+            Confirm
+          </button>
+          <button
+            className="must-button must-button--secondary"
+            type="button"
+            disabled={decisionMutation.isPending}
+            onClick={() => decisionMutation.mutate({ mappingId: mapping.id, decision: 'reject' })}
+          >
+            Reject
+          </button>
+        </div>
+      ))}
+    </Card>
   );
 }
 

@@ -639,6 +639,40 @@ model PropertyIntegrationConnection {
   @@map("property_integration_connections")
 }
 
+enum ClockCatalogEntityType {
+  ROOM_TYPE
+  ROOM
+}
+
+enum ClockSyncStatus {
+  PROPOSED
+  CONFIRMED
+  REJECTED
+}
+
+// Milestone 11 Task 7 (source brief section 13/14): Clock's catalog is never
+// auto-applied to the local room_types/rooms tables. Every synced entity
+// lands here as PROPOSED first; an admin explicitly confirms (which creates
+// the local entity and links it) or rejects each one.
+model ClockCatalogMapping {
+  id               String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String                 @map("tenant_id") @db.Uuid
+  propertyId       String                 @map("property_id") @db.Uuid
+  connectionId     String                 @map("connection_id") @db.Uuid
+  entityType       ClockCatalogEntityType @map("entity_type")
+  localEntityId    String?                @map("local_entity_id") @db.Uuid
+  externalEntityId String                 @map("external_entity_id")
+  externalParentId String?                @map("external_parent_id")
+  externalName     String                 @map("external_name") @db.VarChar(200)
+  syncStatus       ClockSyncStatus        @default(PROPOSED) @map("sync_status")
+  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, connectionId, entityType, externalEntityId])
+  @@index([tenantId, propertyId, syncStatus])
+  @@map("clock_catalog_mappings")
+}
+
 model Amenity {
   id         String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId   String            @map("tenant_id") @db.Uuid
