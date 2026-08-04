@@ -89,14 +89,15 @@ model Plan {
 }
 
 model User {
-  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email           String             @unique @db.VarChar(320)
-  passwordHash    String?            @map("password_hash")
-  emailVerifiedAt DateTime?          @map("email_verified_at") @db.Timestamptz(6)
-  isPlatformAdmin Boolean            @default(false) @map("is_platform_admin")
-  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  memberships     TenantMembership[]
+  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email             String             @unique @db.VarChar(320)
+  passwordHash      String?            @map("password_hash")
+  emailVerifiedAt   DateTime?          @map("email_verified_at") @db.Timestamptz(6)
+  isPlatformAdmin   Boolean            @default(false) @map("is_platform_admin")
+  isAutoProvisioned Boolean            @default(false) @map("is_auto_provisioned")
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  memberships       TenantMembership[]
 
   @@map("users")
 }
@@ -150,15 +151,16 @@ enum PropertyBookingMode {
 }
 
 model TenantMembership {
-  id               String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId         String                    @map("tenant_id") @db.Uuid
-  userId           String                    @map("user_id") @db.Uuid
-  role             TenantMembershipRole
-  createdAt        DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  organization     Organization              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  user             User                      @relation(fields: [userId], references: [id], onDelete: Restrict)
-  staffAssignments PropertyStaffAssignment[]
+  id                String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String                    @map("tenant_id") @db.Uuid
+  userId            String                    @map("user_id") @db.Uuid
+  role              TenantMembershipRole
+  isAutoProvisioned Boolean                   @default(false) @map("is_auto_provisioned")
+  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  organization      Organization              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  user              User                      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  staffAssignments  PropertyStaffAssignment[]
 
   @@unique([tenantId, userId])
   @@index([userId])
@@ -300,6 +302,18 @@ model RoomType {
   @@map("room_types")
 }
 
+model RoomTypeImage {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  roomTypeId String   @map("room_type_id") @db.Uuid
+  objectKey  String   @map("object_key")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, propertyId, roomTypeId, objectKey])
+  @@map("room_type_images")
+}
+
 model Room {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId   String   @map("tenant_id") @db.Uuid
@@ -418,7 +432,7 @@ model RateRule {
   roomTypeId String    @map("room_type_id") @db.Uuid
   startsOn   DateTime? @map("starts_on") @db.Date
   endsOn     DateTime? @map("ends_on") @db.Date
-  weekdays   Int[]     @default([0, 1, 2, 3, 4, 5, 6])
+  weekdays   Int[]     @default([0, 1, 2, 3, 4, 5, 6]) @db.SmallInt
   amount     Decimal   @db.Decimal(12, 2)
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -538,7 +552,7 @@ model Guest {
   county        String?  @db.VarChar(100)
   postcode      String?  @db.VarChar(30)
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([tenantId, id])
   @@index([tenantId, createdAt])
@@ -558,11 +572,71 @@ model IntegrationOperation {
   externalEntityId  String?  @map("external_entity_id") @db.Uuid
   result            Json?
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([tenantId, idempotencyKey])
   @@index([tenantId, propertyId, createdAt])
   @@map("integration_operations")
+}
+
+enum IntegrationConnectionKind {
+  PAYMENT
+  PMS
+}
+
+enum IntegrationProvider {
+  STRIPE
+  POKPAY
+  CLOCK_PMS
+}
+
+enum IntegrationConnectionStatus {
+  PENDING
+  CONNECTED
+  FAILED
+}
+
+// ADR-0026: tenant-owned integration connections (payment gateways & PMS).
+// One connection = one set of tenant-supplied credentials for one provider;
+// encryptedCredentials is an AES-256-GCM-encrypted JSON blob (IntegrationCredentialCipher),
+// shape varies per provider and is never represented in the schema directly.
+model IntegrationConnection {
+  id                   String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String                       @map("tenant_id") @db.Uuid
+  kind                 IntegrationConnectionKind
+  provider             IntegrationProvider
+  name                 String                       @db.VarChar(200)
+  encryptedCredentials String                       @map("encrypted_credentials") @db.Text
+  status               IntegrationConnectionStatus  @default(PENDING)
+  lastTestedAt         DateTime?                    @map("last_tested_at") @db.Timestamptz(6)
+  lastTestResult       String?                      @map("last_test_result") @db.VarChar(500)
+  createdAt            DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, kind])
+  @@map("integration_connections")
+}
+
+// Join table: which properties have which connections enabled. `kind` is
+// denormalized from IntegrationConnection so a partial unique index (see
+// migration SQL) can enforce "at most one active PMS connection per property"
+// at the database level, not just in application code. PAYMENT connections
+// have no such limit — a property may enable several at once.
+model PropertyIntegrationConnection {
+  id           String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String                    @map("tenant_id") @db.Uuid
+  propertyId   String                    @map("property_id") @db.Uuid
+  connectionId String                    @map("connection_id") @db.Uuid
+  kind         IntegrationConnectionKind
+  enabled      Boolean                   @default(true)
+  createdAt    DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, propertyId, connectionId])
+  @@index([tenantId, propertyId])
+  @@index([tenantId, connectionId])
+  @@map("property_integration_connections")
 }
 
 model Amenity {
