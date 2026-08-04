@@ -16,6 +16,7 @@ env:
   REDIS_URL: redis://localhost:6379
   WEB_APP_URL: http://localhost:3001
   QUOTE_SIGNING_SECRET: ci-only-quote-signing-secret-not-a-real-value
+  INTEGRATION_CREDENTIALS_KEY: 7JsGVIPiEfyPy2jzT+B04wdH9Z0jdhnRxREXJf688so=
 
 jobs:
   verify:

@@ -84,6 +84,7 @@ import { PlatformAdminController } from './platform/platform-admin.controller';
 import { PlatformAdminService } from './platform/platform-admin.service';
 import { ProviderHealthService } from './platform/provider-health.service';
 import { LocalDemoSeedService } from './tenancy/local-demo-seed.service';
+import { CredentialCipherService } from './integrations/credential-cipher';
 
 @Module({
   imports: [
@@ -193,6 +194,7 @@ import { LocalDemoSeedService } from './tenancy/local-demo-seed.service';
     PlatformAdminService,
     ProviderHealthService,
     LocalDemoSeedService,
+    CredentialCipherService,
     { provide: PAYMENT_PROVIDER, useExisting: StripePaymentProvider },
     R2StorageProvider,
     { provide: STORAGE_PROVIDER, useExisting: R2StorageProvider },

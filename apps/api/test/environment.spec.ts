@@ -5,7 +5,7 @@ import { validateEnvironment } from '../src/config/environment';
 describe('environment validation', () => {
   it('rejects missing required variables with a clear error', () => {
     expect(() => validateEnvironment({})).toThrow(
-      'Missing required environment variable(s): APP_PORT, DATABASE_URL, REDIS_URL, WEB_APP_URL',
+      'Missing required environment variable(s): APP_PORT, DATABASE_URL, REDIS_URL, WEB_APP_URL, INTEGRATION_CREDENTIALS_KEY',
     );
   });
 
@@ -16,6 +16,7 @@ describe('environment validation', () => {
         'postgresql://must_booking_app:must_booking_app_dev@localhost:5432/must_booking',
       REDIS_URL: 'redis://localhost:6379',
       WEB_APP_URL: 'http://localhost:3001',
+      INTEGRATION_CREDENTIALS_KEY: 'LyggbMDKuGsn4YtAUETY7GfIDC0GQ4YSj8VgJ8ak6qU=',
     });
 
     expect(environment.APP_PORT).toBe(3000);
