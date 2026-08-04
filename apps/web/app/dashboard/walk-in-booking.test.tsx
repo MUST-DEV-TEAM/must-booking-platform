@@ -8,6 +8,7 @@ const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('sonner', () => ({ toast }));
 
 import { WalkInBooking } from './walk-in-booking';
+import { DashboardQueryProvider } from './query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -95,9 +96,19 @@ async function mount() {
   document.body.appendChild(container);
   const root = createRoot(container);
   await act(async () => {
-    root.render(createElement(WalkInBooking, { tenantId: 'tenant-1', propertyId: 'property-1' }));
-    await Promise.resolve();
-    await Promise.resolve();
+    root.render(
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(WalkInBooking, { tenantId: 'tenant-1', propertyId: 'property-1' }),
+      ),
+    );
+  });
+  await act(async () => {
+    for (let iteration = 0; iteration < 4; iteration += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
+      await Promise.resolve();
+    }
   });
   return { container, root };
 }
@@ -113,7 +124,9 @@ async function click(container: HTMLElement, text: string) {
     Array.from(container.querySelectorAll('button'))
       .find((button) => button.textContent === text)!
       .click();
-    await Promise.resolve();
-    await Promise.resolve();
+    for (let iteration = 0; iteration < 4; iteration += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
+      await Promise.resolve();
+    }
   });
 }

@@ -1,5 +1,6 @@
 'use client';
 import { Card, Heading, Stack, Text } from '@must/ui';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import styles from './walk-in-booking.module.css';
@@ -7,37 +8,38 @@ import styles from './walk-in-booking.module.css';
 type Room = { id: string; name: string };
 type Rate = { id: string; name: string; currency: string };
 type Quote = { total: { amount: string; currency: string } };
+type StayInput = { roomTypeId: string; ratePlanId: string; startsOn: string; endsOn: string };
+type Guest = { firstName: string; lastName: string; email: string; phone: string };
+type PaymentMethod = 'cash' | 'card_in_person' | 'bank_transfer' | '';
 const key = () => crypto.randomUUID();
 
 export function WalkInBooking({ tenantId, propertyId }: { tenantId: string; propertyId: string }) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [rates, setRates] = useState<Rate[]>([]);
   const [roomTypeId, setRoom] = useState('');
   const [ratePlanId, setRate] = useState('');
   const [startsOn, setStart] = useState('');
   const [endsOn, setEnd] = useState('');
   const [quote, setQuote] = useState<Quote | null>(null);
-  const [guest, setGuest] = useState({ firstName: '', lastName: '', email: '', phone: '' });
-  const [method, setMethod] = useState<'cash' | 'card_in_person' | 'bank_transfer' | ''>('');
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    void Promise.all([
-      fetch(`${base}/room-types`, { credentials: 'include' }),
-      fetch(`${base}/rate-plans`, { credentials: 'include' }),
-    ])
-      .then(async ([a, b]) => {
-        if (!a.ok || !b.ok) throw new Error('Unable to load rooms and rates.');
-        setRooms(await a.json());
-        setRates(await b.json());
-      })
-      .catch((e: unknown) => toast.error(errorMessage(e)));
-  }, [base]);
-  async function search() {
-    setBusy(true);
-    setQuote(null);
-    try {
-      const input = { roomTypeId, ratePlanId, startsOn, endsOn };
+  const [guest, setGuest] = useState<Guest>({ firstName: '', lastName: '', email: '', phone: '' });
+  const [method, setMethod] = useState<PaymentMethod>('');
+  const catalogQuery = useQuery({
+    queryKey: ['dashboard', 'walk-in-booking-catalog', tenantId, propertyId],
+    queryFn: async () => {
+      const [roomsResponse, ratesResponse] = await Promise.all([
+        fetch(`${base}/room-types`, { credentials: 'include' }),
+        fetch(`${base}/rate-plans`, { credentials: 'include' }),
+      ]);
+      if (!roomsResponse.ok || !ratesResponse.ok)
+        throw new Error('Unable to load rooms and rates.');
+      const [rooms, rates] = (await Promise.all([roomsResponse.json(), ratesResponse.json()])) as [
+        Room[],
+        Rate[],
+      ];
+      return { rooms, rates };
+    },
+  });
+  const availabilityMutation = useMutation({
+    mutationFn: async (input: StayInput) => {
       const [price, availability] = await Promise.all([
         post(`${base}/quotes`, input),
         fetch(`${base}/availability?${new URLSearchParams(input)}`, {
@@ -46,22 +48,23 @@ export function WalkInBooking({ tenantId, propertyId }: { tenantId: string; prop
       ]);
       if (!availability.isAvailable)
         throw new Error('No rooms are available for the selected stay.');
-      setQuote(price);
-    } catch (e) {
-      toast.error(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function create() {
-    if (!quote) return;
-    setBusy(true);
-    try {
-      const result = await post(
-        `${base}/staff-bookings`,
-        { roomTypeId, ratePlanId, startsOn, endsOn, guest },
-        key(),
-      );
+      return price as Quote;
+    },
+    onMutate: () => setQuote(null),
+    onSuccess: (nextQuote) => setQuote(nextQuote),
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+  const bookingMutation = useMutation({
+    mutationFn: async ({
+      input,
+      guest,
+      method,
+    }: {
+      input: StayInput;
+      guest: Guest;
+      method: PaymentMethod;
+    }) => {
+      const result = await post(`${base}/staff-bookings`, { ...input, guest }, key());
       if (!result.ok) throw new Error(result.error?.message ?? 'Unable to create booking.');
       if (method) {
         const paid = await post(
@@ -74,16 +77,25 @@ export function WalkInBooking({ tenantId, propertyId }: { tenantId: string; prop
             paid.error?.message ?? 'Booking created, but payment could not be recorded.',
           );
       }
+      return method;
+    },
+    onSuccess: (paymentMethod) => {
       toast.success(
-        method ? 'Booking created and payment recorded.' : 'Booking created as pay at hotel.',
+        paymentMethod
+          ? 'Booking created and payment recorded.'
+          : 'Booking created as pay at hotel.',
       );
       setQuote(null);
-    } catch (e) {
-      toast.error(errorMessage(e));
-    } finally {
-      setBusy(false);
-    }
-  }
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+  useEffect(() => {
+    if (catalogQuery.isError) toast.error(errorMessage(catalogQuery.error));
+  }, [catalogQuery.error, catalogQuery.isError]);
+  const rooms = catalogQuery.data?.rooms ?? [];
+  const rates = catalogQuery.data?.rates ?? [];
+  const busy = availabilityMutation.isPending || bookingMutation.isPending;
+  const input = { roomTypeId, ratePlanId, startsOn, endsOn };
   return (
     <Stack className={styles.page} gap="lg">
       <header>
@@ -129,7 +141,7 @@ export function WalkInBooking({ tenantId, propertyId }: { tenantId: string; prop
         <button
           type="button"
           disabled={busy || !roomTypeId || !ratePlanId || !startsOn || !endsOn}
-          onClick={search}
+          onClick={() => availabilityMutation.mutate(input)}
         >
           Search availability
         </button>
@@ -182,7 +194,11 @@ export function WalkInBooking({ tenantId, propertyId }: { tenantId: string; prop
                 </select>
               </label>
             </div>
-            <button type="button" disabled={busy || !guest.email} onClick={create}>
+            <button
+              type="button"
+              disabled={busy || !guest.email}
+              onClick={() => bookingMutation.mutate({ input, guest, method })}
+            >
               Create booking
             </button>
           </>
