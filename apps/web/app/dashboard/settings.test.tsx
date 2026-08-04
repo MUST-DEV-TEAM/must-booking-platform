@@ -53,6 +53,7 @@ describe('DashboardSettings', () => {
         return new Response(
           JSON.stringify({ plan: { name: 'Free', maxProperties: 3 }, usage: { properties: 1 } }),
         );
+      if (url.endsWith('/integration-connections')) return new Response(JSON.stringify([]));
       return new Response(JSON.stringify({ ok: true }));
     });
     vi.stubGlobal('fetch', fetch);
@@ -62,7 +63,7 @@ describe('DashboardSettings', () => {
     expect(container.textContent).toContain('do not validate or block bookings');
     expect(container.textContent).toContain('Manage properties');
     expect(container.textContent).toContain('Add property');
-    expect(container.querySelector('button[disabled]')?.textContent).toContain('Milestone 11');
+    expect(container.querySelector('button[disabled]')?.textContent).toContain('Milestone 13');
 
     await value(container.querySelector('[aria-label="Hotel name"]')!, 'Grand Hotel Tirana');
     await submit(container, 'Save hotel identity');

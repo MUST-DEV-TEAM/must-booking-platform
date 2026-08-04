@@ -85,6 +85,9 @@ import { PlatformAdminService } from './platform/platform-admin.service';
 import { ProviderHealthService } from './platform/provider-health.service';
 import { LocalDemoSeedService } from './tenancy/local-demo-seed.service';
 import { CredentialCipherService } from './integrations/credential-cipher';
+import { ConnectionTestRegistry } from './integrations/connection-tester';
+import { IntegrationConnectionsService } from './integrations/integration-connections.service';
+import { IntegrationConnectionsController } from './integrations/integration-connections.controller';
 
 @Module({
   imports: [
@@ -148,6 +151,7 @@ import { CredentialCipherService } from './integrations/credential-cipher';
     PaymentRefundController,
     ManualPaymentController,
     PlatformAdminController,
+    IntegrationConnectionsController,
   ],
   providers: [
     TenantDatabaseService,
@@ -195,6 +199,8 @@ import { CredentialCipherService } from './integrations/credential-cipher';
     ProviderHealthService,
     LocalDemoSeedService,
     CredentialCipherService,
+    ConnectionTestRegistry,
+    IntegrationConnectionsService,
     { provide: PAYMENT_PROVIDER, useExisting: StripePaymentProvider },
     R2StorageProvider,
     { provide: STORAGE_PROVIDER, useExisting: R2StorageProvider },

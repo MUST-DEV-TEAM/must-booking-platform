@@ -6,6 +6,7 @@ import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { PropertyManagement } from './[tenantId]/property-management';
+import { IntegrationsManagement } from './[tenantId]/integrations-management';
 
 type Property = {
   id: string;
@@ -332,14 +333,19 @@ export function DashboardSettings({
       <section aria-labelledby="billing-account-heading">
         <h2 id="billing-account-heading">Billing account</h2>
         <p>Current plan: {planName ?? 'Loading…'}</p>
-        <button disabled title="Billing management arrives in Milestone 11">
-          Billing management available in Milestone 11
+        <button disabled title="Billing management arrives in Milestone 13">
+          Billing management available in Milestone 13
         </button>
       </section>
 
       <section aria-labelledby="manage-properties-heading">
         <h2 id="manage-properties-heading">Manage properties</h2>
         <PropertyManagement tenantId={tenantId} />
+      </section>
+
+      <section aria-labelledby="integrations-heading">
+        <h2 id="integrations-heading">Integrations</h2>
+        <IntegrationsManagement tenantId={tenantId} propertyId={propertyId} />
       </section>
     </section>
   );
