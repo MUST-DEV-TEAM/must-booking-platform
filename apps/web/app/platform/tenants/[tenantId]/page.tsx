@@ -14,6 +14,15 @@ export const navigation = [
   { href: '/platform/audit', label: 'Audit Log', icon: History },
 ] as const;
 
+export type PlatformIntegrationConnection = {
+  id: string;
+  kind: 'PAYMENT' | 'PMS';
+  provider: 'STRIPE' | 'POKPAY' | 'CLOCK_PMS';
+  name: string;
+  status: 'PENDING' | 'CONNECTED' | 'FAILED';
+  lastTestedAt: string | null;
+  lastTestResult: string | null;
+};
 export type PlatformTenantDetail = {
   id: string;
   name: string;
@@ -28,6 +37,12 @@ export type PlatformTenantDetail = {
   stripeEnabledPropertyCount: number;
   pokpayEnabledPropertyCount: number;
   payAtHotelEnabledPropertyCount: number;
+  connections: PlatformIntegrationConnection[];
+};
+const providerLabels: Record<PlatformIntegrationConnection['provider'], string> = {
+  STRIPE: 'Stripe',
+  POKPAY: 'PokPay',
+  CLOCK_PMS: 'Clock PMS',
 };
 type ProviderHealth = { status: 'checking' | 'healthy' | 'unhealthy' };
 
@@ -122,6 +137,46 @@ export function TenantDetailView({
             propertyCount={tenant.propertyCount}
           />
         </div>
+      </Card>
+      <Card>
+        <Heading level={2}>Integration connections</Heading>
+        <Text tone="secondary">
+          Oversight only — which of this tenant&apos;s own connections are configured, for
+          support/troubleshooting. Credentials are never exposed here.
+        </Text>
+        {tenant.connections.length === 0 ? (
+          <Text tone="secondary">No integration connections configured.</Text>
+        ) : (
+          <div className={detailStyles.providers}>
+            {tenant.connections.map((connection) => (
+              <div className={detailStyles.provider} key={connection.id}>
+                <div>
+                  <strong>{connection.name}</strong>
+                  <Text tone="secondary">
+                    {providerLabels[connection.provider]} ·{' '}
+                    {connection.kind === 'PMS' ? 'PMS' : 'Payment'}
+                    {connection.lastTestedAt
+                      ? ` · last tested ${formatDate(connection.lastTestedAt)}`
+                      : ''}
+                  </Text>
+                </div>
+                <div className={detailStyles.badges}>
+                  <Badge
+                    tone={
+                      connection.status === 'CONNECTED'
+                        ? 'success'
+                        : connection.status === 'FAILED'
+                          ? 'danger'
+                          : 'warning'
+                    }
+                  >
+                    {connection.status.toLowerCase()}
+                  </Badge>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
       <Card>
         <Heading level={2}>Administrative actions</Heading>

@@ -22,6 +22,17 @@ const tenant = {
   stripeEnabledPropertyCount: 2,
   pokpayEnabledPropertyCount: 0,
   payAtHotelEnabledPropertyCount: 3,
+  connections: [
+    {
+      id: 'conn-1',
+      kind: 'PMS' as const,
+      provider: 'CLOCK_PMS' as const,
+      name: 'Front Desk Clock',
+      status: 'CONNECTED' as const,
+      lastTestedAt: '2026-08-04T10:00:00.000Z',
+      lastTestResult: 'OK',
+    },
+  ],
 };
 const health = { stripe: { status: 'healthy' as const }, pokpay: { status: 'checking' as const } };
 
@@ -48,6 +59,23 @@ describe('Platform tenant detail page', () => {
     expect(markup).toContain('owner@acme.test');
     expect(markup).toContain('Enabled on 2 of 3 properties');
     expect(markup).toContain('Suspend tenant');
+    expect(markup).toContain('Front Desk Clock');
+    expect(markup).toContain('Clock PMS');
+    expect(markup).toContain('connected');
+  });
+
+  it('shows an empty state when the tenant has no integration connections', () => {
+    const markup = renderToStaticMarkup(
+      createElement(TenantDetailView, {
+        tenant: { ...tenant, connections: [] },
+        loading: false,
+        notFound: false,
+        health,
+        onTransition: vi.fn(),
+        onPasswordReset: vi.fn(),
+      }),
+    );
+    expect(markup).toContain('No integration connections configured.');
   });
 
   it('renders not-found state', () =>

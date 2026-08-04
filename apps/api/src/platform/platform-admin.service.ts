@@ -213,6 +213,19 @@ export class PlatformAdminService {
         FROM "properties"
       `,
     );
+    // Oversight only (ADR-0026 decision 5): who's connected to what, for
+    // support/troubleshooting. Never returns credentials, and there is no
+    // platform-admin enable/disable/delete action on a connection.
+    const connections = await this.database.withTenantTransaction(
+      { tenantId },
+      (tx) =>
+        tx.$queryRaw<PlatformIntegrationConnection[]>`
+        SELECT "id", "kind", "provider", "name", "status"::text AS "status",
+          "last_tested_at" AS "lastTestedAt", "last_test_result" AS "lastTestResult"
+        FROM "integration_connections"
+        ORDER BY "created_at"
+      `,
+    );
     return {
       ...organization[0],
       ...(properties[0] ?? {
@@ -224,6 +237,7 @@ export class PlatformAdminService {
         pokpayEnabledPropertyCount: 0,
         payAtHotelEnabledPropertyCount: 0,
       }),
+      connections,
     };
   }
 
@@ -375,4 +389,15 @@ export interface PlatformTenantDetail extends PlatformTenant {
   stripeEnabledPropertyCount: number;
   pokpayEnabledPropertyCount: number;
   payAtHotelEnabledPropertyCount: number;
+  connections: PlatformIntegrationConnection[];
+}
+
+export interface PlatformIntegrationConnection {
+  id: string;
+  kind: 'PAYMENT' | 'PMS';
+  provider: 'STRIPE' | 'POKPAY' | 'CLOCK_PMS';
+  name: string;
+  status: 'PENDING' | 'CONNECTED' | 'FAILED';
+  lastTestedAt: Date | null;
+  lastTestResult: string | null;
 }
