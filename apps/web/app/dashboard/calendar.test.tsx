@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { bookingsForDay, DashboardCalendar, type CalendarAvailability } from './calendar';
+import { DashboardQueryProvider } from './query-provider';
 import type { Reservation } from './reservations';
 
 const roomTypes = [
@@ -92,7 +93,9 @@ describe('Dashboard calendar', () => {
   };
 
   it('renders a month grid with per-room-type remaining inventory', () => {
-    const markup = renderToStaticMarkup(createElement(DashboardCalendar, props));
+    const markup = renderToStaticMarkup(
+      createElement(DashboardQueryProvider, undefined, createElement(DashboardCalendar, props)),
+    );
     expect(markup).toContain('August 2026');
     expect(markup).toContain('Deluxe King');
     expect(markup).toContain('Standard Double');
@@ -102,12 +105,16 @@ describe('Dashboard calendar', () => {
 
   it('shows combined availability-block targets only to an Owner/Admin and allows room targets in Mixed mode', () => {
     const markup = renderToStaticMarkup(
-      createElement(DashboardCalendar, {
-        ...props,
-        bookingMode: 'MIXED' as const,
-        canManageAvailability: true,
-        initialRooms: [{ id: 'deluxe-101', name: '101', roomTypeId: 'deluxe' }],
-      }),
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(DashboardCalendar, {
+          ...props,
+          bookingMode: 'MIXED' as const,
+          canManageAvailability: true,
+          initialRooms: [{ id: 'deluxe-101', name: '101', roomTypeId: 'deluxe' }],
+        }),
+      ),
     );
 
     expect(markup).toContain('Block availability');
@@ -130,7 +137,11 @@ describe('Dashboard calendar', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const root = createRoot(container);
-    await act(async () => root.render(createElement(DashboardCalendar, props)));
+    await act(async () =>
+      root.render(
+        createElement(DashboardQueryProvider, undefined, createElement(DashboardCalendar, props)),
+      ),
+    );
     await act(async () => container.querySelector('button[aria-label="Open 2026-08-10"]')!.click());
     const drillIn = container.querySelector('[aria-label="Day bookings"]');
     expect(drillIn?.textContent).toContain('Arrivals (1)');

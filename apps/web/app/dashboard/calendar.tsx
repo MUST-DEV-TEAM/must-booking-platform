@@ -1,8 +1,9 @@
 'use client';
 
 import { Card, Heading, Stack, Text } from '@must/ui';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useMemo, useState } from 'react';
 import { DayPicker, type DateRange } from 'react-day-picker';
 import { toast } from 'sonner';
 
@@ -49,129 +50,104 @@ export function DashboardCalendar({
   initialBookings?: Reservation[];
 }) {
   const [month, setMonth] = useState(initialMonth ?? monthStart(new Date()));
-  const [calendarData, setCalendarData] = useState<CalendarData | null | undefined>(
-    initialRoomTypes && initialAvailability
-      ? {
-          roomTypes: initialRoomTypes,
-          rooms: initialRooms ?? [],
-          availability: initialAvailability,
-        }
-      : undefined,
-  );
-  const [bookings, setBookings] = useState<Reservation[] | null | undefined>(initialBookings);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [refresh, setRefresh] = useState(0);
   const [blockRange, setBlockRange] = useState<DateRange | undefined>();
   const [blockAll, setBlockAll] = useState(false);
   const [blockRoomTypeIds, setBlockRoomTypeIds] = useState<string[]>([]);
   const [blockRoomIds, setBlockRoomIds] = useState<string[]>([]);
-  const [savingBlock, setSavingBlock] = useState(false);
   const canTargetRooms = bookingMode === 'INDIVIDUAL_ROOM_ONLY' || bookingMode === 'MIXED';
-
-  useEffect(() => {
-    if (initialRoomTypes && initialAvailability && initialMonth === month && refresh === 0) {
-      setCalendarData({
+  const includeRooms = canManageAvailability && canTargetRooms;
+  const availabilityQueryKey = [
+    'dashboard',
+    'calendar-availability',
+    tenantId,
+    propertyId,
+    month,
+    includeRooms,
+  ] as const;
+  const hasInitialCalendarData =
+    initialRoomTypes &&
+    initialAvailability &&
+    initialMonth === month &&
+    (!includeRooms || initialRooms !== undefined);
+  const initialCalendarData = hasInitialCalendarData
+    ? {
         roomTypes: initialRoomTypes,
         rooms: initialRooms ?? [],
         availability: initialAvailability,
-      });
-      return;
-    }
-    let active = true;
-    setCalendarData(undefined);
-    setError(null);
-    void fetchCalendarAvailability(
-      tenantId,
-      propertyId,
-      month,
-      canManageAvailability && canTargetRooms,
-    )
-      .then((value) => active && setCalendarData(value))
-      .catch((reason: unknown) => {
-        if (!active) return;
-        setCalendarData(null);
-        setError(
-          reason instanceof Error ? reason.message : 'Unable to load calendar availability.',
-        );
-      });
-    return () => {
-      active = false;
-    };
-  }, [
-    canManageAvailability,
-    canTargetRooms,
-    initialAvailability,
-    initialMonth,
-    initialRoomTypes,
-    initialRooms,
-    month,
-    propertyId,
-    refresh,
-    tenantId,
-  ]);
-
-  useEffect(() => {
-    if (initialBookings) return;
-    let active = true;
-    void fetchPropertyBookings(tenantId, propertyId)
-      .then((value) => active && setBookings(value))
-      .catch((reason: unknown) => {
-        if (!active) return;
-        setBookings(null);
-        setError(reason instanceof Error ? reason.message : 'Unable to load reservations.');
-      });
-    return () => {
-      active = false;
-    };
-  }, [initialBookings, propertyId, tenantId]);
-
-  const days = useMemo(() => calendarDays(month), [month]);
-  const selectedBookings = selectedDay && bookings ? bookingsForDay(bookings, selectedDay) : null;
-
-  async function createAvailabilityBlock(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!blockRange?.from || !blockRange.to) {
-      toast.error('Select the first and last unavailable night.');
-      return;
-    }
-    setSavingBlock(true);
-    try {
+      }
+    : undefined;
+  const availabilityQuery = useQuery({
+    queryKey: availabilityQueryKey,
+    queryFn: () => fetchCalendarAvailability(tenantId, propertyId, month, includeRooms),
+    initialData: initialCalendarData,
+    staleTime: initialCalendarData ? Infinity : 0,
+  });
+  const bookingsQuery = useQuery({
+    queryKey: ['dashboard', 'calendar-bookings', tenantId, propertyId],
+    queryFn: () => fetchPropertyBookings(tenantId, propertyId),
+    initialData: initialBookings,
+    staleTime: initialBookings ? Infinity : 0,
+  });
+  const queryClient = useQueryClient();
+  const blockMutation = useMutation({
+    mutationFn: async (body: {
+      startsOn: string;
+      endsOn: string;
+      all: boolean;
+      roomTypeIds: string[];
+      roomIds: string[];
+    }) => {
       const response = await fetch(
         `/api/tenants/${tenantId}/properties/${propertyId}/availability-blocks`,
         {
           method: 'POST',
           credentials: 'include',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            startsOn: dateToIsoDay(blockRange.from),
-            endsOn: addDays(dateToIsoDay(blockRange.to), 1),
-            all: blockAll,
-            roomTypeIds: blockRoomTypeIds,
-            roomIds: blockRoomIds,
-          }),
+          body: JSON.stringify(body),
         },
       );
-      if (!response.ok) {
-        toast.error(await errorMessage(response, 'Unable to create availability block.'));
-        return;
-      }
+      if (!response.ok)
+        throw new Error(await errorMessage(response, 'Unable to create availability block.'));
+    },
+    onSuccess: () => {
       setBlockRange(undefined);
       setBlockAll(false);
       setBlockRoomTypeIds([]);
       setBlockRoomIds([]);
-      setRefresh((value) => value + 1);
+      void queryClient.invalidateQueries({ queryKey: availabilityQueryKey });
       toast.success('Availability block created.');
-    } catch {
-      toast.error('Unable to create availability block.');
-    } finally {
-      setSavingBlock(false);
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Unable to create availability block.'),
+  });
+
+  const days = useMemo(() => calendarDays(month), [month]);
+  const calendarData = availabilityQuery.data;
+  const bookings = bookingsQuery.data;
+  const savingBlock = blockMutation.isPending;
+  const selectedBookings = selectedDay && bookings ? bookingsForDay(bookings, selectedDay) : null;
+
+  function createAvailabilityBlock(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!blockRange?.from || !blockRange.to) {
+      toast.error('Select the first and last unavailable night.');
+      return;
     }
+    blockMutation.mutate({
+      startsOn: dateToIsoDay(blockRange.from),
+      endsOn: addDays(dateToIsoDay(blockRange.to), 1),
+      all: blockAll,
+      roomTypeIds: blockRoomTypeIds,
+      roomIds: blockRoomIds,
+    });
   }
 
-  if (calendarData === undefined || bookings === undefined)
+  if (availabilityQuery.isPending || bookingsQuery.isPending)
     return <DashboardLoadingSkeleton label="Loading calendar…" />;
-  if (!calendarData || !bookings) return <Text className={styles.error}>{error}</Text>;
+  const error = availabilityQuery.error ?? bookingsQuery.error;
+  if (error || !calendarData || !bookings)
+    return <Text className={styles.error}>{error?.message}</Text>;
 
   return (
     <Stack className={styles.page} gap="lg">
