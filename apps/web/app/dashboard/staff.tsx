@@ -1,6 +1,6 @@
 'use client';
 import { Card, Heading, Stack, Text } from '@must/ui';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -18,7 +18,6 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
   const base = `/api/tenants/${tenantId}`;
   const [email, setEmail] = useState('');
   const [inviteTemplateId, setInviteTemplateId] = useState('');
-  const [busy, setBusy] = useState<string | null>(null);
   const [templateName, setTemplateName] = useState('');
   const [templateCapabilities, setTemplateCapabilities] = useState<string[]>([]);
   const staffQuery = useQuery({
@@ -44,6 +43,87 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
     },
   });
   const load = () => void staffQuery.refetch();
+  const { staff = [], templates = [], usage } = staffQuery.data ?? {};
+  const capped = usage ? usage.usage.staffSeats >= usage.plan.maxStaffSeats : false;
+  const selectedInviteTemplate = inviteTemplateId || templates[0]?.id;
+  const capabilityOptions =
+    templates.find((template) => template.name === 'Property Manager')?.capabilities ?? [];
+  const inviteMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`${base}/staff-invitations`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          assignments: [{ propertyId, roleTemplateId: selectedInviteTemplate }],
+        }),
+      });
+      if (!response.ok) throw new Error();
+    },
+    onSuccess: () => toast.success('Invitation sent.'),
+    onError: () => toast.error('Unable to send invitation.'),
+  });
+  const createTemplateMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`${base}/properties/${propertyId}/role-templates`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: templateName, capabilityKeys: templateCapabilities }),
+      });
+      if (!response.ok) throw new Error();
+    },
+    onSuccess: () => {
+      setTemplateName('');
+      setTemplateCapabilities([]);
+      load();
+      toast.success('Role template created.');
+    },
+    onError: () => toast.error('Unable to create role template.'),
+  });
+  const assignMutation = useMutation({
+    mutationFn: async ({ userId, roleTemplateId }: { userId: string; roleTemplateId: string }) => {
+      const response = await fetch(`${base}/properties/${propertyId}/staff/${userId}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roleTemplateId }),
+      });
+      if (!response.ok) throw new Error();
+    },
+    onSuccess: () => {
+      load();
+      toast.success('Staff role updated.');
+    },
+    onError: () => toast.error('Unable to update staff role.'),
+  });
+  const overrideMutation = useMutation({
+    mutationFn: async ({ userId, key, value }: { userId: string; key: string; value: string }) => {
+      const response = await fetch(
+        `${base}/properties/${propertyId}/staff/${userId}/capabilities/${key}`,
+        {
+          method: value === 'default' ? 'DELETE' : 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: value === 'default' ? undefined : JSON.stringify({ granted: value === 'grant' }),
+        },
+      );
+      if (!response.ok) throw new Error();
+    },
+    onSuccess: () => {
+      load();
+      toast.success('Capability override updated.');
+    },
+    onError: () => toast.error('Unable to update capability override.'),
+  });
+  const busy = inviteMutation.isPending
+    ? 'invite'
+    : createTemplateMutation.isPending
+      ? 'template'
+      : assignMutation.isPending
+        ? `assign:${assignMutation.variables.userId}`
+        : null;
   if (staffQuery.isError)
     return (
       <Stack gap="sm">
@@ -54,69 +134,6 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
       </Stack>
     );
   if (staffQuery.isPending) return <DashboardLoadingSkeleton label="Loading staff…" />;
-  const { staff, templates, usage } = staffQuery.data;
-  const capped = usage.usage.staffSeats >= usage.plan.maxStaffSeats;
-  const selectedInviteTemplate = inviteTemplateId || templates[0]?.id;
-  const capabilityOptions =
-    templates.find((template) => template.name === 'Property Manager')?.capabilities ?? [];
-  async function createTemplate() {
-    setBusy('template');
-    const response = await fetch(`${base}/properties/${propertyId}/role-templates`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: templateName, capabilityKeys: templateCapabilities }),
-    });
-    if (response.ok) {
-      setTemplateName('');
-      setTemplateCapabilities([]);
-      load();
-      toast.success('Role template created.');
-    } else toast.error('Unable to create role template.');
-    setBusy(null);
-  }
-  async function invite() {
-    setBusy('invite');
-    const response = await fetch(`${base}/staff-invitations`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email,
-        assignments: [{ propertyId, roleTemplateId: selectedInviteTemplate }],
-      }),
-    });
-    if (response.ok) toast.success('Invitation sent.');
-    else toast.error('Unable to send invitation.');
-    setBusy(null);
-  }
-  async function assign(userId: string, roleTemplateId: string) {
-    setBusy(`assign:${userId}`);
-    const response = await fetch(`${base}/properties/${propertyId}/staff/${userId}`, {
-      method: 'PUT',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ roleTemplateId }),
-    });
-    if (response.ok) {
-      load();
-      toast.success('Staff role updated.');
-    } else toast.error('Unable to update staff role.');
-    setBusy(null);
-  }
-  async function override(userId: string, key: string, value: string) {
-    const url = `${base}/properties/${propertyId}/staff/${userId}/capabilities/${key}`;
-    const response = await fetch(url, {
-      method: value === 'default' ? 'DELETE' : 'PUT',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: value === 'default' ? undefined : JSON.stringify({ granted: value === 'grant' }),
-    });
-    if (response.ok) {
-      load();
-      toast.success('Capability override updated.');
-    } else toast.error('Unable to update capability override.');
-  }
   return (
     <Stack gap="lg">
       <Heading>Staff</Heading>
@@ -133,7 +150,10 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
             </option>
           ))}
         </select>
-        <button disabled={capped || !email || busy !== null} onClick={invite}>
+        <button
+          disabled={capped || !email || busy !== null}
+          onClick={() => inviteMutation.mutate()}
+        >
           {busy === 'invite' ? <Loader2 aria-hidden="true" size={16} /> : 'Invite staff'}
         </button>
         {capped ? <Text>Upgrade to unlock more staff seats.</Text> : null}
@@ -161,7 +181,10 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
             {capability.key}
           </label>
         ))}
-        <button disabled={!templateName || busy !== null} onClick={createTemplate}>
+        <button
+          disabled={!templateName || busy !== null}
+          onClick={() => createTemplateMutation.mutate()}
+        >
           {busy === 'template' ? <Loader2 aria-hidden="true" size={16} /> : 'Create template'}
         </button>
       </Card>
@@ -173,7 +196,9 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
             <select
               disabled={busy === `assign:${s.userId}`}
               value={s.roleTemplateId}
-              onChange={(e) => assign(s.userId, e.target.value)}
+              onChange={(e) =>
+                assignMutation.mutate({ userId: s.userId, roleTemplateId: e.target.value })
+              }
             >
               {templates.map((x) => (
                 <option key={x.id} value={x.id}>
@@ -190,7 +215,13 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
                   <select
                     aria-label={`${s.email} ${c.key}`}
                     value={state}
-                    onChange={(e) => override(s.userId, c.key, e.target.value)}
+                    onChange={(e) =>
+                      overrideMutation.mutate({
+                        userId: s.userId,
+                        key: c.key,
+                        value: e.target.value,
+                      })
+                    }
                   >
                     <option value="default">Template default</option>
                     <option value="grant">Explicitly granted</option>
