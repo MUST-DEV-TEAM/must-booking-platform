@@ -1,7 +1,8 @@
 'use client';
 
 import { Card, Heading, Stack, Text } from '@must/ui';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { FormEvent, useMemo, useState } from 'react';
 
 import { EChart, type ChartOption } from './echart';
 import { DashboardLoadingSkeleton } from './loading-skeleton';
@@ -40,54 +41,53 @@ export function DashboardReports({
   tenantId: string;
   propertyId: string;
 }) {
-  const [reports, setReports] = useState<PropertyReports | null>();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    const query = range
-      ? `?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`
-      : '';
-    setReports(undefined);
-    setError(null);
-    void fetch(`/api/tenants/${tenantId}/properties/${propertyId}/reports${query}`, {
-      credentials: 'include',
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error('Unable to load reports.');
-        return (await response.json()) as PropertyReports;
-      })
-      .then((value) => {
-        if (active) setReports(value);
-      })
-      .catch((reason: unknown) => {
-        if (!active) return;
-        setReports(null);
-        setError(reason instanceof Error ? reason.message : 'Unable to load reports.');
-      });
-    return () => {
-      active = false;
-    };
-  }, [propertyId, range, tenantId]);
+  const [formError, setFormError] = useState<string | null>(null);
+  const reportsQuery = useQuery({
+    queryKey: ['dashboard', 'reports', tenantId, propertyId, range],
+    queryFn: async () => {
+      const query = range
+        ? `?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`
+        : '';
+      const response = await fetch(
+        `/api/tenants/${tenantId}/properties/${propertyId}/reports${query}`,
+        {
+          credentials: 'include',
+        },
+      );
+      if (!response.ok) throw new Error('Unable to load reports.');
+      return (await response.json()) as PropertyReports;
+    },
+  });
 
   function applyRange(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!from || !to) {
-      setError('Choose both a start and end date.');
+      setFormError('Choose both a start and end date.');
       return;
     }
     if (from > to) {
-      setError('The start date must be on or before the end date.');
+      setFormError('The start date must be on or before the end date.');
       return;
     }
+    setFormError(null);
     setRange({ from, to });
   }
 
-  if (reports === undefined) return <DashboardLoadingSkeleton label="Loading reports…" />;
-  if (!reports) return <Text className={styles.error}>{error}</Text>;
+  if (reportsQuery.isPending) return <DashboardLoadingSkeleton label="Loading reports…" />;
+  if (reportsQuery.isError)
+    return (
+      <div className={styles.error} role="alert">
+        <Text>{reportsQuery.error.message}</Text>
+        <button onClick={() => void reportsQuery.refetch()} type="button">
+          Retry
+        </button>
+      </div>
+    );
+
+  const reports = reportsQuery.data;
 
   return (
     <Stack className={styles.page} gap="lg">
@@ -127,7 +127,7 @@ export function DashboardReports({
           </button>
         </form>
       </header>
-      {error ? <Text className={styles.error}>{error}</Text> : null}
+      {formError ? <Text className={styles.error}>{formError}</Text> : null}
 
       <section className={styles.summary} aria-label="Booking cancellation summary">
         <Card className={styles.summaryCard}>

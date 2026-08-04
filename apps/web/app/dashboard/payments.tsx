@@ -1,6 +1,6 @@
 'use client';
 import { Card, Heading, Stack, Text } from '@must/ui';
-import { useEffect, useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchPropertyBookings, type Reservation } from './reservations';
@@ -18,34 +18,71 @@ export function DashboardPayments({
   initialCapabilities?: string[];
 }) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
-  const [bookings, setBookings] = useState<Reservation[] | undefined>(initialBookings);
-  const [capabilities, setCapabilities] = useState<string[] | undefined>(initialCapabilities);
-  const [busyBookingId, setBusyBookingId] = useState<string | null>(null);
-  useEffect(() => {
-    if (!initialBookings) void fetchPropertyBookings(tenantId, propertyId).then(setBookings);
-  }, [initialBookings, tenantId, propertyId]);
-  useEffect(() => {
-    if (!initialCapabilities)
-      void fetch(`${base}/capabilities/mine`, { credentials: 'include' })
-        .then((r) => r.json())
-        .then(setCapabilities);
-  }, [base, initialCapabilities]);
-  async function action(bookingId: string, url: string, body: unknown, success: string) {
-    setBusyBookingId(bookingId);
-    const r = await fetch(url, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': id() },
-      body: JSON.stringify(body),
-    });
-    const v = await r.json();
-    if (v.ok) {
-      void fetchPropertyBookings(tenantId, propertyId).then(setBookings);
+  const bookingsQuery = useQuery({
+    queryKey: ['dashboard', 'payments-bookings', tenantId, propertyId],
+    queryFn: () => fetchPropertyBookings(tenantId, propertyId),
+    initialData: initialBookings,
+    staleTime: initialBookings ? Infinity : 0,
+  });
+  const capabilitiesQuery = useQuery({
+    queryKey: ['dashboard', 'payment-capabilities', tenantId, propertyId],
+    queryFn: async () => {
+      const response = await fetch(`${base}/capabilities/mine`, { credentials: 'include' });
+      if (!response.ok) throw new Error('Unable to load payment permissions.');
+      return (await response.json()) as string[];
+    },
+    initialData: initialCapabilities,
+    staleTime: initialCapabilities ? Infinity : 0,
+  });
+  const actionMutation = useMutation({
+    mutationFn: async ({
+      bookingId,
+      url,
+      body,
+      success,
+    }: {
+      bookingId: string;
+      url: string;
+      body: unknown;
+      success: string;
+    }) => {
+      const response = await fetch(url, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': id() },
+        body: JSON.stringify(body),
+      });
+      const value = (await response.json()) as { ok: boolean; error?: { message?: string } };
+      if (!value.ok) throw new Error(value.error?.message ?? 'Payment action failed.');
+      return { bookingId, success };
+    },
+    onSuccess: ({ success }) => {
+      void bookingsQuery.refetch();
       toast.success(success);
-    } else toast.error(v.error?.message ?? 'Payment action failed.');
-    setBusyBookingId(null);
-  }
-  if (!bookings || !capabilities) return <DashboardLoadingSkeleton label="Loading payments…" />;
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  if (bookingsQuery.isPending || capabilitiesQuery.isPending)
+    return <DashboardLoadingSkeleton label="Loading payments…" />;
+  const loadError = bookingsQuery.error ?? capabilitiesQuery.error;
+  if (loadError)
+    return (
+      <div role="alert">
+        <Text>{loadError.message}</Text>
+        <button
+          onClick={() => {
+            void bookingsQuery.refetch();
+            void capabilitiesQuery.refetch();
+          }}
+          type="button"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  const bookings = bookingsQuery.data ?? [];
+  const capabilities = capabilitiesQuery.data ?? [];
+  const busyBookingId = actionMutation.isPending ? actionMutation.variables?.bookingId : null;
   const canRefund = capabilities.includes('payments.refund');
   return (
     <Stack gap="lg">
@@ -78,12 +115,12 @@ export function DashboardPayments({
                     {unpaid ? (
                       <button
                         onClick={() =>
-                          action(
-                            b.id,
-                            `${base}/bookings/${b.id}/manual-payment`,
-                            { method: 'cash' },
-                            'Payment recorded.',
-                          )
+                          actionMutation.mutate({
+                            bookingId: b.id,
+                            url: `${base}/bookings/${b.id}/manual-payment`,
+                            body: { method: 'cash' },
+                            success: 'Payment recorded.',
+                          })
                         }
                         disabled={busyBookingId === b.id}
                       >
@@ -97,12 +134,12 @@ export function DashboardPayments({
                     {canRefund ? (
                       <button
                         onClick={() =>
-                          action(
-                            b.id,
-                            `${base}/payments/refunds`,
-                            { bookingId: b.id },
-                            'Refund recorded.',
-                          )
+                          actionMutation.mutate({
+                            bookingId: b.id,
+                            url: `${base}/payments/refunds`,
+                            body: { bookingId: b.id },
+                            success: 'Refund recorded.',
+                          })
                         }
                         disabled={busyBookingId === b.id}
                       >

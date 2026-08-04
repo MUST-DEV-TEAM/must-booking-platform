@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { DashboardReservations, filterReservations, type Reservation } from './reservations';
+import { DashboardQueryProvider } from './query-provider';
 
 const bookings: Reservation[] = [
   {
@@ -65,11 +66,15 @@ const bookings: Reservation[] = [
 describe('Dashboard reservations', () => {
   it('renders booking guest, room, rate, status, and payment data from the bookings projection', () => {
     const markup = renderToStaticMarkup(
-      createElement(DashboardReservations, {
-        tenantId: 'tenant-1',
-        propertyId: 'property-1',
-        initialBookings: bookings,
-      }),
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(DashboardReservations, {
+          tenantId: 'tenant-1',
+          propertyId: 'property-1',
+          initialBookings: bookings,
+        }),
+      ),
     );
     expect(markup).toContain('Ada Lovelace');
     expect(markup).toContain('Deluxe King');
@@ -110,11 +115,15 @@ describe('Dashboard reservations', () => {
     const root = createRoot(container);
     await act(async () => {
       root.render(
-        createElement(DashboardReservations, {
-          tenantId: 'tenant-1',
-          propertyId: 'property-1',
-          initialBookings: bookings,
-        }),
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(DashboardReservations, {
+            tenantId: 'tenant-1',
+            propertyId: 'property-1',
+            initialBookings: bookings,
+          }),
+        ),
       );
     });
     const detailButton = Array.from(container.querySelectorAll('button')).find(

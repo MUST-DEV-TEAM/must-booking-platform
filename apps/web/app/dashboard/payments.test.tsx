@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('sonner', () => ({ toast }));
 import { DashboardPayments } from './payments';
+import { DashboardQueryProvider } from './query-provider';
 import type { Reservation } from './reservations';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const booking = {
@@ -21,12 +22,16 @@ describe('Payments', () => {
     const r = createRoot(c);
     await act(async () =>
       r.render(
-        createElement(DashboardPayments, {
-          tenantId: 't',
-          propertyId: 'p',
-          initialBookings: [booking],
-          initialCapabilities: [],
-        }),
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(DashboardPayments, {
+            tenantId: 't',
+            propertyId: 'p',
+            initialBookings: [booking],
+            initialCapabilities: [],
+          }),
+        ),
       ),
     );
     expect(c.textContent).not.toContain('Refund');
@@ -49,12 +54,16 @@ describe('Payments', () => {
     const r = createRoot(c);
     await act(async () =>
       r.render(
-        createElement(DashboardPayments, {
-          tenantId: 't',
-          propertyId: 'p',
-          initialBookings: [booking],
-          initialCapabilities: ['payments.refund'],
-        }),
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(DashboardPayments, {
+            tenantId: 't',
+            propertyId: 'p',
+            initialBookings: [booking],
+            initialCapabilities: ['payments.refund'],
+          }),
+        ),
       ),
     );
     await act(async () => {
@@ -72,15 +81,19 @@ describe('Payments', () => {
     const r = createRoot(c);
     await act(async () =>
       r.render(
-        createElement(DashboardPayments, {
-          tenantId: 't',
-          propertyId: 'p',
-          initialCapabilities: [],
-          initialBookings: [
-            { ...booking, id: 'stripe', paymentMethod: 'STRIPE_CHECKOUT', paidAmount: '100.00' },
-            { ...booking, id: 'partial', paidAmount: '25.00' },
-          ],
-        }),
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(DashboardPayments, {
+            tenantId: 't',
+            propertyId: 'p',
+            initialCapabilities: [],
+            initialBookings: [
+              { ...booking, id: 'stripe', paymentMethod: 'STRIPE_CHECKOUT', paidAmount: '100.00' },
+              { ...booking, id: 'partial', paidAmount: '25.00' },
+            ],
+          }),
+        ),
       ),
     );
     expect(c.textContent).toContain('Paid');

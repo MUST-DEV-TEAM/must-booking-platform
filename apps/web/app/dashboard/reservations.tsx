@@ -1,7 +1,8 @@
 'use client';
 
 import { Card, Heading, Stack, Text } from '@must/ui';
-import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
 
 import styles from './reservations.module.css';
 import { DashboardLoadingSkeleton } from './loading-skeleton';
@@ -44,39 +45,36 @@ export function DashboardReservations({
   propertyId: string;
   initialBookings?: Reservation[];
 }) {
-  const [bookings, setBookings] = useState<Reservation[] | null | undefined>(initialBookings);
-  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (initialBookings) return;
-    let active = true;
-    void fetchPropertyBookings(tenantId, propertyId)
-      .then((value) => {
-        if (active) setBookings(value);
-      })
-      .catch((reason: unknown) => {
-        if (!active) return;
-        setBookings(null);
-        setError(reason instanceof Error ? reason.message : 'Unable to load reservations.');
-      });
-    return () => {
-      active = false;
-    };
-  }, [initialBookings, propertyId, tenantId]);
+  const bookingsQuery = useQuery({
+    queryKey: ['dashboard', 'reservations', tenantId, propertyId],
+    queryFn: () => fetchPropertyBookings(tenantId, propertyId),
+    initialData: initialBookings,
+    staleTime: initialBookings ? Infinity : 0,
+  });
+  const bookings = bookingsQuery.data ?? [];
 
   const filteredBookings = useMemo(
-    () => filterReservations(bookings ?? [], { search, status, from, to }),
+    () => filterReservations(bookings, { search, status, from, to }),
     [bookings, from, search, status, to],
   );
-  const selectedBooking = bookings?.find((booking) => booking.id === selectedId) ?? null;
+  const selectedBooking = bookings.find((booking) => booking.id === selectedId) ?? null;
 
-  if (bookings === undefined) return <DashboardLoadingSkeleton label="Loading reservations…" />;
-  if (!bookings) return <Text className={styles.error}>{error}</Text>;
+  if (bookingsQuery.isPending) return <DashboardLoadingSkeleton label="Loading reservations…" />;
+  if (bookingsQuery.isError)
+    return (
+      <div className={styles.error} role="alert">
+        <Text>{bookingsQuery.error.message}</Text>
+        <button onClick={() => void bookingsQuery.refetch()} type="button">
+          Retry
+        </button>
+      </div>
+    );
 
   return (
     <Stack className={styles.page} gap="lg">

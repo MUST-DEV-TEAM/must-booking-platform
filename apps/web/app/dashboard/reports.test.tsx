@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { dashboardNavigation } from './dashboard-shell';
 import { DashboardReports } from './reports';
+import { DashboardQueryProvider } from './query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -82,10 +83,16 @@ async function mount() {
   const container = document.createElement('div');
   const root = createRoot(container);
   await act(async () => {
-    root.render(createElement(DashboardReports, { tenantId: 't', propertyId: 'p' }));
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    root.render(
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(DashboardReports, { tenantId: 't', propertyId: 'p' }),
+      ),
+    );
+  });
+  await act(async () => {
+    await settleQueries();
   });
   return { container, root };
 }
@@ -104,8 +111,13 @@ async function submit(container: HTMLElement) {
     container
       .querySelector('form')!
       .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await settleQueries();
   });
+}
+
+async function settleQueries() {
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    await Promise.resolve();
+  }
 }
