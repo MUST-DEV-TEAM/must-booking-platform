@@ -187,10 +187,16 @@ describe.skipIf(!hasSandboxCredentials)('Clock booking CRUD (real sandbox)', () 
       expect(first.error.message.length).toBeGreaterThan(0);
     }
 
-    const bookingRow = await admin.$queryRaw<Array<{ status: string }>>`
-      SELECT status FROM bookings WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+    const bookingRow = await admin.$queryRaw<Array<{ id: string; status: string }>>`
+      SELECT id, status FROM bookings WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
     `;
     expect(bookingRow[0]?.status).toBe('PMS_REJECTED');
+
+    // Task 13: every Clock booking operation writes to AuditLogService.
+    const auditRows = await admin.$queryRaw<Array<{ action: string }>>`
+      SELECT action FROM audit_logs WHERE tenant_id = ${tenantId}::uuid AND target_id = ${bookingRow[0]!.id}
+    `;
+    expect(auditRows).toContainEqual({ action: 'booking.created' });
 
     // Idempotency: the exact same key + request replays the stored result
     // rather than calling Clock (and therefore creating a second row) again.
