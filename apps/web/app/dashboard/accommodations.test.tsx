@@ -49,10 +49,10 @@ describe('Accommodations dashboard route', () => {
           createElement(DashboardShell, { tenantId: 't' }),
         ),
       );
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
+      for (let iteration = 0; iteration < 4; iteration += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 20));
+        await Promise.resolve();
+      }
     });
 
     expect(container.textContent).toContain('Rooms and room types');
