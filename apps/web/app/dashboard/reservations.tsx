@@ -2,6 +2,7 @@
 
 import { Card, Heading, Stack, Text } from '@must/ui';
 import { useQuery } from '@tanstack/react-query';
+import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { useMemo, useState } from 'react';
 
 import styles from './reservations.module.css';
@@ -64,6 +65,72 @@ export function DashboardReservations({
     [bookings, from, search, status, to],
   );
   const selectedBooking = bookings.find((booking) => booking.id === selectedId) ?? null;
+  const columns = useMemo<ColumnDef<Reservation>[]>(
+    () => [
+      {
+        id: 'guest',
+        header: 'Guest',
+        cell: ({ row }) => (
+          <>
+            <strong>{guestName(row.original)}</strong>
+            <span>{row.original.guestEmail}</span>
+          </>
+        ),
+      },
+      {
+        id: 'stay',
+        header: 'Stay',
+        cell: ({ row }) => (
+          <>
+            {row.original.startsOn} – {row.original.endsOn}
+          </>
+        ),
+      },
+      {
+        id: 'roomRate',
+        header: 'Room & rate',
+        cell: ({ row }) => (
+          <>
+            <strong>{row.original.roomTypeName}</strong>
+            <span>{row.original.ratePlanName}</span>
+          </>
+        ),
+      },
+      {
+        accessorKey: 'status',
+        header: 'Status',
+        cell: ({ row }) => (
+          <span className={styles.status}>{formatStatus(row.original.status)}</span>
+        ),
+      },
+      {
+        id: 'payment',
+        header: 'Payment',
+        cell: ({ row }) => (
+          <>
+            <strong>{formatMoney(row.original.total)}</strong>
+            <span>{formatPaymentMethod(row.original.paymentMethod)}</span>
+          </>
+        ),
+      },
+      {
+        id: 'actions',
+        header: '',
+        cell: ({ row }) => (
+          <button type="button" onClick={() => setSelectedId(row.original.id)}>
+            View details
+          </button>
+        ),
+      },
+    ],
+    [],
+  );
+  const table = useReactTable({
+    data: filteredBookings,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    getRowId: (booking) => booking.id,
+  });
 
   if (bookingsQuery.isPending) return <DashboardLoadingSkeleton label="Loading reservations…" />;
   if (bookingsQuery.isError)
@@ -144,41 +211,26 @@ export function DashboardReservations({
           <div className={styles.tableWrap}>
             <table className={styles.table}>
               <thead>
-                <tr>
-                  <th>Guest</th>
-                  <th>Stay</th>
-                  <th>Room &amp; rate</th>
-                  <th>Status</th>
-                  <th>Payment</th>
-                  <th />
-                </tr>
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <tr key={headerGroup.id}>
+                    {headerGroup.headers.map((header) => (
+                      <th key={header.id} colSpan={header.colSpan}>
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(header.column.columnDef.header, header.getContext())}
+                      </th>
+                    ))}
+                  </tr>
+                ))}
               </thead>
               <tbody>
-                {filteredBookings.map((booking) => (
-                  <tr key={booking.id}>
-                    <td>
-                      <strong>{guestName(booking)}</strong>
-                      <span>{booking.guestEmail}</span>
-                    </td>
-                    <td>
-                      {booking.startsOn} – {booking.endsOn}
-                    </td>
-                    <td>
-                      <strong>{booking.roomTypeName}</strong>
-                      <span>{booking.ratePlanName}</span>
-                    </td>
-                    <td>
-                      <span className={styles.status}>{formatStatus(booking.status)}</span>
-                    </td>
-                    <td>
-                      <strong>{formatMoney(booking.total)}</strong>
-                      <span>{formatPaymentMethod(booking.paymentMethod)}</span>
-                    </td>
-                    <td>
-                      <button type="button" onClick={() => setSelectedId(booking.id)}>
-                        View details
-                      </button>
-                    </td>
+                {table.getRowModel().rows.map((row) => (
+                  <tr key={row.id}>
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>
