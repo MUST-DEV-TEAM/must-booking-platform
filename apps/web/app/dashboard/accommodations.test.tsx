@@ -49,10 +49,11 @@ describe('Accommodations dashboard route', () => {
           createElement(DashboardShell, { tenantId: 't' }),
         ),
       );
-      for (let iteration = 0; iteration < 4; iteration += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 20));
-        await Promise.resolve();
-      }
+    });
+
+    await vi.waitFor(() => {
+      if (!container.textContent?.includes('Rooms and room types'))
+        throw new Error('Room management has not finished loading yet.');
     });
 
     expect(container.textContent).toContain('Rooms and room types');
