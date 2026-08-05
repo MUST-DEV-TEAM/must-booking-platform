@@ -66,12 +66,24 @@ describe('platform audit log', () => {
       .expect(201);
     const cookie = login.headers['set-cookie'][0] as string;
 
+    // The platform audit log is global, so other e2e specs running concurrently
+    // may also write PLATFORM_ADMIN rows. Capture the count immediately before
+    // this call rather than assuming an exact hardcoded total; the endpoint
+    // itself always writes a 'platform.audit.listed' row before counting.
+    const beforeCall = await migrationPrisma.$queryRaw<[{ count: number }]>`
+      SELECT COUNT(*)::int AS "count" FROM "audit_logs" WHERE "actor_type" = 'PLATFORM_ADMIN'::"AuditActorType"
+    `;
+
     const response = await request(app.getHttpServer())
       .get('/platform/audit?page=2&pageSize=2')
       .set('Cookie', cookie)
       .expect(200);
 
-    expect(response.body).toMatchObject({ page: 2, pageSize: 2, total: 6 });
+    expect(response.body).toMatchObject({
+      page: 2,
+      pageSize: 2,
+      total: beforeCall[0].count + 1,
+    });
     expect(response.body.items.map((item: { action: string }) => item.action)).toEqual([
       'platform.audit.seed.3',
       'platform.audit.seed.2',

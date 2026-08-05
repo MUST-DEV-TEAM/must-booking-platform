@@ -128,9 +128,9 @@ describe('integration connections', () => {
     expect(listed.body).toContainEqual(expect.objectContaining({ id: connectionId }));
     expect(JSON.stringify(listed.body)).not.toContain('sk_test_secret_value');
 
-    // No tester is registered for any provider yet (real testers land in later
-    // Milestone 11 tasks) — testing must report an honest "not available" result,
-    // never a false success.
+    // A real StripeConnectionTester is registered now — testing this fake
+    // secret key against the real Stripe API must honestly fail auth, never
+    // report a false success.
     const tested = await request(app!.getHttpServer())
       .post(`${tenantUrl}/integration-connections/${connectionId}/test`)
       .set('Cookie', cookie)
@@ -138,7 +138,7 @@ describe('integration connections', () => {
     expect(tested.body).toMatchObject({
       id: connectionId,
       status: 'FAILED',
-      lastTestResult: 'Connection testing for this provider is not available yet.',
+      lastTestResult: 'Stripe authentication failed.',
     });
 
     // Assign the connection to the property, then disable it again.
