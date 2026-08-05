@@ -82,6 +82,11 @@ describe('availability calendar (local)', () => {
       .send({ name: 'Calendar Test Room', maxOccupancy: 2 })
       .expect(201);
     roomTypeId = roomType.body.id;
+    await request(app.getHttpServer())
+      .post(`/tenants/${tenantId}/properties/${propertyId}/room-types/${roomTypeId}/rooms`)
+      .set('Cookie', cookie)
+      .send({ name: 'Calendar Room 1' })
+      .expect(201);
 
     // Available every day of March 2027 except the 10th (0 units), with the
     // 15th deliberately left unset (no inventory_units row at all).
@@ -122,5 +127,22 @@ describe('availability calendar (local)', () => {
       isAvailable: false,
     });
     expect(response.body.days.at(-1)).toEqual({ date: '2027-03-31', isAvailable: true });
+  });
+
+  it('lists every room across every room type via the flat property-wide endpoint', async () => {
+    const response = await request(app.getHttpServer())
+      .get(`/tenants/${tenantId}/properties/${propertyId}/rooms`)
+      .set('Cookie', cookie)
+      .expect(200);
+
+    expect(response.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'Calendar Room 1',
+          roomTypeId,
+          roomTypeName: 'Calendar Test Room',
+        }),
+      ]),
+    );
   });
 });

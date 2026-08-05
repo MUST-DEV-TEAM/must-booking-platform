@@ -11,6 +11,7 @@ import { TenantDatabaseService } from './tenant-database.service';
 import { AuditLogService } from './audit-log.service';
 
 type Room = { id: string; name: string };
+type RoomWithType = Room & { roomTypeId: string; roomTypeName: string };
 
 @Injectable()
 export class RoomsService {
@@ -27,6 +28,22 @@ export class RoomsService {
         FROM rooms
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND room_type_id = ${roomTypeId}::uuid
         ORDER BY created_at
+      `,
+    );
+  }
+
+  /** Every room across every room type — the walk-in booking form's "All"
+   * room-type option needs a flat list to pick an individual room from,
+   * unlike list() above which is scoped to one room type at a time. */
+  listAll(tenantId: string, propertyId: string): Promise<RoomWithType[]> {
+    return this.database.withTenantTransaction(
+      { tenantId, propertyId },
+      (tx) => tx.$queryRaw<RoomWithType[]>`
+        SELECT r.id, r.name, r.room_type_id AS "roomTypeId", rt.name AS "roomTypeName"
+        FROM rooms r
+        JOIN room_types rt ON rt.tenant_id = r.tenant_id AND rt.id = r.room_type_id
+        WHERE r.tenant_id = ${tenantId}::uuid AND r.property_id = ${propertyId}::uuid
+        ORDER BY rt.name, r.name
       `,
     );
   }

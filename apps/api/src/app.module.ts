@@ -47,6 +47,7 @@ import { R2StorageProvider } from './storage/r2-storage.provider';
 import { RoomTypesController } from './tenancy/room-types.controller';
 import { RoomTypesService } from './tenancy/room-types.service';
 import { RoomsController } from './tenancy/rooms.controller';
+import { PropertyRoomsController } from './tenancy/property-rooms.controller';
 import { RoomsService } from './tenancy/rooms.service';
 import { RatePlansController } from './tenancy/rate-plans.controller';
 import { RatePlansService } from './tenancy/rate-plans.service';
@@ -155,6 +156,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PropertiesController,
     RoomTypesController,
     RoomsController,
+    PropertyRoomsController,
     RatePlansController,
     AmenitiesController,
     AvailabilityController,
