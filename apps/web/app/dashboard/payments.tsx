@@ -6,6 +6,7 @@ import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchPropertyBookings, type Reservation } from './reservations';
 import { DashboardLoadingSkeleton } from './loading-skeleton';
+import styles from './data-table.module.css';
 const id = () => crypto.randomUUID();
 export function DashboardPayments({
   tenantId,
@@ -93,6 +94,7 @@ export function DashboardPayments({
           <>
             {unpaid ? (
               <button
+                className="must-button must-button--secondary"
                 onClick={() =>
                   actionMutation.mutate({
                     bookingId: booking.id,
@@ -108,6 +110,7 @@ export function DashboardPayments({
             ) : null}
             {canRefund ? (
               <button
+                className="must-button must-button--danger"
                 onClick={() =>
                   actionMutation.mutate({
                     bookingId: booking.id,
@@ -135,6 +138,7 @@ export function DashboardPayments({
       <div role="alert">
         <Text>{loadError.message}</Text>
         <button
+          className="must-button must-button--secondary"
           onClick={() => {
             void bookingsQuery.refetch();
             void capabilitiesQuery.refetch();
@@ -152,30 +156,34 @@ export function DashboardPayments({
         <Text tone="secondary">Booking payment activity for this property.</Text>
       </header>
       <Card>
-        <table>
-          <thead>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <th key={header.id} colSpan={header.colSpan}>
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.map((row) => (
-              <tr key={row.id}>
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
+              {table.getHeaderGroups().map((headerGroup) => (
+                <tr key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => (
+                    <th key={header.id} colSpan={header.colSpan}>
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(header.column.columnDef.header, header.getContext())}
+                    </th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.map((row) => (
+                <tr key={row.id}>
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </Card>
     </Stack>
   );

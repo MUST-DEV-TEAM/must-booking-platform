@@ -6,6 +6,7 @@ import { Loader2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { DashboardLoadingSkeleton } from './loading-skeleton';
+import styles from './data-table.module.css';
 type Template = { id: string; name: string; capabilities: Array<{ key: string }> };
 type Staff = {
   userId: string;
@@ -137,6 +138,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
         header: 'Role template',
         cell: ({ row }) => (
           <select
+            className="must-input"
             disabled={busy === `assign:${row.original.userId}`}
             value={row.original.roleTemplateId}
             onChange={(event) =>
@@ -170,6 +172,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
               <label key={capability.key}>
                 {capability.key}
                 <select
+                  className="must-input"
                   aria-label={`${row.original.email} ${capability.key}`}
                   value={state}
                   onChange={(event) =>
@@ -202,7 +205,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
     return (
       <Stack gap="sm">
         <Text tone="secondary">{staffQuery.error.message}</Text>
-        <button className="must-button" onClick={load} type="button">
+        <button className="must-button must-button--secondary" onClick={load} type="button">
           Retry
         </button>
       </Stack>
@@ -212,8 +215,14 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
     <Stack gap="lg">
       <Heading>Staff</Heading>
       <Card>
-        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Staff email" />
+        <input
+          className="must-input"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="Staff email"
+        />
         <select
+          className="must-input"
           aria-label="Invite role template"
           value={selectedInviteTemplate}
           onChange={(e) => setInviteTemplateId(e.target.value)}
@@ -225,6 +234,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
           ))}
         </select>
         <button
+          className="must-button must-button--primary"
           disabled={capped || !email || busy !== null}
           onClick={() => inviteMutation.mutate()}
         >
@@ -235,6 +245,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
       <Card>
         <Heading level={2}>Create role template</Heading>
         <input
+          className="must-input"
           value={templateName}
           onChange={(e) => setTemplateName(e.target.value)}
           placeholder="Template name"
@@ -256,6 +267,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
           </label>
         ))}
         <button
+          className="must-button must-button--secondary"
           disabled={!templateName || busy !== null}
           onClick={() => createTemplateMutation.mutate()}
         >
@@ -263,30 +275,34 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
         </button>
       </Card>
       <Card>
-        <table>
-          <thead>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <th key={header.id} colSpan={header.colSpan}>
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.map((row) => (
-              <tr key={row.id}>
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
+              {table.getHeaderGroups().map((headerGroup) => (
+                <tr key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => (
+                    <th key={header.id} colSpan={header.colSpan}>
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(header.column.columnDef.header, header.getContext())}
+                    </th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.map((row) => (
+                <tr key={row.id}>
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </Card>
     </Stack>
   );

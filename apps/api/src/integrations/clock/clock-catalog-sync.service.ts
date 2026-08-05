@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
 import { AuditLogService } from '../../tenancy/audit-log.service';
@@ -139,14 +139,22 @@ export class ClockCatalogSyncService {
 
       const localId = randomUUID();
       if (mapping.entityType === 'ROOM_TYPE') {
-        await tx.$executeRawUnsafe(
-          `INSERT INTO room_types (id, tenant_id, property_id, name, max_occupancy)
-           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 2)`,
-          localId,
-          tenantId,
-          propertyId,
-          mapping.externalName,
-        );
+        try {
+          await tx.$executeRawUnsafe(
+            `INSERT INTO room_types (id, tenant_id, property_id, name, max_occupancy)
+             VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 2)`,
+            localId,
+            tenantId,
+            propertyId,
+            mapping.externalName,
+          );
+        } catch (error: unknown) {
+          if (this.isUniqueViolation(error))
+            throw new ConflictException(
+              `A room type named "${mapping.externalName}" already exists for this property. Rename or remove it before confirming this Clock mapping.`,
+            );
+          throw error;
+        }
       } else {
         const parentRows = await tx.$queryRawUnsafe<Array<{ localEntityId: string | null }>>(
           `SELECT local_entity_id AS "localEntityId" FROM clock_catalog_mappings
@@ -159,15 +167,23 @@ export class ClockCatalogSyncService {
         const parentLocalId = parentRows[0]?.localEntityId;
         if (!parentLocalId)
           throw new BadRequestException('Confirm this room’s parent room type first.');
-        await tx.$executeRawUnsafe(
-          `INSERT INTO rooms (id, tenant_id, property_id, room_type_id, name)
-           VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5)`,
-          localId,
-          tenantId,
-          propertyId,
-          parentLocalId,
-          mapping.externalName,
-        );
+        try {
+          await tx.$executeRawUnsafe(
+            `INSERT INTO rooms (id, tenant_id, property_id, room_type_id, name)
+             VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5)`,
+            localId,
+            tenantId,
+            propertyId,
+            parentLocalId,
+            mapping.externalName,
+          );
+        } catch (error: unknown) {
+          if (this.isUniqueViolation(error))
+            throw new ConflictException(
+              `A room named "${mapping.externalName}" already exists for this property. Rename or remove it before confirming this Clock mapping.`,
+            );
+          throw error;
+        }
       }
 
       await tx.$executeRawUnsafe(
@@ -275,5 +291,15 @@ export class ClockCatalogSyncService {
       input.externalName,
     );
     return rows[0]?.inserted ? 'inserted' : 'updated';
+  }
+
+  private isUniqueViolation(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: string }).code === 'P2010' &&
+      (error as { meta?: { code?: string } }).meta?.code === '23505'
+    );
   }
 }

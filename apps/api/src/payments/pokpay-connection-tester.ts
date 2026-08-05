@@ -1,4 +1,4 @@
-import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
 import { ConnectionTestRegistry, type ConnectionTester } from '../integrations/connection-tester';
 
@@ -8,6 +8,7 @@ import { ConnectionTestRegistry, type ConnectionTester } from '../integrations/c
 @Injectable()
 export class PokpayConnectionTester implements ConnectionTester, OnModuleInit {
   readonly provider = 'POKPAY' as const;
+  private readonly logger = new Logger(PokpayConnectionTester.name);
 
   constructor(@Inject(ConnectionTestRegistry) private readonly registry: ConnectionTestRegistry) {}
 
@@ -40,13 +41,25 @@ export class PokpayConnectionTester implements ConnectionTester, OnModuleInit {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ keyId, keySecret }),
       });
-      const body = (await login.json().catch(() => null)) as {
-        data?: { accessToken?: string };
-      } | null;
-      if (!login.ok || !body?.data?.accessToken)
+      const rawBody = await login.text();
+      const body = (() => {
+        try {
+          return JSON.parse(rawBody) as { data?: { accessToken?: string } };
+        } catch {
+          return null;
+        }
+      })();
+      if (!login.ok || !body?.data?.accessToken) {
+        this.logger.warn(
+          `PokPay auth test failed for keyId ${keyId}: status=${login.status} body=${rawBody.slice(0, 500)}`,
+        );
         return { ok: false, message: 'PokPay authentication failed.' };
+      }
       return { ok: true, message: 'Connected to PokPay successfully.' };
-    } catch {
+    } catch (error) {
+      this.logger.warn(
+        `PokPay auth test threw for keyId ${keyId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return { ok: false, message: 'Could not reach PokPay.' };
     }
   }

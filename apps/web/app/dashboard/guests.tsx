@@ -5,6 +5,7 @@ import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tan
 import { useEffect, useMemo, useState } from 'react';
 import { fetchPropertyBookings } from './reservations';
 import { DashboardLoadingSkeleton } from './loading-skeleton';
+import styles from './data-table.module.css';
 type Guest = {
   id: string;
   email: string;
@@ -90,6 +91,7 @@ export function DashboardGuests({
       <div role="alert">
         <Text>{error.message}</Text>
         <button
+          className="must-button must-button--secondary"
           onClick={() => {
             void guestsQuery.refetch();
             void bookingsQuery.refetch();
@@ -110,36 +112,41 @@ export function DashboardGuests({
         <Text tone="secondary">Guest directory and property booking history.</Text>
       </header>
       <input
+        className="must-input"
         aria-label="Search guests"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         placeholder="Name, email, or phone"
       />
       <Card>
-        <table>
-          <thead>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <th key={header.id} colSpan={header.colSpan}>
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.map((row) => (
-              <tr key={row.id}>
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
+              {table.getHeaderGroups().map((headerGroup) => (
+                <tr key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => (
+                    <th key={header.id} colSpan={header.colSpan}>
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(header.column.columnDef.header, header.getContext())}
+                    </th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.map((row) => (
+                <tr key={row.id}>
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </Card>
       {selected ? (
         <Card>
