@@ -7,6 +7,20 @@ const context = {
   propertyId: '00000000-0000-4000-8000-000000000002',
 };
 
+function makeProvider(
+  credentials: Record<string, string> | null = {
+    keyId: 'key-id',
+    keySecret: 'key-secret',
+    merchantId: 'merchant-id',
+    webhookUrl: 'https://api.example.test/webhooks/pokpay',
+  },
+) {
+  const connections = {
+    activePaymentConnectionCredentials: vi.fn().mockResolvedValue(credentials),
+  };
+  return new PokPayPaymentProvider(connections as never);
+}
+
 describe('PokPayPaymentProvider', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -18,10 +32,6 @@ describe('PokPayPaymentProvider', () => {
   });
 
   it('creates SDK orders and uses authenticated authoritative order reads', async () => {
-    process.env.POKPAY_KEY_ID = 'key-id';
-    process.env.POKPAY_KEY_SECRET = 'key-secret';
-    process.env.POKPAY_MERCHANT_ID = 'merchant-id';
-    process.env.POKPAY_WEBHOOK_URL = 'https://api.example.test/webhooks/pokpay';
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(json({ data: { accessToken: 'token' } }))
@@ -41,7 +51,7 @@ describe('PokPayPaymentProvider', () => {
         }),
       );
     vi.stubGlobal('fetch', fetchMock);
-    const provider = new PokPayPaymentProvider();
+    const provider = makeProvider();
 
     await expect(
       provider.createCheckoutSession(context, {
@@ -72,7 +82,7 @@ describe('PokPayPaymentProvider', () => {
 
   it('does not represent an unsigned callback as verified', async () => {
     await expect(
-      new PokPayPaymentProvider().verifyWebhookEvent(context, new Uint8Array(), ''),
+      makeProvider().verifyWebhookEvent(context, new Uint8Array(), ''),
     ).resolves.toMatchObject({
       ok: false,
       error: { code: 'POKPAY_AUTHORITATIVE_REREAD_REQUIRED' },
@@ -86,7 +96,7 @@ describe('PokPayPaymentProvider', () => {
     const fetchMock = vi.fn().mockResolvedValue(json({ data: { accessToken: 'token' } }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(new PokPayPaymentProvider().checkHealth()).resolves.toEqual({ ok: true });
+    await expect(makeProvider().checkHealth()).resolves.toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
       'https://api-staging.pokpay.io/auth/sdk/login',

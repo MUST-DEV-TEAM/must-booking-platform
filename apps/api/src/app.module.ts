@@ -60,6 +60,7 @@ import { PublicCatalogService } from './tenancy/public-catalog.service';
 import { PublicCorsService } from './tenancy/public-cors.service';
 import { BookingStateMachine } from './booking/booking-state-machine';
 import { LocalPmsProvider, PMS_PROVIDER } from './booking/local-pms.provider';
+import { PmsProviderRegistry } from './booking/pms-provider-registry';
 import { QuoteController } from './booking/quote.controller';
 import { QuoteService } from './booking/quote.service';
 import { BookingController } from './booking/booking.controller';
@@ -70,6 +71,8 @@ import { CancellationLinkService } from './booking/cancellation-link.service';
 import { PAYMENT_PROVIDER } from './payments/payment.provider';
 import { StripePaymentProvider } from './payments/stripe-payment.provider';
 import { PokPayPaymentProvider } from './payments/pokpay-payment.provider';
+import { StripeConnectionTester } from './payments/stripe-connection-tester';
+import { PokpayConnectionTester } from './payments/pokpay-connection-tester';
 import { PaymentProviderRegistry } from './payments/payment-provider-registry';
 import { PokPayPaymentService } from './payments/pokpay-payment.service';
 import { PokPayWebhookController } from './payments/pokpay-webhook.controller';
@@ -207,6 +210,8 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     { provide: PMS_PROVIDER, useExisting: LocalPmsProvider },
     StripePaymentProvider,
     PokPayPaymentProvider,
+    StripeConnectionTester,
+    PokpayConnectionTester,
     PaymentProviderRegistry,
     PokPayPaymentService,
     StripeWebhookService,
@@ -225,6 +230,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ClockConnectionPingService,
     ClockConnectionTester,
     ClockPmsProvider,
+    PmsProviderRegistry,
     ClockCatalogSyncService,
     ClockAvailabilityService,
     ClockBookingService,

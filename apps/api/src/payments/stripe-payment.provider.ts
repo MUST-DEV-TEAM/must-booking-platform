@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import {
   type CheckoutSession,
   type CreateCheckoutSessionCommand,
@@ -11,10 +11,20 @@ import {
 } from '@must/domain-contracts';
 import Stripe from 'stripe';
 
+import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
+
 @Injectable()
 export class StripePaymentProvider implements PaymentProvider {
+  constructor(
+    @Inject(IntegrationConnectionsService)
+    private readonly connections: IntegrationConnectionsService,
+  ) {}
+
+  // Platform-wide diagnostic (provider-health.service.ts), not tenant-scoped —
+  // intentionally still reads the server environment, unlike the tenant-facing
+  // methods below (ADR-0026: guest checkout uses the tenant's own connection).
   async checkHealth(): Promise<{ ok: boolean; error?: string }> {
-    const secretKey = this.secretKey();
+    const secretKey = this.platformSecretKey();
     if (!secretKey) return { ok: false, error: 'Stripe is not configured.' };
 
     try {
@@ -29,13 +39,9 @@ export class StripePaymentProvider implements PaymentProvider {
     context: PaymentProviderContext,
     command: CreateCheckoutSessionCommand,
   ): Promise<Result<CheckoutSession>> {
-    const secretKey = this.secretKey();
-    if (!secretKey) {
-      return this.failure(
-        'STRIPE_NOT_CONFIGURED',
-        'Stripe checkout is not configured for this environment.',
-      );
-    }
+    const configured = await this.tenantSecretKey(context);
+    if (!configured.ok) return configured;
+    const secretKey = configured.value;
     if (!secretKey.startsWith('sk_test_')) {
       return this.failure(
         'STRIPE_TEST_MODE_REQUIRED',
@@ -85,13 +91,19 @@ export class StripePaymentProvider implements PaymentProvider {
     }
   }
 
+  // Deliberately still platform-wide, not tenant-owned: the webhook secret is
+  // what proves which tenant sent this event in the first place (the caller,
+  // stripe-webhook.controller.ts, has no real tenant context yet at this
+  // point — see WEBHOOK_VERIFICATION_CONTEXT there). Routing this per tenant
+  // (mirroring Clock's webhookPublicId-per-connection pattern) is real,
+  // separate follow-up work, not part of Milestone 11.5 Task 1's scope.
   async verifyWebhookEvent(
     context: PaymentProviderContext,
     rawBody: Uint8Array,
     signature: string,
   ): Promise<Result<PaymentWebhookEvent>> {
     void context;
-    const secretKey = this.secretKey();
+    const secretKey = this.platformSecretKey();
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
     if (!secretKey || !webhookSecret) {
       return this.failure(
@@ -146,11 +158,9 @@ export class StripePaymentProvider implements PaymentProvider {
   }
 
   async refund(context: PaymentProviderContext, command: RefundCommand): Promise<Result<Payment>> {
-    void context;
-    const secretKey = this.secretKey();
-    if (!secretKey) {
-      return this.failure('STRIPE_NOT_CONFIGURED', 'Stripe refunds are not configured.');
-    }
+    const configured = await this.tenantSecretKey(context);
+    if (!configured.ok) return configured;
+    const secretKey = configured.value;
     if (!secretKey.startsWith('sk_test_')) {
       return this.failure(
         'STRIPE_TEST_MODE_REQUIRED',
@@ -194,9 +204,27 @@ export class StripePaymentProvider implements PaymentProvider {
     return null;
   }
 
-  private secretKey(): string | null {
+  private platformSecretKey(): string | null {
     const value = process.env.STRIPE_SECRET_KEY?.trim();
     return value || null;
+  }
+
+  /** Reads the tenant's own Stripe connection for this property (ADR-0026) —
+   * never the server environment. A property with no enabled Stripe
+   * connection cannot take Stripe payments, same as having none configured. */
+  private async tenantSecretKey(context: PaymentProviderContext): Promise<Result<string>> {
+    const credentials = await this.connections.activePaymentConnectionCredentials(
+      context.tenantId,
+      context.propertyId,
+      'STRIPE',
+    );
+    const secretKey = credentials?.secretKey?.trim();
+    if (!secretKey)
+      return this.failure(
+        'STRIPE_NOT_CONFIGURED',
+        'Stripe checkout is not configured for this property.',
+      );
+    return { ok: true, value: secretKey };
   }
 
   private amountInCents(amount: string): Stripe.Decimal {

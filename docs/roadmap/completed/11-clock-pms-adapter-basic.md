@@ -3,6 +3,8 @@
 Status: Done (2026-08-04)
 Depends on: Milestone 4 (booking domain/`PmsProvider`); [ADR-0026](../../decisions/ADR-0026-tenant-integration-connections.md) (tenant-owned integration connections — this milestone builds that foundation, then Clock on top of it); reference material: `docs/source/clock-pms-integration.pdf`
 
+**Post-close-out fix (2026-08-05):** Task 10/16's "no genuine Clock-confirmed booking possible" finding was wrong — it was a real code bug, not an account limitation. `ClockAvailabilityService`/`ClockBookingService` used Clock's rate-*plan* id (`/rate_plans`) as the `rates`/`rate_id` parameter instead of the room-type-scoped rate id from `/rates/` (Clock: "1 Rate belongs to 1 Room Type"). Fixed same day; a real booking create → confirm → cancel cycle is now proven end to end against DBL. No Clock support right was requested or needed. Full details: `docs/CLOCK_SANDBOX_VALIDATION_REPORT.md`.
+
 **Carried forward from Milestone 2 (Task 7, 2026-07-28):** Milestone 2's Free-plan limit enforcement could not gate PMS connections — no PMS-connection endpoint existed at all yet. When this milestone builds Task 2's tenant Integrations UI (the actual "connect a PMS" mutation point), add enforcement of `plans.pms_enabled` there: a plan without PMS access must have connection attempts rejected outright (feature gate, not a count), per ADR-0007.
 
 ## Goal

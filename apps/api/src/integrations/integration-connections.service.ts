@@ -202,6 +202,38 @@ export class IntegrationConnectionsService {
     });
   }
 
+  /**
+   * Internal-only: the decrypted credentials for a property's active
+   * connection for a given payment provider (if any). Never exposed through
+   * the controller — the only callers are payment providers (StripePaymentProvider,
+   * PokPayPaymentProvider) that need real credentials to act on the tenant's
+   * behalf. Unlike PMS, a property may have more than one enabled payment
+   * connection at once (e.g. both Stripe and PokPay) — the caller already
+   * knows which provider it needs.
+   */
+  async activePaymentConnectionCredentials(
+    tenantId: string,
+    propertyId: string,
+    provider: 'STRIPE' | 'POKPAY',
+  ): Promise<Record<string, string> | null> {
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const rows = await tx.$queryRawUnsafe<Array<{ encryptedCredentials: string }>>(
+        `SELECT c.encrypted_credentials AS "encryptedCredentials"
+         FROM integration_connections c
+         JOIN property_integration_connections pic
+           ON pic.tenant_id = c.tenant_id AND pic.connection_id = c.id
+         WHERE c.tenant_id = $1::uuid AND pic.property_id = $2::uuid
+           AND c.kind = 'PAYMENT' AND c.provider = $3::"IntegrationProvider" AND pic.enabled = true
+         LIMIT 1`,
+        tenantId,
+        propertyId,
+        provider,
+      );
+      if (!rows[0]) return null;
+      return this.cipher.decrypt(rows[0].encryptedCredentials);
+    });
+  }
+
   async setPropertyConnection(
     tenantId: string,
     propertyId: string,

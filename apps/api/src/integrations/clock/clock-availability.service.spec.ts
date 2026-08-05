@@ -69,7 +69,10 @@ describe('ClockAvailabilityService.getAvailability', () => {
   it('summarizes availability across every night of the stay, requiring every night to be free', async () => {
     const request = vi
       .fn()
-      .mockResolvedValueOnce({ status: 200, body: [69242] }) // /rate_plans
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType' }],
+      }) // /rates/
       .mockResolvedValueOnce({
         status: 200,
         body: [
@@ -115,7 +118,10 @@ describe('ClockAvailabilityService.getAvailability', () => {
   it('is unavailable when any occupied night is missing or not free', async () => {
     const request = vi
       .fn()
-      .mockResolvedValueOnce({ status: 200, body: [69242] })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType' }],
+      })
       .mockResolvedValueOnce({
         status: 200,
         body: [
@@ -149,7 +155,10 @@ describe('ClockAvailabilityService.getAvailability', () => {
   it('caches a result for the same room type and date range', async () => {
     const request = vi
       .fn()
-      .mockResolvedValueOnce({ status: 200, body: [69242] })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType' }],
+      })
       .mockResolvedValueOnce({
         status: 200,
         body: [

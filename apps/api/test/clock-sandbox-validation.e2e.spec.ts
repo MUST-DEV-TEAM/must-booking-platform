@@ -13,13 +13,17 @@ import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 
 // Milestone 11 Task 16: the milestone's actual "done" gate — one chained
 // real-sandbox flow covering connect, sync catalog, confirm mappings, check
-// availability, attempt a booking create, attempt a cancel. See
+// availability, create a real booking, cancel it. See
 // docs/CLOCK_SANDBOX_VALIDATION_REPORT.md for the Definition of Done
-// checklist this test backs, and for why booking creation cannot reach a
-// real CONFIRMED state in this specific sandbox account (no configured
-// rate/availability data, and the API user lacks the "Rate Availability
-// Control Override" right — both are Clock-account-side facts, not code
-// gaps; see that report for what unblocking them requires).
+// checklist this test backs.
+//
+// 2026-08-05: this now runs the full flow to a genuine Clock-confirmed
+// success. What used to look like an account limitation (no rate/availability
+// data, missing "Rate Availability Control Override" right) traced to a real
+// code bug: booking creation used the Clock *rate plan* id (`/rate_plans`, a
+// parent grouping) as the booking's `rate_id`, instead of the room-type-scoped
+// *rate* id from `/rates/` (Clock's own docs: "1 Rate belongs to 1 Room
+// Type"). DBL is the room type confirmed to have a real Clock rate.
 const hasSandboxCredentials =
   !!process.env.CLOCK_SANDBOX_API_USER &&
   !!process.env.CLOCK_SANDBOX_API_KEY &&
@@ -151,8 +155,11 @@ describe.skipIf(!hasSandboxCredentials)('Clock sandbox validation (Task 16, real
       .get(`${tenantUrl}/properties/${propertyId}/clock-catalog/mappings`)
       .set('Cookie', cookie)
       .expect(200);
+    // DBL is confirmed (2026-08-05) to have a real Clock rate and real
+    // availability — target it by name for a deterministic assertion.
     const roomTypeMapping = mappings.body.find(
-      (m: { entityType: string }) => m.entityType === 'ROOM_TYPE',
+      (m: { entityType: string; externalName: string }) =>
+        m.entityType === 'ROOM_TYPE' && m.externalName === 'DBL',
     );
     expect(roomTypeMapping).toBeDefined();
     await request(app!.getHttpServer())
@@ -166,22 +173,18 @@ describe.skipIf(!hasSandboxCredentials)('Clock sandbox validation (Task 16, real
     `;
     expect(localRoomType[0]).toBeDefined();
 
-    // 4. Check availability: real /rates_availability call, well-formed
-    // Result either way (this sandbox account has no configured availability
-    // data for any room type — see docs/CLOCK_SANDBOX_VALIDATION_REPORT.md).
+    // 4. Check availability: real /rates_availability call against DBL,
+    // which has real rate/price data configured in this sandbox.
     const availability = app!.get(ClockAvailabilityService);
     const availabilityResult = await availability.getAvailability(tenantId, propertyId, {
       roomTypeId: localRoomType[0]!.id,
-      startsOn: '2026-09-20',
-      endsOn: '2026-09-22',
+      startsOn: '2026-08-16',
+      endsOn: '2026-08-18',
     });
     expect(availabilityResult.ok).toBe(true);
+    if (availabilityResult.ok) expect(availabilityResult.value.isAvailable).toBe(true);
 
-    // 5. Attempt to create a booking. Real contract, real classified
-    // outcome — Clock rejects it because this sandbox has no
-    // rate/availability configured for any room type (confirmed
-    // independently across Tasks 8-10). A clean, correctly-classified
-    // rejection IS the expected, verified outcome for this account.
+    // 5. Create a real booking. Genuine Clock-confirmed success.
     const ratePlanId = randomUUID();
     await admin.$executeRaw`
       INSERT INTO rate_plans (id, tenant_id, property_id, name, currency, is_active)
@@ -194,8 +197,8 @@ describe.skipIf(!hasSandboxCredentials)('Clock sandbox validation (Task 16, real
       externalReference: `must-validation-${randomUUID()}`,
       roomTypeId: localRoomType[0]!.id,
       ratePlanId,
-      startsOn: '2026-09-20',
-      endsOn: '2026-09-22',
+      startsOn: '2026-08-16',
+      endsOn: '2026-08-18',
       guest: {
         email: 'validation-guest@example.test',
         firstName: 'Val',
@@ -204,8 +207,8 @@ describe.skipIf(!hasSandboxCredentials)('Clock sandbox validation (Task 16, real
       },
       total: { amount: '100.00', currency: 'EUR' },
     });
-    expect(createResult.ok).toBe(false);
-    if (!createResult.ok) expect(createResult.error.code).not.toBe('');
+    expect(createResult.ok).toBe(true);
+    if (createResult.ok) expect(createResult.value.externalBookingId).toMatch(/^\d+$/);
 
     const bookingRow = await admin.$queryRaw<
       Array<{ id: string; status: string; externalBookingId: string | null }>
@@ -213,21 +216,16 @@ describe.skipIf(!hasSandboxCredentials)('Clock sandbox validation (Task 16, real
       SELECT id, status, external_booking_id AS "externalBookingId" FROM bookings
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
     `;
-    expect(bookingRow[0]?.status).toBe('PMS_REJECTED');
-    expect(bookingRow[0]?.externalBookingId).toBeNull();
+    expect(bookingRow[0]?.status).toBe('CONFIRMED');
+    expect(bookingRow[0]?.externalBookingId).toMatch(/^\d+$/);
 
-    // 6. Cancel: cannot be exercised against a real Clock-confirmed booking
-    // in this account, since step 5 never produces one (see the report).
-    // What IS real: BookingStateMachine explicitly allows PMS_REJECTED ->
-    // CANCELLED (a rejected booking is closeable), and since this booking
-    // has no externalBookingId, ClockBookingService correctly cancels it
-    // locally without attempting a pointless Clock API call for a booking
-    // Clock never actually has.
+    // 6. Cancel: real Clock-side cancellation (lock_version re-fetch + PUT
+    // status=canceled) against a real, Clock-confirmed booking.
     const cancelResult = await bookingService.cancelBooking(context, {
       idempotencyKey: `clock-sandbox-validation-cancel-${randomUUID()}`,
       bookingId: bookingRow[0]!.id,
       expectedVersion: 1,
-      reason: 'Sandbox validation — closing out a rejected booking.',
+      reason: 'Sandbox validation — end-to-end cleanup.',
     });
     expect(cancelResult.ok).toBe(true);
     const cancelledRow = await admin.$queryRaw<Array<{ status: string }>>`

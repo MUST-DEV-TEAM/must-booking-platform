@@ -130,6 +130,7 @@ describe('properties', () => {
         checkInTime: 'whenever guests arrive',
         checkOutTime: 'after breakfast',
         advanceBookingDays: 10,
+        freeCancellationDaysBeforeArrival: 14,
       })
       .expect(200);
     expect(updated.body).toMatchObject({
@@ -143,6 +144,7 @@ describe('properties', () => {
       checkInTime: 'whenever guests arrive',
       checkOutTime: 'after breakfast',
       advanceBookingDays: 10,
+      freeCancellationDaysBeforeArrival: 14,
     });
     const roomTypeId = randomUUID();
     const ratePlanId = randomUUID();

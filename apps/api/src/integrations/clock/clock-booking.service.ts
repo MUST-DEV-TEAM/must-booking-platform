@@ -133,7 +133,7 @@ export class ClockBookingService {
             ? await this.mappedExternalId(tx, context, 'ROOM', command.roomId)
             : null;
 
-          const rate = await this.singleRatePlanId(connection.value);
+          const rate = await this.rateIdForRoomType(connection.value, externalRoomTypeId);
           if (!rate.ok) return rate;
 
           const guestId = await this.resolveGuest(tx, context.tenantId, command.guest);
@@ -295,6 +295,243 @@ export class ClockBookingService {
     );
   }
 
+  /**
+   * Milestone 11.5 Task 4: attaches a real Clock reservation to a booking
+   * that already exists locally — unlike createBooking, which always INSERTs
+   * a brand new row, this UPDATEs the given one. For use once LocalPmsProvider's
+   * own orchestration (quote validation, room reservation, guest resolution)
+   * has already succeeded and, for online payment, the guest has already
+   * paid (ADR-0001: the Clock call only ever happens after that, never
+   * before). Precondition, owned by the caller: the booking is already in
+   * PMS_CREATION_PENDING. On any failure the booking moves to
+   * PMS_UNKNOWN_RESULT and a ManualReviewItem is recorded — never PMS_REJECTED
+   * or an auto-cancel/refund, because unlike a fresh createBooking attempt
+   * the guest has already been charged for this one; only a human closes it
+   * out from here.
+   */
+  async attachRealReservation(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    bookingId: string,
+  ): Promise<Result<Booking>> {
+    const connection = await this.credentials(context);
+    if (!connection.ok) return connection;
+
+    const row = await this.bookingById(tx, context, bookingId);
+    if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
+    if (row.externalBookingId) return { ok: true, value: this.toBooking(row)! };
+
+    const guestRows = await tx.$queryRaw<
+      Array<{ email: string; firstName: string | null; lastName: string | null }>
+    >`
+      SELECT email, first_name AS "firstName", last_name AS "lastName" FROM guests
+      WHERE id = ${row.guestId}::uuid AND tenant_id = ${context.tenantId}::uuid
+    `;
+    const guest = guestRows[0];
+    if (!guest) return this.failure('BOOKING_GUEST_NOT_FOUND', 'Booking guest was not found.');
+
+    const externalRoomTypeId = await this.mappedExternalId(
+      tx,
+      context,
+      'ROOM_TYPE',
+      row.roomTypeId,
+    );
+    if (!externalRoomTypeId)
+      return this.failure(
+        'clock_configuration',
+        'This room type has no confirmed Clock catalog mapping — sync and confirm it first.',
+      );
+    const externalRoomId = row.roomId
+      ? await this.mappedExternalId(tx, context, 'ROOM', row.roomId)
+      : null;
+
+    const rate = await this.rateIdForRoomType(connection.value, externalRoomTypeId);
+    if (!rate.ok) return rate;
+
+    const response = await this.fetch<ClockBookingResource>(connection.value, {
+      method: 'POST',
+      path: '/bookings/',
+      body: {
+        booking: {
+          arrival: row.startsOn,
+          departure: row.endsOn,
+          status: 'expected',
+          arrival_room_type_id: Number(externalRoomTypeId),
+          arrival_room_id: externalRoomId ? Number(externalRoomId) : null,
+          rate_id: Number(rate.value),
+          reference_number: row.externalReference,
+          guest_e_mail: guest.email,
+          guest_first_name: guest.firstName ?? '',
+          guest_last_name: guest.lastName ?? '',
+        },
+      },
+    });
+
+    if (!response.ok) {
+      if (response.error.category === 'timeout' || response.error.category === 'network') {
+        const linked = await this.linkIfClockHasIt(
+          tx,
+          context,
+          connection.value,
+          bookingId,
+          row.externalReference,
+        );
+        if (linked) return { ok: true, value: linked };
+      }
+      await this.transition(
+        tx,
+        context,
+        bookingId,
+        BookingStatus.PMS_CREATION_PENDING,
+        BookingStatus.PMS_UNKNOWN_RESULT,
+      );
+      await this.manualReview.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        category: 'UNKNOWN_RESULT',
+        referenceType: 'booking',
+        referenceId: bookingId,
+        message: `Payment was confirmed but the Clock reservation could not be created: ${response.error.message}`,
+        context: { externalReference: row.externalReference, errorCode: response.error.code },
+      });
+      return this.failure(response.error.code, response.error.message, response.error.retryable);
+    }
+
+    if (!isClockBookingResource(response.value)) {
+      await this.transition(
+        tx,
+        context,
+        bookingId,
+        BookingStatus.PMS_CREATION_PENDING,
+        BookingStatus.PMS_UNKNOWN_RESULT,
+      );
+      await this.manualReview.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        category: 'SCHEMA_MISMATCH',
+        referenceType: 'booking',
+        referenceId: bookingId,
+        message: 'Clock returned a 2xx booking-create response that did not match the expected shape.',
+        context: { externalReference: row.externalReference, response: response.value },
+      });
+      return this.failure(
+        'clock_schema_mismatch',
+        'Clock returned an unrecognized booking response shape.',
+        false,
+      );
+    }
+
+    await tx.$executeRaw`
+      UPDATE bookings SET external_booking_id = ${String(response.value.id)} WHERE id = ${bookingId}::uuid
+    `;
+    const attachedStatus = await this.transition(
+      tx,
+      context,
+      bookingId,
+      BookingStatus.PMS_CREATION_PENDING,
+      BookingStatus.PMS_CONFIRMATION_PENDING,
+    );
+    await this.transition(tx, context, bookingId, attachedStatus, BookingStatus.CONFIRMED);
+    await this.audit.recordInTransaction(tx, {
+      tenantId: context.tenantId,
+      propertyId: context.propertyId,
+      actorUserId: null,
+      action: 'booking.clock_reservation_created',
+      targetType: 'booking',
+      targetId: bookingId,
+      details: { externalBookingId: String(response.value.id) },
+    });
+    const updated = await this.bookingById(tx, context, bookingId);
+    return updated && this.toBooking(updated)
+      ? { ok: true, value: this.toBooking(updated)! }
+      : this.failure('BOOKING_NOT_FOUND', 'Booking could not be reloaded.');
+  }
+
+  /**
+   * Milestone 11.5 Task 5: records that the guest already paid online as a
+   * plain note on the booking (Clock's documented `booking[note]` field via
+   * PUT) — deliberately NOT a real folio/credit_item posting. Verified for
+   * real (2026-08-05) that Clock's own accounting nets *any* posted payment,
+   * on *any* folio (deposit or standard), into the booking's aggregate
+   * Balance shown on the dashboard's own "Balance / Notes" panel — even a
+   * separate deposit=true folio's credit_item reduces it, because Clock
+   * treats a posted payment as money received against the stay, full stop.
+   * There is no Clock-side flag that opts a folio out of that netting. Since
+   * the owner wants the dashboard's Balance to keep requesting the full
+   * amount and hotel staff to reconcile the deposit manually themselves, a
+   * note (zero effect on any folio or balance) is the only mechanism that
+   * satisfies that — at the cost of the deposit not being a real, reportable
+   * financial record inside Clock, only a visible note staff read. Only
+   * ever called after attachRealReservation has succeeded. A failure here
+   * does not undo the reservation (the booking is genuinely confirmed at
+   * Clock); it records a ManualReviewItem instead so a human adds the note.
+   */
+  async postDeposit(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    bookingId: string,
+    amount: { amount: string; currency: string },
+    paymentType: string,
+    reference: string,
+  ): Promise<Result<void>> {
+    const connection = await this.credentials(context);
+    if (!connection.ok) return connection;
+
+    const row = await this.bookingById(tx, context, bookingId);
+    if (!row?.externalBookingId)
+      return this.failure(
+        'CLOCK_BOOKING_MISSING',
+        'This booking has no real Clock reservation to note a deposit against.',
+      );
+
+    const current = await this.fetch<ClockBookingResource>(connection.value, {
+      method: 'GET',
+      path: `/bookings/${row.externalBookingId}`,
+    });
+    if (!current.ok) {
+      await this.manualReview.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        category: 'PAYMENT_BOOKING_MISMATCH',
+        referenceType: 'booking',
+        referenceId: bookingId,
+        message: `Booking is confirmed at Clock but could not be re-read to record the deposit note: ${current.error.message}`,
+        context: { externalBookingId: row.externalBookingId, errorCode: current.error.code },
+      });
+      return this.failure(current.error.code, current.error.message, current.error.retryable);
+    }
+
+    const note = `Deposit received: ${amount.amount} ${amount.currency} (${paymentType}, ${reference}). Not applied to the folio balance — front desk reconciles at check-in.`;
+    const response = await this.fetch<ClockBookingResource>(connection.value, {
+      method: 'PUT',
+      path: `/bookings/${row.externalBookingId}`,
+      body: { booking: { note, lock_version: current.value.lock_version } },
+    });
+    if (!response.ok) {
+      await this.manualReview.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        category: 'PAYMENT_BOOKING_MISMATCH',
+        referenceType: 'booking',
+        referenceId: bookingId,
+        message: `Booking is confirmed at Clock but the deposit note could not be recorded: ${response.error.message}`,
+        context: { externalBookingId: row.externalBookingId, errorCode: response.error.code },
+      });
+      return this.failure(response.error.code, response.error.message, response.error.retryable);
+    }
+
+    await this.audit.recordInTransaction(tx, {
+      tenantId: context.tenantId,
+      propertyId: context.propertyId,
+      actorUserId: null,
+      action: 'booking.clock_deposit_noted',
+      targetType: 'booking',
+      targetId: bookingId,
+      details: { externalBookingId: row.externalBookingId, amount, paymentType, reference },
+    });
+    return { ok: true, value: undefined };
+  }
+
   async updateBooking(
     context: PmsProviderContext,
     command: UpdateBookingCommand,
@@ -375,13 +612,40 @@ export class ClockBookingService {
     );
   }
 
+  /**
+   * The real Clock-calling part of a cancellation (GET current lock_version,
+   * PUT status=canceled) — public so LocalPmsProvider.cancelBooking
+   * (Milestone 11.5 Task 6) can call it as a sub-step of its own
+   * transaction/orchestration (refund policy, availability release), the
+   * same way attachRealReservation works for creation. Pure outbound Clock
+   * call, no local DB writes — the caller applies its own local CANCELLED
+   * transition. cancelBooking below reuses this too, rather than
+   * duplicating the two Clock calls.
+   */
+  async cancelRealReservation(
+    context: PmsProviderContext,
+    externalBookingId: string,
+  ): Promise<Result<void>> {
+    const connection = await this.credentials(context);
+    if (!connection.ok) return connection;
+    const current = await this.fetch<ClockBookingResource>(connection.value, {
+      method: 'GET',
+      path: `/bookings/${externalBookingId}`,
+    });
+    if (!current.ok) return this.failure(current.error.code, current.error.message);
+    const response = await this.fetch<ClockBookingResource>(connection.value, {
+      method: 'PUT',
+      path: `/bookings/${externalBookingId}`,
+      body: { booking: { status: 'canceled', lock_version: current.value.lock_version } },
+    });
+    if (!response.ok) return this.failure(response.error.code, response.error.message);
+    return { ok: true, value: undefined };
+  }
+
   async cancelBooking(
     context: PmsProviderContext,
     command: CancelBookingCommand,
   ): Promise<Result<Booking>> {
-    // Fetched outside the transaction below — see the note in createBooking.
-    const connection = await this.credentials(context);
-
     return this.database.withTenantTransaction(
       context,
       (tx) =>
@@ -401,18 +665,8 @@ export class ClockBookingService {
             );
 
           if (row.externalBookingId) {
-            if (!connection.ok) return connection;
-            const current = await this.fetch<ClockBookingResource>(connection.value, {
-              method: 'GET',
-              path: `/bookings/${row.externalBookingId}`,
-            });
-            if (!current.ok) return this.failure(current.error.code, current.error.message);
-            const response = await this.fetch<ClockBookingResource>(connection.value, {
-              method: 'PUT',
-              path: `/bookings/${row.externalBookingId}`,
-              body: { booking: { status: 'canceled', lock_version: current.value.lock_version } },
-            });
-            if (!response.ok) return this.failure(response.error.code, response.error.message);
+            const cancelled = await this.cancelRealReservation(context, row.externalBookingId);
+            if (!cancelled.ok) return cancelled;
           }
 
           this.stateMachine.transition(row.status, BookingStatus.CANCELLED);
@@ -557,25 +811,38 @@ export class ClockBookingService {
     return rows[0]?.externalEntityId ?? null;
   }
 
-  /** Clock has no rate-plan catalog mapping yet (Task 7 only tracks room
-   * types/rooms) — a "basic" milestone simplification: if the property's
-   * Clock account has exactly one rate plan, use it; otherwise this is
-   * genuinely ambiguous and reported as a clear configuration error rather
-   * than guessing. Follow-up: extend the catalog mapping to RATE_PLAN. */
-  private async singleRatePlanId(credentials: ClockConnectionCredentials): Promise<Result<string>> {
-    const response = await this.fetch<Array<number | string>>(credentials, {
-      method: 'GET',
-      path: '/rate_plans',
-    });
+  /** A Clock "Rate Plan" (`/rate_plans`, e.g. id 69242) is a parent grouping
+   * only — `/bookings/` requires the child "Rate" id from `/rates/` (e.g.
+   * 784160), scoped to exactly one room type (`bookable_type:
+   * "Pms::RoomType"`, `bookable_id`). Confirmed against the real sandbox
+   * (2026-08-05) via Clock's own public Postman docs' "Data Mapping and Room
+   * Type / Rate Structure" note: "1 Rate belongs to 1 Room Type". Using the
+   * rate-plan id directly (as this method used to) silently matches nothing
+   * and Clock reports it as "not available" rather than "unknown rate id".
+   * Clock has no rate catalog mapping yet (Task 7 only tracks room
+   * types/rooms) — a "basic" milestone simplification: if this room type has
+   * exactly one Clock rate, use it; otherwise this is genuinely ambiguous
+   * and reported as a clear configuration error rather than guessing. */
+  private async rateIdForRoomType(
+    credentials: ClockConnectionCredentials,
+    externalRoomTypeId: string,
+  ): Promise<Result<string>> {
+    const response = await this.fetch<
+      Array<{ id: number | string; bookable_id: number | string; bookable_type: string }>
+    >(credentials, { method: 'GET', path: '/rates/' });
     if (!response.ok) return response;
-    if (response.value.length !== 1)
+    const matches = response.value.filter(
+      (rate) =>
+        rate.bookable_type === 'Pms::RoomType' && String(rate.bookable_id) === externalRoomTypeId,
+    );
+    if (matches.length !== 1)
       return this.failure(
         'clock_configuration',
-        response.value.length === 0
-          ? 'This Clock property has no rate plans configured yet.'
-          : 'This Clock property has multiple rate plans — automatic rate selection is not supported yet.',
+        matches.length === 0
+          ? 'This room type has no rate configured in Clock yet.'
+          : 'This room type has multiple Clock rates — automatic rate selection is not supported yet.',
       );
-    return { ok: true, value: String(response.value[0]) };
+    return { ok: true, value: String(matches[0]!.id) };
   }
 
   private async resolveGuest(
@@ -773,6 +1040,7 @@ export class ClockBookingService {
       path: string;
       body?: unknown;
       query?: Record<string, string>;
+      api?: 'pms_api' | 'base_api';
     },
   ): Promise<ClockOutcome<T>> {
     const breakerKey = credentials.apiUser;
@@ -800,7 +1068,7 @@ export class ClockBookingService {
 
     try {
       const response = await this.client.request<T>(credentials, {
-        api: 'pms_api',
+        api: options.api ?? 'pms_api',
         method: options.method,
         path: options.path,
         query: options.query,

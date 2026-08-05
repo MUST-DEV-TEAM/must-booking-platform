@@ -24,6 +24,7 @@ import { TenantScoped } from '../tenancy/tenant-context.decorator';
 import { LocalPmsProvider } from './local-pms.provider';
 import { BookingProjectionService } from './booking-projection.service';
 import { CancellationLinkService } from './cancellation-link.service';
+import { PmsProviderRegistry } from './pms-provider-registry';
 
 type GuestBookingRequest = {
   tenantContext: { tenantId: string; propertyId: string };
@@ -33,7 +34,11 @@ type GuestBookingRequest = {
 @Controller('tenants/:tenantId/properties/:propertyId/bookings')
 export class BookingController {
   constructor(
+    // create() deliberately stays on LocalPmsProvider directly — see
+    // PmsProviderRegistry's own doc comment for why creation can't safely
+    // dispatch yet. update()/cancel() resolve per property via the registry.
     @Inject(LocalPmsProvider) private readonly provider: LocalPmsProvider,
+    @Inject(PmsProviderRegistry) private readonly providers: PmsProviderRegistry,
     @Inject(BookingProjectionService) private readonly projections: BookingProjectionService,
     @Inject(CancellationLinkService) private readonly cancellations: CancellationLinkService,
   ) {}
@@ -92,8 +97,12 @@ export class BookingController {
     @Req() request: GuestBookingRequest,
   ) {
     const value = (body ?? {}) as Record<string, unknown>;
+    const provider = await this.providers.forProperty(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+    );
     return this.noConflict(
-      await this.provider.updateBooking(request.tenantContext, {
+      await provider.updateBooking(request.tenantContext, {
         idempotencyKey: this.idempotencyKey(idempotencyKey),
         bookingId,
         guestSessionId: request.guestSessionId,
@@ -114,6 +123,13 @@ export class BookingController {
     @Req() request: GuestBookingRequest,
   ) {
     const value = (body ?? {}) as Record<string, unknown>;
+    // Milestone 11.5 Task 6: cancellation always goes through LocalPmsProvider
+    // directly (not the registry) — it owns the refund policy and the
+    // self-service cancellation window, and internally calls Clock's real
+    // cancellation as a sub-step when the property is Clock-connected.
+    // Dispatching through the registry here would bypass that entirely for
+    // Clock-connected properties (ClockBookingService.cancelBooking alone
+    // knows nothing about refunds or the cancellation window).
     return this.noConflict(
       await this.provider.cancelBooking(request.tenantContext, {
         idempotencyKey: this.idempotencyKey(idempotencyKey),

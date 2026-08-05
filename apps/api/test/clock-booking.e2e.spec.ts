@@ -15,15 +15,13 @@ import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 // ClockPmsProvider isn't the DI-bound PMS_PROVIDER), so this exercises the
 // real service directly out of the app's DI container.
 //
-// The demo sandbox account has no rate/availability configured for any room
-// type (confirmed during this task's research — see docs/CLOCK_ENDPOINT_MATRIX.md)
-// and its API user lacks the "Booking: Rate Availability Control Override"
-// right, so a real booking CREATE always comes back as a clean validation
-// rejection from Clock, never a success. That rejection path (and the
-// idempotency replay around it) is exactly what this test verifies for
-// real — update/cancel against an actually-confirmed Clock booking could
-// not be exercised in this account and remains a gap for Task 16 or once
-// the account is reconfigured.
+// 2026-08-05: the sandbox account has real rate/availability data (DBL, rate
+// 784160, confirmed against Clock — see docs/CLOCK_SANDBOX_VALIDATION_REPORT.md).
+// Booking creation must genuinely succeed and produce a real Clock booking id.
+// (Earlier "always rejected" behavior traced to a real bug, not an account
+// limitation: the code used the Clock *rate plan* id (`/rate_plans`, a parent
+// grouping) as the booking's `rate_id` instead of the room-type-scoped *rate*
+// id from `/rates/` — Clock's own docs: "1 Rate belongs to 1 Room Type".)
 const hasSandboxCredentials =
   !!process.env.CLOCK_SANDBOX_API_USER &&
   !!process.env.CLOCK_SANDBOX_API_KEY &&
@@ -80,7 +78,7 @@ describe.skipIf(!hasSandboxCredentials)('Clock booking CRUD (real sandbox)', () 
     await admin.$disconnect();
   });
 
-  it('rejects a booking Clock has no availability for, cleanly and idempotently', async () => {
+  it('creates a real, Clock-confirmed booking idempotently and cancels it for real', async () => {
     const signup = await request(app!.getHttpServer())
       .post('/auth/signup')
       .send({
@@ -146,8 +144,11 @@ describe.skipIf(!hasSandboxCredentials)('Clock booking CRUD (real sandbox)', () 
       .get(`${tenantUrl}/properties/${propertyId}/clock-catalog/mappings`)
       .set('Cookie', cookie)
       .expect(200);
+    // DBL is confirmed (2026-08-05) to have a real Clock rate and real
+    // availability — target it by name for a deterministic assertion.
     const roomTypeMapping = mappings.body.find(
-      (m: { entityType: string }) => m.entityType === 'ROOM_TYPE',
+      (m: { entityType: string; externalName: string }) =>
+        m.entityType === 'ROOM_TYPE' && m.externalName === 'DBL',
     );
     expect(roomTypeMapping).toBeDefined();
     await request(app!.getHttpServer())
@@ -174,23 +175,24 @@ describe.skipIf(!hasSandboxCredentials)('Clock booking CRUD (real sandbox)', () 
       externalReference: `must-e2e-${randomUUID()}`,
       roomTypeId: localRoomType[0]!.id,
       ratePlanId,
-      startsOn: '2026-09-15',
-      endsOn: '2026-09-17',
+      startsOn: '2026-08-16',
+      endsOn: '2026-08-18',
       guest: { email: 'guest@example.test', firstName: 'E2E', lastName: 'Guest', phone: null },
       total: { amount: '100.00', currency: 'EUR' },
     };
 
     const first = await bookingService.createBooking(context, command);
-    expect(first.ok).toBe(false);
-    if (!first.ok) {
-      expect(first.error.retryable).toBe(false);
-      expect(first.error.message.length).toBeGreaterThan(0);
-    }
+    expect(first.ok).toBe(true);
+    if (first.ok) expect(first.value.externalBookingId).toMatch(/^\d+$/);
 
-    const bookingRow = await admin.$queryRaw<Array<{ id: string; status: string }>>`
-      SELECT id, status FROM bookings WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+    const bookingRow = await admin.$queryRaw<
+      Array<{ id: string; status: string; externalBookingId: string | null }>
+    >`
+      SELECT id, status, external_booking_id AS "externalBookingId" FROM bookings
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
     `;
-    expect(bookingRow[0]?.status).toBe('PMS_REJECTED');
+    expect(bookingRow[0]?.status).toBe('CONFIRMED');
+    expect(bookingRow[0]?.externalBookingId).toMatch(/^\d+$/);
 
     // Task 13: every Clock booking operation writes to AuditLogService.
     const auditRows = await admin.$queryRaw<Array<{ action: string }>>`
@@ -211,7 +213,22 @@ describe.skipIf(!hasSandboxCredentials)('Clock booking CRUD (real sandbox)', () 
       SELECT attempts, status FROM integration_operations
       WHERE tenant_id = ${tenantId}::uuid AND idempotency_key = ${idempotencyKey}
     `;
-    expect(operation[0]?.status).toBe('FAILED');
+    expect(operation[0]?.status).toBe('SUCCEEDED');
     expect(operation[0]?.attempts).toBe(2);
+
+    // Real cancellation against a real, Clock-confirmed booking — the
+    // lock_version re-fetch + PUT status=canceled path, never exercised for
+    // real before 2026-08-05 since no booking had ever reached CONFIRMED.
+    const cancelResult = await bookingService.cancelBooking(context, {
+      idempotencyKey: `clock-booking-e2e-cancel-${randomUUID()}`,
+      bookingId: bookingRow[0]!.id,
+      expectedVersion: 1,
+      reason: 'E2E test cleanup.',
+    });
+    expect(cancelResult.ok).toBe(true);
+    const cancelledRow = await admin.$queryRaw<Array<{ status: string }>>`
+      SELECT status FROM bookings WHERE id = ${bookingRow[0]!.id}::uuid
+    `;
+    expect(cancelledRow[0]?.status).toBe('CANCELLED');
   }, 30_000);
 });

@@ -18,6 +18,7 @@ let property = {
   checkInTime: '15:00',
   checkOutTime: '11:00',
   advanceBookingDays: 90,
+  freeCancellationDaysBeforeArrival: 21,
   bookingMode: 'ROOM_TYPE_ONLY' as 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED',
 };
 

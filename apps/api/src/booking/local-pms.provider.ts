@@ -28,6 +28,8 @@ import { BookingStateMachine } from './booking-state-machine';
 import { bookingNeedsAttention } from './booking-attention';
 import { QuoteService } from './quote.service';
 import { NotificationsService } from '../tenancy/notifications.service';
+import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
+import { ClockBookingService } from '../integrations/clock/clock-booking.service';
 
 export const PMS_PROVIDER = Symbol('PMS_PROVIDER');
 
@@ -55,6 +57,7 @@ type BookingRow = {
   totalAmount: string;
   currency: string;
   externalReference: string;
+  externalBookingId: string | null;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -95,7 +98,23 @@ export class LocalPmsProvider implements PmsProvider {
     @Inject(BookingConfirmationNotificationService)
     private readonly confirmations: BookingConfirmationNotificationService,
     @Inject(NotificationsService) private readonly notificationsService: NotificationsService,
+    @Inject(IntegrationConnectionsService)
+    private readonly connections: IntegrationConnectionsService,
+    @Inject(ClockBookingService) private readonly clockBooking: ClockBookingService,
   ) {}
+
+  /** Milestone 11.5 Task 4/2: whether this property should get a real Clock
+   * reservation once its local booking is valid (and, for online payment,
+   * paid). Deliberately not routed through PmsProviderRegistry here — that
+   * would create a constructor cycle (the registry itself depends on this
+   * class) and isn't needed: this only ever wants one specific answer. */
+  private async isClockConnected(context: PmsProviderContext): Promise<boolean> {
+    const connection = await this.connections.activePmsConnectionCredentials(
+      context.tenantId,
+      context.propertyId,
+    );
+    return connection?.provider === 'CLOCK_PMS';
+  }
 
   async testConnection(context: PmsProviderContext): Promise<Result<void>> {
     void context;
@@ -424,6 +443,21 @@ export class LocalPmsProvider implements PmsProvider {
               BookingStatus.PMS_CREATION_PENDING,
             );
 
+            // Milestone 11.5 Task 4: pay-at-hotel has no payment to gate on
+            // (nothing charged online), so a Clock-connected property's real
+            // reservation is created right here rather than deferred —
+            // there's no ADR-0001 premature-inventory risk for this method.
+            if (await this.isClockConnected(context)) {
+              const attached = await this.clockBooking.attachRealReservation(
+                tx,
+                context,
+                bookingId,
+              );
+              if (attached.ok && attached.value.paymentMethod === BookingPaymentMethod.PAY_AT_HOTEL)
+                payAtHotelConfirmationBookingId = attached.value.id;
+              return attached;
+            }
+
             status = await this.transition(
               tx,
               context,
@@ -552,6 +586,40 @@ export class LocalPmsProvider implements PmsProvider {
       row.status,
       BookingStatus.PMS_CREATION_PENDING,
     );
+
+    // Milestone 11.5 Task 4 (ADR-0001 payment-first ordering): payment is
+    // already confirmed at this point (the caller only reaches
+    // continueAfterPayment from a verified gateway webhook) — this is where
+    // a Clock-connected property's real reservation gets created, never
+    // earlier. attachRealReservation owns its own transitions on both
+    // success (-> CONFIRMED) and failure (-> PMS_UNKNOWN_RESULT + manual
+    // review; never a silent retry or auto-refund, since the guest has
+    // already paid).
+    if (await this.isClockConnected(context)) {
+      const attached = await this.clockBooking.attachRealReservation(tx, context, bookingId);
+      // Milestone 11.5 Task 5: the deposit posts only once the reservation
+      // itself is real — a failure here is recorded (inside postDeposit) as
+      // a ManualReviewItem, not surfaced as an overall failure, since the
+      // booking is genuinely confirmed at Clock at this point; only the
+      // secondary accounting entry needs a human.
+      if (attached.ok) {
+        // 'on-line' is one of Clock's own fixed payment_type values (cash,
+        // card, bank, debit, on-line, check, vaucher, other, transfer,
+        // crossaccounttransfer, tip, barter) — the specific gateway
+        // (Stripe/PokPay) isn't one of Clock's categories, so it goes in the
+        // reference/text instead, not payment_type itself.
+        await this.clockBooking.postDeposit(
+          tx,
+          context,
+          bookingId,
+          { amount: row.totalAmount, currency: row.currency },
+          'on-line',
+          `${row.paymentMethod === BookingPaymentMethod.STRIPE_CHECKOUT ? 'Stripe' : 'PokPay'}: ${row.externalReference}`,
+        );
+      }
+      return attached;
+    }
+
     status = await this.transition(
       tx,
       context,
@@ -631,6 +699,35 @@ export class LocalPmsProvider implements PmsProvider {
               'INVALID_BOOKING_STATE',
               `Booking cannot be cancelled from ${row.status}.`,
             );
+
+          // Milestone 11.5 Task 6: self-service cancellation window, separate
+          // from the rate plan's own refund-eligibility policy below — this
+          // is an access gate (can the guest cancel online at all), not a
+          // money question. Every cancellation reaching this point is
+          // guest-initiated (row.guestSessionId matched command.guestSessionId
+          // above; staff-created bookings have no guest session and can
+          // never match here today), so this applies unconditionally.
+          const selfServiceWindow = await tx.$queryRaw<Array<{ canCancel: boolean }>>`
+            SELECT CURRENT_TIMESTAMP <= (b.starts_on::timestamp AT TIME ZONE p.timezone)
+              - make_interval(days => p.free_cancellation_days_before_arrival) AS "canCancel"
+            FROM bookings b JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
+            WHERE b.id = ${row.id}::uuid AND b.tenant_id = ${context.tenantId}::uuid
+          `;
+          if (selfServiceWindow[0]?.canCancel === false)
+            return this.failure(
+              'CANCELLATION_WINDOW_CLOSED',
+              'This booking is too close to arrival to cancel online. Please contact the hotel directly.',
+            );
+
+          if (await this.isClockConnected(context)) {
+            if (row.externalBookingId) {
+              const cancelledAtClock = await this.clockBooking.cancelRealReservation(
+                context,
+                row.externalBookingId,
+              );
+              if (!cancelledAtClock.ok) return cancelledAtClock;
+            }
+          }
 
           const cancellationPolicy = await this.cancellationPolicy(tx, context, row.id);
           if (cancellationPolicy.isFree) {
@@ -1004,6 +1101,7 @@ export class LocalPmsProvider implements PmsProvider {
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
         b.payment_method AS "paymentMethod",
         b.total_amount::text AS "totalAmount", rp.currency, b.external_reference AS "externalReference",
+        b.external_booking_id AS "externalBookingId",
         b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
       FROM bookings b JOIN rate_plans rp
         ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
@@ -1050,7 +1148,7 @@ export class LocalPmsProvider implements PmsProvider {
       paymentMethod: row.paymentMethod,
       total: { amount: row.totalAmount, currency: row.currency },
       externalReference: row.externalReference,
-      externalBookingId: row.id,
+      externalBookingId: row.externalBookingId ?? row.id,
       version: row.version,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),

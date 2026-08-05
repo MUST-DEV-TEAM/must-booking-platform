@@ -11,6 +11,13 @@ const context = {
 };
 const bookingId = '33333333-3333-4333-8333-333333333333';
 
+function makeProvider(tenantSecretKey = secretKey) {
+  const connections = {
+    activePaymentConnectionCredentials: vi.fn().mockResolvedValue({ secretKey: tenantSecretKey }),
+  };
+  return new StripePaymentProvider(connections as never);
+}
+
 const payload = JSON.stringify({
   id: 'evt_test_checkout_completed',
   object: 'event',
@@ -54,7 +61,7 @@ describe('StripePaymentProvider.refund', () => {
       .mockResolvedValue({ id: 're_test_refund', status: 'succeeded' } as Stripe.Refund);
 
     await expect(
-      new StripePaymentProvider().refund(context, {
+      makeProvider().refund(context, {
         idempotencyKey: 'refund-attempt-1',
         paymentId: 'cs_test_original',
         amount: { amount: '12.34', currency: 'EUR' },
@@ -85,7 +92,7 @@ describe('StripePaymentProvider.checkHealth', () => {
     };
     const retrieve = vi.spyOn(balance, 'retrieve').mockResolvedValue({} as Stripe.Balance);
 
-    await expect(new StripePaymentProvider().checkHealth()).resolves.toEqual({ ok: true });
+    await expect(makeProvider().checkHealth()).resolves.toEqual({ ok: true });
     expect(retrieve).toHaveBeenCalledOnce();
   });
 });
@@ -100,7 +107,7 @@ describe('StripePaymentProvider.verifyWebhookEvent', () => {
     });
 
     await expect(
-      new StripePaymentProvider().verifyWebhookEvent(context, Buffer.from(payload), signature),
+      makeProvider().verifyWebhookEvent(context, Buffer.from(payload), signature),
     ).resolves.toEqual({
       ok: true,
       value: {
@@ -122,7 +129,7 @@ describe('StripePaymentProvider.verifyWebhookEvent', () => {
       payload,
       secret: webhookSecret,
     });
-    const provider = new StripePaymentProvider();
+    const provider = makeProvider();
 
     await expect(
       provider.verifyWebhookEvent(context, Buffer.from(payload), ''),

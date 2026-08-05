@@ -18,6 +18,7 @@ type Property = {
   checkInTime: string | null;
   checkOutTime: string | null;
   advanceBookingDays: number | null;
+  freeCancellationDaysBeforeArrival: number;
   bookingMode: BookingMode;
 };
 
@@ -28,7 +29,12 @@ type PlanUsage = { plan: { name: string } };
 type IdentityFields = Pick<Property, 'name' | 'address' | 'timezone'>;
 type RuleFields = Pick<
   Property,
-  'minStayNights' | 'maxStayNights' | 'checkInTime' | 'checkOutTime' | 'advanceBookingDays'
+  | 'minStayNights'
+  | 'maxStayNights'
+  | 'checkInTime'
+  | 'checkOutTime'
+  | 'advanceBookingDays'
+  | 'freeCancellationDaysBeforeArrival'
 >;
 
 const ruleKeys = [
@@ -37,6 +43,7 @@ const ruleKeys = [
   'checkInTime',
   'checkOutTime',
   'advanceBookingDays',
+  'freeCancellationDaysBeforeArrival',
 ] as const;
 
 function rulesFrom(property: Property): RuleFields {
@@ -46,6 +53,7 @@ function rulesFrom(property: Property): RuleFields {
     checkInTime: property.checkInTime,
     checkOutTime: property.checkOutTime,
     advanceBookingDays: property.advanceBookingDays,
+    freeCancellationDaysBeforeArrival: property.freeCancellationDaysBeforeArrival,
   };
 }
 
@@ -265,6 +273,27 @@ export function DashboardSettings({
                 }
               />
             </label>
+            <label>
+              Free cancellation window (days before arrival)
+              <input
+                aria-label="Free cancellation window (days before arrival)"
+                type="number"
+                min="0"
+                value={String(rules.freeCancellationDaysBeforeArrival)}
+                onChange={(event) =>
+                  setRules({
+                    ...rules,
+                    freeCancellationDaysBeforeArrival:
+                      event.target.value === '' ? 0 : Number(event.target.value),
+                  })
+                }
+              />
+            </label>
+            <p>
+              Cancellations requested at least this many days before arrival are refunded
+              automatically. Closer to arrival, the guest is directed to contact the hotel and staff
+              handle the cancellation manually.
+            </p>
             <p>
               Check-in and check-out times are displayed to guests. They do not validate or block
               bookings.

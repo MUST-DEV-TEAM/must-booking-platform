@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import {
   type CheckoutSession,
   type CreateCheckoutSessionCommand,
@@ -9,6 +9,8 @@ import {
   type RefundCommand,
   type Result,
 } from '@must/domain-contracts';
+
+import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
 
 type PokPayOrder = {
   id?: string;
@@ -34,6 +36,11 @@ type PokPayConfiguration = {
 
 @Injectable()
 export class PokPayPaymentProvider implements PaymentProvider {
+  constructor(
+    @Inject(IntegrationConnectionsService)
+    private readonly connections: IntegrationConnectionsService,
+  ) {}
+
   async checkHealth(): Promise<{ ok: boolean; error?: string }> {
     const configuration = this.healthConfiguration();
     if (!configuration.ok) return { ok: false, error: configuration.error.message };
@@ -46,7 +53,7 @@ export class PokPayPaymentProvider implements PaymentProvider {
     context: PaymentProviderContext,
     command: CreateCheckoutSessionCommand,
   ): Promise<Result<CheckoutSession>> {
-    const configuration = this.configuration();
+    const configuration = await this.configuration(context);
     if (!configuration.ok) return configuration;
 
     const authenticated = await this.authenticatedRequest(configuration.value, {
@@ -73,7 +80,6 @@ export class PokPayPaymentProvider implements PaymentProvider {
         true,
       );
 
-    void context;
     return { ok: true, value: { id: order.id, url: order._self.confirmUrl } };
   }
 
@@ -94,7 +100,7 @@ export class PokPayPaymentProvider implements PaymentProvider {
   }
 
   async refund(context: PaymentProviderContext, command: RefundCommand): Promise<Result<Payment>> {
-    const configuration = this.configuration();
+    const configuration = await this.configuration(context);
     if (!configuration.ok) return configuration;
     const response = await this.authenticatedRequest(configuration.value, {
       method: 'POST',
@@ -120,7 +126,7 @@ export class PokPayPaymentProvider implements PaymentProvider {
   }
 
   async getPayment(context: PaymentProviderContext, paymentId: string): Promise<Payment | null> {
-    const configuration = this.configuration();
+    const configuration = await this.configuration(context);
     if (!configuration.ok) return null;
     const response = await this.authenticatedRequest(configuration.value, {
       method: 'GET',
@@ -129,7 +135,6 @@ export class PokPayPaymentProvider implements PaymentProvider {
     if (!response.ok) return null;
     const order = response.value.data?.sdkOrder;
     if (!order?.id || order.amount === undefined || !order.currencyCode) return null;
-    void context;
     return {
       id: order.id,
       bookingId: paymentId,
@@ -141,18 +146,29 @@ export class PokPayPaymentProvider implements PaymentProvider {
     };
   }
 
-  private configuration(): Result<PokPayConfiguration> {
-    const keyId = process.env.POKPAY_KEY_ID?.trim();
-    const keySecret = process.env.POKPAY_KEY_SECRET?.trim();
-    const merchantId = process.env.POKPAY_MERCHANT_ID?.trim();
-    const webhookUrl = process.env.POKPAY_WEBHOOK_URL?.trim();
-    const baseUrl = (
-      process.env.POKPAY_API_BASE_URL?.trim() || 'https://api-staging.pokpay.io'
-    ).replace(/\/$/, '');
+  /** Reads the tenant's own PokPay connection for this property (ADR-0026) —
+   * never the server environment. A property with no enabled PokPay
+   * connection cannot take PokPay payments, same as having none configured. */
+  private async configuration(
+    context: PaymentProviderContext,
+  ): Promise<Result<PokPayConfiguration>> {
+    const credentials = await this.connections.activePaymentConnectionCredentials(
+      context.tenantId,
+      context.propertyId,
+      'POKPAY',
+    );
+    const keyId = credentials?.keyId?.trim();
+    const keySecret = credentials?.keySecret?.trim();
+    const merchantId = credentials?.merchantId?.trim();
+    const webhookUrl = credentials?.webhookUrl?.trim();
+    const baseUrl = (credentials?.baseUrl?.trim() || 'https://api-staging.pokpay.io').replace(
+      /\/$/,
+      '',
+    );
     if (!keyId || !keySecret || !merchantId || !webhookUrl)
       return this.failure(
         'POKPAY_NOT_CONFIGURED',
-        'PokPay is not configured for this environment.',
+        'PokPay is not configured for this property.',
       );
     if (baseUrl !== 'https://api-staging.pokpay.io')
       return this.failure(
@@ -162,7 +178,7 @@ export class PokPayPaymentProvider implements PaymentProvider {
     try {
       new URL(webhookUrl);
     } catch {
-      return this.failure('POKPAY_WEBHOOK_URL_INVALID', 'POKPAY_WEBHOOK_URL must be a valid URL.');
+      return this.failure('POKPAY_WEBHOOK_URL_INVALID', 'webhookUrl must be a valid URL.');
     }
     return { ok: true, value: { baseUrl, keyId, keySecret, merchantId, webhookUrl } };
   }

@@ -38,7 +38,7 @@ interface CacheEntry<T> {
 @Injectable()
 export class ClockAvailabilityService {
   private readonly availabilityCache = new Map<string, CacheEntry<AvailabilityResult>>();
-  private readonly ratePlanIdsCache = new Map<string, CacheEntry<string[]>>();
+  private readonly ratesCache = new Map<string, CacheEntry<string[]>>();
 
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
@@ -86,11 +86,11 @@ export class ClockAvailabilityService {
       if (cached && cached.expiresAt > Date.now()) return { ok: true, value: cached.value };
     }
 
-    const ratePlanIds = await this.ratePlanIds(parsed.value);
-    if (!ratePlanIds.ok) return failure(ratePlanIds.error);
-    if (ratePlanIds.value.length === 0)
+    const rateIds = await this.ratesForRoomType(parsed.value, externalRoomTypeId);
+    if (!rateIds.ok) return failure(rateIds.error);
+    if (rateIds.value.length === 0)
       return failure(
-        classifyConfigurationError('This Clock property has no rate plans configured yet.'),
+        classifyConfigurationError('This room type has no rate configured in Clock yet.'),
       );
 
     const nights = nightsBetween(query.startsOn, query.endsOn);
@@ -100,7 +100,7 @@ export class ClockAvailabilityService {
     const response = await this.fetch<ClockRateAvailabilityResponse>(parsed.value, {
       from: query.startsOn,
       to: nights[nights.length - 1],
-      rates: ratePlanIds.value,
+      rates: rateIds.value,
       room_types: externalRoomTypeId,
     });
     if (!response.ok) return failure(response.error);
@@ -128,21 +128,35 @@ export class ClockAvailabilityService {
     return rows[0]?.externalEntityId ?? null;
   }
 
-  private async ratePlanIds(
+  /** A Clock "Rate Plan" (`/rate_plans`, e.g. id 69242) is a parent grouping
+   * only — it carries no room-type/price/availability data. `/bookings/`,
+   * `/rates_availability` and `/products` all require the child "Rate" id
+   * from `/rates/` (e.g. 784160 for room type 41994), which is scoped to
+   * exactly one room type (`bookable_type: "Pms::RoomType"`, `bookable_id`).
+   * Confirmed against the real sandbox (2026-08-05) via Clock's own public
+   * Postman docs' "Data Mapping and Room Type / Rate Structure" note:
+   * "1 Rate belongs to 1 Room Type". Using the rate-plan id directly (as
+   * this method used to) silently matches nothing and Clock reports it as
+   * "not available" rather than "unknown rate id". */
+  private async ratesForRoomType(
     credentials: ClockConnectionCredentials,
+    externalRoomTypeId: string,
   ): Promise<ClockOutcome<string[]>> {
-    const cacheKey = credentials.apiUser;
-    const cached = this.ratePlanIdsCache.get(cacheKey);
+    const cacheKey = `${credentials.apiUser}:${externalRoomTypeId}`;
+    const cached = this.ratesCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) return { ok: true, value: cached.value };
 
-    const response = await this.fetch<Array<number | string>>(
-      credentials,
-      undefined,
-      '/rate_plans',
-    );
+    const response = await this.fetch<
+      Array<{ id: number | string; bookable_id: number | string; bookable_type: string }>
+    >(credentials, undefined, '/rates/');
     if (!response.ok) return response;
-    const ids = response.value.map(String);
-    this.ratePlanIdsCache.set(cacheKey, { value: ids, expiresAt: Date.now() + CACHE_TTL_MS });
+    const ids = response.value
+      .filter(
+        (rate) =>
+          rate.bookable_type === 'Pms::RoomType' && String(rate.bookable_id) === externalRoomTypeId,
+      )
+      .map((rate) => String(rate.id));
+    this.ratesCache.set(cacheKey, { value: ids, expiresAt: Date.now() + CACHE_TTL_MS });
     return { ok: true, value: ids };
   }
 

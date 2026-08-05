@@ -137,8 +137,13 @@ describe.skipIf(!hasSandboxCredentials)('Clock getAvailability (real sandbox)', 
       .get(`${tenantUrl}/properties/${propertyId}/clock-catalog/mappings`)
       .set('Cookie', cookie)
       .expect(200);
+    // Not every room type in this account has a Clock rate configured (Clock
+    // allows 0..n rates per room type) — DBL is confirmed (2026-08-05) to have
+    // a real rate (784160) and real availability, so target it by name for a
+    // deterministic assertion rather than "whichever mapping comes first".
     const roomTypeMapping = mappings.body.find(
-      (m: { entityType: string }) => m.entityType === 'ROOM_TYPE',
+      (m: { entityType: string; externalName: string }) =>
+        m.entityType === 'ROOM_TYPE' && m.externalName === 'DBL',
     );
     expect(roomTypeMapping).toBeDefined();
     await request(app!.getHttpServer())
@@ -156,19 +161,19 @@ describe.skipIf(!hasSandboxCredentials)('Clock getAvailability (real sandbox)', 
     const availability = app!.get(ClockAvailabilityService);
     const result = await availability.getAvailability(tenantId, propertyId, {
       roomTypeId: localRoomType[0].id,
-      startsOn: '2026-09-10',
-      endsOn: '2026-09-12',
+      startsOn: '2026-08-16',
+      endsOn: '2026-08-18',
     });
 
-    // The real request contract (rates + room_types, CONFIRMED against Clock's
-    // own public API docs) must succeed — whether the demo account actually
-    // has live rate/availability data configured for these dates is separate
-    // from whether the request itself is well-formed and authenticated.
+    // 2026-08-05: DBL has real rate/availability data configured in the
+    // sandbox for these dates (confirmed directly against Clock, see
+    // docs/CLOCK_SANDBOX_VALIDATION_REPORT.md) — this must be a genuine
+    // success with real availability, not just a well-formed request.
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.roomTypeId).toBe(localRoomType[0].id);
-      expect(typeof result.value.isAvailable).toBe('boolean');
-      expect(typeof result.value.availableUnits).toBe('number');
+      expect(result.value.isAvailable).toBe(true);
+      expect(result.value.availableUnits).toBeGreaterThan(0);
     }
   }, 30_000);
 });

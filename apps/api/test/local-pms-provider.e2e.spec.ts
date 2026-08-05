@@ -55,7 +55,10 @@ describe('LocalPmsProvider', () => {
   const refundCommands: Parameters<PaymentProvider['refund']>[1][] = [];
   const pokpayOrders = new Map<string, { amount: string; currency: string; status: string }>();
   let pokpayAmountOverride: string | undefined;
-  const stripe = new StripePaymentProvider();
+  // Only used below for verifyWebhookEvent's signature parsing, which stays
+  // environment-based (not tenant-owned) — the injected service is never
+  // called in that path, so a stub is sufficient here.
+  const stripe = new StripePaymentProvider({} as never);
   const email = `local-pms-${randomUUID()}@example.test`;
   const mail: MailProvider = {
     async sendVerificationEmail(command) {
@@ -2087,6 +2090,11 @@ describe('LocalPmsProvider', () => {
       paymentMethod: 'stripe',
     });
     if (!pastCutoffBooking.ok) throw new Error('Expected past-cutoff booking to succeed.');
+    // Milestone 11.5 Task 6: this stay already started (arrival yesterday),
+    // so it's well within the property's self-service cancellation window
+    // (default 21 days before arrival) — self-service cancellation is
+    // blocked regardless of the rate plan's own refund-eligibility policy,
+    // and the guest is directed to contact the hotel.
     await expect(
       provider.cancelBooking(context, {
         idempotencyKey: randomUUID(),
@@ -2095,18 +2103,11 @@ describe('LocalPmsProvider', () => {
         expectedVersion: pastCutoffBooking.value.version,
         reason: null,
       }),
-    ).resolves.toMatchObject({ ok: true, value: { status: 'CANCELLED' } });
-    const pastCutoffPolicy = await admin.$queryRaw<
-      Array<{ isFree: boolean; freeUntilHours: number | null; cutoffAt: Date | null }>
-    >`
-      SELECT cancellation_is_free AS "isFree",
-        cancellation_free_until_hours AS "freeUntilHours",
-        cancellation_cutoff_at AS "cutoffAt"
-      FROM bookings WHERE id = ${pastCutoffBooking.value.id}::uuid
+    ).resolves.toMatchObject({ ok: false, error: { code: 'CANCELLATION_WINDOW_CLOSED' } });
+    const pastCutoffStatus = await admin.$queryRaw<Array<{ status: string }>>`
+      SELECT status FROM bookings WHERE id = ${pastCutoffBooking.value.id}::uuid
     `;
-    expect(pastCutoffPolicy).toEqual([
-      { isFree: false, freeUntilHours: 0, cutoffAt: expect.any(Date) },
-    ]);
+    expect(pastCutoffStatus).toEqual([{ status: 'PAYMENT_PENDING' }]);
 
     await request(app!.getHttpServer())
       .patch(`${propertyUrl}/payment-gateways`)
