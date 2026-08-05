@@ -215,11 +215,16 @@ export function DashboardShell({
                 aria-label="Switch property"
                 value={selectedProperty?.id ?? ''}
                 onChange={(event) => {
+                  if (!event.target.value) {
+                    window.location.href = `/dashboard/${tenantId}`;
+                    return;
+                  }
                   setSelectedPropertyId(event.target.value);
                   setSection('overview');
                   window.location.href = `/dashboard/${tenantId}?propertyId=${encodeURIComponent(event.target.value)}&section=overview`;
                 }}
               >
+                <option value="">Main Dashboard</option>
                 {properties.map((property) => (
                   <option key={property.id} value={property.id}>
                     {property.name}
