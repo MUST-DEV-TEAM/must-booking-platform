@@ -1,4 +1,5 @@
 'use client';
+import { Text } from '@must/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FormEvent } from 'react';
 import { toast } from 'sonner';
@@ -72,14 +73,18 @@ export function PropertyManagement({ tenantId }: { tenantId: string }) {
   if (propertiesQuery.isPending)
     return (
       <section aria-label="Loading properties">
-        <p>Loading properties…</p>
+        <Text>Loading properties…</Text>
       </section>
     );
   if (propertiesQuery.isError)
     return (
       <section aria-label="Properties unavailable">
-        <p>{propertiesQuery.error.message}</p>
-        <button type="button" onClick={() => void propertiesQuery.refetch()}>
+        <Text>{propertiesQuery.error.message}</Text>
+        <button
+          className="must-button"
+          type="button"
+          onClick={() => void propertiesQuery.refetch()}
+        >
           Retry
         </button>
       </section>
@@ -87,8 +92,7 @@ export function PropertyManagement({ tenantId }: { tenantId: string }) {
 
   return (
     <section>
-      <h2>Properties</h2>
-      {atCap ? <aside role="status">Upgrade to unlock more properties.</aside> : null}
+      {atCap ? <Text tone="secondary">Upgrade to unlock more properties.</Text> : null}
       <ul>
         {properties.map((p) => (
           <li key={p.id}>
@@ -96,20 +100,22 @@ export function PropertyManagement({ tenantId }: { tenantId: string }) {
           </li>
         ))}
       </ul>
-      <form onSubmit={submit}>
-        <label>
-          Name
-          <input name="name" required disabled={atCap} />
+      <form className="must-stack must-stack--md" onSubmit={submit}>
+        <label className="must-field">
+          <span className="must-field__label">Name</span>
+          <input className="must-input" name="name" required disabled={atCap} />
         </label>
-        <label>
-          Address
-          <input name="address" required disabled={atCap} />
+        <label className="must-field">
+          <span className="must-field__label">Address</span>
+          <input className="must-input" name="address" required disabled={atCap} />
         </label>
-        <label>
-          Timezone
-          <input name="timezone" required disabled={atCap} />
+        <label className="must-field">
+          <span className="must-field__label">Timezone</span>
+          <input className="must-input" name="timezone" required disabled={atCap} />
         </label>
-        <button disabled={atCap}>Add property</button>
+        <button className="must-button must-button--primary" disabled={atCap}>
+          Add property
+        </button>
       </form>
     </section>
   );

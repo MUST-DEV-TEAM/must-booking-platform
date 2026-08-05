@@ -1,5 +1,6 @@
 'use client';
 
+import { Card, Heading, Stack, Text } from '@must/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FormEvent, useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -154,61 +155,64 @@ export function DashboardSettings({
   if (settingsQuery.isPending)
     return (
       <section aria-label="Loading settings">
-        <p>Loading settings…</p>
+        <Text>Loading settings…</Text>
       </section>
     );
   if (settingsQuery.isError)
     return (
-      <section aria-label="Settings unavailable">
-        <p>{settingsQuery.error.message}</p>
+      <Card>
+        <Text>{settingsQuery.error.message}</Text>
         <button className="must-button" type="button" onClick={() => void settingsQuery.refetch()}>
           Retry
         </button>
-      </section>
+      </Card>
     );
   if (!property || !identity || !rules || !bookingMode)
     return (
       <section aria-label="Loading settings">
-        <p>Loading settings…</p>
+        <Text>Loading settings…</Text>
       </section>
     );
 
   return (
-    <section aria-labelledby="settings-heading">
-      <h1 id="settings-heading">Settings</h1>
+    <Stack gap="lg">
+      <Heading level={1}>Settings</Heading>
 
-      <section aria-labelledby="hotel-identity-heading">
-        <h2 id="hotel-identity-heading">Hotel identity</h2>
-        {identity ? (
-          <form onSubmit={saveIdentity}>
-            <label>
-              Hotel name
+      <Card>
+        <Stack gap="md">
+          <Heading level={2}>Hotel identity</Heading>
+          <form className="must-stack must-stack--md" onSubmit={saveIdentity}>
+            <label className="must-field">
+              <span className="must-field__label">Hotel name</span>
               <input
+                className="must-input"
                 aria-label="Hotel name"
                 required
                 value={identity.name}
                 onChange={(event) => setIdentity({ ...identity, name: event.target.value })}
               />
             </label>
-            <label>
-              Address
+            <label className="must-field">
+              <span className="must-field__label">Address</span>
               <input
+                className="must-input"
                 aria-label="Address"
                 required
                 value={identity.address}
                 onChange={(event) => setIdentity({ ...identity, address: event.target.value })}
               />
             </label>
-            <label>
-              Timezone
+            <label className="must-field">
+              <span className="must-field__label">Timezone</span>
               <input
+                className="must-input"
                 aria-label="Timezone"
                 required
                 value={identity.timezone}
                 onChange={(event) => setIdentity({ ...identity, timezone: event.target.value })}
               />
             </label>
-            <button disabled={saveMutation.isPending}>
+            <button className="must-button must-button--primary" disabled={saveMutation.isPending}>
               {saveMutation.isPending ? (
                 <>
                   <Loader2 aria-hidden="true" size={16} /> Saving…
@@ -218,17 +222,20 @@ export function DashboardSettings({
               )}
             </button>
           </form>
-        ) : null}
-      </section>
+        </Stack>
+      </Card>
 
-      <section aria-labelledby="booking-rules-heading">
-        <h2 id="booking-rules-heading">Booking rules</h2>
-        <p>These rules are enforced when guests request a quote or booking.</p>
-        {rules ? (
-          <form onSubmit={saveRules}>
-            <label>
-              Minimum stay (nights)
+      <Card>
+        <Stack gap="md">
+          <Heading level={2}>Booking rules</Heading>
+          <Text tone="secondary">
+            These rules are enforced when guests request a quote or booking.
+          </Text>
+          <form className="must-stack must-stack--md" onSubmit={saveRules}>
+            <label className="must-field">
+              <span className="must-field__label">Minimum stay (nights)</span>
               <input
+                className="must-input"
                 aria-label="Minimum stay (nights)"
                 type="number"
                 min="1"
@@ -241,9 +248,10 @@ export function DashboardSettings({
                 }
               />
             </label>
-            <label>
-              Maximum stay (nights)
+            <label className="must-field">
+              <span className="must-field__label">Maximum stay (nights)</span>
               <input
+                className="must-input"
                 aria-label="Maximum stay (nights)"
                 type="number"
                 min="1"
@@ -256,9 +264,10 @@ export function DashboardSettings({
                 }
               />
             </label>
-            <label>
-              Advance booking window (days)
+            <label className="must-field">
+              <span className="must-field__label">Advance booking window (days)</span>
               <input
+                className="must-input"
                 aria-label="Advance booking window (days)"
                 type="number"
                 min="0"
@@ -272,9 +281,12 @@ export function DashboardSettings({
                 }
               />
             </label>
-            <label>
-              Free cancellation window (days before arrival)
+            <label className="must-field">
+              <span className="must-field__label">
+                Free cancellation window (days before arrival)
+              </span>
               <input
+                className="must-input"
                 aria-label="Free cancellation window (days before arrival)"
                 type="number"
                 min="0"
@@ -288,18 +300,19 @@ export function DashboardSettings({
                 }
               />
             </label>
-            <p>
+            <Text tone="secondary">
               Cancellations requested at least this many days before arrival are refunded
               automatically. Closer to arrival, the guest is directed to contact the hotel and staff
               handle the cancellation manually.
-            </p>
-            <p>
+            </Text>
+            <Text tone="secondary">
               Check-in and check-out times are displayed to guests. They do not validate or block
               bookings.
-            </p>
-            <label>
-              Check-in time
+            </Text>
+            <label className="must-field">
+              <span className="must-field__label">Check-in time</span>
               <input
+                className="must-input"
                 aria-label="Check-in time"
                 value={rules.checkInTime ?? ''}
                 onChange={(event) =>
@@ -307,9 +320,10 @@ export function DashboardSettings({
                 }
               />
             </label>
-            <label>
-              Check-out time
+            <label className="must-field">
+              <span className="must-field__label">Check-out time</span>
               <input
+                className="must-input"
                 aria-label="Check-out time"
                 value={rules.checkOutTime ?? ''}
                 onChange={(event) =>
@@ -317,7 +331,7 @@ export function DashboardSettings({
                 }
               />
             </label>
-            <button disabled={saveMutation.isPending}>
+            <button className="must-button must-button--primary" disabled={saveMutation.isPending}>
               {saveMutation.isPending ? (
                 <>
                   <Loader2 aria-hidden="true" size={16} /> Saving…
@@ -327,49 +341,62 @@ export function DashboardSettings({
               )}
             </button>
           </form>
-        ) : null}
-      </section>
+        </Stack>
+      </Card>
 
-      <section aria-labelledby="booking-mode-heading">
-        <h2 id="booking-mode-heading">Booking mode</h2>
-        <p>Choose whether guests book a room type, a specific room, or either option.</p>
-        <form onSubmit={saveBookingMode}>
-          <label>
-            Booking mode
-            <select
-              aria-label="Booking mode"
-              value={bookingMode}
-              onChange={(event) => setBookingMode(event.target.value as BookingMode)}
-            >
-              <option value="ROOM_TYPE_ONLY">Room-Type-Only</option>
-              <option value="INDIVIDUAL_ROOM_ONLY">Individual-Room-Only</option>
-              <option value="MIXED">Mixed</option>
-            </select>
-          </label>
-          <button disabled={saveMutation.isPending}>
-            {saveMutation.isPending ? (
-              <>
-                <Loader2 aria-hidden="true" size={16} /> Saving…
-              </>
-            ) : (
-              'Save booking mode'
-            )}
+      <Card>
+        <Stack gap="md">
+          <Heading level={2}>Booking mode</Heading>
+          <Text tone="secondary">
+            Choose whether guests book a room type, a specific room, or either option.
+          </Text>
+          <form className="must-stack must-stack--md" onSubmit={saveBookingMode}>
+            <label className="must-field">
+              <span className="must-field__label">Booking mode</span>
+              <select
+                className="must-input"
+                aria-label="Booking mode"
+                value={bookingMode}
+                onChange={(event) => setBookingMode(event.target.value as BookingMode)}
+              >
+                <option value="ROOM_TYPE_ONLY">Room-Type-Only</option>
+                <option value="INDIVIDUAL_ROOM_ONLY">Individual-Room-Only</option>
+                <option value="MIXED">Mixed</option>
+              </select>
+            </label>
+            <button className="must-button must-button--primary" disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? (
+                <>
+                  <Loader2 aria-hidden="true" size={16} /> Saving…
+                </>
+              ) : (
+                'Save booking mode'
+              )}
+            </button>
+          </form>
+        </Stack>
+      </Card>
+
+      <Card>
+        <Stack gap="md">
+          <Heading level={2}>Billing account</Heading>
+          <Text tone="secondary">Current plan: {planName ?? 'Loading…'}</Text>
+          <button
+            className="must-button must-button--secondary"
+            disabled
+            title="Billing management arrives in Milestone 13"
+          >
+            Billing management available in Milestone 13
           </button>
-        </form>
-      </section>
+        </Stack>
+      </Card>
 
-      <section aria-labelledby="billing-account-heading">
-        <h2 id="billing-account-heading">Billing account</h2>
-        <p>Current plan: {planName ?? 'Loading…'}</p>
-        <button disabled title="Billing management arrives in Milestone 13">
-          Billing management available in Milestone 13
-        </button>
-      </section>
-
-      <section aria-labelledby="manage-properties-heading">
-        <h2 id="manage-properties-heading">Manage properties</h2>
-        <PropertyManagement tenantId={tenantId} />
-      </section>
-    </section>
+      <Card>
+        <Stack gap="md">
+          <Heading level={2}>Manage properties</Heading>
+          <PropertyManagement tenantId={tenantId} />
+        </Stack>
+      </Card>
+    </Stack>
   );
 }
