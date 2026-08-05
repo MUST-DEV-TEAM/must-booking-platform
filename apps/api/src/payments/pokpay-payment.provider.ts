@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   type CheckoutSession,
   type CreateCheckoutSessionCommand,
@@ -36,6 +36,8 @@ type PokPayConfiguration = {
 
 @Injectable()
 export class PokPayPaymentProvider implements PaymentProvider {
+  private readonly logger = new Logger(PokPayPaymentProvider.name);
+
   constructor(
     @Inject(IntegrationConnectionsService)
     private readonly connections: IntegrationConnectionsService,
@@ -214,15 +216,23 @@ export class PokPayPaymentProvider implements PaymentProvider {
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
         ...(request.body ? { body: JSON.stringify(request.body) } : {}),
       });
-      const body = (await response.json()) as PokPayResponse;
-      return response.ok
-        ? { ok: true, value: body }
-        : this.failure(
-            'POKPAY_REQUEST_FAILED',
-            'PokPay could not process the payment request.',
-            response.status >= 500,
-          );
-    } catch {
+      const rawBody = await response.text();
+      if (!response.ok) {
+        this.logger.warn(
+          `PokPay ${request.method} ${request.path} failed: status=${response.status} body=${rawBody.slice(0, 500)}`,
+        );
+        return this.failure(
+          'POKPAY_REQUEST_FAILED',
+          'PokPay could not process the payment request.',
+          response.status >= 500,
+        );
+      }
+      const body = JSON.parse(rawBody) as PokPayResponse;
+      return { ok: true, value: body };
+    } catch (error) {
+      this.logger.warn(
+        `PokPay ${request.method} ${request.path} threw: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return this.failure(
         'POKPAY_REQUEST_FAILED',
         'PokPay could not process the payment request.',
@@ -238,12 +248,26 @@ export class PokPayPaymentProvider implements PaymentProvider {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ keyId: configuration.keyId, keySecret: configuration.keySecret }),
       });
-      const loginBody = (await login.json()) as PokPayResponse;
-      const token = loginBody.data?.accessToken;
-      if (!login.ok || !token)
+      const rawBody = await login.text();
+      const loginBody = (() => {
+        try {
+          return JSON.parse(rawBody) as PokPayResponse;
+        } catch {
+          return null;
+        }
+      })();
+      const token = loginBody?.data?.accessToken;
+      if (!login.ok || !token) {
+        this.logger.warn(
+          `PokPay auth failed for keyId ${configuration.keyId}: status=${login.status} body=${rawBody.slice(0, 500)}`,
+        );
         return this.failure('POKPAY_AUTH_FAILED', 'PokPay authentication failed.', true);
+      }
       return { ok: true, value: token };
-    } catch {
+    } catch (error) {
+      this.logger.warn(
+        `PokPay auth threw for keyId ${configuration.keyId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return this.failure('POKPAY_AUTH_FAILED', 'PokPay authentication failed.', true);
     }
   }
