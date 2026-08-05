@@ -2,6 +2,7 @@
 
 import { Card, Heading, Stack, Text } from '@must/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Plus } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -405,7 +406,9 @@ export function RateManagement({
                     maxLength={3}
                   />
                 </label>
-                <button className="must-button must-button--primary">Add rate plan</button>
+                <button className="must-button must-button--primary">
+                  <Plus aria-hidden="true" size={16} /> Add rate plan
+                </button>
               </form>
             </Card>
             <Card>
@@ -515,7 +518,9 @@ export function RateManagement({
                         placeholder="100.00"
                       />
                     </label>
-                    <button className="must-button must-button--primary">Set base rate</button>
+                    <button className="must-button must-button--primary">
+                      <Plus aria-hidden="true" size={16} /> Set base rate
+                    </button>
                   </form>
                   <Heading level={2}>Add dated override</Heading>
                   <form className="must-stack must-stack--md" onSubmit={submitOverride}>
@@ -563,7 +568,7 @@ export function RateManagement({
                       ))}
                     </fieldset>
                     <button className="must-button must-button--primary">
-                      Add calendar override
+                      <Plus aria-hidden="true" size={16} /> Add calendar override
                     </button>
                   </form>
                   <Heading level={2}>Override calendar</Heading>

@@ -2,6 +2,7 @@
 
 import { Card, Heading, Stack, Text } from '@must/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Plus } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -452,7 +453,13 @@ export function RoomManagement({
                 />
               </label>
               <button className="must-button must-button--primary">
-                {editingRoomTypeId ? 'Save room type' : 'Add room type'}
+                {editingRoomTypeId ? (
+                  'Save room type'
+                ) : (
+                  <>
+                    <Plus aria-hidden="true" size={16} /> Add room type
+                  </>
+                )}
               </button>
               {editingRoomTypeId ? (
                 <button
@@ -580,7 +587,13 @@ export function RoomManagement({
                     />
                   </label>
                   <button className="must-button must-button--primary">
-                    {editingRoom?.roomTypeId === roomType.id ? 'Save room' : 'Add room'}
+                    {editingRoom?.roomTypeId === roomType.id ? (
+                      'Save room'
+                    ) : (
+                      <>
+                        <Plus aria-hidden="true" size={16} /> Add room
+                      </>
+                    )}
                   </button>
                 </form>
               </div>
@@ -600,7 +613,9 @@ export function RoomManagement({
                   onChange={(event) => setAmenityName(event.target.value)}
                 />
               </label>
-              <button className="must-button must-button--primary">Add amenity</button>
+              <button className="must-button must-button--primary">
+                <Plus aria-hidden="true" size={16} /> Add amenity
+              </button>
             </form>
             <ul>
               {amenities.map((amenity) => (
