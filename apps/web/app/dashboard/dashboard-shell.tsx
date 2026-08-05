@@ -257,7 +257,11 @@ export function DashboardShell({
       role &&
       (role !== 'STAFF' || capabilities?.includes('bookings.manage')) &&
       section === 'walk-in' ? (
-        <WalkInBooking tenantId={tenantId} propertyId={selectedProperty.id} />
+        <WalkInBooking
+          tenantId={tenantId}
+          propertyId={selectedProperty.id}
+          bookingMode={selectedProperty.bookingMode}
+        />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'payments' ? (
         <DashboardPayments tenantId={tenantId} propertyId={selectedProperty.id} />

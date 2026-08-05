@@ -16,12 +16,31 @@ import { Role, Roles } from './roles.decorator';
 import { TenantScoped } from './tenant-context.decorator';
 import { AvailabilityService } from './availability.service';
 import { RequiresCapability } from './capabilities.decorator';
+import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
 
 type TenantPropertyRequest = { tenantContext: { tenantId: string; propertyId: string } };
 
 @Controller('tenants/:tenantId/properties/:propertyId')
 export class AvailabilityController {
-  constructor(@Inject(AvailabilityService) private readonly availability: AvailabilityService) {}
+  constructor(
+    @Inject(AvailabilityService) private readonly availability: AvailabilityService,
+    @Inject(IntegrationConnectionsService)
+    private readonly connections: IntegrationConnectionsService,
+  ) {}
+
+  /** Staff-accessible (calendar.view, not settings.manage) — the walk-in
+   * booking form needs to know whether to show a Rate Plan picker (local
+   * pricing needs one) or derive it automatically (Clock-priced). */
+  @Get('pms-connection-status')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('calendar.view')
+  async getPmsConnectionStatus(@Req() request: TenantPropertyRequest) {
+    const connection = await this.connections.activePmsConnectionCredentials(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+    );
+    return { provider: connection?.provider === 'CLOCK_PMS' ? 'CLOCK_PMS' : 'LOCAL' };
+  }
 
   @Get('availability')
   @TenantScoped({ propertyParam: 'propertyId' })

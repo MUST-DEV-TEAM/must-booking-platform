@@ -30,6 +30,15 @@
   margin-top: var(--must-space-12);
   padding: var(--must-space-12);
 }
+.calendar {
+  border: 0;
+  margin: 0 0 var(--must-space-16);
+  padding: 0;
+}
+.calendar legend {
+  font-weight: 600;
+  margin-bottom: var(--must-space-8);
+}
 .total {
   font-size: 1.25rem;
   font-weight: 700;
