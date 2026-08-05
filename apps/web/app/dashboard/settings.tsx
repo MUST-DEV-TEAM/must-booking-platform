@@ -6,7 +6,6 @@ import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { PropertyManagement } from './[tenantId]/property-management';
-import { IntegrationsManagement } from './[tenantId]/integrations-management';
 
 type Property = {
   id: string;
@@ -370,11 +369,6 @@ export function DashboardSettings({
       <section aria-labelledby="manage-properties-heading">
         <h2 id="manage-properties-heading">Manage properties</h2>
         <PropertyManagement tenantId={tenantId} />
-      </section>
-
-      <section aria-labelledby="integrations-heading">
-        <h2 id="integrations-heading">Integrations</h2>
-        <IntegrationsManagement tenantId={tenantId} propertyId={propertyId} />
       </section>
     </section>
   );

@@ -6,6 +6,7 @@ import { LayoutDashboard, Layers } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { fetchSessionUser, type SessionUser } from '../auth-routing';
+import { IntegrationsManagement } from './[tenantId]/integrations-management';
 import styles from './dashboard-shell.module.css';
 import { DashboardLoadingSkeleton } from './loading-skeleton';
 
@@ -117,6 +118,10 @@ export function MainDashboard({
               </Card>
             ))}
           </Stack>
+          <Stack gap="md">
+            <Heading level={2}>Integrations</Heading>
+            <IntegrationsManagement tenantId={tenantId} properties={properties} />
+          </Stack>
         </Stack>
       ) : null}
     </AppShell>
@@ -143,8 +148,8 @@ function AggregateKpis({ results }: { results: PropertySummary[] }) {
       <Stack gap="sm">
         <Heading level={2}>All properties</Heading>
         <Text tone="secondary">
-          {totals.inHouse} guests in-house · {totals.arrivals} arrivals today ·{' '}
-          {totals.departures} departures today · {formatOccupancy(occupancyRate)}
+          {totals.inHouse} guests in-house · {totals.arrivals} arrivals today · {totals.departures}{' '}
+          departures today · {formatOccupancy(occupancyRate)}
         </Text>
       </Stack>
     </Card>

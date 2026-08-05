@@ -1,9 +1,10 @@
 'use client';
 import { Card, Heading, Stack, Text } from '@must/ui';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FormEvent, useState } from 'react';
 import { toast } from 'sonner';
 
+type Property = { id: string; name: string };
 type ConnectionKind = 'PAYMENT' | 'PMS';
 type ConnectionProvider = 'STRIPE' | 'POKPAY' | 'CLOCK_PMS';
 type Connection = {
@@ -22,7 +23,6 @@ type PropertyConnection = {
   name: string;
   enabled: boolean;
 };
-type CredentialField = { key: string; value: string };
 
 const providerLabels: Record<ConnectionProvider, string> = {
   STRIPE: 'Stripe',
@@ -30,20 +30,44 @@ const providerLabels: Record<ConnectionProvider, string> = {
   CLOCK_PMS: 'Clock PMS',
 };
 
+// Real per-provider credential shape, matching each provider's actual parser
+// (clock-credentials.ts, pokpay-payment.provider.ts, stripe-connection-tester.ts)
+// instead of a generic key/value list. Milestone 11.5 Task 11.
+const credentialFieldsByProvider: Record<
+  ConnectionProvider,
+  Array<{ key: string; label: string; secret?: boolean }>
+> = {
+  STRIPE: [
+    { key: 'secretKey', label: 'Secret key', secret: true },
+    { key: 'webhookSecret', label: 'Webhook secret', secret: true },
+  ],
+  POKPAY: [
+    { key: 'keyId', label: 'Key ID' },
+    { key: 'keySecret', label: 'Key secret', secret: true },
+    { key: 'merchantId', label: 'Merchant ID' },
+    { key: 'webhookUrl', label: 'Webhook URL' },
+  ],
+  CLOCK_PMS: [
+    { key: 'host', label: 'Host' },
+    { key: 'accountId', label: 'Account ID' },
+    { key: 'subscriptionId', label: 'Subscription ID' },
+    { key: 'apiUser', label: 'API user' },
+    { key: 'apiKey', label: 'API key', secret: true },
+  ],
+};
+
 export function IntegrationsManagement({
   tenantId,
-  propertyId,
+  properties,
 }: {
   tenantId: string;
-  propertyId: string;
+  properties: Property[];
 }) {
   const queryClient = useQueryClient();
   const [kind, setKind] = useState<ConnectionKind>('PAYMENT');
   const [provider, setProvider] = useState<ConnectionProvider>('STRIPE');
   const [name, setName] = useState('');
-  const [credentialFields, setCredentialFields] = useState<CredentialField[]>([
-    { key: '', value: '' },
-  ]);
+  const [credentials, setCredentials] = useState<Record<string, string>>({});
 
   const connectionsQueryKey = ['dashboard', 'integration-connections', tenantId] as const;
   const connectionsQuery = useQuery({
@@ -57,24 +81,32 @@ export function IntegrationsManagement({
     },
   });
 
-  const propertyConnectionsQueryKey = [
-    'dashboard',
-    'integration-connections',
-    'property',
-    tenantId,
-    propertyId,
-  ] as const;
-  const propertyConnectionsQuery = useQuery({
-    queryKey: propertyConnectionsQueryKey,
-    queryFn: async (): Promise<PropertyConnection[]> => {
-      const response = await fetch(
-        `/api/tenants/${tenantId}/properties/${propertyId}/integration-connections`,
-        { credentials: 'include' },
-      );
-      if (!response.ok) throw new Error('Unable to load property connections.');
-      return (await response.json()) as PropertyConnection[];
-    },
+  // A connection can be assigned to any subset of the tenant's properties, so
+  // load each property's assignment list in parallel rather than assuming one
+  // fixed property (this component now lives on the Main Dashboard, not a
+  // single property's Settings page).
+  const propertyConnectionQueries = useQueries({
+    queries: properties.map((property) => ({
+      queryKey: ['dashboard', 'integration-connections', 'property', tenantId, property.id],
+      queryFn: async (): Promise<PropertyConnection[]> => {
+        const response = await fetch(
+          `/api/tenants/${tenantId}/properties/${property.id}/integration-connections`,
+          { credentials: 'include' },
+        );
+        if (!response.ok) throw new Error('Unable to load property connections.');
+        return (await response.json()) as PropertyConnection[];
+      },
+    })),
   });
+
+  const invalidatePropertyConnections = () =>
+    Promise.all(
+      properties.map((property) =>
+        queryClient.invalidateQueries({
+          queryKey: ['dashboard', 'integration-connections', 'property', tenantId, property.id],
+        }),
+      ),
+    );
 
   const createMutation = useMutation({
     mutationFn: async (input: {
@@ -101,7 +133,7 @@ export function IntegrationsManagement({
     onSuccess: (_result, { form }) => {
       form.reset();
       setName('');
-      setCredentialFields([{ key: '', value: '' }]);
+      setCredentials({});
       void queryClient.invalidateQueries({ queryKey: connectionsQueryKey });
       toast.success('Connection created.');
     },
@@ -120,7 +152,7 @@ export function IntegrationsManagement({
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: connectionsQueryKey });
-      void queryClient.invalidateQueries({ queryKey: propertyConnectionsQueryKey });
+      void invalidatePropertyConnections();
       toast.success('Connection deleted.');
     },
     onError: (error) =>
@@ -147,7 +179,15 @@ export function IntegrationsManagement({
   });
 
   const assignMutation = useMutation({
-    mutationFn: async ({ connectionId, enabled }: { connectionId: string; enabled: boolean }) => {
+    mutationFn: async ({
+      connectionId,
+      propertyId,
+      enabled,
+    }: {
+      connectionId: string;
+      propertyId: string;
+      enabled: boolean;
+    }) => {
       const response = await fetch(
         `/api/tenants/${tenantId}/properties/${propertyId}/integration-connections/${connectionId}`,
         {
@@ -161,7 +201,7 @@ export function IntegrationsManagement({
         throw new Error(await errorMessage(response, 'Unable to update this property.'));
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: propertyConnectionsQueryKey });
+      void invalidatePropertyConnections();
       toast.success('Property assignment updated.');
     },
     onError: (error) =>
@@ -169,38 +209,52 @@ export function IntegrationsManagement({
   });
 
   const connections = connectionsQuery.data ?? [];
-  const propertyConnections = propertyConnectionsQuery.data ?? [];
-  const enabledByConnectionId = new Map(
-    propertyConnections.map((entry) => [entry.connectionId, entry.enabled]),
-  );
-  const activeClockConnectionId = propertyConnections.find(
-    (entry) => entry.provider === 'CLOCK_PMS' && entry.enabled,
-  )?.connectionId;
+  // Map: connectionId -> Set of propertyIds where it's enabled.
+  const enabledPropertyIdsByConnectionId = new Map<string, Set<string>>();
+  properties.forEach((property, index) => {
+    const data = propertyConnectionQueries[index]?.data ?? [];
+    for (const entry of data) {
+      if (!entry.enabled) continue;
+      const set = enabledPropertyIdsByConnectionId.get(entry.connectionId) ?? new Set<string>();
+      set.add(property.id);
+      enabledPropertyIdsByConnectionId.set(entry.connectionId, set);
+    }
+  });
+  const clockPropertiesByConnectionId = new Map<string, Property[]>();
+  for (const [connectionId, propertyIds] of enabledPropertyIdsByConnectionId) {
+    const connection = connections.find((entry) => entry.id === connectionId);
+    if (connection?.provider !== 'CLOCK_PMS') continue;
+    clockPropertiesByConnectionId.set(
+      connectionId,
+      properties.filter((property) => propertyIds.has(property.id)),
+    );
+  }
 
   function submitConnection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
     const trimmedName = name.trim();
     if (!trimmedName) return;
-    const credentials: Record<string, string> = {};
-    for (const field of credentialFields) {
-      const trimmedKey = field.key.trim();
-      if (trimmedKey) credentials[trimmedKey] = field.value;
+    const trimmedCredentials: Record<string, string> = {};
+    for (const field of credentialFieldsByProvider[provider]) {
+      const value = credentials[field.key];
+      if (value) trimmedCredentials[field.key] = field.secret ? value : value.trim();
     }
-    createMutation.mutate({ kind, provider, name: trimmedName, credentials, form });
-  }
-
-  function updateCredentialField(index: number, patch: Partial<CredentialField>) {
-    setCredentialFields((current) =>
-      current.map((field, fieldIndex) => (fieldIndex === index ? { ...field, ...patch } : field)),
-    );
+    createMutation.mutate({
+      kind,
+      provider,
+      name: trimmedName,
+      credentials: trimmedCredentials,
+      form,
+    });
   }
 
   return (
     <Stack gap="md">
       <Text tone="secondary">
-        Connect your own Stripe, PokPay, or Clock PMS account. Payment connections can be enabled on
-        several properties at once; a property can only have one active PMS connection.
+        Connect your own Stripe, PokPay, or Clock PMS account. Each connection can be assigned to
+        any of your properties; payment connections may be enabled on several at once, while a
+        property can only have one active PMS connection.
       </Text>
       {connectionsQuery.isPending ? <Text>Loading connections…</Text> : null}
       {connectionsQuery.isError ? (
@@ -218,53 +272,62 @@ export function IntegrationsManagement({
       {!connectionsQuery.isPending && !connectionsQuery.isError ? (
         <>
           {connections.length === 0 ? <Text>No connections yet.</Text> : null}
-          {connections.map((connection) => (
-            <Card key={connection.id}>
-              <Heading level={3}>{connection.name}</Heading>
-              <Text tone="secondary">
-                {providerLabels[connection.provider]} ·{' '}
-                {connection.kind === 'PMS' ? 'PMS' : 'Payment'} · {connection.status}
-              </Text>
-              {connection.lastTestResult ? (
-                <Text tone="secondary">{connection.lastTestResult}</Text>
-              ) : null}
-              <label className="must-field">
-                <input
-                  className="must-input"
-                  type="checkbox"
-                  checked={enabledByConnectionId.get(connection.id) ?? false}
-                  disabled={propertyConnectionsQuery.isPending}
-                  onChange={(event) =>
-                    assignMutation.mutate({
-                      connectionId: connection.id,
-                      enabled: event.target.checked,
-                    })
-                  }
-                />
-                Enabled for this property
-              </label>
-              <button
-                className="must-button must-button--secondary"
-                type="button"
-                disabled={testMutation.isPending}
-                onClick={() => testMutation.mutate(connection.id)}
-              >
-                Test connection
-              </button>
-              <button
-                className="must-button must-button--danger"
-                type="button"
-                disabled={deleteMutation.isPending}
-                onClick={() => deleteMutation.mutate(connection.id)}
-              >
-                Delete
-              </button>
-            </Card>
-          ))}
+          {connections.map((connection) => {
+            const enabledPropertyIds =
+              enabledPropertyIdsByConnectionId.get(connection.id) ?? new Set<string>();
+            return (
+              <Card key={connection.id}>
+                <Heading level={3}>{connection.name}</Heading>
+                <Text tone="secondary">
+                  {providerLabels[connection.provider]} ·{' '}
+                  {connection.kind === 'PMS' ? 'PMS' : 'Payment'} · {connection.status}
+                </Text>
+                {connection.lastTestResult ? (
+                  <Text tone="secondary">{connection.lastTestResult}</Text>
+                ) : null}
+                <fieldset>
+                  <legend>Assigned properties</legend>
+                  {properties.map((property) => (
+                    <label className="must-field" key={property.id}>
+                      <input
+                        className="must-input"
+                        type="checkbox"
+                        checked={enabledPropertyIds.has(property.id)}
+                        onChange={(event) =>
+                          assignMutation.mutate({
+                            connectionId: connection.id,
+                            propertyId: property.id,
+                            enabled: event.target.checked,
+                          })
+                        }
+                      />
+                      {property.name}
+                    </label>
+                  ))}
+                </fieldset>
+                <button
+                  className="must-button must-button--secondary"
+                  type="button"
+                  disabled={testMutation.isPending}
+                  onClick={() => testMutation.mutate(connection.id)}
+                >
+                  Test connection
+                </button>
+                <button
+                  className="must-button must-button--danger"
+                  type="button"
+                  disabled={deleteMutation.isPending}
+                  onClick={() => deleteMutation.mutate(connection.id)}
+                >
+                  Delete
+                </button>
+                {clockPropertiesByConnectionId.get(connection.id)?.map((property) => (
+                  <ClockCatalogSync key={property.id} tenantId={tenantId} property={property} />
+                ))}
+              </Card>
+            );
+          })}
         </>
-      ) : null}
-      {activeClockConnectionId ? (
-        <ClockCatalogSync tenantId={tenantId} propertyId={propertyId} />
       ) : null}
       <Card>
         <Heading level={3}>Add a connection</Heading>
@@ -274,7 +337,12 @@ export function IntegrationsManagement({
             <select
               className="must-input"
               value={kind}
-              onChange={(event) => setKind(event.target.value as ConnectionKind)}
+              onChange={(event) => {
+                const nextKind = event.target.value as ConnectionKind;
+                setKind(nextKind);
+                setProvider(nextKind === 'PMS' ? 'CLOCK_PMS' : 'STRIPE');
+                setCredentials({});
+              }}
             >
               <option value="PAYMENT">Payment gateway</option>
               <option value="PMS">Property Management System</option>
@@ -285,7 +353,10 @@ export function IntegrationsManagement({
             <select
               className="must-input"
               value={provider}
-              onChange={(event) => setProvider(event.target.value as ConnectionProvider)}
+              onChange={(event) => {
+                setProvider(event.target.value as ConnectionProvider);
+                setCredentials({});
+              }}
             >
               {kind === 'PMS' ? (
                 <option value="CLOCK_PMS">Clock PMS</option>
@@ -309,30 +380,20 @@ export function IntegrationsManagement({
           </label>
           <fieldset>
             <legend>Credentials</legend>
-            {credentialFields.map((field, index) => (
-              <Stack gap="sm" key={index}>
+            {credentialFieldsByProvider[provider].map((field) => (
+              <label className="must-field" key={field.key}>
+                <span className="must-field__label">{field.label}</span>
                 <input
                   className="must-input"
-                  placeholder="Field name (e.g. secretKey)"
-                  value={field.key}
-                  onChange={(event) => updateCredentialField(index, { key: event.target.value })}
+                  type={field.secret ? 'password' : 'text'}
+                  required
+                  value={credentials[field.key] ?? ''}
+                  onChange={(event) =>
+                    setCredentials((current) => ({ ...current, [field.key]: event.target.value }))
+                  }
                 />
-                <input
-                  className="must-input"
-                  type="password"
-                  placeholder="Value"
-                  value={field.value}
-                  onChange={(event) => updateCredentialField(index, { value: event.target.value })}
-                />
-              </Stack>
+              </label>
             ))}
-            <button
-              className="must-button must-button--secondary"
-              type="button"
-              onClick={() => setCredentialFields((current) => [...current, { key: '', value: '' }])}
-            >
-              Add credential field
-            </button>
           </fieldset>
           <button className="must-button must-button--primary" disabled={createMutation.isPending}>
             {createMutation.isPending ? 'Creating…' : 'Add connection'}
@@ -353,10 +414,10 @@ type ClockCatalogMapping = {
   localEntityId: string | null;
 };
 
-function ClockCatalogSync({ tenantId, propertyId }: { tenantId: string; propertyId: string }) {
+function ClockCatalogSync({ tenantId, property }: { tenantId: string; property: Property }) {
   const queryClient = useQueryClient();
-  const base = `/api/tenants/${tenantId}/properties/${propertyId}/clock-catalog`;
-  const mappingsQueryKey = ['dashboard', 'clock-catalog-mappings', tenantId, propertyId] as const;
+  const base = `/api/tenants/${tenantId}/properties/${property.id}/clock-catalog`;
+  const mappingsQueryKey = ['dashboard', 'clock-catalog-mappings', tenantId, property.id] as const;
 
   const mappingsQuery = useQuery({
     queryKey: mappingsQueryKey,
@@ -411,7 +472,7 @@ function ClockCatalogSync({ tenantId, propertyId }: { tenantId: string; property
 
   return (
     <Card>
-      <Heading level={3}>Clock catalog sync</Heading>
+      <Heading level={3}>Clock catalog sync — {property.name}</Heading>
       <Text tone="secondary">
         Pulls room types and rooms from Clock. Nothing is applied to your local catalog until you
         confirm each one below.
