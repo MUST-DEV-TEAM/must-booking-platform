@@ -62,7 +62,7 @@ export class PokPayPaymentProvider implements PaymentProvider {
       method: 'POST',
       path: `/merchants/${encodeURIComponent(configuration.value.merchantId)}/sdk-orders`,
       body: {
-        amount: this.minorUnits(command.amount.amount),
+        amount: this.pokpayAmount(command.amount.amount),
         currencyCode: command.amount.currency,
         autoCapture: true,
         shippingCost: 0,
@@ -108,7 +108,7 @@ export class PokPayPaymentProvider implements PaymentProvider {
       method: 'POST',
       path: `/merchants/${encodeURIComponent(configuration.value.merchantId)}/sdk-orders/${encodeURIComponent(command.paymentId)}/refund`,
       body: {
-        refundAmount: this.minorUnits(command.amount.amount),
+        refundAmount: this.pokpayAmount(command.amount.amount),
         refundReason: 'Hotel booking refund',
       },
     });
@@ -279,14 +279,17 @@ export class PokPayPaymentProvider implements PaymentProvider {
     return order.status?.toUpperCase() || 'PENDING';
   }
 
-  private minorUnits(amount: string): number {
-    const [whole, fraction = ''] = amount.split('.');
-    return Number(BigInt(whole || '0') * 100n + BigInt(fraction.padEnd(2, '0')));
+  // PokPay's own API docs (payments.doc.pokpay.io, "Create an Order") show
+  // `amount` sent and returned as the raw currency value directly (e.g. 100
+  // for 100.00 EUR) — there is no minor-units/cents convention, unlike
+  // Stripe. Confirmed for real: sending 900.00 EUR as 90000 triggered
+  // PokPay's own "maximum amount of 1000 EUR" rejection.
+  private pokpayAmount(amount: string): number {
+    return Number(amount);
   }
 
   private decimalAmount(amount: number | string): string {
-    const minor = BigInt(String(amount));
-    return `${minor / 100n}.${(minor % 100n).toString().padStart(2, '0')}`;
+    return Number(amount).toFixed(2);
   }
 
   private failure(code: string, message: string, retryable = false): Result<never> {

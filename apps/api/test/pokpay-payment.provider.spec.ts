@@ -46,7 +46,7 @@ describe('PokPayPaymentProvider', () => {
       .mockResolvedValueOnce(
         json({
           data: {
-            sdkOrder: { id: 'order-1', amount: 1250, currencyCode: 'EUR', isCompleted: true },
+            sdkOrder: { id: 'order-1', amount: 12.5, currencyCode: 'EUR', isCompleted: true },
           },
         }),
       );
@@ -78,6 +78,12 @@ describe('PokPayPaymentProvider', () => {
         headers: expect.objectContaining({ authorization: 'Bearer token' }),
       }),
     );
+    // PokPay's own API sends/returns the raw currency amount, not cents —
+    // confirmed against the real sandbox (a 900.00 EUR total sent as 90000
+    // was rejected as "maximum amount of 1000 EUR exceeded"). 12.50 EUR
+    // must be sent as 12.5, never 1250.
+    const orderCall = fetchMock.mock.calls[1]!;
+    expect(JSON.parse(orderCall[1].body as string)).toMatchObject({ amount: 12.5 });
   });
 
   it('does not represent an unsigned callback as verified', async () => {
