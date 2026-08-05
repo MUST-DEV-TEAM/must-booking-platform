@@ -11,7 +11,13 @@ import { TenantDatabaseService } from './tenant-database.service';
 import { AuditLogService } from './audit-log.service';
 import { STORAGE_PROVIDER, type StorageProvider } from '../storage/storage.provider';
 
-type RoomType = { id: string; name: string; description: string | null; maxOccupancy: number };
+type RoomType = {
+  id: string;
+  name: string;
+  description: string | null;
+  maxOccupancy: number;
+  roomCount: number;
+};
 type RoomTypeImage = { id: string; url: string; createdAt: Date };
 type ImageUpload = { id: string; uploadUrl: string; publicUrl: string };
 
@@ -31,10 +37,13 @@ export class RoomTypesService {
     return this.database.withTenantTransaction(
       { tenantId, propertyId },
       (tx) => tx.$queryRaw<RoomType[]>`
-        SELECT id, name, description, max_occupancy AS "maxOccupancy"
-        FROM room_types
-        WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
-        ORDER BY created_at
+        SELECT rt.id, rt.name, rt.description, rt.max_occupancy AS "maxOccupancy",
+          count(r.id)::int AS "roomCount"
+        FROM room_types rt
+        LEFT JOIN rooms r ON r.tenant_id = rt.tenant_id AND r.room_type_id = rt.id
+        WHERE rt.tenant_id = ${tenantId}::uuid AND rt.property_id = ${propertyId}::uuid
+        GROUP BY rt.id
+        ORDER BY rt.created_at
       `,
     );
   }

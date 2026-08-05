@@ -207,6 +207,72 @@ export class ClockAvailabilityService {
     };
   }
 
+  /**
+   * Per-day availability for a whole calendar month, straight from Clock —
+   * one /rates_availability call covering every night in the month (the
+   * same endpoint getAvailability uses for a short stay, just with a longer
+   * from/to range), for the walk-in booking calendar's disabled-dates
+   * display. Mirrors AvailabilityService.getCalendar's local counterpart.
+   */
+  async getAvailabilityCalendar(
+    tenantId: string,
+    propertyId: string,
+    query: { roomTypeId: string; month: string },
+  ): Promise<Result<Array<{ date: string; isAvailable: boolean }>>> {
+    const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
+    if (!connection || connection.provider !== 'CLOCK_PMS')
+      return failure(
+        classifyConfigurationError('This property has no active Clock PMS connection.'),
+      );
+    const parsed = parseClockCredentials(connection.credentials);
+    if (!parsed.ok) return failure(classifyConfigurationError(parsed.message));
+
+    const externalRoomTypeId = await this.mappedExternalRoomTypeId(
+      tenantId,
+      propertyId,
+      query.roomTypeId,
+    );
+    if (!externalRoomTypeId)
+      return failure(
+        classifyConfigurationError(
+          'This room type has no confirmed Clock catalog mapping — sync and confirm it first.',
+        ),
+      );
+
+    const rateIds = await this.ratesForRoomType(parsed.value, externalRoomTypeId);
+    if (!rateIds.ok) return failure(rateIds.error);
+    if (rateIds.value.length === 0)
+      return failure(
+        classifyConfigurationError('This room type has no rate configured in Clock yet.'),
+      );
+
+    if (!/^\d{4}-\d{2}$/.test(query.month))
+      return failure(classifyConfigurationError('month must be YYYY-MM.'));
+    const [year, monthNumber] = query.month.split('-').map(Number);
+    const monthStart = new Date(Date.UTC(year!, monthNumber! - 1, 1)).toISOString().slice(0, 10);
+    const monthEnd = new Date(Date.UTC(year!, monthNumber!, 1)).toISOString().slice(0, 10);
+    const nights = nightsBetween(monthStart, monthEnd);
+
+    const response = await this.fetch<ClockRateAvailabilityResponse>(parsed.value, {
+      from: monthStart,
+      to: nights[nights.length - 1]!,
+      rates: rateIds.value,
+      room_types: externalRoomTypeId,
+    });
+    if (!response.ok) return failure(response.error);
+
+    const roomType = response.value.find((item) => String(item.id) === externalRoomTypeId);
+    const rateEntries = roomType ? Object.values(roomType.rates) : [];
+    const days = nights.map((date) => {
+      const isAvailable = rateEntries.some((entry) => {
+        const cell = entry[date];
+        return cell?.free && cell.room_type_free_rooms > 0;
+      });
+      return { date, isAvailable };
+    });
+    return { ok: true, value: days };
+  }
+
   private async mappedExternalRoomTypeId(
     tenantId: string,
     propertyId: string,

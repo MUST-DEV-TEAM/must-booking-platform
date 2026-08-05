@@ -34,6 +34,17 @@ export class AvailabilityController {
     );
   }
 
+  @Get('availability-calendar')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('calendar.view')
+  getCalendar(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
+    return this.availability.getCalendar(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      this.calendarInput(query),
+    );
+  }
+
   @Get('rooms/:roomId/availability')
   @TenantScoped({ propertyParam: 'propertyId' })
   @RequiresCapability('calendar.view')
@@ -100,5 +111,14 @@ export class AvailabilityController {
       request.tenantContext.userId,
       body,
     );
+  }
+
+  private calendarInput(query: unknown): { roomTypeId: string; roomId?: string; month: string } {
+    const value = (query ?? {}) as Record<string, unknown>;
+    return {
+      roomTypeId: typeof value.roomTypeId === 'string' ? value.roomTypeId : '',
+      roomId: typeof value.roomId === 'string' ? value.roomId : undefined,
+      month: typeof value.month === 'string' ? value.month : '',
+    };
   }
 }

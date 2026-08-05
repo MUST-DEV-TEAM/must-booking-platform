@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 
 import { AuditLogService } from './audit-log.service';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
+import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
+import { ClockAvailabilityService } from '../integrations/clock/clock-availability.service';
 
 type Availability = {
   roomTypeId: string;
@@ -54,6 +56,9 @@ export class AvailabilityService {
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(AuditLogService) private readonly audit: AuditLogService,
+    @Inject(IntegrationConnectionsService)
+    private readonly connections: IntegrationConnectionsService,
+    @Inject(ClockAvailabilityService) private readonly clockAvailability: ClockAvailabilityService,
   ) {}
 
   async getAvailability(
@@ -112,6 +117,132 @@ export class AvailabilityService {
         isAvailable: availableUnits > 0,
       };
     });
+  }
+
+  /**
+   * Per-day availability for a whole month, for the walk-in booking
+   * calendar's disabled-dates display — one query for the month rather
+   * than one round trip per day. roomTypeId is always required (mirrors
+   * getAvailability); roomId narrows to a single room's own availability
+   * when the property is in individual-room mode.
+   */
+  async getCalendar(
+    tenantId: string,
+    propertyId: string,
+    query: { roomTypeId: string; roomId?: string; month: string },
+  ): Promise<{ days: Array<{ date: string; isAvailable: boolean }> }> {
+    const { start, end } = this.monthRange(query.month);
+    // Individual-room availability is always a local concept (room_availability/
+    // bookings), regardless of PMS connection — only the room-type-level day
+    // query is Clock-aware, matching QuoteService.price()'s same scope cut.
+    if (!query.roomId) {
+      const connection = await this.connections.activePmsConnectionCredentials(
+        tenantId,
+        propertyId,
+      );
+      if (connection?.provider === 'CLOCK_PMS') {
+        const calendar = await this.clockAvailability.getAvailabilityCalendar(
+          tenantId,
+          propertyId,
+          { roomTypeId: query.roomTypeId, month: query.month },
+        );
+        if (!calendar.ok) throw new BadRequestException(calendar.error.message);
+        return { days: calendar.value };
+      }
+    }
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      await this.requireRoomType(tx, tenantId, propertyId, query.roomTypeId);
+      if (query.roomId) {
+        await this.requireIndividualRoomMode(tx, propertyId);
+        await this.requireRoom(tx, tenantId, propertyId, query.roomId);
+        const days = await tx.$queryRaw<Array<{ date: string; isAvailable: boolean }>>`
+          WITH month_days AS (
+            SELECT generate_series(${start}::date, ${end}::date - INTERVAL '1 day', INTERVAL '1 day')::date AS stays_on
+          )
+          SELECT month_days.stays_on::text AS date,
+            NOT EXISTS (
+              SELECT 1 FROM room_availability ra
+              WHERE ra.tenant_id = ${tenantId}::uuid AND ra.property_id = ${propertyId}::uuid
+                AND ra.room_id = ${query.roomId}::uuid AND ra.stays_on = month_days.stays_on
+                AND ra.is_available = false
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM bookings b
+              WHERE b.tenant_id = ${tenantId}::uuid AND b.property_id = ${propertyId}::uuid
+                AND b.room_id = ${query.roomId}::uuid
+                AND b.starts_on <= month_days.stays_on AND b.ends_on > month_days.stays_on
+                AND b.status IN (
+                  'PAYMENT_PENDING'::"BookingStatus", 'PAYMENT_NOT_REQUIRED'::"BookingStatus",
+                  'PMS_CREATION_PENDING'::"BookingStatus", 'PMS_CONFIRMATION_PENDING'::"BookingStatus",
+                  'CONFIRMED'::"BookingStatus", 'PAYMENT_FAILED'::"BookingStatus",
+                  'PMS_UNKNOWN_RESULT'::"BookingStatus", 'PMS_REJECTED'::"BookingStatus",
+                  'MANUAL_REVIEW'::"BookingStatus"
+                )
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM availability_blocks ab
+              WHERE ab.tenant_id = ${tenantId}::uuid AND ab.property_id = ${propertyId}::uuid
+                AND ab.starts_on <= month_days.stays_on AND ab.ends_on > month_days.stays_on
+                AND (
+                  ab.blocks_all
+                  OR EXISTS (
+                    SELECT 1 FROM availability_block_rooms abr
+                    WHERE abr.tenant_id = ab.tenant_id AND abr.property_id = ab.property_id
+                      AND abr.block_id = ab.id AND abr.room_id = ${query.roomId}::uuid
+                  )
+                  OR EXISTS (
+                    SELECT 1 FROM availability_block_room_types abrt
+                    JOIN rooms r ON r.tenant_id = ${tenantId}::uuid AND r.property_id = ${propertyId}::uuid
+                      AND r.id = ${query.roomId}::uuid
+                    WHERE abrt.tenant_id = ab.tenant_id AND abrt.property_id = ab.property_id
+                      AND abrt.block_id = ab.id AND abrt.room_type_id = r.room_type_id
+                  )
+                )
+            ) AS "isAvailable"
+          FROM month_days
+          ORDER BY month_days.stays_on
+        `;
+        return { days };
+      }
+
+      const days = await tx.$queryRaw<Array<{ date: string; isAvailable: boolean }>>`
+        WITH month_days AS (
+          SELECT generate_series(${start}::date, ${end}::date - INTERVAL '1 day', INTERVAL '1 day')::date AS stays_on
+        )
+        SELECT month_days.stays_on::text AS date,
+          (CASE WHEN EXISTS (
+            SELECT 1 FROM availability_blocks ab
+            WHERE ab.tenant_id = ${tenantId}::uuid AND ab.property_id = ${propertyId}::uuid
+              AND ab.starts_on <= month_days.stays_on AND ab.ends_on > month_days.stays_on
+              AND (
+                ab.blocks_all
+                OR EXISTS (
+                  SELECT 1 FROM availability_block_room_types abrt
+                  WHERE abrt.tenant_id = ab.tenant_id AND abrt.property_id = ab.property_id
+                    AND abrt.block_id = ab.id AND abrt.room_type_id = ${query.roomTypeId}::uuid
+                )
+              )
+          ) THEN false
+          ELSE COALESCE(inventory_units.available_units, 0) - COALESCE(inventory_units.booked_units, 0) > 0
+          END) AS "isAvailable"
+        FROM month_days
+        LEFT JOIN inventory_units
+          ON inventory_units.tenant_id = ${tenantId}::uuid
+          AND inventory_units.property_id = ${propertyId}::uuid
+          AND inventory_units.room_type_id = ${query.roomTypeId}::uuid
+          AND inventory_units.stays_on = month_days.stays_on
+        ORDER BY month_days.stays_on
+      `;
+      return { days };
+    });
+  }
+
+  private monthRange(month: string): { start: string; end: string } {
+    if (!/^\d{4}-\d{2}$/.test(month)) throw new BadRequestException('month must be YYYY-MM.');
+    const [year, monthNumber] = month.split('-').map(Number);
+    const start = new Date(Date.UTC(year!, monthNumber! - 1, 1));
+    const end = new Date(Date.UTC(year!, monthNumber!, 1));
+    return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
   }
 
   async setInventory(
