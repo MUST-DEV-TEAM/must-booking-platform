@@ -1,5 +1,6 @@
 'use client';
 
+import { Text } from '@must/ui';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -108,7 +109,7 @@ export function AuthRouteGuard({
   if (!authorized) {
     return (
       <main>
-        <p>Checking your account access…</p>
+        <Text>Checking your account access…</Text>
       </main>
     );
   }
