@@ -175,5 +175,31 @@ describe.skipIf(!hasSandboxCredentials)('Clock getAvailability (real sandbox)', 
       expect(result.value.isAvailable).toBe(true);
       expect(result.value.availableUnits).toBeGreaterThan(0);
     }
+
+    // Real live pricing via GET /products (this feature's own real-sandbox
+    // proof) — same dates/room type as the availability assertion above.
+    const quote = await availability.getQuote(tenantId, propertyId, {
+      roomTypeId: localRoomType[0].id,
+      startsOn: '2026-08-16',
+      endsOn: '2026-08-18',
+    });
+    expect(quote.ok).toBe(true);
+    if (quote.ok) {
+      expect(Number(quote.value.amount)).toBeGreaterThan(0);
+      expect(quote.value.currency).toBe('EUR');
+    }
+
+    // The same real price must be reachable through QuoteService.price() —
+    // the actual entry point staff/guest booking flows call — proving the
+    // Clock-connected branch is wired end to end, not just the raw service.
+    const quoteService = app!.get((await import('../src/booking/quote.service')).QuoteService);
+    const priced = await quoteService.price(tenantId, propertyId, {
+      roomTypeId: localRoomType[0].id,
+      startsOn: '2026-08-16',
+      endsOn: '2026-08-18',
+    });
+    expect(Number(priced.amount)).toBeGreaterThan(0);
+    expect(priced.currency).toBe('EUR');
+    if (quote.ok) expect(priced.amount).toBe(quote.value.amount);
   }, 30_000);
 });

@@ -182,3 +182,105 @@ describe('ClockAvailabilityService.getAvailability', () => {
     expect(request.mock.calls.length).toBe(callsAfterFirst);
   });
 });
+
+describe('ClockAvailabilityService.getQuote', () => {
+  it('reports a configuration error when the room type has no confirmed Clock mapping', async () => {
+    const { service } = makeService({ mappedExternalId: null });
+
+    const result = await service.getQuote('t1', 'p1', query);
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        category: 'configuration',
+        code: 'clock_configuration',
+        message:
+          'This room type has no confirmed Clock catalog mapping — sync and confirm it first.',
+        retryable: false,
+      },
+    });
+  });
+
+  it('returns the real price from /products for the confirmed rate', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType' }],
+      }) // /rates/
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '69242': [
+                {
+                  available: true,
+                  room_type_free_rooms: 3,
+                  price: { cents: 23000, currency: 'EUR' },
+                  errors: {},
+                },
+              ],
+            },
+          },
+        ],
+      }); // /products
+    const { service } = makeService({ client: { request } });
+
+    const result = await service.getQuote('t1', 'p1', query);
+
+    expect(result).toEqual({ ok: true, value: { amount: '230.00', currency: 'EUR' } });
+    expect(request).toHaveBeenLastCalledWith(
+      credentials,
+      expect.objectContaining({
+        path: '/products',
+        query: {
+          'product_search[arrival]': '2026-08-10',
+          'product_search[departure]': '2026-08-12',
+          rates: ['69242'],
+        },
+      }),
+    );
+  });
+
+  it('fails when Clock has no available offer for the requested stay', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType' }],
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '69242': [
+                {
+                  available: false,
+                  room_type_free_rooms: 0,
+                  price: { cents: 23000, currency: 'EUR' },
+                  errors: { min_stay: 'not met' },
+                },
+              ],
+            },
+          },
+        ],
+      });
+    const { service } = makeService({ client: { request } });
+
+    const result = await service.getQuote('t1', 'p1', query);
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        category: 'configuration',
+        code: 'clock_configuration',
+        message: 'Clock has no available price for the requested stay.',
+        retryable: false,
+      },
+    });
+  });
+});

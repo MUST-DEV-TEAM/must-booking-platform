@@ -3,11 +3,16 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { Money } from '@must/domain-contracts';
 
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
+import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
+import { ClockAvailabilityService } from '../integrations/clock/clock-availability.service';
 
 export type QuoteInput = {
   roomTypeId: string;
   roomId?: string;
-  ratePlanId: string;
+  // Optional: required only for a non-Clock-connected property's local
+  // pricing path. A Clock-connected property derives its rate from the
+  // room type's confirmed Clock mapping instead — see price() below.
+  ratePlanId?: string;
   startsOn: string;
   endsOn: string;
 };
@@ -25,7 +30,12 @@ type QuoteValidationError = { code: string; message: string };
 
 @Injectable()
 export class QuoteService {
-  constructor(@Inject(TenantDatabaseService) private readonly database: TenantDatabaseService) {}
+  constructor(
+    @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
+    @Inject(IntegrationConnectionsService)
+    private readonly connections: IntegrationConnectionsService,
+    @Inject(ClockAvailabilityService) private readonly clockAvailability: ClockAvailabilityService,
+  ) {}
 
   async create(
     tenantId: string,
@@ -53,8 +63,28 @@ export class QuoteService {
   }
 
   async price(tenantId: string, propertyId: string, input: QuoteInput): Promise<Money> {
-    this.validInput(input);
+    this.validStayInput(input);
     await this.enforceBookingRules(tenantId, propertyId, input);
+
+    // Clock-connected properties are always quoted live against Clock's own
+    // /products endpoint (owner's call — no local rate_plan mirror). Rate is
+    // derived from the room type's confirmed Clock mapping, so ratePlanId is
+    // irrelevant on this path.
+    const connection = await this.connections.activePmsConnectionCredentials(
+      tenantId,
+      propertyId,
+    );
+    if (connection?.provider === 'CLOCK_PMS') {
+      const quote = await this.clockAvailability.getQuote(tenantId, propertyId, {
+        roomTypeId: input.roomTypeId,
+        startsOn: input.startsOn,
+        endsOn: input.endsOn,
+      });
+      if (!quote.ok) throw new BadRequestException(quote.error.message);
+      return quote.value;
+    }
+
+    if (!input.ratePlanId) throw new BadRequestException('ratePlanId is required.');
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       if (input.roomId)
         await this.requireRoomForType(tx, tenantId, propertyId, input.roomId, input.roomTypeId);
@@ -216,9 +246,8 @@ export class QuoteService {
     return 'must-booking-local-quote-signing-secret';
   }
 
-  private validInput(input: QuoteInput): void {
+  private validStayInput(input: QuoteInput): void {
     if (!input.roomTypeId) throw new BadRequestException('roomTypeId is required.');
-    if (!input.ratePlanId) throw new BadRequestException('ratePlanId is required.');
     if (!this.date(input.startsOn) || !this.date(input.endsOn) || input.endsOn <= input.startsOn)
       throw new BadRequestException(
         'startsOn and endsOn must be a valid, non-empty ISO date range.',
