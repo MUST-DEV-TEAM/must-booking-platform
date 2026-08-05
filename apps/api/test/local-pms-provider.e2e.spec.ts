@@ -1687,6 +1687,7 @@ describe('LocalPmsProvider', () => {
       ratePlanId,
       startsOn: '2030-12-01',
       endsOn: '2030-12-03',
+      paymentMethod: 'pay_at_hotel',
       guest: {
         email: `staff-booking-${randomUUID()}@example.test`,
         firstName: 'Staff',

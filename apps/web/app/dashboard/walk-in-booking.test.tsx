@@ -39,7 +39,9 @@ describe('WalkInBooking', () => {
       throw new Error(`Unexpected fetch ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock);
-    const { container, root } = await mount();
+    const { container, root } = await mount({
+      paymentGateways: { stripe: false, pokpay: false, payAtHotel: true },
+    });
 
     await setValue(container.querySelector('select')!, 'room-type-1');
     const ratePlanSelect = Array.from(container.querySelectorAll('select')).find((select) =>
@@ -68,16 +70,18 @@ describe('WalkInBooking', () => {
     await setValue(firstName!, 'Ada');
     await setValue(lastName!, 'Lovelace');
     await setValue(container.querySelector('input[type="email"]')!, 'ada@example.test');
-    const methodSelect = Array.from(container.querySelectorAll('select')).find((select) =>
+    const gatewaySelect = Array.from(container.querySelectorAll('select')).find((select) =>
+      Array.from(select.options).some((option) => option.value === 'pay_at_hotel'),
+    )!;
+    await setValue(gatewaySelect, 'pay_at_hotel');
+    const settleSelect = Array.from(container.querySelectorAll('select')).find((select) =>
       Array.from(select.options).some((option) => option.value === 'cash'),
     )!;
-    await setValue(methodSelect, 'cash');
+    await setValue(settleSelect, 'cash');
     await click(container, 'Create booking');
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      `${base}/staff-bookings`,
-      expect.objectContaining({ method: 'POST' }),
-    );
+    const bookingCall = fetchMock.mock.calls.find(([url]) => url === `${base}/staff-bookings`)!;
+    expect(JSON.parse(bookingCall[1].body).paymentMethod).toBe('pay_at_hotel');
     const paymentCall = fetchMock.mock.calls.find(
       ([url]) => url === `${base}/bookings/booking-1/manual-payment`,
     )!;
@@ -87,7 +91,7 @@ describe('WalkInBooking', () => {
     container.remove();
   });
 
-  it('Clock-connected property: hides the Rate Plan field and creates a booking without ratePlanId', async () => {
+  it('Clock-connected property: hides the Rate Plan field and creates a pay-at-hotel booking without ratePlanId', async () => {
     const fetchMock = vi.fn((url: string) => {
       if (url === `${base}/pms-connection-status`)
         return Promise.resolve(response({ provider: 'CLOCK_PMS' }));
@@ -104,13 +108,15 @@ describe('WalkInBooking', () => {
       throw new Error(`Unexpected fetch ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock);
-    const { container, root } = await mount();
+    const { container, root } = await mount({
+      paymentGateways: { stripe: false, pokpay: true, payAtHotel: true },
+    });
 
     await setValue(container.querySelector('select')!, 'room-type-1');
     // Rate Plan field must not exist at all for a Clock-connected property.
     expect(
-      Array.from(container.querySelectorAll('label')).some(
-        (label) => label.textContent?.includes('Rate plan'),
+      Array.from(container.querySelectorAll('label')).some((label) =>
+        label.textContent?.includes('Rate plan'),
       ),
     ).toBe(false);
 
@@ -136,12 +142,94 @@ describe('WalkInBooking', () => {
     await setValue(firstName!, 'Ada');
     await setValue(lastName!, 'Lovelace');
     await setValue(container.querySelector('input[type="email"]')!, 'ada@example.test');
+    // Only "pay_at_hotel" and "pokpay" should be offered (stripe disabled).
+    const gatewaySelect = Array.from(container.querySelectorAll('select')).find((select) =>
+      Array.from(select.options).some((option) => option.value === 'pay_at_hotel'),
+    )!;
+    expect(Array.from(gatewaySelect.options).map((option) => option.value)).toEqual([
+      '',
+      'pay_at_hotel',
+      'pokpay',
+    ]);
+    await setValue(gatewaySelect, 'pay_at_hotel');
     await click(container, 'Create booking');
 
     const bookingCall = fetchMock.mock.calls.find(([url]) => url === `${base}/staff-bookings`)!;
     const body = JSON.parse(bookingCall[1].body);
     expect(body.ratePlanId).toBeUndefined();
+    expect(body.paymentMethod).toBe('pay_at_hotel');
     expect(toast.success).toHaveBeenCalledWith('Booking created as pay at hotel.');
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it('online payment (PokPay): opens the checkout URL in a new window instead of settling manually', async () => {
+    const openSpy = vi.fn();
+    vi.stubGlobal('open', openSpy);
+    const fetchMock = vi.fn((url: string) => {
+      if (url === `${base}/pms-connection-status`)
+        return Promise.resolve(response({ provider: 'LOCAL' }));
+      if (url === `${base}/room-types`)
+        return Promise.resolve(response([{ id: 'room-type-1', name: 'Deluxe', roomCount: 3 }]));
+      if (url === `${base}/rooms`) return Promise.resolve(response([]));
+      if (url === `${base}/rate-plans`)
+        return Promise.resolve(response([{ id: 'rate-1', name: 'Flexible', currency: 'EUR' }]));
+      if (url.startsWith(`${base}/availability-calendar?`))
+        return Promise.resolve(response({ days: [] }));
+      if (url === `${base}/quotes`)
+        return Promise.resolve(response({ total: { amount: '120.00', currency: 'EUR' } }));
+      if (url === `${base}/staff-bookings`)
+        return Promise.resolve(
+          response({
+            ok: true,
+            value: { id: 'booking-3', checkoutUrl: 'https://pay.pokpay.test/order-1' },
+          }),
+        );
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { container, root } = await mount({
+      paymentGateways: { stripe: false, pokpay: true, payAtHotel: true },
+    });
+
+    await setValue(container.querySelector('select')!, 'room-type-1');
+    const ratePlanSelect = Array.from(container.querySelectorAll('select')).find((select) =>
+      Array.from(select.options).some((option) => option.value === 'rate-1'),
+    )!;
+    await setValue(ratePlanSelect, 'rate-1');
+    await clickDay(container, '2026-08-10');
+    await clickDay(container, '2026-08-11');
+    await click(container, 'Search availability');
+
+    const [firstName, lastName] = Array.from(
+      container.querySelectorAll('input:not([type="email"])'),
+    );
+    await setValue(firstName!, 'Ada');
+    await setValue(lastName!, 'Lovelace');
+    await setValue(container.querySelector('input[type="email"]')!, 'ada@example.test');
+    const gatewaySelect = Array.from(container.querySelectorAll('select')).find((select) =>
+      Array.from(select.options).some((option) => option.value === 'pokpay'),
+    )!;
+    await setValue(gatewaySelect, 'pokpay');
+    // Settle now must not be offered for an online gateway method.
+    expect(
+      Array.from(container.querySelectorAll('label')).some((label) =>
+        label.textContent?.includes('Settle now'),
+      ),
+    ).toBe(false);
+    await click(container, 'Create booking');
+
+    const bookingCall = fetchMock.mock.calls.find(([url]) => url === `${base}/staff-bookings`)!;
+    expect(JSON.parse(bookingCall[1].body).paymentMethod).toBe('pokpay');
+    expect(openSpy).toHaveBeenCalledWith(
+      'https://pay.pokpay.test/order-1',
+      '_blank',
+      'noopener,noreferrer',
+    );
+    expect(fetchMock.mock.calls.some(([url]) => url.includes('manual-payment'))).toBe(false);
+    expect(toast.success).toHaveBeenCalledWith(
+      'Booking created — complete payment in the new window. It confirms automatically once paid.',
+    );
     await act(async () => root.unmount());
     container.remove();
   });
@@ -164,7 +252,9 @@ describe('WalkInBooking', () => {
         throw new Error(`Unexpected fetch ${url}`);
       }),
     );
-    const { container, root } = await mount();
+    const { container, root } = await mount({
+      paymentGateways: { stripe: false, pokpay: false, payAtHotel: true },
+    });
     await setValue(container.querySelector('select')!, 'room-type-1');
     const ratePlanSelect = Array.from(container.querySelectorAll('select')).find((select) =>
       Array.from(select.options).some((option) => option.value === 'rate-1'),
@@ -179,7 +269,10 @@ describe('WalkInBooking', () => {
   });
 });
 
-async function mount(bookingMode?: 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED') {
+async function mount(options?: {
+  bookingMode?: 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
+  paymentGateways?: { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
+}) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -188,7 +281,12 @@ async function mount(bookingMode?: 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | '
       createElement(
         DashboardQueryProvider,
         undefined,
-        createElement(WalkInBooking, { tenantId: 'tenant-1', propertyId: 'property-1', bookingMode }),
+        createElement(WalkInBooking, {
+          tenantId: 'tenant-1',
+          propertyId: 'property-1',
+          bookingMode: options?.bookingMode,
+          paymentGateways: options?.paymentGateways,
+        }),
       ),
     );
   });
@@ -213,9 +311,7 @@ async function setValue(element: HTMLInputElement | HTMLSelectElement, value: st
 }
 async function clickDay(container: HTMLElement, isoDay: string) {
   await act(async () => {
-    const button = container.querySelector<HTMLButtonElement>(
-      `td[data-day="${isoDay}"] button`,
-    );
+    const button = container.querySelector<HTMLButtonElement>(`td[data-day="${isoDay}"] button`);
     if (!button) throw new Error(`No calendar day button found for ${isoDay}`);
     button.click();
   });

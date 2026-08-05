@@ -207,6 +207,7 @@ describe.skipIf(!hasSandboxCredentials)(
           ratePlanId,
           startsOn: '2026-08-16',
           endsOn: '2026-08-18',
+          paymentMethod: 'pay_at_hotel',
           guest: {
             email: 'pay-at-hotel-guest@example.test',
             firstName: 'PayAtHotel',
@@ -285,6 +286,7 @@ describe.skipIf(!hasSandboxCredentials)(
           roomTypeId: localRoomTypeId,
           startsOn: '2026-08-16',
           endsOn: '2026-08-18',
+          paymentMethod: 'pay_at_hotel',
           guest: { email: 'no-rate-plan-guest@example.test', firstName: 'NoRate', lastName: 'Plan' },
         })
         .expect(201);
@@ -333,6 +335,7 @@ describe.skipIf(!hasSandboxCredentials)(
           ratePlanId,
           startsOn: '2026-08-16',
           endsOn: '2026-08-18',
+          paymentMethod: 'pay_at_hotel',
           guest: {
             email: 'window-guard-guest@example.test',
             firstName: 'Window',

@@ -10,6 +10,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import type { GuestPaymentMethod } from '@must/domain-contracts';
 
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 import { RequiresCapability } from '../tenancy/capabilities.decorator';
@@ -48,8 +49,6 @@ export class StaffBookingController {
       idempotencyKey: key,
       externalReference: this.externalReference(body, key),
       total,
-      paymentMethod: 'pay_at_hotel',
-      payAtHotel: true,
       staffActorId: request.tenantContext.userId,
       skipQuoteValidation: true,
     });
@@ -69,6 +68,12 @@ export class StaffBookingController {
       ratePlanId: typeof value.ratePlanId === 'string' ? value.ratePlanId : '',
       startsOn: typeof value.startsOn === 'string' ? value.startsOn : '',
       endsOn: typeof value.endsOn === 'string' ? value.endsOn : '',
+      paymentMethod:
+        value.paymentMethod === 'stripe' ||
+        value.paymentMethod === 'pokpay' ||
+        value.paymentMethod === 'pay_at_hotel'
+          ? value.paymentMethod
+          : (undefined as GuestPaymentMethod | undefined),
       guest: {
         email: typeof guest.email === 'string' ? guest.email : '',
         firstName: typeof guest.firstName === 'string' ? guest.firstName : '',

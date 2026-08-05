@@ -34,7 +34,13 @@ import { RateManagement } from './[tenantId]/rate-management';
 type TenantRole = 'OWNER' | 'ADMIN' | 'STAFF';
 type Membership = { tenantId: string; role: TenantRole };
 type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
-type Property = { id: string; name: string; bookingMode?: BookingMode };
+type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
+type Property = {
+  id: string;
+  name: string;
+  bookingMode?: BookingMode;
+  paymentGateways?: PaymentGateways;
+};
 
 const roleLabels: Record<TenantRole, string> = {
   OWNER: 'Owner',
@@ -261,6 +267,7 @@ export function DashboardShell({
           tenantId={tenantId}
           propertyId={selectedProperty.id}
           bookingMode={selectedProperty.bookingMode}
+          paymentGateways={selectedProperty.paymentGateways}
         />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'payments' ? (

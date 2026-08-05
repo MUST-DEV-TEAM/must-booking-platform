@@ -173,6 +173,7 @@ describe('tenant dashboard end-to-end flow', () => {
       .set('Idempotency-Key', randomUUID())
       .send({
         ...quoteInput,
+        paymentMethod: 'pay_at_hotel',
         guest: { email: 'walk-in@example.test', firstName: 'Walk', lastName: 'In' },
       })
       .expect(201);
@@ -308,6 +309,7 @@ describe('tenant dashboard end-to-end flow', () => {
         ratePlanId,
         startsOn: staffStartsOn,
         endsOn: staffEndsOn,
+        paymentMethod: 'pay_at_hotel',
         guest: { email: 'staff-walk-in@example.test', firstName: 'Staff', lastName: 'Walk In' },
       })
       .expect(201);

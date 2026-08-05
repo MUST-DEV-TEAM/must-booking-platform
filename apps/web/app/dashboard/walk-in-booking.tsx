@@ -19,7 +19,13 @@ type StayInput = {
   endsOn: string;
 };
 type Guest = { firstName: string; lastName: string; email: string; phone: string };
-type PaymentMethod = 'cash' | 'card_in_person' | 'bank_transfer' | '';
+// How the booking's own payment gets taken — filtered to whatever the
+// property's Settings has enabled. "Settle now" (below) is a separate,
+// secondary concept: an immediate manual record, only offered when Pay at
+// hotel is chosen (Stripe/PokPay are paid for real through the popup).
+type GatewayPaymentMethod = 'pay_at_hotel' | 'stripe' | 'pokpay' | '';
+type SettleMethod = 'cash' | 'card_in_person' | 'bank_transfer' | '';
+type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
 type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
 const key = () => crypto.randomUUID();
 // Sentinel for "browse every room regardless of type" — never sent to the
@@ -30,10 +36,12 @@ export function WalkInBooking({
   tenantId,
   propertyId,
   bookingMode,
+  paymentGateways,
 }: {
   tenantId: string;
   propertyId: string;
   bookingMode?: BookingMode;
+  paymentGateways?: PaymentGateways;
 }) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const [roomTypeSelection, setRoomTypeSelection] = useState('');
@@ -43,7 +51,8 @@ export function WalkInBooking({
   const [month, setMonth] = useState(() => new Date());
   const [quote, setQuote] = useState<Quote | null>(null);
   const [guest, setGuest] = useState<Guest>({ firstName: '', lastName: '', email: '', phone: '' });
-  const [method, setMethod] = useState<PaymentMethod>('');
+  const [gatewayMethod, setGatewayMethod] = useState<GatewayPaymentMethod>('');
+  const [settleMethod, setSettleMethod] = useState<SettleMethod>('');
 
   // A Clock-connected property is always priced live from Clock (no local
   // rate plan picker); a local property still needs one picked explicitly.
@@ -132,35 +141,49 @@ export function WalkInBooking({
     mutationFn: async ({
       input,
       guest,
-      method,
+      gatewayMethod,
+      settleMethod,
     }: {
       input: StayInput;
       guest: Guest;
-      method: PaymentMethod;
+      gatewayMethod: GatewayPaymentMethod;
+      settleMethod: SettleMethod;
     }) => {
-      const result = await post(`${base}/staff-bookings`, { ...input, guest }, key());
+      const result = await post(
+        `${base}/staff-bookings`,
+        { ...input, guest, paymentMethod: gatewayMethod },
+        key(),
+      );
       if (!result.ok) throw new Error(result.error?.message ?? 'Unable to create booking.');
-      if (method) {
+      if (result.value.checkoutUrl) {
+        window.open(result.value.checkoutUrl, '_blank', 'noopener,noreferrer');
+        return 'checkout' as const;
+      }
+      if (settleMethod) {
         const paid = await post(
           `${base}/bookings/${result.value.id}/manual-payment`,
-          { method },
+          { method: settleMethod },
           key(),
         );
         if (!paid.ok)
           throw new Error(
             paid.error?.message ?? 'Booking created, but payment could not be recorded.',
           );
+        return 'settled' as const;
       }
-      return method;
+      return 'pay-at-hotel' as const;
     },
-    onSuccess: (paymentMethod) => {
+    onSuccess: (outcome) => {
       toast.success(
-        paymentMethod
-          ? 'Booking created and payment recorded.'
-          : 'Booking created as pay at hotel.',
+        outcome === 'checkout'
+          ? 'Booking created — complete payment in the new window. It confirms automatically once paid.'
+          : outcome === 'settled'
+            ? 'Booking created and payment recorded.'
+            : 'Booking created as pay at hotel.',
       );
       setQuote(null);
       setRange(undefined);
+      setSettleMethod('');
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
@@ -339,25 +362,51 @@ export function WalkInBooking({
                 />
               </label>
               <label>
-                Settle now
+                Payment method
                 <select
                   className="must-input"
                   aria-label="Payment method"
-                  value={method}
-                  onChange={(event) => setMethod(event.target.value as typeof method)}
+                  value={gatewayMethod}
+                  onChange={(event) =>
+                    setGatewayMethod(event.target.value as GatewayPaymentMethod)
+                  }
                 >
-                  <option value="">Pay at hotel later</option>
-                  <option value="cash">Cash</option>
-                  <option value="card_in_person">Card in person</option>
-                  <option value="bank_transfer">Bank transfer</option>
+                  <option value="">Select payment method</option>
+                  {paymentGateways?.payAtHotel ? (
+                    <option value="pay_at_hotel">Pay at hotel</option>
+                  ) : null}
+                  {paymentGateways?.stripe ? <option value="stripe">Stripe</option> : null}
+                  {paymentGateways?.pokpay ? <option value="pokpay">PokPay</option> : null}
                 </select>
               </label>
+              {gatewayMethod === 'pay_at_hotel' ? (
+                <label>
+                  Settle now
+                  <select
+                    className="must-input"
+                    aria-label="Settle now"
+                    value={settleMethod}
+                    onChange={(event) => setSettleMethod(event.target.value as SettleMethod)}
+                  >
+                    <option value="">Pay at hotel later</option>
+                    <option value="cash">Cash</option>
+                    <option value="card_in_person">Card in person</option>
+                    <option value="bank_transfer">Bank transfer</option>
+                  </select>
+                </label>
+              ) : null}
             </div>
+            {gatewayMethod === 'stripe' || gatewayMethod === 'pokpay' ? (
+              <Text tone="secondary">
+                A payment window will open once the booking is created — the reservation
+                confirms automatically after the guest pays.
+              </Text>
+            ) : null}
             <button
               type="button"
               className="must-button must-button--primary"
-              disabled={busy || !guest.email}
-              onClick={() => bookingMutation.mutate({ input, guest, method })}
+              disabled={busy || !guest.email || !gatewayMethod}
+              onClick={() => bookingMutation.mutate({ input, guest, gatewayMethod, settleMethod })}
             >
               {busy ? <Loader2 aria-hidden="true" size={16} /> : 'Create booking'}
             </button>
