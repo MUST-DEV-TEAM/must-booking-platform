@@ -247,11 +247,24 @@ export class LocalPmsProvider implements PmsProvider {
           null,
           command.externalReference,
           async () => {
+            // Walk-in booking redesign: staff no longer picks a rate plan
+            // for a Clock-connected room type — resolve the auto-created
+            // shadow rate plan (Task confirm-time) instead of failing on an
+            // empty ratePlanId, which would otherwise reach validateCatalog's
+            // ::uuid cast as '' and throw a raw Postgres error.
+            const ratePlanId = command.ratePlanId
+              ? command.ratePlanId
+              : await this.clockShadowRatePlanId(tx, context, command.roomTypeId);
+            if (!ratePlanId)
+              return this.failure(
+                'RATE_PLAN_REQUIRED',
+                'A rate plan is required for this room type.',
+              );
             const catalogError = await this.validateCatalog(
               tx,
               context,
               command.roomTypeId,
-              command.ratePlanId,
+              ratePlanId,
               command.total.currency,
             );
             if (catalogError) return catalogError;
@@ -273,7 +286,7 @@ export class LocalPmsProvider implements PmsProvider {
           ${command.quoteSessionId ?? null}::uuid,
           ${BookingStatus.DRAFT}::"BookingStatus",
           ${paymentMethod.value}::"BookingPaymentMethod",
-          ${command.startsOn}::date, ${command.endsOn}::date, ${command.ratePlanId}::uuid,
+          ${command.startsOn}::date, ${command.endsOn}::date, ${ratePlanId}::uuid,
           ${command.total.amount}::numeric
         )
         RETURNING id
@@ -879,6 +892,22 @@ export class LocalPmsProvider implements PmsProvider {
       .sort()
       .map((key) => `${JSON.stringify(key)}:${this.stableJson(record[key])}`)
       .join(',')}}`;
+  }
+
+  /** The auto-created rate plan (Task confirm-time) backing a Clock-mapped
+   * room type — resolves what createBooking uses in place of a staff-picked
+   * ratePlanId. Returns null for a non-Clock room type or property. */
+  private async clockShadowRatePlanId(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    roomTypeId: string,
+  ): Promise<string | null> {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM rate_plans
+      WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+        AND clock_shadow_room_type_id = ${roomTypeId}::uuid
+    `;
+    return rows[0]?.id ?? null;
   }
 
   private async validateCatalog(

@@ -269,6 +269,55 @@ describe.skipIf(!hasSandboxCredentials)(
       expect((clockBooking.body as { status: string }).status).toBe('canceled');
     }, 30_000);
 
+    it('walk-in redesign: creates a booking with no ratePlanId, auto-resolving the Clock shadow rate plan', async () => {
+      const shadowRatePlan = await admin.$queryRaw<Array<{ id: string; name: string }>>`
+        SELECT id, name FROM rate_plans
+        WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+          AND clock_shadow_room_type_id = ${localRoomTypeId}::uuid
+      `;
+      expect(shadowRatePlan[0]?.name).toBe('Clock: DBL');
+
+      const created = await request(app!.getHttpServer())
+        .post(`/tenants/${tenantId}/properties/${propertyId}/staff-bookings`)
+        .set('Cookie', cookie)
+        .set('Idempotency-Key', `no-rate-plan-${randomUUID()}`)
+        .send({
+          roomTypeId: localRoomTypeId,
+          startsOn: '2026-08-16',
+          endsOn: '2026-08-18',
+          guest: { email: 'no-rate-plan-guest@example.test', firstName: 'NoRate', lastName: 'Plan' },
+        })
+        .expect(201);
+      expect(created.body.ok).toBe(true);
+      const bookingId = created.body.value.id as string;
+
+      const row = await admin.$queryRaw<
+        Array<{ status: string; externalBookingId: string | null; ratePlanId: string }>
+      >`
+        SELECT status, external_booking_id AS "externalBookingId", rate_plan_id AS "ratePlanId"
+        FROM bookings WHERE id = ${bookingId}::uuid
+      `;
+      expect(row[0]?.status).toBe('CONFIRMED');
+      expect(row[0]?.externalBookingId).toMatch(/^\d+$/);
+      expect(row[0]?.ratePlanId).toBe(shadowRatePlan[0]!.id);
+
+      await admin.$executeRaw`
+        UPDATE properties SET free_cancellation_days_before_arrival = 0 WHERE id = ${propertyId}::uuid
+      `;
+      const bookings = app!.get(LocalPmsProvider);
+      const cancelResult = await bookings.cancelBooking(
+        { tenantId, propertyId },
+        {
+          idempotencyKey: `no-rate-plan-cancel-${randomUUID()}`,
+          bookingId,
+          guestSessionId: null as unknown as string,
+          expectedVersion: 1,
+          reason: 'Task cleanup.',
+        },
+      );
+      expect(cancelResult.ok).toBe(true);
+    }, 30_000);
+
     it('self-service cancellation window: blocks a near-future booking and leaves the real Clock reservation untouched', async () => {
       // Restore the property's default window (the pay-at-hotel test above
       // widened it to 0 to avoid being blocked by this same guard).

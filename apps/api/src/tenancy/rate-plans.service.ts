@@ -60,6 +60,7 @@ export class RatePlansService {
           free_cancellation_until_hours AS "freeCancellationUntilHours"
         FROM rate_plans
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+          AND clock_shadow_room_type_id IS NULL
         ORDER BY created_at
       `,
     );

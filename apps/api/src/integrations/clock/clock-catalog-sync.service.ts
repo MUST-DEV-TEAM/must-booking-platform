@@ -155,6 +155,30 @@ export class ClockCatalogSyncService {
             );
           throw error;
         }
+        // Walk-in booking redesign: a Clock-priced booking still needs a
+        // valid local rate_plan_id (NOT NULL FK, also the cancellation-policy
+        // carrier) even though staff never picks one — auto-create a
+        // shadow rate plan for this room type, never surfaced in the
+        // Rate Plan UI (filtered out by clockShadowRoomTypeId elsewhere).
+        // Currency defaults to EUR — a real gap for non-EUR properties,
+        // revisit if/when this needs to be configurable.
+        try {
+          await tx.$executeRawUnsafe(
+            `INSERT INTO rate_plans (id, tenant_id, property_id, name, currency, is_active, clock_shadow_room_type_id)
+             VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'EUR', true, $5::uuid)`,
+            randomUUID(),
+            tenantId,
+            propertyId,
+            `Clock: ${mapping.externalName}`,
+            localId,
+          );
+        } catch (error: unknown) {
+          if (this.isUniqueViolation(error))
+            throw new ConflictException(
+              `A rate plan named "Clock: ${mapping.externalName}" already exists for this property.`,
+            );
+          throw error;
+        }
       } else {
         const parentRows = await tx.$queryRawUnsafe<Array<{ localEntityId: string | null }>>(
           `SELECT local_entity_id AS "localEntityId" FROM clock_catalog_mappings
