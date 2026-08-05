@@ -367,9 +367,7 @@ export function WalkInBooking({
                   className="must-input"
                   aria-label="Payment method"
                   value={gatewayMethod}
-                  onChange={(event) =>
-                    setGatewayMethod(event.target.value as GatewayPaymentMethod)
-                  }
+                  onChange={(event) => setGatewayMethod(event.target.value as GatewayPaymentMethod)}
                 >
                   <option value="">Select payment method</option>
                   {paymentGateways?.payAtHotel ? (
@@ -398,8 +396,8 @@ export function WalkInBooking({
             </div>
             {gatewayMethod === 'stripe' || gatewayMethod === 'pokpay' ? (
               <Text tone="secondary">
-                A payment window will open once the booking is created — the reservation
-                confirms automatically after the guest pays.
+                A payment window will open once the booking is created — the reservation confirms
+                automatically after the guest pays.
               </Text>
             ) : null}
             <button

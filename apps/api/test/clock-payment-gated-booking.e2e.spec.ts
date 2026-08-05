@@ -287,7 +287,11 @@ describe.skipIf(!hasSandboxCredentials)(
           startsOn: '2026-08-16',
           endsOn: '2026-08-18',
           paymentMethod: 'pay_at_hotel',
-          guest: { email: 'no-rate-plan-guest@example.test', firstName: 'NoRate', lastName: 'Plan' },
+          guest: {
+            email: 'no-rate-plan-guest@example.test',
+            firstName: 'NoRate',
+            lastName: 'Plan',
+          },
         })
         .expect(201);
       expect(created.body.ok).toBe(true);

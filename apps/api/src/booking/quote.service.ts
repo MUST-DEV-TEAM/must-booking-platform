@@ -70,10 +70,7 @@ export class QuoteService {
     // /products endpoint (owner's call — no local rate_plan mirror). Rate is
     // derived from the room type's confirmed Clock mapping, so ratePlanId is
     // irrelevant on this path.
-    const connection = await this.connections.activePmsConnectionCredentials(
-      tenantId,
-      propertyId,
-    );
+    const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (connection?.provider === 'CLOCK_PMS') {
       const quote = await this.clockAvailability.getQuote(tenantId, propertyId, {
         roomTypeId: input.roomTypeId,
