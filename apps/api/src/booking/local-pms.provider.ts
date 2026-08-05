@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, HttpException, Inject, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   type AvailabilityQuery,
@@ -159,7 +159,12 @@ export class LocalPmsProvider implements PmsProvider {
         ok: true,
         value: await this.availability.getAvailability(context.tenantId, context.propertyId, query),
       };
-    } catch {
+    } catch (error) {
+      // Callers (e.g. PublicAvailabilityController, dispatching through
+      // PmsProviderRegistry) rely on AvailabilityService's real status codes
+      // and messages (400 for a bad query, 404 for an unknown room type,
+      // etc.) — only flatten truly unexpected errors into a generic failure.
+      if (error instanceof HttpException) throw error;
       return {
         ok: false,
         error: {
