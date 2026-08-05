@@ -11,18 +11,15 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(() => vi.unstubAllGlobals());
 
 describe('PropertyEntry', () => {
-  it('shows a picker for an owner with multiple accessible properties', async () => {
+  it('shows the Main Dashboard for an owner with multiple accessible properties', async () => {
     const { container, root } = await mount([
       { id: 'property-1', name: 'Grand Hotel' },
       { id: 'property-2', name: 'Coast Hotel' },
     ]);
 
-    expect(container.textContent).toContain('Choose a property');
+    expect(container.textContent).toContain('Main Dashboard');
     expect(container.textContent).toContain('Grand Hotel');
     expect(container.textContent).toContain('Coast Hotel');
-    expect(container.querySelector('a')?.getAttribute('href')).toBe(
-      '/dashboard/tenant-1?propertyId=property-1&section=overview',
-    );
     await act(async () => root.unmount());
   });
 

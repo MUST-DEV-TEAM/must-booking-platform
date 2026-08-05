@@ -70,16 +70,12 @@ describe('IntegrationsManagement', () => {
     const { container, root } = await mount();
 
     const nameInput = container.querySelector('input[placeholder="e.g. Main Stripe account"]')!;
-    const keyInput = container.querySelector('input[placeholder="Field name (e.g. secretKey)"]')!;
-    const valueInput = container.querySelector('input[placeholder="Value"]')!;
+    const secretKeyInput = fieldInput(container, 'Secret key');
+    const webhookSecretInput = fieldInput(container, 'Webhook secret');
     await act(async () => {
-      nameInput.dispatchEvent(new Event('focus'));
-      Object.defineProperty(nameInput, 'value', { value: 'Main Stripe', writable: true });
-      nameInput.dispatchEvent(new Event('input', { bubbles: true }));
-      Object.defineProperty(keyInput, 'value', { value: 'secretKey', writable: true });
-      keyInput.dispatchEvent(new Event('input', { bubbles: true }));
-      Object.defineProperty(valueInput, 'value', { value: 'sk_test_x', writable: true });
-      valueInput.dispatchEvent(new Event('input', { bubbles: true }));
+      setValue(nameInput, 'Main Stripe');
+      setValue(secretKeyInput, 'sk_test_x');
+      setValue(webhookSecretInput, 'whsec_x');
     });
     await act(async () => {
       const form = container.querySelector('form')!;
@@ -88,7 +84,7 @@ describe('IntegrationsManagement', () => {
     await settle();
 
     expect(toast.success).toHaveBeenCalledWith('Connection created.');
-    expect(createdCredentials).toEqual({ secretKey: 'sk_test_x' });
+    expect(createdCredentials).toEqual({ secretKey: 'sk_test_x', webhookSecret: 'whsec_x' });
     await act(async () => root.unmount());
   });
 
@@ -173,6 +169,18 @@ describe('ClockCatalogSync', () => {
   });
 });
 
+function fieldInput(container: HTMLElement, label: string): HTMLInputElement {
+  const span = Array.from(container.querySelectorAll('.must-field__label')).find(
+    (element) => element.textContent === label,
+  )!;
+  return span.parentElement!.querySelector('input')!;
+}
+
+function setValue(input: HTMLInputElement, value: string) {
+  Object.defineProperty(input, 'value', { value, writable: true });
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 async function mount() {
   const container = document.createElement('div');
   const root = createRoot(container);
@@ -181,7 +189,10 @@ async function mount() {
       createElement(
         DashboardQueryProvider,
         undefined,
-        createElement(IntegrationsManagement, { tenantId: 't', propertyId: 'p' }),
+        createElement(IntegrationsManagement, {
+          tenantId: 't',
+          properties: [{ id: 'p', name: 'Property' }],
+        }),
       ),
     );
   });
