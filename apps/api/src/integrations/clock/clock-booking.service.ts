@@ -411,7 +411,8 @@ export class ClockBookingService {
         category: 'SCHEMA_MISMATCH',
         referenceType: 'booking',
         referenceId: bookingId,
-        message: 'Clock returned a 2xx booking-create response that did not match the expected shape.',
+        message:
+          'Clock returned a 2xx booking-create response that did not match the expected shape.',
         context: { externalReference: row.externalReference, response: response.value },
       });
       return this.failure(

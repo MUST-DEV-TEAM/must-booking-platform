@@ -20,7 +20,10 @@ export class StripeConnectionTester implements ConnectionTester, OnModuleInit {
     const secretKey = credentials.secretKey?.trim();
     if (!secretKey) return { ok: false, message: 'secretKey is required.' };
     if (!secretKey.startsWith('sk_test_'))
-      return { ok: false, message: 'Only a Stripe test-mode secret key may be used at this stage.' };
+      return {
+        ok: false,
+        message: 'Only a Stripe test-mode secret key may be used at this stage.',
+      };
 
     try {
       await new Stripe(secretKey).balance.retrieve();

@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { PmsProviderRegistry } from './pms-provider-registry';
 
 function makeRegistry(
-  connection: { connectionId: string; provider: string; credentials: Record<string, string> } | null,
+  connection: {
+    connectionId: string;
+    provider: string;
+    credentials: Record<string, string>;
+  } | null,
 ) {
   const connections = {
     activePmsConnectionCredentials: vi.fn().mockResolvedValue(connection),

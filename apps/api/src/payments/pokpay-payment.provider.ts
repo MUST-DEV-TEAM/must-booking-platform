@@ -166,10 +166,7 @@ export class PokPayPaymentProvider implements PaymentProvider {
       '',
     );
     if (!keyId || !keySecret || !merchantId || !webhookUrl)
-      return this.failure(
-        'POKPAY_NOT_CONFIGURED',
-        'PokPay is not configured for this property.',
-      );
+      return this.failure('POKPAY_NOT_CONFIGURED', 'PokPay is not configured for this property.');
     if (baseUrl !== 'https://api-staging.pokpay.io')
       return this.failure(
         'POKPAY_TEST_MODE_REQUIRED',

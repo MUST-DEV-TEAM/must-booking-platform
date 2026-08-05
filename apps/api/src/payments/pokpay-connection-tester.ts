@@ -40,7 +40,9 @@ export class PokpayConnectionTester implements ConnectionTester, OnModuleInit {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ keyId, keySecret }),
       });
-      const body = (await login.json().catch(() => null)) as { data?: { accessToken?: string } } | null;
+      const body = (await login.json().catch(() => null)) as {
+        data?: { accessToken?: string };
+      } | null;
       if (!login.ok || !body?.data?.accessToken)
         return { ok: false, message: 'PokPay authentication failed.' };
       return { ok: true, message: 'Connected to PokPay successfully.' };
