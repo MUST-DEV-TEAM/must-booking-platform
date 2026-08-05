@@ -20,6 +20,7 @@ let property = {
   advanceBookingDays: 90,
   freeCancellationDaysBeforeArrival: 21,
   bookingMode: 'ROOM_TYPE_ONLY' as 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED',
+  paymentGateways: { stripe: false, pokpay: false, payAtHotel: true },
 };
 
 afterEach(() => vi.unstubAllGlobals());
@@ -84,6 +85,23 @@ describe('DashboardSettings', () => {
     const bookingModeRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[2];
     expect(JSON.parse(bookingModeRequest[1]!.body as string)).toEqual({
       bookingMode: 'INDIVIDUAL_ROOM_ONLY',
+    });
+
+    const pokpayCheckbox = Array.from(container.querySelectorAll('input[type="checkbox"]')).find(
+      (input) => input.closest('label')?.textContent?.includes('PokPay'),
+    ) as HTMLInputElement;
+    await act(async () => {
+      pokpayCheckbox.click();
+      await Promise.resolve();
+    });
+    await submit(container, 'Save payment methods');
+    const paymentGatewaysRequest = fetch.mock.calls.find(
+      ([url, init]) => init?.method === 'PATCH' && url.endsWith('/payment-gateways'),
+    )!;
+    expect(JSON.parse(paymentGatewaysRequest[1]!.body as string)).toEqual({
+      stripe: false,
+      pokpay: true,
+      payAtHotel: true,
     });
     await act(async () => root.unmount());
   });

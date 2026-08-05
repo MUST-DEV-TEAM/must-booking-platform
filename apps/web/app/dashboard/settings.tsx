@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 
 import { PropertyManagement } from './[tenantId]/property-management';
 
+type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
 type Property = {
   id: string;
   name: string;
@@ -20,6 +21,7 @@ type Property = {
   advanceBookingDays: number | null;
   freeCancellationDaysBeforeArrival: number;
   bookingMode: BookingMode;
+  paymentGateways: PaymentGateways;
 };
 
 type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
@@ -67,6 +69,7 @@ export function DashboardSettings({
   const [identity, setIdentity] = useState<IdentityFields | null>(null);
   const [rules, setRules] = useState<RuleFields | null>(null);
   const [bookingMode, setBookingMode] = useState<BookingMode | null>(null);
+  const [paymentGateways, setPaymentGateways] = useState<PaymentGateways | null>(null);
   const base = `/api/tenants/${tenantId}`;
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({
@@ -94,6 +97,7 @@ export function DashboardSettings({
     setIdentity({ name: property.name, address: property.address, timezone: property.timezone });
     setRules(rulesFrom(property));
     setBookingMode(property.bookingMode);
+    setPaymentGateways(property.paymentGateways);
   }, [property]);
 
   const saveMutation = useMutation({
@@ -120,6 +124,36 @@ export function DashboardSettings({
   async function save(update: Partial<Property>) {
     if (!property || Object.keys(update).length === 0) return;
     saveMutation.mutate(update);
+  }
+
+  const paymentGatewaysMutation = useMutation({
+    mutationFn: async (update: PaymentGateways) => {
+      const response = await fetch(`${base}/properties/${propertyId}/payment-gateways`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(update),
+      });
+      if (!response.ok) throw new Error('Unable to save payment methods.');
+      return update;
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData<{ property: Property; planName: string | null }>(
+        ['dashboard', 'settings', tenantId, propertyId],
+        (current) =>
+          current
+            ? { ...current, property: { ...current.property, paymentGateways: updated } }
+            : current,
+      );
+      toast.success('Payment methods saved.');
+    },
+    onError: () => toast.error('Unable to save payment methods.'),
+  });
+
+  function savePaymentGateways(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!paymentGateways) return;
+    paymentGatewaysMutation.mutate(paymentGateways);
   }
 
   function saveIdentity(event: FormEvent<HTMLFormElement>) {
@@ -167,7 +201,7 @@ export function DashboardSettings({
         </button>
       </Card>
     );
-  if (!property || !identity || !rules || !bookingMode)
+  if (!property || !identity || !rules || !bookingMode || !paymentGateways)
     return (
       <section aria-label="Loading settings">
         <Text>Loading settings…</Text>
@@ -371,6 +405,60 @@ export function DashboardSettings({
                 </>
               ) : (
                 'Save booking mode'
+              )}
+            </button>
+          </form>
+        </Stack>
+      </Card>
+
+      <Card>
+        <Stack gap="md">
+          <Heading level={2}>Payment methods</Heading>
+          <Text tone="secondary">
+            Choose which payment methods guests and staff can use for bookings at this property.
+            Stripe and PokPay also need a working connection under Integrations.
+          </Text>
+          <form className="must-stack must-stack--md" onSubmit={savePaymentGateways}>
+            <label className="must-field">
+              <input
+                type="checkbox"
+                checked={paymentGateways.payAtHotel}
+                onChange={(event) =>
+                  setPaymentGateways({ ...paymentGateways, payAtHotel: event.target.checked })
+                }
+              />
+              <span className="must-field__label">Pay at hotel</span>
+            </label>
+            <label className="must-field">
+              <input
+                type="checkbox"
+                checked={paymentGateways.stripe}
+                onChange={(event) =>
+                  setPaymentGateways({ ...paymentGateways, stripe: event.target.checked })
+                }
+              />
+              <span className="must-field__label">Stripe</span>
+            </label>
+            <label className="must-field">
+              <input
+                type="checkbox"
+                checked={paymentGateways.pokpay}
+                onChange={(event) =>
+                  setPaymentGateways({ ...paymentGateways, pokpay: event.target.checked })
+                }
+              />
+              <span className="must-field__label">PokPay</span>
+            </label>
+            <button
+              className="must-button must-button--primary"
+              disabled={paymentGatewaysMutation.isPending}
+            >
+              {paymentGatewaysMutation.isPending ? (
+                <>
+                  <Loader2 aria-hidden="true" size={16} /> Saving…
+                </>
+              ) : (
+                'Save payment methods'
               )}
             </button>
           </form>
