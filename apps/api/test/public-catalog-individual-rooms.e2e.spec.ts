@@ -134,6 +134,7 @@ describe('public catalog individual rooms', () => {
           maxOccupancy: 2,
           amenities: [],
           ratePlans: [],
+          requiresRatePlanSelection: true,
         },
       ],
     });

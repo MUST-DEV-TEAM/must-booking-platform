@@ -38,9 +38,9 @@ function maybe_process_confirmation_cancellation(): string
 }
 
 /** @return array<string, mixed> room type/rate plan display names for a booking, looked up from the catalog. */
-function get_booking_display_names(string $roomTypeId, string $ratePlanId): array
+function get_booking_display_names(string $roomTypeId, string $ratePlanId, string $startsOn = '', string $endsOn = ''): array
 {
-    foreach (get_must_room_types() as $roomType) {
+    foreach (get_must_room_types($startsOn, $endsOn) as $roomType) {
         if ((string) ($roomType['id'] ?? '') !== $roomTypeId) continue;
         $ratePlanName = '';
         foreach ((array) ($roomType['ratePlans'] ?? []) as $ratePlan) {
@@ -72,13 +72,21 @@ function get_confirmation_result_view_data(string $bookingId): array
         $booking = $response['body'];
         $status = (string) ($booking['status'] ?? '');
         $apiPaymentMethod = (string) ($booking['paymentMethod'] ?? '');
-        $paymentMethod = $apiPaymentMethod === 'PAY_AT_HOTEL' ? 'pay_at_hotel' : ($apiPaymentMethod === 'STRIPE_CHECKOUT' ? 'stripe' : '');
+        $onlinePaymentMethod = \in_array($apiPaymentMethod, ['STRIPE_CHECKOUT', 'POKPAY'], true);
+        $paymentMethod = $apiPaymentMethod === 'PAY_AT_HOTEL'
+            ? 'pay_at_hotel'
+            : ($apiPaymentMethod === 'STRIPE_CHECKOUT' ? 'stripe' : ($apiPaymentMethod === 'POKPAY' ? 'pokpay' : ''));
         $success = true;
         $totalPrice = isset($booking['total']['amount']) ? (float) $booking['total']['amount'] : 0.0;
-        $names = get_booking_display_names((string) ($booking['roomTypeId'] ?? ''), (string) ($booking['ratePlanId'] ?? ''));
+        $names = get_booking_display_names(
+            (string) ($booking['roomTypeId'] ?? ''),
+            (string) ($booking['ratePlanId'] ?? ''),
+            (string) ($booking['startsOn'] ?? ''),
+            (string) ($booking['endsOn'] ?? '')
+        );
         $reservations[] = [
             'status' => $status,
-            'payment_status' => $status === 'CONFIRMED' && $apiPaymentMethod === 'STRIPE_CHECKOUT' ? 'paid' : 'pending',
+            'payment_status' => $status === 'CONFIRMED' && $onlinePaymentMethod ? 'paid' : 'pending',
             'checkin' => (string) ($booking['startsOn'] ?? ''), 'checkout' => (string) ($booking['endsOn'] ?? ''),
             'guests' => 1, 'booking_id' => $bookingId,
             'room_name' => $names['room_name'], 'rate_plan_name' => $names['rate_plan_name'],
@@ -152,19 +160,19 @@ function maybe_process_confirm_booking_submission(): string
     if ($firstName === '' || $lastName === '' || $email === '') {
         return \__('Please fill in your name and email to continue.', 'must-hotel-booking');
     }
-    if (!\in_array($paymentMethod, ['stripe', 'pay_at_hotel'], true)) {
+    if (!\in_array($paymentMethod, get_must_payment_methods((string) $selection['checkin'], (string) $selection['checkout']), true)) {
         return \__('Please choose a payment method to continue.', 'must-hotel-booking');
     }
 
     $quote = $selection['quote'];
-    $result = MustApiClient::post('/bookings', [
+    $bookingInput = [
         'roomTypeId' => $selection['roomTypeId'],
         'ratePlanId' => $selection['ratePlanId'],
         'startsOn' => $selection['checkin'],
         'endsOn' => $selection['checkout'],
         'total' => $quote['total'],
         'quoteToken' => $quote['quoteToken'],
-        'payAtHotel' => $paymentMethod === 'pay_at_hotel',
+        'paymentMethod' => $paymentMethod,
         'returnUrl' => ManagedPages::getBookingConfirmationPageUrl(),
         'guest' => [
             'firstName' => $firstName, 'lastName' => $lastName, 'email' => $email,
@@ -175,7 +183,11 @@ function maybe_process_confirm_booking_submission(): string
             'county' => $county !== '' ? $county : null,
             'postcode' => $postcode !== '' ? $postcode : null,
         ],
-    ], \wp_generate_uuid4());
+    ];
+    if (!empty($selection['roomId'])) {
+        $bookingInput['roomId'] = $selection['roomId'];
+    }
+    $result = MustApiClient::post('/bookings', $bookingInput, \wp_generate_uuid4());
 
     if (!$result['ok'] || !\is_array($result['body']) || empty($result['body']['ok'])) {
         return \__('We could not complete your booking. Please review your details and try again.', 'must-hotel-booking');
@@ -194,6 +206,23 @@ function maybe_process_confirm_booking_submission(): string
     exit;
 }
 
+/** @return array<string, array{label: string}> keyed by the property's actually-enabled payment methods, in catalog order */
+function get_confirmation_payment_methods_view_data(string $startsOn = '', string $endsOn = ''): array
+{
+    $labels = [
+        'stripe' => \__('Credit / Debit Card', 'must-hotel-booking'),
+        'pokpay' => \__('PokPay', 'must-hotel-booking'),
+        'pay_at_hotel' => \__('Pay at Hotel', 'must-hotel-booking'),
+    ];
+    $methods = [];
+    foreach (get_must_payment_methods($startsOn, $endsOn) as $method) {
+        if (isset($labels[$method])) {
+            $methods[$method] = ['label' => $labels[$method]];
+        }
+    }
+    return $methods;
+}
+
 /** @return array<string, mixed> */
 function get_confirmation_review_view_data(): array
 {
@@ -201,6 +230,14 @@ function get_confirmation_review_view_data(): array
     $messages = $error !== '' ? [$error] : [];
     $selection = get_current_booking_selection();
     $canConfirm = $selection !== null && \is_array($selection['guestInfo'] ?? null);
+    $paymentMethods = get_confirmation_payment_methods_view_data(
+        (string) ($selection['checkin'] ?? ''),
+        (string) ($selection['checkout'] ?? '')
+    );
+    if ($canConfirm && empty($paymentMethods)) {
+        $canConfirm = false;
+        $messages[] = \__('Online booking is not available for this property right now. Please contact the hotel directly.', 'must-hotel-booking');
+    }
     $guestInfo = $canConfirm ? $selection['guestInfo'] : [];
 
     $selectedRooms = [];
@@ -229,11 +266,8 @@ function get_confirmation_review_view_data(): array
     return [
         'success' => false, 'is_form_mode' => true, 'can_confirm' => $canConfirm, 'messages' => $messages,
         'reservations' => [], 'selected_rooms' => $selectedRooms, 'summary' => $summary, 'billing_form' => $billingForm,
-        'payment_method' => 'stripe',
-        'payment_methods' => [
-            'stripe' => ['label' => \__('Credit / Debit Card', 'must-hotel-booking')],
-            'pay_at_hotel' => ['label' => \__('Pay at Hotel', 'must-hotel-booking')],
-        ],
+        'payment_method' => \array_key_first($paymentMethods) ?? '',
+        'payment_methods' => $paymentMethods,
         'pending_payment' => [],
         'confirmation_cta_label' => \__('Confirm reservation', 'must-hotel-booking'),
         'primary_guest' => null, 'total_price' => isset($summary['total_price']) ? (float) $summary['total_price'] : 0.0,

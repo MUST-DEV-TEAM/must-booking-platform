@@ -409,6 +409,7 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                                                         <?php endif; ?>
                                                         <input type="hidden" name="rate_plan_id" value="<?php echo \esc_attr((string) $primary_rate_plan_id); ?>" />
                                                         <input type="hidden" name="must_room_type_id" value="<?php echo \esc_attr((string) ($room['must_room_type_uuid'] ?? '')); ?>" />
+                                                        <input type="hidden" name="must_room_id" value="<?php echo \esc_attr((string) ($room['must_room_uuid'] ?? '')); ?>" />
                                                         <input type="hidden" name="must_rate_plan_id" value="<?php echo \esc_attr((string) ($primary_rate_plan['must_rate_plan_uuid'] ?? '')); ?>" />
                                                         <input type="hidden" name="checkin" value="<?php echo \esc_attr($checkin); ?>" />
                                                         <input type="hidden" name="checkout" value="<?php echo \esc_attr($checkout); ?>" />

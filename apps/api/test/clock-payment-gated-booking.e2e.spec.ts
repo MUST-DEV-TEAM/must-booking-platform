@@ -197,6 +197,20 @@ describe.skipIf(!hasSandboxCredentials)(
       await admin.$disconnect();
     });
 
+    it('public catalog marks a Clock-mapped room type as not needing rate-plan selection', async () => {
+      const catalog = await request(app!.getHttpServer())
+        .get(`/tenants/${tenantId}/properties/${propertyId}/public/catalog`)
+        .expect(200);
+      const roomType = catalog.body.roomTypes.find(
+        (candidate: { id: string }) => candidate.id === localRoomTypeId,
+      );
+      // requiresRatePlanSelection is what the plugin actually gates on; this
+      // property's beforeAll also seeds a real local rate plan/rule on this
+      // same room type (needed for the staff-bookings-priced test below), so
+      // ratePlans itself isn't guaranteed empty here.
+      expect(roomType).toMatchObject({ requiresRatePlanSelection: false });
+    });
+
     it('pay-at-hotel: creates a real Clock reservation immediately, on the same local row, then cancels it for real', async () => {
       const created = await request(app!.getHttpServer())
         .post(`/tenants/${tenantId}/properties/${propertyId}/staff-bookings`)

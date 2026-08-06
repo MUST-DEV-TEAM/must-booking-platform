@@ -20,6 +20,14 @@ type PublicCatalogRoomType = {
     currency: string;
     freeCancellationUntilHours: number | null;
   }>;
+  // false for a Clock-connected room type: its price comes live from Clock's
+  // own /products endpoint via an auto-created shadow rate plan that
+  // deliberately has no rate_rules (so `ratePlans` above is always empty for
+  // it) — a caller must not require picking one to book. true for a local
+  // property, where `ratePlans` lists the real choices to pick from; an
+  // empty array there means the property is missing pricing configuration,
+  // not that none is needed.
+  requiresRatePlanSelection: boolean;
 };
 
 type PublicCatalogIndividualRoomType = PublicCatalogRoomType & {
@@ -83,7 +91,13 @@ export class PublicCatalogService {
                 AND rr.property_id = ${propertyId}::uuid
                 AND rr.room_type_id = rt.id
             ) plans
-          ), '[]'::json) AS "ratePlans"
+          ), '[]'::json) AS "ratePlans",
+          NOT EXISTS (
+            SELECT 1 FROM rate_plans shadow
+            WHERE shadow.tenant_id = ${tenantId}::uuid
+              AND shadow.property_id = ${propertyId}::uuid
+              AND shadow.clock_shadow_room_type_id = rt.id
+          ) AS "requiresRatePlanSelection"
         FROM room_types rt
         WHERE rt.tenant_id = ${tenantId}::uuid AND rt.property_id = ${propertyId}::uuid
         ORDER BY rt.created_at

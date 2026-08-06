@@ -68,38 +68,97 @@ function maybe_process_accommodation_selection(): string
         return \__('Your selection could not be verified. Please try again.', 'must-hotel-booking');
     }
     $roomTypeId = isset($_POST['must_room_type_id']) ? \sanitize_text_field((string) \wp_unslash($_POST['must_room_type_id'])) : '';
+    $roomId = isset($_POST['must_room_id']) ? \sanitize_text_field((string) \wp_unslash($_POST['must_room_id'])) : '';
     $ratePlanId = isset($_POST['must_rate_plan_id']) ? \sanitize_text_field((string) \wp_unslash($_POST['must_rate_plan_id'])) : '';
     $checkin = isset($_POST['checkin']) ? \sanitize_text_field((string) \wp_unslash($_POST['checkin'])) : '';
     $checkout = isset($_POST['checkout']) ? \sanitize_text_field((string) \wp_unslash($_POST['checkout'])) : '';
-    if ($roomTypeId === '' || $ratePlanId === '' || $checkin === '' || $checkout === '') {
+    if ($roomTypeId === '' || $checkin === '' || $checkout === '') {
         return \__('That room could not be selected. Please try again.', 'must-hotel-booking');
     }
 
     $roomName = '';
     $ratePlanName = '';
-    foreach (get_must_room_types() as $roomType) {
+    $requiresRatePlanSelection = true;
+    foreach (get_must_room_types($checkin, $checkout) as $roomType) {
         if ((string) ($roomType['id'] ?? '') !== $roomTypeId) continue;
-        $roomName = (string) ($roomType['name'] ?? '');
+        $requiresRatePlanSelection = !isset($roomType['requiresRatePlanSelection']) || (bool) $roomType['requiresRatePlanSelection'];
+        if ($roomId !== '') {
+            foreach ((array) ($roomType['rooms'] ?? []) as $physicalRoom) {
+                if ((string) ($physicalRoom['id'] ?? '') === $roomId) {
+                    $roomName = (string) ($physicalRoom['name'] ?? '');
+                }
+            }
+        }
+        if ($roomName === '') {
+            $roomName = (string) ($roomType['name'] ?? '');
+        }
         foreach ((array) ($roomType['ratePlans'] ?? []) as $ratePlan) {
             if ((string) ($ratePlan['id'] ?? '') === $ratePlanId) {
                 $ratePlanName = (string) ($ratePlan['name'] ?? '');
             }
         }
     }
+    // A Clock-connected room type is priced live by Clock, with no local rate
+    // plan for the guest to pick — must_rate_plan_id is legitimately empty then.
+    if ($requiresRatePlanSelection && $ratePlanId === '') {
+        return \__('That room could not be selected. Please try again.', 'must-hotel-booking');
+    }
+    if (!$requiresRatePlanSelection && $ratePlanName === '') {
+        $ratePlanName = \__('Best available rate', 'must-hotel-booking');
+    }
 
-    $quote = MustApiClient::post('/quotes', [
-        'roomTypeId' => $roomTypeId, 'ratePlanId' => $ratePlanId, 'startsOn' => $checkin, 'endsOn' => $checkout,
-    ]);
+    $quoteInput = ['roomTypeId' => $roomTypeId, 'ratePlanId' => $ratePlanId, 'startsOn' => $checkin, 'endsOn' => $checkout];
+    if ($roomId !== '') {
+        $quoteInput['roomId'] = $roomId;
+    }
+    $quote = MustApiClient::post('/quotes', $quoteInput);
     if (!$quote['ok'] || !\is_array($quote['body'])) {
         return \__('That room is no longer available for these dates. Please choose another.', 'must-hotel-booking');
     }
 
     set_current_booking_selection([
-        'roomTypeId' => $roomTypeId, 'ratePlanId' => $ratePlanId, 'roomName' => $roomName, 'ratePlanName' => $ratePlanName,
+        'roomTypeId' => $roomTypeId, 'roomId' => $roomId, 'ratePlanId' => $ratePlanId,
+        'roomName' => $roomName, 'ratePlanName' => $ratePlanName,
         'checkin' => $checkin, 'checkout' => $checkout, 'quote' => $quote['body'],
     ]);
     \wp_safe_redirect(get_checkout_page_url());
     exit;
+}
+
+/** @param array<string, mixed> $roomType @return array<int, array<string, mixed>> */
+function get_room_type_rate_plans_view_data(array $roomType, int $index): array
+{
+    $ratePlans = [];
+    foreach ((array) ($roomType['ratePlans'] ?? []) as $ratePlan) {
+        $ratePlans[] = [
+            'id' => $index, 'must_rate_plan_uuid' => (string) ($ratePlan['id'] ?? ''),
+            'name' => (string) ($ratePlan['name'] ?? ''), 'description' => '',
+            'nightly_price' => 0.0, 'total_price' => 0.0,
+        ];
+    }
+    $requiresRatePlanSelection = !isset($roomType['requiresRatePlanSelection']) || (bool) $roomType['requiresRatePlanSelection'];
+    if (!$requiresRatePlanSelection && empty($ratePlans)) {
+        // Clock-connected room type: priced live by Clock, no local rate plan
+        // to pick — a placeholder keeps the existing template's "select room"
+        // button rendering unchanged (it requires a rate plan to be present);
+        // must_rate_plan_uuid stays empty on purpose.
+        $ratePlans[] = [
+            'id' => $index, 'must_rate_plan_uuid' => '',
+            'name' => \__('Best available rate', 'must-hotel-booking'), 'description' => '',
+            'nightly_price' => 0.0, 'total_price' => 0.0,
+        ];
+    }
+    return $ratePlans;
+}
+
+/** @param array<string, mixed> $roomType @return array<int, array<string, mixed>> */
+function get_room_type_amenities_view_data(array $roomType): array
+{
+    $amenities = [];
+    foreach ((array) ($roomType['amenities'] ?? []) as $amenity) {
+        $amenities[] = ['label' => (string) ($amenity['name'] ?? ''), 'icon' => ''];
+    }
+    return $amenities;
 }
 
 /** @return array<string, mixed> */
@@ -122,30 +181,55 @@ function get_accommodation_page_view_data(): array
     $rooms = [];
     if ($hasContext) {
         $index = 0;
-        foreach (get_must_room_types() as $roomType) {
+        // A property configured INDIVIDUAL_ROOM_ONLY requires an explicit
+        // roomId on every booking (LocalPmsProvider.validateRoomSelection
+        // rejects otherwise) — the catalog already returns each room type's
+        // own physical rooms with per-day availability for exactly this case
+        // (Milestone 10), so one card per available physical room is shown
+        // here instead of one per room type. MIXED properties keep today's
+        // simpler per-room-type flow — the backend auto-assigns a same-priced
+        // room, no picker needed.
+        $bookingMode = get_must_booking_mode($checkin, $checkout);
+        foreach (get_must_room_types($checkin, $checkout) as $roomType) {
             $roomTypeId = (string) ($roomType['id'] ?? '');
             if ($roomTypeId === '' || ($accommodationType !== '' && $roomTypeId !== $accommodationType)) continue;
+
+            if ($bookingMode === 'INDIVIDUAL_ROOM_ONLY') {
+                $roomCurrency = (string) ($roomType['ratePlans'][0]['currency'] ?? 'USD');
+                $amenities = get_room_type_amenities_view_data($roomType);
+                foreach ((array) ($roomType['rooms'] ?? []) as $physicalRoom) {
+                    if (empty($physicalRoom['isAvailable'])) continue;
+                    $physicalRoomId = (string) ($physicalRoom['id'] ?? '');
+                    if ($physicalRoomId === '') continue;
+                    $index++;
+                    $ratePlans = get_room_type_rate_plans_view_data($roomType, $index);
+                    $rooms[] = [
+                        'id' => $index, 'room_type_id' => $index, 'physical_room_id' => 0,
+                        'must_room_type_uuid' => $roomTypeId, 'must_room_uuid' => $physicalRoomId,
+                        'name' => (string) ($physicalRoom['name'] ?? $roomType['name'] ?? ''),
+                        'description' => (string) ($roomType['description'] ?? ''),
+                        'max_guests' => (int) ($roomType['maxOccupancy'] ?? 0),
+                        'available_count' => 1,
+                        'currency' => $roomCurrency,
+                        'primary_image_url' => '', 'gallery_images' => [], 'lightbox_images' => [], 'room_rules' => '',
+                        'amenities' => $amenities, 'rate_plans' => $ratePlans,
+                        'is_selected' => $selection !== null && ($selection['roomId'] ?? '') === $physicalRoomId,
+                        'selected_rate_plan_id' => 0,
+                    ];
+                }
+                continue;
+            }
+
             $availability = MustApiClient::get('/public/availability', ['roomTypeId' => $roomTypeId, 'startsOn' => $checkin, 'endsOn' => $checkout]);
             $available = $availability['ok'] && !empty($availability['body']['isAvailable']);
             if (!$available) continue;
             $index++;
-            $ratePlans = [];
-            $roomCurrency = 'USD';
-            foreach ((array) ($roomType['ratePlans'] ?? []) as $ratePlan) {
-                $roomCurrency = (string) ($ratePlan['currency'] ?? $roomCurrency);
-                $ratePlans[] = [
-                    'id' => $index, 'must_rate_plan_uuid' => (string) ($ratePlan['id'] ?? ''),
-                    'name' => (string) ($ratePlan['name'] ?? ''), 'description' => '',
-                    'nightly_price' => 0.0, 'total_price' => 0.0,
-                ];
-            }
-            $amenities = [];
-            foreach ((array) ($roomType['amenities'] ?? []) as $amenity) {
-                $amenities[] = ['label' => (string) ($amenity['name'] ?? ''), 'icon' => ''];
-            }
+            $ratePlans = get_room_type_rate_plans_view_data($roomType, $index);
+            $roomCurrency = (string) ($roomType['ratePlans'][0]['currency'] ?? 'USD');
+            $amenities = get_room_type_amenities_view_data($roomType);
             $rooms[] = [
                 'id' => $index, 'room_type_id' => $index, 'physical_room_id' => 0,
-                'must_room_type_uuid' => $roomTypeId,
+                'must_room_type_uuid' => $roomTypeId, 'must_room_uuid' => '',
                 'name' => (string) ($roomType['name'] ?? ''), 'description' => (string) ($roomType['description'] ?? ''),
                 'max_guests' => (int) ($roomType['maxOccupancy'] ?? 0),
                 'available_count' => (int) ($availability['body']['availableUnits'] ?? 0),

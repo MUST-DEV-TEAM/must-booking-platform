@@ -58,7 +58,6 @@ import { AvailabilityService } from './tenancy/availability.service';
 import { PublicAvailabilityController } from './tenancy/public-availability.controller';
 import { PublicCatalogController } from './tenancy/public-catalog.controller';
 import { PublicCatalogService } from './tenancy/public-catalog.service';
-import { PublicCorsService } from './tenancy/public-cors.service';
 import { BookingStateMachine } from './booking/booking-state-machine';
 import { LocalPmsProvider, PMS_PROVIDER } from './booking/local-pms.provider';
 import { PmsProviderRegistry } from './booking/pms-provider-registry';
@@ -184,7 +183,6 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     SignupRateLimiterService,
     TenantContextGuard,
     PublicTenantScopedGuard,
-    PublicCorsService,
     RolesGuard,
     CapabilitiesGuard,
     CapabilitiesService,

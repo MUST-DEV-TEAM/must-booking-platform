@@ -36,23 +36,56 @@ function get_calendar_layout(): string
     return MustBookingConfig::get_setting('calendar_layout', 'one_calendar') === 'two_calendars' ? 'two_calendars' : 'one_calendar';
 }
 
-/** @return array<int, array<string, mixed>> */
-function get_must_room_types(): array
+/**
+ * A property with an individual-room-capable bookingMode (MIXED,
+ * INDIVIDUAL_ROOM_ONLY) requires startsOn/endsOn on every catalog call, even
+ * one that only wants room-type names — the endpoint 400s without them.
+ * Cached per date-range (not just once) so a page that queries with real
+ * dates and one that queries without (e.g. the search page's room-type
+ * filter, before dates are chosen) don't clobber each other's cache entry.
+ * @return array<string, mixed>
+ */
+function get_must_catalog(string $startsOn = '', string $endsOn = ''): array
 {
-    static $roomTypes = null;
-    if ($roomTypes !== null) {
-        return $roomTypes;
+    static $cache = [];
+    $key = $startsOn . '|' . $endsOn;
+    if (isset($cache[$key])) {
+        return $cache[$key];
     }
-    $response = MustApiClient::get('/public/catalog');
-    $roomTypes = $response['ok'] && \is_array($response['body']['roomTypes'] ?? null) ? $response['body']['roomTypes'] : [];
-    return $roomTypes;
+    $query = $startsOn !== '' && $endsOn !== '' ? ['startsOn' => $startsOn, 'endsOn' => $endsOn] : [];
+    $response = MustApiClient::get('/public/catalog', $query);
+    $cache[$key] = $response['ok'] && \is_array($response['body']) ? $response['body'] : [];
+    return $cache[$key];
+}
+
+/** @return array<int, array<string, mixed>> */
+function get_must_room_types(string $startsOn = '', string $endsOn = ''): array
+{
+    $catalog = get_must_catalog($startsOn, $endsOn);
+    return \is_array($catalog['roomTypes'] ?? null) ? $catalog['roomTypes'] : [];
+}
+
+/** @return string the property's bookingMode, e.g. 'ROOM_TYPE_ONLY'/'INDIVIDUAL_ROOM_ONLY'/'MIXED' (defaults to 'ROOM_TYPE_ONLY' if unknown) */
+function get_must_booking_mode(string $startsOn = '', string $endsOn = ''): string
+{
+    $catalog = get_must_catalog($startsOn, $endsOn);
+    $mode = isset($catalog['bookingMode']) ? (string) $catalog['bookingMode'] : '';
+    return \in_array($mode, ['INDIVIDUAL_ROOM_ONLY', 'MIXED'], true) ? $mode : 'ROOM_TYPE_ONLY';
+}
+
+/** @return array<int, string> the property's enabled guest payment methods, e.g. ['stripe', 'pay_at_hotel'] */
+function get_must_payment_methods(string $startsOn = '', string $endsOn = ''): array
+{
+    $catalog = get_must_catalog($startsOn, $endsOn);
+    $methods = \is_array($catalog['paymentMethods'] ?? null) ? $catalog['paymentMethods'] : [];
+    return \array_values(\array_filter($methods, static fn ($method) => \is_string($method)));
 }
 
 /** @return array<string, string> slug (room type id) => label (room type name) */
-function get_booking_categories(): array
+function get_booking_categories(string $startsOn = '', string $endsOn = ''): array
 {
     $categories = [];
-    foreach (get_must_room_types() as $roomType) {
+    foreach (get_must_room_types($startsOn, $endsOn) as $roomType) {
         $id = isset($roomType['id']) ? (string) $roomType['id'] : '';
         $name = isset($roomType['name']) ? (string) $roomType['name'] : '';
         if ($id !== '' && $name !== '') {
@@ -71,7 +104,7 @@ function get_booking_page_view_data(): array
     $guests = isset($raw['guests']) ? \max(1, (int) $raw['guests']) : 1;
     $roomCount = isset($raw['room_count']) ? \max(0, (int) $raw['room_count']) : 0;
     $accommodationType = isset($raw['accommodation_type']) ? \sanitize_key((string) $raw['accommodation_type']) : '';
-    $categories = get_booking_categories();
+    $categories = get_booking_categories($checkin, $checkout);
 
     return [
         'messages' => [], 'rooms' => [],
