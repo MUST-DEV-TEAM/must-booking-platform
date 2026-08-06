@@ -58,6 +58,9 @@ import { AvailabilityService } from './tenancy/availability.service';
 import { PublicAvailabilityController } from './tenancy/public-availability.controller';
 import { PublicCatalogController } from './tenancy/public-catalog.controller';
 import { PublicCatalogService } from './tenancy/public-catalog.service';
+import { WordpressPairingController } from './tenancy/wordpress-pairing.controller';
+import { WordpressPairingRedeemController } from './tenancy/wordpress-pairing-redeem.controller';
+import { WordpressPairingService } from './tenancy/wordpress-pairing.service';
 import { BookingStateMachine } from './booking/booking-state-machine';
 import { LocalPmsProvider, PMS_PROVIDER } from './booking/local-pms.provider';
 import { PmsProviderRegistry } from './booking/pms-provider-registry';
@@ -162,6 +165,8 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     CapabilitiesController,
     PublicAvailabilityController,
     PublicCatalogController,
+    WordpressPairingController,
+    WordpressPairingRedeemController,
     QuoteController,
     BookingController,
     StaffBookingController,
@@ -202,6 +207,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     AmenitiesService,
     AvailabilityService,
     PublicCatalogService,
+    WordpressPairingService,
     BookingStateMachine,
     BookingProjectionService,
     CancellationLinkService,

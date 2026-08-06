@@ -51,6 +51,12 @@ if (!\defined('MUST_HOTEL_BOOKING_GITHUB_TOKEN')) {
     \define('MUST_HOTEL_BOOKING_GITHUB_TOKEN', '');
 }
 
+if (!\defined('MUST_HOTEL_BOOKING_PLATFORM_URL')) {
+    // Where a pairing code is redeemed before this site has its own must_api_base_url
+    // saved yet. Override in wp-config.php for local development.
+    \define('MUST_HOTEL_BOOKING_PLATFORM_URL', 'https://must.dejvis.dev/api');
+}
+
 require_once MUST_HOTEL_BOOKING_PATH . 'includes/autoloader.php';
 require_once MUST_HOTEL_BOOKING_PATH . 'includes/config.php';
 

@@ -117,6 +117,7 @@ model Property {
   advanceBookingDays Int?                     @map("advance_booking_days")
   freeCancellationDaysBeforeArrival Int       @default(21) @map("free_cancellation_days_before_arrival")
   publicWebsiteOrigin String?                 @map("public_website_origin") @db.VarChar(500)
+  wordpressConnectedAt DateTime?              @map("wordpress_connected_at") @db.Timestamptz(6)
   stripeEnabled     Boolean                   @default(false) @map("stripe_enabled")
   pokpayEnabled     Boolean                   @default(false) @map("pokpay_enabled")
   payAtHotelEnabled Boolean                   @default(false) @map("pay_at_hotel_enabled")

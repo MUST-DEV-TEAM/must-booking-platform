@@ -22,6 +22,7 @@ type Property = {
   freeCancellationDaysBeforeArrival: number;
   bookingMode: BookingMode;
   paymentGateways: PaymentGateways;
+  wordpressConnectedAt: string | null;
 };
 
 type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
@@ -70,6 +71,7 @@ export function DashboardSettings({
   const [rules, setRules] = useState<RuleFields | null>(null);
   const [bookingMode, setBookingMode] = useState<BookingMode | null>(null);
   const [paymentGateways, setPaymentGateways] = useState<PaymentGateways | null>(null);
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
   const base = `/api/tenants/${tenantId}`;
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({
@@ -154,6 +156,32 @@ export function DashboardSettings({
     event.preventDefault();
     if (!paymentGateways) return;
     paymentGatewaysMutation.mutate(paymentGateways);
+  }
+
+  const wordpressPairingMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`${base}/properties/${propertyId}/wordpress-pairing`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Unable to generate a connection code.');
+      return (await response.json()) as { code: string };
+    },
+    onSuccess: (result) => {
+      setPairingCode(result.code);
+      toast.success('Connection code generated.');
+    },
+    onError: () => toast.error('Unable to generate a connection code.'),
+  });
+
+  async function copyPairingCode() {
+    if (!pairingCode) return;
+    try {
+      await navigator.clipboard.writeText(pairingCode);
+      toast.success('Code copied.');
+    } catch {
+      toast.error('Unable to copy the code. Select and copy it manually.');
+    }
   }
 
   function saveIdentity(event: FormEvent<HTMLFormElement>) {
@@ -462,6 +490,58 @@ export function DashboardSettings({
               )}
             </button>
           </form>
+        </Stack>
+      </Card>
+
+      <Card>
+        <Stack gap="md">
+          <Heading level={2}>Connect WordPress site</Heading>
+          <Text tone="secondary">
+            Generate a one-time connection code and paste it into the MUST Booking plugin's
+            settings screen on your WordPress site to link it to this property.
+          </Text>
+          {property.wordpressConnectedAt && (
+            <Text tone="secondary">
+              Connected on {new Date(property.wordpressConnectedAt).toLocaleString()}
+            </Text>
+          )}
+          {pairingCode && (
+            <Stack gap="sm">
+              <label className="must-field">
+                <span className="must-field__label">Connection code</span>
+                <input
+                  className="must-input"
+                  aria-label="Connection code"
+                  readOnly
+                  value={pairingCode}
+                  onFocus={(event) => event.target.select()}
+                />
+              </label>
+              <button className="must-button" type="button" onClick={() => void copyPairingCode()}>
+                Copy code
+              </button>
+              <Text tone="secondary">
+                Expires in 30 minutes and can only be used once. Generating a new code invalidates
+                this one.
+              </Text>
+            </Stack>
+          )}
+          <button
+            className="must-button must-button--primary"
+            type="button"
+            disabled={wordpressPairingMutation.isPending}
+            onClick={() => wordpressPairingMutation.mutate()}
+          >
+            {wordpressPairingMutation.isPending ? (
+              <>
+                <Loader2 aria-hidden="true" size={16} /> Generating…
+              </>
+            ) : property.wordpressConnectedAt || pairingCode ? (
+              'Generate new code'
+            ) : (
+              'Generate connection code'
+            )}
+          </button>
         </Stack>
       </Card>
 

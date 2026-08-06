@@ -50,6 +50,41 @@ final class MustApiClient
     }
 
     /**
+     * Redeems a one-time pairing code (generated from the MUST dashboard's "Connect
+     * WordPress site" screen) for this site's tenant ID, property ID, and API base URL.
+     * Deliberately does not go through request()/basePath(): tenant/property aren't known
+     * yet, and the call targets the platform's well-known URL rather than the (possibly
+     * unset) must_api_base_url setting.
+     * @return array{ok: bool, status: int, body: array<string, mixed>|null}
+     */
+    public static function redeemPairingCode(string $code): array
+    {
+        $baseUrl = self::pairingPlatformBaseUrl();
+        if ($baseUrl === '') {
+            return ['ok' => false, 'status' => 0, 'body' => null];
+        }
+
+        [$result] = self::performRequest(
+            'POST',
+            \rtrim($baseUrl, '/') . '/wordpress-pairing/redeem',
+            ['Content-Type' => 'application/json'],
+            ['code' => $code]
+        );
+        return $result;
+    }
+
+    /** Already-configured API URL wins (so a re-paired dev/test site keeps hitting its own
+     * backend); otherwise falls back to the plugin's compiled-in production platform URL. */
+    private static function pairingPlatformBaseUrl(): string
+    {
+        $configured = MustBookingConfig::get_must_api_base_url();
+        if ($configured !== '') {
+            return $configured;
+        }
+        return \defined('MUST_HOTEL_BOOKING_PLATFORM_URL') ? (string) MUST_HOTEL_BOOKING_PLATFORM_URL : '';
+    }
+
+    /**
      * @param array<string, mixed> $query
      * @param array<string, mixed>|null $body
      * @return array{ok: bool, status: int, body: array<string, mixed>|null}
@@ -75,6 +110,18 @@ final class MustApiClient
             $headers['Idempotency-Key'] = $idempotencyKey;
         }
 
+        [$result, $response] = self::performRequest($method, $url, $headers, $body);
+        self::relayCookieFromResponse($response);
+        return $result;
+    }
+
+    /**
+     * @param array<string, string> $headers
+     * @param array<string, mixed>|null $body
+     * @return array{0: array{ok: bool, status: int, body: array<string, mixed>|null}, 1: mixed}
+     */
+    private static function performRequest(string $method, string $url, array $headers, ?array $body = null): array
+    {
         $host = (string) (\wp_parse_url($url, \PHP_URL_HOST) ?? '');
         $args = [
             'method' => $method,
@@ -82,8 +129,8 @@ final class MustApiClient
             'timeout' => 15,
             'redirection' => 0,
             // Local dev only: the API's self-signed cert on localhost isn't in PHP's trusted
-            // CA bundle. A real deployment always points must_api_base_url at a real host with
-            // a properly-issued certificate, so this never applies outside local development.
+            // CA bundle. A real deployment always points at a real host with a properly-issued
+            // certificate, so this never applies outside local development.
             'sslverify' => !\in_array($host, ['localhost', '127.0.0.1'], true),
         ];
         if ($body !== null) {
@@ -92,18 +139,19 @@ final class MustApiClient
 
         $response = \wp_remote_request($url, $args);
         if (\is_wp_error($response)) {
-            return ['ok' => false, 'status' => 0, 'body' => null];
+            return [['ok' => false, 'status' => 0, 'body' => null], null];
         }
-
-        self::relayCookieFromResponse($response);
 
         $status = (int) \wp_remote_retrieve_response_code($response);
         $decoded = \json_decode((string) \wp_remote_retrieve_body($response), true);
 
         return [
-            'ok' => $status >= 200 && $status < 300,
-            'status' => $status,
-            'body' => \is_array($decoded) ? $decoded : null,
+            [
+                'ok' => $status >= 200 && $status < 300,
+                'status' => $status,
+                'body' => \is_array($decoded) ? $decoded : null,
+            ],
+            $response,
         ];
     }
 
@@ -113,10 +161,10 @@ final class MustApiClient
         return $value !== '' ? $value : null;
     }
 
-    /** @param array<string, mixed>|\WP_HTTP_Requests_Response|array $response */
+    /** @param array<string, mixed>|\WP_HTTP_Requests_Response|null $response */
     private static function relayCookieFromResponse($response): void
     {
-        if (\headers_sent()) {
+        if ($response === null || \headers_sent()) {
             return;
         }
         $setCookieHeaders = \wp_remote_retrieve_header($response, 'set-cookie');

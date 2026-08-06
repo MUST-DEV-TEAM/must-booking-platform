@@ -20,6 +20,7 @@ type Property = {
   advanceBookingDays: number | null;
   freeCancellationDaysBeforeArrival: number;
   paymentGateways: { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
+  wordpressConnectedAt: Date | null;
 };
 type CreatedProperty = Property & { provisionedStaff: ProvisionedStaffAccount[] };
 @Injectable()
@@ -41,6 +42,7 @@ export class PropertiesService {
           advance_booking_days AS "advanceBookingDays",
           free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival",
           public_website_origin AS "publicWebsiteOrigin",
+          wordpress_connected_at AS "wordpressConnectedAt",
           json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
           FROM properties p
           WHERE EXISTS (

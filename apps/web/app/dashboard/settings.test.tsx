@@ -21,6 +21,7 @@ let property = {
   freeCancellationDaysBeforeArrival: 21,
   bookingMode: 'ROOM_TYPE_ONLY' as 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED',
   paymentGateways: { stripe: false, pokpay: false, payAtHotel: true },
+  wordpressConnectedAt: null as string | null,
 };
 
 afterEach(() => vi.unstubAllGlobals());
@@ -43,6 +44,8 @@ describe('DashboardSettings', () => {
 
   it('round-trips identity, booking rules, and booking mode with only changed fields', async () => {
     const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && url.endsWith('/wordpress-pairing'))
+        return new Response(JSON.stringify({ code: 'MUST-GRANDHOTEL-ABCD-1234' }), { status: 201 });
       if (init?.method === 'PATCH') {
         property = {
           ...property,
@@ -103,6 +106,23 @@ describe('DashboardSettings', () => {
       pokpay: true,
       payAtHotel: true,
     });
+
+    const generateCodeButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Generate connection code',
+    )!;
+    await act(async () => {
+      generateCodeButton.click();
+      for (let iteration = 0; iteration < 4; iteration += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 20));
+        await Promise.resolve();
+      }
+    });
+    expect(fetch.mock.calls.some(([url, init]) => init?.method === 'POST' && url.endsWith('/wordpress-pairing'))).toBe(true);
+    expect(
+      (container.querySelector('[aria-label="Connection code"]') as HTMLInputElement).value,
+    ).toBe('MUST-GRANDHOTEL-ABCD-1234');
+    expect(container.textContent).toContain('Expires in 30 minutes');
+
     await act(async () => root.unmount());
   });
 });
