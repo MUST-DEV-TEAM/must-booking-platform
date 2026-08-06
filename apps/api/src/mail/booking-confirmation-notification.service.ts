@@ -11,6 +11,7 @@ type BookingEmailRow = {
   guestReturnUrl: string | null;
   amount: string;
   currency: string;
+  externalReference: string;
 };
 
 @Injectable()
@@ -29,7 +30,7 @@ export class BookingConfirmationNotificationService {
     const row = await this.database.withTenantTransaction(context, async (tx) => {
       const rows = await tx.$queryRaw<BookingEmailRow[]>`
         SELECT g.email, b.guest_session_id AS "guestSessionId", b.guest_return_url AS "guestReturnUrl",
-          b.total_amount::text AS amount, rp.currency
+          b.total_amount::text AS amount, rp.currency, b.external_reference AS "externalReference"
         FROM bookings b
         JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
         JOIN rate_plans rp ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
@@ -41,6 +42,7 @@ export class BookingConfirmationNotificationService {
     if (!row) return;
     await this.notifications.sendPaymentConfirmationEmailSafely({
       bookingId,
+      bookingReference: row.externalReference,
       paymentId,
       to: row.email,
       amount: { amount: row.amount, currency: row.currency },

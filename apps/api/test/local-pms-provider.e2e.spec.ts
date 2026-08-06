@@ -1541,6 +1541,7 @@ describe('LocalPmsProvider', () => {
       expect.arrayContaining([
         {
           bookingId: firstBooking.value.id,
+          bookingReference: expect.any(String),
           paymentId: `cs_test_${firstBooking.value.id}`,
           to: 'guest@example.test',
           amount: { amount: '180.00', currency: 'EUR' },

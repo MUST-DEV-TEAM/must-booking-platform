@@ -14,7 +14,6 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import type { GuestPaymentMethod } from '@must/domain-contracts';
 
 import { PublicTenantScoped } from '../tenancy/tenant-context.decorator';
@@ -146,9 +145,7 @@ export class BookingController {
     const guest = (value.guest ?? {}) as Record<string, unknown>;
     return {
       externalReference:
-        typeof value.externalReference === 'string'
-          ? value.externalReference
-          : `must-${randomUUID()}`,
+        typeof value.externalReference === 'string' ? value.externalReference : undefined,
       roomTypeId: typeof value.roomTypeId === 'string' ? value.roomTypeId : '',
       roomId: typeof value.roomId === 'string' ? value.roomId : undefined,
       ratePlanId: typeof value.ratePlanId === 'string' ? value.ratePlanId : '',

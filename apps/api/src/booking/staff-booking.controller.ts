@@ -9,7 +9,6 @@ import {
   Post,
   Req,
 } from '@nestjs/common';
-import { createHash } from 'node:crypto';
 import type { GuestPaymentMethod } from '@must/domain-contracts';
 
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
@@ -47,7 +46,7 @@ export class StaffBookingController {
     const result = await this.provider.createBooking(request.tenantContext, {
       ...input,
       idempotencyKey: key,
-      externalReference: this.externalReference(body, key),
+      externalReference: this.externalReference(body),
       total,
       staffActorId: request.tenantContext.userId,
       skipQuoteValidation: true,
@@ -88,10 +87,11 @@ export class StaffBookingController {
     };
   }
 
-  private externalReference(body: unknown, idempotencyKey: string): string {
+  // Left undefined when the client doesn't supply one — LocalPmsProvider generates a
+  // human-readable reference itself, exactly once, inside the idempotency-gated section.
+  private externalReference(body: unknown): string | undefined {
     const value = (body ?? {}) as Record<string, unknown>;
-    if (value.externalReference === undefined)
-      return `must-staff-${createHash('sha256').update(idempotencyKey).digest('hex')}`;
+    if (value.externalReference === undefined) return undefined;
     if (typeof value.externalReference !== 'string' || !value.externalReference.trim())
       throw new BadRequestException('externalReference must be a non-empty string.');
     return value.externalReference;

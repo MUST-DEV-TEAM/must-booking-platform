@@ -19,6 +19,7 @@ export interface MailProvider {
   sendPasswordResetEmail(command: { userId: string; to: string; resetUrl: string }): Promise<void>;
   sendPaymentConfirmationEmail(command: {
     bookingId: string;
+    bookingReference: string;
     paymentId: string;
     to: string;
     amount: Money;
@@ -26,6 +27,7 @@ export interface MailProvider {
   }): Promise<void>;
   sendRefundConfirmationEmail(command: {
     bookingId: string;
+    bookingReference: string;
     refundId: string;
     to: string;
     amount: Money;
@@ -151,7 +153,7 @@ export type CatalogItem = CatalogRoomType | CatalogRatePlan;
 
 export interface CreateBookingCommand {
   idempotencyKey: string;
-  externalReference: string;
+  externalReference?: string;
   roomTypeId: string;
   roomId?: string;
   ratePlanId: string;

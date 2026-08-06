@@ -30,6 +30,7 @@ import { QuoteService } from './quote.service';
 import { NotificationsService } from '../tenancy/notifications.service';
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
 import { ClockBookingService } from '../integrations/clock/clock-booking.service';
+import { generateBookingReference } from './booking-reference';
 
 export const PMS_PROVIDER = Symbol('PMS_PROVIDER');
 
@@ -245,7 +246,7 @@ export class LocalPmsProvider implements PmsProvider {
           command.idempotencyKey,
           command,
           null,
-          command.externalReference,
+          command.externalReference ?? null,
           async () => {
             // Walk-in booking redesign: staff no longer picks a rate plan
             // for a Clock-connected room type — resolve the auto-created
@@ -275,6 +276,8 @@ export class LocalPmsProvider implements PmsProvider {
             const resolvedGuest = await this.resolveGuest(tx, context.tenantId, command.guest);
             if (!resolvedGuest.ok) return resolvedGuest;
             const guestId = resolvedGuest.value;
+            const externalReference =
+              command.externalReference ?? (await this.generatedExternalReference(tx, context));
 
             const inserted = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO bookings (
@@ -282,7 +285,7 @@ export class LocalPmsProvider implements PmsProvider {
           guest_session_id, status, payment_method, starts_on, ends_on, rate_plan_id, total_amount
         ) VALUES (
           ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${command.roomTypeId}::uuid,
-          ${command.roomId ?? null}::uuid, ${guestId}::uuid, ${command.externalReference},
+          ${command.roomId ?? null}::uuid, ${guestId}::uuid, ${externalReference},
           ${command.quoteSessionId ?? null}::uuid,
           ${BookingStatus.DRAFT}::"BookingStatus",
           ${paymentMethod.value}::"BookingPaymentMethod",
@@ -621,18 +624,18 @@ export class LocalPmsProvider implements PmsProvider {
       // booking is genuinely confirmed at Clock at this point; only the
       // secondary accounting entry needs a human.
       if (attached.ok) {
-        // 'on-line' is one of Clock's own fixed payment_type values (cash,
-        // card, bank, debit, on-line, check, vaucher, other, transfer,
-        // crossaccounttransfer, tip, barter) — the specific gateway
-        // (Stripe/PokPay) isn't one of Clock's categories, so it goes in the
-        // reference/text instead, not payment_type itself.
+        // payment_type is one of Clock's own fixed enum values (cash, card,
+        // bank, debit, on-line, check, vaucher, other, transfer,
+        // crossaccounttransfer, tip, barter) — postDeposit hardcodes
+        // 'on-line' for this. The specific gateway isn't one of Clock's
+        // categories, so it goes in payment_sub_type instead.
         await this.clockBooking.postDeposit(
           tx,
           context,
           bookingId,
           { amount: row.totalAmount, currency: row.currency },
-          'on-line',
-          `${row.paymentMethod === BookingPaymentMethod.STRIPE_CHECKOUT ? 'Stripe' : 'PokPay'}: ${row.externalReference}`,
+          row.paymentMethod === BookingPaymentMethod.STRIPE_CHECKOUT ? 'Stripe' : 'PokPay',
+          row.externalReference,
         );
       }
       return attached;
@@ -908,6 +911,20 @@ export class LocalPmsProvider implements PmsProvider {
         AND clock_shadow_room_type_id = ${roomTypeId}::uuid
     `;
     return rows[0]?.id ?? null;
+  }
+
+  /** Generated exactly once per booking, inside the idempotency-gated section of
+   * createBooking() — a retry with the same idempotencyKey never re-executes this,
+   * so a fresh random suffix here can never desync from what withIdempotency hashed. */
+  private async generatedExternalReference(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+  ): Promise<string> {
+    const properties = await tx.$queryRaw<Array<{ name: string }>>`
+      SELECT name FROM properties
+      WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
+    `;
+    return generateBookingReference(properties[0]?.name ?? '');
   }
 
   private async validateCatalog(

@@ -180,10 +180,16 @@ describe('staff-bookings: payment method selection', () => {
       .expect(201);
     expect(created.body.ok).toBe(true);
     expect(created.body.value.checkoutUrl).toMatch(/^https:\/\/checkout\.stripe\.test\//);
-    const row = await admin.$queryRaw<Array<{ status: string; paymentMethod: string }>>`
-      SELECT status, payment_method AS "paymentMethod" FROM bookings WHERE id = ${created.body.value.id}::uuid
+    const row = await admin.$queryRaw<
+      Array<{ status: string; paymentMethod: string; externalReference: string }>
+    >`
+      SELECT status, payment_method AS "paymentMethod", external_reference AS "externalReference"
+      FROM bookings WHERE id = ${created.body.value.id}::uuid
     `;
-    expect(row[0]).toEqual({ status: 'PAYMENT_PENDING', paymentMethod: 'STRIPE_CHECKOUT' });
+    expect(row[0]).toMatchObject({ status: 'PAYMENT_PENDING', paymentMethod: 'STRIPE_CHECKOUT' });
+    // No client-supplied externalReference: the server must generate one from the
+    // property's own name ("Main Property" -> "MP"), not a fixed "MUST"/hash string.
+    expect(row[0]?.externalReference).toMatch(/^MP-\d{6}-\d{4}-[A-Z0-9]{2}$/);
   });
 
   it('rejects a payment method the property has not enabled', async () => {

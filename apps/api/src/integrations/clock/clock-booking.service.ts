@@ -21,6 +21,7 @@ import { BookingStateMachine } from '../../booking/booking-state-machine';
 import { bookingNeedsAttention } from '../../booking/booking-attention';
 import { IntegrationConnectionsService } from '../integration-connections.service';
 import { ManualReviewService } from '../manual-review.service';
+import { generateBookingReference } from '../../booking/booking-reference';
 import { ClockCircuitBreakerService, CircuitOpenError } from './clock-circuit-breaker';
 import { parseClockCredentials } from './clock-credentials';
 import {
@@ -55,6 +56,42 @@ export function isClockBookingResource(value: unknown): value is ClockBookingRes
     typeof (value as ClockBookingResource).id === 'number' &&
     typeof (value as ClockBookingResource).lock_version === 'number' &&
     typeof (value as ClockBookingResource).status === 'string'
+  );
+}
+
+// Folio/credit_item deposit accounting (reverted from the note-based
+// approach, 2026-08-06 — see postDeposit's own doc comment). Shapes
+// confirmed for real against this account's sandbox (scratch probe against
+// a live booking, since deleted): `GET /bookings/{id}/folios/` returns a
+// bare array of numeric folio IDs, not objects — each folio's own fields
+// (`deposit`, `closed_at`) only come back from `GET /folios/{id}` or from
+// `POST .../folios/`'s create response, both of which return the full
+// object directly (no envelope). A folio's own `currency` defaults to the
+// property's base currency regardless of what currency gets posted to it
+// (posting a EUR credit_item to an "ALL"-currency folio worked fine in the
+// probe) — so it is not a usable signal for matching/reuse.
+interface ClockFolioResource {
+  id: number;
+  deposit?: boolean;
+  closed_at?: string | null;
+}
+
+export function isClockFolioResource(value: unknown): value is ClockFolioResource {
+  return (
+    !!value && typeof value === 'object' && typeof (value as ClockFolioResource).id === 'number'
+  );
+}
+
+interface ClockCreditItemResource {
+  id: number;
+  reference?: string;
+}
+
+export function isClockCreditItemResource(value: unknown): value is ClockCreditItemResource {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    typeof (value as ClockCreditItemResource).id === 'number'
   );
 }
 
@@ -137,6 +174,8 @@ export class ClockBookingService {
           if (!rate.ok) return rate;
 
           const guestId = await this.resolveGuest(tx, context.tenantId, command.guest);
+          const externalReference =
+            command.externalReference ?? (await this.generatedExternalReference(tx, context));
 
           const inserted = await tx.$queryRaw<Array<{ id: string }>>`
           INSERT INTO bookings (
@@ -144,7 +183,7 @@ export class ClockBookingService {
             status, payment_method, starts_on, ends_on, rate_plan_id, total_amount
           ) VALUES (
             ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${command.roomTypeId}::uuid,
-            ${command.roomId ?? null}::uuid, ${guestId}::uuid, ${command.externalReference},
+            ${command.roomId ?? null}::uuid, ${guestId}::uuid, ${externalReference},
             ${BookingStatus.DRAFT}::"BookingStatus",
             ${this.paymentMethodOf(command)}::"BookingPaymentMethod",
             ${command.startsOn}::date, ${command.endsOn}::date, ${command.ratePlanId}::uuid,
@@ -198,7 +237,7 @@ export class ClockBookingService {
                 arrival_room_type_id: Number(externalRoomTypeId),
                 arrival_room_id: externalRoomId ? Number(externalRoomId) : null,
                 rate_id: Number(rate.value),
-                reference_number: command.externalReference,
+                reference_number: externalReference,
                 guest_e_mail: command.guest.email,
                 guest_first_name: command.guest.firstName,
                 guest_last_name: command.guest.lastName,
@@ -216,7 +255,7 @@ export class ClockBookingService {
                 context,
                 connection.value,
                 bookingId,
-                command.externalReference,
+                externalReference,
               );
               if (linked) return { ok: true, value: linked };
               await this.transition(
@@ -236,7 +275,7 @@ export class ClockBookingService {
                 referenceId: bookingId,
                 message: `Booking creation timed out and could not be confirmed against Clock: ${response.error.message}`,
                 context: {
-                  externalReference: command.externalReference,
+                  externalReference,
                   errorCode: response.error.code,
                 },
               });
@@ -262,7 +301,7 @@ export class ClockBookingService {
               referenceId: bookingId,
               message:
                 'Clock returned a 2xx booking-create response that did not match the expected shape.',
-              context: { externalReference: command.externalReference, response: response.value },
+              context: { externalReference, response: response.value },
             });
             return this.failure(
               'clock_schema_mismatch',
@@ -449,30 +488,35 @@ export class ClockBookingService {
   }
 
   /**
-   * Milestone 11.5 Task 5: records that the guest already paid online as a
-   * plain note on the booking (Clock's documented `booking[note]` field via
-   * PUT) — deliberately NOT a real folio/credit_item posting. Verified for
-   * real (2026-08-05) that Clock's own accounting nets *any* posted payment,
-   * on *any* folio (deposit or standard), into the booking's aggregate
-   * Balance shown on the dashboard's own "Balance / Notes" panel — even a
-   * separate deposit=true folio's credit_item reduces it, because Clock
-   * treats a posted payment as money received against the stay, full stop.
-   * There is no Clock-side flag that opts a folio out of that netting. Since
-   * the owner wants the dashboard's Balance to keep requesting the full
-   * amount and hotel staff to reconcile the deposit manually themselves, a
-   * note (zero effect on any folio or balance) is the only mechanism that
-   * satisfies that — at the cost of the deposit not being a real, reportable
-   * financial record inside Clock, only a visible note staff read. Only
-   * ever called after attachRealReservation has succeeded. A failure here
-   * does not undo the reservation (the booking is genuinely confirmed at
-   * Clock); it records a ManualReviewItem instead so a human adds the note.
+   * Milestone 11.5 Task 5, reverted to the real accounting entry after owner
+   * review of the live dashboard: posts the already-captured online payment
+   * as a genuine Clock `credit_item` on an open `deposit=true` folio (Base
+   * API, confirmed contract: `POST bookings/{id}/folios/` with
+   * `booking_folio.deposit=true`, then `POST folios/{id}/credit_items` with
+   * `payment_type: 'on-line'`). This DOES reduce the booking's aggregate
+   * Balance shown on Clock's dashboard — Clock nets every posted payment, on
+   * every folio, into that one Balance; there is no way to post money that
+   * doesn't count toward it. The owner accepted that trade-off (2026-08-06)
+   * in exchange for a real, reportable financial record inside Clock instead
+   * of a note. Only ever called after attachRealReservation has succeeded. A
+   * failure here does not undo the reservation (the booking is genuinely
+   * confirmed at Clock); it records a ManualReviewItem instead so a human
+   * posts the payment manually.
+   *
+   * Idempotent across retries (e.g. a redelivered payment webhook hitting an
+   * already-attached booking — attachRealReservation short-circuits `ok` on
+   * a repeat call, so this can run more than once for the same payment):
+   * reuses an existing open deposit folio rather than creating a new one
+   * every time, and looks up an existing credit_item by our own `reference`
+   * before posting, the same "never blind-retry" principle already used for
+   * booking creation (see linkIfClockHasIt).
    */
   async postDeposit(
     tx: TenantTransaction,
     context: PmsProviderContext,
     bookingId: string,
     amount: { amount: string; currency: string },
-    paymentType: string,
+    paymentSubType: string,
     reference: string,
   ): Promise<Result<void>> {
     const connection = await this.credentials(context);
@@ -482,55 +526,189 @@ export class ClockBookingService {
     if (!row?.externalBookingId)
       return this.failure(
         'CLOCK_BOOKING_MISSING',
-        'This booking has no real Clock reservation to note a deposit against.',
+        'This booking has no real Clock reservation to post a deposit against.',
       );
 
-    const current = await this.fetch<ClockBookingResource>(connection.value, {
-      method: 'GET',
-      path: `/bookings/${row.externalBookingId}`,
-    });
-    if (!current.ok) {
+    const folio = await this.depositFolio(connection.value, row.externalBookingId);
+    if (!folio.ok) {
       await this.manualReview.recordInTransaction(tx, {
         tenantId: context.tenantId,
         propertyId: context.propertyId,
         category: 'PAYMENT_BOOKING_MISMATCH',
         referenceType: 'booking',
         referenceId: bookingId,
-        message: `Booking is confirmed at Clock but could not be re-read to record the deposit note: ${current.error.message}`,
-        context: { externalBookingId: row.externalBookingId, errorCode: current.error.code },
+        message: `Booking is confirmed at Clock but no deposit folio could be opened: ${folio.error.message}`,
+        context: { externalBookingId: row.externalBookingId, errorCode: folio.error.code },
       });
-      return this.failure(current.error.code, current.error.message, current.error.retryable);
+      return this.failure(folio.error.code, folio.error.message, folio.error.retryable);
     }
 
-    const note = `Deposit received: ${amount.amount} ${amount.currency} (${paymentType}, ${reference}). Not applied to the folio balance — front desk reconciles at check-in.`;
-    const response = await this.fetch<ClockBookingResource>(connection.value, {
-      method: 'PUT',
-      path: `/bookings/${row.externalBookingId}`,
-      body: { booking: { note, lock_version: current.value.lock_version } },
-    });
-    if (!response.ok) {
+    const creditItem = await this.postCreditItem(
+      connection.value,
+      folio.value.id,
+      amount,
+      paymentSubType,
+      reference,
+    );
+    if (!creditItem.ok) {
       await this.manualReview.recordInTransaction(tx, {
         tenantId: context.tenantId,
         propertyId: context.propertyId,
         category: 'PAYMENT_BOOKING_MISMATCH',
         referenceType: 'booking',
         referenceId: bookingId,
-        message: `Booking is confirmed at Clock but the deposit note could not be recorded: ${response.error.message}`,
-        context: { externalBookingId: row.externalBookingId, errorCode: response.error.code },
+        message: `Booking is confirmed at Clock but the deposit could not be posted: ${creditItem.error.message}`,
+        context: {
+          externalBookingId: row.externalBookingId,
+          folioId: folio.value.id,
+          errorCode: creditItem.error.code,
+        },
       });
-      return this.failure(response.error.code, response.error.message, response.error.retryable);
+      return this.failure(
+        creditItem.error.code,
+        creditItem.error.message,
+        creditItem.error.retryable,
+      );
     }
 
     await this.audit.recordInTransaction(tx, {
       tenantId: context.tenantId,
       propertyId: context.propertyId,
       actorUserId: null,
-      action: 'booking.clock_deposit_noted',
+      action: 'booking.clock_deposit_posted',
       targetType: 'booking',
       targetId: bookingId,
-      details: { externalBookingId: row.externalBookingId, amount, paymentType, reference },
+      details: {
+        externalBookingId: row.externalBookingId,
+        folioId: folio.value.id,
+        creditItemId: creditItem.value.id,
+        amount,
+        paymentSubType,
+        reference,
+      },
     });
     return { ok: true, value: undefined };
+  }
+
+  /** Reuses an existing open `deposit=true` folio on this booking if one
+   * exists; otherwise creates one. `GET .../folios/` only ever returns bare
+   * numeric IDs (confirmed for real), so each one needs its own `GET
+   * /folios/{id}` to see whether it's actually an open deposit folio —
+   * cheap in practice since a booking has very few folios. */
+  private async depositFolio(
+    credentials: ClockConnectionCredentials,
+    externalBookingId: string,
+  ): Promise<ClockOutcome<ClockFolioResource>> {
+    const listed = await this.fetch<number[]>(credentials, {
+      method: 'GET',
+      path: `/bookings/${externalBookingId}/folios/`,
+      api: 'pms_api',
+    });
+    if (!listed.ok) return listed;
+    for (const folioId of listed.value) {
+      const viewed = await this.fetch<unknown>(credentials, {
+        method: 'GET',
+        path: `/folios/${folioId}`,
+        api: 'base_api',
+      });
+      if (
+        viewed.ok &&
+        isClockFolioResource(viewed.value) &&
+        viewed.value.deposit === true &&
+        !viewed.value.closed_at
+      )
+        return { ok: true, value: viewed.value };
+    }
+
+    const created = await this.fetch<unknown>(credentials, {
+      method: 'POST',
+      path: `/bookings/${externalBookingId}/folios/`,
+      api: 'pms_api',
+      body: { booking_folio: { deposit: true } },
+    });
+    if (!created.ok) return created;
+    if (
+      !isClockFolioResource(created.value) ||
+      created.value.deposit !== true ||
+      created.value.closed_at
+    )
+      return this.failureError({
+        category: 'schema_mismatch',
+        code: 'clock_schema_mismatch',
+        message: 'Clock did not create a recognizable open deposit folio.',
+        retryable: false,
+      });
+    return { ok: true, value: created.value };
+  }
+
+  /** Posts the credit item, or reconciles against an existing one by our own
+   * `reference` if the POST itself failed ambiguously (timeout/network/5xx) —
+   * the credit_item endpoint has no idempotency key of its own. */
+  private async postCreditItem(
+    credentials: ClockConnectionCredentials,
+    folioId: number,
+    amount: { amount: string; currency: string },
+    paymentSubType: string,
+    reference: string,
+  ): Promise<ClockOutcome<ClockCreditItemResource>> {
+    const existing = await this.creditItemByReference(credentials, folioId, reference);
+    if (existing.ok && existing.value) return { ok: true, value: existing.value };
+
+    const response = await this.fetch<unknown>(credentials, {
+      method: 'POST',
+      path: `/folios/${folioId}/credit_items`,
+      api: 'base_api',
+      body: {
+        credit_item: {
+          payment_type: 'on-line',
+          payment_sub_type: paymentSubType,
+          text: `Website booking payment via ${paymentSubType}`,
+          value: amount.amount,
+          currency: amount.currency.toUpperCase(),
+          reference,
+        },
+      },
+    });
+    if (!response.ok) {
+      if (response.error.category === 'timeout' || response.error.category === 'network') {
+        const recovered = await this.creditItemByReference(credentials, folioId, reference);
+        if (recovered.ok && recovered.value) return { ok: true, value: recovered.value };
+      }
+      return response;
+    }
+    if (!isClockCreditItemResource(response.value))
+      return this.failureError({
+        category: 'schema_mismatch',
+        code: 'clock_schema_mismatch',
+        message: 'Clock did not return a recognizable credit item after posting the deposit.',
+        retryable: false,
+      });
+    return { ok: true, value: response.value };
+  }
+
+  private async creditItemByReference(
+    credentials: ClockConnectionCredentials,
+    folioId: number,
+    reference: string,
+  ): Promise<ClockOutcome<ClockCreditItemResource | null>> {
+    const response = await this.fetch<unknown>(credentials, {
+      method: 'GET',
+      path: `/folios/${folioId}/credit_items`,
+      api: 'base_api',
+      query: { 'reference.eq': reference },
+    });
+    if (!response.ok) return response;
+    const match = this.asCreditItemList(response.value).find(
+      (item) => item.reference === reference,
+    );
+    return { ok: true, value: match ?? null };
+  }
+
+  // Confirmed for real (scratch probe): GET .../credit_items returns a bare
+  // JSON array of full credit-item objects directly, same convention as
+  // every other Clock list endpoint already used in this integration.
+  private asCreditItemList(value: unknown): ClockCreditItemResource[] {
+    return Array.isArray(value) ? value.filter(isClockCreditItemResource) : [];
   }
 
   async updateBooking(
@@ -867,6 +1045,17 @@ export class ClockBookingService {
       SELECT id FROM guests WHERE tenant_id = ${tenantId}::uuid AND lower(email) = ${email}
     `;
     return matched[0]!.id;
+  }
+
+  private async generatedExternalReference(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+  ): Promise<string> {
+    const properties = await tx.$queryRaw<Array<{ name: string }>>`
+      SELECT name FROM properties
+      WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
+    `;
+    return generateBookingReference(properties[0]?.name ?? '');
   }
 
   private paymentMethodOf(command: CreateBookingCommand): BookingPaymentMethod {

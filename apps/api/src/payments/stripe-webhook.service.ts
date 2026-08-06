@@ -23,6 +23,7 @@ type PaymentPendingBooking = {
   guestEmail: string | null;
   guestSessionId: string;
   guestReturnUrl: string | null;
+  externalReference: string;
 };
 
 @Injectable()
@@ -54,7 +55,8 @@ export class StripeWebhookService {
       async (tx) => {
         const bookings = await tx.$queryRaw<PaymentPendingBooking[]>`
         SELECT b.id, b.total_amount::text AS "totalAmount", rp.currency, b.status,
-          b.payment_method AS "paymentMethod", g.email AS "guestEmail", b.guest_session_id AS "guestSessionId", b.guest_return_url AS "guestReturnUrl"
+          b.payment_method AS "paymentMethod", g.email AS "guestEmail", b.guest_session_id AS "guestSessionId", b.guest_return_url AS "guestReturnUrl",
+          b.external_reference AS "externalReference"
         FROM bookings b
         JOIN rate_plans rp
           ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
@@ -139,6 +141,7 @@ export class StripeWebhookService {
         if (booking.paymentMethod === BookingPaymentMethod.STRIPE_CHECKOUT && booking.guestEmail) {
           paymentConfirmation = {
             bookingId: booking.id,
+            bookingReference: booking.externalReference,
             paymentId: event.externalPaymentId,
             to: booking.guestEmail,
             amount: { amount: booking.totalAmount, currency: booking.currency },
@@ -158,6 +161,11 @@ export class StripeWebhookService {
         }
         return { ok: true, value: { duplicate: false } };
       },
+      // continueAfterPayment can attach a real Clock reservation and post a
+      // real deposit folio + credit_item inside this transaction — several
+      // real outbound Clock calls, same reasoning as
+      // ClockBookingService.createBooking's own extended timeout.
+      { timeoutMs: 45_000 },
     );
     if (paymentConfirmation)
       await this.notifications.sendPaymentConfirmationEmailSafely(paymentConfirmation);

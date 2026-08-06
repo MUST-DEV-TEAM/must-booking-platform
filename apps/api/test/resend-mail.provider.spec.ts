@@ -55,6 +55,7 @@ describe('ResendMailProvider', () => {
 
     await provider.sendPaymentConfirmationEmail({
       bookingId: 'booking-1',
+      bookingReference: 'MLDH-260814-2216-K7',
       paymentId: 'cs_test_1',
       to: 'guest@example.test',
       amount: { amount: '180.00', currency: 'EUR' },
@@ -63,6 +64,7 @@ describe('ResendMailProvider', () => {
     });
     await provider.sendRefundConfirmationEmail({
       bookingId: 'booking-1',
+      bookingReference: 'MLDH-260814-2216-K7',
       refundId: 're_test_1',
       to: 'guest@example.test',
       amount: { amount: '50.00', currency: 'EUR' },
@@ -79,6 +81,8 @@ describe('ResendMailProvider', () => {
     const payment = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(payment.html).toContain('Review or cancel booking');
     expect(payment.html).toContain('cancellationToken=token');
+    expect(payment.html).toContain('MLDH-260814-2216-K7');
+    expect(payment.html).not.toContain('>booking-1<');
   });
 
   it('sends password reset links with escaped content and a token-scoped idempotency key', async () => {
@@ -110,6 +114,7 @@ describe('ResendMailProvider', () => {
     vi.stubGlobal('fetch', fetchMock);
     await provider.sendPaymentConfirmationEmail({
       bookingId: 'booking-1',
+      bookingReference: 'MLDH-260814-2216-K7',
       paymentId: 'cs_test_1',
       to: 'guest@example.test',
       amount: { amount: '180.00', currency: 'EUR' },

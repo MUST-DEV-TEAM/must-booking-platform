@@ -108,6 +108,11 @@ export class PokPayPaymentService {
         emailBookingId = booking.id;
         return { ok: true, value: { duplicate: false } };
       },
+      // continueAfterPayment can attach a real Clock reservation and post a
+      // real deposit folio + credit_item inside this transaction — several
+      // real outbound Clock calls, same reasoning as
+      // ClockBookingService.createBooking's own extended timeout.
+      { timeoutMs: 45_000 },
     );
     if (emailBookingId)
       await this.confirmations.sendAfterConfirmation(context, emailBookingId, orderId);

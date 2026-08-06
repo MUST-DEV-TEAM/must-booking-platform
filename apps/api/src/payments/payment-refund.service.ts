@@ -33,6 +33,7 @@ type OperationRow = { requestHash: string; result: Result<Payment> | null };
 
 export type RefundConfirmation = {
   bookingId: string;
+  bookingReference: string;
   refundId: string;
   to: string;
   amount: Money;
@@ -125,8 +126,8 @@ export class PaymentRefundService {
         type: 'PAYMENT_REFUNDED',
         payload: { bookingId, refundId: refunded.value.id, amount: command.amount },
       });
-      const guest = await tx.$queryRaw<Array<{ email: string }>>`
-        SELECT g.email
+      const guest = await tx.$queryRaw<Array<{ email: string; externalReference: string }>>`
+        SELECT g.email, b.external_reference AS "externalReference"
         FROM bookings b
         JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
         WHERE b.id = ${bookingId}::uuid AND b.tenant_id = ${context.tenantId}::uuid
@@ -135,6 +136,7 @@ export class PaymentRefundService {
       if (guest[0]) {
         confirmation = {
           bookingId,
+          bookingReference: guest[0].externalReference,
           refundId: refunded.value.id,
           to: guest[0].email,
           amount: command.amount,
@@ -235,8 +237,8 @@ export class PaymentRefundService {
         type: 'PAYMENT_REFUNDED',
         payload: { bookingId, refundId: externalPaymentId, amount: command.amount },
       });
-      const guest = await tx.$queryRaw<Array<{ email: string }>>`
-        SELECT g.email
+      const guest = await tx.$queryRaw<Array<{ email: string; externalReference: string }>>`
+        SELECT g.email, b.external_reference AS "externalReference"
         FROM bookings b
         JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
         WHERE b.id = ${bookingId}::uuid AND b.tenant_id = ${context.tenantId}::uuid
@@ -245,6 +247,7 @@ export class PaymentRefundService {
       if (guest[0])
         confirmation = {
           bookingId,
+          bookingReference: guest[0].externalReference,
           refundId: externalPaymentId,
           to: guest[0].email,
           amount: command.amount,

@@ -409,6 +409,7 @@ describe.skipIf(!hasSandboxCredentials)(
     it('online payment: continueAfterPayment (the real webhook-driven path) attaches a real Clock reservation', async () => {
       const guestId = randomUUID();
       const bookingId = randomUUID();
+      const externalReference = `must-payment-gated-${bookingId}`;
       await admin.$executeRaw`
       INSERT INTO guests (id, tenant_id, email, first_name, last_name)
       VALUES (${guestId}::uuid, ${tenantId}::uuid, 'payment-gated-guest@example.test', 'PaymentGated', 'Guest')
@@ -424,7 +425,7 @@ describe.skipIf(!hasSandboxCredentials)(
         status, payment_method, starts_on, ends_on, rate_plan_id, total_amount
       ) VALUES (
         ${bookingId}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${localRoomTypeId}::uuid,
-        ${guestId}::uuid, ${'must-payment-gated-' + bookingId}, 'PAYMENT_PENDING'::"BookingStatus",
+        ${guestId}::uuid, ${externalReference}, 'PAYMENT_PENDING'::"BookingStatus",
         'POKPAY'::"BookingPaymentMethod", '2026-08-16'::date, '2026-08-18'::date,
         ${ratePlanId}::uuid, 500.00
       )
@@ -433,8 +434,10 @@ describe.skipIf(!hasSandboxCredentials)(
       const database = app!.get(TenantDatabaseService);
       const bookings = app!.get(LocalPmsProvider);
       const context = { tenantId, propertyId };
-      const result = await database.withTenantTransaction(context, (tx) =>
-        bookings.continueAfterPayment(tx, context, bookingId),
+      const result = await database.withTenantTransaction(
+        context,
+        (tx) => bookings.continueAfterPayment(tx, context, bookingId),
+        { timeoutMs: 45_000 },
       );
       expect(result.ok).toBe(true);
       if (result.ok) expect(result.value.externalBookingId).toMatch(/^\d+$/);
@@ -447,37 +450,68 @@ describe.skipIf(!hasSandboxCredentials)(
       expect(row[0]?.status).toBe('CONFIRMED');
       expect(row[0]?.externalBookingId).toMatch(/^\d+$/);
 
-      // Task 5 (revised after the owner reviewed the real dashboard): a plain
-      // booking note, not a folio/credit_item — Clock nets ANY posted payment
-      // on ANY folio into the booking's own aggregate Balance (confirmed for
-      // real against the sandbox dashboard), so a note is the only mechanism
-      // that leaves Balance genuinely untouched. Verified directly against
-      // Clock: balance stays the full 500.00, and the note text is present.
+      // Task 5, reverted to a real accounting entry after the owner reviewed
+      // the live dashboard (2026-08-06): a genuine deposit=true folio +
+      // credit_item, not a note. Clock nets any posted payment, on any
+      // folio, into the booking's aggregate Balance — the owner accepted
+      // that trade-off in exchange for a real, reportable financial record.
+      // Verified directly against Clock: Balance nets to 0, a real open
+      // deposit folio exists, and it carries a credit_item for our own
+      // reference/amount/currency.
       const clockCredentials = sandboxCredentials();
       const clockClient = app!.get(ClockHttpClient);
       const externalBookingId = row[0]!.externalBookingId!;
-      const clockBooking = await clockClient.request<{
-        balance: { cents: number };
-        active_notes: Array<{ text: string }>;
-      }>(clockCredentials, {
+      const clockBooking = await clockClient.request<{ balance: { cents: number } }>(
+        clockCredentials,
+        { api: 'pms_api', method: 'GET', path: `/bookings/${externalBookingId}` },
+      );
+      expect(clockBooking.status).toBe(200);
+      expect((clockBooking.body as { balance: { cents: number } }).balance.cents).toBe(0);
+
+      // GET .../folios/ returns bare numeric folio IDs, not objects
+      // (confirmed for real) — each folio's own fields need GET /folios/{id}.
+      const folioIds = await clockClient.request<number[]>(clockCredentials, {
         api: 'pms_api',
         method: 'GET',
-        path: `/bookings/${externalBookingId}`,
+        path: `/bookings/${externalBookingId}/folios/`,
       });
-      expect(clockBooking.status).toBe(200);
-      const clockBookingBody = clockBooking.body as {
-        balance: { cents: number };
-        active_notes: Array<{ text: string }>;
-      };
-      expect(clockBookingBody.balance.cents).toBe(50000);
-      expect(
-        clockBookingBody.active_notes.some((n) => n.text.includes('Deposit received: 500.00 EUR')),
-      ).toBe(true);
+      expect(folioIds.status).toBe(200);
+      let depositFolioId: number | undefined;
+      for (const folioId of folioIds.body) {
+        const folio = await clockClient.request<{ deposit?: boolean; closed_at?: string | null }>(
+          clockCredentials,
+          { api: 'base_api', method: 'GET', path: `/folios/${folioId}` },
+        );
+        if (folio.body.deposit === true && !folio.body.closed_at) {
+          depositFolioId = folioId;
+          break;
+        }
+      }
+      expect(depositFolioId).toBeDefined();
+
+      const creditItems = await clockClient.request<
+        Array<{
+          reference?: string;
+          value_cents?: number;
+          currency?: string;
+          payment_sub_type?: string;
+        }>
+      >(clockCredentials, {
+        api: 'base_api',
+        method: 'GET',
+        path: `/folios/${depositFolioId}/credit_items`,
+      });
+      expect(creditItems.status).toBe(200);
+      const ourCreditItem = creditItems.body.find((item) => item.reference === externalReference);
+      expect(ourCreditItem).toBeDefined();
+      expect(ourCreditItem?.value_cents).toBe(50000);
+      expect(ourCreditItem?.currency).toBe('EUR');
+      expect(ourCreditItem?.payment_sub_type).toBe('PokPay');
 
       const auditRows = await admin.$queryRaw<Array<{ action: string }>>`
       SELECT action FROM audit_logs
       WHERE tenant_id = ${tenantId}::uuid AND target_id = ${bookingId}
-        AND action = 'booking.clock_deposit_noted'
+        AND action = 'booking.clock_deposit_posted'
     `;
       expect(auditRows.length).toBe(1);
 
