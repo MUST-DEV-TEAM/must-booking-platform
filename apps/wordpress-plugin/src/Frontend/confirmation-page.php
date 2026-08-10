@@ -190,7 +190,7 @@ function maybe_process_confirm_booking_submission(): string
     $result = MustApiClient::post('/bookings', $bookingInput, \wp_generate_uuid4());
 
     if (!$result['ok'] || !\is_array($result['body']) || empty($result['body']['ok'])) {
-        return \__('We could not complete your booking. Please review your details and try again.', 'must-hotel-booking');
+        return get_booking_creation_error_message($result);
     }
 
     $booking = $result['body']['value'];
@@ -204,6 +204,23 @@ function maybe_process_confirm_booking_submission(): string
         ManagedPages::getBookingConfirmationPageUrl()
     ));
     exit;
+}
+
+/**
+ * `POST /bookings` reports failure as `{ok:false, error:{code,message}}`, not an HTTP error
+ * status — `error.message` is always a guest-safe sentence (same convention the rest of the
+ * API uses for BadRequestException(error.message)). Surface it instead of a generic message
+ * that hides real, actionable reasons (e.g. "PokPay is not configured for this property.").
+ * @param array{ok: bool, status: int, body: array<string, mixed>|null} $result
+ */
+function get_booking_creation_error_message(array $result): string
+{
+    $body = $result['body'];
+    $error = \is_array($body) && \is_array($body['error'] ?? null) ? $body['error'] : null;
+    if ($error !== null && \is_string($error['message'] ?? null) && $error['message'] !== '') {
+        return $error['message'];
+    }
+    return \__('We could not complete your booking. Please review your details and try again.', 'must-hotel-booking');
 }
 
 /** @return array<string, array{label: string}> keyed by the property's actually-enabled payment methods, in catalog order */
