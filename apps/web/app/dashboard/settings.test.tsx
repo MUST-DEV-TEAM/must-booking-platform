@@ -22,6 +22,7 @@ let property = {
   bookingMode: 'ROOM_TYPE_ONLY' as 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED',
   paymentGateways: { stripe: false, pokpay: false, payAtHotel: true },
   wordpressConnectedAt: null as string | null,
+  publicWebsiteOrigin: null as string | null,
 };
 
 afterEach(() => vi.unstubAllGlobals());

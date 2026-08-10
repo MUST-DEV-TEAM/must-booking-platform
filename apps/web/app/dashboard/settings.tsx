@@ -30,6 +30,7 @@ type Property = {
   bookingMode: BookingMode;
   paymentGateways: PaymentGateways;
   wordpressConnectedAt: string | null;
+  publicWebsiteOrigin: string | null;
 };
 
 type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
@@ -79,6 +80,7 @@ export function DashboardSettings({
   const [bookingMode, setBookingMode] = useState<BookingMode | null>(null);
   const [paymentGateways, setPaymentGateways] = useState<PaymentGateways | null>(null);
   const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [publicWebsiteOrigin, setPublicWebsiteOrigin] = useState('');
   const base = `/api/tenants/${tenantId}`;
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({
@@ -131,6 +133,7 @@ export function DashboardSettings({
     setRules(rulesFrom(property));
     setBookingMode(property.bookingMode);
     setPaymentGateways(property.paymentGateways);
+    setPublicWebsiteOrigin(property.publicWebsiteOrigin ?? '');
   }, [property]);
 
   const saveMutation = useMutation({
@@ -187,6 +190,32 @@ export function DashboardSettings({
     event.preventDefault();
     if (!paymentGateways) return;
     paymentGatewaysMutation.mutate(paymentGateways);
+  }
+
+  const publicWebsiteOriginMutation = useMutation({
+    mutationFn: async (origin: string) => {
+      const response = await fetch(`${base}/properties/${propertyId}/public-website-origin`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ publicWebsiteOrigin: origin || null }),
+      });
+      if (!response.ok) throw new Error('Unable to save the public website origin.');
+      return (await response.json()) as Property;
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData<{ property: Property; planName: string | null }>(
+        ['dashboard', 'settings', tenantId, propertyId],
+        (current) => (current ? { ...current, property: updated } : current),
+      );
+      toast.success('Public website origin saved.');
+    },
+    onError: () => toast.error('Unable to save the public website origin.'),
+  });
+
+  function savePublicWebsiteOrigin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    publicWebsiteOriginMutation.mutate(publicWebsiteOrigin.trim());
   }
 
   const wordpressPairingMutation = useMutation({
@@ -546,6 +575,36 @@ export function DashboardSettings({
               Connected on {new Date(property.wordpressConnectedAt).toLocaleString()}
             </Text>
           )}
+          <form className="must-stack must-stack--md" onSubmit={savePublicWebsiteOrigin}>
+            <label className="must-field">
+              <span className="must-field__label">Public website origin</span>
+              <input
+                className="must-input"
+                aria-label="Public website origin"
+                type="url"
+                placeholder="https://your-hotel-site.com"
+                value={publicWebsiteOrigin}
+                onChange={(event) => setPublicWebsiteOrigin(event.target.value)}
+              />
+            </label>
+            <Text tone="secondary">
+              Must exactly match your WordPress site&apos;s address (scheme + domain, no path).
+              Required before guests can complete a booking through the connected site — without it,
+              booking creation is rejected.
+            </Text>
+            <button
+              className="must-button must-button--primary"
+              disabled={publicWebsiteOriginMutation.isPending}
+            >
+              {publicWebsiteOriginMutation.isPending ? (
+                <>
+                  <Loader2 aria-hidden="true" size={16} /> Saving…
+                </>
+              ) : (
+                'Save public website origin'
+              )}
+            </button>
+          </form>
           {pairingCode && (
             <Stack gap="sm">
               <label className="must-field">

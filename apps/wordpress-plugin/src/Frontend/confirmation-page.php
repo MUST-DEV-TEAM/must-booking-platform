@@ -149,11 +149,17 @@ function maybe_process_confirm_booking_submission(): string
     $city = isset($_POST['city']) ? \sanitize_text_field((string) \wp_unslash($_POST['city'])) : '';
     $county = isset($_POST['county']) ? \sanitize_text_field((string) \wp_unslash($_POST['county'])) : '';
     $postcode = isset($_POST['postcode']) ? \sanitize_text_field((string) \wp_unslash($_POST['postcode'])) : '';
+    // The field is editable on this step too -- prefer a resubmitted value, falling
+    // back to what Guest Information already stored (defensive; the form always
+    // includes this field, so the fallback shouldn't normally be needed).
+    $specialRequests = isset($_POST['special_requests'])
+        ? \sanitize_textarea_field((string) \wp_unslash($_POST['special_requests']))
+        : (string) ($selection['guestInfo']['specialRequests'] ?? '');
     $selection['guestInfo'] = [
         'firstName' => $firstName, 'lastName' => $lastName, 'email' => $email,
         'phoneCountryCode' => $phoneCountryCode, 'phoneNumber' => $phoneNumber, 'country' => $country,
         'streetAddress' => $streetAddress, 'addressLine2' => $addressLine2, 'city' => $city,
-        'county' => $county, 'postcode' => $postcode,
+        'county' => $county, 'postcode' => $postcode, 'specialRequests' => $specialRequests,
     ];
     set_current_booking_selection($selection);
 
@@ -285,7 +291,8 @@ function get_confirmation_review_view_data(): array
         'company' => '', 'street_address' => (string) ($guestInfo['streetAddress'] ?? ''),
         'address_line_2' => (string) ($guestInfo['addressLine2'] ?? ''),
         'city' => (string) ($guestInfo['city'] ?? ''), 'county' => (string) ($guestInfo['county'] ?? ''),
-        'postcode' => (string) ($guestInfo['postcode'] ?? ''), 'special_requests' => '',
+        'postcode' => (string) ($guestInfo['postcode'] ?? ''),
+        'special_requests' => (string) ($guestInfo['specialRequests'] ?? ''),
     ];
 
     return [

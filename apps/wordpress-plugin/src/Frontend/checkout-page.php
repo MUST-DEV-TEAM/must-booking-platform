@@ -25,6 +25,7 @@ function maybe_process_checkout_submission(): string
     $phoneCountryCode = isset($_POST['phone_country_code']) ? \sanitize_text_field((string) \wp_unslash($_POST['phone_country_code'])) : '';
     $phoneNumber = isset($_POST['phone_number']) ? \sanitize_text_field((string) \wp_unslash($_POST['phone_number'])) : '';
     $country = isset($_POST['country']) ? \sanitize_text_field((string) \wp_unslash($_POST['country'])) : '';
+    $specialRequests = isset($_POST['special_requests']) ? \sanitize_textarea_field((string) \wp_unslash($_POST['special_requests'])) : '';
     if ($firstName === '' || $lastName === '' || $email === '') {
         return \__('Please fill in your name and email to continue.', 'must-hotel-booking');
     }
@@ -32,6 +33,7 @@ function maybe_process_checkout_submission(): string
     $selection['guestInfo'] = [
         'firstName' => $firstName, 'lastName' => $lastName, 'email' => $email,
         'phoneCountryCode' => $phoneCountryCode, 'phoneNumber' => $phoneNumber, 'country' => $country,
+        'specialRequests' => $specialRequests,
     ];
     set_current_booking_selection($selection);
     \wp_safe_redirect(ManagedPages::getBookingConfirmationPageUrl());
@@ -69,6 +71,7 @@ function get_checkout_page_view_data(): array
         'first_name' => (string) ($guestInfo['firstName'] ?? ''), 'last_name' => (string) ($guestInfo['lastName'] ?? ''),
         'email' => (string) ($guestInfo['email'] ?? ''), 'phone_country_code' => (string) ($guestInfo['phoneCountryCode'] ?? ''),
         'phone_number' => (string) ($guestInfo['phoneNumber'] ?? ''), 'country' => (string) ($guestInfo['country'] ?? ''),
+        'special_requests' => (string) ($guestInfo['specialRequests'] ?? ''),
     ];
 
     return [
