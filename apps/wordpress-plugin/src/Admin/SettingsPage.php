@@ -79,10 +79,7 @@ final class SettingsPage
         $result = MustApiClient::redeemPairingCode($code);
         $body = $result['body'];
         if (!$result['ok'] || !\is_array($body) || !isset($body['tenantId'], $body['propertyId'], $body['apiBaseUrl'])) {
-            $message = \is_array($body) && \is_string($body['message'] ?? null) && $body['message'] !== ''
-                ? $body['message']
-                : \__('This connection code is invalid or has expired. Generate a new one from your MUST dashboard.', 'must-hotel-booking');
-            \set_transient('must_hotel_booking_settings_errors', [$message], MINUTE_IN_SECONDS);
+            \set_transient('must_hotel_booking_settings_errors', [self::pairingErrorMessage($result)], MINUTE_IN_SECONDS);
             \wp_safe_redirect(get_admin_settings_page_url(['notice' => 'error']));
             exit;
         }
@@ -93,6 +90,29 @@ final class SettingsPage
 
         \wp_safe_redirect(get_admin_settings_page_url(['notice' => 'paired']));
         exit;
+    }
+
+    /**
+     * Distinguishes a real "code invalid/expired" API response from a request that never
+     * reached the API at all (network failure, or a proxy/WAF intercepting it before the
+     * API ever saw it) — both used to render as the same misleading "invalid or expired"
+     * text, hiding connectivity problems behind a code-entry error.
+     * @param array{ok: bool, status: int, body: array<string, mixed>|null} $result
+     */
+    private static function pairingErrorMessage(array $result): string
+    {
+        $body = $result['body'];
+        if (\is_array($body) && \is_string($body['message'] ?? null) && $body['message'] !== '') {
+            return $body['message'];
+        }
+        if ($result['status'] === 0) {
+            return \__("Could not reach the MUST platform. Check this server's internet connection and try again.", 'must-hotel-booking');
+        }
+        return \sprintf(
+            /* translators: %d: HTTP status code returned by the MUST platform */
+            \__('The MUST platform returned an unexpected response (HTTP %d). If this keeps happening, ask MUST to check whether this server\'s requests are being blocked.', 'must-hotel-booking'),
+            $result['status']
+        );
     }
 
     private static function handleCalendarLayoutSave(): void
