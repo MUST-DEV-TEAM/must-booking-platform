@@ -207,18 +207,26 @@ function maybe_process_confirm_booking_submission(): string
 }
 
 /**
- * `POST /bookings` reports failure as `{ok:false, error:{code,message}}`, not an HTTP error
- * status — `error.message` is always a guest-safe sentence (same convention the rest of the
- * API uses for BadRequestException(error.message)). Surface it instead of a generic message
- * that hides real, actionable reasons (e.g. "PokPay is not configured for this property.").
+ * `POST /bookings` can fail two different ways: (1) a booking-domain rejection returned
+ * inline with a 2xx status as `{ok:false, error:{code,message}}` (e.g. a payment provider
+ * not being configured), or (2) an early validation `BadRequestException`, a real HTTP error
+ * status with NestJS's standard flat `{statusCode,message,error}` body (e.g. an expired quote
+ * token). Both `message` fields are always guest-safe sentences (same convention the rest of
+ * the API uses). Check both shapes rather than a generic message that hides the real reason.
  * @param array{ok: bool, status: int, body: array<string, mixed>|null} $result
  */
 function get_booking_creation_error_message(array $result): string
 {
     $body = $result['body'];
-    $error = \is_array($body) && \is_array($body['error'] ?? null) ? $body['error'] : null;
-    if ($error !== null && \is_string($error['message'] ?? null) && $error['message'] !== '') {
-        return $error['message'];
+    if (\is_array($body)) {
+        $nested = \is_array($body['error'] ?? null) ? $body['error']['message'] ?? null : null;
+        if (\is_string($nested) && $nested !== '') {
+            return $nested;
+        }
+        $flat = $body['message'] ?? null;
+        if (\is_string($flat) && $flat !== '') {
+            return $flat;
+        }
     }
     return \__('We could not complete your booking. Please review your details and try again.', 'must-hotel-booking');
 }
