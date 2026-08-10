@@ -23,11 +23,11 @@ $booking_url = isset($view['booking_url']) ? (string) $view['booking_url'] : \ho
 $accommodation_url = isset($view['accommodation_url']) ? (string) $view['accommodation_url'] : \home_url('/booking-accommodation');
 $checkout_url = isset($view['checkout_url']) ? (string) $view['checkout_url'] : \home_url('/checkout');
 $fixed_room_mode = !empty($view['fixed_room_mode']);
-$fixed_room_id = isset($view['fixed_room_id']) ? (int) $view['fixed_room_id'] : 0;
+$fixed_room_id = isset($view['fixed_room_id']) ? (string) $view['fixed_room_id'] : '';
 $fixed_room = isset($view['fixed_room']) && \is_array($view['fixed_room']) ? $view['fixed_room'] : [];
 $fixed_room_name = isset($fixed_room['name']) ? (string) $fixed_room['name'] : '';
-$fixed_room_type_id = isset($fixed_room['room_type_id']) ? (int) $fixed_room['room_type_id'] : $fixed_room_id;
-$fixed_inventory_room_id = isset($fixed_room['physical_room_id']) ? (int) $fixed_room['physical_room_id'] : 0;
+$fixed_room_type_id = isset($fixed_room['room_type_id']) ? (string) $fixed_room['room_type_id'] : $fixed_room_id;
+$fixed_rate_plan_id = isset($fixed_room['rate_plan_id']) ? (string) $fixed_room['rate_plan_id'] : '';
 $fixed_room_category_label = isset($fixed_room['category_label']) ? (string) $fixed_room['category_label'] : '';
 $fixed_room_description = isset($fixed_room['description']) ? (string) $fixed_room['description'] : '';
 $fixed_room_max_guests = isset($fixed_room['max_guests']) ? (int) $fixed_room['max_guests'] : 0;
@@ -39,7 +39,8 @@ $fixed_room_primary_image_url = isset($fixed_room['primary_image_url']) ? (strin
 $calendar_layout = isset($view['calendar_layout']) ? (string) $view['calendar_layout'] : 'two_calendars';
 $calendar_layout = \in_array($calendar_layout, ['one_calendar', 'two_calendars'], true) ? $calendar_layout : 'two_calendars';
 $calendar_layout_class = $calendar_layout === 'one_calendar' ? ' is-one-calendar' : '';
-$form_action_url = $fixed_room_mode ? \must_hotel_booking\get_checkout_page_url() : $accommodation_url;
+$form_action_url = $accommodation_url;
+$form_method = $fixed_room_mode ? 'post' : 'get';
 $show_results_section = false;
 $back_arrow_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? MUST_HOTEL_BOOKING_URL . 'assets/img/ArrowLEFT.svg' : '';
 $arrow_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? MUST_HOTEL_BOOKING_URL . 'assets/img/ArrowRight.svg' : '';
@@ -115,16 +116,17 @@ if ($checkout !== '') {
             </div>
         </section>
 
-        <form id="must-booking-search-form" class="must-booking-calendar-step-form" method="get" action="<?php echo \esc_url($form_action_url); ?>" data-calendar-layout="<?php echo \esc_attr($calendar_layout); ?>">
+        <form id="must-booking-search-form" class="must-booking-calendar-step-form" method="<?php echo \esc_attr($form_method); ?>" action="<?php echo \esc_url($form_action_url); ?>" data-calendar-layout="<?php echo \esc_attr($calendar_layout); ?>">
             <input id="must-booking-checkin" class="must-hotel-booking-checkin" type="hidden" name="checkin" value="<?php echo \esc_attr($checkin); ?>" />
             <input id="must-booking-checkout" class="must-hotel-booking-checkout" type="hidden" name="checkout" value="<?php echo \esc_attr($checkout); ?>" />
             <input id="must-booking-guests" class="must-hotel-booking-guests" type="hidden" name="guests" value="<?php echo \esc_attr((string) $guests); ?>" />
             <input id="must-booking-room-count" class="must-booking-room-count" type="hidden" name="room_count" value="<?php echo \esc_attr((string) ($fixed_room_mode ? 1 : $room_count)); ?>" />
             <?php if ($fixed_room_mode) : ?>
-                <input id="must-booking-fixed-room-id" class="must-booking-hidden-room-id" type="hidden" name="room_id" value="<?php echo \esc_attr((string) ($fixed_inventory_room_id > 0 ? $fixed_room_type_id : $fixed_room_id)); ?>" />
-                <?php if ($fixed_inventory_room_id > 0) : ?>
-                    <input type="hidden" name="inventory_room_id" value="<?php echo \esc_attr((string) $fixed_inventory_room_id); ?>" />
-                <?php endif; ?>
+                <?php \wp_nonce_field('must_accommodation_select_room', 'must_accommodation_nonce'); ?>
+                <input type="hidden" name="must_accommodation_action" value="select_room" />
+                <input type="hidden" name="must_room_type_id" value="<?php echo \esc_attr($fixed_room_type_id); ?>" />
+                <input type="hidden" name="must_room_id" value="" />
+                <input type="hidden" name="must_rate_plan_id" value="<?php echo \esc_attr($fixed_rate_plan_id); ?>" />
                 <input type="hidden" name="accommodation_type" value="<?php echo \esc_attr($accommodation_type); ?>" />
             <?php endif; ?>
 
