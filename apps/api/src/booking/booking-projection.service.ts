@@ -15,6 +15,7 @@ export type BookingProjection = {
   guestCity: string | null;
   guestCounty: string | null;
   guestPostcode: string | null;
+  specialRequests: string | null;
   roomTypeId: string;
   roomTypeName: string;
   roomId: string | null;
@@ -53,6 +54,7 @@ export class BookingProjectionService {
           g.last_name AS "guestLastName", g.email AS "guestEmail", g.phone AS "guestPhone",
           g.street_address AS "guestStreetAddress", g.address_line_2 AS "guestAddressLine2",
           g.city AS "guestCity", g.county AS "guestCounty", g.postcode AS "guestPostcode",
+          b.special_requests AS "specialRequests",
           b.room_type_id AS "roomTypeId", rt.name AS "roomTypeName", b.room_id AS "roomId",
           b.rate_plan_id AS "ratePlanId", rp.name AS "ratePlanName",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,

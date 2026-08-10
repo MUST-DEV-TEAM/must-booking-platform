@@ -21,6 +21,7 @@ const bookings: Reservation[] = [
     guestCity: null,
     guestCounty: null,
     guestPostcode: null,
+    specialRequests: 'Late arrival after 22:00.\nPlease prepare a baby cot.',
     roomTypeId: 'room-deluxe',
     roomTypeName: 'Deluxe King',
     ratePlanId: 'rate-flex',
@@ -134,6 +135,7 @@ describe('Dashboard reservations', () => {
       'MUST-ADA',
     );
     expect(container.textContent).toContain('Ada Lovelace');
+    expect(container.textContent).toContain('Late arrival after 22:00.');
     const closeButton = Array.from(container.querySelectorAll('button')).find(
       (button) => button.textContent === 'Close details',
     )!;

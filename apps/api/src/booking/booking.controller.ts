@@ -161,6 +161,7 @@ export class BookingController {
         city: this.optionalNullableString(guest.city),
         county: this.optionalNullableString(guest.county),
         postcode: this.optionalNullableString(guest.postcode),
+        specialRequests: this.optionalSpecialRequests(guest.specialRequests),
       },
       total: this.money(value.total) ?? { amount: '', currency: '' },
       paymentMethod:
@@ -183,6 +184,15 @@ export class BookingController {
     if (typeof value === 'string') return value;
     if (value === null) return null;
     return undefined;
+  }
+
+  private optionalSpecialRequests(value: unknown): string | null | undefined {
+    if (value === null) return null;
+    if (typeof value !== 'string') return undefined;
+    if (value.length > 2000)
+      throw new BadRequestException('Special requests must be 2,000 characters or fewer.');
+    const specialRequests = value.trim();
+    return specialRequests || null;
   }
 
   private money(value: unknown): { amount: string; currency: string } | undefined {

@@ -282,11 +282,12 @@ export class LocalPmsProvider implements PmsProvider {
             const inserted = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO bookings (
           tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
-          guest_session_id, status, payment_method, starts_on, ends_on, rate_plan_id, total_amount
+          guest_session_id, special_requests, status, payment_method, starts_on, ends_on, rate_plan_id, total_amount
         ) VALUES (
           ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${command.roomTypeId}::uuid,
           ${command.roomId ?? null}::uuid, ${guestId}::uuid, ${externalReference},
           ${command.quoteSessionId ?? null}::uuid,
+          ${command.guest.specialRequests?.trim() || null},
           ${BookingStatus.DRAFT}::"BookingStatus",
           ${paymentMethod.value}::"BookingPaymentMethod",
           ${command.startsOn}::date, ${command.endsOn}::date, ${ratePlanId}::uuid,

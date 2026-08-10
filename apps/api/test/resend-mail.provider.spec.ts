@@ -61,6 +61,7 @@ describe('ResendMailProvider', () => {
       amount: { amount: '180.00', currency: 'EUR' },
       cancellationUrl:
         'https://hotel.example.test/booking-confirmation?booking_id=booking-1&cancellationToken=token',
+      specialRequests: 'Late arrival after 22:00.\nNo feathers, please.',
     });
     await provider.sendRefundConfirmationEmail({
       bookingId: 'booking-1',
@@ -82,6 +83,11 @@ describe('ResendMailProvider', () => {
     expect(payment.html).toContain('Review or cancel booking');
     expect(payment.html).toContain('cancellationToken=token');
     expect(payment.html).toContain('MLDH-260814-2216-K7');
+    expect(payment.html).toContain('Special requests');
+    expect(payment.html).toContain('Late arrival after 22:00.<br>No feathers, please.');
+    expect(payment.text).toContain(
+      'Special requests: Late arrival after 22:00.\nNo feathers, please.',
+    );
     expect(payment.html).not.toContain('>booking-1<');
   });
 

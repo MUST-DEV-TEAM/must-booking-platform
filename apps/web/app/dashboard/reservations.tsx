@@ -20,6 +20,7 @@ export type Reservation = {
   guestCity: string | null;
   guestCounty: string | null;
   guestPostcode: string | null;
+  specialRequests?: string | null;
   roomTypeId: string;
   roomTypeName: string;
   ratePlanId: string;
@@ -321,6 +322,12 @@ function ReservationDetails({ booking, onClose }: { booking: Reservation; onClos
             <dt>Reference</dt>
             <dd>{booking.externalReference}</dd>
           </div>
+          {booking.specialRequests ? (
+            <div className={styles.specialRequests}>
+              <dt>Special requests</dt>
+              <dd>{booking.specialRequests}</dd>
+            </div>
+          ) : null}
         </dl>
       </Card>
     </section>

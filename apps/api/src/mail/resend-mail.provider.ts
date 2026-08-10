@@ -65,21 +65,25 @@ export class ResendMailProvider implements MailProvider {
     to: string;
     amount: { amount: string; currency: string };
     cancellationUrl?: string;
+    specialRequests?: string | null;
   }): Promise<void> {
     const bookingReference = this.escapeHtml(command.bookingReference);
     const amount = this.escapeHtml(`${command.amount.currency} ${command.amount.amount}`);
     const cancellationUrl = command.cancellationUrl ? this.escapeHtml(command.cancellationUrl) : '';
+    const specialRequests = command.specialRequests?.trim()
+      ? this.escapeHtml(command.specialRequests).replace(/\r?\n/g, '<br>')
+      : '';
     await this.send({
       to: command.to,
       subject: 'Booking confirmed',
       html: this.bookingEmailLayout({
         heading: 'Booking confirmed',
-        content: `Your booking is confirmed. We received your payment of <strong>${amount}</strong>.`,
+        content: `Your booking is confirmed. We received your payment of <strong>${amount}</strong>.${specialRequests ? `<br><br><strong>Special requests</strong><br>${specialRequests}` : ''}`,
         bookingReference,
         ctaUrl: cancellationUrl,
         ctaLabel: 'Review or cancel booking',
       }),
-      text: `We received your payment of ${command.amount.currency} ${command.amount.amount} for booking ${command.bookingReference}.${command.cancellationUrl ? ` Cancel: ${command.cancellationUrl}` : ''}`,
+      text: `We received your payment of ${command.amount.currency} ${command.amount.amount} for booking ${command.bookingReference}.${command.specialRequests?.trim() ? ` Special requests: ${command.specialRequests.trim()}` : ''}${command.cancellationUrl ? ` Cancel: ${command.cancellationUrl}` : ''}`,
       idempotencyKey: `payment-confirmation/${command.paymentId}`,
     });
   }

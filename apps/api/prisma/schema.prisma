@@ -479,6 +479,7 @@ model Booking {
   guestId                    String?       @map("guest_id") @db.Uuid
   guestSessionId             String?       @map("guest_session_id") @db.Uuid
   guestReturnUrl             String?       @map("guest_return_url") @db.VarChar(2000)
+  specialRequests            String?       @map("special_requests") @db.VarChar(2000)
   externalReference          String        @map("external_reference") @db.VarChar(200)
   externalBookingId          String?       @map("external_booking_id") @db.VarChar(64)
   status                     BookingStatus @default(DRAFT)

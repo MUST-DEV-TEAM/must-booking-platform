@@ -102,6 +102,12 @@
 .details dd {
   margin: var(--must-space-4) 0 0;
 }
+.specialRequests {
+  grid-column: 1 / -1;
+}
+.specialRequests dd {
+  white-space: pre-wrap;
+}
 .error {
   color: var(--must-color-danger);
 }

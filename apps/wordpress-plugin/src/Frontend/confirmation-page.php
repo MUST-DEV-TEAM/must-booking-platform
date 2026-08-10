@@ -188,6 +188,7 @@ function maybe_process_confirm_booking_submission(): string
             'city' => $city !== '' ? $city : null,
             'county' => $county !== '' ? $county : null,
             'postcode' => $postcode !== '' ? $postcode : null,
+            'specialRequests' => $specialRequests !== '' ? $specialRequests : null,
         ],
     ];
     if (!empty($selection['roomId'])) {

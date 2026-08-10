@@ -24,6 +24,7 @@ export interface MailProvider {
     to: string;
     amount: Money;
     cancellationUrl?: string;
+    specialRequests?: string | null;
   }): Promise<void>;
   sendRefundConfirmationEmail(command: {
     bookingId: string;
@@ -98,6 +99,7 @@ export interface GuestDetails {
   city?: string | null;
   county?: string | null;
   postcode?: string | null;
+  specialRequests?: string | null;
 }
 
 export interface Booking {

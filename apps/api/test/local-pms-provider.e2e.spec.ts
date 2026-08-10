@@ -503,6 +503,7 @@ describe('LocalPmsProvider', () => {
         city: 'Tirana',
         county: 'Tirana County',
         postcode: '1001',
+        specialRequests: 'Late arrival after 22:00.\nPlease prepare a baby cot.',
       },
       total: quote.body.total,
       quoteToken: quote.body.quoteToken,
@@ -519,6 +520,18 @@ describe('LocalPmsProvider', () => {
           ok: false,
           error: { code: 'PAYMENT_METHOD_NOT_ENABLED' },
         });
+      });
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/bookings`)
+      .set('Cookie', guestCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({
+        ...bookingRequest,
+        guest: { ...bookingRequest.guest, specialRequests: 'x'.repeat(2001) },
+      })
+      .expect(400)
+      .expect((response) => {
+        expect(response.body.message).toBe('Special requests must be 2,000 characters or fewer.');
       });
     await request(app!.getHttpServer())
       .patch(`${propertyUrl}/payment-gateways`)
@@ -845,6 +858,7 @@ describe('LocalPmsProvider', () => {
               guestCity: 'Tirana',
               guestCounty: 'Tirana County',
               guestPostcode: '1001',
+              specialRequests: 'Late arrival after 22:00.\nPlease prepare a baby cot.',
               roomTypeId,
               roomTypeName: 'Provider Suite',
               ratePlanId,
@@ -1523,6 +1537,7 @@ describe('LocalPmsProvider', () => {
         firstName: 'Different',
         lastName: 'Name',
         phone: '+355000000',
+        specialRequests: 'Please provide an accessible room.',
       },
       total: quote.body.total,
       quoteToken: quote.body.quoteToken,
@@ -1564,6 +1579,7 @@ describe('LocalPmsProvider', () => {
           paymentId: `cs_test_${firstBooking.value.id}`,
           to: 'guest@example.test',
           amount: { amount: '180.00', currency: 'EUR' },
+          specialRequests: 'Please provide an accessible room.',
         },
       ]),
     );
