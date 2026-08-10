@@ -136,6 +136,7 @@ Active widget names/classes cover Booking Search, Rooms List, and Rooms Text Gri
 
 - Booking Search can link to a selected Rooms List widget; preserve widget/document IDs and legacy connection settings.
 - Widgets reuse managed booking URLs and plugin assets; they do not own domain behavior.
+- Rooms List and Rooms Text Grid can show room types or flatten physical rooms for presentation. Their booking links always carry only the parent room-type ID as `accommodation_type`; physical-room IDs never appear in the date-less URL. After the guest chooses dates, the accommodation page owns the date-aware physical-room selection through its validated POST flow.
 - Respect configured inheritance of Elementor global colors and typography.
 - Do not assume Hello Elementor is the only host theme.
 - Avoid global element resets and selectors such as unscoped `button`, `input`, `table`, `a`, headings, or generic utility class names.

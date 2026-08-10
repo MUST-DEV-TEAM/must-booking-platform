@@ -54,6 +54,19 @@ function get_must_catalog(string $startsOn = '', string $endsOn = ''): array
     }
     $query = $startsOn !== '' && $endsOn !== '' ? ['startsOn' => $startsOn, 'endsOn' => $endsOn] : [];
     $response = MustApiClient::get('/public/catalog', $query);
+    // Individual-room catalogues need a stay range so the API can report each
+    // physical room's availability. Widgets and the first booking-page view do
+    // not have guest-selected dates yet, so use a one-night display range only
+    // when the range-less catalogue request is rejected. It is presentation
+    // data, never the availability authority for a later booking.
+    if (!$response['ok'] && $startsOn === '' && $endsOn === '') {
+        $displayStartsOn = \current_time('Y-m-d');
+        $displayEndsOn = (new \DateTimeImmutable($displayStartsOn))->modify('+1 day')->format('Y-m-d');
+        $response = MustApiClient::get('/public/catalog', [
+            'startsOn' => $displayStartsOn,
+            'endsOn' => $displayEndsOn,
+        ]);
+    }
     $cache[$key] = $response['ok'] && \is_array($response['body']) ? $response['body'] : [];
     return $cache[$key];
 }
