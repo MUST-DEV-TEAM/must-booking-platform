@@ -101,10 +101,7 @@ describe('WordPress pairing code', () => {
     });
 
     // Single-use: the same code cannot be redeemed a second time.
-    await request(app.getHttpServer())
-      .post('/wordpress-pairing/redeem')
-      .send({ code })
-      .expect(400);
+    await request(app.getHttpServer()).post('/wordpress-pairing/redeem').send({ code }).expect(400);
   });
 
   it('redeeming is case-insensitive on the random segments', async () => {

@@ -1,4 +1,12 @@
-import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, NotFoundException, OnModuleDestroy } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  NotFoundException,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { createHash, randomInt } from 'node:crypto';
 import { createClient, type RedisClientType } from 'redis';
 
@@ -111,7 +119,11 @@ export class WordpressPairingService implements OnModuleDestroy {
   }
 
   private buildCode(slug: string): string {
-    const prefix = slug.replace(/[^a-z0-9]/gi, '').slice(0, 10).toUpperCase() || 'HOTEL';
+    const prefix =
+      slug
+        .replace(/[^a-z0-9]/gi, '')
+        .slice(0, 10)
+        .toUpperCase() || 'HOTEL';
     const segment = () =>
       Array.from({ length: 4 }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join('');
     return `MUST-${prefix}-${segment()}-${segment()}`;

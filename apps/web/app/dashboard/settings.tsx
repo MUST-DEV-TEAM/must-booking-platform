@@ -497,8 +497,8 @@ export function DashboardSettings({
         <Stack gap="md">
           <Heading level={2}>Connect WordPress site</Heading>
           <Text tone="secondary">
-            Generate a one-time connection code and paste it into the MUST Booking plugin's
-            settings screen on your WordPress site to link it to this property.
+            Generate a one-time connection code and paste it into the MUST Booking plugin's settings
+            screen on your WordPress site to link it to this property.
           </Text>
           {property.wordpressConnectedAt && (
             <Text tone="secondary">

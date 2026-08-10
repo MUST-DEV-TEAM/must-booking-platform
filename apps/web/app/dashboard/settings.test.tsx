@@ -117,7 +117,11 @@ describe('DashboardSettings', () => {
         await Promise.resolve();
       }
     });
-    expect(fetch.mock.calls.some(([url, init]) => init?.method === 'POST' && url.endsWith('/wordpress-pairing'))).toBe(true);
+    expect(
+      fetch.mock.calls.some(
+        ([url, init]) => init?.method === 'POST' && url.endsWith('/wordpress-pairing'),
+      ),
+    ).toBe(true);
     expect(
       (container.querySelector('[aria-label="Connection code"]') as HTMLInputElement).value,
     ).toBe('MUST-GRANDHOTEL-ABCD-1234');

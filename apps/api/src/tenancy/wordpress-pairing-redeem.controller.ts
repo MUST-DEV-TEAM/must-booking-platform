@@ -12,9 +12,7 @@ type RedeemRequest = IncomingMessage & { socket: { remoteAddress?: string } };
 // facing route; rate-limited inside WordpressPairingService.redeem.
 @Controller('wordpress-pairing')
 export class WordpressPairingRedeemController {
-  constructor(
-    @Inject(WordpressPairingService) private readonly pairing: WordpressPairingService,
-  ) {}
+  constructor(@Inject(WordpressPairingService) private readonly pairing: WordpressPairingService) {}
 
   @Public()
   @Post('redeem')
