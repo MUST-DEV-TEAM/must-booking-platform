@@ -24,6 +24,7 @@ type PaymentPendingBooking = {
   guestSessionId: string;
   guestReturnUrl: string | null;
   externalReference: string;
+  specialRequests: string | null;
 };
 
 @Injectable()
@@ -56,7 +57,7 @@ export class StripeWebhookService {
         const bookings = await tx.$queryRaw<PaymentPendingBooking[]>`
         SELECT b.id, b.total_amount::text AS "totalAmount", rp.currency, b.status,
           b.payment_method AS "paymentMethod", g.email AS "guestEmail", b.guest_session_id AS "guestSessionId", b.guest_return_url AS "guestReturnUrl",
-          b.external_reference AS "externalReference"
+          b.external_reference AS "externalReference", b.special_requests AS "specialRequests"
         FROM bookings b
         JOIN rate_plans rp
           ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
@@ -145,6 +146,7 @@ export class StripeWebhookService {
             paymentId: event.externalPaymentId,
             to: booking.guestEmail,
             amount: { amount: booking.totalAmount, currency: booking.currency },
+            specialRequests: booking.specialRequests,
             cancellationUrl: booking.guestReturnUrl
               ? this.cancellationUrl(
                   booking.guestReturnUrl,
