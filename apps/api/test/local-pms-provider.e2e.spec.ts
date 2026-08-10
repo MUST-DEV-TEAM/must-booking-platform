@@ -532,6 +532,25 @@ describe('LocalPmsProvider', () => {
           payAtHotel: false,
         });
       });
+    // Milestone 6 Task 24: public/catalog only advertises stripe/pokpay to
+    // guests when the property also has a real, connected integration --
+    // the enabled toggle alone (above) is no longer enough. The payment
+    // *provider* stays mocked for this test (see PAYMENT_PROVIDER override),
+    // so a direct row insert is sufficient; nothing here ever decrypts it.
+    const stripeConnectionId = randomUUID();
+    await admin.$executeRaw`
+      INSERT INTO integration_connections
+        (id, tenant_id, kind, provider, name, encrypted_credentials, status)
+      VALUES (
+        ${stripeConnectionId}::uuid, ${tenantId}::uuid, 'PAYMENT', 'STRIPE',
+        'Stripe (e2e)', 'not-decrypted-in-this-test', 'CONNECTED'
+      )
+    `;
+    await admin.$executeRaw`
+      INSERT INTO property_integration_connections
+        (tenant_id, property_id, connection_id, kind, enabled)
+      VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${stripeConnectionId}::uuid, 'PAYMENT', true)
+    `;
     await request(app!.getHttpServer())
       .get(`${propertyUrl}/public/catalog`)
       .set('Cookie', guestCookie)
