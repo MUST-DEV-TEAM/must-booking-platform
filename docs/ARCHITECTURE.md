@@ -46,7 +46,7 @@ Tenant admin/staff web app (Next.js)      WordPress plugin (retrofitted, ADR-001
 
 Platform Billing Service and Guest Payment Service are separate services with separate data stores/ledgers even though both may use Stripe as a provider — one uses Stripe Billing (subscriptions), the other Stripe Checkout/PokPay (one-off guest payments). See `BILLING.md` and `PROJECT_CONTEXT.md`.
 
-Each property configures its enabled guest payment methods (Stripe, PokPay, and/or pay at hotel). A non-zero booking must explicitly select a method enabled for that property; a zero-total booking remains `FREE` and needs no gateway.
+Each property configures its enabled guest payment methods (Stripe, PokPay, and/or pay at hotel). Public guest surfaces advertise Stripe or PokPay only when the property also has an enabled, `CONNECTED` tenant integration for that provider; pay-at-hotel has no external connection requirement. A non-zero booking must explicitly select a method enabled for that property; a zero-total booking remains `FREE` and needs no gateway.
 
 ## Tech stack
 

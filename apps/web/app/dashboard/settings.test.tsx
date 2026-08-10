@@ -129,6 +129,36 @@ describe('DashboardSettings', () => {
 
     await act(async () => root.unmount());
   });
+
+  it('warns when an enabled online payment method lacks a connected property integration', async () => {
+    property = {
+      ...property,
+      paymentGateways: { stripe: false, pokpay: true, payAtHotel: true },
+    };
+    const fetch = vi.fn(async (url: string) => {
+      if (url.endsWith('/properties')) return new Response(JSON.stringify([property]));
+      if (url.endsWith('/plan-usage'))
+        return new Response(
+          JSON.stringify({ plan: { name: 'Free', maxProperties: 3 }, usage: { properties: 1 } }),
+        );
+      if (url.endsWith('/properties/p/integration-connections'))
+        return new Response(JSON.stringify([{ connectionId: 'pokpay-failed', enabled: true }]));
+      if (url.endsWith('/integration-connections'))
+        return new Response(
+          JSON.stringify([
+            { id: 'pokpay-failed', kind: 'PAYMENT', provider: 'POKPAY', status: 'FAILED' },
+          ]),
+        );
+      return new Response('{}');
+    });
+    vi.stubGlobal('fetch', fetch);
+    const { container, root } = await mount();
+
+    expect(container.textContent).toContain(
+      'PokPay is enabled but not connected and assigned to this property.',
+    );
+    await act(async () => root.unmount());
+  });
 });
 
 async function mount() {

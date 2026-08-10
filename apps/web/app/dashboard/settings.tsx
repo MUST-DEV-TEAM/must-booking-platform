@@ -9,6 +9,13 @@ import { toast } from 'sonner';
 import { PropertyManagement } from './[tenantId]/property-management';
 
 type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
+type Connection = {
+  id: string;
+  kind: 'PAYMENT' | 'PMS';
+  provider: 'STRIPE' | 'POKPAY' | 'CLOCK_PMS';
+  status: 'PENDING' | 'CONNECTED' | 'FAILED';
+};
+type PropertyConnection = { connectionId: string; enabled: boolean };
 type Property = {
   id: string;
   name: string;
@@ -77,22 +84,46 @@ export function DashboardSettings({
   const settingsQuery = useQuery({
     queryKey: ['dashboard', 'settings', tenantId, propertyId],
     queryFn: async () => {
-      const [propertiesResponse, planResponse] = await Promise.all([
-        fetch(`${base}/properties`, { credentials: 'include' }),
-        fetch(`${base}/plan-usage`, { credentials: 'include' }),
-      ]);
-      if (!propertiesResponse.ok) throw new Error('Unable to load property settings.');
+      const [propertiesResponse, planResponse, connectionsResponse, propertyConnectionsResponse] =
+        await Promise.all([
+          fetch(`${base}/properties`, { credentials: 'include' }),
+          fetch(`${base}/plan-usage`, { credentials: 'include' }),
+          fetch(`${base}/integration-connections`, { credentials: 'include' }),
+          fetch(`${base}/properties/${propertyId}/integration-connections`, {
+            credentials: 'include',
+          }),
+        ]);
+      if (!propertiesResponse.ok || !connectionsResponse.ok || !propertyConnectionsResponse.ok)
+        throw new Error('Unable to load property settings.');
       const properties = (await propertiesResponse.json()) as Property[];
       const property = properties.find((item) => item.id === propertyId);
       if (!property) throw new Error('Property settings were not found.');
       return {
         property,
         planName: planResponse.ok ? ((await planResponse.json()) as PlanUsage).plan.name : null,
+        connections: (await connectionsResponse.json()) as Connection[],
+        propertyConnections: (await propertyConnectionsResponse.json()) as PropertyConnection[],
       };
     },
   });
   const property = settingsQuery.data?.property ?? null;
   const planName = settingsQuery.data?.planName ?? null;
+  const connectedPaymentProviders = new Set(
+    (settingsQuery.data?.connections ?? [])
+      .filter(
+        (connection) =>
+          connection.kind === 'PAYMENT' &&
+          connection.status === 'CONNECTED' &&
+          (settingsQuery.data?.propertyConnections ?? []).some(
+            (assignment) => assignment.connectionId === connection.id && assignment.enabled,
+          ),
+      )
+      .map((connection) => connection.provider),
+  );
+  const unavailablePaymentProviders = [
+    ...(paymentGateways?.stripe && !connectedPaymentProviders.has('STRIPE') ? ['Stripe'] : []),
+    ...(paymentGateways?.pokpay && !connectedPaymentProviders.has('POKPAY') ? ['PokPay'] : []),
+  ];
 
   useEffect(() => {
     if (!property) return;
@@ -446,6 +477,16 @@ export function DashboardSettings({
             Choose which payment methods guests and staff can use for bookings at this property.
             Stripe and PokPay also need a working connection under Integrations.
           </Text>
+          {unavailablePaymentProviders.length > 0 ? (
+            <div role="alert">
+              <Text>
+                {unavailablePaymentProviders.join(' and ')}{' '}
+                {unavailablePaymentProviders.length === 1 ? 'is' : 'are'} enabled but not connected
+                and assigned to this property. Guests will not be offered{' '}
+                {unavailablePaymentProviders.join(' or ')} until that is fixed in Integrations.
+              </Text>
+            </div>
+          ) : null}
           <form className="must-stack must-stack--md" onSubmit={savePaymentGateways}>
             <label className="must-field">
               <input

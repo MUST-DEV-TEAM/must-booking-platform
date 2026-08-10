@@ -59,6 +59,19 @@ export class PublicCatalogService {
         FROM properties
         WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
       `;
+      const connectedPaymentConnections = await tx.$queryRaw<
+        Array<{ provider: 'STRIPE' | 'POKPAY' }>
+      >`
+        SELECT c.provider::text AS provider
+        FROM integration_connections c
+        JOIN property_integration_connections pic
+          ON pic.tenant_id = c.tenant_id AND pic.connection_id = c.id
+        WHERE c.tenant_id = ${tenantId}::uuid
+          AND pic.property_id = ${propertyId}::uuid
+          AND c.kind = 'PAYMENT'
+          AND pic.enabled = true
+          AND c.status = 'CONNECTED'
+      `;
       const roomTypes = await tx.$queryRaw<PublicCatalogRoomType[]>`
         SELECT
           rt.id,
@@ -103,10 +116,17 @@ export class PublicCatalogService {
         ORDER BY rt.created_at
       `;
       const property = properties[0];
+      const connectedPaymentProviders = new Set(
+        connectedPaymentConnections.map((connection) => connection.provider),
+      );
       const paymentMethods: PublicCatalog['paymentMethods'] = property
         ? [
-            ...(property.stripeEnabled ? (['stripe'] as const) : []),
-            ...(property.pokpayEnabled ? (['pokpay'] as const) : []),
+            ...(property.stripeEnabled && connectedPaymentProviders.has('STRIPE')
+              ? (['stripe'] as const)
+              : []),
+            ...(property.pokpayEnabled && connectedPaymentProviders.has('POKPAY')
+              ? (['pokpay'] as const)
+              : []),
             ...(property.payAtHotelEnabled ? (['pay_at_hotel'] as const) : []),
           ]
         : [];
