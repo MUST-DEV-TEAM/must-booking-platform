@@ -66,6 +66,7 @@ function get_confirmation_result_view_data(string $bookingId): array
     $totalPrice = 0.0;
     $paymentMethod = '';
     $cancellationReview = [];
+    $status = '';
 
     $response = MustApiClient::get('/public/bookings/' . \rawurlencode($bookingId));
     if ($response['ok'] && \is_array($response['body'])) {
@@ -116,7 +117,8 @@ function get_confirmation_result_view_data(string $bookingId): array
         'checkout_url' => get_checkout_page_url(), 'confirmation_url' => ManagedPages::getBookingConfirmationPageUrl(),
         'fixed_room_mode' => false, 'country_options' => [], 'phone_country_code_options' => [],
         'cancellation_review' => $cancellationReview,
-        'booking_id' => $bookingId, 'cancellation_token' => $token,
+        'booking_id' => $bookingId, 'booking_status' => $status,
+        'status_polling' => $status === 'PAYMENT_PENDING', 'cancellation_token' => $token,
     ];
 }
 
@@ -309,7 +311,7 @@ function get_confirmation_review_view_data(): array
         'checkout_url' => get_checkout_page_url(), 'confirmation_url' => ManagedPages::getBookingConfirmationPageUrl(),
         'fixed_room_mode' => false, 'country_options' => get_checkout_country_options(), 'phone_country_code_options' => get_checkout_phone_code_options(),
         'cancellation_review' => [],
-        'booking_id' => '', 'cancellation_token' => '',
+        'booking_id' => '', 'booking_status' => '', 'status_polling' => false, 'cancellation_token' => '',
     ];
 }
 
@@ -329,5 +331,38 @@ function enqueue_confirmation_page_assets(): void
     enqueue_shared_booking_assets();
     \wp_enqueue_script('must-hotel-booking-confirmation', MUST_HOTEL_BOOKING_URL . 'assets/js/booking-confirmation.js', [], MUST_HOTEL_BOOKING_VERSION, true);
     \wp_enqueue_script('must-hotel-booking-phone-fields', MUST_HOTEL_BOOKING_URL . 'assets/js/booking-phone-fields.js', [], MUST_HOTEL_BOOKING_VERSION, true);
+    $bookingId = isset($_GET['booking_id']) ? \sanitize_text_field((string) \wp_unslash($_GET['booking_id'])) : '';
+    \wp_localize_script('must-hotel-booking-confirmation', 'mustHotelBookingBookingStatus', [
+        'ajaxUrl' => \admin_url('admin-ajax.php'),
+        'nonce' => \wp_create_nonce('must_booking_confirmation_status'),
+        'bookingId' => $bookingId,
+        'strings' => [
+            'confirmedHeading' => \__('Booking confirmed', 'must-hotel-booking'),
+            'confirmedMessage' => \__('Your booking is confirmed.', 'must-hotel-booking'),
+            'cancelledHeading' => \__('Booking cancelled', 'must-hotel-booking'),
+            'cancelledMessage' => \__('This booking has been cancelled.', 'must-hotel-booking'),
+        ],
+    ]);
 }
+
+/** Poll the guest-scoped API status without exposing its session cookie or booking payload to the browser. */
+function get_confirmation_booking_status(): void
+{
+    $nonce = isset($_POST['nonce']) ? (string) \wp_unslash($_POST['nonce']) : '';
+    $bookingId = isset($_POST['booking_id']) ? \sanitize_text_field((string) \wp_unslash($_POST['booking_id'])) : '';
+    if ($nonce === '' || !\wp_verify_nonce($nonce, 'must_booking_confirmation_status')) {
+        \wp_send_json_error(['message' => \__('Your request could not be verified. Please refresh and try again.', 'must-hotel-booking')], 403);
+    }
+    if (\preg_match('/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/i', $bookingId) !== 1) {
+        \wp_send_json_error(['message' => \__('Booking not found.', 'must-hotel-booking')], 400);
+    }
+    $response = MustApiClient::get('/public/bookings/' . \rawurlencode($bookingId));
+    if (!$response['ok'] || !\is_array($response['body'])) {
+        \wp_send_json_error(['message' => \__('Booking status could not be loaded. Please try again.', 'must-hotel-booking')], 502);
+    }
+    $status = isset($response['body']['status']) ? (string) $response['body']['status'] : '';
+    \wp_send_json_success(['status' => $status]);
+}
+\add_action('wp_ajax_must_booking_confirmation_status', __NAMESPACE__ . '\\get_confirmation_booking_status');
+\add_action('wp_ajax_nopriv_must_booking_confirmation_status', __NAMESPACE__ . '\\get_confirmation_booking_status');
 \add_action('wp_enqueue_scripts', __NAMESPACE__ . '\\enqueue_confirmation_page_assets');

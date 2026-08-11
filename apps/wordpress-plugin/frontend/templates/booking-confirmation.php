@@ -24,6 +24,8 @@ $primary_guest = isset($view['primary_guest']) && \is_array($view['primary_guest
 $total_price = isset($view['total_price']) ? (float) $view['total_price'] : 0.0;
 $status_heading = isset($view['status_heading']) ? (string) $view['status_heading'] : \__('Booking Confirmed', 'must-hotel-booking');
 $status_message = isset($view['status_message']) ? (string) $view['status_message'] : '';
+$booking_status = isset($view['booking_status']) ? (string) $view['booking_status'] : '';
+$status_polling = !empty($view['status_polling']);
 $booking_url = isset($view['booking_url']) ? (string) $view['booking_url'] : \home_url('/booking');
 $accommodation_url = isset($view['accommodation_url']) ? (string) $view['accommodation_url'] : \home_url('/booking-accommodation');
 $checkout_url = isset($view['checkout_url']) ? (string) $view['checkout_url'] : \home_url('/checkout');
@@ -339,13 +341,17 @@ $render_payment_method_icon = static function (string $payment_method_key, strin
                     <?php endif; ?>
                 </section>
             <?php else: ?>
-                <section class="must-confirmation-success">
+                <section
+                    class="must-confirmation-success"
+                    data-booking-status-panel="1"
+                    data-booking-status="<?php echo \esc_attr($booking_status); ?>"
+                    data-booking-status-polling="<?php echo $status_polling ? 'true' : 'false'; ?>">
                     <div class="must-confirmation-success-head">
-                        <h2><?php echo \esc_html($status_heading); ?></h2>
+                        <h2 data-booking-status-heading="1"><?php echo \esc_html($status_heading); ?></h2>
                         <strong><?php echo \esc_html($format_money($total_price, $summary_currency)); ?></strong>
                     </div>
                     <?php if ($status_message !== ''): ?>
-                        <p class="must-confirmation-success-message"><?php echo \esc_html($status_message); ?></p>
+                        <p class="must-confirmation-success-message" data-booking-status-message="1" aria-live="polite"><?php echo \esc_html($status_message); ?></p>
                     <?php endif; ?>
                     <?php foreach ($reservations as $reservation): ?>
                         <div class="must-confirmation-success-card">

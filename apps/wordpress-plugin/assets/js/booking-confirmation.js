@@ -28,6 +28,69 @@ document.addEventListener('DOMContentLoaded', function () {
         syncCtaLabel();
     }
 
+    var bookingStatusConfig = window.mustHotelBookingBookingStatus || null;
+    var bookingStatusPanel = document.querySelector('[data-booking-status-panel]');
+
+    if (
+        bookingStatusConfig &&
+        bookingStatusPanel &&
+        bookingStatusPanel.getAttribute('data-booking-status-polling') === 'true' &&
+        bookingStatusConfig.ajaxUrl &&
+        bookingStatusConfig.nonce &&
+        bookingStatusConfig.bookingId &&
+        window.fetch
+    ) {
+        var statusHeading = bookingStatusPanel.querySelector('[data-booking-status-heading]');
+        var statusMessage = bookingStatusPanel.querySelector('[data-booking-status-message]');
+        var statusStrings = bookingStatusConfig.strings || {};
+        var pollIntervalId = 0;
+        var pollTimeoutId = 0;
+        var pollingStopped = false;
+        var stopPolling = function () {
+            pollingStopped = true;
+            if (pollIntervalId) window.clearInterval(pollIntervalId);
+            if (pollTimeoutId) window.clearTimeout(pollTimeoutId);
+        };
+        var updateFinalStatus = function (status) {
+            if (status === 'CONFIRMED') {
+                if (statusHeading) statusHeading.textContent = statusStrings.confirmedHeading || 'Booking confirmed';
+                if (statusMessage) statusMessage.textContent = statusStrings.confirmedMessage || 'Your booking is confirmed.';
+                bookingStatusPanel.setAttribute('data-booking-status', status);
+                stopPolling();
+            } else if (status === 'CANCELLED') {
+                if (statusHeading) statusHeading.textContent = statusStrings.cancelledHeading || 'Booking cancelled';
+                if (statusMessage) statusMessage.textContent = statusStrings.cancelledMessage || 'This booking has been cancelled.';
+                bookingStatusPanel.setAttribute('data-booking-status', status);
+                stopPolling();
+            }
+        };
+        var pollBookingStatus = function () {
+            if (pollingStopped) return;
+            var body = new URLSearchParams({
+                action: 'must_booking_confirmation_status',
+                nonce: String(bookingStatusConfig.nonce),
+                booking_id: String(bookingStatusConfig.bookingId)
+            });
+            window.fetch(bookingStatusConfig.ajaxUrl, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                body: body.toString()
+            }).then(function (response) {
+                if (!response.ok) throw new Error('Booking status request failed.');
+                return response.json();
+            }).then(function (payload) {
+                if (!payload || !payload.success || !payload.data) return;
+                updateFinalStatus(String(payload.data.status || ''));
+            }).catch(function () {
+                // Keep the current processing message and retry until the timeout.
+            });
+        };
+        pollBookingStatus();
+        pollIntervalId = window.setInterval(pollBookingStatus, 4000);
+        pollTimeoutId = window.setTimeout(stopPolling, 60000);
+    }
+
     var config = window.mustHotelBookingPokPay || null;
     var container = document.getElementById('pok-payment-container');
 
