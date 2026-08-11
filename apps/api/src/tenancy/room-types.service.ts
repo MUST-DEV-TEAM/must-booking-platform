@@ -15,6 +15,8 @@ type RoomType = {
   id: string;
   name: string;
   description: string | null;
+  mainImageUrl: string | null;
+  galleryImageUrls: string[];
   maxOccupancy: number;
   roomCount: number;
 };
@@ -37,7 +39,8 @@ export class RoomTypesService {
     return this.database.withTenantTransaction(
       { tenantId, propertyId },
       (tx) => tx.$queryRaw<RoomType[]>`
-        SELECT rt.id, rt.name, rt.description, rt.max_occupancy AS "maxOccupancy",
+        SELECT rt.id, rt.name, rt.description, rt.main_image_url AS "mainImageUrl",
+          rt.gallery_image_urls AS "galleryImageUrls", rt.max_occupancy AS "maxOccupancy",
           count(r.id)::int AS "roomCount"
         FROM room_types rt
         LEFT JOIN rooms r ON r.tenant_id = rt.tenant_id AND r.room_type_id = rt.id
@@ -59,16 +62,21 @@ export class RoomTypesService {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       try {
         const rows = await tx.$queryRaw<RoomType[]>`
-          INSERT INTO room_types (id, tenant_id, property_id, name, description, max_occupancy)
+          INSERT INTO room_types (
+            id, tenant_id, property_id, name, description, main_image_url, gallery_image_urls, max_occupancy
+          )
           VALUES (
             ${id}::uuid,
             ${tenantId}::uuid,
             ${propertyId}::uuid,
             ${input.name},
             ${input.description},
+            ${input.mainImageUrl},
+            ${input.galleryImageUrls}::varchar(2000)[],
             ${input.maxOccupancy}
           )
-          RETURNING id, name, description, max_occupancy AS "maxOccupancy"
+          RETURNING id, name, description, main_image_url AS "mainImageUrl",
+            gallery_image_urls AS "galleryImageUrls", max_occupancy AS "maxOccupancy"
         `;
         await this.audit.recordInTransaction(tx, {
           tenantId,
@@ -104,10 +112,13 @@ export class RoomTypesService {
           SET
             name = ${input.name},
             description = ${input.description},
+            main_image_url = ${input.mainImageUrl},
+            gallery_image_urls = ${input.galleryImageUrls}::varchar(2000)[],
             max_occupancy = ${input.maxOccupancy},
             updated_at = CURRENT_TIMESTAMP
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomTypeId}::uuid
-          RETURNING id, name, description, max_occupancy AS "maxOccupancy"
+          RETURNING id, name, description, main_image_url AS "mainImageUrl",
+            gallery_image_urls AS "galleryImageUrls", max_occupancy AS "maxOccupancy"
         `;
         if (!rows[0]) throw new NotFoundException('Room type not found.');
         await this.audit.recordInTransaction(tx, {
@@ -218,17 +229,52 @@ export class RoomTypesService {
     });
   }
 
-  private input(body: unknown): { name: string; description: string | null; maxOccupancy: number } {
+  private input(body: unknown): {
+    name: string;
+    description: string | null;
+    mainImageUrl: string | null;
+    galleryImageUrls: string[];
+    maxOccupancy: number;
+  } {
     const v = (body ?? {}) as Record<string, unknown>;
     const name = typeof v.name === 'string' ? v.name.trim() : '';
     const description =
       typeof v.description === 'string' && v.description.trim() ? v.description.trim() : null;
+    const mainImageUrl = this.imageUrl(v.mainImageUrl, 'mainImageUrl');
+    const galleryImageUrls = this.galleryImageUrls(v.galleryImageUrls);
     const maxOccupancy = typeof v.maxOccupancy === 'number' ? v.maxOccupancy : NaN;
     if (!name) throw new BadRequestException('name is required.');
     if (name.length > 200) throw new BadRequestException('name must be at most 200 characters.');
     if (!Number.isInteger(maxOccupancy) || maxOccupancy <= 0)
       throw new BadRequestException('maxOccupancy must be a positive integer.');
-    return { name, description, maxOccupancy };
+    return { name, description, mainImageUrl, galleryImageUrls, maxOccupancy };
+  }
+
+  private galleryImageUrls(value: unknown): string[] {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value)) throw new BadRequestException('galleryImageUrls must be an array of image URLs.');
+    if (value.length > 12) throw new BadRequestException('galleryImageUrls must contain at most 12 URLs.');
+    const urls = value.map((url) => this.imageUrl(url, 'galleryImageUrls'));
+    if (urls.some((url) => url === null))
+      throw new BadRequestException('galleryImageUrls must contain image URLs.');
+    if (new Set(urls).size !== urls.length)
+      throw new BadRequestException('galleryImageUrls must not contain duplicates.');
+    return urls as string[];
+  }
+
+  private imageUrl(value: unknown, field: string): string | null {
+    if (value === undefined || value === null) return null;
+    if (typeof value !== 'string') throw new BadRequestException(`${field} must be an image URL.`);
+    const url = value.trim();
+    if (!url) return null;
+    if (url.length > 2000) throw new BadRequestException(`${field} must be at most 2,000 characters.`);
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error('Unsupported URL');
+    } catch {
+      throw new BadRequestException(`${field} must be an http(s) URL.`);
+    }
+    return url;
   }
 
   private imageInput(body: unknown): { contentType: AllowedImageType; contentLength: number } {

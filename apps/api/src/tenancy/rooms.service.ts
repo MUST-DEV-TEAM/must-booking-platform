@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { TenantDatabaseService } from './tenant-database.service';
 import { AuditLogService } from './audit-log.service';
 
-type Room = { id: string; name: string };
+type Room = { id: string; name: string; floor: number | null; viewType: string | null };
 type RoomWithType = Room & { roomTypeId: string; roomTypeName: string };
 
 @Injectable()
@@ -24,7 +24,7 @@ export class RoomsService {
     return this.database.withTenantTransaction(
       { tenantId, propertyId },
       (tx) => tx.$queryRaw<Room[]>`
-        SELECT id, name
+        SELECT id, name, floor, view_type AS "viewType"
         FROM rooms
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND room_type_id = ${roomTypeId}::uuid
         ORDER BY created_at
@@ -39,7 +39,8 @@ export class RoomsService {
     return this.database.withTenantTransaction(
       { tenantId, propertyId },
       (tx) => tx.$queryRaw<RoomWithType[]>`
-        SELECT r.id, r.name, r.room_type_id AS "roomTypeId", rt.name AS "roomTypeName"
+        SELECT r.id, r.name, r.floor, r.view_type AS "viewType", r.room_type_id AS "roomTypeId",
+          rt.name AS "roomTypeName"
         FROM rooms r
         JOIN room_types rt ON rt.tenant_id = r.tenant_id AND rt.id = r.room_type_id
         WHERE r.tenant_id = ${tenantId}::uuid AND r.property_id = ${propertyId}::uuid
@@ -55,7 +56,7 @@ export class RoomsService {
     actorUserId: string,
     body: unknown,
   ): Promise<Room> {
-    const name = this.name(body);
+    const input = this.input(body);
     const id = randomUUID();
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const roomType = await tx.$queryRaw<Array<{ id: string }>>`
@@ -65,9 +66,12 @@ export class RoomsService {
       if (!roomType[0]) throw new NotFoundException('Room type not found.');
       try {
         const rows = await tx.$queryRaw<Room[]>`
-          INSERT INTO rooms (id, tenant_id, property_id, room_type_id, name)
-          VALUES (${id}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid, ${name})
-          RETURNING id, name
+          INSERT INTO rooms (id, tenant_id, property_id, room_type_id, name, floor, view_type)
+          VALUES (
+            ${id}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid,
+            ${input.name}, ${input.floor}, ${input.viewType}
+          )
+          RETURNING id, name, floor, view_type AS "viewType"
         `;
         await this.audit.recordInTransaction(tx, {
           tenantId,
@@ -93,14 +97,15 @@ export class RoomsService {
     actorUserId: string,
     body: unknown,
   ): Promise<Room> {
-    const name = this.name(body);
+    const input = this.input(body);
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       try {
         const rows = await tx.$queryRaw<Room[]>`
           UPDATE rooms
-          SET name = ${name}, updated_at = CURRENT_TIMESTAMP
+          SET name = ${input.name}, floor = ${input.floor}, view_type = ${input.viewType},
+            updated_at = CURRENT_TIMESTAMP
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomId}::uuid
-          RETURNING id, name
+          RETURNING id, name, floor, view_type AS "viewType"
         `;
         if (!rows[0]) throw new NotFoundException('Room not found.');
         await this.audit.recordInTransaction(tx, {
@@ -144,12 +149,24 @@ export class RoomsService {
     });
   }
 
-  private name(body: unknown): string {
+  private input(body: unknown): { name: string; floor: number | null; viewType: string | null } {
     const v = (body ?? {}) as Record<string, unknown>;
     const name = typeof v.name === 'string' ? v.name.trim() : '';
     if (!name) throw new BadRequestException('name is required.');
     if (name.length > 200) throw new BadRequestException('name must be at most 200 characters.');
-    return name;
+    const floor = this.floor(v.floor);
+    const viewType =
+      typeof v.viewType === 'string' && v.viewType.trim() ? v.viewType.trim() : null;
+    if (viewType && viewType.length > 100)
+      throw new BadRequestException('viewType must be at most 100 characters.');
+    return { name, floor, viewType };
+  }
+
+  private floor(value: unknown): number | null {
+    if (value === undefined || value === null || value === '') return null;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < -10 || value > 200)
+      throw new BadRequestException('floor must be an integer between -10 and 200.');
+    return value;
   }
 
   private isUniqueViolation(error: unknown): boolean {

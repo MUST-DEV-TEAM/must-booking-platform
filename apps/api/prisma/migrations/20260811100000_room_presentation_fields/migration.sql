@@ -1,0 +1,24 @@
+DO $$
+BEGIN
+  CREATE TYPE "AmenityIcon" AS ENUM (
+    'WIFI',
+    'BREAKFAST',
+    'POOL',
+    'PARKING',
+    'AIR_CONDITIONING',
+    'BEACH'
+  );
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+ALTER TABLE "room_types"
+  ADD COLUMN IF NOT EXISTS "main_image_url" VARCHAR(2000),
+  ADD COLUMN IF NOT EXISTS "gallery_image_urls" VARCHAR(2000)[] NOT NULL DEFAULT ARRAY[]::VARCHAR(2000)[];
+
+ALTER TABLE "rooms"
+  ADD COLUMN IF NOT EXISTS "floor" INTEGER,
+  ADD COLUMN IF NOT EXISTS "view_type" VARCHAR(100);
+
+ALTER TABLE "amenities"
+  ADD COLUMN IF NOT EXISTS "icon" "AmenityIcon";

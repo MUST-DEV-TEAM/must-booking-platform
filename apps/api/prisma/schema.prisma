@@ -49,6 +49,15 @@ enum PaymentKind {
   REFUND
 }
 
+enum AmenityIcon {
+  WIFI
+  BREAKFAST
+  POOL
+  PARKING
+  AIR_CONDITIONING
+  BEACH
+}
+
 enum OrganizationStatus {
   ACTIVE
   SUSPENDED
@@ -283,20 +292,22 @@ model Notification {
 }
 
 model RoomType {
-  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId       String            @map("tenant_id") @db.Uuid
-  propertyId     String            @map("property_id") @db.Uuid
-  name           String            @db.VarChar(200)
-  description    String?
-  maxOccupancy   Int               @map("max_occupancy")
-  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  property       Property          @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
-  rooms          Room[]
-  rateRules      RateRule[]
-  amenities      RoomTypeAmenity[]
-  inventoryUnits InventoryUnit[]
-  bookings       Booking[]
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String            @map("tenant_id") @db.Uuid
+  propertyId       String            @map("property_id") @db.Uuid
+  name             String            @db.VarChar(200)
+  description      String?
+  mainImageUrl     String?           @map("main_image_url") @db.VarChar(2000)
+  galleryImageUrls String[]          @default([]) @map("gallery_image_urls") @db.VarChar(2000)
+  maxOccupancy     Int               @map("max_occupancy")
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property         Property          @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  rooms            Room[]
+  rateRules        RateRule[]
+  amenities        RoomTypeAmenity[]
+  inventoryUnits   InventoryUnit[]
+  bookings         Booking[]
 
   @@unique([tenantId, propertyId, id])
   @@unique([tenantId, propertyId, name])
@@ -317,15 +328,17 @@ model RoomTypeImage {
 }
 
 model Room {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId   String   @map("tenant_id") @db.Uuid
-  propertyId String   @map("property_id") @db.Uuid
-  roomTypeId String   @map("room_type_id") @db.Uuid
-  name       String   @db.VarChar(200)
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  property   Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
-  roomType   RoomType @relation(fields: [tenantId, propertyId, roomTypeId], references: [tenantId, propertyId, id], onDelete: Restrict)
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  propertyId     String   @map("property_id") @db.Uuid
+  roomTypeId     String   @map("room_type_id") @db.Uuid
+  name           String   @db.VarChar(200)
+  floor          Int?
+  viewType       String?  @map("view_type") @db.VarChar(100)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property       Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  roomType       RoomType @relation(fields: [tenantId, propertyId, roomTypeId], references: [tenantId, propertyId, id], onDelete: Restrict)
   availability RoomAvailability[]
   priceOverrides RoomPriceOverride[]
   bookings Booking[]
@@ -767,6 +780,7 @@ model Amenity {
   tenantId   String            @map("tenant_id") @db.Uuid
   propertyId String            @map("property_id") @db.Uuid
   name       String            @db.VarChar(100)
+  icon       AmenityIcon?
   createdAt  DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   property   Property          @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)

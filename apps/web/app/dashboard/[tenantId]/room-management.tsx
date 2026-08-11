@@ -9,10 +9,19 @@ import { toast } from 'sonner';
 import { DashboardLoadingSkeleton } from '../loading-skeleton';
 
 type Property = { id: string; name: string };
-type Room = { id: string; name: string };
-type RoomType = { id: string; name: string; description: string | null; maxOccupancy: number };
+const amenityIcons = ['WIFI', 'BREAKFAST', 'POOL', 'PARKING', 'AIR_CONDITIONING', 'BEACH'] as const;
+type AmenityIcon = (typeof amenityIcons)[number];
+type Room = { id: string; name: string; floor: number | null; viewType: string | null };
+type RoomType = {
+  id: string;
+  name: string;
+  description: string | null;
+  mainImageUrl: string | null;
+  galleryImageUrls: string[];
+  maxOccupancy: number;
+};
 type RoomTypeImage = { id: string; url: string };
-type Amenity = { id: string; name: string };
+type Amenity = { id: string; name: string; icon: AmenityIcon | null };
 
 type RoomManagementData = {
   roomTypes: RoomType[];
@@ -25,10 +34,21 @@ type RoomManagementData = {
 type RoomTypeForm = {
   name: string;
   description: string;
+  mainImageUrl: string;
+  galleryImageUrls: string;
   maxOccupancy: string;
 };
 
-const emptyRoomTypeForm: RoomTypeForm = { name: '', description: '', maxOccupancy: '2' };
+type RoomForm = { name: string; floor: string; viewType: string };
+
+const emptyRoomTypeForm: RoomTypeForm = {
+  name: '',
+  description: '',
+  mainImageUrl: '',
+  galleryImageUrls: '',
+  maxOccupancy: '2',
+};
+const emptyRoomForm: RoomForm = { name: '', floor: '', viewType: '' };
 
 export function RoomManagement({
   tenantId,
@@ -40,9 +60,10 @@ export function RoomManagement({
   const queryClient = useQueryClient();
   const [propertyId, setPropertyId] = useState('');
   const [amenityName, setAmenityName] = useState('');
+  const [amenityIcon, setAmenityIcon] = useState<AmenityIcon>('WIFI');
   const [roomTypeForm, setRoomTypeForm] = useState<RoomTypeForm>(emptyRoomTypeForm);
   const [editingRoomTypeId, setEditingRoomTypeId] = useState<string | null>(null);
-  const [roomNames, setRoomNames] = useState<Record<string, string>>({});
+  const [roomForms, setRoomForms] = useState<Record<string, RoomForm>>({});
   const [editingRoom, setEditingRoom] = useState<{ roomTypeId: string; roomId: string } | null>(
     null,
   );
@@ -126,11 +147,15 @@ export function RoomManagement({
       roomTypeId,
       name,
       description,
+      mainImageUrl,
+      galleryImageUrls,
       maxOccupancy,
     }: {
       roomTypeId: string | null;
       name: string;
       description: string;
+      mainImageUrl: string;
+      galleryImageUrls: string;
       maxOccupancy: string;
     }) => {
       const response = await fetch(
@@ -139,7 +164,16 @@ export function RoomManagement({
           method: roomTypeId ? 'PATCH' : 'POST',
           credentials: 'include',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ name, description, maxOccupancy: Number(maxOccupancy) }),
+          body: JSON.stringify({
+            name,
+            description,
+            mainImageUrl: mainImageUrl.trim() || null,
+            galleryImageUrls: galleryImageUrls
+              .split(/\r?\n/)
+              .map((url) => url.trim())
+              .filter(Boolean),
+            maxOccupancy: Number(maxOccupancy),
+          }),
         },
       );
       if (!response.ok) throw new Error(await errorMessage(response, 'Unable to save room type.'));
@@ -177,10 +211,14 @@ export function RoomManagement({
       roomTypeId,
       roomId,
       name,
+      floor,
+      viewType,
     }: {
       roomTypeId: string;
       roomId: string | null;
       name: string;
+      floor: string;
+      viewType: string;
     }) => {
       const response = await fetch(
         roomId
@@ -190,14 +228,18 @@ export function RoomManagement({
           method: roomId ? 'PATCH' : 'POST',
           credentials: 'include',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ name }),
+          body: JSON.stringify({
+            name,
+            floor: floor === '' ? null : Number(floor),
+            viewType: viewType.trim() || null,
+          }),
         },
       );
       if (!response.ok) throw new Error(await errorMessage(response, 'Unable to save room.'));
       return { roomTypeId, isEditing: roomId !== null };
     },
     onSuccess: ({ roomTypeId, isEditing }) => {
-      setRoomNames((current) => ({ ...current, [roomTypeId]: '' }));
+      setRoomForms((current) => ({ ...current, [roomTypeId]: emptyRoomForm }));
       setEditingRoom(null);
       void queryClient.invalidateQueries({ queryKey: roomManagementQueryKey });
       toast.success(isEditing ? 'Room updated.' : 'Room created.');
@@ -249,17 +291,18 @@ export function RoomManagement({
   });
 
   const submitAmenityMutation = useMutation({
-    mutationFn: async (name: string) => {
+    mutationFn: async ({ name, icon }: { name: string; icon: AmenityIcon }) => {
       const response = await fetch(`${propertyUrl()}/amenities`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, icon }),
       });
       if (!response.ok) throw new Error(await errorMessage(response, 'Unable to create amenity.'));
     },
     onSuccess: () => {
       setAmenityName('');
+      setAmenityIcon('WIFI');
       void queryClient.invalidateQueries({ queryKey: roomManagementQueryKey });
       toast.success('Amenity created.');
     },
@@ -322,6 +365,8 @@ export function RoomManagement({
       roomTypeId: editingRoomTypeId,
       name: roomTypeForm.name,
       description: roomTypeForm.description,
+      mainImageUrl: roomTypeForm.mainImageUrl,
+      galleryImageUrls: roomTypeForm.galleryImageUrls,
       maxOccupancy: roomTypeForm.maxOccupancy,
     });
   }
@@ -332,10 +377,17 @@ export function RoomManagement({
 
   function submitRoom(event: FormEvent<HTMLFormElement>, roomTypeId: string) {
     event.preventDefault();
-    const roomName = roomNames[roomTypeId]?.trim();
+    const roomForm = roomForms[roomTypeId] ?? emptyRoomForm;
+    const roomName = roomForm.name.trim();
     if (!roomName) return;
     const currentEdit = editingRoom?.roomTypeId === roomTypeId ? editingRoom : null;
-    saveRoomMutation.mutate({ roomTypeId, roomId: currentEdit?.roomId ?? null, name: roomName });
+    saveRoomMutation.mutate({
+      roomTypeId,
+      roomId: currentEdit?.roomId ?? null,
+      name: roomName,
+      floor: roomForm.floor,
+      viewType: roomForm.viewType,
+    });
   }
 
   function deleteRoom(roomTypeId: string, roomId: string) {
@@ -351,7 +403,7 @@ export function RoomManagement({
     event.preventDefault();
     const name = amenityName.trim();
     if (!name) return;
-    submitAmenityMutation.mutate(name);
+    submitAmenityMutation.mutate({ name, icon: amenityIcon });
   }
 
   function deleteAmenity(amenityId: string) {
@@ -440,6 +492,29 @@ export function RoomManagement({
                 />
               </label>
               <label className="must-field">
+                Main image URL
+                <input
+                  className="must-input"
+                  type="url"
+                  placeholder="https://example.com/room.jpg"
+                  value={roomTypeForm.mainImageUrl}
+                  onChange={(event) =>
+                    setRoomTypeForm({ ...roomTypeForm, mainImageUrl: event.target.value })
+                  }
+                />
+              </label>
+              <label className="must-field">
+                Gallery image URLs
+                <textarea
+                  className="must-input"
+                  placeholder="One https:// image URL per line"
+                  value={roomTypeForm.galleryImageUrls}
+                  onChange={(event) =>
+                    setRoomTypeForm({ ...roomTypeForm, galleryImageUrls: event.target.value })
+                  }
+                />
+              </label>
+              <label className="must-field">
                 Maximum occupancy
                 <input
                   className="must-input"
@@ -497,6 +572,8 @@ export function RoomManagement({
                   setRoomTypeForm({
                     name: roomType.name,
                     description: roomType.description || '',
+                    mainImageUrl: roomType.mainImageUrl || '',
+                    galleryImageUrls: roomType.galleryImageUrls.join('\n'),
                     maxOccupancy: String(roomType.maxOccupancy),
                   });
                 }}
@@ -520,9 +597,9 @@ export function RoomManagement({
                       checked={roomTypeAmenities[roomType.id]?.some(
                         (assignedAmenity) => assignedAmenity.id === amenity.id,
                       )}
-                      onChange={() => toggleRoomTypeAmenity(roomType.id, amenity.id)}
-                    />
-                    {amenity.name}
+                    onChange={() => toggleRoomTypeAmenity(roomType.id, amenity.id)}
+                  />
+                    {amenity.name} ({amenity.icon ? amenityIconLabel(amenity.icon) : 'No icon'})
                   </label>
                 ))}
               </div>
@@ -548,12 +625,21 @@ export function RoomManagement({
                   {rooms[roomType.id]?.map((room) => (
                     <li key={room.id}>
                       {room.name}{' '}
+                      {room.viewType ? ` · ${room.viewType}` : ''}
+                      {room.floor !== null ? ` · Floor ${room.floor}` : ''}{' '}
                       <button
                         className="must-button must-button--secondary"
                         type="button"
                         onClick={() => {
                           setEditingRoom({ roomTypeId: roomType.id, roomId: room.id });
-                          setRoomNames((current) => ({ ...current, [roomType.id]: room.name }));
+                          setRoomForms((current) => ({
+                            ...current,
+                            [roomType.id]: {
+                              name: room.name,
+                              floor: room.floor === null ? '' : String(room.floor),
+                              viewType: room.viewType || '',
+                            },
+                          }));
                         }}
                       >
                         Edit
@@ -577,11 +663,51 @@ export function RoomManagement({
                     <input
                       className="must-input"
                       required
-                      value={roomNames[roomType.id] || ''}
+                      value={(roomForms[roomType.id] ?? emptyRoomForm).name}
                       onChange={(event) =>
-                        setRoomNames((current) => ({
+                        setRoomForms((current) => ({
                           ...current,
-                          [roomType.id]: event.target.value,
+                          [roomType.id]: {
+                            ...(current[roomType.id] ?? emptyRoomForm),
+                            name: event.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="must-field">
+                    Floor
+                    <input
+                      className="must-input"
+                      type="number"
+                      min="-10"
+                      max="200"
+                      value={(roomForms[roomType.id] ?? emptyRoomForm).floor}
+                      onChange={(event) =>
+                        setRoomForms((current) => ({
+                          ...current,
+                          [roomType.id]: {
+                            ...(current[roomType.id] ?? emptyRoomForm),
+                            floor: event.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="must-field">
+                    View type
+                    <input
+                      className="must-input"
+                      maxLength={100}
+                      placeholder="e.g. Sea view"
+                      value={(roomForms[roomType.id] ?? emptyRoomForm).viewType}
+                      onChange={(event) =>
+                        setRoomForms((current) => ({
+                          ...current,
+                          [roomType.id]: {
+                            ...(current[roomType.id] ?? emptyRoomForm),
+                            viewType: event.target.value,
+                          },
                         }))
                       }
                     />
@@ -613,6 +739,20 @@ export function RoomManagement({
                   onChange={(event) => setAmenityName(event.target.value)}
                 />
               </label>
+              <label className="must-field">
+                Icon
+                <select
+                  className="must-input"
+                  value={amenityIcon}
+                  onChange={(event) => setAmenityIcon(event.target.value as AmenityIcon)}
+                >
+                  {amenityIcons.map((icon) => (
+                    <option key={icon} value={icon}>
+                      {amenityIconLabel(icon)}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button className="must-button must-button--primary">
                 <Plus aria-hidden="true" size={16} /> Add amenity
               </button>
@@ -620,7 +760,7 @@ export function RoomManagement({
             <ul>
               {amenities.map((amenity) => (
                 <li key={amenity.id}>
-                  {amenity.name}{' '}
+                  {amenity.name} ({amenity.icon ? amenityIconLabel(amenity.icon) : 'No icon'}){' '}
                   <button
                     className="must-button must-button--danger"
                     type="button"
@@ -641,4 +781,8 @@ export function RoomManagement({
 async function errorMessage(response: Response, fallback: string): Promise<string> {
   const body = (await response.json().catch(() => null)) as { message?: string } | null;
   return typeof body?.message === 'string' ? body.message : fallback;
+}
+
+function amenityIconLabel(icon: AmenityIcon): string {
+  return icon.toLocaleLowerCase().replaceAll('_', ' ');
 }

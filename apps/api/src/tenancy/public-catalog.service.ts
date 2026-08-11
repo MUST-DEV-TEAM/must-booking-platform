@@ -5,6 +5,8 @@ import { TenantDatabaseService } from './tenant-database.service';
 type PublicCatalogRoom = {
   id: string;
   name: string;
+  floor: number | null;
+  viewType: string | null;
   isAvailable: boolean;
 };
 
@@ -12,8 +14,10 @@ type PublicCatalogRoomType = {
   id: string;
   name: string;
   description: string | null;
+  mainImageUrl: string | null;
+  galleryImageUrls: string[];
   maxOccupancy: number;
-  amenities: Array<{ id: string; name: string }>;
+  amenities: Array<{ id: string; name: string; icon: string | null }>;
   ratePlans: Array<{
     id: string;
     name: string;
@@ -77,9 +81,11 @@ export class PublicCatalogService {
           rt.id,
           rt.name,
           rt.description,
+          rt.main_image_url AS "mainImageUrl",
+          rt.gallery_image_urls AS "galleryImageUrls",
           rt.max_occupancy AS "maxOccupancy",
           COALESCE((
-            SELECT json_agg(json_build_object('id', a.id, 'name', a.name) ORDER BY a.name)
+            SELECT json_agg(json_build_object('id', a.id, 'name', a.name, 'icon', a.icon) ORDER BY a.name)
             FROM room_type_amenities rta
             JOIN amenities a ON a.id = rta.amenity_id
             WHERE rta.tenant_id = ${tenantId}::uuid
@@ -135,7 +141,7 @@ export class PublicCatalogService {
 
       const range = this.availabilityRange(query);
       const rooms = await tx.$queryRaw<Array<PublicCatalogRoom & { roomTypeId: string }>>`
-        SELECT r.id, r.name, r.room_type_id AS "roomTypeId",
+        SELECT r.id, r.name, r.floor, r.view_type AS "viewType", r.room_type_id AS "roomTypeId",
           NOT EXISTS (
             SELECT 1
             FROM room_availability ra

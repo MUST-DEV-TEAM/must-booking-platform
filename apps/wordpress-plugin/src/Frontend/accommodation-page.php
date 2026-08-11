@@ -154,11 +154,40 @@ function get_room_type_rate_plans_view_data(array $roomType, int $index): array
 /** @param array<string, mixed> $roomType @return array<int, array<string, mixed>> */
 function get_room_type_amenities_view_data(array $roomType): array
 {
+    $iconUrls = [
+        'WIFI' => MUST_HOTEL_BOOKING_URL . 'assets/img/wifi.svg',
+        'BREAKFAST' => MUST_HOTEL_BOOKING_URL . 'assets/img/breakfast.svg',
+        'POOL' => MUST_HOTEL_BOOKING_URL . 'assets/img/pool.svg',
+        'PARKING' => MUST_HOTEL_BOOKING_URL . 'assets/img/parking.svg',
+        'AIR_CONDITIONING' => MUST_HOTEL_BOOKING_URL . 'assets/img/airconditioning.svg',
+        'BEACH' => MUST_HOTEL_BOOKING_URL . 'assets/img/beach.svg',
+    ];
     $amenities = [];
     foreach ((array) ($roomType['amenities'] ?? []) as $amenity) {
-        $amenities[] = ['label' => (string) ($amenity['name'] ?? ''), 'icon' => ''];
+        $icon = (string) ($amenity['icon'] ?? '');
+        $amenities[] = [
+            'label' => (string) ($amenity['name'] ?? ''),
+            'icon' => $iconUrls[$icon] ?? '',
+        ];
     }
     return $amenities;
+}
+
+/** @param array<string, mixed> $roomType @return array{primary_image_url: string, gallery_images: array<int, string>, lightbox_images: array<int, string>} */
+function get_room_type_media_view_data(array $roomType): array
+{
+    $primaryImageUrl = (string) ($roomType['mainImageUrl'] ?? '');
+    $galleryImages = [];
+    foreach ((array) ($roomType['galleryImageUrls'] ?? []) as $url) {
+        if (!\is_string($url) || $url === '') continue;
+        $galleryImages[] = $url;
+    }
+    $lightboxImages = $primaryImageUrl === '' ? $galleryImages : \array_values(\array_unique([$primaryImageUrl, ...$galleryImages]));
+    return [
+        'primary_image_url' => $primaryImageUrl,
+        'gallery_images' => $galleryImages,
+        'lightbox_images' => $lightboxImages,
+    ];
 }
 
 /** @return array<string, mixed> */
@@ -197,6 +226,7 @@ function get_accommodation_page_view_data(): array
             if ($bookingMode === 'INDIVIDUAL_ROOM_ONLY') {
                 $roomCurrency = (string) ($roomType['ratePlans'][0]['currency'] ?? 'USD');
                 $amenities = get_room_type_amenities_view_data($roomType);
+                $media = get_room_type_media_view_data($roomType);
                 foreach ((array) ($roomType['rooms'] ?? []) as $physicalRoom) {
                     if (empty($physicalRoom['isAvailable'])) continue;
                     $physicalRoomId = (string) ($physicalRoom['id'] ?? '');
@@ -209,9 +239,12 @@ function get_accommodation_page_view_data(): array
                         'name' => (string) ($physicalRoom['name'] ?? $roomType['name'] ?? ''),
                         'description' => (string) ($roomType['description'] ?? ''),
                         'max_guests' => (int) ($roomType['maxOccupancy'] ?? 0),
+                        'view_type' => (string) ($physicalRoom['viewType'] ?? ''),
+                        'floor' => \array_key_exists('floor', $physicalRoom) && $physicalRoom['floor'] !== null ? (int) $physicalRoom['floor'] : null,
                         'available_count' => 1,
                         'currency' => $roomCurrency,
-                        'primary_image_url' => '', 'gallery_images' => [], 'lightbox_images' => [], 'room_rules' => '',
+                        ...$media,
+                        'room_rules' => '',
                         'amenities' => $amenities, 'rate_plans' => $ratePlans,
                         'is_selected' => $selection !== null && ($selection['roomId'] ?? '') === $physicalRoomId,
                         'selected_rate_plan_id' => 0,
@@ -227,14 +260,17 @@ function get_accommodation_page_view_data(): array
             $ratePlans = get_room_type_rate_plans_view_data($roomType, $index);
             $roomCurrency = (string) ($roomType['ratePlans'][0]['currency'] ?? 'USD');
             $amenities = get_room_type_amenities_view_data($roomType);
+            $media = get_room_type_media_view_data($roomType);
             $rooms[] = [
                 'id' => $index, 'room_type_id' => $index, 'physical_room_id' => 0,
                 'must_room_type_uuid' => $roomTypeId, 'must_room_uuid' => '',
                 'name' => (string) ($roomType['name'] ?? ''), 'description' => (string) ($roomType['description'] ?? ''),
                 'max_guests' => (int) ($roomType['maxOccupancy'] ?? 0),
+                'view_type' => '', 'floor' => null,
                 'available_count' => (int) ($availability['body']['availableUnits'] ?? 0),
                 'currency' => $roomCurrency,
-                'primary_image_url' => '', 'gallery_images' => [], 'lightbox_images' => [], 'room_rules' => '',
+                ...$media,
+                'room_rules' => '',
                 'amenities' => $amenities, 'rate_plans' => $ratePlans,
                 'is_selected' => $selection !== null && ($selection['roomTypeId'] ?? '') === $roomTypeId,
                 'selected_rate_plan_id' => 0,

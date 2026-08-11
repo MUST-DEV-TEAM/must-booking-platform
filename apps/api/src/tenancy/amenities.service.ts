@@ -10,7 +10,9 @@ import { randomUUID } from 'node:crypto';
 import { AuditLogService } from './audit-log.service';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 
-type Amenity = { id: string; name: string };
+const AMENITY_ICONS = ['WIFI', 'BREAKFAST', 'POOL', 'PARKING', 'AIR_CONDITIONING', 'BEACH'] as const;
+type AmenityIcon = (typeof AMENITY_ICONS)[number];
+type Amenity = { id: string; name: string; icon: AmenityIcon | null };
 
 @Injectable()
 export class AmenitiesService {
@@ -23,7 +25,7 @@ export class AmenitiesService {
     return this.database.withTenantTransaction(
       { tenantId, propertyId },
       (tx) => tx.$queryRaw<Amenity[]>`
-        SELECT id, name FROM amenities
+        SELECT id, name, icon::text AS icon FROM amenities
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
         ORDER BY name
       `,
@@ -36,14 +38,14 @@ export class AmenitiesService {
     actorUserId: string,
     body: unknown,
   ): Promise<Amenity> {
-    const name = this.name(body);
+    const input = this.input(body);
     const id = randomUUID();
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       try {
         const rows = await tx.$queryRaw<Amenity[]>`
-          INSERT INTO amenities (id, tenant_id, property_id, name)
-          VALUES (${id}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${name})
-          RETURNING id, name
+          INSERT INTO amenities (id, tenant_id, property_id, name, icon)
+          VALUES (${id}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${input.name}, ${input.icon}::"AmenityIcon")
+          RETURNING id, name, icon::text AS icon
         `;
         await this.audit.recordInTransaction(tx, {
           tenantId,
@@ -102,7 +104,7 @@ export class AmenitiesService {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       await this.requireRoomType(tx, tenantId, propertyId, roomTypeId);
       return tx.$queryRaw<Amenity[]>`
-        SELECT amenities.id, amenities.name
+        SELECT amenities.id, amenities.name, amenities.icon::text AS icon
         FROM room_type_amenities
         INNER JOIN amenities
           ON amenities.tenant_id = room_type_amenities.tenant_id
@@ -177,7 +179,7 @@ export class AmenitiesService {
     roomTypeId: string,
   ): Promise<Amenity[]> {
     return tx.$queryRaw<Amenity[]>`
-      SELECT amenities.id, amenities.name
+      SELECT amenities.id, amenities.name, amenities.icon::text AS icon
       FROM room_type_amenities
       INNER JOIN amenities
         ON amenities.tenant_id = room_type_amenities.tenant_id
@@ -190,12 +192,15 @@ export class AmenitiesService {
     `;
   }
 
-  private name(body: unknown): string {
+  private input(body: unknown): { name: string; icon: AmenityIcon | null } {
     const value = (body ?? {}) as Record<string, unknown>;
     const name = typeof value.name === 'string' ? value.name.trim() : '';
     if (!name) throw new BadRequestException('name is required.');
     if (name.length > 100) throw new BadRequestException('name must be at most 100 characters.');
-    return name;
+    const icon = value.icon === undefined || value.icon === null || value.icon === '' ? null : value.icon;
+    if (icon !== null && (!AMENITY_ICONS.includes(icon as AmenityIcon)))
+      throw new BadRequestException(`icon must be one of: ${AMENITY_ICONS.join(', ')}.`);
+    return { name, icon: icon as AmenityIcon | null };
   }
 
   private amenityIds(body: unknown): string[] {
