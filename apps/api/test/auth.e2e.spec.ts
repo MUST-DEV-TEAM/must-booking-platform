@@ -43,6 +43,7 @@ describe('authentication endpoints', () => {
       sentEmails.push({ kind: 'password-reset', command });
     },
     async sendPaymentConfirmationEmail() {},
+    async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
   };
   const email = `auth-${randomUUID()}@example.test`;

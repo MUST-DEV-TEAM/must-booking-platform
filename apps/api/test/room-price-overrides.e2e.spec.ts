@@ -32,6 +32,7 @@ describe('room price overrides', () => {
     async sendWelcomeEmail() {},
     async sendPasswordResetEmail() {},
     async sendPaymentConfirmationEmail() {},
+    async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
   };
 

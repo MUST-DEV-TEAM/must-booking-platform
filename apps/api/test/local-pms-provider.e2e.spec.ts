@@ -42,6 +42,7 @@ describe('LocalPmsProvider', () => {
   let tenantId: string;
   let propertyId: string;
   let userId: string;
+  let notificationStaffUserId: string;
   let propertyStaffUserId: string;
   let crossPropertyStaffUserId: string;
   let roomTypeId: string;
@@ -51,6 +52,7 @@ describe('LocalPmsProvider', () => {
   let failPaymentConfirmationDelivery = false;
   const paymentConfirmationEmails: Parameters<MailProvider['sendPaymentConfirmationEmail']>[0][] =
     [];
+  const staffBookingEmails: Parameters<MailProvider['sendNewBookingStaffNotification']>[0][] = [];
   const refundConfirmationEmails: Parameters<MailProvider['sendRefundConfirmationEmail']>[0][] = [];
   const refundCommands: Parameters<PaymentProvider['refund']>[1][] = [];
   const pokpayOrders = new Map<string, { amount: string; currency: string; status: string }>();
@@ -69,6 +71,9 @@ describe('LocalPmsProvider', () => {
     async sendPaymentConfirmationEmail(command) {
       if (failPaymentConfirmationDelivery) throw new Error('simulated payment email failure');
       paymentConfirmationEmails.push(command);
+    },
+    async sendNewBookingStaffNotification(command) {
+      staffBookingEmails.push(command);
     },
     async sendRefundConfirmationEmail(command) {
       refundConfirmationEmails.push(command);
@@ -173,6 +178,8 @@ describe('LocalPmsProvider', () => {
   afterAll(async () => {
     if (tenantId) await cleanupTenant(admin, tenantId);
     if (userId) await admin.$executeRaw`DELETE FROM users WHERE id = ${userId}::uuid`;
+    if (notificationStaffUserId)
+      await admin.$executeRaw`DELETE FROM users WHERE id = ${notificationStaffUserId}::uuid`;
     if (propertyStaffUserId)
       await admin.$executeRaw`DELETE FROM users WHERE id = ${propertyStaffUserId}::uuid`;
     if (crossPropertyStaffUserId)
@@ -1351,7 +1358,32 @@ describe('LocalPmsProvider', () => {
       UPDATE properties SET public_website_origin = 'https://hotel.example.test'
       WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
     `;
+    notificationStaffUserId = randomUUID();
+    const notificationStaffEmail = `booking-staff-${notificationStaffUserId}@example.test`;
+    await admin.$executeRaw`
+      INSERT INTO users ("id", "email", "email_verified_at")
+      VALUES (${notificationStaffUserId}::uuid, ${notificationStaffEmail}, CURRENT_TIMESTAMP)
+    `;
+    await admin.$executeRaw`
+      INSERT INTO tenant_memberships ("tenant_id", "user_id", "role")
+      VALUES (${tenantId}::uuid, ${notificationStaffUserId}::uuid, 'STAFF')
+    `;
+    const frontDeskTemplate = await admin.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM property_role_templates
+      WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid
+        AND "name" = 'Front Desk'
+    `;
+    expect(frontDeskTemplate).toHaveLength(1);
+    await admin.$executeRaw`
+      INSERT INTO property_staff_assignments ("tenant_id", "property_id", "user_id", "role_template_id")
+      VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${notificationStaffUserId}::uuid, ${frontDeskTemplate[0].id}::uuid)
+    `;
+    const propertyStaffRecipients = await admin.$queryRaw<Array<{ count: bigint }>>`
+      SELECT count(*)::bigint AS count FROM property_staff_assignments
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+    `;
     const payAtHotelEmailCount = paymentConfirmationEmails.length;
+    const payAtHotelStaffEmailCount = staffBookingEmails.length;
     const payAtHotelIdempotencyKey = randomUUID();
     const payAtHotelRequest = {
       ...bookingRequest,
@@ -1383,6 +1415,23 @@ describe('LocalPmsProvider', () => {
       paymentId: `pay-at-hotel:${payAtHotelBooking.body.value.id}`,
     });
     expect(paymentConfirmationEmails.at(-1)?.cancellationUrl).toContain('must_action=cancel');
+    expect(staffBookingEmails).toHaveLength(
+      payAtHotelStaffEmailCount + Number(propertyStaffRecipients[0].count),
+    );
+    expect(staffBookingEmails).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          bookingId: payAtHotelBooking.body.value.id,
+          paymentId: `pay-at-hotel:${payAtHotelBooking.body.value.id}`,
+          staffUserId: notificationStaffUserId,
+          to: notificationStaffEmail,
+          guest: { name: 'Pay At Hotel', email: payAtHotelRequest.guest.email, phone: null },
+          stay: { startsOn: '2027-09-01', endsOn: '2027-09-03' },
+          roomName: 'Provider Suite',
+          amount: { amount: '180.00', currency: 'EUR' },
+        }),
+      ]),
+    );
     await request(app!.getHttpServer())
       .post(`${propertyUrl}/bookings`)
       .set('Cookie', guestCookie)
@@ -1390,6 +1439,9 @@ describe('LocalPmsProvider', () => {
       .send(payAtHotelRequest)
       .expect(201);
     expect(paymentConfirmationEmails).toHaveLength(payAtHotelEmailCount + 1);
+    expect(staffBookingEmails).toHaveLength(
+      payAtHotelStaffEmailCount + Number(propertyStaffRecipients[0].count),
+    );
     const payAtHotelPayments = await admin.$queryRaw<Array<{ count: bigint }>>`
       SELECT count(*)::bigint AS count
       FROM payments
@@ -1588,6 +1640,26 @@ describe('LocalPmsProvider', () => {
         ({ bookingId }) => bookingId === concurrentWebhookBooking.value.id,
       ),
     ).toHaveLength(1);
+    expect(
+      staffBookingEmails.filter(({ bookingId }) => bookingId === firstBooking.value.id),
+    ).toHaveLength(Number(propertyStaffRecipients[0].count));
+    expect(
+      staffBookingEmails.filter(({ bookingId }) => bookingId === firstBooking.value.id),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          paymentId: `cs_test_${firstBooking.value.id}`,
+          staffUserId: notificationStaffUserId,
+          to: `booking-staff-${notificationStaffUserId}@example.test`,
+          guest: {
+            name: 'Different Name',
+            email: 'guest@example.test',
+            phone: null,
+          },
+          specialRequests: 'Please provide an accessible room.',
+        }),
+      ]),
+    );
     const manualRefundKey = randomUUID();
     await request(app!.getHttpServer())
       .post(`${propertyUrl}/payments/refunds`)

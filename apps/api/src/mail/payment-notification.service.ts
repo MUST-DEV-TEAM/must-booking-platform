@@ -18,6 +18,16 @@ export class PaymentNotificationService {
     }
   }
 
+  async sendNewBookingStaffNotificationSafely(
+    command: Parameters<MailProvider['sendNewBookingStaffNotification']>[0],
+  ): Promise<void> {
+    try {
+      await this.mail.sendNewBookingStaffNotification(command);
+    } catch (error) {
+      this.logMailFailure('new booking staff notification', command.bookingId, error);
+    }
+  }
+
   async sendRefundConfirmationEmailSafely(
     command: Parameters<MailProvider['sendRefundConfirmationEmail']>[0],
   ): Promise<void> {

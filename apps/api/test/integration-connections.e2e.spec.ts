@@ -33,6 +33,7 @@ describe('integration connections', () => {
     async sendWelcomeEmail() {},
     async sendPasswordResetEmail() {},
     async sendPaymentConfirmationEmail() {},
+    async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
   };
 

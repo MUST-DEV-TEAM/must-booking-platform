@@ -34,6 +34,7 @@ describe('rate plans', () => {
     async sendWelcomeEmail() {},
     async sendPasswordResetEmail() {},
     async sendPaymentConfirmationEmail() {},
+    async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
   };
 

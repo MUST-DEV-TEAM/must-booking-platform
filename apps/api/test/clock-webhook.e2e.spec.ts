@@ -74,6 +74,7 @@ describe('Clock webhook gateway', () => {
     async sendWelcomeEmail() {},
     async sendPasswordResetEmail() {},
     async sendPaymentConfirmationEmail() {},
+    async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
   };
 

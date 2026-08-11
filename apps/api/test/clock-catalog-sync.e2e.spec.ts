@@ -38,6 +38,7 @@ describe.skipIf(!hasSandboxCredentials)('Clock catalog sync (real sandbox)', () 
     async sendWelcomeEmail() {},
     async sendPasswordResetEmail() {},
     async sendPaymentConfirmationEmail() {},
+    async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
   };
 

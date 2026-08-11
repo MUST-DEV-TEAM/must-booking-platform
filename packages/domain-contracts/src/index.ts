@@ -26,6 +26,18 @@ export interface MailProvider {
     cancellationUrl?: string;
     specialRequests?: string | null;
   }): Promise<void>;
+  sendNewBookingStaffNotification(command: {
+    bookingId: string;
+    bookingReference: string;
+    paymentId: string;
+    staffUserId: string;
+    to: string;
+    guest: { name: string; email: string; phone: string | null };
+    stay: { startsOn: string; endsOn: string };
+    roomName: string;
+    amount: Money;
+    specialRequests?: string | null;
+  }): Promise<void>;
   sendRefundConfirmationEmail(command: {
     bookingId: string;
     bookingReference: string;

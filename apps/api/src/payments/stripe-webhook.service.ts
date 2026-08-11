@@ -7,7 +7,7 @@ import {
 } from '@must/domain-contracts';
 
 import { LocalPmsProvider } from '../booking/local-pms.provider';
-import { CancellationLinkService } from '../booking/cancellation-link.service';
+import { BookingConfirmationNotificationService } from '../mail/booking-confirmation-notification.service';
 import { PaymentNotificationService } from '../mail/payment-notification.service';
 import { AuditLogService } from '../tenancy/audit-log.service';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
@@ -21,10 +21,6 @@ type PaymentPendingBooking = {
   status: BookingStatus;
   paymentMethod: BookingPaymentMethod;
   guestEmail: string | null;
-  guestSessionId: string;
-  guestReturnUrl: string | null;
-  externalReference: string;
-  specialRequests: string | null;
 };
 
 @Injectable()
@@ -35,7 +31,8 @@ export class StripeWebhookService {
     @Inject(AuditLogService) private readonly audit: AuditLogService,
     @Inject(PaymentRefundService) private readonly refunds: PaymentRefundService,
     @Inject(PaymentNotificationService) private readonly notifications: PaymentNotificationService,
-    @Inject(CancellationLinkService) private readonly cancellations: CancellationLinkService,
+    @Inject(BookingConfirmationNotificationService)
+    private readonly confirmations: BookingConfirmationNotificationService,
   ) {}
 
   async processPaymentSucceeded(
@@ -48,16 +45,14 @@ export class StripeWebhookService {
       );
     }
     const context = { tenantId: event.tenantId, propertyId: event.propertyId };
-    let paymentConfirmation:
-      Parameters<PaymentNotificationService['sendPaymentConfirmationEmailSafely']>[0] | null = null;
+    const bookingConfirmation: { bookingId?: string; paymentId?: string } = {};
     let refundConfirmation: RefundConfirmation | null = null;
     const result = await this.database.withTenantTransaction<Result<{ duplicate: boolean }>>(
       context,
       async (tx) => {
         const bookings = await tx.$queryRaw<PaymentPendingBooking[]>`
         SELECT b.id, b.total_amount::text AS "totalAmount", rp.currency, b.status,
-          b.payment_method AS "paymentMethod", g.email AS "guestEmail", b.guest_session_id AS "guestSessionId", b.guest_return_url AS "guestReturnUrl",
-          b.external_reference AS "externalReference", b.special_requests AS "specialRequests"
+          b.payment_method AS "paymentMethod", g.email AS "guestEmail"
         FROM bookings b
         JOIN rate_plans rp
           ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
@@ -139,28 +134,11 @@ export class StripeWebhookService {
 
         const confirmed = await this.bookings.continueAfterPayment(tx, context, booking.id);
         if (!confirmed.ok) throw new StripeWebhookProcessingError(confirmed);
-        if (booking.paymentMethod === BookingPaymentMethod.STRIPE_CHECKOUT && booking.guestEmail) {
-          paymentConfirmation = {
+        if (booking.paymentMethod === BookingPaymentMethod.STRIPE_CHECKOUT && booking.guestEmail)
+          Object.assign(bookingConfirmation, {
             bookingId: booking.id,
-            bookingReference: booking.externalReference,
             paymentId: event.externalPaymentId,
-            to: booking.guestEmail,
-            amount: { amount: booking.totalAmount, currency: booking.currency },
-            specialRequests: booking.specialRequests,
-            cancellationUrl: booking.guestReturnUrl
-              ? this.cancellationUrl(
-                  booking.guestReturnUrl,
-                  booking.id,
-                  this.cancellations.create({
-                    tenantId: context.tenantId,
-                    propertyId: context.propertyId,
-                    bookingId: booking.id,
-                    guestSessionId: booking.guestSessionId,
-                  }),
-                )
-              : undefined,
-          };
-        }
+          });
         return { ok: true, value: { duplicate: false } };
       },
       // continueAfterPayment can attach a real Clock reservation and post a
@@ -169,19 +147,15 @@ export class StripeWebhookService {
       // ClockBookingService.createBooking's own extended timeout.
       { timeoutMs: 45_000 },
     );
-    if (paymentConfirmation)
-      await this.notifications.sendPaymentConfirmationEmailSafely(paymentConfirmation);
+    if (bookingConfirmation.bookingId && bookingConfirmation.paymentId)
+      await this.confirmations.sendAfterConfirmation(
+        context,
+        bookingConfirmation.bookingId,
+        bookingConfirmation.paymentId,
+      );
     if (refundConfirmation)
       await this.notifications.sendRefundConfirmationEmailSafely(refundConfirmation);
     return result;
-  }
-
-  private cancellationUrl(base: string, bookingId: string, cancellationToken: string): string {
-    const url = new URL(base);
-    url.searchParams.set('booking_id', bookingId);
-    url.searchParams.set('cancellationToken', cancellationToken);
-    url.searchParams.set('must_action', 'cancel');
-    return url.toString();
   }
 
   private failure(code: string, message: string): Result<never> {

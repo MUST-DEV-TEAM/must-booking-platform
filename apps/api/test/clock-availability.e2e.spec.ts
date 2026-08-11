@@ -44,6 +44,7 @@ describe.skipIf(!hasSandboxCredentials)('Clock getAvailability (real sandbox)', 
     async sendWelcomeEmail() {},
     async sendPasswordResetEmail() {},
     async sendPaymentConfirmationEmail() {},
+    async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
   };
 

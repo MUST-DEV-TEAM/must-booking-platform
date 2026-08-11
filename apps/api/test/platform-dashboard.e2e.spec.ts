@@ -34,6 +34,7 @@ describe('platform dashboard home', () => {
       resetEmails.push(command);
     },
     async sendPaymentConfirmationEmail() {},
+    async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
   };
 

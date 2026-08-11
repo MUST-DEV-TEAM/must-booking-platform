@@ -33,6 +33,7 @@ describe('platform-admin actions', () => {
       resetEmails.push(command);
     },
     async sendPaymentConfirmationEmail() {},
+    async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
   };
 

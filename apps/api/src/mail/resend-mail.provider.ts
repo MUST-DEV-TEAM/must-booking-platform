@@ -88,6 +88,44 @@ export class ResendMailProvider implements MailProvider {
     });
   }
 
+  async sendNewBookingStaffNotification(command: {
+    bookingId: string;
+    bookingReference: string;
+    paymentId: string;
+    staffUserId: string;
+    to: string;
+    guest: { name: string; email: string; phone: string | null };
+    stay: { startsOn: string; endsOn: string };
+    roomName: string;
+    amount: { amount: string; currency: string };
+    specialRequests?: string | null;
+  }): Promise<void> {
+    const bookingReference = this.escapeHtml(command.bookingReference);
+    const guestName = this.escapeHtml(command.guest.name);
+    const guestEmail = this.escapeHtml(command.guest.email);
+    const guestPhone = command.guest.phone ? this.escapeHtml(command.guest.phone) : '';
+    const startsOn = this.escapeHtml(command.stay.startsOn);
+    const endsOn = this.escapeHtml(command.stay.endsOn);
+    const roomName = this.escapeHtml(command.roomName);
+    const amount = this.escapeHtml(`${command.amount.currency} ${command.amount.amount}`);
+    const specialRequests = command.specialRequests?.trim()
+      ? this.escapeHtml(command.specialRequests).replace(/\r?\n/g, '<br>')
+      : '';
+    await this.send({
+      to: command.to,
+      subject: 'New booking received',
+      html: this.bookingEmailLayout({
+        heading: 'New booking received',
+        content: `<strong>Guest</strong><br>${guestName}<br>${guestEmail}${guestPhone ? `<br>${guestPhone}` : ''}<br><br><strong>Stay</strong><br>${startsOn} to ${endsOn}<br><br><strong>Room</strong><br>${roomName}<br><br><strong>Total</strong><br>${amount}${specialRequests ? `<br><br><strong>Special requests</strong><br>${specialRequests}` : ''}`,
+        bookingReference,
+        ctaUrl: '',
+        ctaLabel: '',
+      }),
+      text: `New booking received\nBooking reference: ${command.bookingReference}\nGuest: ${command.guest.name}\nEmail: ${command.guest.email}${command.guest.phone ? `\nPhone: ${command.guest.phone}` : ''}\nStay: ${command.stay.startsOn} to ${command.stay.endsOn}\nRoom: ${command.roomName}\nTotal: ${command.amount.currency} ${command.amount.amount}${command.specialRequests?.trim() ? `\nSpecial requests: ${command.specialRequests.trim()}` : ''}`,
+      idempotencyKey: `new-booking-staff/${command.paymentId}/${command.staffUserId}`,
+    });
+  }
+
   private bookingEmailLayout(command: {
     heading: string;
     content: string;

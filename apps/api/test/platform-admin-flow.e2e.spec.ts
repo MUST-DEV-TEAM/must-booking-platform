@@ -34,6 +34,7 @@ describe('platform admin end-to-end flow', () => {
       resetEmails.push(command);
     },
     async sendPaymentConfirmationEmail() {},
+    async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
   };
 

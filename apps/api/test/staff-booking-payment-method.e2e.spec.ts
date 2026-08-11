@@ -44,6 +44,7 @@ describe('staff-bookings: payment method selection', () => {
     async sendWelcomeEmail() {},
     async sendPasswordResetEmail() {},
     async sendPaymentConfirmationEmail() {},
+    async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
   };
   const payments: PaymentProvider = {

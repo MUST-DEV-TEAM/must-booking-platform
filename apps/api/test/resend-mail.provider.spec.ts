@@ -91,6 +91,39 @@ describe('ResendMailProvider', () => {
     expect(payment.html).not.toContain('>booking-1<');
   });
 
+  it('sends staff booking notifications with guest and stay details', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.MAIL_FROM_EMAIL = 'MUST Booking <noreply@example.test>';
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await provider.sendNewBookingStaffNotification({
+      bookingId: 'booking-1',
+      bookingReference: 'MLDH-260814-2216-K7',
+      paymentId: 'cs_test_1',
+      staffUserId: 'staff-1',
+      to: 'front-desk@example.test',
+      guest: { name: 'Ada <Guest>', email: 'ada@example.test', phone: '+355 69 123 4567' },
+      stay: { startsOn: '2027-09-01', endsOn: '2027-09-03' },
+      roomName: 'Ocean Suite',
+      amount: { amount: '180.00', currency: 'EUR' },
+      specialRequests: 'Late arrival after 22:00.\nNo feathers, please.',
+    });
+
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(requestBody).toMatchObject({
+      to: ['front-desk@example.test'],
+      subject: 'New booking received',
+      html: expect.stringContaining('Ada &lt;Guest&gt;'),
+      text: expect.stringContaining('Stay: 2027-09-01 to 2027-09-03'),
+    });
+    expect(requestBody.html).toContain('Ocean Suite');
+    expect(requestBody.html).toContain('Special requests');
+    expect((fetchMock.mock.calls[0][1]?.headers as Record<string, string>)['Idempotency-Key']).toBe(
+      'new-booking-staff/cs_test_1/staff-1',
+    );
+  });
+
   it('sends password reset links with escaped content and a token-scoped idempotency key', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
     process.env.MAIL_FROM_EMAIL = 'MUST Booking <noreply@example.test>';
