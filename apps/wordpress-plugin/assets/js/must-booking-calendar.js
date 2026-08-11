@@ -70,6 +70,50 @@
         }
     }
     var todayStr = new Date().toISOString().slice(0, 10);
+    var unavailableDates = {};
+    var roomAvailability = c.roomAvailability || null;
+    var loadedMonths = {};
+    function dateKey(date) {
+        var year = date.getFullYear();
+        var month = String(date.getMonth() + 1).padStart(2, '0');
+        var day = String(date.getDate()).padStart(2, '0');
+        return year + '-' + month + '-' + day;
+    }
+    function monthKey(date) {
+        return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
+    }
+    function loadAvailabilityMonth(date) {
+        if (!roomAvailability) return Promise.resolve();
+        var month = monthKey(date);
+        if (loadedMonths[month]) return loadedMonths[month];
+        var requestBody = new URLSearchParams({
+            action: 'must_booking_room_calendar',
+            nonce: roomAvailability.nonce,
+            month: month
+        });
+        loadedMonths[month] = window.fetch(roomAvailability.ajaxUrl, {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+            body: requestBody.toString()
+        }).then(function (response) {
+            if (!response.ok) throw new Error('Unable to load room availability.');
+            return response.json();
+        }).then(function (response) {
+            if (!response || !response.success || !response.data || !Array.isArray(response.data.days)) return;
+            response.data.days.forEach(function (day) {
+                if (day && day.date && day.isAvailable === false) unavailableDates[day.date] = true;
+            });
+        }).catch(function () {
+            delete loadedMonths[month];
+        });
+        return loadedMonths[month];
+    }
+    function roomDateIsUnavailable(date) { return unavailableDates[dateKey(date)] === true; }
+    function refreshAvailability(picker) {
+        if (!roomAvailability || !picker) return;
+        loadAvailabilityMonth(new Date(picker.currentYear, picker.currentMonth, 1)).then(function () { picker.redraw(); });
+    }
+    function initializeCalendars() {
     if (c.calendarLayout === 'two_calendars') {
         var checkinHost = document.querySelector('#must-booking-checkin-calendar');
         var checkoutHost = document.querySelector('#must-booking-checkout-calendar');
@@ -81,18 +125,21 @@
         if (checkoutHost) {
             checkoutPicker = window.flatpickr(checkoutHost, {
                 inline: true, dateFormat: 'Y-m-d', minDate: todayStr,
+                disable: roomAvailability ? [roomDateIsUnavailable] : [],
                 defaultDate: checkoutField && checkoutField.value ? checkoutField.value : undefined,
                 onChange: function (selectedDates, dateStr) { if (checkoutField) checkoutField.value = dateStr; updateArrivalDeparture(checkinField ? checkinField.value : '', dateStr); },
-                onMonthChange: function (a, b, instance) { syncMonthYear(checkoutMonth, checkoutYear, instance); },
-                onYearChange: function (a, b, instance) { syncMonthYear(checkoutMonth, checkoutYear, instance); }
+                onMonthChange: function (a, b, instance) { syncMonthYear(checkoutMonth, checkoutYear, instance); refreshAvailability(instance); },
+                onYearChange: function (a, b, instance) { syncMonthYear(checkoutMonth, checkoutYear, instance); refreshAvailability(instance); }
             });
             checkoutPicker.calendarContainer.classList.add('must-booking-flatpickr-instance');
             syncMonthYear(checkoutMonth, checkoutYear, checkoutPicker);
             wireMonthYear(checkoutMonth, checkoutYear, checkoutPicker);
+            refreshAvailability(checkoutPicker);
         }
         if (checkinHost) {
             var checkinPicker = window.flatpickr(checkinHost, {
                 inline: true, dateFormat: 'Y-m-d', minDate: todayStr,
+                disable: roomAvailability ? [roomDateIsUnavailable] : [],
                 defaultDate: checkinField && checkinField.value ? checkinField.value : undefined,
                 onChange: function (selectedDates, dateStr) {
                     if (checkinField) checkinField.value = dateStr;
@@ -102,12 +149,13 @@
                         checkoutPicker.set('minDate', minCheckout);
                     }
                 },
-                onMonthChange: function (a, b, instance) { syncMonthYear(checkinMonth, checkinYear, instance); updatePrevVisibility(instance, prevButton); },
-                onYearChange: function (a, b, instance) { syncMonthYear(checkinMonth, checkinYear, instance); updatePrevVisibility(instance, prevButton); }
+                onMonthChange: function (a, b, instance) { syncMonthYear(checkinMonth, checkinYear, instance); updatePrevVisibility(instance, prevButton); refreshAvailability(instance); },
+                onYearChange: function (a, b, instance) { syncMonthYear(checkinMonth, checkinYear, instance); updatePrevVisibility(instance, prevButton); refreshAvailability(instance); }
             });
             checkinPicker.calendarContainer.classList.add('must-booking-flatpickr-instance');
             syncMonthYear(checkinMonth, checkinYear, checkinPicker);
             wireMonthYear(checkinMonth, checkinYear, checkinPicker);
+            refreshAvailability(checkinPicker);
             var prevButton = document.querySelector('#must-booking-cal-prev');
             var nextInlineButton = document.querySelector('#must-booking-cal-next-inline');
             var nextButton = document.querySelector('#must-booking-cal-next');
@@ -126,6 +174,7 @@
                 mode: 'range',
                 dateFormat: 'Y-m-d',
                 minDate: todayStr,
+                disable: roomAvailability ? [roomDateIsUnavailable] : [],
                 defaultDate: (checkinField && checkinField.value && checkoutField && checkoutField.value) ? [checkinField.value, checkoutField.value] : undefined,
                 onChange: function (selectedDates, dateStr, instance) {
                     if (selectedDates.length < 2) return;
@@ -135,12 +184,13 @@
                     if (checkoutField) checkoutField.value = end;
                     updateArrivalDeparture(start, end);
                 },
-                onMonthChange: function (a, b, instance) { syncMonthYear(monthSelect, yearSelect, instance); updatePrevVisibility(instance, singlePrev); },
-                onYearChange: function (a, b, instance) { syncMonthYear(monthSelect, yearSelect, instance); updatePrevVisibility(instance, singlePrev); }
+                onMonthChange: function (a, b, instance) { syncMonthYear(monthSelect, yearSelect, instance); updatePrevVisibility(instance, singlePrev); refreshAvailability(instance); },
+                onYearChange: function (a, b, instance) { syncMonthYear(monthSelect, yearSelect, instance); updatePrevVisibility(instance, singlePrev); refreshAvailability(instance); }
             });
             picker.calendarContainer.classList.add('must-booking-flatpickr-instance');
             syncMonthYear(monthSelect, yearSelect, picker);
             wireMonthYear(monthSelect, yearSelect, picker);
+            refreshAvailability(picker);
             var singlePrev = document.querySelector('#must-booking-cal-prev');
             var singleNext = document.querySelector('#must-booking-cal-next-inline') || document.querySelector('#must-booking-cal-next');
             updatePrevVisibility(picker, singlePrev);
@@ -148,4 +198,6 @@
             if (singleNext) singleNext.onclick = function () { picker.changeMonth(1); };
         }
     }
+    }
+    loadAvailabilityMonth(todayDate).then(initializeCalendars, initializeCalendars);
 }());

@@ -72,6 +72,7 @@ function maybe_process_accommodation_selection(): string
     $ratePlanId = isset($_POST['must_rate_plan_id']) ? \sanitize_text_field((string) \wp_unslash($_POST['must_rate_plan_id'])) : '';
     $checkin = isset($_POST['checkin']) ? \sanitize_text_field((string) \wp_unslash($_POST['checkin'])) : '';
     $checkout = isset($_POST['checkout']) ? \sanitize_text_field((string) \wp_unslash($_POST['checkout'])) : '';
+    $guests = isset($_POST['guests']) ? \max(1, (int) $_POST['guests']) : 1;
     if ($roomTypeId === '' || $checkin === '' || $checkout === '') {
         return \__('That room could not be selected. Please try again.', 'must-hotel-booking');
     }
@@ -119,7 +120,7 @@ function maybe_process_accommodation_selection(): string
     set_current_booking_selection([
         'roomTypeId' => $roomTypeId, 'roomId' => $roomId, 'ratePlanId' => $ratePlanId,
         'roomName' => $roomName, 'ratePlanName' => $ratePlanName,
-        'checkin' => $checkin, 'checkout' => $checkout, 'quote' => $quote['body'],
+        'checkin' => $checkin, 'checkout' => $checkout, 'guests' => $guests, 'quote' => $quote['body'],
     ]);
     \wp_safe_redirect(get_checkout_page_url());
     exit;

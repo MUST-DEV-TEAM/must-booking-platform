@@ -25,6 +25,7 @@ $checkout_url = isset($view['checkout_url']) ? (string) $view['checkout_url'] : 
 $fixed_room_mode = !empty($view['fixed_room_mode']);
 $fixed_room_id = isset($view['fixed_room_id']) ? (string) $view['fixed_room_id'] : '';
 $fixed_room = isset($view['fixed_room']) && \is_array($view['fixed_room']) ? $view['fixed_room'] : [];
+$fixed_physical_room_id = isset($fixed_room['physical_room_id']) ? (string) $fixed_room['physical_room_id'] : '';
 $fixed_room_name = isset($fixed_room['name']) ? (string) $fixed_room['name'] : '';
 $fixed_room_type_id = isset($fixed_room['room_type_id']) ? (string) $fixed_room['room_type_id'] : $fixed_room_id;
 $fixed_rate_plan_id = isset($fixed_room['rate_plan_id']) ? (string) $fixed_room['rate_plan_id'] : '';
@@ -125,7 +126,7 @@ if ($checkout !== '') {
                 <?php \wp_nonce_field('must_accommodation_select_room', 'must_accommodation_nonce'); ?>
                 <input type="hidden" name="must_accommodation_action" value="select_room" />
                 <input type="hidden" name="must_room_type_id" value="<?php echo \esc_attr($fixed_room_type_id); ?>" />
-                <input type="hidden" name="must_room_id" value="" />
+                <input type="hidden" name="must_room_id" value="<?php echo \esc_attr($fixed_physical_room_id); ?>" />
                 <input type="hidden" name="must_rate_plan_id" value="<?php echo \esc_attr($fixed_rate_plan_id); ?>" />
                 <input type="hidden" name="accommodation_type" value="<?php echo \esc_attr($accommodation_type); ?>" />
             <?php endif; ?>
@@ -258,16 +259,18 @@ if ($checkout !== '') {
                         </label>
                     <?php endif; ?>
 
-                    <label class="must-booking-step-select-row" for="must-booking-guests-select">
-                        <span><?php echo \esc_html__('Guests', 'must-hotel-booking'); ?></span>
-                        <select id="must-booking-guests-select">
-                            <?php for ($i = 1; $i <= $max_booking_guests; $i++) : ?>
-                                <option value="<?php echo \esc_attr((string) $i); ?>" <?php selected($guests, $i); ?>>
-                                    <?php echo \esc_html((string) $i); ?>
-                                </option>
-                            <?php endfor; ?>
-                        </select>
-                    </label>
+                    <?php if (!$fixed_room_mode) : ?>
+                        <label class="must-booking-step-select-row" for="must-booking-guests-select">
+                            <span><?php echo \esc_html__('Guests', 'must-hotel-booking'); ?></span>
+                            <select id="must-booking-guests-select">
+                                <?php for ($i = 1; $i <= $max_booking_guests; $i++) : ?>
+                                    <option value="<?php echo \esc_attr((string) $i); ?>" <?php selected($guests, $i); ?>>
+                                        <?php echo \esc_html((string) $i); ?>
+                                    </option>
+                                <?php endfor; ?>
+                            </select>
+                        </label>
+                    <?php endif; ?>
 
                     <?php if (!$fixed_room_mode) : ?>
                         <label class="must-booking-step-select-row" for="must-booking-room-count-select">

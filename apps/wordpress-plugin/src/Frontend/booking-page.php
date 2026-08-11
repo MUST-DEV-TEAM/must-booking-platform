@@ -117,14 +117,56 @@ function get_booking_page_view_data(): array
     $guests = isset($raw['guests']) ? \max(1, (int) $raw['guests']) : 1;
     $roomCount = isset($raw['room_count']) ? \max(0, (int) $raw['room_count']) : 0;
     $accommodationType = isset($raw['accommodation_type']) ? \sanitize_key((string) $raw['accommodation_type']) : '';
+    $selection = get_current_booking_selection();
+    $selectedRoomId = $selection !== null && isset($selection['roomId']) ? \sanitize_text_field((string) $selection['roomId']) : '';
+    $selectedRoomTypeId = $selection !== null && isset($selection['roomTypeId']) ? \sanitize_text_field((string) $selection['roomTypeId']) : '';
+    if ($selection !== null && $checkin === '' && isset($selection['checkin']) && \preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $selection['checkin']) === 1) {
+        $checkin = (string) $selection['checkin'];
+    }
+    if ($selection !== null && $checkout === '' && isset($selection['checkout']) && \preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $selection['checkout']) === 1) {
+        $checkout = (string) $selection['checkout'];
+    }
+    if ($selection !== null && !isset($raw['guests']) && isset($selection['guests'])) {
+        $guests = \max(1, (int) $selection['guests']);
+    }
     $categories = get_booking_categories($checkin, $checkout);
     $bookingMode = get_must_booking_mode($checkin, $checkout);
     $fixedRoom = null;
 
+    // A physical room is selected only by the accommodation page's validated
+    // select_room POST. Keep that selection in the guest-session transient;
+    // unlike a room type, a room cannot safely be deep-linked in a widget URL.
+    if ($selectedRoomId !== '' && $selectedRoomTypeId !== '') {
+        $fixedRoom = [
+            'id' => $selectedRoomId,
+            'physical_room_id' => $selectedRoomId,
+            'room_type_id' => $selectedRoomTypeId,
+            'name' => (string) ($selection['roomName'] ?? ''),
+            'category_label' => '', 'description' => '', 'max_guests' => 0,
+            'room_size' => '', 'beds' => '', 'view_type' => '', 'floor' => 0, 'primary_image_url' => '',
+            'rate_plan_id' => (string) ($selection['ratePlanId'] ?? ''),
+        ];
+        foreach (get_must_room_types($checkin, $checkout) as $roomType) {
+            if ((string) ($roomType['id'] ?? '') !== $selectedRoomTypeId) continue;
+            $fixedRoom['category_label'] = (string) ($roomType['name'] ?? '');
+            $fixedRoom['description'] = (string) ($roomType['description'] ?? '');
+            $fixedRoom['max_guests'] = (int) ($roomType['maxOccupancy'] ?? 0);
+            $fixedRoom['primary_image_url'] = (string) ($roomType['mainImageUrl'] ?? '');
+            foreach ((array) ($roomType['rooms'] ?? []) as $room) {
+                if ((string) ($room['id'] ?? '') !== $selectedRoomId) continue;
+                $fixedRoom['name'] = (string) ($room['name'] ?? $fixedRoom['name']);
+                $fixedRoom['view_type'] = (string) ($room['viewType'] ?? '');
+                $fixedRoom['floor'] = \array_key_exists('floor', $room) && $room['floor'] !== null ? (int) $room['floor'] : 0;
+                break;
+            }
+            break;
+        }
+    }
+
     // A room-type link from a widget is enough to skip the picker only when
     // the property can book a room type without a guest-selected physical
     // room. INDIVIDUAL_ROOM_ONLY must continue to the date-aware room picker.
-    if ($accommodationType !== '' && $bookingMode !== 'INDIVIDUAL_ROOM_ONLY') {
+    if ($fixedRoom === null && $accommodationType !== '' && $bookingMode !== 'INDIVIDUAL_ROOM_ONLY') {
         foreach (get_must_room_types($checkin, $checkout) as $roomType) {
             if ((string) ($roomType['id'] ?? '') !== $accommodationType) {
                 continue;
@@ -233,7 +275,40 @@ function enqueue_booking_page_assets(): void
     \wp_enqueue_style('must-hotel-booking-flatpickr', 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css', [], MUST_HOTEL_BOOKING_VERSION);
     \wp_enqueue_script('must-hotel-booking-flatpickr', 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.js', [], MUST_HOTEL_BOOKING_VERSION, true);
     \wp_enqueue_script('must-hotel-booking-calendar', MUST_HOTEL_BOOKING_URL . 'assets/js/must-booking-calendar.js', ['must-hotel-booking-flatpickr'], MUST_HOTEL_BOOKING_VERSION, true);
-    \wp_localize_script('must-hotel-booking-calendar', 'mustHotelBookingCalendar', ['calendarLayout' => get_calendar_layout()]);
+    $selection = get_current_booking_selection();
+    $roomId = $selection !== null && isset($selection['roomId']) ? \sanitize_text_field((string) $selection['roomId']) : '';
+    $roomTypeId = $selection !== null && isset($selection['roomTypeId']) ? \sanitize_text_field((string) $selection['roomTypeId']) : '';
+    \wp_localize_script('must-hotel-booking-calendar', 'mustHotelBookingCalendar', [
+        'calendarLayout' => get_calendar_layout(),
+        'roomAvailability' => $roomId !== '' && $roomTypeId !== '' ? [
+            'ajaxUrl' => \admin_url('admin-ajax.php'),
+            'nonce' => \wp_create_nonce('must_booking_room_calendar'),
+        ] : null,
+    ]);
 }
+
+function get_selected_room_calendar(): void
+{
+    $nonce = isset($_POST['nonce']) ? (string) \wp_unslash($_POST['nonce']) : '';
+    if ($nonce === '' || !\wp_verify_nonce($nonce, 'must_booking_room_calendar')) {
+        \wp_send_json_error(['message' => \__('Your request could not be verified. Please refresh and try again.', 'must-hotel-booking')], 403);
+    }
+    $selection = get_current_booking_selection();
+    $roomId = $selection !== null && isset($selection['roomId']) ? \sanitize_text_field((string) $selection['roomId']) : '';
+    $roomTypeId = $selection !== null && isset($selection['roomTypeId']) ? \sanitize_text_field((string) $selection['roomTypeId']) : '';
+    $month = isset($_POST['month']) ? \sanitize_text_field((string) \wp_unslash($_POST['month'])) : '';
+    if ($roomId === '' || $roomTypeId === '' || \preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month) !== 1) {
+        \wp_send_json_error(['message' => \__('Selected room availability is unavailable. Please choose the room again.', 'must-hotel-booking')], 400);
+    }
+    $response = MustApiClient::get('/public/availability-calendar', [
+        'roomTypeId' => $roomTypeId, 'roomId' => $roomId, 'month' => $month,
+    ]);
+    if (!$response['ok'] || !\is_array($response['body']) || !\is_array($response['body']['days'] ?? null)) {
+        \wp_send_json_error(['message' => \__('Room availability could not be loaded. Please try again.', 'must-hotel-booking')], 502);
+    }
+    \wp_send_json_success(['days' => $response['body']['days']]);
+}
+\add_action('wp_ajax_must_booking_room_calendar', __NAMESPACE__ . '\\get_selected_room_calendar');
+\add_action('wp_ajax_nopriv_must_booking_room_calendar', __NAMESPACE__ . '\\get_selected_room_calendar');
 \add_action('wp_enqueue_scripts', __NAMESPACE__ . '\\enqueue_booking_page_assets');
 \add_filter('template_include', __NAMESPACE__ . '\\maybe_load_frontend_template', 99);

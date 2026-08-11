@@ -29,6 +29,7 @@ describe('availability calendar (local)', () => {
   let userId: string;
   let cookie: string;
   let roomTypeId: string;
+  let roomId: string;
   let verificationToken = '';
   const email = `availability-calendar-${randomUUID()}@example.test`;
   const mail: MailProvider = {
@@ -38,6 +39,7 @@ describe('availability calendar (local)', () => {
     async sendWelcomeEmail() {},
     async sendPasswordResetEmail() {},
     async sendPaymentConfirmationEmail() {},
+    async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
   };
 
@@ -82,11 +84,12 @@ describe('availability calendar (local)', () => {
       .send({ name: 'Calendar Test Room', maxOccupancy: 2 })
       .expect(201);
     roomTypeId = roomType.body.id;
-    await request(app.getHttpServer())
+    const room = await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/room-types/${roomTypeId}/rooms`)
       .set('Cookie', cookie)
       .send({ name: 'Calendar Room 1' })
       .expect(201);
+    roomId = room.body.id;
 
     // Available every day of March 2027 except the 10th (0 units), with the
     // 15th deliberately left unset (no inventory_units row at all).
@@ -144,5 +147,33 @@ describe('availability calendar (local)', () => {
         }),
       ]),
     );
+  });
+
+  it('exposes the selected physical room calendar to guests without staff credentials', async () => {
+    await request(app.getHttpServer())
+      .patch(`/tenants/${tenantId}/properties/${propertyId}`)
+      .set('Cookie', cookie)
+      .send({ bookingMode: 'INDIVIDUAL_ROOM_ONLY' })
+      .expect(200);
+    await request(app.getHttpServer())
+      .put(`/tenants/${tenantId}/properties/${propertyId}/rooms/${roomId}/availability`)
+      .set('Cookie', cookie)
+      .send({ startsOn: '2027-03-10', endsOn: '2027-03-11', isAvailable: false })
+      .expect(204);
+
+    const response = await request(app.getHttpServer())
+      .get(`/tenants/${tenantId}/properties/${propertyId}/public/availability-calendar`)
+      .query({ roomTypeId, roomId, month: '2027-03' })
+      .expect(200);
+
+    expect(response.body.days).toHaveLength(31);
+    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-09')).toEqual({
+      date: '2027-03-09',
+      isAvailable: true,
+    });
+    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-10')).toEqual({
+      date: '2027-03-10',
+      isAvailable: false,
+    });
   });
 });
