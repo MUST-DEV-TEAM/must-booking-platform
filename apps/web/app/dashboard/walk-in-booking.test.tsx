@@ -16,6 +16,18 @@ const base = '/api/tenants/tenant-1/properties/property-1';
 const response = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
+// The calendar (react-day-picker) only renders the currently-displayed month
+// (defaults to today's), and disables any date before today - so these must
+// be computed relative to "now" rather than hardcoded, or they silently break
+// once real time passes the hardcoded date.
+function isoDay(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+const today = new Date();
+const DAY_1 = isoDay(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2));
+const DAY_2 = isoDay(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 3));
+const DAY_3 = isoDay(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 4));
+
 afterEach(() => vi.unstubAllGlobals());
 
 describe('WalkInBooking', () => {
@@ -48,8 +60,8 @@ describe('WalkInBooking', () => {
       Array.from(select.options).some((option) => option.value === 'rate-1'),
     )!;
     await setValue(ratePlanSelect, 'rate-1');
-    await clickDay(container, '2026-08-10');
-    await clickDay(container, '2026-08-11');
+    await clickDay(container, DAY_1);
+    await clickDay(container, DAY_2);
     await click(container, 'Search availability');
     expect(fetchMock).toHaveBeenCalledWith(
       `${base}/quotes`,
@@ -58,8 +70,8 @@ describe('WalkInBooking', () => {
           roomTypeId: 'room-type-1',
           roomId: undefined,
           ratePlanId: 'rate-1',
-          startsOn: '2026-08-10',
-          endsOn: '2026-08-12',
+          startsOn: DAY_1,
+          endsOn: DAY_3,
         }),
       }),
     );
@@ -120,8 +132,8 @@ describe('WalkInBooking', () => {
       ),
     ).toBe(false);
 
-    await clickDay(container, '2026-08-10');
-    await clickDay(container, '2026-08-11');
+    await clickDay(container, DAY_1);
+    await clickDay(container, DAY_2);
     await click(container, 'Search availability');
     expect(fetchMock).toHaveBeenCalledWith(
       `${base}/quotes`,
@@ -130,8 +142,8 @@ describe('WalkInBooking', () => {
           roomTypeId: 'room-type-1',
           roomId: undefined,
           ratePlanId: undefined,
-          startsOn: '2026-08-10',
-          endsOn: '2026-08-12',
+          startsOn: DAY_1,
+          endsOn: DAY_3,
         }),
       }),
     );
@@ -197,8 +209,8 @@ describe('WalkInBooking', () => {
       Array.from(select.options).some((option) => option.value === 'rate-1'),
     )!;
     await setValue(ratePlanSelect, 'rate-1');
-    await clickDay(container, '2026-08-10');
-    await clickDay(container, '2026-08-11');
+    await clickDay(container, DAY_1);
+    await clickDay(container, DAY_2);
     await click(container, 'Search availability');
 
     const [firstName, lastName] = Array.from(
@@ -260,8 +272,8 @@ describe('WalkInBooking', () => {
       Array.from(select.options).some((option) => option.value === 'rate-1'),
     )!;
     await setValue(ratePlanSelect, 'rate-1');
-    await clickDay(container, '2026-08-10');
-    await clickDay(container, '2026-08-11');
+    await clickDay(container, DAY_1);
+    await clickDay(container, DAY_2);
     await click(container, 'Search availability');
     expect(toast.error).toHaveBeenCalledWith('The minimum stay is 3 nights.');
     await act(async () => root.unmount());
