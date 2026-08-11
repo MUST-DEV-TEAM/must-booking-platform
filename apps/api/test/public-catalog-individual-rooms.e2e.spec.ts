@@ -104,8 +104,26 @@ describe('public catalog individual rooms', () => {
     const pooledRoomType = await request(app.getHttpServer())
       .post(`${pooledUrl}/room-types`)
       .set('Cookie', cookie)
-      .send({ name: 'Pooled Classic', maxOccupancy: 2 })
+      .send({
+        name: 'Pooled Classic',
+        maxOccupancy: 2,
+        mainImageUrl: 'https://images.example.test/pooled-classic.jpg',
+        galleryImageUrls: [
+          'https://images.example.test/pooled-classic-1.jpg',
+          'https://images.example.test/pooled-classic-2.jpg',
+        ],
+      })
       .expect(201);
+    const beachAmenity = await request(app.getHttpServer())
+      .post(`${pooledUrl}/amenities`)
+      .set('Cookie', cookie)
+      .send({ name: 'Beach access', icon: 'BEACH' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .put(`${pooledUrl}/room-types/${pooledRoomType.body.id}/amenities`)
+      .set('Cookie', cookie)
+      .send({ amenityIds: [beachAmenity.body.id] })
+      .expect(200);
     const pooledFirstRoom = await request(app.getHttpServer())
       .post(`${pooledUrl}/room-types/${pooledRoomType.body.id}/rooms`)
       .set('Cookie', cookie)
@@ -131,8 +149,13 @@ describe('public catalog individual rooms', () => {
           id: pooledRoomType.body.id,
           name: 'Pooled Classic',
           description: null,
+          mainImageUrl: 'https://images.example.test/pooled-classic.jpg',
+          galleryImageUrls: [
+            'https://images.example.test/pooled-classic-1.jpg',
+            'https://images.example.test/pooled-classic-2.jpg',
+          ],
           maxOccupancy: 2,
-          amenities: [],
+          amenities: [{ id: beachAmenity.body.id, name: 'Beach access', icon: 'BEACH' }],
           ratePlans: [],
           requiresRatePlanSelection: true,
         },
@@ -154,12 +177,12 @@ describe('public catalog individual rooms', () => {
     const unavailableRoom = await request(app.getHttpServer())
       .post(`${individualUrl}/room-types/${individualRoomType.body.id}/rooms`)
       .set('Cookie', cookie)
-      .send({ name: 'Classic Room A' })
+      .send({ name: 'Classic Room A', floor: 1, viewType: 'Garden view' })
       .expect(201);
     const availableRoom = await request(app.getHttpServer())
       .post(`${individualUrl}/room-types/${individualRoomType.body.id}/rooms`)
       .set('Cookie', cookie)
-      .send({ name: 'Classic Room B' })
+      .send({ name: 'Classic Room B', floor: 2, viewType: 'Sea view' })
       .expect(201);
     await request(app.getHttpServer())
       .put(`${individualUrl}/rooms/${unavailableRoom.body.id}/availability`)
@@ -177,8 +200,20 @@ describe('public catalog individual rooms', () => {
         {
           id: individualRoomType.body.id,
           rooms: [
-            { id: unavailableRoom.body.id, name: 'Classic Room A', isAvailable: false },
-            { id: availableRoom.body.id, name: 'Classic Room B', isAvailable: true },
+            {
+              id: unavailableRoom.body.id,
+              name: 'Classic Room A',
+              floor: 1,
+              viewType: 'Garden view',
+              isAvailable: false,
+            },
+            {
+              id: availableRoom.body.id,
+              name: 'Classic Room B',
+              floor: 2,
+              viewType: 'Sea view',
+              isAvailable: true,
+            },
           ],
         },
       ],
