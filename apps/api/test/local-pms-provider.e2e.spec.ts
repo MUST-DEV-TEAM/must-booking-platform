@@ -295,7 +295,7 @@ describe('LocalPmsProvider', () => {
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
       .set('Cookie', cookie)
-      .send({ roomTypeId, startsOn: '2026-09-01', endsOn: '2026-09-03', availableUnits: 1 })
+      .send({ roomTypeId, startsOn: '2027-09-01', endsOn: '2027-09-03', availableUnits: 1 })
       .expect(204);
     await request(app!.getHttpServer())
       .post(`${propertyUrl}/rate-plans/${ratePlanId}/rules`)
@@ -461,22 +461,22 @@ describe('LocalPmsProvider', () => {
     await expect(
       provider.getAvailability(context, {
         roomTypeId,
-        startsOn: '2026-09-01',
-        endsOn: '2026-09-03',
+        startsOn: '2027-09-01',
+        endsOn: '2027-09-03',
       }),
     ).resolves.toMatchObject({ ok: true, value: { availableUnits: 1, isAvailable: true } });
 
     const quote = await request(app!.getHttpServer())
       .post(`${propertyUrl}/quotes`)
-      .send({ roomTypeId, ratePlanId, startsOn: '2026-09-01', endsOn: '2026-09-03' })
+      .send({ roomTypeId, ratePlanId, startsOn: '2027-09-01', endsOn: '2027-09-03' })
       .expect(201);
     const guestCookie = quote.headers['set-cookie'][0] as string;
     expect(guestCookie).toContain('must_guest_session=');
     expect(quote.body).toMatchObject({
       roomTypeId,
       ratePlanId,
-      startsOn: '2026-09-01',
-      endsOn: '2026-09-03',
+      startsOn: '2027-09-01',
+      endsOn: '2027-09-03',
       total: { amount: '180.00', currency: 'EUR' },
     });
     expect(quote.body.quoteToken).toEqual(expect.any(String));
@@ -491,8 +491,8 @@ describe('LocalPmsProvider', () => {
       externalReference: `must-${randomUUID()}`,
       roomTypeId,
       ratePlanId,
-      startsOn: '2026-09-01',
-      endsOn: '2026-09-03',
+      startsOn: '2027-09-01',
+      endsOn: '2027-09-03',
       guest: {
         email: 'guest@example.test',
         firstName: 'Guest',
@@ -616,7 +616,7 @@ describe('LocalPmsProvider', () => {
     expect(secondMarkRead.body.readAt).toBe(firstMarkRead.body.readAt);
     const otherGuestQuote = await request(app!.getHttpServer())
       .post(`${propertyUrl}/quotes`)
-      .send({ roomTypeId, ratePlanId, startsOn: '2026-09-01', endsOn: '2026-09-03' })
+      .send({ roomTypeId, ratePlanId, startsOn: '2027-09-01', endsOn: '2027-09-03' })
       .expect(201);
     const otherGuestCookie = otherGuestQuote.headers['set-cookie'][0] as string;
     await request(app!.getHttpServer())
@@ -863,8 +863,8 @@ describe('LocalPmsProvider', () => {
               roomTypeName: 'Provider Suite',
               ratePlanId,
               ratePlanName: 'Provider Flexible',
-              startsOn: '2026-09-01',
-              endsOn: '2026-09-03',
+              startsOn: '2027-09-01',
+              endsOn: '2027-09-03',
               status: 'PAYMENT_PENDING',
               paymentMethod: 'STRIPE_CHECKOUT',
               total: { amount: '180.00', currency: 'EUR' },
@@ -1213,16 +1213,16 @@ describe('LocalPmsProvider', () => {
 
     const availableAfterCancellation = await provider.getAvailability(context, {
       roomTypeId,
-      startsOn: '2026-09-01',
-      endsOn: '2026-09-03',
+      startsOn: '2027-09-01',
+      endsOn: '2027-09-03',
     });
     expect(availableAfterCancellation).toMatchObject({ ok: true, value: { availableUnits: 1 } });
 
     const updatedGuestQuote = await quotes.create(tenantId, propertyId, quoteSessionId, {
       roomTypeId,
       ratePlanId,
-      startsOn: '2026-09-01',
-      endsOn: '2026-09-03',
+      startsOn: '2027-09-01',
+      endsOn: '2027-09-03',
     });
     const updatedGuestBooking = await provider.createBooking(context, {
       ...bookingRequest,
@@ -1308,16 +1308,16 @@ describe('LocalPmsProvider', () => {
     const zeroQuote = await quotes.create(tenantId, propertyId, quoteSessionId, {
       roomTypeId,
       ratePlanId: zeroRatePlan.body.id,
-      startsOn: '2026-09-01',
-      endsOn: '2026-09-03',
+      startsOn: '2027-09-01',
+      endsOn: '2027-09-03',
     });
     const zeroBooking = await provider.createBooking(context, {
       idempotencyKey: randomUUID(),
       externalReference: `must-${randomUUID()}`,
       roomTypeId,
       ratePlanId: zeroRatePlan.body.id,
-      startsOn: '2026-09-01',
-      endsOn: '2026-09-03',
+      startsOn: '2027-09-01',
+      endsOn: '2027-09-03',
       guest: {
         email: `complimentary-${randomUUID()}@example.test`,
         firstName: 'Complimentary',
@@ -1434,7 +1434,7 @@ describe('LocalPmsProvider', () => {
         ${draftBookingId}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid,
         ${draftGuestId}::uuid, ${`must-${randomUUID()}`}, ${quoteSessionId}::uuid,
         'DRAFT'::"BookingStatus",
-        '2026-09-01'::date, '2026-09-03'::date, ${ratePlanId}::uuid, 180.00
+        '2027-09-01'::date, '2027-09-03'::date, ${ratePlanId}::uuid, 180.00
       )
     `;
     await expect(
@@ -1449,8 +1449,8 @@ describe('LocalPmsProvider', () => {
 
     const availabilityAfterDraftCancellation = await provider.getAvailability(context, {
       roomTypeId,
-      startsOn: '2026-09-01',
-      endsOn: '2026-09-03',
+      startsOn: '2027-09-01',
+      endsOn: '2027-09-03',
     });
     expect(availabilityAfterDraftCancellation).toMatchObject({
       ok: true,
@@ -1461,7 +1461,7 @@ describe('LocalPmsProvider', () => {
       tenantId,
       propertyId,
       quoteSessionId,
-      { roomTypeId, ratePlanId, startsOn: '2026-09-01', endsOn: '2026-09-03' },
+      { roomTypeId, ratePlanId, startsOn: '2027-09-01', endsOn: '2027-09-03' },
       1,
     );
     await new Promise((resolve) => setTimeout(resolve, 1_100));
@@ -1472,8 +1472,8 @@ describe('LocalPmsProvider', () => {
         externalReference: expiredReference,
         roomTypeId,
         ratePlanId,
-        startsOn: '2026-09-01',
-        endsOn: '2026-09-03',
+        startsOn: '2027-09-01',
+        endsOn: '2027-09-03',
         guest: {
           email: 'expired@example.test',
           firstName: 'Expired',
@@ -1505,8 +1505,8 @@ describe('LocalPmsProvider', () => {
         externalReference: tamperedReference,
         roomTypeId,
         ratePlanId,
-        startsOn: '2026-09-01',
-        endsOn: '2026-09-03',
+        startsOn: '2027-09-01',
+        endsOn: '2027-09-03',
         guest: {
           email: 'tampered@example.test',
           firstName: 'Tampered',
@@ -1530,8 +1530,8 @@ describe('LocalPmsProvider', () => {
       externalReference: `must-${randomUUID()}`,
       roomTypeId,
       ratePlanId,
-      startsOn: '2026-09-01',
-      endsOn: '2026-09-03',
+      startsOn: '2027-09-01',
+      endsOn: '2027-09-03',
       guest: {
         email: 'GUEST@example.test',
         firstName: 'Different',
@@ -2238,7 +2238,7 @@ describe('LocalPmsProvider', () => {
     const unavailableQuote = await request(app!.getHttpServer())
       .post(`${propertyUrl}/quotes`)
       .set('Cookie', guestCookie)
-      .send({ roomTypeId, ratePlanId, startsOn: '2026-09-01', endsOn: '2026-09-03' })
+      .send({ roomTypeId, ratePlanId, startsOn: '2027-09-01', endsOn: '2027-09-03' })
       .expect(201);
     await expect(
       provider.createBooking(context, {
@@ -2246,8 +2246,8 @@ describe('LocalPmsProvider', () => {
         externalReference: unavailableReference,
         roomTypeId,
         ratePlanId,
-        startsOn: '2026-09-01',
-        endsOn: '2026-09-03',
+        startsOn: '2027-09-01',
+        endsOn: '2027-09-03',
         guest: {
           email: 'second@example.test',
           firstName: 'Second',
