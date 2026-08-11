@@ -78,10 +78,12 @@ class Rooms_Text_Grid_Widget extends \Elementor\Widget_Base
             $name = \trim((string) ($room['name'] ?? ''));
             if ($name === '') continue;
             $url = get_rooms_text_grid_item_link_url($room, $behavior);
+            $detailsUrl = get_rooms_text_grid_details_url($room);
             $isCurrent = isset($_GET['accommodation_type'])
                 && \sanitize_key((string) \wp_unslash($_GET['accommodation_type'])) === (string) ($room['room_type_id'] ?? $room['id'] ?? '');
             echo '<li class="must-hotel-booking-rooms-text-grid-item' . ($isCurrent ? ' is-current' : '') . '">';
-            if ($url === '') { echo '<span class="must-hotel-booking-rooms-text-grid-item-inner must-hotel-booking-rooms-text-grid-text">' . \esc_html($name) . '</span>'; }
+            echo '<div class="must-hotel-booking-rooms-text-grid-item-inner must-hotel-booking-rooms-text-grid-item-actions">';
+            if ($url === '') { echo '<span class="must-hotel-booking-rooms-text-grid-primary must-hotel-booking-rooms-text-grid-text">' . \esc_html($name) . '</span>'; }
             else {
                 $custom = \is_array($room['custom_link'] ?? null) ? $room['custom_link'] : [];
                 $newTab = ($settings['open_in_new_tab'] ?? '') === 'yes' || ($behavior === 'custom_override_or_single_room_page' && !empty($custom['is_external']));
@@ -90,8 +92,10 @@ class Rooms_Text_Grid_Widget extends \Elementor\Widget_Base
                 $rel = !empty($relParts) ? ' rel="' . \esc_attr(\implode(' ', $relParts)) . '"' : '';
                 $target = $newTab ? ' target="_blank"' : '';
                 $current = $isCurrent ? ' aria-current="page"' : '';
-                echo '<a class="must-hotel-booking-rooms-text-grid-item-inner must-hotel-booking-rooms-text-grid-link" href="' . \esc_url($url) . '"' . $target . $rel . $current . '>' . \esc_html($name) . '</a>';
+                echo '<a class="must-hotel-booking-rooms-text-grid-primary must-hotel-booking-rooms-text-grid-link" href="' . \esc_url($url) . '"' . $target . $rel . $current . '>' . \esc_html($name) . '</a>';
             }
+            if ($detailsUrl !== '') echo '<a class="must-hotel-booking-rooms-text-grid-details" href="' . \esc_url($detailsUrl) . '">' . \esc_html__('More Details', 'must-hotel-booking') . '</a>';
+            echo '</div>';
             echo '</li>';
         }
         echo '</ul></div>';

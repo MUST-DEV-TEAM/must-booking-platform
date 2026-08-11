@@ -9,6 +9,7 @@ This document defines current interface structure and non-regression rules. Life
 | `/rooms` | Optional assigned catalogue/Elementor host; not automatically required. |
 | `/booking` | Dates, guests, room count/category; one- or two-calendar configuration. |
 | `/booking-accommodation` | Room/rate selection; omitted by fixed-room entry flows. |
+| `/room-details` | Single room/type detail, gallery, amenities, related rooms, and booking handoff. |
 | `/checkout` | Guest/contact/billing details, room allocation, coupon, and stay review. |
 | `/booking-confirmation` | Review/payment, provider return, pending/success/failure result, and guest cancellation review. |
 | `/staff-login` | Nonce-protected WordPress authentication plus staff-role/disabled-user checks. |
@@ -136,7 +137,9 @@ Active widget names/classes cover Booking Search, Rooms List, and Rooms Text Gri
 
 - Booking Search can link to a selected Rooms List widget; preserve widget/document IDs and legacy connection settings.
 - Widgets reuse managed booking URLs and plugin assets; they do not own domain behavior.
-- Rooms List and Rooms Text Grid can show room types or flatten physical rooms for presentation. Their booking links always carry only the parent room-type ID as `accommodation_type`; physical-room IDs never appear in the date-less URL. After the guest chooses dates, the accommodation page owns the date-aware physical-room selection through its validated POST flow.
+- Rooms List and Rooms Text Grid can show room types or flatten physical rooms for presentation. Room-type cards carry only the parent room-type ID as `accommodation_type`; physical-room cards also carry their own `room_id`. A booking-page arrival uses that pair only after verifying the room belongs to the type and the property supports individual-room booking, then keeps it in guest-session state for the room-specific calendar. After the guest chooses dates, the existing validated POST still creates the date-specific quote and rechecks availability.
+- Rooms List renders each catalog item's main image and up to three gallery thumbnails when supplied; its existing placeholder states remain for missing media. Both room widgets expose a secondary More Details handoff to the managed room-details page, carrying the same validated room-type/physical-room pair as Book Now.
+- The managed room-details page is driven only by the public catalog. Its Book Now handoff preserves a validated physical-room ID, so the booking page's existing Task 28 availability-calendar flow blocks that room's unavailable dates after the guest starts date selection.
 - A booking-page arrival with `accommodation_type` skips the accommodation picker only for `ROOM_TYPE_ONLY` and `MIXED` properties: it shows the selected room-type summary, creates a fresh quote after dates are chosen, then redirects to Guest Information. `INDIVIDUAL_ROOM_ONLY` keeps the picker because a date-aware physical-room selection is required.
 - Respect configured inheritance of Elementor global colors and typography.
 - Do not assume Hello Elementor is the only host theme.

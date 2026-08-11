@@ -60,7 +60,12 @@ function get_rooms_for_text_grid_widget_render(string $sourceMode, array $select
     foreach (get_must_widget_room_types() as $roomType) {
         $roomTypeId = isset($roomType['id']) ? \sanitize_key((string) $roomType['id']) : '';
         if ($roomTypeId === '') continue;
-        $roomTypes[$roomTypeId] = ['id' => $roomTypeId, 'room_type_id' => $roomTypeId, 'name' => (string) ($roomType['name'] ?? ''), 'custom_link' => []];
+        $presentation = get_rooms_widget_presentation_data($roomType);
+        $roomTypes[$roomTypeId] = [
+            'id' => $roomTypeId, 'room_type_id' => $roomTypeId,
+            'name' => (string) ($roomType['name'] ?? ''), 'custom_link' => [],
+            ...$presentation,
+        ];
         foreach ((array) ($roomType['rooms'] ?? []) as $physicalRoom) {
             $roomId = isset($physicalRoom['id']) ? \sanitize_key((string) $physicalRoom['id']) : '';
             if ($roomId === '') continue;
@@ -69,6 +74,7 @@ function get_rooms_for_text_grid_widget_render(string $sourceMode, array $select
                 'room_type_id' => $roomTypeId,
                 'name' => (string) ($physicalRoom['name'] ?? $roomType['name'] ?? ''),
                 'custom_link' => [],
+                ...$presentation,
             ];
         }
     }
@@ -98,7 +104,21 @@ function get_rooms_for_text_grid_widget_render(string $sourceMode, array $select
 function get_rooms_text_grid_room_url(array $room): string
 {
     $roomTypeId = \sanitize_key((string) ($room['room_type_id'] ?? $room['id'] ?? ''));
-    return $roomTypeId === '' ? '' : \add_query_arg(['accommodation_type' => $roomTypeId], ManagedPages::getBookingPageUrl());
+    $roomId = \sanitize_key((string) ($room['id'] ?? ''));
+    if ($roomTypeId === '') return '';
+    $args = ['accommodation_type' => $roomTypeId];
+    if ($roomId !== '' && $roomId !== $roomTypeId) {
+        $args['room_id'] = $roomId;
+    }
+    return \add_query_arg($args, ManagedPages::getBookingPageUrl());
+}
+
+/** @param array<string, mixed> $room */
+function get_rooms_text_grid_details_url(array $room): string
+{
+    return \function_exists(__NAMESPACE__ . '\\get_rooms_widget_single_room_page_url')
+        ? get_rooms_widget_single_room_page_url($room)
+        : '';
 }
 
 /** @param array<string, mixed> $room */

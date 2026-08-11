@@ -59,13 +59,41 @@
         box-shadow var(--must-hotel-booking-rooms-text-grid-transition-duration) ease;
 }
 
+.must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-item-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-primary {
+    color: inherit;
+    font: inherit;
+    line-height: inherit;
+    text-decoration: none;
+}
+
+.must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-details {
+    display: inline-flex;
+    align-items: center;
+    color: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.25;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
 .must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-link:hover,
-.must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-link:focus-visible {
+.must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-link:focus-visible,
+.must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-details:hover,
+.must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-details:focus-visible {
     color: var(--must-hotel-booking-rooms-text-grid-hover-color);
     background: var(--must-hotel-booking-rooms-text-grid-hover-background);
 }
 
-.must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-link:focus-visible {
+.must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-link:focus-visible,
+.must-hotel-booking-rooms-text-grid-widget .must-hotel-booking-rooms-text-grid-details:focus-visible {
     outline: 2px solid currentColor;
     outline-offset: 3px;
 }

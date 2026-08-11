@@ -50,6 +50,15 @@ final class ManagedPages
                 'required' => true,
                 'auto_create' => true,
             ],
+            'page_single_room_id' => [
+                'title' => \__('Room Details', 'must-hotel-booking'),
+                'slug' => 'room-details',
+                'template' => 'frontend/templates/single-room.php',
+                'group' => 'public_booking',
+                'fallback_path' => '/room-details',
+                'required' => true,
+                'auto_create' => true,
+            ],
             'page_checkout_id' => [
                 'title' => \__('Checkout', 'must-hotel-booking'),
                 'slug' => 'checkout',
@@ -410,6 +419,11 @@ final class ManagedPages
     public static function getBookingAccommodationPageUrl(): string
     {
         return self::getPageUrl('page_booking_accommodation_id', '/booking-accommodation');
+    }
+
+    public static function getSingleRoomPageUrl(): string
+    {
+        return self::getPageUrl('page_single_room_id', '/room-details');
     }
 
     public static function getCheckoutPageUrl(): string

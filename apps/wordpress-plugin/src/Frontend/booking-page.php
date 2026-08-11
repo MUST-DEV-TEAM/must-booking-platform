@@ -108,6 +108,90 @@ function get_booking_categories(string $startsOn = '', string $endsOn = ''): arr
     return $categories;
 }
 
+/**
+ * Resolve a physical room only when it belongs to the supplied room type and
+ * the property supports individual-room booking.
+ *
+ * @param array<int, array<string, mixed>> $roomTypes
+ * @param array<string, mixed>|null $selection
+ * @return array<string, mixed>|null
+ */
+function resolve_fixed_physical_room(array $roomTypes, string $bookingMode, string $roomTypeId, string $roomId, ?array $selection = null): ?array
+{
+    if (
+        $roomTypeId === '' ||
+        $roomId === '' ||
+        !\in_array($bookingMode, ['INDIVIDUAL_ROOM_ONLY', 'MIXED'], true)
+    ) {
+        return null;
+    }
+
+    foreach ($roomTypes as $roomType) {
+        if ((string) ($roomType['id'] ?? '') !== $roomTypeId) {
+            continue;
+        }
+
+        foreach ((array) ($roomType['rooms'] ?? []) as $room) {
+            if ((string) ($room['id'] ?? '') !== $roomId) {
+                continue;
+            }
+
+            $defaultRatePlan = \is_array($roomType['ratePlans'][0] ?? null) ? $roomType['ratePlans'][0] : [];
+            return [
+                'id' => $roomId,
+                'physical_room_id' => $roomId,
+                'room_type_id' => $roomTypeId,
+                'name' => (string) ($room['name'] ?? ($selection['roomName'] ?? '')),
+                'category_label' => (string) ($roomType['name'] ?? ''),
+                'description' => (string) ($roomType['description'] ?? ''),
+                'max_guests' => (int) ($roomType['maxOccupancy'] ?? 0),
+                'room_size' => '', 'beds' => '',
+                'view_type' => (string) ($room['viewType'] ?? ''),
+                'floor' => \array_key_exists('floor', $room) && $room['floor'] !== null ? (int) $room['floor'] : 0,
+                'primary_image_url' => (string) ($roomType['mainImageUrl'] ?? ''),
+                'rate_plan_id' => (string) (($selection['ratePlanId'] ?? '') ?: ($defaultRatePlan['id'] ?? '')),
+            ];
+        }
+    }
+
+    return null;
+}
+
+/** @return array<string, mixed>|null */
+function get_url_fixed_physical_room(string $checkin = '', string $checkout = ''): ?array
+{
+    $raw = \is_array($_GET) ? $_GET : [];
+    $roomTypeId = isset($raw['accommodation_type']) ? \sanitize_key((string) $raw['accommodation_type']) : '';
+    $roomId = isset($raw['room_id']) ? \sanitize_text_field((string) $raw['room_id']) : '';
+    $roomTypes = get_must_room_types($checkin, $checkout);
+
+    return resolve_fixed_physical_room(
+        $roomTypes,
+        get_must_booking_mode($checkin, $checkout),
+        $roomTypeId,
+        $roomId
+    );
+}
+
+/**
+ * The calendar AJAX request deliberately reads the physical room from the
+ * guest-session transient rather than accepting it from the browser. A
+ * validated widget URL therefore records just enough selection context for
+ * that calendar; the existing select_room POST later replaces it with the
+ * date-specific quote.
+ *
+ * @param array<string, mixed> $fixedRoom
+ */
+function store_url_fixed_physical_room_selection(array $fixedRoom): void
+{
+    set_current_booking_selection([
+        'roomTypeId' => (string) $fixedRoom['room_type_id'],
+        'roomId' => (string) $fixedRoom['physical_room_id'],
+        'roomName' => (string) $fixedRoom['name'],
+        'ratePlanId' => (string) $fixedRoom['rate_plan_id'],
+    ]);
+}
+
 /** @return array<string, mixed> */
 function get_booking_page_view_data(): array
 {
@@ -117,6 +201,12 @@ function get_booking_page_view_data(): array
     $guests = isset($raw['guests']) ? \max(1, (int) $raw['guests']) : 1;
     $roomCount = isset($raw['room_count']) ? \max(0, (int) $raw['room_count']) : 0;
     $accommodationType = isset($raw['accommodation_type']) ? \sanitize_key((string) $raw['accommodation_type']) : '';
+    $urlRoomId = isset($raw['room_id']) ? \sanitize_text_field((string) $raw['room_id']) : '';
+    $urlHasRoomInput = $urlRoomId !== '';
+    $urlFixedRoom = get_url_fixed_physical_room($checkin, $checkout);
+    if ($urlFixedRoom !== null) {
+        store_url_fixed_physical_room_selection($urlFixedRoom);
+    }
     $selection = get_current_booking_selection();
     $selectedRoomId = $selection !== null && isset($selection['roomId']) ? \sanitize_text_field((string) $selection['roomId']) : '';
     $selectedRoomTypeId = $selection !== null && isset($selection['roomTypeId']) ? \sanitize_text_field((string) $selection['roomTypeId']) : '';
@@ -131,43 +221,19 @@ function get_booking_page_view_data(): array
     }
     $categories = get_booking_categories($checkin, $checkout);
     $bookingMode = get_must_booking_mode($checkin, $checkout);
-    $fixedRoom = null;
-
-    // A physical room is selected only by the accommodation page's validated
-    // select_room POST. Keep that selection in the guest-session transient;
-    // unlike a room type, a room cannot safely be deep-linked in a widget URL.
-    if ($selectedRoomId !== '' && $selectedRoomTypeId !== '') {
-        $fixedRoom = [
-            'id' => $selectedRoomId,
-            'physical_room_id' => $selectedRoomId,
-            'room_type_id' => $selectedRoomTypeId,
-            'name' => (string) ($selection['roomName'] ?? ''),
-            'category_label' => '', 'description' => '', 'max_guests' => 0,
-            'room_size' => '', 'beds' => '', 'view_type' => '', 'floor' => 0, 'primary_image_url' => '',
-            'rate_plan_id' => (string) ($selection['ratePlanId'] ?? ''),
-        ];
-        foreach (get_must_room_types($checkin, $checkout) as $roomType) {
-            if ((string) ($roomType['id'] ?? '') !== $selectedRoomTypeId) continue;
-            $fixedRoom['category_label'] = (string) ($roomType['name'] ?? '');
-            $fixedRoom['description'] = (string) ($roomType['description'] ?? '');
-            $fixedRoom['max_guests'] = (int) ($roomType['maxOccupancy'] ?? 0);
-            $fixedRoom['primary_image_url'] = (string) ($roomType['mainImageUrl'] ?? '');
-            foreach ((array) ($roomType['rooms'] ?? []) as $room) {
-                if ((string) ($room['id'] ?? '') !== $selectedRoomId) continue;
-                $fixedRoom['name'] = (string) ($room['name'] ?? $fixedRoom['name']);
-                $fixedRoom['view_type'] = (string) ($room['viewType'] ?? '');
-                $fixedRoom['floor'] = \array_key_exists('floor', $room) && $room['floor'] !== null ? (int) $room['floor'] : 0;
-                break;
-            }
-            break;
-        }
+    $roomTypes = get_must_room_types($checkin, $checkout);
+    // A URL room_id wins only when the complete URL pair resolves. An invalid
+    // physical-room URL must not accidentally reuse an older room selection.
+    $fixedRoom = $urlFixedRoom;
+    if ($fixedRoom === null && !$urlHasRoomInput) {
+        $fixedRoom = resolve_fixed_physical_room($roomTypes, $bookingMode, $selectedRoomTypeId, $selectedRoomId, $selection);
     }
 
     // A room-type link from a widget is enough to skip the picker only when
     // the property can book a room type without a guest-selected physical
     // room. INDIVIDUAL_ROOM_ONLY must continue to the date-aware room picker.
     if ($fixedRoom === null && $accommodationType !== '' && $bookingMode !== 'INDIVIDUAL_ROOM_ONLY') {
-        foreach (get_must_room_types($checkin, $checkout) as $roomType) {
+        foreach ($roomTypes as $roomType) {
             if ((string) ($roomType['id'] ?? '') !== $accommodationType) {
                 continue;
             }
@@ -275,6 +341,10 @@ function enqueue_booking_page_assets(): void
     \wp_enqueue_style('must-hotel-booking-flatpickr', 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css', [], MUST_HOTEL_BOOKING_VERSION);
     \wp_enqueue_script('must-hotel-booking-flatpickr', 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.js', [], MUST_HOTEL_BOOKING_VERSION, true);
     \wp_enqueue_script('must-hotel-booking-calendar', MUST_HOTEL_BOOKING_URL . 'assets/js/must-booking-calendar.js', ['must-hotel-booking-flatpickr'], MUST_HOTEL_BOOKING_VERSION, true);
+    $urlFixedRoom = get_url_fixed_physical_room();
+    if ($urlFixedRoom !== null) {
+        store_url_fixed_physical_room_selection($urlFixedRoom);
+    }
     $selection = get_current_booking_selection();
     $roomId = $selection !== null && isset($selection['roomId']) ? \sanitize_text_field((string) $selection['roomId']) : '';
     $roomTypeId = $selection !== null && isset($selection['roomTypeId']) ? \sanitize_text_field((string) $selection['roomTypeId']) : '';

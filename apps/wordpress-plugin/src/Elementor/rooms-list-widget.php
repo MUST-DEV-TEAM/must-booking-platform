@@ -18,6 +18,24 @@ function register_elementor_rooms_list_widget_scripts(): void
     ]]);
 }
 
+/** @param array<string, mixed> $roomType @return array<string, mixed> */
+function get_rooms_widget_presentation_data(array $roomType): array
+{
+    $media = \function_exists('\\MustHotelBooking\\Frontend\\get_room_type_media_view_data')
+        ? \MustHotelBooking\Frontend\get_room_type_media_view_data($roomType)
+        : ['primary_image_url' => '', 'gallery_images' => [], 'lightbox_images' => []];
+    $amenities = \function_exists('\\MustHotelBooking\\Frontend\\get_room_type_amenities_view_data')
+        ? \MustHotelBooking\Frontend\get_room_type_amenities_view_data($roomType)
+        : [];
+
+    return [
+        'main_image_url' => (string) ($media['primary_image_url'] ?? ''),
+        'gallery_image_urls' => \is_array($media['gallery_images'] ?? null) ? $media['gallery_images'] : [],
+        'lightbox_images' => \is_array($media['lightbox_images'] ?? null) ? $media['lightbox_images'] : [],
+        'amenities' => $amenities,
+    ];
+}
+
 /** @return array<int, array<string, mixed>> */
 function get_rooms_for_widget_render(string $category, int $limit, string $displayMode = 'room_types'): array
 {
@@ -26,12 +44,14 @@ function get_rooms_for_widget_render(string $category, int $limit, string $displ
     foreach (get_must_widget_room_types() as $roomType) {
         $roomTypeId = isset($roomType['id']) ? \sanitize_key((string) $roomType['id']) : '';
         if ($roomTypeId === '' || ($category !== 'all' && $category !== $roomTypeId)) continue;
+        $presentation = get_rooms_widget_presentation_data($roomType);
         $roomTypes[] = [
             'id' => $roomTypeId,
             'room_type_id' => $roomTypeId,
             'name' => (string) ($roomType['name'] ?? ''),
             'description' => (string) ($roomType['description'] ?? ''),
             'max_guests' => (int) ($roomType['maxOccupancy'] ?? 0),
+            ...$presentation,
         ];
         foreach ((array) ($roomType['rooms'] ?? []) as $physicalRoom) {
             $roomId = isset($physicalRoom['id']) ? \sanitize_key((string) $physicalRoom['id']) : '';
@@ -43,6 +63,7 @@ function get_rooms_for_widget_render(string $category, int $limit, string $displ
                 'description' => (string) ($roomType['description'] ?? ''),
                 'max_guests' => (int) ($roomType['maxOccupancy'] ?? 0),
                 'is_available' => !empty($physicalRoom['isAvailable']),
+                ...$presentation,
             ];
         }
     }
@@ -53,6 +74,23 @@ function get_rooms_for_widget_render(string $category, int $limit, string $displ
 function get_rooms_widget_booking_page_url(): string
 {
     return ManagedPages::getBookingPageUrl();
+}
+
+/** @param array<string, mixed> $room */
+function get_rooms_widget_single_room_page_url(array $room): string
+{
+    $roomTypeId = \sanitize_key((string) ($room['room_type_id'] ?? $room['id'] ?? ''));
+    $roomId = \sanitize_key((string) ($room['id'] ?? ''));
+    if ($roomTypeId === '') {
+        return '';
+    }
+
+    $args = ['accommodation_type' => $roomTypeId];
+    if ($roomId !== '' && $roomId !== $roomTypeId) {
+        $args['room_id'] = $roomId;
+    }
+
+    return \add_query_arg($args, ManagedPages::getSingleRoomPageUrl());
 }
 
 /** @param mixed $widgetsManager */

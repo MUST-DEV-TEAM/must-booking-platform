@@ -145,6 +145,7 @@ Key relationships:
 | `page_rooms_id` | `/rooms` | Optional; not auto-created |
 | `page_booking_id` | `/booking` | Required; auto-created |
 | `page_booking_accommodation_id` | `/booking-accommodation` | Required; auto-created |
+| `page_single_room_id` | `/room-details` | Required; auto-created |
 | `page_checkout_id` | `/checkout` | Required; auto-created |
 | `page_booking_confirmation_id` | `/booking-confirmation` | Required; auto-created |
 | `portal_page_id` | `/staff` | Required when portal enabled; auto-created |

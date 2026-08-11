@@ -40,14 +40,37 @@ class Rooms_List_Widget extends \Elementor\Widget_Base
             <?php if (($settings['show_category_heading'] ?? '') === 'yes' && $heading !== '') : ?><p class="must-hotel-booking-rooms-list-heading">/ <?php echo \esc_html(\strtoupper($heading)); ?></p><?php endif; ?>
             <?php if (empty($rooms)) : ?><p class="must-hotel-booking-rooms-list-empty"><?php echo \esc_html($emptyText); ?></p><?php else : foreach ($rooms as $room) :
                 $roomTypeId = (string) ($room['room_type_id'] ?? $room['id']);
-                $bookUrl = \add_query_arg(['accommodation_type' => $roomTypeId], get_rooms_widget_booking_page_url());
+                $roomId = (string) ($room['id'] ?? '');
+                $bookArgs = ['accommodation_type' => $roomTypeId];
+                if ($roomId !== '' && $roomId !== $roomTypeId) {
+                    $bookArgs['room_id'] = $roomId;
+                }
+                $bookUrl = \add_query_arg($bookArgs, get_rooms_widget_booking_page_url());
+                $detailsUrl = get_rooms_widget_single_room_page_url($room);
+                $mainImageUrl = (string) ($room['main_image_url'] ?? '');
+                $galleryImageUrls = \is_array($room['gallery_image_urls'] ?? null) ? $room['gallery_image_urls'] : [];
+                $lightboxImages = \is_array($room['lightbox_images'] ?? null) ? $room['lightbox_images'] : [];
+                $lightboxJson = \wp_json_encode($lightboxImages);
+                $lightboxAttr = \is_string($lightboxJson) ? \esc_attr($lightboxJson) : '[]';
                 ?>
-                <article class="must-hotel-booking-rooms-list-card" data-lightbox-images="[]" data-lightbox-title="<?php echo \esc_attr((string) $room['name']); ?>">
-                    <div class="must-hotel-booking-rooms-list-media"><div class="must-hotel-booking-rooms-list-placeholder"><?php echo \esc_html__('Image unavailable', 'must-hotel-booking'); ?></div></div>
+                <article class="must-hotel-booking-rooms-list-card" data-lightbox-images="<?php echo $lightboxAttr; ?>" data-lightbox-title="<?php echo \esc_attr((string) $room['name']); ?>">
+                    <div class="must-hotel-booking-rooms-list-media">
+                        <?php if ($mainImageUrl !== '') : ?>
+                            <button type="button" class="must-hotel-booking-rooms-list-image-trigger must-hotel-booking-rooms-list-image-trigger-main" data-lightbox-index="0"><img src="<?php echo \esc_url($mainImageUrl); ?>" alt="<?php echo \esc_attr((string) $room['name']); ?>" loading="lazy" /></button>
+                        <?php else : ?>
+                            <div class="must-hotel-booking-rooms-list-placeholder"><?php echo \esc_html__('Image unavailable', 'must-hotel-booking'); ?></div>
+                        <?php endif; ?>
+                    </div>
                     <div class="must-hotel-booking-rooms-list-content">
                         <div class="must-hotel-booking-rooms-list-section must-hotel-booking-rooms-list-section-copy"><div class="must-hotel-booking-rooms-list-header"><h3><?php echo \esc_html((string) $room['name']); ?></h3><?php if ($room['description'] !== '') : ?><p class="must-hotel-booking-rooms-list-description"><?php echo \esc_html((string) $room['description']); ?></p><?php endif; ?></div></div>
-                        <div class="must-hotel-booking-rooms-list-section must-hotel-booking-rooms-list-section-media"><div class="must-hotel-booking-rooms-list-thumbs"><span class="must-hotel-booking-thumb-placeholder" aria-hidden="true"></span><span class="must-hotel-booking-thumb-placeholder" aria-hidden="true"></span><span class="must-hotel-booking-thumb-placeholder" aria-hidden="true"></span></div></div>
-                        <div class="must-hotel-booking-rooms-list-section must-hotel-booking-rooms-list-section-actions"><div class="must-hotel-booking-rooms-list-actions"><a class="must-hotel-booking-rooms-list-book" href="<?php echo \esc_url($bookUrl); ?>"><span class="must-hotel-booking-rooms-list-book-text"><?php echo \esc_html__('Book Now', 'must-hotel-booking'); ?></span><img class="must-hotel-booking-rooms-list-book-icon" src="<?php echo \esc_url($arrow); ?>" alt="" aria-hidden="true" /></a></div></div>
+                        <div class="must-hotel-booking-rooms-list-section must-hotel-booking-rooms-list-section-media"><div class="must-hotel-booking-rooms-list-thumbs">
+                            <?php foreach (\array_slice($galleryImageUrls, 0, 3) as $galleryImageUrl) : ?>
+                                <?php $lightboxIndex = \array_search($galleryImageUrl, $lightboxImages, true); ?>
+                                <button type="button" class="must-hotel-booking-rooms-list-image-trigger" data-lightbox-index="<?php echo \esc_attr((string) ($lightboxIndex === false ? 0 : $lightboxIndex)); ?>"><img src="<?php echo \esc_url((string) $galleryImageUrl); ?>" alt="" loading="lazy" /></button>
+                            <?php endforeach; ?>
+                            <?php for ($i = \count($galleryImageUrls); $i < 3; $i++) : ?><span class="must-hotel-booking-thumb-placeholder" aria-hidden="true"></span><?php endfor; ?>
+                        </div></div>
+                        <div class="must-hotel-booking-rooms-list-section must-hotel-booking-rooms-list-section-actions"><div class="must-hotel-booking-rooms-list-actions"><a class="must-hotel-booking-rooms-list-book" href="<?php echo \esc_url($bookUrl); ?>"><span class="must-hotel-booking-rooms-list-book-text"><?php echo \esc_html__('Book Now', 'must-hotel-booking'); ?></span><img class="must-hotel-booking-rooms-list-book-icon" src="<?php echo \esc_url($arrow); ?>" alt="" aria-hidden="true" /></a><?php if ($detailsUrl !== '') : ?><a class="must-hotel-booking-rooms-list-details" href="<?php echo \esc_url($detailsUrl); ?>"><span><?php echo \esc_html__('More Details', 'must-hotel-booking'); ?></span><img class="must-hotel-booking-rooms-list-details-icon" src="<?php echo \esc_url($arrow); ?>" alt="" aria-hidden="true" /></a><?php endif; ?></div></div>
                     </div>
                 </article>
             <?php endforeach; endif; ?>
