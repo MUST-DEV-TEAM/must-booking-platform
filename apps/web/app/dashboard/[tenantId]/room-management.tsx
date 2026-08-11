@@ -597,8 +597,8 @@ export function RoomManagement({
                       checked={roomTypeAmenities[roomType.id]?.some(
                         (assignedAmenity) => assignedAmenity.id === amenity.id,
                       )}
-                    onChange={() => toggleRoomTypeAmenity(roomType.id, amenity.id)}
-                  />
+                      onChange={() => toggleRoomTypeAmenity(roomType.id, amenity.id)}
+                    />
                     {amenity.name} ({amenity.icon ? amenityIconLabel(amenity.icon) : 'No icon'})
                   </label>
                 ))}
@@ -624,8 +624,7 @@ export function RoomManagement({
                 <ul>
                   {rooms[roomType.id]?.map((room) => (
                     <li key={room.id}>
-                      {room.name}{' '}
-                      {room.viewType ? ` · ${room.viewType}` : ''}
+                      {room.name} {room.viewType ? ` · ${room.viewType}` : ''}
                       {room.floor !== null ? ` · Floor ${room.floor}` : ''}{' '}
                       <button
                         className="must-button must-button--secondary"

@@ -10,7 +10,14 @@ import { randomUUID } from 'node:crypto';
 import { AuditLogService } from './audit-log.service';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 
-const AMENITY_ICONS = ['WIFI', 'BREAKFAST', 'POOL', 'PARKING', 'AIR_CONDITIONING', 'BEACH'] as const;
+const AMENITY_ICONS = [
+  'WIFI',
+  'BREAKFAST',
+  'POOL',
+  'PARKING',
+  'AIR_CONDITIONING',
+  'BEACH',
+] as const;
 type AmenityIcon = (typeof AMENITY_ICONS)[number];
 type Amenity = { id: string; name: string; icon: AmenityIcon | null };
 
@@ -197,8 +204,9 @@ export class AmenitiesService {
     const name = typeof value.name === 'string' ? value.name.trim() : '';
     if (!name) throw new BadRequestException('name is required.');
     if (name.length > 100) throw new BadRequestException('name must be at most 100 characters.');
-    const icon = value.icon === undefined || value.icon === null || value.icon === '' ? null : value.icon;
-    if (icon !== null && (!AMENITY_ICONS.includes(icon as AmenityIcon)))
+    const icon =
+      value.icon === undefined || value.icon === null || value.icon === '' ? null : value.icon;
+    if (icon !== null && !AMENITY_ICONS.includes(icon as AmenityIcon))
       throw new BadRequestException(`icon must be one of: ${AMENITY_ICONS.join(', ')}.`);
     return { name, icon: icon as AmenityIcon | null };
   }

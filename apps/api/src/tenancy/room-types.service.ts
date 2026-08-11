@@ -252,8 +252,10 @@ export class RoomTypesService {
 
   private galleryImageUrls(value: unknown): string[] {
     if (value === undefined || value === null) return [];
-    if (!Array.isArray(value)) throw new BadRequestException('galleryImageUrls must be an array of image URLs.');
-    if (value.length > 12) throw new BadRequestException('galleryImageUrls must contain at most 12 URLs.');
+    if (!Array.isArray(value))
+      throw new BadRequestException('galleryImageUrls must be an array of image URLs.');
+    if (value.length > 12)
+      throw new BadRequestException('galleryImageUrls must contain at most 12 URLs.');
     const urls = value.map((url) => this.imageUrl(url, 'galleryImageUrls'));
     if (urls.some((url) => url === null))
       throw new BadRequestException('galleryImageUrls must contain image URLs.');
@@ -267,10 +269,12 @@ export class RoomTypesService {
     if (typeof value !== 'string') throw new BadRequestException(`${field} must be an image URL.`);
     const url = value.trim();
     if (!url) return null;
-    if (url.length > 2000) throw new BadRequestException(`${field} must be at most 2,000 characters.`);
+    if (url.length > 2000)
+      throw new BadRequestException(`${field} must be at most 2,000 characters.`);
     try {
       const parsed = new URL(url);
-      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') throw new Error('Unsupported URL');
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')
+        throw new Error('Unsupported URL');
     } catch {
       throw new BadRequestException(`${field} must be an http(s) URL.`);
     }

@@ -155,8 +155,7 @@ export class RoomsService {
     if (!name) throw new BadRequestException('name is required.');
     if (name.length > 200) throw new BadRequestException('name must be at most 200 characters.');
     const floor = this.floor(v.floor);
-    const viewType =
-      typeof v.viewType === 'string' && v.viewType.trim() ? v.viewType.trim() : null;
+    const viewType = typeof v.viewType === 'string' && v.viewType.trim() ? v.viewType.trim() : null;
     if (viewType && viewType.length > 100)
       throw new BadRequestException('viewType must be at most 100 characters.');
     return { name, floor, viewType };
