@@ -38,7 +38,12 @@ final class Plugin
     {
         \MustHotelBooking\Core\MustBookingConfig::remove_legacy_payment_configuration();
         \MustHotelBooking\Core\MustBookingConfig::remove_legacy_clock_configuration();
-        \MustHotelBooking\Core\ManagedPages::sync();
+        // Deferred to `init`: creating a genuinely new managed page calls
+        // wp_insert_post(), which needs get_permalink() -> $wp_rewrite -
+        // not yet instantiated this early on `plugins_loaded`. Repairing an
+        // already-existing page's assignment doesn't hit that path, which is
+        // why this only ever surfaced once a brand-new page config was added.
+        \add_action('init', [\MustHotelBooking\Core\ManagedPages::class, 'sync']);
         \MustHotelBooking\Core\Updater::boot();
         \MustHotelBooking\Core\PluginSupportWidget::registerHooks();
         \MustHotelBooking\Core\ActivityLogger::registerHooks();
