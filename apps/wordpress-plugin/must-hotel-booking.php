@@ -2,7 +2,7 @@
 /**
  * Plugin Name: MUST Hotel Booking
  * Description: Guest-facing booking widget for MUST Booking. Talks only to the MUST API — no local reservation, payment, or PMS data is stored in WordPress.
- * Version: 0.1.0
+ * Version: 0.1.1
  * Author: MUST
  * Author URI: https://must.al/
  * Requires at least: 5.0
@@ -17,7 +17,7 @@ if (!\defined('ABSPATH')) {
     exit;
 }
 
-\define('MUST_HOTEL_BOOKING_VERSION', '0.1.0');
+\define('MUST_HOTEL_BOOKING_VERSION', '0.1.1');
 \define('MUST_HOTEL_BOOKING_FILE', __FILE__);
 \define('MUST_HOTEL_BOOKING_PATH', \plugin_dir_path(__FILE__));
 \define('MUST_HOTEL_BOOKING_URL', \plugin_dir_url(__FILE__));
