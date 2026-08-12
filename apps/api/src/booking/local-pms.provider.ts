@@ -223,63 +223,65 @@ export class LocalPmsProvider implements PmsProvider {
 
     let payAtHotelConfirmationBookingId: string | null = null;
     try {
-      const result = await this.database.withTenantTransaction(context, async (tx) => {
-        // Serialize the complete booking transaction before it obtains booking or guest row locks.
-        // The respective reservation method takes the same transaction-scoped lock again.
-        if (command.roomId)
-          await this.availability.lockRoom(
-            tx,
-            context.tenantId,
-            context.propertyId,
-            command.roomId,
-          );
-        else
-          await this.availability.lockBookedUnits(
-            tx,
-            context.tenantId,
-            context.propertyId,
-            command.roomTypeId,
-          );
-        return this.withIdempotency(
-          tx,
-          context,
-          command.idempotencyKey,
-          command,
-          null,
-          command.externalReference ?? null,
-          async () => {
-            // Walk-in booking redesign: staff no longer picks a rate plan
-            // for a Clock-connected room type — resolve the auto-created
-            // shadow rate plan (Task confirm-time) instead of failing on an
-            // empty ratePlanId, which would otherwise reach validateCatalog's
-            // ::uuid cast as '' and throw a raw Postgres error.
-            const ratePlanId = command.ratePlanId
-              ? command.ratePlanId
-              : await this.clockShadowRatePlanId(tx, context, command.roomTypeId);
-            if (!ratePlanId)
-              return this.failure(
-                'RATE_PLAN_REQUIRED',
-                'A rate plan is required for this room type.',
-              );
-            const catalogError = await this.validateCatalog(
+      const result = await this.database.withTenantTransaction(
+        context,
+        async (tx) => {
+          // Serialize the complete booking transaction before it obtains booking or guest row locks.
+          // The respective reservation method takes the same transaction-scoped lock again.
+          if (command.roomId)
+            await this.availability.lockRoom(
               tx,
-              context,
-              command.roomTypeId,
-              ratePlanId,
-              command.total.currency,
+              context.tenantId,
+              context.propertyId,
+              command.roomId,
             );
-            if (catalogError) return catalogError;
-            const roomSelection = await this.validateRoomSelection(tx, context, command);
-            if ('ok' in roomSelection) return roomSelection;
-            const paymentMethod = await this.paymentMethod(tx, context, command);
-            if (!paymentMethod.ok) return paymentMethod;
-            const resolvedGuest = await this.resolveGuest(tx, context.tenantId, command.guest);
-            if (!resolvedGuest.ok) return resolvedGuest;
-            const guestId = resolvedGuest.value;
-            const externalReference =
-              command.externalReference ?? (await this.generatedExternalReference(tx, context));
+          else
+            await this.availability.lockBookedUnits(
+              tx,
+              context.tenantId,
+              context.propertyId,
+              command.roomTypeId,
+            );
+          return this.withIdempotency(
+            tx,
+            context,
+            command.idempotencyKey,
+            command,
+            null,
+            command.externalReference ?? null,
+            async () => {
+              // Walk-in booking redesign: staff no longer picks a rate plan
+              // for a Clock-connected room type — resolve the auto-created
+              // shadow rate plan (Task confirm-time) instead of failing on an
+              // empty ratePlanId, which would otherwise reach validateCatalog's
+              // ::uuid cast as '' and throw a raw Postgres error.
+              const ratePlanId = command.ratePlanId
+                ? command.ratePlanId
+                : await this.clockShadowRatePlanId(tx, context, command.roomTypeId);
+              if (!ratePlanId)
+                return this.failure(
+                  'RATE_PLAN_REQUIRED',
+                  'A rate plan is required for this room type.',
+                );
+              const catalogError = await this.validateCatalog(
+                tx,
+                context,
+                command.roomTypeId,
+                ratePlanId,
+                command.total.currency,
+              );
+              if (catalogError) return catalogError;
+              const roomSelection = await this.validateRoomSelection(tx, context, command);
+              if ('ok' in roomSelection) return roomSelection;
+              const paymentMethod = await this.paymentMethod(tx, context, command);
+              if (!paymentMethod.ok) return paymentMethod;
+              const resolvedGuest = await this.resolveGuest(tx, context.tenantId, command.guest);
+              if (!resolvedGuest.ok) return resolvedGuest;
+              const guestId = resolvedGuest.value;
+              const externalReference =
+                command.externalReference ?? (await this.generatedExternalReference(tx, context));
 
-            const inserted = await tx.$queryRaw<Array<{ id: string }>>`
+              const inserted = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO bookings (
           tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
           guest_session_id, special_requests, status, payment_method, starts_on, ends_on, rate_plan_id, total_amount
@@ -295,50 +297,68 @@ export class LocalPmsProvider implements PmsProvider {
         )
         RETURNING id
       `;
-            const bookingId = inserted[0]!.id;
-            const guestReturnUrl = await this.validatedGuestReturnUrl(
-              tx,
-              context,
-              command.returnUrl,
-            );
-            if (guestReturnUrl)
-              await tx.$executeRaw`UPDATE bookings SET guest_return_url = ${guestReturnUrl} WHERE id = ${bookingId}::uuid`;
-            await this.audit.recordInTransaction(tx, {
-              tenantId: context.tenantId,
-              propertyId: context.propertyId,
-              actorUserId: command.staffActorId ?? null,
-              action: 'booking.created',
-              targetType: 'booking',
-              targetId: bookingId,
-              details: { guestId },
-            });
-            await this.notificationsService.recordInTransaction(tx, {
-              tenantId: context.tenantId,
-              propertyId: context.propertyId,
-              type: 'BOOKING_CREATED',
-              payload: { bookingId, guestId },
-            });
-            let status = BookingStatus.DRAFT;
-            status = await this.transition(tx, context, bookingId, status, BookingStatus.QUOTED);
-            status = await this.transition(
-              tx,
-              context,
-              bookingId,
-              status,
-              BookingStatus.INVENTORY_REVALIDATING,
-            );
-            if (!command.skipQuoteValidation) {
-              const quoteError = this.quotes.validate(command.quoteToken, command.quoteSessionId, {
+              const bookingId = inserted[0]!.id;
+              const guestReturnUrl = await this.validatedGuestReturnUrl(
+                tx,
+                context,
+                command.returnUrl,
+              );
+              if (guestReturnUrl)
+                await tx.$executeRaw`UPDATE bookings SET guest_return_url = ${guestReturnUrl} WHERE id = ${bookingId}::uuid`;
+              await this.audit.recordInTransaction(tx, {
                 tenantId: context.tenantId,
                 propertyId: context.propertyId,
-                roomTypeId: command.roomTypeId,
-                roomId: command.roomId,
-                ratePlanId: command.ratePlanId,
-                startsOn: command.startsOn,
-                endsOn: command.endsOn,
-                total: command.total,
+                actorUserId: command.staffActorId ?? null,
+                action: 'booking.created',
+                targetType: 'booking',
+                targetId: bookingId,
+                details: { guestId },
               });
-              if (quoteError) {
+              await this.notificationsService.recordInTransaction(tx, {
+                tenantId: context.tenantId,
+                propertyId: context.propertyId,
+                type: 'BOOKING_CREATED',
+                payload: { bookingId, guestId },
+              });
+              let status = BookingStatus.DRAFT;
+              status = await this.transition(tx, context, bookingId, status, BookingStatus.QUOTED);
+              status = await this.transition(
+                tx,
+                context,
+                bookingId,
+                status,
+                BookingStatus.INVENTORY_REVALIDATING,
+              );
+              if (!command.skipQuoteValidation) {
+                const quoteError = this.quotes.validate(
+                  command.quoteToken,
+                  command.quoteSessionId,
+                  {
+                    tenantId: context.tenantId,
+                    propertyId: context.propertyId,
+                    roomTypeId: command.roomTypeId,
+                    roomId: command.roomId,
+                    ratePlanId: command.ratePlanId,
+                    startsOn: command.startsOn,
+                    endsOn: command.endsOn,
+                    total: command.total,
+                  },
+                );
+                if (quoteError) {
+                  await this.transition(
+                    tx,
+                    context,
+                    bookingId,
+                    status,
+                    BookingStatus.AVAILABILITY_FAILED,
+                  );
+                  return this.failure(quoteError.code, quoteError.message);
+                }
+              }
+              const autoAssignedRoomId = roomSelection.autoAssign
+                ? await this.reserveSamePricedRoom(tx, context, command)
+                : null;
+              if (roomSelection.autoAssign && !autoAssignedRoomId) {
                 await this.transition(
                   tx,
                   context,
@@ -346,94 +366,80 @@ export class LocalPmsProvider implements PmsProvider {
                   status,
                   BookingStatus.AVAILABILITY_FAILED,
                 );
-                return this.failure(quoteError.code, quoteError.message);
+                return this.failure(
+                  'AUTO_ASSIGNMENT_UNAVAILABLE',
+                  'No available room matches the quoted price for the requested stay.',
+                );
               }
-            }
-            const autoAssignedRoomId = roomSelection.autoAssign
-              ? await this.reserveSamePricedRoom(tx, context, command)
-              : null;
-            if (roomSelection.autoAssign && !autoAssignedRoomId) {
-              await this.transition(
-                tx,
-                context,
-                bookingId,
-                status,
-                BookingStatus.AVAILABILITY_FAILED,
-              );
-              return this.failure(
-                'AUTO_ASSIGNMENT_UNAVAILABLE',
-                'No available room matches the quoted price for the requested stay.',
-              );
-            }
-            if (autoAssignedRoomId)
-              await tx.$executeRaw`
+              if (autoAssignedRoomId)
+                await tx.$executeRaw`
                 UPDATE bookings
                 SET room_id = ${autoAssignedRoomId}::uuid
                 WHERE id = ${bookingId}::uuid
               `;
 
-            const reserved = roomSelection.autoAssign
-              ? true
-              : command.roomId
-                ? await this.availability.reserveRoom(tx, context.tenantId, context.propertyId, {
-                    roomId: command.roomId,
-                    startsOn: command.startsOn,
-                    endsOn: command.endsOn,
-                  })
-                : await this.availability.reserveBookedUnits(
-                    tx,
-                    context.tenantId,
-                    context.propertyId,
-                    {
-                      roomTypeId: command.roomTypeId,
+              const reserved = roomSelection.autoAssign
+                ? true
+                : command.roomId
+                  ? await this.availability.reserveRoom(tx, context.tenantId, context.propertyId, {
+                      roomId: command.roomId,
                       startsOn: command.startsOn,
                       endsOn: command.endsOn,
-                      units: 1,
-                    },
-                  );
-            if (!reserved) {
-              await this.transition(
-                tx,
-                context,
-                bookingId,
-                status,
-                BookingStatus.AVAILABILITY_FAILED,
-              );
-              return this.failure(
-                'AVAILABILITY_FAILED',
-                (autoAssignedRoomId ?? command.roomId)
-                  ? 'The selected room is no longer available for the requested stay.'
-                  : 'Inventory is no longer available for the requested stay.',
-              );
-            }
-
-            if (
-              paymentMethod.value === BookingPaymentMethod.STRIPE_CHECKOUT ||
-              paymentMethod.value === BookingPaymentMethod.POKPAY
-            ) {
-              status = await this.transition(
-                tx,
-                context,
-                bookingId,
-                status,
-                BookingStatus.PAYMENT_PENDING,
-              );
-              const provider = this.paymentProviders.forBookingMethod(paymentMethod.value);
-              if (!provider)
-                return this.failure(
-                  'PAYMENT_PROVIDER_NOT_AVAILABLE',
-                  'Payment provider is unavailable.',
+                    })
+                  : await this.availability.reserveBookedUnits(
+                      tx,
+                      context.tenantId,
+                      context.propertyId,
+                      {
+                        roomTypeId: command.roomTypeId,
+                        startsOn: command.startsOn,
+                        endsOn: command.endsOn,
+                        units: 1,
+                      },
+                    );
+              if (!reserved) {
+                await this.transition(
+                  tx,
+                  context,
+                  bookingId,
+                  status,
+                  BookingStatus.AVAILABILITY_FAILED,
                 );
-              const checkout = await provider.createCheckoutSession(context, {
-                idempotencyKey: command.idempotencyKey,
-                bookingId,
-                amount: command.total,
-                successUrl: this.checkoutReturnUrl(bookingId, 'success', guestReturnUrl),
-                cancelUrl: this.checkoutReturnUrl(bookingId, 'cancel', guestReturnUrl),
-              });
-              if (!checkout.ok) throw new CheckoutSessionCreationError(checkout);
-              if (paymentMethod.value === BookingPaymentMethod.POKPAY) {
-                await tx.$executeRaw`
+                return this.failure(
+                  'AVAILABILITY_FAILED',
+                  (autoAssignedRoomId ?? command.roomId)
+                    ? 'The selected room is no longer available for the requested stay.'
+                    : 'Inventory is no longer available for the requested stay.',
+                );
+              }
+
+              if (
+                paymentMethod.value === BookingPaymentMethod.STRIPE_CHECKOUT ||
+                paymentMethod.value === BookingPaymentMethod.POKPAY
+              ) {
+                status = await this.transition(
+                  tx,
+                  context,
+                  bookingId,
+                  status,
+                  BookingStatus.PAYMENT_PENDING,
+                );
+                const provider = this.paymentProviders.forBookingMethod(paymentMethod.value);
+                if (!provider)
+                  return this.failure(
+                    'PAYMENT_PROVIDER_NOT_AVAILABLE',
+                    'Payment provider is unavailable.',
+                  );
+                const checkout = await provider.createCheckoutSession(context, {
+                  idempotencyKey: command.idempotencyKey,
+                  bookingId,
+                  amount: command.total,
+                  successUrl: this.checkoutReturnUrl(bookingId, 'success', guestReturnUrl),
+                  cancelUrl: this.checkoutReturnUrl(bookingId, 'cancel', guestReturnUrl),
+                });
+                if (!checkout.ok) throw new CheckoutSessionCreationError(checkout);
+                if (paymentMethod.value === BookingPaymentMethod.POKPAY) {
+                  await tx.$executeRaw`
                   INSERT INTO payment_provider_sessions (
                     tenant_id, property_id, booking_id, provider, external_payment_id
                   ) VALUES (
@@ -442,62 +448,67 @@ export class LocalPmsProvider implements PmsProvider {
                   )
                   ON CONFLICT (tenant_id, property_id, booking_id, provider) DO NOTHING
                 `;
+                }
+                const row = await this.bookingById(tx, context, bookingId);
+                const booking = row && this.toBooking(row);
+                return booking
+                  ? { ok: true, value: { ...booking, checkoutUrl: checkout.value.url } }
+                  : this.failure('BOOKING_NOT_FOUND', 'Created booking could not be loaded.');
               }
-              const row = await this.bookingById(tx, context, bookingId);
-              const booking = row && this.toBooking(row);
-              return booking
-                ? { ok: true, value: { ...booking, checkoutUrl: checkout.value.url } }
-                : this.failure('BOOKING_NOT_FOUND', 'Created booking could not be loaded.');
-            }
 
-            status = await this.transition(
-              tx,
-              context,
-              bookingId,
-              status,
-              BookingStatus.PAYMENT_NOT_REQUIRED,
-            );
-            status = await this.transition(
-              tx,
-              context,
-              bookingId,
-              status,
-              BookingStatus.PMS_CREATION_PENDING,
-            );
-
-            // Milestone 11.5 Task 4: pay-at-hotel has no payment to gate on
-            // (nothing charged online), so a Clock-connected property's real
-            // reservation is created right here rather than deferred —
-            // there's no ADR-0001 premature-inventory risk for this method.
-            if (await this.isClockConnected(context)) {
-              const attached = await this.clockBooking.attachRealReservation(
+              status = await this.transition(
                 tx,
                 context,
                 bookingId,
+                status,
+                BookingStatus.PAYMENT_NOT_REQUIRED,
               );
-              if (attached.ok && attached.value.paymentMethod === BookingPaymentMethod.PAY_AT_HOTEL)
-                payAtHotelConfirmationBookingId = attached.value.id;
-              return attached;
-            }
+              status = await this.transition(
+                tx,
+                context,
+                bookingId,
+                status,
+                BookingStatus.PMS_CREATION_PENDING,
+              );
 
-            status = await this.transition(
-              tx,
-              context,
-              bookingId,
-              status,
-              BookingStatus.PMS_CONFIRMATION_PENDING,
-            );
-            await this.transition(tx, context, bookingId, status, BookingStatus.CONFIRMED);
-            const row = await this.bookingById(tx, context, bookingId);
-            const booking = row && this.toBooking(row);
-            if (booking?.paymentMethod === BookingPaymentMethod.PAY_AT_HOTEL)
-              payAtHotelConfirmationBookingId = booking.id;
-            return booking
-              ? { ok: true, value: booking }
-              : this.failure('BOOKING_NOT_FOUND', 'Created booking could not be loaded.');
-          },
-        );
-      }, { timeoutMs: 30_000 });
+              // Milestone 11.5 Task 4: pay-at-hotel has no payment to gate on
+              // (nothing charged online), so a Clock-connected property's real
+              // reservation is created right here rather than deferred —
+              // there's no ADR-0001 premature-inventory risk for this method.
+              if (await this.isClockConnected(context)) {
+                const attached = await this.clockBooking.attachRealReservation(
+                  tx,
+                  context,
+                  bookingId,
+                );
+                if (
+                  attached.ok &&
+                  attached.value.paymentMethod === BookingPaymentMethod.PAY_AT_HOTEL
+                )
+                  payAtHotelConfirmationBookingId = attached.value.id;
+                return attached;
+              }
+
+              status = await this.transition(
+                tx,
+                context,
+                bookingId,
+                status,
+                BookingStatus.PMS_CONFIRMATION_PENDING,
+              );
+              await this.transition(tx, context, bookingId, status, BookingStatus.CONFIRMED);
+              const row = await this.bookingById(tx, context, bookingId);
+              const booking = row && this.toBooking(row);
+              if (booking?.paymentMethod === BookingPaymentMethod.PAY_AT_HOTEL)
+                payAtHotelConfirmationBookingId = booking.id;
+              return booking
+                ? { ok: true, value: booking }
+                : this.failure('BOOKING_NOT_FOUND', 'Created booking could not be loaded.');
+            },
+          );
+        },
+        { timeoutMs: 30_000 },
+      );
       if (payAtHotelConfirmationBookingId)
         await this.confirmations.sendAfterConfirmation(
           context,
@@ -695,90 +706,92 @@ export class LocalPmsProvider implements PmsProvider {
     command: CancelBookingCommand,
   ): Promise<Result<Booking>> {
     let refundConfirmation: RefundConfirmation | null = null;
-    const result = await this.database.withTenantTransaction(context, (tx) =>
-      this.withIdempotency(
-        tx,
-        context,
-        command.idempotencyKey,
-        command,
-        command.bookingId,
-        null,
-        async () => {
-          const row = await this.bookingById(tx, context, command.bookingId);
-          if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
-          if (row.guestSessionId !== command.guestSessionId)
-            return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
-          if (row.version !== command.expectedVersion)
-            return this.failure(
-              'VERSION_CONFLICT',
-              'Booking has changed; reload it before cancelling.',
-              true,
-            );
-          const booking = this.toBooking(row);
-          if (!booking) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
-          if (!this.stateMachine.canTransition(row.status, BookingStatus.CANCELLED))
-            return this.failure(
-              'INVALID_BOOKING_STATE',
-              `Booking cannot be cancelled from ${row.status}.`,
-            );
+    const result = await this.database.withTenantTransaction(
+      context,
+      (tx) =>
+        this.withIdempotency(
+          tx,
+          context,
+          command.idempotencyKey,
+          command,
+          command.bookingId,
+          null,
+          async () => {
+            const row = await this.bookingById(tx, context, command.bookingId);
+            if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
+            if (row.guestSessionId !== command.guestSessionId)
+              return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
+            if (row.version !== command.expectedVersion)
+              return this.failure(
+                'VERSION_CONFLICT',
+                'Booking has changed; reload it before cancelling.',
+                true,
+              );
+            const booking = this.toBooking(row);
+            if (!booking) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
+            if (!this.stateMachine.canTransition(row.status, BookingStatus.CANCELLED))
+              return this.failure(
+                'INVALID_BOOKING_STATE',
+                `Booking cannot be cancelled from ${row.status}.`,
+              );
 
-          // Milestone 11.5 Task 6: self-service cancellation window, separate
-          // from the rate plan's own refund-eligibility policy below — this
-          // is an access gate (can the guest cancel online at all), not a
-          // money question. Every cancellation reaching this point is
-          // guest-initiated (row.guestSessionId matched command.guestSessionId
-          // above; staff-created bookings have no guest session and can
-          // never match here today), so this applies unconditionally.
-          const selfServiceWindow = await tx.$queryRaw<Array<{ canCancel: boolean }>>`
+            // Milestone 11.5 Task 6: self-service cancellation window, separate
+            // from the rate plan's own refund-eligibility policy below — this
+            // is an access gate (can the guest cancel online at all), not a
+            // money question. Every cancellation reaching this point is
+            // guest-initiated (row.guestSessionId matched command.guestSessionId
+            // above; staff-created bookings have no guest session and can
+            // never match here today), so this applies unconditionally.
+            const selfServiceWindow = await tx.$queryRaw<Array<{ canCancel: boolean }>>`
             SELECT CURRENT_TIMESTAMP <= (b.starts_on::timestamp AT TIME ZONE p.timezone)
               - make_interval(days => p.free_cancellation_days_before_arrival) AS "canCancel"
             FROM bookings b JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
             WHERE b.id = ${row.id}::uuid AND b.tenant_id = ${context.tenantId}::uuid
           `;
-          if (selfServiceWindow[0]?.canCancel === false)
-            return this.failure(
-              'CANCELLATION_WINDOW_CLOSED',
-              'This booking is too close to arrival to cancel online. Please contact the hotel directly.',
-            );
-
-          if (await this.isClockConnected(context)) {
-            if (row.externalBookingId) {
-              const cancelledAtClock = await this.clockBooking.cancelRealReservation(
-                context,
-                row.externalBookingId,
+            if (selfServiceWindow[0]?.canCancel === false)
+              return this.failure(
+                'CANCELLATION_WINDOW_CLOSED',
+                'This booking is too close to arrival to cancel online. Please contact the hotel directly.',
               );
-              if (!cancelledAtClock.ok) return cancelledAtClock;
+
+            if (await this.isClockConnected(context)) {
+              if (row.externalBookingId) {
+                const cancelledAtClock = await this.clockBooking.cancelRealReservation(
+                  context,
+                  row.externalBookingId,
+                );
+                if (!cancelledAtClock.ok) return cancelledAtClock;
+              }
             }
-          }
 
-          const cancellationPolicy = await this.cancellationPolicy(tx, context, row.id);
-          if (cancellationPolicy.isFree) {
-            const refunded = await this.refunds.refundPaidChargeForBooking(
-              tx,
-              context,
-              row.id,
-              `cancellation-refund:${command.idempotencyKey}`,
-            );
-            if (!refunded.result.ok)
-              return this.failure(refunded.result.error.code, refunded.result.error.message);
-            refundConfirmation = refunded.confirmation;
-          }
+            const cancellationPolicy = await this.cancellationPolicy(tx, context, row.id);
+            if (cancellationPolicy.isFree) {
+              const refunded = await this.refunds.refundPaidChargeForBooking(
+                tx,
+                context,
+                row.id,
+                `cancellation-refund:${command.idempotencyKey}`,
+              );
+              if (!refunded.result.ok)
+                return this.failure(refunded.result.error.code, refunded.result.error.message);
+              refundConfirmation = refunded.confirmation;
+            }
 
-          if (
-            !row.roomId &&
-            (row.status === BookingStatus.PAYMENT_PENDING ||
-              row.status === BookingStatus.PMS_CONFIRMATION_PENDING ||
-              row.status === BookingStatus.CONFIRMED)
-          ) {
-            await this.availability.releaseBookedUnits(tx, context.tenantId, context.propertyId, {
-              roomTypeId: row.roomTypeId,
-              startsOn: row.startsOn,
-              endsOn: row.endsOn,
-              units: 1,
-            });
-          }
-          this.stateMachine.transition(row.status, BookingStatus.CANCELLED);
-          await tx.$executeRaw`
+            if (
+              !row.roomId &&
+              (row.status === BookingStatus.PAYMENT_PENDING ||
+                row.status === BookingStatus.PMS_CONFIRMATION_PENDING ||
+                row.status === BookingStatus.CONFIRMED)
+            ) {
+              await this.availability.releaseBookedUnits(tx, context.tenantId, context.propertyId, {
+                roomTypeId: row.roomTypeId,
+                startsOn: row.startsOn,
+                endsOn: row.endsOn,
+                units: 1,
+              });
+            }
+            this.stateMachine.transition(row.status, BookingStatus.CANCELLED);
+            await tx.$executeRaw`
         UPDATE bookings
         SET status = ${BookingStatus.CANCELLED}::"BookingStatus",
             cancellation_is_free = ${cancellationPolicy.isFree},
@@ -791,28 +804,28 @@ export class LocalPmsProvider implements PmsProvider {
           AND property_id = ${context.propertyId}::uuid
           AND version = ${command.expectedVersion}
       `;
-          await this.audit.recordInTransaction(tx, {
-            tenantId: context.tenantId,
-            propertyId: context.propertyId,
-            actorUserId: null,
-            action: 'booking.cancelled',
-            targetType: 'booking',
-            targetId: row.id,
-            details: {
-              guestId: booking.guestId,
-              cancellation: {
-                isFree: cancellationPolicy.isFree,
-                freeCancellationUntilHours: cancellationPolicy.freeCancellationUntilHours,
-                cutoffAt: cancellationPolicy.cutoffAt?.toISOString() ?? null,
+            await this.audit.recordInTransaction(tx, {
+              tenantId: context.tenantId,
+              propertyId: context.propertyId,
+              actorUserId: null,
+              action: 'booking.cancelled',
+              targetType: 'booking',
+              targetId: row.id,
+              details: {
+                guestId: booking.guestId,
+                cancellation: {
+                  isFree: cancellationPolicy.isFree,
+                  freeCancellationUntilHours: cancellationPolicy.freeCancellationUntilHours,
+                  cutoffAt: cancellationPolicy.cutoffAt?.toISOString() ?? null,
+                },
               },
-            },
-          });
-          const cancelled = await this.bookingById(tx, context, row.id);
-          return cancelled && this.toBooking(cancelled)
-            ? { ok: true, value: this.toBooking(cancelled)! }
-            : this.failure('BOOKING_NOT_FOUND', 'Cancelled booking could not be loaded.');
-        },
-      ),
+            });
+            const cancelled = await this.bookingById(tx, context, row.id);
+            return cancelled && this.toBooking(cancelled)
+              ? { ok: true, value: this.toBooking(cancelled)! }
+              : this.failure('BOOKING_NOT_FOUND', 'Cancelled booking could not be loaded.');
+          },
+        ),
       { timeoutMs: 30_000 },
     );
     if (refundConfirmation)
