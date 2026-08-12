@@ -1,0 +1,5 @@
+ALTER TABLE "properties"
+  ADD COLUMN IF NOT EXISTS "rules" TEXT;
+
+ALTER TABLE "rooms"
+  ADD COLUMN IF NOT EXISTS "rules" TEXT;

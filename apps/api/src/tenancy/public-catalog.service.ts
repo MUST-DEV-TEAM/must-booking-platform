@@ -5,6 +5,10 @@ import { TenantDatabaseService } from './tenant-database.service';
 type PublicCatalogRoom = {
   id: string;
   name: string;
+  title: string | null;
+  roomSize: string | null;
+  rules: string | null;
+  amenities: Array<{ id: string; name: string; icon: string | null }>;
   floor: number | null;
   viewType: string | null;
   isAvailable: boolean;
@@ -141,7 +145,28 @@ export class PublicCatalogService {
 
       const range = this.availabilityRange(query);
       const rooms = await tx.$queryRaw<Array<PublicCatalogRoom & { roomTypeId: string }>>`
-        SELECT r.id, r.name, r.floor, r.view_type AS "viewType", r.room_type_id AS "roomTypeId",
+        SELECT r.id, r.name, r.title, r.room_size AS "roomSize",
+          COALESCE(NULLIF(BTRIM(r.rules), ''), NULLIF(BTRIM(p.rules), '')) AS rules,
+          COALESCE(
+            (
+              SELECT json_agg(json_build_object('id', a.id, 'name', a.name, 'icon', a.icon) ORDER BY a.name)
+              FROM room_amenities ra
+              JOIN amenities a ON a.tenant_id = ra.tenant_id AND a.property_id = ra.property_id AND a.id = ra.amenity_id
+              WHERE ra.tenant_id = ${tenantId}::uuid
+                AND ra.property_id = ${propertyId}::uuid
+                AND ra.room_id = r.id
+            ),
+            (
+              SELECT json_agg(json_build_object('id', a.id, 'name', a.name, 'icon', a.icon) ORDER BY a.name)
+              FROM room_type_amenities rta
+              JOIN amenities a ON a.tenant_id = rta.tenant_id AND a.property_id = rta.property_id AND a.id = rta.amenity_id
+              WHERE rta.tenant_id = ${tenantId}::uuid
+                AND rta.property_id = ${propertyId}::uuid
+                AND rta.room_type_id = r.room_type_id
+            ),
+            '[]'::json
+          ) AS amenities,
+          r.floor, r.view_type AS "viewType", r.room_type_id AS "roomTypeId",
           NOT EXISTS (
             SELECT 1
             FROM room_availability ra
@@ -200,6 +225,7 @@ export class PublicCatalogService {
               )
           ) AS "isAvailable"
         FROM rooms r
+        JOIN properties p ON p.tenant_id = r.tenant_id AND p.id = r.property_id
         WHERE r.tenant_id = ${tenantId}::uuid AND r.property_id = ${propertyId}::uuid
         ORDER BY r.created_at
       `;

@@ -17,6 +17,7 @@ type Property = {
   maxStayNights: number | null;
   checkInTime: string | null;
   checkOutTime: string | null;
+  rules: string | null;
   advanceBookingDays: number | null;
   freeCancellationDaysBeforeArrival: number;
   paymentGateways: { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
@@ -39,6 +40,7 @@ export class PropertiesService {
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
+          rules,
           advance_booking_days AS "advanceBookingDays",
           free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival",
           public_website_origin AS "publicWebsiteOrigin",
@@ -89,6 +91,7 @@ export class PropertiesService {
         booking_mode AS "bookingMode",
         min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
         check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
+        rules,
         advance_booking_days AS "advanceBookingDays", public_website_origin AS "publicWebsiteOrigin",
         json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"`;
       await this.templates.ensureBuiltInTemplatesInTransaction(tx, tenantId, id);
@@ -121,6 +124,7 @@ export class PropertiesService {
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
+          rules,
           advance_booking_days AS "advanceBookingDays",
           free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival",
           public_website_origin AS "publicWebsiteOrigin",
@@ -148,6 +152,7 @@ export class PropertiesService {
           max_stay_nights = CASE WHEN ${input.maxStayNights !== undefined} THEN ${input.maxStayNights} ELSE max_stay_nights END,
           check_in_time = CASE WHEN ${input.checkInTime !== undefined} THEN ${input.checkInTime} ELSE check_in_time END,
           check_out_time = CASE WHEN ${input.checkOutTime !== undefined} THEN ${input.checkOutTime} ELSE check_out_time END,
+          rules = CASE WHEN ${input.rules !== undefined} THEN ${input.rules} ELSE rules END,
           advance_booking_days = CASE WHEN ${input.advanceBookingDays !== undefined} THEN ${input.advanceBookingDays} ELSE advance_booking_days END,
           free_cancellation_days_before_arrival = CASE WHEN ${input.freeCancellationDaysBeforeArrival !== undefined} THEN ${input.freeCancellationDaysBeforeArrival} ELSE free_cancellation_days_before_arrival END
         WHERE id = ${propertyId}::uuid
@@ -155,6 +160,7 @@ export class PropertiesService {
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
+          rules,
           advance_booking_days AS "advanceBookingDays",
           free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival",
           public_website_origin AS "publicWebsiteOrigin",
@@ -187,6 +193,7 @@ export class PropertiesService {
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
+          rules,
           advance_booking_days AS "advanceBookingDays",
           free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival",
           public_website_origin AS "publicWebsiteOrigin",
@@ -221,6 +228,7 @@ export class PropertiesService {
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
+          rules,
           advance_booking_days AS "advanceBookingDays",
           free_cancellation_days_before_arrival AS "freeCancellationDaysBeforeArrival",
           public_website_origin AS "publicWebsiteOrigin",
@@ -304,6 +312,7 @@ export class PropertiesService {
     maxStayNights?: number | null;
     checkInTime?: string | null;
     checkOutTime?: string | null;
+    rules?: string | null;
     advanceBookingDays?: number | null;
     freeCancellationDaysBeforeArrival?: number;
   } {
@@ -321,6 +330,7 @@ export class PropertiesService {
         'maxStayNights',
         'checkInTime',
         'checkOutTime',
+        'rules',
         'advanceBookingDays',
         'freeCancellationDaysBeforeArrival',
       ].some(has)
@@ -383,6 +393,13 @@ export class PropertiesService {
         throw new BadRequestException(`${key} must be a string or null.`);
       return value[key];
     };
+    const rules = (() => {
+      if (!has('rules')) return undefined;
+      if (value.rules === null) return null;
+      if (typeof value.rules !== 'string')
+        throw new BadRequestException('rules must be a string or null.');
+      return value.rules.trim() || null;
+    })();
     return {
       name,
       address,
@@ -392,6 +409,7 @@ export class PropertiesService {
       maxStayNights: optionalInteger('maxStayNights'),
       checkInTime: optionalText('checkInTime'),
       checkOutTime: optionalText('checkOutTime'),
+      rules,
       advanceBookingDays: optionalInteger('advanceBookingDays'),
       freeCancellationDaysBeforeArrival,
     };

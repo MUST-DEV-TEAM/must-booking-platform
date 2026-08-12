@@ -72,7 +72,9 @@ function get_single_room_page_view_model_from_catalog(array $catalog, string $ro
     $fixedRoom = resolve_fixed_physical_room($roomTypes, $bookingMode, $roomTypeId, $roomId);
     $physicalRoomId = $fixedRoom !== null ? (string) ($fixedRoom['physical_room_id'] ?? '') : '';
     $media = get_room_type_media_view_data($roomType);
-    $amenities = get_room_type_amenities_view_data($roomType);
+    $amenities = $fixedRoom !== null
+        ? get_room_type_amenities_view_data($fixedRoom)
+        : get_room_type_amenities_view_data($roomType);
     $ratePlans = [];
     foreach ((array) ($roomType['ratePlans'] ?? []) as $ratePlan) {
         if (!\is_array($ratePlan)) {
@@ -87,12 +89,16 @@ function get_single_room_page_view_model_from_catalog(array $catalog, string $ro
     $room = [
         'room_type_id' => $roomTypeId,
         'room_id' => $physicalRoomId,
-        'name' => $fixedRoom !== null && (string) ($fixedRoom['name'] ?? '') !== ''
-            ? (string) $fixedRoom['name']
-            : (string) ($roomType['name'] ?? ''),
+        'name' => $fixedRoom !== null && (string) ($fixedRoom['title'] ?? '') !== ''
+            ? (string) $fixedRoom['title']
+            : ($fixedRoom !== null && (string) ($fixedRoom['name'] ?? '') !== ''
+                ? (string) $fixedRoom['name']
+                : (string) ($roomType['name'] ?? '')),
         'category_label' => (string) ($roomType['name'] ?? ''),
         'description' => (string) ($roomType['description'] ?? ''),
         'max_guests' => (int) ($roomType['maxOccupancy'] ?? 0),
+        'room_size' => $fixedRoom !== null ? (string) ($fixedRoom['room_size'] ?? '') : '',
+        'rules' => $fixedRoom !== null ? (string) ($fixedRoom['rules'] ?? '') : '',
         'view_type' => $fixedRoom !== null ? (string) ($fixedRoom['view_type'] ?? '') : '',
         'floor' => $fixedRoom !== null ? (int) ($fixedRoom['floor'] ?? 0) : 0,
         'rate_plans' => $ratePlans,

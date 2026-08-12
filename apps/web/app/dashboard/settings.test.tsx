@@ -17,6 +17,7 @@ let property = {
   maxStayNights: 7,
   checkInTime: '15:00',
   checkOutTime: '11:00',
+  rules: 'No smoking.',
   advanceBookingDays: 90,
   freeCancellationDaysBeforeArrival: 21,
   bookingMode: 'ROOM_TYPE_ONLY' as 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED',
@@ -84,9 +85,14 @@ describe('DashboardSettings', () => {
     const patchCalls = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH');
     expect(JSON.parse(patchCalls[1][1]!.body as string)).toEqual({ minStayNights: 3 });
 
+    await value(container.querySelector('[aria-label="Room rules"]')!, 'Adults only.');
+    await submit(container, 'Save booking rules');
+    const rulesRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[2];
+    expect(JSON.parse(rulesRequest[1]!.body as string)).toEqual({ rules: 'Adults only.' });
+
     await select(container.querySelector('[aria-label="Booking mode"]')!, 'INDIVIDUAL_ROOM_ONLY');
     await submit(container, 'Save booking mode');
-    const bookingModeRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[2];
+    const bookingModeRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[3];
     expect(JSON.parse(bookingModeRequest[1]!.body as string)).toEqual({
       bookingMode: 'INDIVIDUAL_ROOM_ONLY',
     });

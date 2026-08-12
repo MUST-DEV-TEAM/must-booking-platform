@@ -11,7 +11,15 @@ import { DashboardLoadingSkeleton } from '../loading-skeleton';
 type Property = { id: string; name: string };
 const amenityIcons = ['WIFI', 'BREAKFAST', 'POOL', 'PARKING', 'AIR_CONDITIONING', 'BEACH'] as const;
 type AmenityIcon = (typeof amenityIcons)[number];
-type Room = { id: string; name: string; floor: number | null; viewType: string | null };
+type Room = {
+  id: string;
+  name: string;
+  title: string | null;
+  roomSize: string | null;
+  rules: string | null;
+  floor: number | null;
+  viewType: string | null;
+};
 type RoomType = {
   id: string;
   name: string;
@@ -29,6 +37,7 @@ type RoomManagementData = {
   rooms: Record<string, Room[]>;
   images: Record<string, RoomTypeImage[]>;
   roomTypeAmenities: Record<string, Amenity[]>;
+  roomAmenities: Record<string, Amenity[]>;
 };
 
 type RoomTypeForm = {
@@ -39,7 +48,14 @@ type RoomTypeForm = {
   maxOccupancy: string;
 };
 
-type RoomForm = { name: string; floor: string; viewType: string };
+type RoomForm = {
+  name: string;
+  title: string;
+  roomSize: string;
+  rules: string;
+  floor: string;
+  viewType: string;
+};
 
 const emptyRoomTypeForm: RoomTypeForm = {
   name: '',
@@ -48,7 +64,14 @@ const emptyRoomTypeForm: RoomTypeForm = {
   galleryImageUrls: '',
   maxOccupancy: '2',
 };
-const emptyRoomForm: RoomForm = { name: '', floor: '', viewType: '' };
+const emptyRoomForm: RoomForm = {
+  name: '',
+  title: '',
+  roomSize: '',
+  rules: '',
+  floor: '',
+  viewType: '',
+};
 
 export function RoomManagement({
   tenantId,
@@ -66,6 +89,9 @@ export function RoomManagement({
   const [roomForms, setRoomForms] = useState<Record<string, RoomForm>>({});
   const [editingRoom, setEditingRoom] = useState<{ roomTypeId: string; roomId: string } | null>(
     null,
+  );
+  const [customizingRoomAmenities, setCustomizingRoomAmenities] = useState<Record<string, boolean>>(
+    {},
   );
 
   const propertiesQuery = useQuery({
@@ -113,13 +139,28 @@ export function RoomManagement({
             fetch(`${roomTypesUrl()}/${roomType.id}/images`, { credentials: 'include' }),
             fetch(`${roomTypesUrl()}/${roomType.id}/amenities`, { credentials: 'include' }),
           ]);
+          const rooms = roomResponse.ok ? ((await roomResponse.json()) as Room[]) : [];
+          const roomAmenities = Object.fromEntries(
+            await Promise.all(
+              rooms.map(async (room) => {
+                const response = await fetch(`${propertyUrl()}/rooms/${room.id}/amenities`, {
+                  credentials: 'include',
+                });
+                return [
+                  room.id,
+                  response.ok ? ((await response.json()) as Amenity[]) : [],
+                ] as const;
+              }),
+            ),
+          );
           return {
             roomTypeId: roomType.id,
-            rooms: roomResponse.ok ? ((await roomResponse.json()) as Room[]) : [],
+            rooms,
             images: imageResponse.ok ? ((await imageResponse.json()) as RoomTypeImage[]) : [],
             roomTypeAmenities: roomTypeAmenityResponse.ok
               ? ((await roomTypeAmenityResponse.json()) as Amenity[])
               : [],
+            roomAmenities,
           };
         }),
       );
@@ -131,6 +172,9 @@ export function RoomManagement({
         roomTypeAmenities: Object.fromEntries(
           details.map((detail) => [detail.roomTypeId, detail.roomTypeAmenities]),
         ),
+        roomAmenities: Object.fromEntries(
+          details.flatMap((detail) => Object.entries(detail.roomAmenities)),
+        ),
       };
     },
     enabled: !!propertyId,
@@ -141,6 +185,7 @@ export function RoomManagement({
   const rooms = roomManagementQuery.data?.rooms ?? {};
   const images = roomManagementQuery.data?.images ?? {};
   const roomTypeAmenities = roomManagementQuery.data?.roomTypeAmenities ?? {};
+  const roomAmenities = roomManagementQuery.data?.roomAmenities ?? {};
 
   const saveRoomTypeMutation = useMutation({
     mutationFn: async ({
@@ -211,12 +256,18 @@ export function RoomManagement({
       roomTypeId,
       roomId,
       name,
+      title,
+      roomSize,
+      rules,
       floor,
       viewType,
     }: {
       roomTypeId: string;
       roomId: string | null;
       name: string;
+      title: string;
+      roomSize: string;
+      rules: string;
       floor: string;
       viewType: string;
     }) => {
@@ -230,6 +281,9 @@ export function RoomManagement({
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
             name,
+            title: title.trim() || null,
+            roomSize: roomSize.trim() || null,
+            rules: rules.trim() || null,
             floor: floor === '' ? null : Number(floor),
             viewType: viewType.trim() || null,
           }),
@@ -359,6 +413,30 @@ export function RoomManagement({
       toast.error(error instanceof Error ? error.message : 'Unable to update room type amenities.'),
   });
 
+  const setRoomAmenitiesMutation = useMutation({
+    mutationFn: async ({ roomId, amenityIds }: { roomId: string; amenityIds: string[] }) => {
+      const response = await fetch(`${propertyUrl()}/rooms/${roomId}/amenities`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ amenityIds }),
+      });
+      if (!response.ok)
+        throw new Error(await errorMessage(response, 'Unable to update room amenities.'));
+      return { roomId, amenities: (await response.json()) as Amenity[] };
+    },
+    onSuccess: ({ roomId, amenities: updated }) => {
+      queryClient.setQueryData<RoomManagementData>(roomManagementQueryKey, (current) =>
+        current
+          ? { ...current, roomAmenities: { ...current.roomAmenities, [roomId]: updated } }
+          : current,
+      );
+      toast.success(updated.length > 0 ? 'Room amenities customized.' : 'Room amenities inherit.');
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Unable to update room amenities.'),
+  });
+
   function submitRoomType(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     saveRoomTypeMutation.mutate({
@@ -385,6 +463,9 @@ export function RoomManagement({
       roomTypeId,
       roomId: currentEdit?.roomId ?? null,
       name: roomName,
+      title: roomForm.title,
+      roomSize: roomForm.roomSize,
+      rules: roomForm.rules,
       floor: roomForm.floor,
       viewType: roomForm.viewType,
     });
@@ -416,6 +497,33 @@ export function RoomManagement({
       ? current.filter((amenity) => amenity.id !== amenityId).map((amenity) => amenity.id)
       : [...current.map((amenity) => amenity.id), amenityId];
     toggleRoomTypeAmenityMutation.mutate({ roomTypeId, amenityIds });
+  }
+
+  function setRoomAmenities(roomId: string, amenityIds: string[]) {
+    setRoomAmenitiesMutation.mutate({ roomId, amenityIds });
+  }
+
+  function customizeRoomAmenities(roomId: string, inheritedAmenities: Amenity[]) {
+    setCustomizingRoomAmenities((current) => ({ ...current, [roomId]: true }));
+    setRoomAmenities(
+      roomId,
+      inheritedAmenities.map((amenity) => amenity.id),
+    );
+  }
+
+  function toggleRoomAmenity(roomId: string, amenityId: string) {
+    const current = roomAmenities[roomId] || [];
+    const amenityIds = current.some((amenity) => amenity.id === amenityId)
+      ? current.filter((amenity) => amenity.id !== amenityId).map((amenity) => amenity.id)
+      : [...current.map((amenity) => amenity.id), amenityId];
+    if (amenityIds.length === 0)
+      setCustomizingRoomAmenities((customizing) => ({ ...customizing, [roomId]: false }));
+    setRoomAmenities(roomId, amenityIds);
+  }
+
+  function inheritRoomAmenities(roomId: string) {
+    setCustomizingRoomAmenities((current) => ({ ...current, [roomId]: false }));
+    setRoomAmenities(roomId, []);
   }
 
   if (propertiesQuery.isPending || (propertyId && roomManagementQuery.isPending))
@@ -622,36 +730,90 @@ export function RoomManagement({
               <div>
                 <Heading level={3}>Physical rooms</Heading>
                 <ul>
-                  {rooms[roomType.id]?.map((room) => (
-                    <li key={room.id}>
-                      {room.name} {room.viewType ? ` · ${room.viewType}` : ''}
-                      {room.floor !== null ? ` · Floor ${room.floor}` : ''}{' '}
-                      <button
-                        className="must-button must-button--secondary"
-                        type="button"
-                        onClick={() => {
-                          setEditingRoom({ roomTypeId: roomType.id, roomId: room.id });
-                          setRoomForms((current) => ({
-                            ...current,
-                            [roomType.id]: {
-                              name: room.name,
-                              floor: room.floor === null ? '' : String(room.floor),
-                              viewType: room.viewType || '',
-                            },
-                          }));
-                        }}
-                      >
-                        Edit
-                      </button>{' '}
-                      <button
-                        className="must-button must-button--danger"
-                        type="button"
-                        onClick={() => deleteRoom(roomType.id, room.id)}
-                      >
-                        Delete
-                      </button>
-                    </li>
-                  ))}
+                  {rooms[roomType.id]?.map((room) => {
+                    const customAmenities = roomAmenities[room.id] ?? [];
+                    const usesCustomAmenities =
+                      customAmenities.length > 0 || customizingRoomAmenities[room.id] === true;
+                    return (
+                      <li key={room.id}>
+                        {room.name} {room.viewType ? ` · ${room.viewType}` : ''}
+                        {room.floor !== null ? ` · Floor ${room.floor}` : ''}{' '}
+                        <button
+                          className="must-button must-button--secondary"
+                          type="button"
+                          onClick={() => {
+                            setEditingRoom({ roomTypeId: roomType.id, roomId: room.id });
+                            setRoomForms((current) => ({
+                              ...current,
+                              [roomType.id]: {
+                                name: room.name,
+                                title: room.title || '',
+                                roomSize: room.roomSize || '',
+                                rules: room.rules || '',
+                                floor: room.floor === null ? '' : String(room.floor),
+                                viewType: room.viewType || '',
+                              },
+                            }));
+                          }}
+                        >
+                          Edit
+                        </button>{' '}
+                        <button
+                          className="must-button must-button--danger"
+                          type="button"
+                          onClick={() => deleteRoom(roomType.id, room.id)}
+                        >
+                          Delete
+                        </button>
+                        <div>
+                          <p>
+                            Amenities:{' '}
+                            {usesCustomAmenities
+                              ? 'Custom for this room.'
+                              : 'Inherited from room type.'}
+                          </p>
+                          {usesCustomAmenities ? (
+                            <>
+                              <button
+                                className="must-button must-button--secondary"
+                                type="button"
+                                onClick={() => inheritRoomAmenities(room.id)}
+                              >
+                                Inherit room type amenities
+                              </button>
+                              {amenities.map((amenity) => (
+                                <label className="must-field" key={amenity.id}>
+                                  <input
+                                    className="must-input"
+                                    type="checkbox"
+                                    checked={customAmenities.some(
+                                      (assignedAmenity) => assignedAmenity.id === amenity.id,
+                                    )}
+                                    onChange={() => toggleRoomAmenity(room.id, amenity.id)}
+                                  />
+                                  {amenity.name} (
+                                  {amenity.icon ? amenityIconLabel(amenity.icon) : 'No icon'})
+                                </label>
+                              ))}
+                            </>
+                          ) : (
+                            <button
+                              className="must-button must-button--secondary"
+                              type="button"
+                              onClick={() =>
+                                customizeRoomAmenities(
+                                  room.id,
+                                  roomTypeAmenities[roomType.id] ?? [],
+                                )
+                              }
+                            >
+                              Customize amenities
+                            </button>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
                 <form
                   className="must-stack must-stack--sm"
@@ -669,6 +831,59 @@ export function RoomManagement({
                           [roomType.id]: {
                             ...(current[roomType.id] ?? emptyRoomForm),
                             name: event.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="must-field">
+                    Display title
+                    <input
+                      className="must-input"
+                      maxLength={200}
+                      placeholder="e.g. Deluxe Sea Suite"
+                      value={(roomForms[roomType.id] ?? emptyRoomForm).title}
+                      onChange={(event) =>
+                        setRoomForms((current) => ({
+                          ...current,
+                          [roomType.id]: {
+                            ...(current[roomType.id] ?? emptyRoomForm),
+                            title: event.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="must-field">
+                    Room size
+                    <input
+                      className="must-input"
+                      maxLength={50}
+                      placeholder="e.g. 70m²"
+                      value={(roomForms[roomType.id] ?? emptyRoomForm).roomSize}
+                      onChange={(event) =>
+                        setRoomForms((current) => ({
+                          ...current,
+                          [roomType.id]: {
+                            ...(current[roomType.id] ?? emptyRoomForm),
+                            roomSize: event.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="must-field">
+                    Room rules override
+                    <textarea
+                      className="must-input"
+                      placeholder="Replaces the property room rules for this room only"
+                      value={(roomForms[roomType.id] ?? emptyRoomForm).rules}
+                      onChange={(event) =>
+                        setRoomForms((current) => ({
+                          ...current,
+                          [roomType.id]: {
+                            ...(current[roomType.id] ?? emptyRoomForm),
+                            rules: event.target.value,
                           },
                         }))
                       }

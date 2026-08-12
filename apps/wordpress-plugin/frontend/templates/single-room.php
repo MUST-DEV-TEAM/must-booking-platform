@@ -20,6 +20,8 @@ $room_id = (string) ($room['room_id'] ?? '');
 $category_label = (string) ($room['category_label'] ?? '');
 $description = (string) ($room['description'] ?? '');
 $max_guests = (int) ($room['max_guests'] ?? 0);
+$room_size = (string) ($room['room_size'] ?? '');
+$rules = (string) ($room['rules'] ?? '');
 $view_type = (string) ($room['view_type'] ?? '');
 $floor = (int) ($room['floor'] ?? 0);
 $rate_plans = \is_array($room['rate_plans'] ?? null) ? $room['rate_plans'] : [];
@@ -53,16 +55,24 @@ $lightbox_attr = \is_string($lightbox_json) ? \esc_attr($lightbox_json) : '[]';
                         </a>
                     </div>
 
-                    <?php if ($category_label !== '' || $max_guests > 0 || $view_type !== '' || $floor > 0) : ?>
+                    <?php if ($category_label !== '' || $max_guests > 0 || $room_size !== '' || $view_type !== '' || $floor > 0) : ?>
                         <div class="must-hotel-booking-single-room-meta">
                             <?php if ($category_label !== '') : ?><p><?php echo \esc_html($category_label); ?></p><?php endif; ?>
                             <?php if ($max_guests > 0) : ?><p><?php if ($people_icon_url !== '') : ?><img src="<?php echo \esc_url($people_icon_url); ?>" alt="" aria-hidden="true" /><?php endif; ?><?php echo \esc_html(\sprintf(_n('Up to %d guest', 'Up to %d guests', $max_guests, 'must-hotel-booking'), $max_guests)); ?></p><?php endif; ?>
+                            <?php if ($room_size !== '') : ?><p><?php echo \esc_html($room_size); ?></p><?php endif; ?>
                             <?php if ($view_type !== '') : ?><p><?php echo \esc_html($view_type); ?></p><?php endif; ?>
                             <?php if ($floor > 0) : ?><p><?php echo \esc_html(\sprintf(__('Floor %d', 'must-hotel-booking'), $floor)); ?></p><?php endif; ?>
                         </div>
                     <?php endif; ?>
 
                     <?php if ($description !== '') : ?><p class="must-hotel-booking-single-room-description"><?php echo \esc_html($description); ?></p><?php endif; ?>
+
+                    <?php if ($rules !== '') : ?>
+                        <section class="must-hotel-booking-single-room-section">
+                            <h2><?php echo \esc_html__('Room rules', 'must-hotel-booking'); ?></h2>
+                            <p><?php echo \nl2br(\esc_html($rules)); ?></p>
+                        </section>
+                    <?php endif; ?>
 
                     <?php if ($rate_plans !== []) : ?>
                         <section class="must-hotel-booking-single-room-section must-hotel-booking-single-room-price">

@@ -91,4 +91,32 @@ export class AmenitiesController {
       body,
     );
   }
+
+  @Get('rooms/:roomId/amenities')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  listRoomAmenities(@Param('roomId') roomId: string, @Req() request: TenantPropertyRequest) {
+    return this.amenities.listRoomAmenities(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      roomId,
+    );
+  }
+
+  @Put('rooms/:roomId/amenities')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresVerifiedEmail()
+  setRoomAmenities(
+    @Param('roomId') roomId: string,
+    @Body() body: unknown,
+    @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
+  ) {
+    return this.amenities.setRoomAmenities(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      roomId,
+      request.tenantContext.userId,
+      body,
+    );
+  }
 }

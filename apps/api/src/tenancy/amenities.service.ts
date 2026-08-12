@@ -97,7 +97,9 @@ export class AmenitiesService {
         });
       } catch (error: unknown) {
         if (this.isForeignKeyViolation(error))
-          throw new ConflictException('Cannot delete an amenity that is assigned to a room type.');
+          throw new ConflictException(
+            'Cannot delete an amenity that is assigned to a room type or room.',
+          );
         throw error;
       }
     });
@@ -166,6 +168,58 @@ export class AmenitiesService {
     });
   }
 
+  async listRoomAmenities(
+    tenantId: string,
+    propertyId: string,
+    roomId: string,
+  ): Promise<Amenity[]> {
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      await this.requireRoom(tx, tenantId, propertyId, roomId);
+      return this.listRoomAmenitiesInTransaction(tx, tenantId, propertyId, roomId);
+    });
+  }
+
+  async setRoomAmenities(
+    tenantId: string,
+    propertyId: string,
+    roomId: string,
+    actorUserId: string,
+    body: unknown,
+  ): Promise<Amenity[]> {
+    const amenityIds = this.amenityIds(body);
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      await this.requireRoom(tx, tenantId, propertyId, roomId);
+      if (amenityIds.length > 0) {
+        const existing = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM amenities
+          WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+            AND id = ANY(${amenityIds}::uuid[])
+        `;
+        if (existing.length !== amenityIds.length)
+          throw new NotFoundException('Amenity not found.');
+      }
+      await tx.$executeRaw`
+        DELETE FROM room_amenities
+        WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND room_id = ${roomId}::uuid
+      `;
+      for (const amenityId of amenityIds) {
+        await tx.$executeRaw`
+          INSERT INTO room_amenities (tenant_id, property_id, room_id, amenity_id)
+          VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${roomId}::uuid, ${amenityId}::uuid)
+        `;
+      }
+      await this.audit.recordInTransaction(tx, {
+        tenantId,
+        propertyId,
+        actorUserId,
+        action: 'room.amenities_updated',
+        targetType: 'room',
+        targetId: roomId,
+      });
+      return this.listRoomAmenitiesInTransaction(tx, tenantId, propertyId, roomId);
+    });
+  }
+
   private async requireRoomType(
     tx: TenantTransaction,
     tenantId: string,
@@ -177,6 +231,19 @@ export class AmenitiesService {
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomTypeId}::uuid
     `;
     if (!rows[0]) throw new NotFoundException('Room type not found.');
+  }
+
+  private async requireRoom(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    roomId: string,
+  ) {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM rooms
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomId}::uuid
+    `;
+    if (!rows[0]) throw new NotFoundException('Room not found.');
   }
 
   private listRoomTypeAmenitiesInTransaction(
@@ -195,6 +262,26 @@ export class AmenitiesService {
       WHERE room_type_amenities.tenant_id = ${tenantId}::uuid
         AND room_type_amenities.property_id = ${propertyId}::uuid
         AND room_type_amenities.room_type_id = ${roomTypeId}::uuid
+      ORDER BY amenities.name
+    `;
+  }
+
+  private listRoomAmenitiesInTransaction(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    roomId: string,
+  ): Promise<Amenity[]> {
+    return tx.$queryRaw<Amenity[]>`
+      SELECT amenities.id, amenities.name, amenities.icon::text AS icon
+      FROM room_amenities
+      INNER JOIN amenities
+        ON amenities.tenant_id = room_amenities.tenant_id
+        AND amenities.property_id = room_amenities.property_id
+        AND amenities.id = room_amenities.amenity_id
+      WHERE room_amenities.tenant_id = ${tenantId}::uuid
+        AND room_amenities.property_id = ${propertyId}::uuid
+        AND room_amenities.room_id = ${roomId}::uuid
       ORDER BY amenities.name
     `;
   }

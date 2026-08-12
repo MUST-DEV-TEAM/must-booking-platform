@@ -123,6 +123,7 @@ model Property {
   maxStayNights     Int?                      @map("max_stay_nights")
   checkInTime       String?                   @map("check_in_time")
   checkOutTime      String?                   @map("check_out_time")
+  rules             String?                   @db.Text
   advanceBookingDays Int?                     @map("advance_booking_days")
   freeCancellationDaysBeforeArrival Int       @default(21) @map("free_cancellation_days_before_arrival")
   publicWebsiteOrigin String?                 @map("public_website_origin") @db.VarChar(500)
@@ -148,6 +149,7 @@ model Property {
   paymentProviderSessions PaymentProviderSession[]
   amenities         Amenity[]
   roomTypeAmenities RoomTypeAmenity[]
+  roomAmenities     RoomAmenity[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, slug])
@@ -333,6 +335,9 @@ model Room {
   propertyId     String   @map("property_id") @db.Uuid
   roomTypeId     String   @map("room_type_id") @db.Uuid
   name           String   @db.VarChar(200)
+  title          String?  @db.VarChar(200)
+  roomSize       String?  @map("room_size") @db.VarChar(50)
+  rules          String?  @db.Text
   floor          Int?
   viewType       String?  @map("view_type") @db.VarChar(100)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -342,6 +347,7 @@ model Room {
   availability RoomAvailability[]
   priceOverrides RoomPriceOverride[]
   bookings Booking[]
+  amenities RoomAmenity[]
 
   @@unique([tenantId, propertyId, id])
   @@unique([tenantId, propertyId, name])
@@ -785,6 +791,7 @@ model Amenity {
   updatedAt  DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   property   Property          @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
   roomTypes  RoomTypeAmenity[]
+  rooms      RoomAmenity[]
 
   @@unique([tenantId, propertyId, id])
   @@unique([tenantId, propertyId, name])
@@ -803,4 +810,17 @@ model RoomTypeAmenity {
 
   @@id([tenantId, propertyId, roomTypeId, amenityId])
   @@map("room_type_amenities")
+}
+
+model RoomAmenity {
+  tenantId   String   @map("tenant_id") @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  roomId     String   @map("room_id") @db.Uuid
+  amenityId  String   @map("amenity_id") @db.Uuid
+  property   Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  room       Room     @relation(fields: [tenantId, propertyId, roomId], references: [tenantId, propertyId, id], onDelete: Restrict)
+  amenity    Amenity  @relation(fields: [tenantId, propertyId, amenityId], references: [tenantId, propertyId, id], onDelete: Restrict)
+
+  @@id([tenantId, propertyId, roomId, amenityId])
+  @@map("room_amenities")
 }

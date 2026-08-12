@@ -25,6 +25,7 @@ type Property = {
   maxStayNights: number | null;
   checkInTime: string | null;
   checkOutTime: string | null;
+  rules: string | null;
   advanceBookingDays: number | null;
   freeCancellationDaysBeforeArrival: number;
   bookingMode: BookingMode;
@@ -44,6 +45,7 @@ type RuleFields = Pick<
   | 'maxStayNights'
   | 'checkInTime'
   | 'checkOutTime'
+  | 'rules'
   | 'advanceBookingDays'
   | 'freeCancellationDaysBeforeArrival'
 >;
@@ -53,6 +55,7 @@ const ruleKeys = [
   'maxStayNights',
   'checkInTime',
   'checkOutTime',
+  'rules',
   'advanceBookingDays',
   'freeCancellationDaysBeforeArrival',
 ] as const;
@@ -63,6 +66,7 @@ function rulesFrom(property: Property): RuleFields {
     maxStayNights: property.maxStayNights,
     checkInTime: property.checkInTime,
     checkOutTime: property.checkOutTime,
+    rules: property.rules,
     advanceBookingDays: property.advanceBookingDays,
     freeCancellationDaysBeforeArrival: property.freeCancellationDaysBeforeArrival,
   };
@@ -351,7 +355,7 @@ export function DashboardSettings({
         <Stack gap="md">
           <Heading level={2}>Booking rules</Heading>
           <Text tone="secondary">
-            These rules are enforced when guests request a quote or booking.
+            Configure booking restrictions and guest-facing stay information.
           </Text>
           <form className="must-stack must-stack--md" onSubmit={saveRules}>
             <label className="must-field">
@@ -453,6 +457,19 @@ export function DashboardSettings({
                 }
               />
             </label>
+            <label className="must-field">
+              <span className="must-field__label">Room rules</span>
+              <textarea
+                className="must-input"
+                aria-label="Room rules"
+                placeholder="Age restrictions, cancellation details, and house rules."
+                value={rules.rules ?? ''}
+                onChange={(event) => setRules({ ...rules, rules: event.target.value || null })}
+              />
+            </label>
+            <Text tone="secondary">
+              Shown on individual room detail pages unless that room has its own full replacement.
+            </Text>
             <button className="must-button must-button--primary" disabled={saveMutation.isPending}>
               {saveMutation.isPending ? (
                 <>
