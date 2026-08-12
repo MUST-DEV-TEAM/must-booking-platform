@@ -17,6 +17,14 @@ const AMENITY_ICONS = [
   'PARKING',
   'AIR_CONDITIONING',
   'BEACH',
+  'CABLE_CHANNELS',
+  'REFRIGERATOR',
+  'FLAT_SCREEN_TV',
+  'LINEN',
+  'TELEPHONE',
+  'DRYER',
+  'STREAMING',
+  'SAFETY_DEPOSIT_BOX',
 ] as const;
 type AmenityIcon = (typeof AMENITY_ICONS)[number];
 type Amenity = { id: string; name: string; icon: AmenityIcon | null };

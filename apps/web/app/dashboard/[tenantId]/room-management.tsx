@@ -9,7 +9,22 @@ import { toast } from 'sonner';
 import { DashboardLoadingSkeleton } from '../loading-skeleton';
 
 type Property = { id: string; name: string };
-const amenityIcons = ['WIFI', 'BREAKFAST', 'POOL', 'PARKING', 'AIR_CONDITIONING', 'BEACH'] as const;
+const amenityIcons = [
+  'WIFI',
+  'BREAKFAST',
+  'POOL',
+  'PARKING',
+  'AIR_CONDITIONING',
+  'BEACH',
+  'CABLE_CHANNELS',
+  'REFRIGERATOR',
+  'FLAT_SCREEN_TV',
+  'LINEN',
+  'TELEPHONE',
+  'DRYER',
+  'STREAMING',
+  'SAFETY_DEPOSIT_BOX',
+] as const;
 type AmenityIcon = (typeof amenityIcons)[number];
 type Room = {
   id: string;

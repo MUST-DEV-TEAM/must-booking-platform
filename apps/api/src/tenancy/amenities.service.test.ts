@@ -54,13 +54,30 @@ describe('AmenitiesService icon validation', () => {
     ).resolves.toEqual({ id: 'amenity-id', name: 'Breakfast', icon: 'BREAKFAST' });
   });
 
+  it.each([
+    'CABLE_CHANNELS',
+    'REFRIGERATOR',
+    'FLAT_SCREEN_TV',
+    'LINEN',
+    'TELEPHONE',
+    'DRYER',
+    'STREAMING',
+    'SAFETY_DEPOSIT_BOX',
+  ])('accepts the extended canonical icon %s', async (icon) => {
+    const { amenities } = service();
+
+    await expect(
+      amenities.create(tenantId, propertyId, actorUserId, { name: 'Amenity', icon }),
+    ).resolves.toEqual({ id: 'amenity-id', name: 'Breakfast', icon: 'BREAKFAST' });
+  });
+
   it('rejects an icon outside the fixed amenity-icon enum before querying the database', async () => {
     const { amenities, queryRaw } = service();
 
     await expect(
       amenities.create(tenantId, propertyId, actorUserId, { name: 'Lift', icon: 'ELEVATOR' }),
     ).rejects.toThrow(
-      'icon must be one of: WIFI, BREAKFAST, POOL, PARKING, AIR_CONDITIONING, BEACH.',
+      'icon must be one of: WIFI, BREAKFAST, POOL, PARKING, AIR_CONDITIONING, BEACH, CABLE_CHANNELS, REFRIGERATOR, FLAT_SCREEN_TV, LINEN, TELEPHONE, DRYER, STREAMING, SAFETY_DEPOSIT_BOX.',
     );
     expect(queryRaw).not.toHaveBeenCalled();
   });

@@ -162,6 +162,14 @@ function get_room_type_amenities_view_data(array $roomType): array
         'PARKING' => MUST_HOTEL_BOOKING_URL . 'assets/img/parking.svg',
         'AIR_CONDITIONING' => MUST_HOTEL_BOOKING_URL . 'assets/img/airconditioning.svg',
         'BEACH' => MUST_HOTEL_BOOKING_URL . 'assets/img/beach.svg',
+        'CABLE_CHANNELS' => MUST_HOTEL_BOOKING_URL . 'assets/img/cablechannels.svg',
+        'REFRIGERATOR' => MUST_HOTEL_BOOKING_URL . 'assets/img/refrigerator.svg',
+        'FLAT_SCREEN_TV' => MUST_HOTEL_BOOKING_URL . 'assets/img/flatscreentv.svg',
+        'LINEN' => MUST_HOTEL_BOOKING_URL . 'assets/img/linen.svg',
+        'TELEPHONE' => MUST_HOTEL_BOOKING_URL . 'assets/img/telephone.svg',
+        'DRYER' => MUST_HOTEL_BOOKING_URL . 'assets/img/dryer.svg',
+        'STREAMING' => MUST_HOTEL_BOOKING_URL . 'assets/img/streaming.svg',
+        'SAFETY_DEPOSIT_BOX' => MUST_HOTEL_BOOKING_URL . 'assets/img/safetydepositbox.svg',
     ];
     $amenities = [];
     foreach ((array) ($roomType['amenities'] ?? []) as $amenity) {
