@@ -35,6 +35,7 @@ class Rooms_List_Widget extends \Elementor\Widget_Base
         $categories = get_must_widget_category_options();
         $heading = $category !== 'all' ? ($categories[$category] ?? '') : '';
         $arrow = MUST_HOTEL_BOOKING_URL . 'assets/img/ArrowRight.svg';
+        $bed = MUST_HOTEL_BOOKING_URL . 'assets/img/bed.svg';
         ?>
         <div class="must-hotel-booking-widget must-hotel-booking-rooms-list-widget" data-room-list-widget-id="<?php echo \esc_attr($this->get_id()); ?>" data-room-category="<?php echo \esc_attr($category); ?>" data-display-mode="<?php echo \esc_attr($displayMode); ?>" data-connection-key="<?php echo \esc_attr($legacyKey); ?>">
             <?php if (($settings['show_category_heading'] ?? '') === 'yes' && $heading !== '') : ?><p class="must-hotel-booking-rooms-list-heading">/ <?php echo \esc_html(\strtoupper($heading)); ?></p><?php endif; ?>
@@ -70,7 +71,7 @@ class Rooms_List_Widget extends \Elementor\Widget_Base
                             <?php endforeach; ?>
                             <?php for ($i = \count($galleryImageUrls); $i < 3; $i++) : ?><span class="must-hotel-booking-thumb-placeholder" aria-hidden="true"></span><?php endfor; ?>
                         </div></div>
-                        <div class="must-hotel-booking-rooms-list-section must-hotel-booking-rooms-list-section-actions"><div class="must-hotel-booking-rooms-list-actions"><a class="must-hotel-booking-rooms-list-book" href="<?php echo \esc_url($bookUrl); ?>"><span class="must-hotel-booking-rooms-list-book-text"><?php echo \esc_html__('Book Now', 'must-hotel-booking'); ?></span><img class="must-hotel-booking-rooms-list-book-icon" src="<?php echo \esc_url($arrow); ?>" alt="" aria-hidden="true" /></a><?php if ($detailsUrl !== '') : ?><a class="must-hotel-booking-rooms-list-details" href="<?php echo \esc_url($detailsUrl); ?>"><span><?php echo \esc_html__('More Details', 'must-hotel-booking'); ?></span><img class="must-hotel-booking-rooms-list-details-icon" src="<?php echo \esc_url($arrow); ?>" alt="" aria-hidden="true" /></a><?php endif; ?></div></div>
+                        <div class="must-hotel-booking-rooms-list-section must-hotel-booking-rooms-list-section-actions"><div class="must-hotel-booking-rooms-list-actions"><a class="must-hotel-booking-rooms-list-book" href="<?php echo \esc_url($bookUrl); ?>"><span class="must-hotel-booking-rooms-list-book-text"><?php echo \esc_html__('Book Now', 'must-hotel-booking'); ?></span><img class="must-hotel-booking-rooms-list-book-icon" src="<?php echo \esc_url($arrow); ?>" alt="" aria-hidden="true" /></a><?php if ($detailsUrl !== '') : ?><a class="must-hotel-booking-rooms-list-details" href="<?php echo \esc_url($detailsUrl); ?>"><span><?php echo \esc_html__('Additional Details', 'must-hotel-booking'); ?></span><img class="must-hotel-booking-rooms-list-details-icon" src="<?php echo \esc_url($bed); ?>" alt="" aria-hidden="true" /></a><?php endif; ?></div></div>
                     </div>
                 </article>
             <?php endforeach; endif; ?>
