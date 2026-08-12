@@ -112,7 +112,7 @@ describe('PublicCatalogService payment methods', () => {
     });
   });
 
-  it('exposes physical-room presentation and server-resolved rules in individual-room catalogues', async () => {
+  it('exposes physical-room presentation and server-resolved rules and descriptions in individual-room catalogues', async () => {
     await expect(
       individualCatalogFor([
         {
@@ -121,6 +121,7 @@ describe('PublicCatalogService payment methods', () => {
           title: 'Panoramic Sea Suite',
           roomSize: '70m²',
           rules: 'No smoking. Adults only.',
+          description: 'A private sea-facing suite.',
           amenities: [{ id: 'balcony', name: 'Private balcony', icon: 'BEACH' }],
           floor: 1,
           viewType: 'Sea view',
@@ -136,6 +137,7 @@ describe('PublicCatalogService payment methods', () => {
               title: 'Panoramic Sea Suite',
               roomSize: '70m²',
               rules: 'No smoking. Adults only.',
+              description: 'A private sea-facing suite.',
               amenities: [{ name: 'Private balcony', icon: 'BEACH' }],
             },
           ],

@@ -18,6 +18,7 @@ function service() {
         title: 'Deluxe Sea Suite',
         roomSize: '70m²',
         rules: 'No smoking.',
+        description: 'A private sea-facing suite.',
         floor: 1,
         viewType: 'Sea view',
       },
@@ -33,7 +34,7 @@ function service() {
 }
 
 describe('RoomsService room presentation validation', () => {
-  it('persists trimmed title, room size, rules, floor, and view type', async () => {
+  it('persists trimmed title, room size, rules, description, floor, and view type', async () => {
     const { rooms } = service();
 
     await expect(
@@ -42,6 +43,7 @@ describe('RoomsService room presentation validation', () => {
         title: ' Deluxe Sea Suite ',
         roomSize: ' 70m² ',
         rules: ' No smoking. ',
+        description: ' A private sea-facing suite. ',
         floor: 1,
         viewType: ' Sea view ',
       }),
@@ -51,6 +53,7 @@ describe('RoomsService room presentation validation', () => {
       title: 'Deluxe Sea Suite',
       roomSize: '70m²',
       rules: 'No smoking.',
+      description: 'A private sea-facing suite.',
       floor: 1,
       viewType: 'Sea view',
     });

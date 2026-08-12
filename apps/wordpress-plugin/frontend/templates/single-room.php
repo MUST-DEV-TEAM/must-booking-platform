@@ -13,10 +13,10 @@ $booking_url = (string) ($view['booking_url'] ?? \home_url('/booking'));
 $room_url = (string) ($view['room_url'] ?? \home_url('/room-details'));
 $inquiry_url = (string) ($view['inquiry_url'] ?? '');
 $terms_url = (string) ($view['terms_url'] ?? '');
-$arrow_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? MUST_HOTEL_BOOKING_URL . 'assets/img/ArrowRight.svg' : '';
-$people_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? MUST_HOTEL_BOOKING_URL . 'assets/img/PeopleFill.svg' : '';
-$surface_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? MUST_HOTEL_BOOKING_URL . 'assets/img/Surface.svg' : '';
-$bed_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? MUST_HOTEL_BOOKING_URL . 'assets/img/bed.svg' : '';
+$arrow_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? \must_hotel_booking_asset_url('assets/img/ArrowRight.svg') : '';
+$people_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? \must_hotel_booking_asset_url('assets/img/PeopleFill.svg') : '';
+$surface_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? \must_hotel_booking_asset_url('assets/img/Surface.svg') : '';
+$bed_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? \must_hotel_booking_asset_url('assets/img/bed.svg') : '';
 
 $room_name = (string) ($room['name'] ?? '');
 $description = (string) ($room['description'] ?? '');

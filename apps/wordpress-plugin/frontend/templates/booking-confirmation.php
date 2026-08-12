@@ -75,9 +75,9 @@ if ($can_show_cancellation_confirm_form && !empty($reservations)) {
         }
     }
 }
-$arrow_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? MUST_HOTEL_BOOKING_URL . 'assets/img/ArrowRight.svg' : '';
-$back_arrow_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? MUST_HOTEL_BOOKING_URL . 'assets/img/ArrowLEFT.svg' : '';
-$dropdown_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? MUST_HOTEL_BOOKING_URL . 'assets/img/poludown.svg' : '';
+$arrow_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? \must_hotel_booking_asset_url('assets/img/ArrowRight.svg') : '';
+$back_arrow_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? \must_hotel_booking_asset_url('assets/img/ArrowLEFT.svg') : '';
+$dropdown_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? \must_hotel_booking_asset_url('assets/img/poludown.svg') : '';
 $summary_currency = 'USD';
 $fees_total = isset($summary['fees_total']) ? (float) $summary['fees_total'] : 0.0;
 $discount_total = isset($summary['discount_total']) ? (float) $summary['discount_total'] : 0.0;
@@ -108,8 +108,8 @@ $country_picker_search_placeholder = \__('Search country', 'must-hotel-booking')
 $picker_no_results_label = \__('No matches found.', 'must-hotel-booking');
 $show_honeypot = \MustHotelBooking\Engine\BookingAbuseProtection::shouldRenderHoneypotField();
 $honeypot_field_name = $show_honeypot ? \MustHotelBooking\Engine\BookingAbuseProtection::getHoneypotFieldName() : '';
-$success_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? MUST_HOTEL_BOOKING_URL . 'assets/img/PatchCheckFill.svg' : '';
-$success_offer_image_url = \defined('MUST_HOTEL_BOOKING_URL') ? MUST_HOTEL_BOOKING_URL . 'assets/img/imgoffer.jpg' : '';
+$success_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? \must_hotel_booking_asset_url('assets/img/PatchCheckFill.svg') : '';
+$success_offer_image_url = \defined('MUST_HOTEL_BOOKING_URL') ? \must_hotel_booking_asset_url('assets/img/imgoffer.jpg') : '';
 $paid_success_heading = \__('Thank You!', 'must-hotel-booking');
 $paid_success_title = \__('Your payment has been successful', 'must-hotel-booking');
 $paid_success_message = \__('Your booking confirmation has been sent to your email.', 'must-hotel-booking');
@@ -172,8 +172,8 @@ $format_money = static function (float $amount, string $currency = 'USD'): strin
 };
 $payment_method_icon_urls = \defined('MUST_HOTEL_BOOKING_URL')
     ? [
-        'stripe' => MUST_HOTEL_BOOKING_URL . 'assets/img/stripe.svg',
-        'pay_at_hotel' => MUST_HOTEL_BOOKING_URL . 'assets/img/CashStack.svg',
+        'stripe' => \must_hotel_booking_asset_url('assets/img/stripe.svg'),
+        'pay_at_hotel' => \must_hotel_booking_asset_url('assets/img/CashStack.svg'),
     ]
     : [];
 $render_payment_method_icon = static function (string $payment_method_key, string $payment_method_label) use ($payment_method_icon_urls): string {

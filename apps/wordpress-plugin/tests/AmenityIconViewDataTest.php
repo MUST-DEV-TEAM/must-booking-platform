@@ -7,6 +7,9 @@ namespace {
     }
 
     define('MUST_HOTEL_BOOKING_URL', 'https://example.test/plugin/');
+    define('MUST_HOTEL_BOOKING_VERSION', 'test-version');
+
+    require_once dirname(__DIR__) . '/includes/asset-url.php';
 
     function add_action(...$args): void {}
 }
@@ -35,7 +38,7 @@ namespace MustHotelBooking\Frontend {
     $failures = [];
     foreach ($view as $index => $amenity) {
         $icon = array_keys($icons)[$index];
-        $expected = MUST_HOTEL_BOOKING_URL . 'assets/img/' . $icons[$icon];
+        $expected = must_hotel_booking_asset_url('assets/img/' . $icons[$icon]);
         if (($amenity['icon'] ?? '') !== $expected) {
             $failures[] = sprintf('%s should resolve to its canonical icon URL.', $icon);
         }

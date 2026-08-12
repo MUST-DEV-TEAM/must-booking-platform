@@ -8,6 +8,7 @@ type PublicCatalogRoom = {
   title: string | null;
   roomSize: string | null;
   rules: string | null;
+  description: string | null;
   amenities: Array<{ id: string; name: string; icon: string | null }>;
   floor: number | null;
   viewType: string | null;
@@ -149,6 +150,7 @@ export class PublicCatalogService {
       const rooms = await tx.$queryRaw<Array<PublicCatalogRoom & { roomTypeId: string }>>`
         SELECT r.id, r.name, r.title, r.room_size AS "roomSize",
           COALESCE(NULLIF(BTRIM(r.rules), ''), NULLIF(BTRIM(p.rules), '')) AS rules,
+          COALESCE(NULLIF(BTRIM(r.description), ''), NULLIF(BTRIM(rt.description), '')) AS description,
           COALESCE(
             (
               SELECT json_agg(json_build_object('id', a.id, 'name', a.name, 'icon', a.icon) ORDER BY a.name)
@@ -228,6 +230,7 @@ export class PublicCatalogService {
           ) AS "isAvailable"
         FROM rooms r
         JOIN properties p ON p.tenant_id = r.tenant_id AND p.id = r.property_id
+        JOIN room_types rt ON rt.tenant_id = r.tenant_id AND rt.property_id = r.property_id AND rt.id = r.room_type_id
         WHERE r.tenant_id = ${tenantId}::uuid AND r.property_id = ${propertyId}::uuid
         ORDER BY r.created_at
       `;

@@ -143,7 +143,7 @@ function resolve_fixed_physical_room(array $roomTypes, string $bookingMode, stri
                 'room_type_id' => $roomTypeId,
                 'name' => (string) ($room['name'] ?? ($selection['roomName'] ?? '')),
                 'category_label' => (string) ($roomType['name'] ?? ''),
-                'description' => (string) ($roomType['description'] ?? ''),
+                'description' => (string) ($room['description'] ?? $roomType['description'] ?? ''),
                 'max_guests' => (int) ($roomType['maxOccupancy'] ?? 0),
                 'title' => (string) ($room['title'] ?? ''),
                 'room_size' => (string) ($room['roomSize'] ?? ''), 'beds' => '',

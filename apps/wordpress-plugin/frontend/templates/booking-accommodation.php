@@ -31,10 +31,10 @@ $max_booking_rooms = \function_exists('\must_hotel_booking\get_max_booking_rooms
 $max_booking_guests = \function_exists('\must_hotel_booking\get_max_booking_guests_limit')
     ? \must_hotel_booking\get_max_booking_guests_limit()
     : 12;
-$arrow_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? MUST_HOTEL_BOOKING_URL . 'assets/img/ArrowRight.svg' : '';
-$back_arrow_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? MUST_HOTEL_BOOKING_URL . 'assets/img/ArrowLEFT.svg' : '';
-$filter_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? MUST_HOTEL_BOOKING_URL . 'assets/img/poludown.svg' : '';
-$bed_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? MUST_HOTEL_BOOKING_URL . 'assets/img/bed.svg' : '';
+$arrow_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? \must_hotel_booking_asset_url('assets/img/ArrowRight.svg') : '';
+$back_arrow_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? \must_hotel_booking_asset_url('assets/img/ArrowLEFT.svg') : '';
+$filter_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? \must_hotel_booking_asset_url('assets/img/poludown.svg') : '';
+$bed_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? \must_hotel_booking_asset_url('assets/img/bed.svg') : '';
 $results_date_range = \function_exists('\must_hotel_booking\format_booking_results_date_range')
     ? \must_hotel_booking\format_booking_results_date_range($checkin, $checkout)
     : \__('Select dates', 'must-hotel-booking');

@@ -347,6 +347,7 @@ model Room {
   title          String?  @db.VarChar(200)
   roomSize       String?  @map("room_size") @db.VarChar(50)
   rules          String?  @db.Text
+  description    String?  @db.Text
   floor          Int?
   viewType       String?  @map("view_type") @db.VarChar(100)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)

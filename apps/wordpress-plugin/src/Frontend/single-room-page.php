@@ -137,7 +137,9 @@ function get_single_room_page_view_model_from_catalog(array $catalog, string $ro
                 ? (string) $fixedRoom['name']
                 : (string) ($roomType['name'] ?? '')),
         'category_label' => (string) ($roomType['name'] ?? ''),
-        'description' => (string) ($roomType['description'] ?? ''),
+        'description' => $fixedRoom !== null && (string) ($fixedRoom['description'] ?? '') !== ''
+            ? (string) $fixedRoom['description']
+            : (string) ($roomType['description'] ?? ''),
         'max_guests' => (int) ($roomType['maxOccupancy'] ?? 0),
         'room_size' => $fixedRoom !== null ? (string) ($fixedRoom['room_size'] ?? '') : '',
         'rules' => $fixedRoom !== null ? (string) ($fixedRoom['rules'] ?? '') : '',

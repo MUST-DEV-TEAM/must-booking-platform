@@ -16,6 +16,7 @@ type Room = {
   title: string | null;
   roomSize: string | null;
   rules: string | null;
+  description: string | null;
   floor: number | null;
   viewType: string | null;
 };
@@ -32,7 +33,7 @@ export class RoomsService {
     return this.database.withTenantTransaction(
       { tenantId, propertyId },
       (tx) => tx.$queryRaw<Room[]>`
-        SELECT id, name, title, room_size AS "roomSize", rules, floor, view_type AS "viewType"
+        SELECT id, name, title, room_size AS "roomSize", rules, description, floor, view_type AS "viewType"
         FROM rooms
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND room_type_id = ${roomTypeId}::uuid
         ORDER BY created_at
@@ -47,7 +48,7 @@ export class RoomsService {
     return this.database.withTenantTransaction(
       { tenantId, propertyId },
       (tx) => tx.$queryRaw<RoomWithType[]>`
-        SELECT r.id, r.name, r.title, r.room_size AS "roomSize", r.rules, r.floor, r.view_type AS "viewType", r.room_type_id AS "roomTypeId",
+        SELECT r.id, r.name, r.title, r.room_size AS "roomSize", r.rules, r.description, r.floor, r.view_type AS "viewType", r.room_type_id AS "roomTypeId",
           rt.name AS "roomTypeName"
         FROM rooms r
         JOIN room_types rt ON rt.tenant_id = r.tenant_id AND rt.id = r.room_type_id
@@ -74,12 +75,12 @@ export class RoomsService {
       if (!roomType[0]) throw new NotFoundException('Room type not found.');
       try {
         const rows = await tx.$queryRaw<Room[]>`
-          INSERT INTO rooms (id, tenant_id, property_id, room_type_id, name, title, room_size, rules, floor, view_type)
+          INSERT INTO rooms (id, tenant_id, property_id, room_type_id, name, title, room_size, rules, description, floor, view_type)
           VALUES (
             ${id}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid,
-            ${input.name}, ${input.title}, ${input.roomSize}, ${input.rules}, ${input.floor}, ${input.viewType}
+            ${input.name}, ${input.title}, ${input.roomSize}, ${input.rules}, ${input.description}, ${input.floor}, ${input.viewType}
           )
-          RETURNING id, name, title, room_size AS "roomSize", rules, floor, view_type AS "viewType"
+          RETURNING id, name, title, room_size AS "roomSize", rules, description, floor, view_type AS "viewType"
         `;
         await this.audit.recordInTransaction(tx, {
           tenantId,
@@ -110,11 +111,11 @@ export class RoomsService {
       try {
         const rows = await tx.$queryRaw<Room[]>`
           UPDATE rooms
-          SET name = ${input.name}, title = ${input.title}, room_size = ${input.roomSize}, rules = ${input.rules},
+          SET name = ${input.name}, title = ${input.title}, room_size = ${input.roomSize}, rules = ${input.rules}, description = ${input.description},
             floor = ${input.floor}, view_type = ${input.viewType},
             updated_at = CURRENT_TIMESTAMP
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomId}::uuid
-          RETURNING id, name, title, room_size AS "roomSize", rules, floor, view_type AS "viewType"
+          RETURNING id, name, title, room_size AS "roomSize", rules, description, floor, view_type AS "viewType"
         `;
         if (!rows[0]) throw new NotFoundException('Room not found.');
         await this.audit.recordInTransaction(tx, {
@@ -171,6 +172,7 @@ export class RoomsService {
     title: string | null;
     roomSize: string | null;
     rules: string | null;
+    description: string | null;
     floor: number | null;
     viewType: string | null;
   } {
@@ -185,11 +187,13 @@ export class RoomsService {
     if (roomSize && roomSize.length > 50)
       throw new BadRequestException('roomSize must be at most 50 characters.');
     const rules = typeof v.rules === 'string' && v.rules.trim() ? v.rules.trim() : null;
+    const description =
+      typeof v.description === 'string' && v.description.trim() ? v.description.trim() : null;
     const floor = this.floor(v.floor);
     const viewType = typeof v.viewType === 'string' && v.viewType.trim() ? v.viewType.trim() : null;
     if (viewType && viewType.length > 100)
       throw new BadRequestException('viewType must be at most 100 characters.');
-    return { name, title, roomSize, rules, floor, viewType };
+    return { name, title, roomSize, rules, description, floor, viewType };
   }
 
   private floor(value: unknown): number | null {

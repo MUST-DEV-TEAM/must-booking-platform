@@ -32,6 +32,7 @@ type Room = {
   title: string | null;
   roomSize: string | null;
   rules: string | null;
+  description: string | null;
   floor: number | null;
   viewType: string | null;
 };
@@ -70,6 +71,7 @@ type RoomForm = {
   title: string;
   roomSize: string;
   rules: string;
+  description: string;
   floor: string;
   viewType: string;
 };
@@ -87,6 +89,7 @@ const emptyRoomForm: RoomForm = {
   title: '',
   roomSize: '',
   rules: '',
+  description: '',
   floor: '',
   viewType: '',
 };
@@ -280,6 +283,7 @@ export function RoomManagement({
       title,
       roomSize,
       rules,
+      description,
       floor,
       viewType,
     }: {
@@ -289,6 +293,7 @@ export function RoomManagement({
       title: string;
       roomSize: string;
       rules: string;
+      description: string;
       floor: string;
       viewType: string;
     }) => {
@@ -305,6 +310,7 @@ export function RoomManagement({
             title: title.trim() || null,
             roomSize: roomSize.trim() || null,
             rules: rules.trim() || null,
+            description: description.trim() || null,
             floor: floor === '' ? null : Number(floor),
             viewType: viewType.trim() || null,
           }),
@@ -488,6 +494,7 @@ export function RoomManagement({
       title: roomForm.title,
       roomSize: roomForm.roomSize,
       rules: roomForm.rules,
+      description: roomForm.description,
       floor: roomForm.floor,
       viewType: roomForm.viewType,
     });
@@ -783,6 +790,7 @@ export function RoomManagement({
                                 title: room.title || '',
                                 roomSize: room.roomSize || '',
                                 rules: room.rules || '',
+                                description: room.description || '',
                                 floor: room.floor === null ? '' : String(room.floor),
                                 viewType: room.viewType || '',
                               },
@@ -917,6 +925,23 @@ export function RoomManagement({
                           [roomType.id]: {
                             ...(current[roomType.id] ?? emptyRoomForm),
                             rules: event.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="must-field">
+                    Room description override
+                    <textarea
+                      className="must-input"
+                      placeholder="Replaces the room type description for this room only"
+                      value={(roomForms[roomType.id] ?? emptyRoomForm).description}
+                      onChange={(event) =>
+                        setRoomForms((current) => ({
+                          ...current,
+                          [roomType.id]: {
+                            ...(current[roomType.id] ?? emptyRoomForm),
+                            description: event.target.value,
                           },
                         }))
                       }

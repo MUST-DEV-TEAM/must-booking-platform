@@ -29,6 +29,7 @@ namespace MustHotelBooking\Frontend {
                         'title' => $room['title'] ?? '',
                         'room_size' => $room['roomSize'] ?? '',
                         'rules' => $room['rules'] ?? '',
+                        'description' => $room['description'] ?? '',
                         'amenities' => $room['amenities'] ?? [],
                         'view_type' => $room['viewType'] ?? '',
                         'floor' => $room['floor'] ?? 0,
@@ -70,7 +71,7 @@ namespace MustHotelBooking\Frontend {
                 'amenities' => [['name' => 'Wi-Fi']],
                 'ratePlans' => [['name' => 'Flexible rate']],
                 'rooms' => [[
-                    'id' => 'suite-101', 'name' => 'Sea Suite 101', 'title' => 'Panoramic Sea Suite',
+                    'id' => 'suite-101', 'name' => 'Sea Suite 101', 'title' => 'Panoramic Sea Suite', 'description' => 'A private sea-facing suite.',
                     'roomSize' => '70m²', 'rules' => "No smoking.\nAdults only.",
                     'amenities' => [['name' => 'Private balcony', 'icon' => 'BEACH']], 'viewType' => 'Sea', 'floor' => 1,
                 ]],
@@ -88,6 +89,7 @@ namespace MustHotelBooking\Frontend {
     if (($view['room']['name'] ?? '') !== 'Panoramic Sea Suite') $failures[] = 'A custom room title should replace the detail-page heading.';
     if (($view['room']['room_size'] ?? '') !== '70m²') $failures[] = 'A room size should be carried into the detail-page model.';
     if (($view['room']['rules'] ?? '') !== "No smoking.\nAdults only.") $failures[] = 'The catalog-resolved room rules should be carried into the detail-page model.';
+    if (($view['room']['description'] ?? '') !== 'A private sea-facing suite.') $failures[] = 'The catalog-resolved room description should replace the room-type description.';
     if (($view['room']['room_id'] ?? '') !== 'suite-101') $failures[] = 'A validated physical room ID should stay in the detail-page model.';
     if (($view['room']['primary_image_url'] ?? '') !== 'https://example.test/suite-main.jpg') $failures[] = 'Catalog media should be carried into the detail-page model.';
     if (($view['room']['amenities'][0]['label'] ?? '') !== 'Private balcony') $failures[] = 'The detail-page model should use the catalog-resolved physical-room amenities.';
@@ -102,9 +104,10 @@ namespace MustHotelBooking\Frontend {
     unset($untouchedCatalog['roomTypes'][0]['rooms'][0]['title'], $untouchedCatalog['roomTypes'][0]['rooms'][0]['roomSize']);
     $untouched = get_single_room_page_view_model_from_catalog($untouchedCatalog, 'suite', 'suite-101');
     if (($untouched['room']['name'] ?? '') !== 'Sea Suite 101' || ($untouched['room']['room_size'] ?? '') !== '') $failures[] = 'An untouched room should keep its existing derived title and omit room size.';
-    unset($untouchedCatalog['roomTypes'][0]['rooms'][0]['rules']);
+    unset($untouchedCatalog['roomTypes'][0]['rooms'][0]['rules'], $untouchedCatalog['roomTypes'][0]['rooms'][0]['description']);
     $withoutRules = get_single_room_page_view_model_from_catalog($untouchedCatalog, 'suite', 'suite-101');
     if (($withoutRules['room']['rules'] ?? '') !== '') $failures[] = 'The detail-page model should omit room rules when the catalog has no effective rules.';
+    if (($withoutRules['room']['description'] ?? '') !== 'Sea-facing room.') $failures[] = 'An unset room description should fall back to the room-type description.';
     if (!empty(get_single_room_page_view_model_from_catalog($catalog, 'missing', '')['is_valid'])) $failures[] = 'An unknown room type must not produce a detail page.';
 
     if ($failures !== []) {

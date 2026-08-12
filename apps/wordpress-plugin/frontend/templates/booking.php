@@ -43,10 +43,10 @@ $calendar_layout_class = $calendar_layout === 'one_calendar' ? ' is-one-calendar
 $form_action_url = $accommodation_url;
 $form_method = $fixed_room_mode ? 'post' : 'get';
 $show_results_section = false;
-$back_arrow_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? MUST_HOTEL_BOOKING_URL . 'assets/img/ArrowLEFT.svg' : '';
-$arrow_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? MUST_HOTEL_BOOKING_URL . 'assets/img/ArrowRight.svg' : '';
-$filter_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? MUST_HOTEL_BOOKING_URL . 'assets/img/poludown.svg' : '';
-$bed_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? MUST_HOTEL_BOOKING_URL . 'assets/img/bed.svg' : '';
+$back_arrow_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? \must_hotel_booking_asset_url('assets/img/ArrowLEFT.svg') : '';
+$arrow_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? \must_hotel_booking_asset_url('assets/img/ArrowRight.svg') : '';
+$filter_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? \must_hotel_booking_asset_url('assets/img/poludown.svg') : '';
+$bed_icon_url = \defined('MUST_HOTEL_BOOKING_URL') ? \must_hotel_booking_asset_url('assets/img/bed.svg') : '';
 $contact_url = \home_url('/contact');
 $step_heading = \__('Select your dates', 'must-hotel-booking');
 $results_date_range = \function_exists('\must_hotel_booking\format_booking_results_date_range')

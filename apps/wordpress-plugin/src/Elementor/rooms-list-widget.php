@@ -13,8 +13,8 @@ function register_elementor_rooms_list_widget_scripts(): void
 {
     \wp_register_script('must-hotel-booking-rooms-list-widget', MUST_HOTEL_BOOKING_URL . 'assets/js/rooms-list-widget.js', [], MUST_HOTEL_BOOKING_VERSION, true);
     \wp_localize_script('must-hotel-booking-rooms-list-widget', 'mustBookingRoomsListWidgetConfig', ['icons' => [
-        'lightboxPrev' => MUST_HOTEL_BOOKING_URL . 'assets/img/lightboxleft.svg',
-        'lightboxNext' => MUST_HOTEL_BOOKING_URL . 'assets/img/lightboxright.svg',
+        'lightboxPrev' => \must_hotel_booking_asset_url('assets/img/lightboxleft.svg'),
+        'lightboxNext' => \must_hotel_booking_asset_url('assets/img/lightboxright.svg'),
     ]]);
 }
 

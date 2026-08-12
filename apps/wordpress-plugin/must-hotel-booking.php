@@ -58,6 +58,7 @@ if (!\defined('MUST_HOTEL_BOOKING_PLATFORM_URL')) {
 }
 
 require_once MUST_HOTEL_BOOKING_PATH . 'includes/autoloader.php';
+require_once MUST_HOTEL_BOOKING_PATH . 'includes/asset-url.php';
 require_once MUST_HOTEL_BOOKING_PATH . 'includes/config.php';
 
 \MustHotelBooking\Core\BookingPerformanceMonitor::bootstrap();

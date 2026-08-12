@@ -39,9 +39,9 @@ class Booking_Search_Widget extends \Elementor\Widget_Base
         $legacyKey = \sanitize_key((string) ($settings['rooms_list_connection_key'] ?? ''));
         $bookingUrl = ($settings['direct_to_accommodation'] ?? '') === 'yes' ? ManagedPages::getBookingAccommodationPageUrl() : get_booking_page_url_for_widget();
         $icons = [
-            'calendar' => MUST_HOTEL_BOOKING_URL . 'assets/img/Calendar2Date.svg',
-            'people' => MUST_HOTEL_BOOKING_URL . 'assets/img/PeopleFill.svg',
-            'arrow' => MUST_HOTEL_BOOKING_URL . 'assets/img/ArrowRight.svg',
+            'calendar' => \must_hotel_booking_asset_url('assets/img/Calendar2Date.svg'),
+            'people' => \must_hotel_booking_asset_url('assets/img/PeopleFill.svg'),
+            'arrow' => \must_hotel_booking_asset_url('assets/img/ArrowRight.svg'),
         ];
         ?>
         <div class="must-hotel-booking-widget must-hotel-booking-widget-booking-search" data-linked-room-list-id="<?php echo \esc_attr($linkedId); ?>" data-connection-key="<?php echo \esc_attr($legacyKey); ?>">
