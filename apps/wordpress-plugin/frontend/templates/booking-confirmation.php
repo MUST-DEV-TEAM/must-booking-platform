@@ -56,13 +56,10 @@ $cancellation_form_action = $cancellation_request_action === 'confirm_cancellati
 $cancellation_nonce_action = $cancellation_form_action === 'execute_cancellation'
     ? 'must_confirm_cancellation'
     : 'must_prepare_cancellation';
-$cancellation_form_url = $confirmation_url;
-$cancellation_context_selector = isset($_GET['access_context'])
-    ? \sanitize_text_field((string) \wp_unslash($_GET['access_context']))
-    : '';
-if ((bool) \preg_match('/\A[a-f0-9]{64}\z/i', $cancellation_context_selector)) {
-    $cancellation_form_url = \add_query_arg(['access_context' => $cancellation_context_selector], $cancellation_form_url);
-}
+$cancellation_form_url = \MustHotelBooking\Frontend\get_confirmation_cancellation_form_url(
+    $confirmation_url,
+    \is_array($_GET) ? $_GET : []
+);
 if ($can_show_cancellation_confirm_form && !empty($reservations)) {
     foreach ($reservations as $reservation) {
         if (!\is_array($reservation)) {

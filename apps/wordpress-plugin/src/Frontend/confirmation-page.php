@@ -4,6 +4,29 @@ namespace MustHotelBooking\Frontend;
 use MustHotelBooking\Core\ManagedPages;
 use MustHotelBooking\Core\MustApiClient;
 
+/** @param array<string, mixed> $request */
+function get_confirmation_cancellation_form_url(string $confirmationUrl, array $request): string
+{
+    $args = [];
+    $accessContext = isset($request['access_context'])
+        ? \sanitize_text_field((string) \wp_unslash($request['access_context']))
+        : '';
+    if ((bool) \preg_match('/\A[a-f0-9]{64}\z/i', $accessContext)) {
+        $args['access_context'] = $accessContext;
+    }
+
+    foreach (['booking_id', 'cancellationToken'] as $key) {
+        $value = isset($request[$key])
+            ? \sanitize_text_field((string) \wp_unslash($request[$key]))
+            : '';
+        if ($value !== '') {
+            $args[$key] = $value;
+        }
+    }
+
+    return $args === [] ? $confirmationUrl : \add_query_arg($args, $confirmationUrl);
+}
+
 /** Handle the "cancel booking" form POST before any output. Reloads the page on success. */
 function maybe_process_confirmation_cancellation(): string
 {

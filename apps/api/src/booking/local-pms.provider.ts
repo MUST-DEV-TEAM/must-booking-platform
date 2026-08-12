@@ -497,7 +497,7 @@ export class LocalPmsProvider implements PmsProvider {
               : this.failure('BOOKING_NOT_FOUND', 'Created booking could not be loaded.');
           },
         );
-      });
+      }, { timeoutMs: 30_000 });
       if (payAtHotelConfirmationBookingId)
         await this.confirmations.sendAfterConfirmation(
           context,
@@ -813,6 +813,7 @@ export class LocalPmsProvider implements PmsProvider {
             : this.failure('BOOKING_NOT_FOUND', 'Cancelled booking could not be loaded.');
         },
       ),
+      { timeoutMs: 30_000 },
     );
     if (refundConfirmation)
       await this.notifications.sendRefundConfirmationEmailSafely(refundConfirmation);

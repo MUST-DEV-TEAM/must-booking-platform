@@ -30,6 +30,7 @@ describe('availability calendar (local)', () => {
   let cookie: string;
   let roomTypeId: string;
   let roomId: string;
+  let ratePlanId: string;
   let verificationToken = '';
   const email = `availability-calendar-${randomUUID()}@example.test`;
   const mail: MailProvider = {
@@ -90,6 +91,12 @@ describe('availability calendar (local)', () => {
       .send({ name: 'Calendar Room 1' })
       .expect(201);
     roomId = room.body.id;
+    const ratePlan = await request(app.getHttpServer())
+      .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans`)
+      .set('Cookie', cookie)
+      .send({ name: 'Calendar Flexible', currency: 'EUR' })
+      .expect(201);
+    ratePlanId = ratePlan.body.id;
 
     // Available every day of March 2027 except the 10th (0 units), with the
     // 15th deliberately left unset (no inventory_units row at all).
@@ -174,6 +181,42 @@ describe('availability calendar (local)', () => {
     expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-10')).toEqual({
       date: '2027-03-10',
       isAvailable: false,
+    });
+  });
+
+  it('marks dates occupied by an existing confirmed booking for the selected physical room unavailable', async () => {
+    await admin.$executeRaw`
+      INSERT INTO bookings (
+        tenant_id, property_id, room_type_id, room_id, external_reference,
+        status, payment_method, starts_on, ends_on, rate_plan_id, total_amount
+      ) VALUES (
+        ${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid, ${roomId}::uuid,
+        ${`availability-calendar-${randomUUID()}`},
+        'CONFIRMED'::"BookingStatus", 'PAY_AT_HOTEL'::"BookingPaymentMethod",
+        '2027-03-20'::date, '2027-03-22'::date, ${ratePlanId}::uuid, 100.00::numeric
+      )
+    `;
+
+    const response = await request(app.getHttpServer())
+      .get(`/tenants/${tenantId}/properties/${propertyId}/public/availability-calendar`)
+      .query({ roomTypeId, roomId, month: '2027-03' })
+      .expect(200);
+
+    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-19')).toEqual({
+      date: '2027-03-19',
+      isAvailable: true,
+    });
+    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-20')).toEqual({
+      date: '2027-03-20',
+      isAvailable: false,
+    });
+    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-21')).toEqual({
+      date: '2027-03-21',
+      isAvailable: false,
+    });
+    expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-22')).toEqual({
+      date: '2027-03-22',
+      isAvailable: true,
     });
   });
 });
