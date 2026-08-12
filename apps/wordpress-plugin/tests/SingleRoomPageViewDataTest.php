@@ -64,6 +64,7 @@ namespace MustHotelBooking\Frontend {
         'roomTypes' => [
             [
                 'id' => 'suite', 'name' => 'Sea Suite', 'description' => 'Sea-facing room.', 'maxOccupancy' => 3,
+                'amenitiesIntro' => 'Everything needed for a comfortable stay.',
                 'mainImageUrl' => 'https://example.test/suite-main.jpg',
                 'galleryImageUrls' => ['https://example.test/suite-gallery.jpg'],
                 'amenities' => [['name' => 'Wi-Fi']],
@@ -90,6 +91,7 @@ namespace MustHotelBooking\Frontend {
     if (($view['room']['room_id'] ?? '') !== 'suite-101') $failures[] = 'A validated physical room ID should stay in the detail-page model.';
     if (($view['room']['primary_image_url'] ?? '') !== 'https://example.test/suite-main.jpg') $failures[] = 'Catalog media should be carried into the detail-page model.';
     if (($view['room']['amenities'][0]['label'] ?? '') !== 'Private balcony') $failures[] = 'The detail-page model should use the catalog-resolved physical-room amenities.';
+    if (($view['room']['amenities_intro'] ?? '') !== 'Everything needed for a comfortable stay.') $failures[] = 'The detail-page model should carry an amenities introduction separately from structured amenities.';
     if (($view['room']['rate_plans'] ?? []) !== ['Flexible rate']) $failures[] = 'Catalog rate plans should be carried into the detail-page model.';
     if (($view['related_rooms'][0]['room_type_id'] ?? '') !== 'studio') $failures[] = 'Other catalogue room types should populate related rooms.';
 

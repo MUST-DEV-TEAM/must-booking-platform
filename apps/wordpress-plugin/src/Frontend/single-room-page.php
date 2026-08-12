@@ -34,6 +34,35 @@ function get_single_room_booking_url(string $roomTypeId, string $roomId = ''): s
     return \add_query_arg($args, get_booking_page_url());
 }
 
+function get_single_room_inquiry_url(): string
+{
+    $email = \sanitize_email((string) \get_option('admin_email', ''));
+
+    return \is_email($email) ? 'mailto:' . $email : '';
+}
+
+function get_single_room_terms_url(): string
+{
+    foreach (['terms', 'terms-and-conditions', 'terms-conditions'] as $slug) {
+        $page = \get_page_by_path($slug, OBJECT, 'page');
+        if (!\is_object($page) || (string) ($page->post_status ?? '') !== 'publish') {
+            continue;
+        }
+
+        $pageId = (int) ($page->ID ?? 0);
+        if ($pageId <= 0) {
+            continue;
+        }
+
+        $url = \get_permalink($pageId);
+        if (\is_string($url) && $url !== '') {
+            return $url;
+        }
+    }
+
+    return '';
+}
+
 /**
  * Build the page model from the same public catalogue used by the booking
  * pages. A physical room is deliberately resolved through Task 28's shared
@@ -99,6 +128,7 @@ function get_single_room_page_view_model_from_catalog(array $catalog, string $ro
         'max_guests' => (int) ($roomType['maxOccupancy'] ?? 0),
         'room_size' => $fixedRoom !== null ? (string) ($fixedRoom['room_size'] ?? '') : '',
         'rules' => $fixedRoom !== null ? (string) ($fixedRoom['rules'] ?? '') : '',
+        'amenities_intro' => (string) ($roomType['amenitiesIntro'] ?? $roomType['amenities_intro'] ?? ''),
         'view_type' => $fixedRoom !== null ? (string) ($fixedRoom['view_type'] ?? '') : '',
         'floor' => $fixedRoom !== null ? (int) ($fixedRoom['floor'] ?? 0) : 0,
         'rate_plans' => $ratePlans,
@@ -158,6 +188,8 @@ function get_single_room_page_view_data(): array
     $roomId = (string) ($room['room_id'] ?? '');
     $view['booking_url'] = get_single_room_booking_url($roomTypeId, $roomId);
     $view['room_url'] = get_single_room_page_url($roomTypeId, $roomId);
+    $view['inquiry_url'] = get_single_room_inquiry_url();
+    $view['terms_url'] = get_single_room_terms_url();
 
     foreach ((array) ($view['related_rooms'] ?? []) as $index => $relatedRoom) {
         if (!\is_array($relatedRoom)) {
