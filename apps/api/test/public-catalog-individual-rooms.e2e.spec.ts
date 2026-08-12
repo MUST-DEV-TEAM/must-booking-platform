@@ -150,6 +150,7 @@ describe('public catalog individual rooms', () => {
           id: pooledRoomType.body.id,
           name: 'Pooled Classic',
           description: null,
+          amenitiesIntro: null,
           mainImageUrl: 'https://images.example.test/pooled-classic.jpg',
           galleryImageUrls: [
             'https://images.example.test/pooled-classic-1.jpg',
