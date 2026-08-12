@@ -15,6 +15,7 @@ type RoomType = {
   id: string;
   name: string;
   description: string | null;
+  amenitiesIntro: string | null;
   mainImageUrl: string | null;
   galleryImageUrls: string[];
   maxOccupancy: number;
@@ -39,7 +40,7 @@ export class RoomTypesService {
     return this.database.withTenantTransaction(
       { tenantId, propertyId },
       (tx) => tx.$queryRaw<RoomType[]>`
-        SELECT rt.id, rt.name, rt.description, rt.main_image_url AS "mainImageUrl",
+        SELECT rt.id, rt.name, rt.description, rt.amenities_intro AS "amenitiesIntro", rt.main_image_url AS "mainImageUrl",
           rt.gallery_image_urls AS "galleryImageUrls", rt.max_occupancy AS "maxOccupancy",
           count(r.id)::int AS "roomCount"
         FROM room_types rt
@@ -63,7 +64,7 @@ export class RoomTypesService {
       try {
         const rows = await tx.$queryRaw<RoomType[]>`
           INSERT INTO room_types (
-            id, tenant_id, property_id, name, description, main_image_url, gallery_image_urls, max_occupancy
+            id, tenant_id, property_id, name, description, amenities_intro, main_image_url, gallery_image_urls, max_occupancy
           )
           VALUES (
             ${id}::uuid,
@@ -71,11 +72,12 @@ export class RoomTypesService {
             ${propertyId}::uuid,
             ${input.name},
             ${input.description},
+            ${input.amenitiesIntro},
             ${input.mainImageUrl},
             ${input.galleryImageUrls}::varchar(2000)[],
             ${input.maxOccupancy}
           )
-          RETURNING id, name, description, main_image_url AS "mainImageUrl",
+          RETURNING id, name, description, amenities_intro AS "amenitiesIntro", main_image_url AS "mainImageUrl",
             gallery_image_urls AS "galleryImageUrls", max_occupancy AS "maxOccupancy"
         `;
         await this.audit.recordInTransaction(tx, {
@@ -112,12 +114,13 @@ export class RoomTypesService {
           SET
             name = ${input.name},
             description = ${input.description},
+            amenities_intro = ${input.amenitiesIntro},
             main_image_url = ${input.mainImageUrl},
             gallery_image_urls = ${input.galleryImageUrls}::varchar(2000)[],
             max_occupancy = ${input.maxOccupancy},
             updated_at = CURRENT_TIMESTAMP
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomTypeId}::uuid
-          RETURNING id, name, description, main_image_url AS "mainImageUrl",
+          RETURNING id, name, description, amenities_intro AS "amenitiesIntro", main_image_url AS "mainImageUrl",
             gallery_image_urls AS "galleryImageUrls", max_occupancy AS "maxOccupancy"
         `;
         if (!rows[0]) throw new NotFoundException('Room type not found.');
@@ -232,6 +235,7 @@ export class RoomTypesService {
   private input(body: unknown): {
     name: string;
     description: string | null;
+    amenitiesIntro: string | null;
     mainImageUrl: string | null;
     galleryImageUrls: string[];
     maxOccupancy: number;
@@ -240,6 +244,10 @@ export class RoomTypesService {
     const name = typeof v.name === 'string' ? v.name.trim() : '';
     const description =
       typeof v.description === 'string' && v.description.trim() ? v.description.trim() : null;
+    const amenitiesIntro =
+      typeof v.amenitiesIntro === 'string' && v.amenitiesIntro.trim()
+        ? v.amenitiesIntro.trim()
+        : null;
     const mainImageUrl = this.imageUrl(v.mainImageUrl, 'mainImageUrl');
     const galleryImageUrls = this.galleryImageUrls(v.galleryImageUrls);
     const maxOccupancy = typeof v.maxOccupancy === 'number' ? v.maxOccupancy : NaN;
@@ -247,7 +255,7 @@ export class RoomTypesService {
     if (name.length > 200) throw new BadRequestException('name must be at most 200 characters.');
     if (!Number.isInteger(maxOccupancy) || maxOccupancy <= 0)
       throw new BadRequestException('maxOccupancy must be a positive integer.');
-    return { name, description, mainImageUrl, galleryImageUrls, maxOccupancy };
+    return { name, description, amenitiesIntro, mainImageUrl, galleryImageUrls, maxOccupancy };
   }
 
   private galleryImageUrls(value: unknown): string[] {

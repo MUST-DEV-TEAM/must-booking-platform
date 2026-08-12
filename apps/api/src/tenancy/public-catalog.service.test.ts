@@ -90,6 +90,7 @@ describe('PublicCatalogService payment methods', () => {
             id: 'room-type-id',
             name: 'Deluxe',
             description: 'Sea-facing suite',
+            amenitiesIntro: 'Everything needed for a comfortable stay.',
             mainImageUrl: 'https://images.example.test/deluxe.jpg',
             galleryImageUrls: ['https://images.example.test/deluxe-1.jpg'],
             maxOccupancy: 2,
@@ -103,6 +104,7 @@ describe('PublicCatalogService payment methods', () => {
       roomTypes: [
         {
           mainImageUrl: 'https://images.example.test/deluxe.jpg',
+          amenitiesIntro: 'Everything needed for a comfortable stay.',
           galleryImageUrls: ['https://images.example.test/deluxe-1.jpg'],
           amenities: [{ icon: 'BEACH' }],
         },

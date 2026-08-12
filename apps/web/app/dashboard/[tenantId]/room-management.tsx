@@ -39,6 +39,7 @@ type RoomType = {
   id: string;
   name: string;
   description: string | null;
+  amenitiesIntro: string | null;
   mainImageUrl: string | null;
   galleryImageUrls: string[];
   maxOccupancy: number;
@@ -58,6 +59,7 @@ type RoomManagementData = {
 type RoomTypeForm = {
   name: string;
   description: string;
+  amenitiesIntro: string;
   mainImageUrl: string;
   galleryImageUrls: string;
   maxOccupancy: string;
@@ -75,6 +77,7 @@ type RoomForm = {
 const emptyRoomTypeForm: RoomTypeForm = {
   name: '',
   description: '',
+  amenitiesIntro: '',
   mainImageUrl: '',
   galleryImageUrls: '',
   maxOccupancy: '2',
@@ -207,6 +210,7 @@ export function RoomManagement({
       roomTypeId,
       name,
       description,
+      amenitiesIntro,
       mainImageUrl,
       galleryImageUrls,
       maxOccupancy,
@@ -214,6 +218,7 @@ export function RoomManagement({
       roomTypeId: string | null;
       name: string;
       description: string;
+      amenitiesIntro: string;
       mainImageUrl: string;
       galleryImageUrls: string;
       maxOccupancy: string;
@@ -227,6 +232,7 @@ export function RoomManagement({
           body: JSON.stringify({
             name,
             description,
+            amenitiesIntro,
             mainImageUrl: mainImageUrl.trim() || null,
             galleryImageUrls: galleryImageUrls
               .split(/\r?\n/)
@@ -458,6 +464,7 @@ export function RoomManagement({
       roomTypeId: editingRoomTypeId,
       name: roomTypeForm.name,
       description: roomTypeForm.description,
+      amenitiesIntro: roomTypeForm.amenitiesIntro,
       mainImageUrl: roomTypeForm.mainImageUrl,
       galleryImageUrls: roomTypeForm.galleryImageUrls,
       maxOccupancy: roomTypeForm.maxOccupancy,
@@ -615,6 +622,16 @@ export function RoomManagement({
                 />
               </label>
               <label className="must-field">
+                Amenities introduction
+                <textarea
+                  className="must-input"
+                  value={roomTypeForm.amenitiesIntro}
+                  onChange={(event) =>
+                    setRoomTypeForm({ ...roomTypeForm, amenitiesIntro: event.target.value })
+                  }
+                />
+              </label>
+              <label className="must-field">
                 Main image URL
                 <input
                   className="must-input"
@@ -695,6 +712,7 @@ export function RoomManagement({
                   setRoomTypeForm({
                     name: roomType.name,
                     description: roomType.description || '',
+                    amenitiesIntro: roomType.amenitiesIntro || '',
                     mainImageUrl: roomType.mainImageUrl || '',
                     galleryImageUrls: roomType.galleryImageUrls.join('\n'),
                     maxOccupancy: String(roomType.maxOccupancy),

@@ -307,6 +307,7 @@ model RoomType {
   propertyId       String            @map("property_id") @db.Uuid
   name             String            @db.VarChar(200)
   description      String?
+  amenitiesIntro   String?           @map("amenities_intro")
   mainImageUrl     String?           @map("main_image_url") @db.VarChar(2000)
   galleryImageUrls String[]          @default([]) @map("gallery_image_urls") @db.VarChar(2000)
   maxOccupancy     Int               @map("max_occupancy")

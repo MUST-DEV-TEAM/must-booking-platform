@@ -18,6 +18,7 @@ type PublicCatalogRoomType = {
   id: string;
   name: string;
   description: string | null;
+  amenitiesIntro: string | null;
   mainImageUrl: string | null;
   galleryImageUrls: string[];
   maxOccupancy: number;
@@ -85,6 +86,7 @@ export class PublicCatalogService {
           rt.id,
           rt.name,
           rt.description,
+          rt.amenities_intro AS "amenitiesIntro",
           rt.main_image_url AS "mainImageUrl",
           rt.gallery_image_urls AS "galleryImageUrls",
           rt.max_occupancy AS "maxOccupancy",
