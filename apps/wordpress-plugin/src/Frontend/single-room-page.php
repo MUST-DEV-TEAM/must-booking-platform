@@ -34,16 +34,12 @@ function get_single_room_booking_url(string $roomTypeId, string $roomId = ''): s
     return \add_query_arg($args, get_booking_page_url());
 }
 
-function get_single_room_inquiry_url(): string
+/**
+ * @param string[] $slugs
+ */
+function find_published_page_url(array $slugs): string
 {
-    $email = \sanitize_email((string) \get_option('admin_email', ''));
-
-    return \is_email($email) ? 'mailto:' . $email : '';
-}
-
-function get_single_room_terms_url(): string
-{
-    foreach (['terms', 'terms-and-conditions', 'terms-conditions'] as $slug) {
+    foreach ($slugs as $slug) {
         $page = \get_page_by_path($slug, OBJECT, 'page');
         if (!\is_object($page) || (string) ($page->post_status ?? '') !== 'publish') {
             continue;
@@ -61,6 +57,23 @@ function get_single_room_terms_url(): string
     }
 
     return '';
+}
+
+function get_single_room_inquiry_url(): string
+{
+    $contactUrl = find_published_page_url(['contact', 'contact-us', 'get-in-touch']);
+    if ($contactUrl !== '') {
+        return $contactUrl;
+    }
+
+    $email = \sanitize_email((string) \get_option('admin_email', ''));
+
+    return \is_email($email) ? 'mailto:' . $email : '';
+}
+
+function get_single_room_terms_url(): string
+{
+    return find_published_page_url(['terms', 'terms-and-conditions', 'terms-conditions']);
 }
 
 /**

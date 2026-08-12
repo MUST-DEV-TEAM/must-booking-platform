@@ -647,6 +647,10 @@
     width: 28px;
     height: 28px;
     object-fit: contain;
+    /* Amenity icon assets are drawn dark-on-transparent for the light
+       Amenities box above; invert them here so they read as light-on-dark
+       against this section's #141414 icon-wrap background. */
+    filter: invert(1);
 }
 
 .must-hotel-booking-single-room .must-hotel-booking-included-accommodations-card h3 {
