@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { AvailabilityQuery, AvailabilityResult, Money, Result } from '@must/domain-contracts';
+import type { AvailabilityQuery, AvailabilityResult, Money, NightlyRate, Result } from '@must/domain-contracts';
 
 import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
 import { IntegrationConnectionsService } from '../integration-connections.service';
@@ -46,6 +46,8 @@ type ClockProductsResponse = Array<{
     }>
   >;
 }>;
+
+type ClockQuote = { total: Money; nightlyRates: NightlyRate[] };
 
 const CACHE_TTL_MS = 60_000; // Task 8 acceptance: short-lived cache, no fixed brief-specified TTL.
 
@@ -205,6 +207,79 @@ export class ClockAvailabilityService {
       ok: true,
       value: { amount: (offer.price.cents / 100).toFixed(2), currency: offer.price.currency },
     };
+  }
+
+  /**
+   * Returns the authoritative stay total and one separately quoted price for
+   * each occupied date. Clock's `/products` response exposes a price for the
+   * requested stay, rather than a nightly array, so each nightly row is a
+   * one-night `/products` quote using the same room type and rate selection.
+   */
+  async getQuoteWithNightlyRates(
+    tenantId: string,
+    propertyId: string,
+    query: {
+      roomTypeId: string;
+      startsOn: string;
+      endsOn: string;
+      adultCount?: number;
+      childrenCount?: number;
+    },
+  ): Promise<Result<ClockQuote>> {
+    const total = await this.getQuote(tenantId, propertyId, query);
+    if (!total.ok) return total;
+
+    const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
+    if (!connection || connection.provider !== 'CLOCK_PMS')
+      return failure(
+        classifyConfigurationError('This property has no active Clock PMS connection.'),
+      );
+    const parsed = parseClockCredentials(connection.credentials);
+    if (!parsed.ok) return failure(classifyConfigurationError(parsed.message));
+    const externalRoomTypeId = await this.mappedExternalRoomTypeId(
+      tenantId,
+      propertyId,
+      query.roomTypeId,
+    );
+    if (!externalRoomTypeId)
+      return failure(
+        classifyConfigurationError(
+          'This room type has no confirmed Clock catalog mapping — sync and confirm it first.',
+        ),
+      );
+    const rateIds = await this.ratesForRoomType(parsed.value, externalRoomTypeId);
+    if (!rateIds.ok) return failure(rateIds.error);
+
+    const nightlyRates: NightlyRate[] = [];
+    for (const date of nightsBetween(query.startsOn, query.endsOn)) {
+      const nextDate = new Date(`${date}T00:00:00Z`);
+      nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+      const productSearch: Record<string, string | string[]> = {
+        'product_search[arrival]': date,
+        'product_search[departure]': nextDate.toISOString().slice(0, 10),
+        rates: rateIds.value,
+      };
+      if (query.adultCount !== undefined)
+        productSearch['product_search[adult_count]'] = String(query.adultCount);
+      if (query.childrenCount !== undefined)
+        productSearch['product_search[children_count]'] = String(query.childrenCount);
+      const response = await this.fetch<ClockProductsResponse>(parsed.value, productSearch, '/products');
+      if (!response.ok) return failure(response.error);
+      const roomType = response.value.find((item) => String(item.id) === externalRoomTypeId);
+      const offer = roomType
+        ? Object.values(roomType.rates)
+            .flat()
+            .find((entry) => entry.available && Object.keys(entry.errors ?? {}).length === 0)
+        : undefined;
+      if (!offer)
+        return failure(
+          classifyConfigurationError(`Clock has no available price for ${date}.`),
+        );
+      if (offer.price.currency !== total.value.currency)
+        return failure(classifyConfigurationError('Clock returned inconsistent quote currencies.'));
+      nightlyRates.push({ date, amount: (offer.price.cents / 100).toFixed(2) });
+    }
+    return { ok: true, value: { total: total.value, nightlyRates } };
   }
 
   /**

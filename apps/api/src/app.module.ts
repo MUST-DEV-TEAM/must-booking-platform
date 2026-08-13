@@ -38,6 +38,7 @@ import { MAIL_PROVIDER } from './mail/mail.provider';
 import { ResendMailProvider } from './mail/resend-mail.provider';
 import { PaymentNotificationService } from './mail/payment-notification.service';
 import { BookingConfirmationNotificationService } from './mail/booking-confirmation-notification.service';
+import { BookingCancellationNotificationService } from './mail/booking-cancellation-notification.service';
 import { PlanUsageController } from './tenancy/plan-usage.controller';
 import { PlanUsageService } from './tenancy/plan-usage.service';
 import { PropertiesController } from './tenancy/properties.controller';
@@ -254,6 +255,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ResendMailProvider,
     PaymentNotificationService,
     BookingConfirmationNotificationService,
+    BookingCancellationNotificationService,
     { provide: MAIL_PROVIDER, useExisting: ResendMailProvider },
     { provide: APP_GUARD, useExisting: TenantContextGuard },
     { provide: APP_GUARD, useExisting: PublicTenantScopedGuard },

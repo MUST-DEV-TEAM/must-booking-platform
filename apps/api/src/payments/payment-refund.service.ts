@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import {
+  type MailBrand,
   type Money,
   type Payment,
   type PaymentProviderContext,
@@ -37,11 +38,34 @@ export type RefundConfirmation = {
   refundId: string;
   to: string;
   amount: Money;
+  brand: MailBrand;
+  guest: { name: string };
+  stay: { startsOn: string; endsOn: string };
+  roomName: string;
+  guestCount: number;
+  nightlyRates?: Array<{ date: string; amount: string }>;
 };
 
 type RefundChargeOutcome = {
   result: Result<Payment>;
   confirmation: RefundConfirmation | null;
+};
+
+type RefundEmailRow = {
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  externalReference: string;
+  startsOn: string;
+  endsOn: string;
+  nightlyRates: Array<{ date: string; amount: string }> | null;
+  roomName: string;
+  propertyName: string;
+  logoUrl: string | null;
+  supportEmail: string | null;
+  phone: string | null;
+  websiteUrl: string | null;
+  address: string | null;
 };
 
 @Injectable()
@@ -126,21 +150,23 @@ export class PaymentRefundService {
         type: 'PAYMENT_REFUNDED',
         payload: { bookingId, refundId: refunded.value.id, amount: command.amount },
       });
-      const guest = await tx.$queryRaw<Array<{ email: string; externalReference: string }>>`
-        SELECT g.email, b.external_reference AS "externalReference"
+      const guest = await tx.$queryRaw<Array<RefundEmailRow>>`
+        SELECT g.email, g.first_name AS "firstName", g.last_name AS "lastName",
+          b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
+          b.ends_on::text AS "endsOn", b.nightly_rates AS "nightlyRates",
+          COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
+          p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
+          p.public_website_origin AS "websiteUrl", p.address
         FROM bookings b
+        JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
         JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
+        JOIN room_types rt ON rt.tenant_id = b.tenant_id AND rt.property_id = b.property_id AND rt.id = b.room_type_id
+        LEFT JOIN rooms r ON r.tenant_id = b.tenant_id AND r.property_id = b.property_id AND r.id = b.room_id
         WHERE b.id = ${bookingId}::uuid AND b.tenant_id = ${context.tenantId}::uuid
           AND b.property_id = ${context.propertyId}::uuid
       `;
       if (guest[0]) {
-        confirmation = {
-          bookingId,
-          bookingReference: guest[0].externalReference,
-          refundId: refunded.value.id,
-          to: guest[0].email,
-          amount: command.amount,
-        };
+        confirmation = this.refundConfirmation(bookingId, refunded.value.id, guest[0], command.amount);
       }
     }
     // StripePaymentProvider.refund has no booking context (RefundCommand doesn't carry one) and
@@ -237,21 +263,23 @@ export class PaymentRefundService {
         type: 'PAYMENT_REFUNDED',
         payload: { bookingId, refundId: externalPaymentId, amount: command.amount },
       });
-      const guest = await tx.$queryRaw<Array<{ email: string; externalReference: string }>>`
-        SELECT g.email, b.external_reference AS "externalReference"
+      const guest = await tx.$queryRaw<Array<RefundEmailRow>>`
+        SELECT g.email, g.first_name AS "firstName", g.last_name AS "lastName",
+          b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
+          b.ends_on::text AS "endsOn", b.nightly_rates AS "nightlyRates",
+          COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
+          p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
+          p.public_website_origin AS "websiteUrl", p.address
         FROM bookings b
+        JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
         JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
+        JOIN room_types rt ON rt.tenant_id = b.tenant_id AND rt.property_id = b.property_id AND rt.id = b.room_type_id
+        LEFT JOIN rooms r ON r.tenant_id = b.tenant_id AND r.property_id = b.property_id AND r.id = b.room_id
         WHERE b.id = ${bookingId}::uuid AND b.tenant_id = ${context.tenantId}::uuid
           AND b.property_id = ${context.propertyId}::uuid
       `;
       if (guest[0])
-        confirmation = {
-          bookingId,
-          bookingReference: guest[0].externalReference,
-          refundId: externalPaymentId,
-          to: guest[0].email,
-          amount: command.amount,
-        };
+        confirmation = this.refundConfirmation(bookingId, externalPaymentId, guest[0], command.amount);
     }
     return {
       result: {
@@ -379,5 +407,33 @@ export class PaymentRefundService {
 
   private failure(code: string, message: string, retryable = false): Result<never> {
     return { ok: false, error: { code, message, retryable } };
+  }
+
+  private refundConfirmation(
+    bookingId: string,
+    refundId: string,
+    row: RefundEmailRow,
+    amount: Money,
+  ): RefundConfirmation {
+    return {
+      bookingId,
+      bookingReference: row.externalReference,
+      refundId,
+      to: row.email,
+      amount,
+      brand: {
+        name: row.propertyName,
+        logoUrl: row.logoUrl,
+        supportEmail: row.supportEmail,
+        phone: row.phone,
+        websiteUrl: row.websiteUrl,
+        address: row.address,
+      },
+      guest: { name: [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || row.email },
+      stay: { startsOn: row.startsOn, endsOn: row.endsOn },
+      roomName: row.roomName,
+      guestCount: 1,
+      nightlyRates: row.nightlyRates ?? undefined,
+    };
   }
 }

@@ -59,6 +59,23 @@ describe('ResendMailProvider', () => {
       paymentId: 'cs_test_1',
       to: 'guest@example.test',
       amount: { amount: '180.00', currency: 'EUR' },
+      paymentMethod: 'stripe',
+      guest: { name: 'Ada Guest' },
+      stay: { startsOn: '2027-09-01', endsOn: '2027-09-03' },
+      roomName: 'Ocean Suite',
+      guestCount: 2,
+      nightlyRates: [
+        { date: '2027-09-01', amount: '90.00' },
+        { date: '2027-09-02', amount: '90.00' },
+      ],
+      brand: {
+        name: 'MUST <Hotel>',
+        logoUrl: 'https://hotel.example.test/logo.png',
+        supportEmail: 'stay@hotel.example.test',
+        phone: '+355 69 123 4567',
+        websiteUrl: 'https://hotel.example.test',
+        address: '1 Main Street',
+      },
       cancellationUrl:
         'https://hotel.example.test/booking-confirmation?booking_id=booking-1&cancellationToken=token',
       specialRequests: 'Late arrival after 22:00.\nNo feathers, please.',
@@ -69,6 +86,11 @@ describe('ResendMailProvider', () => {
       refundId: 're_test_1',
       to: 'guest@example.test',
       amount: { amount: '50.00', currency: 'EUR' },
+      brand: { name: 'MUST <Hotel>' },
+      guest: { name: 'Ada Guest' },
+      stay: { startsOn: '2027-09-01', endsOn: '2027-09-03' },
+      roomName: 'Ocean Suite',
+      guestCount: 2,
     });
 
     expect(
@@ -78,17 +100,53 @@ describe('ResendMailProvider', () => {
     ).toEqual(['payment-confirmation/cs_test_1', 'refund-confirmation/re_test_1']);
     expect(
       fetchMock.mock.calls.map(([, options]) => JSON.parse(String(options?.body)).subject),
-    ).toEqual(['Booking confirmed', 'Refund processed for your booking']);
+    ).toEqual([
+      'MUST <Hotel> booking confirmed — MLDH-260814-2216-K7',
+      'MUST <Hotel> refund processed — MLDH-260814-2216-K7',
+    ]);
     const payment = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(payment.html).toContain('Review or cancel booking');
     expect(payment.html).toContain('cancellationToken=token');
     expect(payment.html).toContain('MLDH-260814-2216-K7');
     expect(payment.html).toContain('Special requests');
     expect(payment.html).toContain('Late arrival after 22:00.<br>No feathers, please.');
+    expect(payment.html).toContain('https://hotel.example.test/logo.png');
+    expect(payment.html).toContain('stay@hotel.example.test');
+    expect(payment.html).toContain('tel:+355691234567');
+    expect(payment.html).toContain('google.com/maps/search/?api=1&amp;query=1%20Main%20Street');
+    expect(payment.html).toContain('border:1px solid #e2dccf');
     expect(payment.text).toContain(
       'Special requests: Late arrival after 22:00.\nNo feathers, please.',
     );
     expect(payment.html).not.toContain('>booking-1<');
+  });
+
+  it('uses accurate pay-at-hotel copy and sends guest and staff cancellation messages', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.MAIL_FROM_EMAIL = 'MUST Booking <noreply@example.test>';
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const common = {
+      bookingId: 'booking-2', bookingReference: 'MUST-TEST-002', brand: { name: 'Ocean Hotel' },
+      stay: { startsOn: '2027-09-01', endsOn: '2027-09-03' }, roomName: 'Ocean Suite',
+      guestCount: 2, nightlyRates: [{ date: '2027-09-01', amount: '90.00' }, { date: '2027-09-02', amount: '90.00' }],
+    };
+    await provider.sendPaymentConfirmationEmail({
+      ...common, paymentId: 'pay-at-hotel-2', to: 'guest@example.test',
+      amount: { amount: '180.00', currency: 'EUR' }, paymentMethod: 'pay_at_hotel',
+      guest: { name: 'Ada Guest' },
+    });
+    await provider.sendBookingCancelledEmail({ ...common, to: 'guest@example.test', guest: { name: 'Ada Guest' } });
+    await provider.sendBookingCancelledStaffNotification({
+      ...common, staffUserId: 'staff-2', to: 'staff@example.test',
+      guest: { name: 'Ada Guest', email: 'guest@example.test', phone: null },
+    });
+    const messages = fetchMock.mock.calls.map(([, options]) => JSON.parse(String(options?.body)));
+    expect(messages[0].html).toContain('Payment will be collected at the hotel.');
+    expect(messages[0].html).not.toContain('We received your payment');
+    expect(messages[1].html).toContain('Booking cancelled');
+    expect(messages[2].html).toContain('Ada Guest');
+    expect(messages.every((message) => message.html.includes('Ocean Suite'))).toBe(true);
   });
 
   it('sends staff booking notifications with guest and stay details', async () => {
@@ -107,13 +165,25 @@ describe('ResendMailProvider', () => {
       stay: { startsOn: '2027-09-01', endsOn: '2027-09-03' },
       roomName: 'Ocean Suite',
       amount: { amount: '180.00', currency: 'EUR' },
+      guestCount: 2,
+      paymentMethod: 'stripe',
+      nightlyRates: [
+        { date: '2027-09-01', amount: '90.00' },
+        { date: '2027-09-02', amount: '90.00' },
+      ],
+      brand: {
+        name: 'Ocean Hotel',
+        supportEmail: 'stay@ocean.example.test',
+        websiteUrl: 'https://ocean.example.test',
+        address: '1 Ocean Road',
+      },
       specialRequests: 'Late arrival after 22:00.\nNo feathers, please.',
     });
 
     const requestBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(requestBody).toMatchObject({
       to: ['front-desk@example.test'],
-      subject: 'New booking received',
+      subject: 'Ada &lt;Guest&gt; — new booking MLDH-260814-2216-K7',
       html: expect.stringContaining('Ada &lt;Guest&gt;'),
       text: expect.stringContaining('Stay: 2027-09-01 to 2027-09-03'),
     });
@@ -157,6 +227,12 @@ describe('ResendMailProvider', () => {
       paymentId: 'cs_test_1',
       to: 'guest@example.test',
       amount: { amount: '180.00', currency: 'EUR' },
+      brand: { name: 'Ocean Hotel' },
+      paymentMethod: 'pay_at_hotel',
+      guest: { name: 'Ada Guest' },
+      stay: { startsOn: '2027-09-01', endsOn: '2027-09-03' },
+      roomName: 'Ocean Suite',
+      guestCount: 1,
     });
     expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).html).not.toContain(
       'Review or cancel booking',

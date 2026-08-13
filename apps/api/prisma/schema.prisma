@@ -126,6 +126,9 @@ model Property {
   slug              String                    @db.VarChar(100)
   address           String?                   @db.VarChar(500)
   timezone          String?                   @db.VarChar(100)
+  logoUrl           String?                   @map("logo_url") @db.VarChar(2048)
+  phone             String?                   @db.VarChar(100)
+  supportEmail      String?                   @map("support_email") @db.VarChar(320)
   bookingMode       PropertyBookingMode       @default(ROOM_TYPE_ONLY) @map("booking_mode")
   minStayNights     Int?                      @map("min_stay_nights")
   maxStayNights     Int?                      @map("max_stay_nights")
@@ -517,6 +520,7 @@ model Booking {
   endsOn                     DateTime      @map("ends_on") @db.Date
   ratePlanId                 String        @map("rate_plan_id") @db.Uuid
   totalAmount                Decimal       @map("total_amount") @db.Decimal(12, 2)
+  nightlyRates               Json?         @map("nightly_rates")
   version                    Int           @default(1)
   cancellationIsFree         Boolean?      @map("cancellation_is_free")
   cancellationFreeUntilHours Int?          @map("cancellation_free_until_hours")

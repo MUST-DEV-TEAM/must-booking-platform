@@ -11,6 +11,9 @@ type Property = {
   name: string;
   address: string;
   timezone: string;
+  logoUrl: string | null;
+  phone: string | null;
+  supportEmail: string | null;
   bookingMode: BookingMode;
   publicWebsiteOrigin: string | null;
   minStayNights: number | null;
@@ -37,6 +40,7 @@ export class PropertiesService {
       { tenantId },
       (tx) =>
         tx.$queryRaw<Property[]>`SELECT id, name, address, timezone,
+          logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -87,7 +91,8 @@ export class PropertiesService {
       }-${id.slice(0, 8)}`;
       const rows = await tx.$queryRaw<
         Property[]
-      >`INSERT INTO properties (id, tenant_id, name, slug, address, timezone) VALUES (${id}::uuid, ${tenantId}::uuid, ${input.name}, ${slug}, ${input.address}, ${input.timezone}) RETURNING id, name, address, timezone,
+      >`INSERT INTO properties (id, tenant_id, name, slug, address, timezone, logo_url, phone, support_email) VALUES (${id}::uuid, ${tenantId}::uuid, ${input.name}, ${slug}, ${input.address}, ${input.timezone}, ${input.logoUrl}, ${input.phone}, ${input.supportEmail}) RETURNING id, name, address, timezone,
+        logo_url AS "logoUrl", phone, support_email AS "supportEmail",
         booking_mode AS "bookingMode",
         min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
         check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -121,6 +126,7 @@ export class PropertiesService {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const existing = await tx.$queryRaw<Array<Property>>`
         SELECT id, name, address, timezone,
+          logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -147,6 +153,9 @@ export class PropertiesService {
         SET name = CASE WHEN ${input.name !== undefined} THEN ${input.name} ELSE name END,
           address = CASE WHEN ${input.address !== undefined} THEN ${input.address} ELSE address END,
           timezone = CASE WHEN ${input.timezone !== undefined} THEN ${input.timezone} ELSE timezone END,
+          logo_url = CASE WHEN ${input.logoUrl !== undefined} THEN ${input.logoUrl} ELSE logo_url END,
+          phone = CASE WHEN ${input.phone !== undefined} THEN ${input.phone} ELSE phone END,
+          support_email = CASE WHEN ${input.supportEmail !== undefined} THEN ${input.supportEmail} ELSE support_email END,
           booking_mode = CASE WHEN ${input.bookingMode !== undefined} THEN ${input.bookingMode}::"PropertyBookingMode" ELSE booking_mode END,
           min_stay_nights = CASE WHEN ${input.minStayNights !== undefined} THEN ${input.minStayNights} ELSE min_stay_nights END,
           max_stay_nights = CASE WHEN ${input.maxStayNights !== undefined} THEN ${input.maxStayNights} ELSE max_stay_nights END,
@@ -157,6 +166,7 @@ export class PropertiesService {
           free_cancellation_days_before_arrival = CASE WHEN ${input.freeCancellationDaysBeforeArrival !== undefined} THEN ${input.freeCancellationDaysBeforeArrival} ELSE free_cancellation_days_before_arrival END
         WHERE id = ${propertyId}::uuid
         RETURNING id, name, address, timezone,
+          logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -190,6 +200,7 @@ export class PropertiesService {
         SET public_website_origin = ${origin}
         WHERE id = ${propertyId}::uuid
         RETURNING id, name, address, timezone,
+          logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -225,6 +236,7 @@ export class PropertiesService {
           pay_at_hotel_enabled = ${gateways.payAtHotel}
         WHERE id = ${propertyId}::uuid
         RETURNING id, name, address, timezone,
+          logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -271,7 +283,14 @@ export class PropertiesService {
       );
     return parsed.origin;
   }
-  private input(body: unknown): { name: string; address: string; timezone: string } {
+  private input(body: unknown): {
+    name: string;
+    address: string;
+    timezone: string;
+    logoUrl: string | null;
+    phone: string | null;
+    supportEmail: string | null;
+  } {
     const v = body as Record<string, unknown>;
     const field = (k: string) => (typeof v?.[k] === 'string' && v[k].trim() ? v[k].trim() : null);
     const name = field('name'),
@@ -286,7 +305,14 @@ export class PropertiesService {
     } catch {
       throw new BadRequestException('timezone must be a valid IANA timezone.');
     }
-    return { name, address, timezone };
+    return {
+      name,
+      address,
+      timezone,
+      logoUrl: this.optionalLogoUrl(v, false) ?? null,
+      phone: this.optionalBrandText(v, 'phone', 100, false) ?? null,
+      supportEmail: this.optionalSupportEmail(v, false) ?? null,
+    };
   }
   private paymentGateways(body: unknown): {
     stripe: boolean;
@@ -315,6 +341,9 @@ export class PropertiesService {
     rules?: string | null;
     advanceBookingDays?: number | null;
     freeCancellationDaysBeforeArrival?: number;
+    logoUrl?: string | null;
+    phone?: string | null;
+    supportEmail?: string | null;
   } {
     if (!body || typeof body !== 'object')
       throw new BadRequestException('Property updates are required.');
@@ -333,6 +362,9 @@ export class PropertiesService {
         'rules',
         'advanceBookingDays',
         'freeCancellationDaysBeforeArrival',
+        'logoUrl',
+        'phone',
+        'supportEmail',
       ].some(has)
     )
       throw new BadRequestException('At least one property field is required.');
@@ -412,6 +444,55 @@ export class PropertiesService {
       rules,
       advanceBookingDays: optionalInteger('advanceBookingDays'),
       freeCancellationDaysBeforeArrival,
+      logoUrl: this.optionalLogoUrl(value, true),
+      phone: this.optionalBrandText(value, 'phone', 100, true),
+      supportEmail: this.optionalSupportEmail(value, true),
     };
+  }
+
+  private optionalLogoUrl(value: Record<string, unknown>, allowAbsent: boolean): string | null | undefined {
+    if (!Object.hasOwn(value, 'logoUrl')) return allowAbsent ? undefined : null;
+    const logoUrl = value.logoUrl;
+    if (logoUrl === null || logoUrl === '') return null;
+    if (typeof logoUrl !== 'string' || logoUrl.trim().length > 2048)
+      throw new BadRequestException('Invalid logoUrl.');
+    try {
+      const url = new URL(logoUrl.trim());
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error();
+      return url.toString();
+    } catch {
+      throw new BadRequestException('logoUrl must be a valid HTTP or HTTPS URL.');
+    }
+  }
+
+  private optionalBrandText(
+    value: Record<string, unknown>,
+    key: 'phone',
+    maxLength: number,
+    allowAbsent: boolean,
+  ): string | null | undefined {
+    if (!Object.hasOwn(value, key)) return allowAbsent ? undefined : null;
+    const text = value[key];
+    if (text === null || text === '') return null;
+    if (typeof text !== 'string' || !text.trim() || text.trim().length > maxLength)
+      throw new BadRequestException(`Invalid ${key}.`);
+    return text.trim();
+  }
+
+  private optionalSupportEmail(
+    value: Record<string, unknown>,
+    allowAbsent: boolean,
+  ): string | null | undefined {
+    if (!Object.hasOwn(value, 'supportEmail')) return allowAbsent ? undefined : null;
+    const email = value.supportEmail;
+    if (email === null || email === '') return null;
+    if (
+      typeof email !== 'string' ||
+      !email.trim() ||
+      email.trim().length > 320 ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+    )
+      throw new BadRequestException('supportEmail must be a valid email address.');
+    return email.trim().toLowerCase();
   }
 }

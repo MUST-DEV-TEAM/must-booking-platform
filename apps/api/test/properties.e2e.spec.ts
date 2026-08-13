@@ -132,6 +132,9 @@ describe('properties', () => {
         checkOutTime: 'after breakfast',
         advanceBookingDays: 10,
         freeCancellationDaysBeforeArrival: 14,
+        logoUrl: 'https://updated-property.example.test/logo.png',
+        phone: '+355 69 123 4567',
+        supportEmail: 'stay@updated-property.example.test',
       })
       .expect(200);
     expect(updated.body).toMatchObject({
@@ -146,6 +149,9 @@ describe('properties', () => {
       checkOutTime: 'after breakfast',
       advanceBookingDays: 10,
       freeCancellationDaysBeforeArrival: 14,
+      logoUrl: 'https://updated-property.example.test/logo.png',
+      phone: '+355 69 123 4567',
+      supportEmail: 'stay@updated-property.example.test',
     });
     const roomTypeId = randomUUID();
     const ratePlanId = randomUUID();

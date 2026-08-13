@@ -22,6 +22,12 @@ const bookingRow = {
   startsOn: '2027-09-01',
   endsOn: '2027-09-03',
   roomName: 'Ocean Suite',
+  propertyName: 'Ocean Hotel',
+  logoUrl: 'https://ocean.example.test/logo.png',
+  supportEmail: 'stay@ocean.example.test',
+  propertyPhone: '+355 69 123 4567',
+  publicWebsiteOrigin: 'https://ocean.example.test',
+  propertyAddress: '1 Ocean Road',
 };
 
 function createService(staff: Array<{ staffUserId: string; email: string }>) {
@@ -60,6 +66,14 @@ describe('BookingConfirmationNotificationService', () => {
       expect.objectContaining({
         bookingId,
         to: 'guest@example.test',
+        brand: {
+          name: 'Ocean Hotel',
+          logoUrl: 'https://ocean.example.test/logo.png',
+          supportEmail: 'stay@ocean.example.test',
+          phone: '+355 69 123 4567',
+          websiteUrl: 'https://ocean.example.test',
+          address: '1 Ocean Road',
+        },
         cancellationUrl: expect.stringContaining('cancellationToken=cancellation-token'),
       }),
     );
@@ -74,6 +88,17 @@ describe('BookingConfirmationNotificationService', () => {
       stay: { startsOn: '2027-09-01', endsOn: '2027-09-03' },
       roomName: 'Ocean Suite',
       amount: { amount: '180.00', currency: 'EUR' },
+      brand: {
+        name: 'Ocean Hotel',
+        logoUrl: 'https://ocean.example.test/logo.png',
+        supportEmail: 'stay@ocean.example.test',
+        phone: '+355 69 123 4567',
+        websiteUrl: 'https://ocean.example.test',
+        address: '1 Ocean Road',
+      },
+      guestCount: 1,
+      paymentMethod: 'stripe',
+      nightlyRates: undefined,
       specialRequests: 'Late arrival',
     });
   });

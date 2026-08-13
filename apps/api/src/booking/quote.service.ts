@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
-import type { Money } from '@must/domain-contracts';
+import type { Money, NightlyRate } from '@must/domain-contracts';
 
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
@@ -22,9 +22,12 @@ type QuotePayload = QuoteInput & {
   tenantId: string;
   propertyId: string;
   total: { amount: string; currency: string };
+  nightlyRates: NightlyRate[];
   expiresAt: string;
   sessionBinding: string;
 };
+
+export type PricedQuote = { total: Money; nightlyRates: NightlyRate[] };
 
 type QuoteValidationError = { code: string; message: string };
 
@@ -48,14 +51,15 @@ export class QuoteService {
     if (!Number.isInteger(ttlSeconds) || ttlSeconds < 1)
       throw new BadRequestException('Quote expiry must be a positive number of seconds.');
 
-    const quote = await this.price(tenantId, propertyId, input);
+    const quote = await this.priceWithNightlyRates(tenantId, propertyId, input);
 
     const payload: QuotePayload = {
       version: 1,
       tenantId,
       propertyId,
       ...input,
-      total: quote,
+      total: quote.total,
+      nightlyRates: quote.nightlyRates,
       expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
       sessionBinding: this.sessionBinding(sessionId),
     };
@@ -65,6 +69,26 @@ export class QuoteService {
   async price(tenantId: string, propertyId: string, input: QuoteInput): Promise<Money> {
     this.validStayInput(input);
     await this.enforceBookingRules(tenantId, propertyId, input);
+    const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
+    if (connection?.provider === 'CLOCK_PMS') {
+      const quote = await this.clockAvailability.getQuote(tenantId, propertyId, {
+        roomTypeId: input.roomTypeId,
+        startsOn: input.startsOn,
+        endsOn: input.endsOn,
+      });
+      if (!quote.ok) throw new BadRequestException(quote.error.message);
+      return quote.value;
+    }
+    return (await this.priceWithNightlyRates(tenantId, propertyId, input)).total;
+  }
+
+  async priceWithNightlyRates(
+    tenantId: string,
+    propertyId: string,
+    input: QuoteInput,
+  ): Promise<PricedQuote> {
+    this.validStayInput(input);
+    await this.enforceBookingRules(tenantId, propertyId, input);
 
     // Clock-connected properties are always quoted live against Clock's own
     // /products endpoint (owner's call — no local rate_plan mirror). Rate is
@@ -72,7 +96,7 @@ export class QuoteService {
     // irrelevant on this path.
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (connection?.provider === 'CLOCK_PMS') {
-      const quote = await this.clockAvailability.getQuote(tenantId, propertyId, {
+      const quote = await this.clockAvailability.getQuoteWithNightlyRates(tenantId, propertyId, {
         roomTypeId: input.roomTypeId,
         startsOn: input.startsOn,
         endsOn: input.endsOn,
@@ -86,10 +110,19 @@ export class QuoteService {
       if (input.roomId)
         await this.requireRoomForType(tx, tenantId, propertyId, input.roomId, input.roomTypeId);
       const rows = await tx.$queryRaw<
-        Array<{ currency: string; amount: string; pricedNights: bigint }>
+        Array<{ currency: string; amount: string; pricedNights: bigint; nightlyRates: unknown }>
       >`
         SELECT rp.currency, COALESCE(SUM(COALESCE(room_override.amount, resolved.amount)), 0)::text AS amount,
-          COUNT(COALESCE(room_override.amount, resolved.amount))::bigint AS "pricedNights"
+          COUNT(COALESCE(room_override.amount, resolved.amount))::bigint AS "pricedNights",
+          COALESCE(
+            jsonb_agg(
+              jsonb_build_object(
+                'date', to_char(stay.stays_on::date, 'YYYY-MM-DD'),
+                'amount', COALESCE(room_override.amount, resolved.amount)::text
+              ) ORDER BY stay.stays_on
+            ) FILTER (WHERE COALESCE(room_override.amount, resolved.amount) IS NOT NULL),
+            '[]'::jsonb
+          ) AS "nightlyRates"
         FROM rate_plans rp
         CROSS JOIN generate_series(
           ${input.startsOn}::date,
@@ -127,8 +160,17 @@ export class QuoteService {
       const nightCount = this.nightCount(input.startsOn, input.endsOn);
       if (Number(row.pricedNights) !== nightCount)
         throw new BadRequestException('The requested stay does not have a rate for every night.');
-      return { amount: row.amount, currency: row.currency };
+      return {
+        total: { amount: row.amount, currency: row.currency },
+        nightlyRates: this.normalizeNightlyRates(row.nightlyRates, input.startsOn, input.endsOn),
+      };
     });
+  }
+
+  /** Read only after validate() succeeds; the quote token is the source of truth for booking snapshots. */
+  nightlyRates(token: string | undefined): NightlyRate[] | null {
+    const payload = token ? this.read(token) : null;
+    return payload?.nightlyRates ?? null;
   }
 
   async enforceBookingRules(
@@ -156,7 +198,7 @@ export class QuoteService {
   validate(
     token: string | undefined,
     sessionId: string | undefined,
-    expected: Omit<QuotePayload, 'version' | 'expiresAt' | 'sessionBinding'>,
+    expected: Omit<QuotePayload, 'version' | 'expiresAt' | 'sessionBinding' | 'nightlyRates'>,
   ): QuoteValidationError | null {
     if (!token)
       return { code: 'QUOTE_REQUIRED', message: 'A valid quote is required to create a booking.' };
@@ -216,7 +258,9 @@ export class QuoteService {
         typeof value.sessionBinding !== 'string' ||
         !value.total ||
         typeof value.total.amount !== 'string' ||
-        typeof value.total.currency !== 'string'
+        typeof value.total.currency !== 'string' ||
+        !Array.isArray(value.nightlyRates) ||
+        !this.isNightlyRates(value.nightlyRates, value.startsOn, value.endsOn)
       )
         return null;
       return value as QuotePayload;
@@ -276,6 +320,28 @@ export class QuoteService {
 
   private nightCount(startsOn: string, endsOn: string): number {
     return (Date.parse(`${endsOn}T00:00:00Z`) - Date.parse(`${startsOn}T00:00:00Z`)) / 86_400_000;
+  }
+
+  private normalizeNightlyRates(value: unknown, startsOn: string, endsOn: string): NightlyRate[] {
+    if (!this.isNightlyRates(value, startsOn, endsOn))
+      throw new BadRequestException('The requested stay does not have a price for every night.');
+    return value.map((rate) => ({ date: rate.date, amount: rate.amount }));
+  }
+
+  private isNightlyRates(value: unknown, startsOn: string, endsOn: string): value is NightlyRate[] {
+    if (!Array.isArray(value) || value.length !== this.nightCount(startsOn, endsOn)) return false;
+    return value.every(
+      (rate, index) =>
+        !!rate &&
+        typeof rate === 'object' &&
+        typeof (rate as NightlyRate).date === 'string' &&
+        typeof (rate as NightlyRate).amount === 'string' &&
+        /^\d+(?:\.\d{1,2})?$/.test((rate as NightlyRate).amount) &&
+        (rate as NightlyRate).date ===
+          new Date(Date.parse(`${startsOn}T00:00:00Z`) + index * 86_400_000)
+            .toISOString()
+            .slice(0, 10),
+    );
   }
 
   private validateBookingRules(

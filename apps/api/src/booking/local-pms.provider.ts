@@ -24,6 +24,7 @@ import { PaymentProviderRegistry } from '../payments/payment-provider-registry';
 import { PaymentRefundService, type RefundConfirmation } from '../payments/payment-refund.service';
 import { PaymentNotificationService } from '../mail/payment-notification.service';
 import { BookingConfirmationNotificationService } from '../mail/booking-confirmation-notification.service';
+import { BookingCancellationNotificationService } from '../mail/booking-cancellation-notification.service';
 import { BookingStateMachine } from './booking-state-machine';
 import { bookingNeedsAttention } from './booking-attention';
 import { QuoteService } from './quote.service';
@@ -57,6 +58,7 @@ type BookingRow = {
   paymentMethod: BookingPaymentMethod;
   totalAmount: string;
   currency: string;
+  nightlyRates: unknown;
   externalReference: string;
   externalBookingId: string | null;
   version: number;
@@ -98,6 +100,8 @@ export class LocalPmsProvider implements PmsProvider {
     @Inject(PaymentNotificationService) private readonly notifications: PaymentNotificationService,
     @Inject(BookingConfirmationNotificationService)
     private readonly confirmations: BookingConfirmationNotificationService,
+    @Inject(BookingCancellationNotificationService)
+    private readonly cancellations: BookingCancellationNotificationService,
     @Inject(NotificationsService) private readonly notificationsService: NotificationsService,
     @Inject(IntegrationConnectionsService)
     private readonly connections: IntegrationConnectionsService,
@@ -354,6 +358,27 @@ export class LocalPmsProvider implements PmsProvider {
                   );
                   return this.failure(quoteError.code, quoteError.message);
                 }
+                const nightlyRates = this.quotes.nightlyRates(command.quoteToken);
+                if (!nightlyRates) {
+                  await this.transition(
+                    tx,
+                    context,
+                    bookingId,
+                    status,
+                    BookingStatus.AVAILABILITY_FAILED,
+                  );
+                  return this.failure(
+                    'QUOTE_INVALID',
+                    'The quote does not contain a price for every night. Please request a new quote.',
+                  );
+                }
+                await tx.$executeRaw`
+                  UPDATE bookings
+                  SET nightly_rates = ${JSON.stringify(nightlyRates)}::jsonb
+                  WHERE id = ${bookingId}::uuid
+                    AND tenant_id = ${context.tenantId}::uuid
+                    AND property_id = ${context.propertyId}::uuid
+                `;
               }
               const autoAssignedRoomId = roomSelection.autoAssign
                 ? await this.reserveSamePricedRoom(tx, context, command)
@@ -706,6 +731,7 @@ export class LocalPmsProvider implements PmsProvider {
     command: CancelBookingCommand,
   ): Promise<Result<Booking>> {
     let refundConfirmation: RefundConfirmation | null = null;
+    let cancelledBookingId: string | null = null;
     const result = await this.database.withTenantTransaction(
       context,
       (tx) =>
@@ -820,6 +846,7 @@ export class LocalPmsProvider implements PmsProvider {
                 },
               },
             });
+            cancelledBookingId = row.id;
             const cancelled = await this.bookingById(tx, context, row.id);
             return cancelled && this.toBooking(cancelled)
               ? { ok: true, value: this.toBooking(cancelled)! }
@@ -830,6 +857,7 @@ export class LocalPmsProvider implements PmsProvider {
     );
     if (refundConfirmation)
       await this.notifications.sendRefundConfirmationEmailSafely(refundConfirmation);
+    if (cancelledBookingId) await this.cancellations.sendAfterCancellation(context, cancelledBookingId);
     return result;
   }
 
@@ -1166,7 +1194,8 @@ export class LocalPmsProvider implements PmsProvider {
         b.guest_session_id AS "guestSessionId", b.rate_plan_id AS "ratePlanId",
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
         b.payment_method AS "paymentMethod",
-        b.total_amount::text AS "totalAmount", rp.currency, b.external_reference AS "externalReference",
+        b.total_amount::text AS "totalAmount", b.nightly_rates AS "nightlyRates",
+        rp.currency, b.external_reference AS "externalReference",
         b.external_booking_id AS "externalBookingId",
         b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
       FROM bookings b JOIN rate_plans rp
@@ -1188,7 +1217,8 @@ export class LocalPmsProvider implements PmsProvider {
         b.room_type_id AS "roomTypeId", b.room_id AS "roomId", b.guest_id AS "guestId", b.rate_plan_id AS "ratePlanId",
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
         b.payment_method AS "paymentMethod",
-        b.total_amount::text AS "totalAmount", rp.currency, b.external_reference AS "externalReference",
+        b.total_amount::text AS "totalAmount", b.nightly_rates AS "nightlyRates",
+        rp.currency, b.external_reference AS "externalReference",
         b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
       FROM bookings b JOIN rate_plans rp
         ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
@@ -1200,6 +1230,7 @@ export class LocalPmsProvider implements PmsProvider {
 
   private toBooking(row: BookingRow): Booking | null {
     if (!row.guestId) return null;
+    const nightlyRates = this.nightlyRates(row.nightlyRates);
     return {
       id: row.id,
       tenantId: row.tenantId,
@@ -1213,12 +1244,26 @@ export class LocalPmsProvider implements PmsProvider {
       status: row.status,
       paymentMethod: row.paymentMethod,
       total: { amount: row.totalAmount, currency: row.currency },
+      ...(nightlyRates ? { nightlyRates } : {}),
       externalReference: row.externalReference,
       externalBookingId: row.externalBookingId ?? row.id,
       version: row.version,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
+  }
+
+  private nightlyRates(value: unknown): Array<{ date: string; amount: string }> | undefined {
+    if (!Array.isArray(value)) return undefined;
+    const rates = value.filter(
+      (rate): rate is { date: string; amount: string } =>
+        !!rate &&
+        typeof rate === 'object' &&
+        typeof (rate as { date?: unknown }).date === 'string' &&
+        typeof (rate as { amount?: unknown }).amount === 'string' &&
+        /^\d+(?:\.\d{1,2})?$/.test((rate as { amount: string }).amount),
+    );
+    return rates.length === value.length ? rates : undefined;
   }
 
   private validStay(startsOn: string, endsOn: string): boolean {

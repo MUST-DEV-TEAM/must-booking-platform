@@ -244,6 +244,58 @@ describe('ClockAvailabilityService.getQuote', () => {
     );
   });
 
+  it('returns an independently quoted row for every occupied date', async () => {
+    const product = (cents: number) => ({
+      status: 200,
+      body: [
+        {
+          id: 42023,
+          rates: {
+            '69242': [
+              {
+                available: true,
+                room_type_free_rooms: 3,
+                price: { cents, currency: 'EUR' },
+                errors: {},
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType' }],
+      }) // /rates/
+      .mockResolvedValueOnce(product(23000)) // full stay /products
+      .mockResolvedValueOnce(product(11000)) // first night /products
+      .mockResolvedValueOnce(product(12000)); // second night /products
+    const { service } = makeService({ client: { request } });
+
+    await expect(service.getQuoteWithNightlyRates('t1', 'p1', query)).resolves.toEqual({
+      ok: true,
+      value: {
+        total: { amount: '230.00', currency: 'EUR' },
+        nightlyRates: [
+          { date: '2026-08-10', amount: '110.00' },
+          { date: '2026-08-11', amount: '120.00' },
+        ],
+      },
+    });
+    expect(request.mock.calls.slice(-2).map((call) => call[1].query)).toEqual([
+      expect.objectContaining({
+        'product_search[arrival]': '2026-08-10',
+        'product_search[departure]': '2026-08-11',
+      }),
+      expect.objectContaining({
+        'product_search[arrival]': '2026-08-11',
+        'product_search[departure]': '2026-08-12',
+      }),
+    ]);
+  });
+
   it('fails when Clock has no available offer for the requested stay', async () => {
     const request = vi
       .fn()

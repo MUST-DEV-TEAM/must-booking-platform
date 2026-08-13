@@ -115,6 +115,10 @@ function get_confirmation_result_view_data(string $bookingId): array
             'guests' => 1, 'booking_id' => $bookingId,
             'room_name' => $names['room_name'], 'rate_plan_name' => $names['rate_plan_name'],
             'total_price' => $totalPrice,
+            'currency' => (string) ($booking['total']['currency'] ?? ''),
+            'nightly_rates' => isset($booking['nightlyRates']) && \is_array($booking['nightlyRates'])
+                ? $booking['nightlyRates']
+                : [],
         ];
         $statusMessage = match ($status) {
             'CONFIRMED' => \__('Your booking is confirmed.', 'must-hotel-booking'),
@@ -304,7 +308,12 @@ function get_confirmation_review_view_data(): array
         $total = (float) $quote['total']['amount'];
         $selectedRooms[] = [
             'room' => ['name' => (string) $selection['roomName'], 'currency' => (string) $quote['total']['currency']],
-            'pricing' => ['total_price' => $total],
+            'pricing' => [
+                'total_price' => $total,
+                'nightly_rates' => isset($quote['nightlyRates']) && \is_array($quote['nightlyRates'])
+                    ? $quote['nightlyRates']
+                    : [],
+            ],
             'rate_plan' => ['name' => (string) $selection['ratePlanName']],
         ];
         $summary = ['total_price' => $total, 'fees_total' => 0.0, 'discount_total' => 0.0, 'taxes_total' => 0.0, 'room_subtotal' => $total];

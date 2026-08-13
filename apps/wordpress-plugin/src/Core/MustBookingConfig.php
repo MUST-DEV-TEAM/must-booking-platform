@@ -197,7 +197,10 @@ class MustBookingConfig
     }
     public static function get_checkout_price_breakdown_mode(): string
     {
-        return self::normalize_price_breakdown_mode((string) self::get_setting('checkout_price_breakdown_mode', 'total_only'));
+        // A date-by-date stay summary is part of the guest booking contract,
+        // not an opt-in legacy display preference. Ignore stale legacy options
+        // that previously defaulted this view to a single blended room rate.
+        return 'date_price_rows';
     }
     public static function get_email_price_breakdown_mode(): string
     {

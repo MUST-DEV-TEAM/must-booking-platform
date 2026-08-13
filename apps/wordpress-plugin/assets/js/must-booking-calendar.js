@@ -47,6 +47,7 @@
             if (!monthSelect || !yearSelect) return;
             refreshMonthOptions(monthSelect, yearSelect);
             picker.jumpToDate(new Date(Number(yearSelect.value), Number(monthSelect.value), 1));
+            refreshAvailability(picker);
         };
         if (monthSelect) monthSelect.addEventListener('change', onPick);
         if (yearSelect) yearSelect.addEventListener('change', onPick);

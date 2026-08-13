@@ -59,7 +59,13 @@ function get_checkout_page_view_data(): array
         $selectedRooms[] = [
             'room_id' => 1,
             'room' => ['name' => (string) $selection['roomName'], 'currency' => (string) $quote['total']['currency'], 'max_guests' => 0, 'primary_image_url' => ''],
-            'pricing' => ['total_price' => $total, 'nights' => $nights, 'fees_total' => 0.0, 'discount_total' => 0.0, 'taxes_total' => 0.0, 'room_subtotal' => $total],
+            'pricing' => [
+                'total_price' => $total, 'nights' => $nights, 'fees_total' => 0.0,
+                'discount_total' => 0.0, 'taxes_total' => 0.0, 'room_subtotal' => $total,
+                'nightly_rates' => isset($quote['nightlyRates']) && \is_array($quote['nightlyRates'])
+                    ? $quote['nightlyRates']
+                    : [],
+            ],
             'rate_plan' => ['name' => (string) $selection['ratePlanName']],
             'assigned_guests' => 1,
         ];

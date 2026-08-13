@@ -54,6 +54,8 @@ describe('LocalPmsProvider', () => {
     [];
   const staffBookingEmails: Parameters<MailProvider['sendNewBookingStaffNotification']>[0][] = [];
   const refundConfirmationEmails: Parameters<MailProvider['sendRefundConfirmationEmail']>[0][] = [];
+  const cancelledGuestEmails: Parameters<MailProvider['sendBookingCancelledEmail']>[0][] = [];
+  const cancelledStaffEmails: Parameters<MailProvider['sendBookingCancelledStaffNotification']>[0][] = [];
   const refundCommands: Parameters<PaymentProvider['refund']>[1][] = [];
   const pokpayOrders = new Map<string, { amount: string; currency: string; status: string }>();
   let pokpayAmountOverride: string | undefined;
@@ -77,6 +79,12 @@ describe('LocalPmsProvider', () => {
     },
     async sendRefundConfirmationEmail(command) {
       refundConfirmationEmails.push(command);
+    },
+    async sendBookingCancelledEmail(command) {
+      cancelledGuestEmails.push(command);
+    },
+    async sendBookingCancelledStaffNotification(command) {
+      cancelledStaffEmails.push(command);
     },
   };
   const payments: PaymentProvider = {
@@ -485,6 +493,10 @@ describe('LocalPmsProvider', () => {
       startsOn: '2027-09-01',
       endsOn: '2027-09-03',
       total: { amount: '180.00', currency: 'EUR' },
+      nightlyRates: [
+        { date: '2027-09-01', amount: '90.00' },
+        { date: '2027-09-02', amount: '90.00' },
+      ],
     });
     expect(quote.body.quoteToken).toEqual(expect.any(String));
     expect(new Date(quote.body.expiresAt).valueOf()).toBeGreaterThan(Date.now());
@@ -591,11 +603,25 @@ describe('LocalPmsProvider', () => {
       value: {
         status: 'PAYMENT_PENDING',
         paymentMethod: 'STRIPE_CHECKOUT',
+        nightlyRates: [
+          { date: '2027-09-01', amount: '90.00' },
+          { date: '2027-09-02', amount: '90.00' },
+        ],
         version: 1,
         checkoutUrl: expect.stringMatching(/^https:\/\/checkout\.stripe\.test\//),
       },
     });
     if (!created.ok) throw new Error('Expected local booking creation to succeed.');
+    await request(app!.getHttpServer())
+      .get(`${propertyUrl}/public/bookings/${created.value.id}`)
+      .set('Cookie', guestCookie)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.nightlyRates).toEqual([
+          { date: '2027-09-01', amount: '90.00' },
+          { date: '2027-09-02', amount: '90.00' },
+        ]);
+      });
     const createdNotifications = await admin.$queryRaw<Array<{ type: string }>>`
       SELECT type FROM notifications
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
@@ -1047,6 +1073,10 @@ describe('LocalPmsProvider', () => {
     };
     const cancelled = await provider.cancelBooking(context, cancelCommand);
     expect(cancelled).toMatchObject({ ok: true, value: { status: 'CANCELLED', version: 2 } });
+    expect(cancelledGuestEmails).toContainEqual(
+      expect.objectContaining({ bookingId: created.value.id, roomName: 'Provider Suite' }),
+    );
+    expect(cancelledStaffEmails.some((email) => email.bookingId === created.value.id)).toBe(true);
     await expect(provider.cancelBooking(context, cancelCommand)).resolves.toEqual(cancelled);
     const automaticRefundRows = await admin.$queryRaw<
       Array<{ kind: string; status: string; amount: string }>
@@ -1631,6 +1661,23 @@ describe('LocalPmsProvider', () => {
           paymentId: `cs_test_${firstBooking.value.id}`,
           to: 'guest@example.test',
           amount: { amount: '180.00', currency: 'EUR' },
+          brand: {
+            name: 'Local PMS Property',
+            logoUrl: null,
+            supportEmail: null,
+            phone: null,
+            websiteUrl: 'https://hotel.example.test',
+            address: '1 Provider Way',
+          },
+          paymentMethod: 'stripe',
+          guest: { name: 'Different Name' },
+          stay: { startsOn: '2027-09-01', endsOn: '2027-09-03' },
+          roomName: 'Provider Suite',
+          guestCount: 1,
+          nightlyRates: [
+            { date: '2027-09-01', amount: '90.00' },
+            { date: '2027-09-02', amount: '90.00' },
+          ],
           specialRequests: 'Please provide an accessible room.',
         },
       ]),

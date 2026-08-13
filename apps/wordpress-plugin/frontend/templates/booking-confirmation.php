@@ -167,6 +167,27 @@ if (!empty($selected_rooms[0]['room']) && \is_array($selected_rooms[0]['room']) 
 $format_money = static function (float $amount, string $currency = 'USD'): string {
     return \must_hotel_booking\format_frontend_money($amount, $currency);
 };
+$format_display_date = static function (string $date): string {
+    $timestamp = \strtotime($date . ' 00:00:00');
+    return $timestamp === false ? $date : \wp_date('D, M j Y', $timestamp);
+};
+$render_confirmation_price_breakdown_rows = static function (array $pricing, string $currency) use ($format_money, $format_display_date): string {
+    $rows = \function_exists('MustHotelBooking\\Frontend\\get_price_breakdown_rows_from_pricing')
+        ? \MustHotelBooking\Frontend\get_price_breakdown_rows_from_pricing($pricing)
+        : [];
+    if (empty($rows)) {
+        return '';
+    }
+    $html = '';
+    foreach ($rows as $row) {
+        $html .= '<div class="must-confirmation-order-row is-nightly-rate"><span>'
+            . \esc_html($format_display_date((string) $row['date']))
+            . '</span><span>'
+            . \esc_html($format_money((float) $row['amount'], $currency))
+            . '</span></div>';
+    }
+    return $html;
+};
 $payment_method_icon_urls = \defined('MUST_HOTEL_BOOKING_URL')
     ? [
         'stripe' => \must_hotel_booking_asset_url('assets/img/stripe.svg'),
@@ -314,6 +335,22 @@ $render_payment_method_icon = static function (string $payment_method_key, strin
                             <p class="must-confirmation-paid-success-message">
                                 <?php echo \esc_html($confirmation_success_message); ?>
                             </p>
+                            <?php foreach ($reservations as $reservation): ?>
+                                <?php
+                                $reservation_rates = isset($reservation['nightly_rates']) && \is_array($reservation['nightly_rates'])
+                                    ? $reservation['nightly_rates']
+                                    : [];
+                                $reservation_price_rows = $render_confirmation_price_breakdown_rows(
+                                    ['nightly_rates' => $reservation_rates],
+                                    (string) ($reservation['currency'] ?? $summary_currency)
+                                );
+                                ?>
+                                <?php if ($reservation_price_rows !== ''): ?>
+                                    <div class="must-confirmation-order-table must-confirmation-paid-success-summary">
+                                        <?php echo $reservation_price_rows; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+                                    </div>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
                         </div>
                         <?php if ($success_icon_url !== ''): ?>
                             <div class="must-confirmation-paid-success-icon-wrap" aria-hidden="true">
@@ -657,6 +694,7 @@ $render_payment_method_icon = static function (string $payment_method_key, strin
                                         </span>
                                         <span><?php echo \esc_html($format_money($room_total, $room_currency)); ?></span>
                                     </div>
+                                    <?php echo $render_confirmation_price_breakdown_rows($pricing, $room_currency); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
                                 <?php endforeach; ?>
                                 <div class="must-confirmation-order-row">
                                     <span><?php echo \esc_html__('Subtotal', 'must-hotel-booking'); ?></span>

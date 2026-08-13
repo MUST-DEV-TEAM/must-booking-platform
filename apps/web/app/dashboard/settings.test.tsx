@@ -13,6 +13,9 @@ let property = {
   name: 'Grand Hotel',
   address: '1 Main Street',
   timezone: 'Europe/Tirane',
+  logoUrl: null as string | null,
+  phone: null as string | null,
+  supportEmail: null as string | null,
   minStayNights: 2,
   maxStayNights: 7,
   checkInTime: '15:00',
@@ -80,19 +83,30 @@ describe('DashboardSettings', () => {
       'Grand Hotel Tirana',
     );
 
+    await value(container.querySelector('[aria-label="Logo URL"]')!, 'https://example.test/logo.png');
+    await value(container.querySelector('[aria-label="Support email"]')!, 'stay@example.test');
+    await value(container.querySelector('[aria-label="Hotel phone"]')!, '+355 69 123 4567');
+    await submit(container, 'Save email branding');
+    const brandingRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[1];
+    expect(JSON.parse(brandingRequest[1]!.body as string)).toEqual({
+      logoUrl: 'https://example.test/logo.png',
+      supportEmail: 'stay@example.test',
+      phone: '+355 69 123 4567',
+    });
+
     await value(container.querySelector('[aria-label="Minimum stay (nights)"]')!, '3');
     await submit(container, 'Save booking rules');
     const patchCalls = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH');
-    expect(JSON.parse(patchCalls[1][1]!.body as string)).toEqual({ minStayNights: 3 });
+    expect(JSON.parse(patchCalls[2][1]!.body as string)).toEqual({ minStayNights: 3 });
 
     await value(container.querySelector('[aria-label="Room rules"]')!, 'Adults only.');
     await submit(container, 'Save booking rules');
-    const rulesRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[2];
+    const rulesRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[3];
     expect(JSON.parse(rulesRequest[1]!.body as string)).toEqual({ rules: 'Adults only.' });
 
     await select(container.querySelector('[aria-label="Booking mode"]')!, 'INDIVIDUAL_ROOM_ONLY');
     await submit(container, 'Save booking mode');
-    const bookingModeRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[3];
+    const bookingModeRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[4];
     expect(JSON.parse(bookingModeRequest[1]!.body as string)).toEqual({
       bookingMode: 'INDIVIDUAL_ROOM_ONLY',
     });

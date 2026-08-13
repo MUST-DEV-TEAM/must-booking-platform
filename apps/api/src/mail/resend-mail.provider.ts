@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import type { MailProvider } from './mail.provider';
+import { MUST_BOOKING_BRAND, renderBrandedEmail } from './email-layout';
 
 function resendEmailsUrl(): string {
   const configuredBaseUrl = process.env.RESEND_API_BASE_URL?.trim();
@@ -22,7 +23,12 @@ export class ResendMailProvider implements MailProvider {
     await this.send({
       to: command.to,
       subject: 'Verify your MUST Booking email address',
-      html: `<p>Welcome to MUST Booking, ${organizationName}.</p><p><a href="${verificationUrl}">Verify your email address</a></p>`,
+      html: renderBrandedEmail({
+        subject: 'Verify your MUST Booking email address',
+        brand: MUST_BOOKING_BRAND,
+        heading: 'Verify your email address',
+        content: `<p>Welcome to MUST Booking, ${organizationName}.</p><p><a href="${verificationUrl}">Verify your email address</a></p>`,
+      }),
       text: `Welcome to MUST Booking, ${command.organizationName}. Verify your email address: ${command.verificationUrl}`,
       idempotencyKey: `email-verification/${command.userId}/${this.tokenFromUrl(command.verificationUrl)}`,
     });
@@ -37,7 +43,12 @@ export class ResendMailProvider implements MailProvider {
     await this.send({
       to: command.to,
       subject: 'Welcome to MUST Booking',
-      html: `<p>Your email is verified. Welcome to MUST Booking, ${organizationName}.</p>`,
+      html: renderBrandedEmail({
+        subject: 'Welcome to MUST Booking',
+        brand: MUST_BOOKING_BRAND,
+        heading: 'Welcome to MUST Booking',
+        content: `<p>Your email is verified. Welcome to MUST Booking, ${organizationName}.</p>`,
+      }),
       text: `Your email is verified. Welcome to MUST Booking, ${command.organizationName}.`,
       idempotencyKey: `welcome/${command.userId}`,
     });
@@ -52,7 +63,12 @@ export class ResendMailProvider implements MailProvider {
     await this.send({
       to: command.to,
       subject: 'Reset your MUST Booking password',
-      html: `<p>We received a request to reset your MUST Booking password.</p><p><a href="${resetUrl}">Create a new password</a></p><p>This link expires automatically and can be used once.</p>`,
+      html: renderBrandedEmail({
+        subject: 'Reset your MUST Booking password',
+        brand: MUST_BOOKING_BRAND,
+        heading: 'Reset your password',
+        content: `<p>We received a request to reset your MUST Booking password.</p><p><a href="${resetUrl}">Create a new password</a></p><p>This link expires automatically and can be used once.</p>`,
+      }),
       text: `Reset your MUST Booking password: ${command.resetUrl}\nThis link expires automatically and can be used once.`,
       idempotencyKey: `password-reset/${command.userId}/${this.tokenFromUrl(command.resetUrl)}`,
     });
@@ -64,26 +80,36 @@ export class ResendMailProvider implements MailProvider {
     paymentId: string;
     to: string;
     amount: { amount: string; currency: string };
+    brand: Parameters<MailProvider['sendPaymentConfirmationEmail']>[0]['brand'];
+    paymentMethod: Parameters<MailProvider['sendPaymentConfirmationEmail']>[0]['paymentMethod'];
+    guest: Parameters<MailProvider['sendPaymentConfirmationEmail']>[0]['guest'];
+    stay: Parameters<MailProvider['sendPaymentConfirmationEmail']>[0]['stay'];
+    roomName: string;
+    guestCount: number;
+    nightlyRates?: Parameters<MailProvider['sendPaymentConfirmationEmail']>[0]['nightlyRates'];
     cancellationUrl?: string;
     specialRequests?: string | null;
   }): Promise<void> {
-    const bookingReference = this.escapeHtml(command.bookingReference);
     const amount = this.escapeHtml(`${command.amount.currency} ${command.amount.amount}`);
     const cancellationUrl = command.cancellationUrl ? this.escapeHtml(command.cancellationUrl) : '';
     const specialRequests = command.specialRequests?.trim()
       ? this.escapeHtml(command.specialRequests).replace(/\r?\n/g, '<br>')
       : '';
+    const paid = command.paymentMethod === 'stripe' || command.paymentMethod === 'pokpay';
+    const hotelName = command.brand.name || 'your hotel';
     await this.send({
       to: command.to,
-      subject: 'Booking confirmed',
-      html: this.bookingEmailLayout({
+      subject: `${hotelName} booking confirmed — ${command.bookingReference}`,
+      html: renderBrandedEmail({
+        subject: `${hotelName} booking confirmed — ${command.bookingReference}`,
+        brand: command.brand,
         heading: 'Booking confirmed',
-        content: `Your booking is confirmed. We received your payment of <strong>${amount}</strong>.${specialRequests ? `<br><br><strong>Special requests</strong><br>${specialRequests}` : ''}`,
-        bookingReference,
-        ctaUrl: cancellationUrl,
-        ctaLabel: 'Review or cancel booking',
+        greeting: `Hello ${command.guest.name}`,
+        content: `<p>Your booking is confirmed. ${paid ? `We received your payment of <strong>${amount}</strong>.` : 'Payment will be collected at the hotel.'}</p>${specialRequests ? `<p><strong>Special requests</strong><br>${specialRequests}</p>` : ''}`,
+        summaryRows: this.bookingSummaryRows(command),
+        cta: cancellationUrl ? { url: command.cancellationUrl!, label: 'Review or cancel booking' } : null,
       }),
-      text: `We received your payment of ${command.amount.currency} ${command.amount.amount} for booking ${command.bookingReference}.${command.specialRequests?.trim() ? ` Special requests: ${command.specialRequests.trim()}` : ''}${command.cancellationUrl ? ` Cancel: ${command.cancellationUrl}` : ''}`,
+      text: `${paid ? `We received your payment of ${command.amount.currency} ${command.amount.amount}.` : 'Payment will be collected at the hotel.'} Booking ${command.bookingReference}: ${command.roomName}, ${command.stay.startsOn} to ${command.stay.endsOn}, ${command.guestCount} guest${command.guestCount === 1 ? '' : 's'}.${command.specialRequests?.trim() ? ` Special requests: ${command.specialRequests.trim()}` : ''}${command.cancellationUrl ? ` Cancel: ${command.cancellationUrl}` : ''}`,
       idempotencyKey: `payment-confirmation/${command.paymentId}`,
     });
   }
@@ -98,9 +124,12 @@ export class ResendMailProvider implements MailProvider {
     stay: { startsOn: string; endsOn: string };
     roomName: string;
     amount: { amount: string; currency: string };
+    brand: Parameters<MailProvider['sendNewBookingStaffNotification']>[0]['brand'];
+    guestCount: number;
+    paymentMethod: Parameters<MailProvider['sendNewBookingStaffNotification']>[0]['paymentMethod'];
+    nightlyRates?: Parameters<MailProvider['sendNewBookingStaffNotification']>[0]['nightlyRates'];
     specialRequests?: string | null;
   }): Promise<void> {
-    const bookingReference = this.escapeHtml(command.bookingReference);
     const guestName = this.escapeHtml(command.guest.name);
     const guestEmail = this.escapeHtml(command.guest.email);
     const guestPhone = command.guest.phone ? this.escapeHtml(command.guest.phone) : '';
@@ -113,27 +142,17 @@ export class ResendMailProvider implements MailProvider {
       : '';
     await this.send({
       to: command.to,
-      subject: 'New booking received',
-      html: this.bookingEmailLayout({
+      subject: `${guestName} — new booking ${command.bookingReference}`,
+      html: renderBrandedEmail({
+        subject: `${guestName} — new booking ${command.bookingReference}`,
+        brand: command.brand,
         heading: 'New booking received',
         content: `<strong>Guest</strong><br>${guestName}<br>${guestEmail}${guestPhone ? `<br>${guestPhone}` : ''}<br><br><strong>Stay</strong><br>${startsOn} to ${endsOn}<br><br><strong>Room</strong><br>${roomName}<br><br><strong>Total</strong><br>${amount}${specialRequests ? `<br><br><strong>Special requests</strong><br>${specialRequests}` : ''}`,
-        bookingReference,
-        ctaUrl: '',
-        ctaLabel: '',
+        summaryRows: this.bookingSummaryRows(command),
       }),
       text: `New booking received\nBooking reference: ${command.bookingReference}\nGuest: ${command.guest.name}\nEmail: ${command.guest.email}${command.guest.phone ? `\nPhone: ${command.guest.phone}` : ''}\nStay: ${command.stay.startsOn} to ${command.stay.endsOn}\nRoom: ${command.roomName}\nTotal: ${command.amount.currency} ${command.amount.amount}${command.specialRequests?.trim() ? `\nSpecial requests: ${command.specialRequests.trim()}` : ''}`,
       idempotencyKey: `new-booking-staff/${command.paymentId}/${command.staffUserId}`,
     });
-  }
-
-  private bookingEmailLayout(command: {
-    heading: string;
-    content: string;
-    bookingReference: string;
-    ctaUrl: string;
-    ctaLabel: string;
-  }): string {
-    return `<!doctype html><html><body style="margin:0;padding:0;background:#f4f1ea;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f1ea;border-collapse:collapse;"><tr><td align="center" style="padding:32px 16px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:680px;background:#fff;border-collapse:collapse;"><tr><td style="padding:32px 32px 20px;font-family:Arial,sans-serif;color:#141414;"><div style="margin:0 0 24px;font-size:18px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">MUST Booking</div><h1 style="margin:0 0 18px;font-size:30px;line-height:1.2;">${command.heading}</h1><div style="font-size:16px;line-height:1.7;">${command.content}</div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:24px;border-collapse:collapse;border:1px solid #d8d2c4;"><tr><td colspan="2" style="padding:12px 16px;background:#f7f4ec;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">Booking Summary</td></tr><tr><td style="padding:12px 16px;width:38%;font-size:14px;font-weight:600;color:#58544a;">Booking reference</td><td style="padding:12px 16px;font-size:14px;">${command.bookingReference}</td></tr></table>${command.ctaUrl ? `<p style="margin:24px 0 0;"><a href="${command.ctaUrl}" style="display:inline-block;padding:14px 24px;background:#141414;color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:15px;font-weight:600;">${command.ctaLabel}</a></p>` : ''}<div style="margin-top:28px;padding:16px 18px;border:1px solid #ddd6c8;background:#faf7f0;font-size:14px;line-height:1.7;"><strong style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;">Need Help?</strong><br>Contact your hotel directly for assistance.</div></td></tr><tr><td style="padding:0 32px 28px;font-family:Arial,sans-serif;font-size:13px;line-height:1.7;color:#5f5a50;">MUST Booking</td></tr></table></td></tr></table></body></html>`;
   }
 
   async sendRefundConfirmationEmail(command: {
@@ -142,16 +161,100 @@ export class ResendMailProvider implements MailProvider {
     refundId: string;
     to: string;
     amount: { amount: string; currency: string };
+    brand: Parameters<MailProvider['sendRefundConfirmationEmail']>[0]['brand'];
+    guest: Parameters<MailProvider['sendRefundConfirmationEmail']>[0]['guest'];
+    stay: Parameters<MailProvider['sendRefundConfirmationEmail']>[0]['stay'];
+    roomName: string;
+    guestCount: number;
+    nightlyRates?: Parameters<MailProvider['sendRefundConfirmationEmail']>[0]['nightlyRates'];
   }): Promise<void> {
-    const bookingReference = this.escapeHtml(command.bookingReference);
     const amount = this.escapeHtml(`${command.amount.currency} ${command.amount.amount}`);
     await this.send({
       to: command.to,
-      subject: 'Refund processed for your booking',
-      html: `<p>Your refund of ${amount} for booking ${bookingReference} has been processed.</p>`,
+      subject: `${command.brand.name || 'Hotel'} refund processed — ${command.bookingReference}`,
+      html: renderBrandedEmail({
+        subject: `${command.brand.name || 'Hotel'} refund processed — ${command.bookingReference}`,
+        brand: command.brand,
+        heading: 'Refund processed',
+        greeting: `Hello ${command.guest.name}`,
+        content: `<p>Your refund of <strong>${amount}</strong> has been processed.</p>`,
+        summaryRows: this.bookingSummaryRows(command),
+      }),
       text: `Your refund of ${command.amount.currency} ${command.amount.amount} for booking ${command.bookingReference} has been processed.`,
       idempotencyKey: `refund-confirmation/${command.refundId}`,
     });
+  }
+
+  async sendBookingCancelledEmail(
+    command: Parameters<MailProvider['sendBookingCancelledEmail']>[0],
+  ): Promise<void> {
+    const subject = `${command.brand.name || 'Hotel'} booking cancelled — ${command.bookingReference}`;
+    await this.send({
+      to: command.to,
+      subject,
+      html: renderBrandedEmail({
+        subject,
+        brand: command.brand,
+        heading: 'Booking cancelled',
+        greeting: `Hello ${command.guest.name}`,
+        content: '<p>Your booking has been cancelled. Please contact the hotel if you need any help.</p>',
+        summaryRows: this.bookingSummaryRows(command),
+      }),
+      text: `Your booking ${command.bookingReference} has been cancelled. ${command.roomName}, ${command.stay.startsOn} to ${command.stay.endsOn}.`,
+      idempotencyKey: `booking-cancelled/guest/${command.bookingId}`,
+    });
+  }
+
+  async sendBookingCancelledStaffNotification(
+    command: Parameters<MailProvider['sendBookingCancelledStaffNotification']>[0],
+  ): Promise<void> {
+    const subject = `${command.guest.name} — booking cancelled ${command.bookingReference}`;
+    await this.send({
+      to: command.to,
+      subject,
+      html: renderBrandedEmail({
+        subject,
+        brand: command.brand,
+        heading: 'Booking cancelled',
+        content: `<p><strong>Guest</strong><br>${this.escapeHtml(command.guest.name)}<br>${this.escapeHtml(command.guest.email)}${command.guest.phone ? `<br>${this.escapeHtml(command.guest.phone)}` : ''}</p>`,
+        summaryRows: this.bookingSummaryRows(command),
+      }),
+      text: `${command.guest.name}'s booking ${command.bookingReference} has been cancelled.`,
+      idempotencyKey: `booking-cancelled/staff/${command.bookingId}/${command.staffUserId}`,
+    });
+  }
+
+  private bookingSummaryRows(command: {
+    bookingReference: string;
+    roomName: string;
+    stay: { startsOn: string; endsOn: string };
+    guestCount: number;
+    paymentMethod?: string;
+    nightlyRates?: Array<{ date: string; amount: string }>;
+  }): Array<{ label: string; value: string }> {
+    const rows = [
+      { label: 'Booking reference', value: command.bookingReference },
+      { label: 'Room', value: command.roomName },
+      { label: 'Dates', value: `${command.stay.startsOn} to ${command.stay.endsOn}` },
+      { label: 'Guests', value: String(command.guestCount) },
+    ];
+    if (command.nightlyRates && command.nightlyRates.length > 1)
+      rows.push(
+        ...command.nightlyRates.map((rate) => ({ label: rate.date, value: rate.amount })),
+      );
+    if (command.paymentMethod)
+      rows.push({ label: 'Payment method', value: this.paymentMethodLabel(command.paymentMethod) });
+    return rows;
+  }
+
+  private paymentMethodLabel(paymentMethod: string): string {
+    return (
+      {
+        stripe: 'Card payment',
+        pokpay: 'PokPay',
+        pay_at_hotel: 'Pay at hotel',
+      }[paymentMethod] ?? paymentMethod
+    );
   }
 
   private async send(message: {

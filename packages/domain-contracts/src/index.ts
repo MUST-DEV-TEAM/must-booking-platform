@@ -23,6 +23,13 @@ export interface MailProvider {
     paymentId: string;
     to: string;
     amount: Money;
+    brand: MailBrand;
+    paymentMethod: GuestPaymentMethod;
+    guest: { name: string };
+    stay: { startsOn: string; endsOn: string };
+    roomName: string;
+    guestCount: number;
+    nightlyRates?: NightlyRate[];
     cancellationUrl?: string;
     specialRequests?: string | null;
   }): Promise<void>;
@@ -36,6 +43,10 @@ export interface MailProvider {
     stay: { startsOn: string; endsOn: string };
     roomName: string;
     amount: Money;
+    brand: MailBrand;
+    guestCount: number;
+    paymentMethod: GuestPaymentMethod;
+    nightlyRates?: NightlyRate[];
     specialRequests?: string | null;
   }): Promise<void>;
   sendRefundConfirmationEmail(command: {
@@ -44,8 +55,46 @@ export interface MailProvider {
     refundId: string;
     to: string;
     amount: Money;
+    brand: MailBrand;
+    guest: { name: string };
+    stay: { startsOn: string; endsOn: string };
+    roomName: string;
+    guestCount: number;
+    nightlyRates?: NightlyRate[];
+  }): Promise<void>;
+  sendBookingCancelledEmail(command: {
+    bookingId: string;
+    bookingReference: string;
+    to: string;
+    brand: MailBrand;
+    guest: { name: string };
+    stay: { startsOn: string; endsOn: string };
+    roomName: string;
+    guestCount: number;
+    nightlyRates?: NightlyRate[];
+  }): Promise<void>;
+  sendBookingCancelledStaffNotification(command: {
+    bookingId: string;
+    bookingReference: string;
+    staffUserId: string;
+    to: string;
+    brand: MailBrand;
+    guest: { name: string; email: string; phone: string | null };
+    stay: { startsOn: string; endsOn: string };
+    roomName: string;
+    guestCount: number;
+    nightlyRates?: NightlyRate[];
   }): Promise<void>;
 }
+
+export type MailBrand = {
+  name: string;
+  logoUrl?: string | null;
+  supportEmail?: string | null;
+  phone?: string | null;
+  websiteUrl?: string | null;
+  address?: string | null;
+};
 
 export interface StorageProvider {
   createPresignedUpload(command: {
@@ -101,6 +150,12 @@ export interface Money {
   currency: string;
 }
 
+/** An immutable price for one occupied calendar date, as quoted to the guest. */
+export interface NightlyRate {
+  date: string;
+  amount: string;
+}
+
 export interface GuestDetails {
   email: string;
   firstName: string;
@@ -127,6 +182,8 @@ export interface Booking {
   status: BookingStatus;
   paymentMethod: BookingPaymentMethod;
   total: Money;
+  /** The per-night quote snapshot, when the booking was created from a guest quote. */
+  nightlyRates?: NightlyRate[];
   externalReference: string;
   externalBookingId: string | null;
   version: number;

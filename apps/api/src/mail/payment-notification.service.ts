@@ -38,6 +38,26 @@ export class PaymentNotificationService {
     }
   }
 
+  async sendBookingCancelledEmailSafely(
+    command: Parameters<MailProvider['sendBookingCancelledEmail']>[0],
+  ): Promise<void> {
+    try {
+      await this.mail.sendBookingCancelledEmail(command);
+    } catch (error) {
+      this.logMailFailure('booking cancellation', command.bookingId, error);
+    }
+  }
+
+  async sendBookingCancelledStaffNotificationSafely(
+    command: Parameters<MailProvider['sendBookingCancelledStaffNotification']>[0],
+  ): Promise<void> {
+    try {
+      await this.mail.sendBookingCancelledStaffNotification(command);
+    } catch (error) {
+      this.logMailFailure('booking cancellation staff notification', command.bookingId, error);
+    }
+  }
+
   private logMailFailure(kind: string, bookingId: string, error: unknown): void {
     this.logger.error(
       `Unable to send ${kind} email for booking ${bookingId}; continuing core action.`,

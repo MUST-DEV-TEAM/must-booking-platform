@@ -21,6 +21,9 @@ type Property = {
   name: string;
   address: string;
   timezone: string;
+  logoUrl: string | null;
+  phone: string | null;
+  supportEmail: string | null;
   minStayNights: number | null;
   maxStayNights: number | null;
   checkInTime: string | null;
@@ -39,6 +42,7 @@ type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
 type PlanUsage = { plan: { name: string } };
 
 type IdentityFields = Pick<Property, 'name' | 'address' | 'timezone'>;
+type EmailBrandingFields = Pick<Property, 'logoUrl' | 'phone' | 'supportEmail'>;
 type RuleFields = Pick<
   Property,
   | 'minStayNights'
@@ -80,6 +84,7 @@ export function DashboardSettings({
   propertyId: string;
 }) {
   const [identity, setIdentity] = useState<IdentityFields | null>(null);
+  const [emailBranding, setEmailBranding] = useState<EmailBrandingFields | null>(null);
   const [rules, setRules] = useState<RuleFields | null>(null);
   const [bookingMode, setBookingMode] = useState<BookingMode | null>(null);
   const [paymentGateways, setPaymentGateways] = useState<PaymentGateways | null>(null);
@@ -134,6 +139,11 @@ export function DashboardSettings({
   useEffect(() => {
     if (!property) return;
     setIdentity({ name: property.name, address: property.address, timezone: property.timezone });
+    setEmailBranding({
+      logoUrl: property.logoUrl,
+      phone: property.phone,
+      supportEmail: property.supportEmail,
+    });
     setRules(rulesFrom(property));
     setBookingMode(property.bookingMode);
     setPaymentGateways(property.paymentGateways);
@@ -269,6 +279,19 @@ export function DashboardSettings({
     void save(update);
   }
 
+  function saveEmailBranding(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!property || !emailBranding) return;
+    const update = (Object.keys(emailBranding) as Array<keyof EmailBrandingFields>).reduce<
+      Partial<Property>
+    >(
+      (result, key) =>
+        emailBranding[key] === property[key] ? result : { ...result, [key]: emailBranding[key] },
+      {},
+    );
+    void save(update);
+  }
+
   function saveBookingMode(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!property || !bookingMode || bookingMode === property.bookingMode) return;
@@ -293,7 +316,7 @@ export function DashboardSettings({
         </button>
       </Card>
     );
-  if (!property || !identity || !rules || !bookingMode || !paymentGateways)
+  if (!property || !identity || !emailBranding || !rules || !bookingMode || !paymentGateways)
     return (
       <section aria-label="Loading settings">
         <Text>Loading settings…</Text>
@@ -345,6 +368,64 @@ export function DashboardSettings({
                 </>
               ) : (
                 'Save hotel identity'
+              )}
+            </button>
+          </form>
+        </Stack>
+      </Card>
+
+      <Card>
+        <Stack gap="md">
+          <Heading level={2}>Email branding</Heading>
+          <Text tone="secondary">
+            Booking emails use this hotel name, logo, and contact information. Leave any optional
+            field empty to omit it from the email.
+          </Text>
+          <form className="must-stack must-stack--md" onSubmit={saveEmailBranding}>
+            <label className="must-field">
+              <span className="must-field__label">Logo URL</span>
+              <input
+                className="must-input"
+                aria-label="Logo URL"
+                type="url"
+                placeholder="https://your-hotel-site.com/logo.png"
+                value={emailBranding.logoUrl ?? ''}
+                onChange={(event) =>
+                  setEmailBranding({ ...emailBranding, logoUrl: event.target.value || null })
+                }
+              />
+            </label>
+            <label className="must-field">
+              <span className="must-field__label">Support email</span>
+              <input
+                className="must-input"
+                aria-label="Support email"
+                type="email"
+                value={emailBranding.supportEmail ?? ''}
+                onChange={(event) =>
+                  setEmailBranding({ ...emailBranding, supportEmail: event.target.value || null })
+                }
+              />
+            </label>
+            <label className="must-field">
+              <span className="must-field__label">Phone</span>
+              <input
+                className="must-input"
+                aria-label="Hotel phone"
+                type="tel"
+                value={emailBranding.phone ?? ''}
+                onChange={(event) =>
+                  setEmailBranding({ ...emailBranding, phone: event.target.value || null })
+                }
+              />
+            </label>
+            <button className="must-button must-button--primary" disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? (
+                <>
+                  <Loader2 aria-hidden="true" size={16} /> Saving…
+                </>
+              ) : (
+                'Save email branding'
               )}
             </button>
           </form>
