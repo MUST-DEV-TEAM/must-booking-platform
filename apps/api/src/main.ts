@@ -6,6 +6,8 @@ import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 
 import { AppModule } from './app.module';
+import { initializeErrorTracking } from './observability/error-tracking';
+import { SentryExceptionFilter } from './observability/sentry-exception.filter';
 
 function devHttpsOptions(): { key: Buffer; cert: Buffer } | undefined {
   const keyPath = process.env.DEV_HTTPS_KEY_PATH;
@@ -15,11 +17,13 @@ function devHttpsOptions(): { key: Buffer; cert: Buffer } | undefined {
 }
 
 async function bootstrap(): Promise<void> {
+  initializeErrorTracking();
   const httpsOptions = devHttpsOptions();
   const app = await NestFactory.create(AppModule, { rawBody: true, httpsOptions });
   const configService = app.get(ConfigService);
 
   app.useLogger(app.get(Logger));
+  app.useGlobalFilters(new SentryExceptionFilter(app.getHttpAdapter()));
 
   await app.listen(configService.getOrThrow<number>('APP_PORT'));
 }

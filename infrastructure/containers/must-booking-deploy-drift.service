@@ -1,0 +1,10 @@
+[Unit]
+Description=MUST Booking deployed-commit drift check
+
+[Service]
+Type=oneshot
+User=must-deploy
+Group=must-deploy
+WorkingDirectory=/srv/must-booking
+EnvironmentFile=/srv/must-booking/infrastructure/containers/.env
+ExecStart=/usr/bin/node /srv/must-booking/infrastructure/containers/check-deploy-drift.mjs

@@ -5,6 +5,22 @@ set -euo pipefail
 cd "$(dirname "$0")"
 REPO_ROOT="$(cd ../.. && pwd)"
 
+# This checkout is bind-mounted into the persistent deploy-webhook container.
+# Git must therefore always run as its dedicated, non-root deploy user: running
+# it as root changes .git ownership on the host and silently breaks later pulls.
+if [ "$(id -u)" -eq 0 ]; then
+  echo "Refusing to deploy as root. Run the deploy-webhook service as DEPLOY_UID:DEPLOY_GID." >&2
+  exit 1
+fi
+
+if foreign_path=$(find "$REPO_ROOT" -xdev ! -uid "$(id -u)" -print -quit 2>/dev/null); then
+  if [ -n "$foreign_path" ]; then
+    echo "Refusing to deploy: checkout contains a path not owned by the deploy user: $foreign_path" >&2
+    echo "Repair ownership once from the host, then use the deploy webhook; do not run sudo git." >&2
+    exit 1
+  fi
+fi
+
 if [ -z "${DEPLOY_SH_PULLED:-}" ]; then
   git -C "$REPO_ROOT" fetch origin main
   git -C "$REPO_ROOT" reset --hard origin/main

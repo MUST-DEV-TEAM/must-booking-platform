@@ -4,6 +4,7 @@ import IORedis from 'ioredis';
 
 import { CLOCK_QUEUE_NAMES, type ClockQueueName } from './clock-queue-names';
 import { ClockQueueService } from './clock-queue.service';
+import { reportOperationalFailure } from '../../observability/error-tracking';
 
 /**
  * Worker skeletons only (Task 9's explicit scope) — every queue gets a real
@@ -36,6 +37,13 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
         );
         if (job.attemptsMade >= attempts)
           void this.queues.deadLetter(name, job.name, job.data, error.message);
+        if (job.attemptsMade >= attempts)
+          reportOperationalFailure(error, {
+            component: 'clock',
+            operation: job.name,
+            queue: name,
+            jobId: job.id,
+          });
       });
       this.workers.push(worker);
     }

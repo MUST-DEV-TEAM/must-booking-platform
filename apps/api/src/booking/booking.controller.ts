@@ -13,10 +13,16 @@ import {
   Post,
   Query,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import type { GuestPaymentMethod } from '@must/domain-contracts';
 
 import { PublicTenantScoped } from '../tenancy/tenant-context.decorator';
+import { PublicRateLimitGuard } from '../tenancy/public-rate-limit.guard';
+import {
+  PUBLIC_BOOKING_MUTATION_RATE_LIMIT,
+  PublicRateLimit,
+} from '../tenancy/public-rate-limit.decorator';
 import { RequiresCapability } from '../tenancy/capabilities.decorator';
 import { Role, Roles } from '../tenancy/roles.decorator';
 import { TenantScoped } from '../tenancy/tenant-context.decorator';
@@ -52,6 +58,8 @@ export class BookingController {
 
   @Post()
   @PublicTenantScoped({ propertyParam: 'propertyId' })
+  @UseGuards(PublicRateLimitGuard)
+  @PublicRateLimit(PUBLIC_BOOKING_MUTATION_RATE_LIMIT)
   async create(
     @Body() body: unknown,
     @Headers('idempotency-key') idempotencyKey: string | undefined,
@@ -89,6 +97,8 @@ export class BookingController {
 
   @Patch(':bookingId')
   @PublicTenantScoped({ propertyParam: 'propertyId' })
+  @UseGuards(PublicRateLimitGuard)
+  @PublicRateLimit(PUBLIC_BOOKING_MUTATION_RATE_LIMIT)
   async update(
     @Param('bookingId') bookingId: string,
     @Body() body: unknown,
@@ -114,6 +124,8 @@ export class BookingController {
   @Delete(':bookingId')
   @HttpCode(200)
   @PublicTenantScoped({ propertyParam: 'propertyId' })
+  @UseGuards(PublicRateLimitGuard)
+  @PublicRateLimit(PUBLIC_BOOKING_MUTATION_RATE_LIMIT)
   async cancel(
     @Param('bookingId') bookingId: string,
     @Body() body: unknown,

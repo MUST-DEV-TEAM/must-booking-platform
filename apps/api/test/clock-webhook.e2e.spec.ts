@@ -129,7 +129,14 @@ describe('Clock webhook gateway', () => {
         kind: 'PMS',
         provider: 'CLOCK_PMS',
         name: 'Webhook Test Clock',
-        credentials: { host: 'h', accountId: '1', subscriptionId: '2', apiUser: 'u', apiKey: 'k' },
+        credentials: {
+          host: 'h',
+          accountId: '1',
+          subscriptionId: '2',
+          apiUser: 'u',
+          apiKey: 'k',
+          snsTopicArn: 'arn:aws:sns:eu-west-1:123456789012:clock-events',
+        },
       })
       .expect(201);
     connectionId = connection.body.id;
@@ -209,6 +216,23 @@ describe('Clock webhook gateway', () => {
 
     const stored = await admin.$queryRaw<Array<{ id: string }>>`
       SELECT id FROM provider_events WHERE connection_id = ${connectionId}::uuid AND event_id = ${tampered.MessageId}
+    `;
+    expect(stored).toHaveLength(0);
+  });
+
+  it('rejects a validly signed notification from a different SNS topic', async () => {
+    const envelope = signedNotification({
+      TopicArn: 'arn:aws:sns:eu-west-1:123456789012:untrusted-topic',
+    });
+
+    await request(app!.getHttpServer())
+      .post(`/clock-webhooks/${webhookPublicId}`)
+      .send(envelope)
+      .expect(400);
+
+    const stored = await admin.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM provider_events WHERE connection_id = ${connectionId}::uuid
+        AND event_id = ${envelope.MessageId}
     `;
     expect(stored).toHaveLength(0);
   });

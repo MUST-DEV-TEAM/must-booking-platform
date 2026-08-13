@@ -15,6 +15,8 @@ import { HealthController } from './health/health.controller';
 import { TenantDatabaseService } from './tenancy/tenant-database.service';
 import { TenantContextGuard } from './tenancy/tenant-context.guard';
 import { PublicTenantScopedGuard } from './tenancy/public-tenant-scoped.guard';
+import { PublicRateLimitGuard } from './tenancy/public-rate-limit.guard';
+import { PublicRateLimiterService } from './tenancy/public-rate-limiter.service';
 import { RolesGuard } from './tenancy/roles.guard';
 import { CapabilitiesGuard } from './tenancy/capabilities.guard';
 import { CapabilitiesService } from './tenancy/capabilities.service';
@@ -189,6 +191,8 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     SignupRateLimiterService,
     TenantContextGuard,
     PublicTenantScopedGuard,
+    PublicRateLimitGuard,
+    PublicRateLimiterService,
     RolesGuard,
     CapabilitiesGuard,
     CapabilitiesService,

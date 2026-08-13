@@ -24,6 +24,7 @@
     "@nestjs/core": "^11.1.6",
     "@nestjs/platform-express": "^11.1.6",
     "@prisma/client": "^6.16.0",
+    "@sentry/node": "^10.70.0",
     "bcrypt": "^6.0.0",
     "bullmq": "^6.0.0",
     "ioredis": "^5.11.1",

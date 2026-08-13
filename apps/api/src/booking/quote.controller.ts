@@ -1,6 +1,8 @@
-import { Body, Controller, Inject, Post, Req } from '@nestjs/common';
+import { Body, Controller, Inject, Post, Req, UseGuards } from '@nestjs/common';
 
 import { PublicTenantScoped } from '../tenancy/tenant-context.decorator';
+import { PublicRateLimitGuard } from '../tenancy/public-rate-limit.guard';
+import { PUBLIC_QUOTE_RATE_LIMIT, PublicRateLimit } from '../tenancy/public-rate-limit.decorator';
 import { QuoteService } from './quote.service';
 
 type TenantPropertyRequest = {
@@ -14,6 +16,8 @@ export class QuoteController {
 
   @Post()
   @PublicTenantScoped({ propertyParam: 'propertyId' })
+  @UseGuards(PublicRateLimitGuard)
+  @PublicRateLimit(PUBLIC_QUOTE_RATE_LIMIT)
   create(@Body() body: unknown, @Req() request: TenantPropertyRequest) {
     return this.quotes.create(
       request.tenantContext.tenantId,

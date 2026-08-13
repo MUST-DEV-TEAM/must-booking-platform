@@ -1,6 +1,8 @@
-import { Controller, Get, Inject, NotFoundException, Param, Req } from '@nestjs/common';
+import { Controller, Get, Inject, NotFoundException, Param, Req, UseGuards } from '@nestjs/common';
 
 import { PublicTenantScoped } from '../tenancy/tenant-context.decorator';
+import { PublicRateLimitGuard } from '../tenancy/public-rate-limit.guard';
+import { PUBLIC_READ_RATE_LIMIT, PublicRateLimit } from '../tenancy/public-rate-limit.decorator';
 import { LocalPmsProvider } from './local-pms.provider';
 
 type GuestBookingRequest = {
@@ -14,6 +16,8 @@ export class PublicBookingController {
 
   @Get(':bookingId')
   @PublicTenantScoped({ propertyParam: 'propertyId' })
+  @UseGuards(PublicRateLimitGuard)
+  @PublicRateLimit(PUBLIC_READ_RATE_LIMIT)
   async get(@Param('bookingId') bookingId: string, @Req() request: GuestBookingRequest) {
     const booking = await this.provider.getGuestBooking(
       request.tenantContext,

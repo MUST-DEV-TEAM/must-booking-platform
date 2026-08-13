@@ -165,16 +165,22 @@ Outbound API calls use an HTTP Digest challenge flow with one safe nonce refresh
 
 Complete Basic credentials can bind the endpoint when the Clock topic ARN is unavailable; otherwise the exact SNS topic must be pinned. Legacy Bearer/HMAC header verification remains for configured non-SNS senders. Missing mappings enqueue a booking-upsert job; they must not invent provider identity.
 
-### Scheduling and rate limits
+### Historical scheduling and rate limits
 
-| Work | Hook | Current purpose |
+The following table documents the legacy plugin's former Clock schedules. The
+Milestone 6 retrofit removed that provider code: current WordPress source does
+not register these hooks and has no Clock credentials. Clock work is now owned
+by the MUST API; this table is retained only to interpret old installations and
+incident history.
+
+| Work | Historical hook | Former purpose |
 |---|---|---|
 | Full catalog | `must_hotel_booking_clock_full_catalog_sync` | Daily provider catalog refresh while preserving local presentation |
 | Availability/rates | `must_hotel_booking_clock_availability_rate_sync` | Frequent display/cache refresh; never final booking authority |
 | Reservation fallback | `must_hotel_booking_clock_reservation_fallback_sync` | Bounded polling when webhook convergence needs repair |
 | Provider job runner | `must_hotel_booking_process_provider_sync_jobs` | Bounded retry/reconciliation/accounting/amendment work |
 
-Defaults evidenced in code/settings are daily catalog, 15-minute availability/rate, and five-minute reservation fallback with small batches, but saved installations can retain different values. All schedules depend on functional WP-Cron or an external system trigger.
+Legacy defaults were daily catalog, 15-minute availability/rate, and five-minute reservation fallback with small batches. Do not add an external WP-Cron trigger for these absent current-main jobs.
 
 ### Folio accounting
 

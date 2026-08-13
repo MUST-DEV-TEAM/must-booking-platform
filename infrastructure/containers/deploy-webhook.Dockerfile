@@ -1,7 +1,6 @@
 FROM node:22-alpine
 
-RUN apk add --no-cache docker-cli docker-cli-compose git bash curl \
- && git config --global --add safe.directory /deploy
+RUN apk add --no-cache docker-cli docker-cli-compose git bash curl
 
 WORKDIR /app
 COPY deploy-webhook.mjs ./

@@ -4,6 +4,8 @@ export interface Environment {
   REDIS_URL: string;
   WEB_APP_URL: string;
   INTEGRATION_CREDENTIALS_KEY: string;
+  SENTRY_DSN?: string;
+  SENTRY_ENVIRONMENT?: string;
   RESEND_API_KEY?: string;
   RESEND_API_BASE_URL?: string;
   MAIL_FROM_EMAIL?: string;

@@ -6,10 +6,19 @@ services:
       context: .
       dockerfile: deploy-webhook.Dockerfile
     restart: unless-stopped
+    # The mounted checkout belongs to this unprivileged host account. Never run
+    # git as container root: that was the source of the 2026-08-12 .git
+    # ownership breakage.
+    user: "${DEPLOY_UID:?set the homelab deploy user's numeric UID}:${DEPLOY_GID:?set the homelab deploy user's numeric GID}"
+    group_add:
+      - "${DOCKER_GID:?set the docker socket group's numeric GID}"
     environment:
       WEBHOOK_SECRET: ${WEBHOOK_SECRET}
       PORT: 8090
       DEPLOY_SCRIPT: /deploy/infrastructure/containers/deploy.sh
+      SENTRY_DSN: ${SENTRY_DSN:?required for deploy-drift alerts}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      HOME: /tmp
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${MUST_BOOKING_CHECKOUT}:/deploy

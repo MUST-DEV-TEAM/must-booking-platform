@@ -1,6 +1,21 @@
-import { Body, Controller, HttpCode, HttpStatus, Inject, Param, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 
 import { Public } from '../../tenancy/tenant-context.decorator';
+import { PublicRateLimitGuard } from '../../tenancy/public-rate-limit.guard';
+import {
+  PUBLIC_WEBHOOK_RATE_LIMIT,
+  PublicRateLimit,
+} from '../../tenancy/public-rate-limit.decorator';
 import { ClockWebhookService } from './clock-webhook.service';
 
 type WebhookRequest = { headers: { 'content-length'?: string } };
@@ -15,6 +30,8 @@ export class ClockWebhookController {
   @Post(':webhookPublicId')
   @HttpCode(HttpStatus.OK)
   @Public()
+  @UseGuards(PublicRateLimitGuard)
+  @PublicRateLimit(PUBLIC_WEBHOOK_RATE_LIMIT)
   async receive(
     @Param('webhookPublicId') webhookPublicId: string,
     @Body() body: unknown,

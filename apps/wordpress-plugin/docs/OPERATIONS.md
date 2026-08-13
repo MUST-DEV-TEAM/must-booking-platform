@@ -98,7 +98,13 @@ For missing routes:
 
 ## Background jobs
 
-| Hook | Default/current role |
+The entries below describe the **legacy pre-retrofit plugin only**. They are
+not registered by the current API-only WordPress plugin: Milestone 6 removed
+the plugin's Clock/PMS code and credentials, so WordPress must not be treated
+as a live Clock sync worker or an alerting source. Current Clock failures arise
+in `apps/api` and are reported through the API's operational alerting.
+
+| Historical hook | Former role |
 |---|---|
 | `must_hotel_booking_cleanup_expired_locks` | Every five minutes; expired locks and pending-payment cleanup callbacks share this schedule. |
 | `must_hotel_booking_process_provider_sync_jobs` | Every five minutes; bounded queue drain with single follow-up events. |
@@ -106,7 +112,8 @@ For missing routes:
 | `must_hotel_booking_clock_availability_rate_sync` | Enabled by default, normally every 15 minutes. |
 | `must_hotel_booking_clock_reservation_fallback_sync` | Enabled by default, normally every five minutes with small batches. |
 
-Saved installations can retain different schedule values. `ClockReservationAutoSyncScheduler` remains in source but is not registered/scheduled directly on current `main`; treat it as an investigation candidate, not a second active schedule.
+Saved legacy installations can retain different schedule values. Do not repair,
+schedule, or rely on these hooks on current `main`.
 
 If `DISABLE_WP_CRON` is true, the hosting platform must call `wp-cron.php`. Before repairing a backlog, inspect:
 

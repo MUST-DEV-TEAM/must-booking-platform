@@ -1,9 +1,11 @@
-import { BadRequestException, Controller, Get, Inject, Query, Req } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Inject, Query, Req, UseGuards } from '@nestjs/common';
 import type { AvailabilityQuery } from '@must/domain-contracts';
 
 import { PmsProviderRegistry } from '../booking/pms-provider-registry';
 import { AvailabilityService } from './availability.service';
 import { PublicTenantScoped } from './tenant-context.decorator';
+import { PublicRateLimitGuard } from './public-rate-limit.guard';
+import { PUBLIC_READ_RATE_LIMIT, PublicRateLimit } from './public-rate-limit.decorator';
 
 type TenantPropertyRequest = { tenantContext: { tenantId: string; propertyId: string } };
 
@@ -22,6 +24,8 @@ export class PublicAvailabilityController {
   // still reads the local mirror exactly as before).
   @Get('availability')
   @PublicTenantScoped({ propertyParam: 'propertyId' })
+  @UseGuards(PublicRateLimitGuard)
+  @PublicRateLimit(PUBLIC_READ_RATE_LIMIT)
   async getAvailability(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
     const provider = await this.providers.forProperty(
       request.tenantContext.tenantId,
@@ -42,6 +46,8 @@ export class PublicAvailabilityController {
    * connection. */
   @Get('availability-calendar')
   @PublicTenantScoped({ propertyParam: 'propertyId' })
+  @UseGuards(PublicRateLimitGuard)
+  @PublicRateLimit(PUBLIC_READ_RATE_LIMIT)
   getCalendar(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
     return this.availability.getCalendar(
       request.tenantContext.tenantId,

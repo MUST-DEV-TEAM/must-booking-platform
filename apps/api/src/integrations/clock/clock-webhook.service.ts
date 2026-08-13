@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
+import { CredentialCipherService } from '../credential-cipher';
 import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
 import { ClockQueueService } from './clock-queue.service';
 import { ClockWebhookVerificationService } from './clock-webhook-verification.service';
@@ -10,6 +11,7 @@ interface ConnectionLookup {
   tenantId: string;
   connectionId: string;
   provider: string;
+  encryptedCredentials: string;
 }
 
 export type WebhookOutcome = { status: number };
@@ -22,6 +24,7 @@ export class ClockWebhookService {
 
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
+    @Inject(CredentialCipherService) private readonly cipher: CredentialCipherService,
     @Inject(ClockWebhookVerificationService)
     private readonly verification: ClockWebhookVerificationService,
     @Inject(ClockQueueService) private readonly queues: ClockQueueService,
@@ -40,6 +43,15 @@ export class ClockWebhookService {
 
     const connection = await this.findConnection(webhookPublicId);
     if (!connection) throw new NotFoundException();
+
+    // An AWS SNS signature proves only that *some* SNS topic sent the message.
+    // Pin the tenant's configured topic before fetching a signing certificate,
+    // otherwise another valid AWS topic could inject provider events if this
+    // opaque callback URL were exposed.
+    if (!this.isExpectedTopic(connection, envelope.TopicArn)) {
+      this.logger.warn(`Rejected Clock webhook for connection ${connection.connectionId}: topic mismatch.`);
+      throw new BadRequestException('Clock SNS topic is not authorized.');
+    }
 
     const verified = await this.verification.verify(envelope);
     if (!verified.ok) {
@@ -105,12 +117,24 @@ export class ClockWebhookService {
     const rows = await this.database.withWebhookGatewayLookup(
       (tx) =>
         tx.$queryRaw<ConnectionLookup[]>`
-        SELECT tenant_id AS "tenantId", id AS "connectionId", provider::text AS "provider"
+        SELECT tenant_id AS "tenantId", id AS "connectionId", provider::text AS "provider",
+          encrypted_credentials AS "encryptedCredentials"
         FROM integration_connections
         WHERE webhook_public_id = ${webhookPublicId}::uuid AND kind = 'PMS'
       `,
     );
     return rows[0] ?? null;
+  }
+
+  private isExpectedTopic(connection: ConnectionLookup, receivedTopicArn: string): boolean {
+    try {
+      const configuredTopicArn = this.cipher.decrypt(connection.encryptedCredentials).snsTopicArn?.trim();
+      return !!configuredTopicArn && configuredTopicArn === receivedTopicArn;
+    } catch {
+      // Treat malformed or undecryptable stored credentials as untrusted input;
+      // a webhook must never become accepted because its binding cannot be read.
+      return false;
+    }
   }
 
   private async propertyForConnection(
