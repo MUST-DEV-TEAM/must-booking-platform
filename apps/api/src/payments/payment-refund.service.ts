@@ -58,6 +58,7 @@ type RefundEmailRow = {
   externalReference: string;
   startsOn: string;
   endsOn: string;
+  guestCount: number;
   nightlyRates: Array<{ date: string; amount: string }> | null;
   roomName: string;
   propertyName: string;
@@ -153,7 +154,7 @@ export class PaymentRefundService {
       const guest = await tx.$queryRaw<Array<RefundEmailRow>>`
         SELECT g.email, g.first_name AS "firstName", g.last_name AS "lastName",
           b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
-          b.ends_on::text AS "endsOn", b.nightly_rates AS "nightlyRates",
+          b.ends_on::text AS "endsOn", b.guest_count AS "guestCount", b.nightly_rates AS "nightlyRates",
           COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
           p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
           p.public_website_origin AS "websiteUrl", p.address
@@ -266,7 +267,7 @@ export class PaymentRefundService {
       const guest = await tx.$queryRaw<Array<RefundEmailRow>>`
         SELECT g.email, g.first_name AS "firstName", g.last_name AS "lastName",
           b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
-          b.ends_on::text AS "endsOn", b.nightly_rates AS "nightlyRates",
+          b.ends_on::text AS "endsOn", b.guest_count AS "guestCount", b.nightly_rates AS "nightlyRates",
           COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
           p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
           p.public_website_origin AS "websiteUrl", p.address
@@ -432,7 +433,7 @@ export class PaymentRefundService {
       guest: { name: [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || row.email },
       stay: { startsOn: row.startsOn, endsOn: row.endsOn },
       roomName: row.roomName,
-      guestCount: 1,
+      guestCount: row.guestCount,
       nightlyRates: row.nightlyRates ?? undefined,
     };
   }

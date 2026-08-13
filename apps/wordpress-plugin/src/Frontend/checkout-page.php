@@ -19,6 +19,16 @@ function maybe_process_checkout_submission(): string
         exit;
     }
 
+    $defaultGuestCount = \max(1, (int) ($selection['guests'] ?? 1));
+    $postedGuestCounts = isset($_POST['room_guest_count']) && \is_array($_POST['room_guest_count'])
+        ? \wp_unslash($_POST['room_guest_count'])
+        : [];
+    $postedGuestCount = $postedGuestCounts !== [] ? \reset($postedGuestCounts) : null;
+    if ($postedGuestCount !== null && (!\is_scalar($postedGuestCount) || !\ctype_digit((string) $postedGuestCount) || (int) $postedGuestCount < 1)) {
+        return \__('Please enter a valid number of guests.', 'must-hotel-booking');
+    }
+    $guestCount = $postedGuestCount === null ? $defaultGuestCount : (int) $postedGuestCount;
+
     $firstName = isset($_POST['first_name']) ? \sanitize_text_field((string) \wp_unslash($_POST['first_name'])) : '';
     $lastName = isset($_POST['last_name']) ? \sanitize_text_field((string) \wp_unslash($_POST['last_name'])) : '';
     $email = isset($_POST['email']) ? \sanitize_email((string) \wp_unslash($_POST['email'])) : '';
@@ -33,7 +43,7 @@ function maybe_process_checkout_submission(): string
     $selection['guestInfo'] = [
         'firstName' => $firstName, 'lastName' => $lastName, 'email' => $email,
         'phoneCountryCode' => $phoneCountryCode, 'phoneNumber' => $phoneNumber, 'country' => $country,
-        'specialRequests' => $specialRequests,
+        'specialRequests' => $specialRequests, 'guestCount' => $guestCount,
     ];
     set_current_booking_selection($selection);
     \wp_safe_redirect(ManagedPages::getBookingConfirmationPageUrl());
@@ -51,6 +61,8 @@ function get_checkout_page_view_data(): array
     $selectedRooms = [];
     $summary = [];
     if ($isValid) {
+        $guestInfo = \is_array($selection['guestInfo'] ?? null) ? $selection['guestInfo'] : [];
+        $guestCount = \max(1, (int) ($guestInfo['guestCount'] ?? $selection['guests'] ?? 1));
         $quote = $selection['quote'];
         $start = new \DateTimeImmutable((string) $selection['checkin']);
         $end = new \DateTimeImmutable((string) $selection['checkout']);
@@ -58,7 +70,7 @@ function get_checkout_page_view_data(): array
         $total = (float) $quote['total']['amount'];
         $selectedRooms[] = [
             'room_id' => 1,
-            'room' => ['name' => (string) $selection['roomName'], 'currency' => (string) $quote['total']['currency'], 'max_guests' => 0, 'primary_image_url' => ''],
+            'room' => ['name' => (string) $selection['roomName'], 'currency' => (string) $quote['total']['currency'], 'max_guests' => $guestCount, 'primary_image_url' => ''],
             'pricing' => [
                 'total_price' => $total, 'nights' => $nights, 'fees_total' => 0.0,
                 'discount_total' => 0.0, 'taxes_total' => 0.0, 'room_subtotal' => $total,
@@ -67,7 +79,7 @@ function get_checkout_page_view_data(): array
                     : [],
             ],
             'rate_plan' => ['name' => (string) $selection['ratePlanName']],
-            'assigned_guests' => 1,
+            'assigned_guests' => $guestCount,
         ];
         $summary = ['total_price' => $total, 'nights' => $nights, 'fees_total' => 0.0, 'discount_total' => 0.0, 'taxes_total' => 0.0, 'room_subtotal' => $total];
     }
@@ -86,7 +98,7 @@ function get_checkout_page_view_data(): array
         'checkout_url' => get_checkout_page_url(), 'booking_url' => get_booking_page_url(), 'accommodation_url' => get_booking_accommodation_page_url(),
         'fixed_room_mode' => false, 'selected_room_count' => $isValid ? 1 : 0,
         'checkin' => $isValid ? (string) $selection['checkin'] : '', 'checkout' => $isValid ? (string) $selection['checkout'] : '',
-        'guests' => 1, 'room_count' => 1,
+        'guests' => $isValid ? $guestCount : 1, 'room_count' => 1,
         'country_options' => get_checkout_country_options(), 'phone_country_code_options' => get_checkout_phone_code_options(),
     ];
 }

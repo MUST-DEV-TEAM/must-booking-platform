@@ -67,6 +67,7 @@ export class StaffBookingController {
       ratePlanId: typeof value.ratePlanId === 'string' ? value.ratePlanId : '',
       startsOn: typeof value.startsOn === 'string' ? value.startsOn : '',
       endsOn: typeof value.endsOn === 'string' ? value.endsOn : '',
+      guestCount: typeof value.guestCount === 'number' ? value.guestCount : undefined,
       paymentMethod:
         value.paymentMethod === 'stripe' ||
         value.paymentMethod === 'pokpay' ||

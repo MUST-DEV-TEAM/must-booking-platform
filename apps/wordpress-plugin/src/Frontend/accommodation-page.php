@@ -108,7 +108,7 @@ function maybe_process_accommodation_selection(): string
         $ratePlanName = \__('Best available rate', 'must-hotel-booking');
     }
 
-    $quoteInput = ['roomTypeId' => $roomTypeId, 'ratePlanId' => $ratePlanId, 'startsOn' => $checkin, 'endsOn' => $checkout];
+    $quoteInput = ['roomTypeId' => $roomTypeId, 'ratePlanId' => $ratePlanId, 'startsOn' => $checkin, 'endsOn' => $checkout, 'guestCount' => $guests];
     if ($roomId !== '') {
         $quoteInput['roomId'] = $roomId;
     }

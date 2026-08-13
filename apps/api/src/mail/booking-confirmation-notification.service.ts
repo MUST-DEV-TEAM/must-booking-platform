@@ -20,6 +20,7 @@ type BookingEmailRow = {
   endsOn: string;
   roomName: string;
   paymentMethod: string;
+  guestCount: number;
   nightlyRates: Array<{ date: string; amount: string }> | null;
   propertyName: string;
   logoUrl: string | null;
@@ -50,7 +51,7 @@ export class BookingConfirmationNotificationService {
           b.guest_session_id AS "guestSessionId", b.guest_return_url AS "guestReturnUrl",
           b.total_amount::text AS amount, rp.currency, b.external_reference AS "externalReference",
           b.special_requests AS "specialRequests", b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
-          COALESCE(r.name, rt.name) AS "roomName", b.payment_method AS "paymentMethod",
+          COALESCE(r.name, rt.name) AS "roomName", b.payment_method AS "paymentMethod", b.guest_count AS "guestCount",
           b.nightly_rates AS "nightlyRates",
           p.name AS "propertyName", p.logo_url AS "logoUrl", p.support_email AS "supportEmail",
           p.phone AS "propertyPhone", p.public_website_origin AS "publicWebsiteOrigin",
@@ -97,7 +98,7 @@ export class BookingConfirmationNotificationService {
       guest: { name: guestName },
       stay: { startsOn: row.startsOn, endsOn: row.endsOn },
       roomName: row.roomName,
-      guestCount: 1,
+      guestCount: row.guestCount,
       nightlyRates: row.nightlyRates ?? undefined,
       specialRequests: row.specialRequests,
       cancellationUrl: row.guestReturnUrl
@@ -124,7 +125,7 @@ export class BookingConfirmationNotificationService {
         roomName: row.roomName,
         amount: { amount: row.amount, currency: row.currency },
         brand,
-        guestCount: 1,
+        guestCount: row.guestCount,
         paymentMethod: this.guestPaymentMethod(row.paymentMethod),
         nightlyRates: row.nightlyRates ?? undefined,
         specialRequests: row.specialRequests,

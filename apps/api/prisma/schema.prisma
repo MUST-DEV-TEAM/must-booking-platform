@@ -520,6 +520,7 @@ model Booking {
   endsOn                     DateTime      @map("ends_on") @db.Date
   ratePlanId                 String        @map("rate_plan_id") @db.Uuid
   totalAmount                Decimal       @map("total_amount") @db.Decimal(12, 2)
+  guestCount                 Int           @default(1) @map("guest_count")
   nightlyRates               Json?         @map("nightly_rates")
   version                    Int           @default(1)
   cancellationIsFree         Boolean?      @map("cancellation_is_free")

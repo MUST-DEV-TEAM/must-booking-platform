@@ -12,6 +12,7 @@ type CancellationRow = {
   externalReference: string;
   startsOn: string;
   endsOn: string;
+  guestCount: number;
   nightlyRates: Array<{ date: string; amount: string }> | null;
   roomName: string;
   propertyName: string;
@@ -36,7 +37,7 @@ export class BookingCancellationNotificationService {
       const rows = await tx.$queryRaw<CancellationRow[]>`
         SELECT g.email, g.first_name AS "firstName", g.last_name AS "lastName", g.phone,
           b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
-          b.ends_on::text AS "endsOn", b.nightly_rates AS "nightlyRates",
+          b.ends_on::text AS "endsOn", b.guest_count AS "guestCount", b.nightly_rates AS "nightlyRates",
           COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
           p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone AS "propertyPhone",
           p.public_website_origin AS "publicWebsiteOrigin", p.address AS "propertyAddress"
@@ -67,7 +68,7 @@ export class BookingCancellationNotificationService {
     const details = {
       bookingId, bookingReference: row.externalReference, brand, guest: { name: guestName },
       stay: { startsOn: row.startsOn, endsOn: row.endsOn }, roomName: row.roomName,
-      guestCount: 1, nightlyRates: row.nightlyRates ?? undefined,
+      guestCount: row.guestCount, nightlyRates: row.nightlyRates ?? undefined,
     };
     await this.notifications.sendBookingCancelledEmailSafely({ to: row.email, ...details });
     for (const recipient of staff)

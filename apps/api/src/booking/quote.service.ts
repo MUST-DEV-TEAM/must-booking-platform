@@ -15,6 +15,7 @@ export type QuoteInput = {
   ratePlanId?: string;
   startsOn: string;
   endsOn: string;
+  guestCount?: number;
 };
 
 type QuotePayload = QuoteInput & {
@@ -254,6 +255,8 @@ export class QuoteService {
         typeof value.ratePlanId !== 'string' ||
         typeof value.startsOn !== 'string' ||
         typeof value.endsOn !== 'string' ||
+        (value.guestCount !== undefined &&
+          (!Number.isInteger(value.guestCount) || value.guestCount < 1)) ||
         typeof value.expiresAt !== 'string' ||
         typeof value.sessionBinding !== 'string' ||
         !value.total ||
@@ -289,6 +292,11 @@ export class QuoteService {
 
   private validStayInput(input: QuoteInput): void {
     if (!input.roomTypeId) throw new BadRequestException('roomTypeId is required.');
+    if (
+      input.guestCount !== undefined &&
+      (!Number.isInteger(input.guestCount) || input.guestCount < 1)
+    )
+      throw new BadRequestException('guestCount must be a positive integer.');
     if (!this.date(input.startsOn) || !this.date(input.endsOn) || input.endsOn <= input.startsOn)
       throw new BadRequestException(
         'startsOn and endsOn must be a valid, non-empty ISO date range.',

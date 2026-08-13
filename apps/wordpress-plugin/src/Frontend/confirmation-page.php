@@ -112,7 +112,7 @@ function get_confirmation_result_view_data(string $bookingId): array
             'status' => $status,
             'payment_status' => $status === 'CONFIRMED' && $onlinePaymentMethod ? 'paid' : 'pending',
             'checkin' => (string) ($booking['startsOn'] ?? ''), 'checkout' => (string) ($booking['endsOn'] ?? ''),
-            'guests' => 1, 'booking_id' => $bookingId,
+            'guests' => \max(1, (int) ($booking['guestCount'] ?? 1)), 'booking_id' => $bookingId,
             'room_name' => $names['room_name'], 'rate_plan_name' => $names['rate_plan_name'],
             'total_price' => $totalPrice,
             'currency' => (string) ($booking['total']['currency'] ?? ''),
@@ -200,6 +200,7 @@ function maybe_process_confirm_booking_submission(): string
     }
 
     $quote = $selection['quote'];
+    $guestCount = \max(1, (int) ($selection['guestInfo']['guestCount'] ?? $selection['guests'] ?? 1));
     $bookingInput = [
         'roomTypeId' => $selection['roomTypeId'],
         'ratePlanId' => $selection['ratePlanId'],
@@ -207,6 +208,7 @@ function maybe_process_confirm_booking_submission(): string
         'endsOn' => $selection['checkout'],
         'total' => $quote['total'],
         'quoteToken' => $quote['quoteToken'],
+        'guestCount' => $guestCount,
         'paymentMethod' => $paymentMethod,
         'returnUrl' => ManagedPages::getBookingConfirmationPageUrl(),
         'guest' => [

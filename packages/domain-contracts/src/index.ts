@@ -182,6 +182,7 @@ export interface Booking {
   status: BookingStatus;
   paymentMethod: BookingPaymentMethod;
   total: Money;
+  guestCount: number;
   /** The per-night quote snapshot, when the booking was created from a guest quote. */
   nightlyRates?: NightlyRate[];
   externalReference: string;
@@ -232,6 +233,8 @@ export interface CreateBookingCommand {
   endsOn: string;
   guest: GuestDetails;
   total: Money;
+  /** Optional for backwards compatibility; persisted as 1 when absent. */
+  guestCount?: number;
   paymentMethod?: GuestPaymentMethod;
   payAtHotel?: boolean;
 }

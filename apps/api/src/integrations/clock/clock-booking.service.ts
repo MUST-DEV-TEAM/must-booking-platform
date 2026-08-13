@@ -108,6 +108,7 @@ type BookingRow = {
   status: BookingStatus;
   paymentMethod: BookingPaymentMethod;
   totalAmount: string;
+  guestCount: number;
   currency: string;
   externalReference: string;
   externalBookingId: string | null;
@@ -141,9 +142,10 @@ export class ClockBookingService {
   ): Promise<Result<Booking>> {
     if (
       !this.validStay(command.startsOn, command.endsOn) ||
-      !this.validAmount(command.total.amount)
+      !this.validAmount(command.total.amount) ||
+      !this.validGuestCount(command.guestCount)
     )
-      return this.failure('INVALID_BOOKING_COMMAND', 'Booking dates or total are invalid.');
+      return this.failure('INVALID_BOOKING_COMMAND', 'Booking dates, total, or guest count are invalid.');
 
     // Fetched outside the transaction below — IntegrationConnectionsService
     // opens its own tenant transaction internally, and nesting transactions
@@ -180,14 +182,14 @@ export class ClockBookingService {
           const inserted = await tx.$queryRaw<Array<{ id: string }>>`
           INSERT INTO bookings (
             tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
-            status, payment_method, starts_on, ends_on, rate_plan_id, total_amount
+            status, payment_method, starts_on, ends_on, rate_plan_id, total_amount, guest_count
           ) VALUES (
             ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${command.roomTypeId}::uuid,
             ${command.roomId ?? null}::uuid, ${guestId}::uuid, ${externalReference},
             ${BookingStatus.DRAFT}::"BookingStatus",
             ${this.paymentMethodOf(command)}::"BookingPaymentMethod",
             ${command.startsOn}::date, ${command.endsOn}::date, ${command.ratePlanId}::uuid,
-            ${command.total.amount}::numeric
+            ${command.total.amount}::numeric, ${command.guestCount ?? 1}
           )
           RETURNING id
         `;
@@ -884,7 +886,7 @@ export class ClockBookingService {
         SELECT b.id, b.tenant_id AS "tenantId", b.property_id AS "propertyId", b.room_type_id AS "roomTypeId",
           b.room_id AS "roomId", b.guest_id AS "guestId", b.rate_plan_id AS "ratePlanId",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
-          b.payment_method AS "paymentMethod", b.total_amount::text AS "totalAmount", rp.currency,
+          b.payment_method AS "paymentMethod", b.total_amount::text AS "totalAmount", b.guest_count AS "guestCount", rp.currency,
           b.external_reference AS "externalReference", b.external_booking_id AS "externalBookingId",
           b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
         FROM bookings b JOIN rate_plans rp
@@ -905,7 +907,7 @@ export class ClockBookingService {
         SELECT b.id, b.tenant_id AS "tenantId", b.property_id AS "propertyId", b.room_type_id AS "roomTypeId",
           b.room_id AS "roomId", b.guest_id AS "guestId", b.rate_plan_id AS "ratePlanId",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
-          b.payment_method AS "paymentMethod", b.total_amount::text AS "totalAmount", rp.currency,
+          b.payment_method AS "paymentMethod", b.total_amount::text AS "totalAmount", b.guest_count AS "guestCount", rp.currency,
           b.external_reference AS "externalReference", b.external_booking_id AS "externalBookingId",
           b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
         FROM bookings b JOIN rate_plans rp
@@ -1099,7 +1101,7 @@ export class ClockBookingService {
       SELECT b.id, b.tenant_id AS "tenantId", b.property_id AS "propertyId", b.room_type_id AS "roomTypeId",
         b.room_id AS "roomId", b.guest_id AS "guestId", b.rate_plan_id AS "ratePlanId",
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
-        b.payment_method AS "paymentMethod", b.total_amount::text AS "totalAmount", rp.currency,
+        b.payment_method AS "paymentMethod", b.total_amount::text AS "totalAmount", b.guest_count AS "guestCount", rp.currency,
         b.external_reference AS "externalReference", b.external_booking_id AS "externalBookingId",
         b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
       FROM bookings b JOIN rate_plans rp
@@ -1126,6 +1128,7 @@ export class ClockBookingService {
       status: row.status,
       paymentMethod: row.paymentMethod,
       total: { amount: row.totalAmount, currency: row.currency },
+      guestCount: row.guestCount,
       externalReference: row.externalReference,
       externalBookingId: row.externalBookingId,
       version: row.version,
@@ -1148,6 +1151,10 @@ export class ClockBookingService {
 
   private validAmount(amount: string): boolean {
     return /^\d+(?:\.\d{1,2})?$/.test(amount);
+  }
+
+  private validGuestCount(value: number | undefined): boolean {
+    return value === undefined || (Number.isInteger(value) && value > 0);
   }
 
   private async withIdempotency(

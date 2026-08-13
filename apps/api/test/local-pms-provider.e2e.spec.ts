@@ -481,9 +481,14 @@ describe('LocalPmsProvider', () => {
       }),
     ).resolves.toMatchObject({ ok: true, value: { availableUnits: 1, isAvailable: true } });
 
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/quotes`)
+      .send({ roomTypeId, ratePlanId, startsOn: '2027-09-01', endsOn: '2027-09-03', guestCount: 0 })
+      .expect(400);
+
     const quote = await request(app!.getHttpServer())
       .post(`${propertyUrl}/quotes`)
-      .send({ roomTypeId, ratePlanId, startsOn: '2027-09-01', endsOn: '2027-09-03' })
+      .send({ roomTypeId, ratePlanId, startsOn: '2027-09-01', endsOn: '2027-09-03', guestCount: 2 })
       .expect(201);
     const guestCookie = quote.headers['set-cookie'][0] as string;
     expect(guestCookie).toContain('must_guest_session=');
@@ -492,6 +497,7 @@ describe('LocalPmsProvider', () => {
       ratePlanId,
       startsOn: '2027-09-01',
       endsOn: '2027-09-03',
+      guestCount: 2,
       total: { amount: '180.00', currency: 'EUR' },
       nightlyRates: [
         { date: '2027-09-01', amount: '90.00' },
@@ -526,6 +532,7 @@ describe('LocalPmsProvider', () => {
       },
       total: quote.body.total,
       quoteToken: quote.body.quoteToken,
+      guestCount: 2,
       paymentMethod: 'stripe' as const,
     };
     await request(app!.getHttpServer())
@@ -590,6 +597,18 @@ describe('LocalPmsProvider', () => {
       .expect((response) => {
         expect(response.body.paymentMethods).toEqual(['stripe']);
       });
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/bookings`)
+      .set('Cookie', guestCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ ...bookingRequest, guestCount: 0 })
+      .expect(201)
+      .expect((response) => {
+        expect(response.body).toMatchObject({
+          ok: false,
+          error: { code: 'INVALID_BOOKING_COMMAND' },
+        });
+      });
     const bookingIdempotencyKey = randomUUID();
     const createdResponse = await request(app!.getHttpServer())
       .post(`${propertyUrl}/bookings`)
@@ -603,6 +622,7 @@ describe('LocalPmsProvider', () => {
       value: {
         status: 'PAYMENT_PENDING',
         paymentMethod: 'STRIPE_CHECKOUT',
+        guestCount: 2,
         nightlyRates: [
           { date: '2027-09-01', amount: '90.00' },
           { date: '2027-09-02', amount: '90.00' },
@@ -617,6 +637,7 @@ describe('LocalPmsProvider', () => {
       .set('Cookie', guestCookie)
       .expect(200)
       .expect((response) => {
+        expect(response.body.guestCount).toBe(2);
         expect(response.body.nightlyRates).toEqual([
           { date: '2027-09-01', amount: '90.00' },
           { date: '2027-09-02', amount: '90.00' },
@@ -1074,9 +1095,15 @@ describe('LocalPmsProvider', () => {
     const cancelled = await provider.cancelBooking(context, cancelCommand);
     expect(cancelled).toMatchObject({ ok: true, value: { status: 'CANCELLED', version: 2 } });
     expect(cancelledGuestEmails).toContainEqual(
-      expect.objectContaining({ bookingId: created.value.id, roomName: 'Provider Suite' }),
+      expect.objectContaining({
+        bookingId: created.value.id,
+        roomName: 'Provider Suite',
+        guestCount: 2,
+      }),
     );
-    expect(cancelledStaffEmails.some((email) => email.bookingId === created.value.id)).toBe(true);
+    expect(cancelledStaffEmails).toContainEqual(
+      expect.objectContaining({ bookingId: created.value.id, guestCount: 2 }),
+    );
     await expect(provider.cancelBooking(context, cancelCommand)).resolves.toEqual(cancelled);
     const automaticRefundRows = await admin.$queryRaw<
       Array<{ kind: string; status: string; amount: string }>
@@ -1098,6 +1125,7 @@ describe('LocalPmsProvider', () => {
         bookingId: created.value.id,
         to: 'guest@example.test',
         amount: { amount: '180.00', currency: 'EUR' },
+        guestCount: 2,
       }),
     ]);
 
@@ -1436,13 +1464,14 @@ describe('LocalPmsProvider', () => {
       .expect(201);
     expect(payAtHotelBooking.body).toMatchObject({
       ok: true,
-      value: { status: 'CONFIRMED', paymentMethod: 'PAY_AT_HOTEL' },
+      value: { status: 'CONFIRMED', paymentMethod: 'PAY_AT_HOTEL', guestCount: 2 },
     });
     expect(payAtHotelBooking.body.value).not.toHaveProperty('checkoutUrl');
     expect(paymentConfirmationEmails).toHaveLength(payAtHotelEmailCount + 1);
     expect(paymentConfirmationEmails.at(-1)).toMatchObject({
       bookingId: payAtHotelBooking.body.value.id,
       paymentId: `pay-at-hotel:${payAtHotelBooking.body.value.id}`,
+      guestCount: 2,
     });
     expect(paymentConfirmationEmails.at(-1)?.cancellationUrl).toContain('must_action=cancel');
     expect(staffBookingEmails).toHaveLength(
@@ -1459,6 +1488,7 @@ describe('LocalPmsProvider', () => {
           stay: { startsOn: '2027-09-01', endsOn: '2027-09-03' },
           roomName: 'Provider Suite',
           amount: { amount: '180.00', currency: 'EUR' },
+          guestCount: 2,
         }),
       ]),
     );
@@ -1494,13 +1524,20 @@ describe('LocalPmsProvider', () => {
           ]),
         );
       });
-    await provider.cancelBooking(context, {
+    const payAtHotelCancellation = await provider.cancelBooking(context, {
       idempotencyKey: randomUUID(),
       bookingId: payAtHotelBooking.body.value.id,
       guestSessionId: quoteSessionId,
       expectedVersion: payAtHotelBooking.body.value.version,
       reason: null,
     });
+    expect(payAtHotelCancellation).toMatchObject({ ok: true, value: { status: 'CANCELLED' } });
+    expect(cancelledGuestEmails).toContainEqual(
+      expect.objectContaining({ bookingId: payAtHotelBooking.body.value.id, guestCount: 2 }),
+    );
+    expect(cancelledStaffEmails).toContainEqual(
+      expect.objectContaining({ bookingId: payAtHotelBooking.body.value.id, guestCount: 2 }),
+    );
 
     const draftBookingId = randomUUID();
     const draftGuestId = randomUUID();
@@ -1624,6 +1661,7 @@ describe('LocalPmsProvider', () => {
       total: quote.body.total,
       quoteToken: quote.body.quoteToken,
       quoteSessionId,
+      guestCount: 2,
       paymentMethod: 'stripe',
     });
     expect(firstBooking).toMatchObject({ ok: true, value: { status: 'PAYMENT_PENDING' } });
@@ -1673,7 +1711,7 @@ describe('LocalPmsProvider', () => {
           guest: { name: 'Different Name' },
           stay: { startsOn: '2027-09-01', endsOn: '2027-09-03' },
           roomName: 'Provider Suite',
-          guestCount: 1,
+          guestCount: 2,
           nightlyRates: [
             { date: '2027-09-01', amount: '90.00' },
             { date: '2027-09-02', amount: '90.00' },
@@ -1868,7 +1906,7 @@ describe('LocalPmsProvider', () => {
       .expect(201);
     expect(staffBooking.body).toMatchObject({
       ok: true,
-      value: { status: 'CONFIRMED', paymentMethod: 'PAY_AT_HOTEL' },
+      value: { status: 'CONFIRMED', paymentMethod: 'PAY_AT_HOTEL', guestCount: 1 },
     });
     expect(staffBooking.body.value).not.toHaveProperty('checkoutUrl');
     const staffBookingGuestSession = await admin.$queryRaw<
@@ -2068,11 +2106,13 @@ describe('LocalPmsProvider', () => {
         bookingId: firstBooking.value.id,
         to: 'guest@example.test',
         amount: { amount: '20.00', currency: 'EUR' },
+        guestCount: 2,
       }),
       expect.objectContaining({
         bookingId: firstBooking.value.id,
         to: 'guest@example.test',
         amount: { amount: '50.00', currency: 'EUR' },
+        guestCount: 2,
       }),
     ]);
 
