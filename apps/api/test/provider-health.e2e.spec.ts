@@ -68,7 +68,10 @@ describe('platform provider health', () => {
 
     const redisAfterInit = createClient({ url: 'redis://localhost:6379' });
     await redisAfterInit.connect();
-    await redisAfterInit.del(['platform:provider-health:stripe', 'platform:provider-health:pokpay']);
+    await redisAfterInit.del([
+      'platform:provider-health:stripe',
+      'platform:provider-health:pokpay',
+    ]);
     await redisAfterInit.quit();
   });
 

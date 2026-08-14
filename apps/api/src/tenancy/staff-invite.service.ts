@@ -176,8 +176,9 @@ export class StaffInviteService implements OnModuleDestroy {
             WHERE o.id = ${command.tenantId}::uuid
           `;
           const assignments = await Promise.all(
-            command.assignments.map((assignment) =>
-              tx.$queryRaw<Array<{ propertyName: string; roleTemplateName: string }>>`
+            command.assignments.map(
+              (assignment) =>
+                tx.$queryRaw<Array<{ propertyName: string; roleTemplateName: string }>>`
                 SELECT p.name AS "propertyName", t.name AS "roleTemplateName"
                 FROM properties p
                 JOIN property_role_templates t

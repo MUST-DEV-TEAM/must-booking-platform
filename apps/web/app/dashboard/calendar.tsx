@@ -178,10 +178,16 @@ export function DashboardCalendar({
     });
   }
 
-  if (availabilityQuery.isPending || bookingsQuery.isPending || (canManageAvailability && blocksQuery.isPending))
+  if (
+    availabilityQuery.isPending ||
+    bookingsQuery.isPending ||
+    (canManageAvailability && blocksQuery.isPending)
+  )
     return <DashboardLoadingSkeleton label="Loading calendar…" />;
   const error =
-    availabilityQuery.error ?? bookingsQuery.error ?? (canManageAvailability ? blocksQuery.error : null);
+    availabilityQuery.error ??
+    bookingsQuery.error ??
+    (canManageAvailability ? blocksQuery.error : null);
   if (error || !calendarData || !bookings)
     return <Text className={styles.error}>{error?.message}</Text>;
 
@@ -401,7 +407,8 @@ export async function fetchAvailabilityBlocks(
     `/api/tenants/${tenantId}/properties/${propertyId}/availability-blocks`,
     { credentials: 'include' },
   );
-  if (!response.ok) throw new Error(await errorMessage(response, 'Unable to load availability blocks.'));
+  if (!response.ok)
+    throw new Error(await errorMessage(response, 'Unable to load availability blocks.'));
   return (await response.json()) as AvailabilityBlock[];
 }
 

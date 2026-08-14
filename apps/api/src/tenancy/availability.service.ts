@@ -388,8 +388,10 @@ export class AvailabilityService {
   }
 
   listAvailabilityBlocks(tenantId: string, propertyId: string): Promise<AvailabilityBlock[]> {
-    return this.database.withTenantTransaction({ tenantId, propertyId }, (tx) =>
-      tx.$queryRaw<AvailabilityBlock[]>`
+    return this.database.withTenantTransaction(
+      { tenantId, propertyId },
+      (tx) =>
+        tx.$queryRaw<AvailabilityBlock[]>`
         SELECT ab.id, ab.starts_on::text AS "startsOn", ab.ends_on::text AS "endsOn",
           ab.blocks_all AS "all",
           COALESCE(ARRAY_AGG(DISTINCT abrt.room_type_id::text) FILTER (WHERE abrt.room_type_id IS NOT NULL), ARRAY[]::text[]) AS "roomTypeIds",
