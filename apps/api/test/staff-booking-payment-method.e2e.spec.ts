@@ -43,6 +43,7 @@ describe('staff-bookings: payment method selection', () => {
     },
     async sendWelcomeEmail() {},
     async sendPasswordResetEmail() {},
+    async sendStaffInvitationEmail() {},
     async sendPaymentConfirmationEmail() {},
     async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},

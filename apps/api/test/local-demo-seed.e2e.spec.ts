@@ -29,6 +29,7 @@ describe('local demo seed', () => {
     async sendVerificationEmail() {},
     async sendWelcomeEmail() {},
     async sendPasswordResetEmail() {},
+    async sendStaffInvitationEmail() {},
     async sendPaymentConfirmationEmail() {},
     async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},

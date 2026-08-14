@@ -33,6 +33,7 @@ describe('room types', () => {
     },
     async sendWelcomeEmail() {},
     async sendPasswordResetEmail() {},
+    async sendStaffInvitationEmail() {},
     async sendPaymentConfirmationEmail() {},
     async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},

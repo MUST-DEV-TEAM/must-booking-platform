@@ -33,6 +33,7 @@ describe('public catalog individual rooms', () => {
     },
     async sendWelcomeEmail() {},
     async sendPasswordResetEmail() {},
+    async sendStaffInvitationEmail() {},
     async sendPaymentConfirmationEmail() {},
     async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},

@@ -3,6 +3,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   OnModuleDestroy,
 } from '@nestjs/common';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
@@ -12,6 +13,7 @@ import { createClient, type RedisClientType } from 'redis';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 import { AuditLogService } from './audit-log.service';
 import { NotificationsService } from './notifications.service';
+import { MAIL_PROVIDER, type MailProvider } from '../mail/mail.provider';
 
 export interface StaffInvite {
   tenantId: string;
@@ -28,12 +30,14 @@ export type ProvisionedStaffAccount = {
 
 @Injectable()
 export class StaffInviteService implements OnModuleDestroy {
+  private readonly logger = new Logger(StaffInviteService.name);
   private readonly redis: RedisClientType;
   private connection?: Promise<RedisClientType>;
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(AuditLogService) private readonly auditLogs: AuditLogService,
     @Inject(NotificationsService) private readonly notifications: NotificationsService,
+    @Inject(MAIL_PROVIDER) private readonly mail: MailProvider,
   ) {
     this.redis = createClient({ url: process.env.REDIS_URL });
   }
@@ -71,6 +75,7 @@ export class StaffInviteService implements OnModuleDestroy {
       targetId: command.email.toLowerCase(),
       details: { propertyIds: command.assignments.map((assignment) => assignment.propertyId) },
     });
+    await this.sendInvitationEmailSafely(command, actorUserId, token);
     return token;
   }
 
@@ -149,6 +154,58 @@ export class StaffInviteService implements OnModuleDestroy {
       await this.connection;
     }
     return this.redis;
+  }
+
+  private async sendInvitationEmailSafely(
+    command: StaffInvite,
+    actorUserId: string,
+    token: string,
+  ): Promise<void> {
+    try {
+      const invitationUrl = new URL('/staff-invitation', process.env.WEB_APP_URL);
+      invitationUrl.searchParams.set('token', token);
+      const details = await this.database.withTenantTransaction(
+        { tenantId: command.tenantId },
+        async (tx) => {
+          const organization = await tx.$queryRaw<
+            Array<{ organizationName: string; invitedByEmail: string }>
+          >`
+            SELECT o.name AS "organizationName", u.email AS "invitedByEmail"
+            FROM organizations o
+            JOIN users u ON u.id = ${actorUserId}::uuid
+            WHERE o.id = ${command.tenantId}::uuid
+          `;
+          const assignments = await Promise.all(
+            command.assignments.map((assignment) =>
+              tx.$queryRaw<Array<{ propertyName: string; roleTemplateName: string }>>`
+                SELECT p.name AS "propertyName", t.name AS "roleTemplateName"
+                FROM properties p
+                JOIN property_role_templates t
+                  ON t.tenant_id = p.tenant_id AND t.property_id = p.id
+                WHERE p.tenant_id = ${command.tenantId}::uuid
+                  AND p.id = ${assignment.propertyId}::uuid
+                  AND t.id = ${assignment.roleTemplateId}::uuid
+              `,
+            ),
+          );
+          if (!organization[0] || assignments.some((rows) => !rows[0]))
+            throw new Error('Unable to load staff invitation email details.');
+          return { organization: organization[0], assignments: assignments.map((rows) => rows[0]) };
+        },
+      );
+      await this.mail.sendStaffInvitationEmail({
+        to: command.email,
+        organizationName: details.organization.organizationName,
+        invitedByEmail: details.organization.invitedByEmail,
+        assignments: details.assignments,
+        invitationUrl: invitationUrl.toString(),
+      });
+    } catch (error) {
+      this.logger.error(
+        `Unable to send staff invitation email to ${command.email}; invitation remains valid.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
   }
   private hash(value: string): string {
     return createHash('sha256').update(value).digest('hex');

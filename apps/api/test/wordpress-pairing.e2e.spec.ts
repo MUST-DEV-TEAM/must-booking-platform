@@ -34,6 +34,7 @@ describe('WordPress pairing code', () => {
     },
     async sendWelcomeEmail() {},
     async sendPasswordResetEmail() {},
+    async sendStaffInvitationEmail() {},
     async sendPaymentConfirmationEmail() {},
     async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},

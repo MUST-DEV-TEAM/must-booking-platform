@@ -19,6 +19,7 @@ export function renderBrandedEmail(command: {
   greeting?: string | null;
   content: string;
   summaryRows?: EmailSummaryRow[];
+  summaryHeading?: string;
   cta?: { url: string; label: string } | null;
   supportStyle?: SupportStyle;
   supportLinks?: SupportLink[];
@@ -33,7 +34,7 @@ export function renderBrandedEmail(command: {
   const greeting = clean(command.greeting)
     ? `<p style="margin:0 0 18px 0;">${escapeHtml(command.greeting!)}.</p>`
     : '';
-  const summary = renderSummaryRows(command.summaryRows ?? []);
+  const summary = renderSummaryRows(command.summaryRows ?? [], command.summaryHeading);
   const cta = command.cta ? renderCtaButton(command.cta) : '';
   const support = renderSupportBlock(
     command.brand,
@@ -73,7 +74,7 @@ function renderRowValue(value: string): string {
     : lines.join('<br><span style="display:inline-block;height:8px;"></span>');
 }
 
-function renderSummaryRows(rows: EmailSummaryRow[]): string {
+function renderSummaryRows(rows: EmailSummaryRow[], heading = 'Booking Summary'): string {
   const normalized = rows.filter((row) => clean(row.label) && clean(row.value));
   if (!normalized.length) return '';
   const body = normalized
@@ -82,7 +83,7 @@ function renderSummaryRows(rows: EmailSummaryRow[]): string {
         `<tr><td style="padding:12px 16px;width:38%;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:600;color:#58544a;${index ? 'border-top:1px solid #e5dfd2;' : ''}">${escapeHtml(row.label)}</td><td style="padding:12px 16px;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#141414;${index ? 'border-top:1px solid #e5dfd2;' : ''}">${renderRowValue(row.value)}</td></tr>`,
     )
     .join('');
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #d8d2c4;margin:28px 0 0 0;"><tr><td colspan="2" style="padding:12px 16px;background:#f7f4ec;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#141414;">Booking Summary</td></tr>${body}</table>`;
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #d8d2c4;margin:28px 0 0 0;"><tr><td colspan="2" style="padding:12px 16px;background:#f7f4ec;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#141414;">${escapeHtml(heading)}</td></tr>${body}</table>`;
 }
 
 function renderLogoBlock(brand: EmailBrand): string {

@@ -42,6 +42,7 @@ describe('authentication endpoints', () => {
     async sendPasswordResetEmail(command) {
       sentEmails.push({ kind: 'password-reset', command });
     },
+    async sendStaffInvitationEmail() {},
     async sendPaymentConfirmationEmail() {},
     async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},

@@ -37,6 +37,7 @@ describe('Manual review (platform admin)', () => {
     async sendVerificationEmail() {},
     async sendWelcomeEmail() {},
     async sendPasswordResetEmail() {},
+    async sendStaffInvitationEmail() {},
     async sendPaymentConfirmationEmail() {},
     async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},

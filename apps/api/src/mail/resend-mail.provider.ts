@@ -106,6 +106,48 @@ export class ResendMailProvider implements MailProvider {
     });
   }
 
+  async sendStaffInvitationEmail(
+    command: Parameters<MailProvider['sendStaffInvitationEmail']>[0],
+  ): Promise<void> {
+    const organizationName = escapeHtml(command.organizationName);
+    const invitedByEmail = escapeHtml(command.invitedByEmail);
+    const assignments = command.assignments.map((assignment) => ({
+      propertyName: escapeHtml(assignment.propertyName),
+      roleTemplateName: escapeHtml(assignment.roleTemplateName),
+    }));
+    const propertyAccess = assignments
+      .map((assignment) => `${assignment.propertyName} — ${assignment.roleTemplateName}`)
+      .join('\n');
+    const subject = `You're invited to join ${command.organizationName} on MUST Booking`;
+    await this.send({
+      to: command.to,
+      subject,
+      html: renderBrandedEmail({
+        subject,
+        brand: MUST_BOOKING_BRAND,
+        preheader: `${command.invitedByEmail} invited you to join the team.`,
+        eyebrow: 'Team invitation',
+        heading: "You've been invited to join the team",
+        content: `<p style="margin:0 0 4px 0;"><strong>${invitedByEmail}</strong> invited you to join <strong>${organizationName}</strong> on MUST Booking — the platform they use to manage bookings, rooms, and rates.</p><p style="margin:16px 0 0 0;color:#58544a;font-size:14px;">Accepting will create your staff account with the access shown below. This invitation expires in 7 days.</p>`,
+        summaryHeading: 'Invitation details',
+        summaryRows: [
+          { label: 'Invited by', value: command.invitedByEmail },
+          { label: 'Organization', value: command.organizationName },
+          { label: 'Property access', value: propertyAccess },
+          { label: 'Invited email', value: command.to },
+        ],
+        cta: { url: command.invitationUrl, label: 'Accept invitation' },
+        supportStyle: 'plain',
+        supportLinks: this.systemSupportLinks(false),
+        showBrandFooter: false,
+        footerNote: `You&#39;re receiving this email because ${organizationName} invited this address to join their MUST Booking team.`,
+        platformFooter: 'MUST Booking Platform',
+      }),
+      text: `${command.invitedByEmail} invited you to join ${command.organizationName} on MUST Booking. Access: ${command.assignments.map((assignment) => `${assignment.propertyName} (${assignment.roleTemplateName})`).join(', ')}. Accept invitation: ${command.invitationUrl}`,
+      idempotencyKey: `staff-invitation/${this.tokenFromUrl(command.invitationUrl)}`,
+    });
+  }
+
   async sendPaymentConfirmationEmail(
     command: Parameters<MailProvider['sendPaymentConfirmationEmail']>[0],
   ): Promise<void> {

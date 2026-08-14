@@ -17,6 +17,13 @@ export interface MailProvider {
     organizationName: string;
   }): Promise<void>;
   sendPasswordResetEmail(command: { userId: string; to: string; resetUrl: string }): Promise<void>;
+  sendStaffInvitationEmail(command: {
+    to: string;
+    organizationName: string;
+    invitedByEmail: string;
+    assignments: Array<{ propertyName: string; roleTemplateName: string }>;
+    invitationUrl: string;
+  }): Promise<void>;
   sendPaymentConfirmationEmail(command: {
     bookingId: string;
     bookingReference: string;

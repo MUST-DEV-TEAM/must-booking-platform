@@ -33,6 +33,7 @@ describe('platform admin end-to-end flow', () => {
     async sendPasswordResetEmail(command) {
       resetEmails.push(command);
     },
+    async sendStaffInvitationEmail() {},
     async sendPaymentConfirmationEmail() {},
     async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},

@@ -73,6 +73,7 @@ describe('LocalPmsProvider', () => {
     },
     async sendWelcomeEmail() {},
     async sendPasswordResetEmail() {},
+    async sendStaffInvitationEmail() {},
     async sendPaymentConfirmationEmail(command) {
       if (failPaymentConfirmationDelivery) throw new Error('simulated payment email failure');
       paymentConfirmationEmails.push(command);

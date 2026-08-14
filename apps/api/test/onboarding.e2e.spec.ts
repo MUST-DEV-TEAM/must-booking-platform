@@ -44,6 +44,7 @@ describe('self-serve onboarding', () => {
       sentEmails.push({ kind: 'welcome', command });
     },
     async sendPasswordResetEmail() {},
+    async sendStaffInvitationEmail() {},
     async sendPaymentConfirmationEmail() {},
     async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},

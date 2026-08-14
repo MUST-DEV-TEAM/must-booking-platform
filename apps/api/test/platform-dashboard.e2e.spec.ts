@@ -33,6 +33,7 @@ describe('platform dashboard home', () => {
     async sendPasswordResetEmail(command) {
       resetEmails.push(command);
     },
+    async sendStaffInvitationEmail() {},
     async sendPaymentConfirmationEmail() {},
     async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},

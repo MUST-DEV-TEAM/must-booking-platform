@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { PropertyRoleTemplatesService } from '../src/tenancy/property-role-templates.service';
 import { StaffInviteService } from '../src/tenancy/staff-invite.service';
+import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 
 const migrationPrisma = new PrismaClient({
   datasources: {
@@ -34,6 +35,20 @@ describe('staff invitations', () => {
   let ownerCookie: string;
   let existingUserCookie: string;
   let frontDeskTemplateId: string;
+  const invitationEmails: Parameters<MailProvider['sendStaffInvitationEmail']>[0][] = [];
+  const mail: MailProvider = {
+    async sendVerificationEmail() {},
+    async sendWelcomeEmail() {},
+    async sendPasswordResetEmail() {},
+    async sendStaffInvitationEmail(command) {
+      invitationEmails.push(command);
+    },
+    async sendPaymentConfirmationEmail() {},
+    async sendNewBookingStaffNotification() {},
+    async sendRefundConfirmationEmail() {},
+    async sendBookingCancelledEmail() {},
+    async sendBookingCancelledStaffNotification() {},
+  };
 
   beforeAll(async () => {
     const passwordHash = await bcrypt.hash(password, 12);
@@ -55,7 +70,10 @@ describe('staff invitations', () => {
     process.env.REDIS_URL = 'redis://localhost:6379';
     process.env.WEB_APP_URL = 'http://localhost:3001';
     const { AppModule } = await import('../src/app.module');
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(MAIL_PROVIDER)
+      .useValue(mail)
+      .compile();
     app = moduleRef.createNestApplication();
     await app.init();
     templates = moduleRef.get(PropertyRoleTemplatesService);
@@ -117,6 +135,13 @@ describe('staff invitations', () => {
       })
       .expect(201);
     expect(response.body.token).toEqual(expect.any(String));
+    expect(invitationEmails.at(-1)).toMatchObject({
+      to: email,
+      organizationName: 'Staff invitations tenant',
+      invitedByEmail: ownerEmail,
+      assignments: [{ propertyName: 'Staff invitations property', roleTemplateName: 'Front Desk' }],
+      invitationUrl: expect.stringMatching(/^http:\/\/localhost:3001\/staff-invitation\?token=/),
+    });
     return response.body.token as string;
   }
 
@@ -238,6 +263,8 @@ describe('staff invitations', () => {
           operation: (tx: typeof transaction) => Promise<void>,
         ) => operation(transaction),
       } as never,
+      {} as never,
+      {} as never,
       {} as never,
     );
     (service as unknown as { consumeInvite: () => Promise<unknown> }).consumeInvite = async () => ({

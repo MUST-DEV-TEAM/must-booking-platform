@@ -337,9 +337,16 @@ describe('ResendMailProvider', () => {
       refundId: 'refund-1',
       amount: { amount: '240.00', currency: 'USD' },
     });
+    await provider.sendStaffInvitationEmail({
+      to: 'invitee@example.test',
+      organizationName: 'Coastal Hospitality Group',
+      invitedByEmail: 'riley.chen@example.test',
+      assignments: [{ propertyName: 'Ocean Bay Resort', roleTemplateName: 'Property Staff' }],
+      invitationUrl: 'https://app.mustbooking.com/staff-invitation?token=invite-1',
+    });
 
     const messages = fetchMock.mock.calls.map(([, options]) => JSON.parse(String(options?.body)));
-    expect(messages).toHaveLength(9);
+    expect(messages).toHaveLength(10);
     expect(messages.map((message) => message.subject)).toEqual([
       'Verify your MUST Booking email address',
       'Welcome to MUST Booking',
@@ -350,6 +357,7 @@ describe('ResendMailProvider', () => {
       'Alex Morgan — new booking MLDH-260814-2216',
       'Alex Morgan — booking cancelled MLDH-260814-2216',
       'Ocean Bay Resort refund processed — MLDH-260814-2216',
+      "You're invited to join Coastal Hospitality Group on MUST Booking",
     ]);
     for (const message of messages) {
       expect(message.html).toContain('meta name="color-scheme" content="light dark"');
@@ -381,6 +389,9 @@ describe('ResendMailProvider', () => {
     expect(messages[8].html).toContain(
       'It may take a few business days to appear on your original payment method.',
     );
+    expect(messages[9].html).toContain('You&#39;ve been invited to join the team');
+    expect(messages[9].html).toContain('Invitation details');
+    expect(messages[9].html).toContain('Accept invitation');
     for (const message of [
       messages[3],
       messages[4],
