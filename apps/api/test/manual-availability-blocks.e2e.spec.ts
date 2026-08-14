@@ -351,5 +351,74 @@ describe('manual availability blocks', () => {
         }),
       ).resolves.toBe(false);
     });
+
+    await request(app.getHttpServer())
+      .put(`${pooledUrl}/inventory-units`)
+      .set('Cookie', cookie)
+      .send({
+        roomTypeId: pooledType.body.id,
+        startsOn: '2037-04-10',
+        endsOn: '2037-04-12',
+        availableUnits: 2,
+      })
+      .expect(204);
+    const removable = await request(app.getHttpServer())
+      .post(`${pooledUrl}/availability-blocks`)
+      .set('Cookie', cookie)
+      .send({
+        startsOn: '2037-04-10',
+        endsOn: '2037-04-12',
+        roomTypeIds: [pooledType.body.id],
+      })
+      .expect(201);
+    await request(app.getHttpServer())
+      .get(`${pooledUrl}/availability-blocks`)
+      .set('Cookie', cookie)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              id: removable.body.id,
+              startsOn: '2037-04-10',
+              endsOn: '2037-04-12',
+              all: false,
+              roomTypeIds: [pooledType.body.id],
+              roomIds: [],
+            }),
+          ]),
+        );
+      });
+    await request(app.getHttpServer())
+      .get(`${pooledUrl}/availability`)
+      .set('Cookie', cookie)
+      .query({ roomTypeId: pooledType.body.id, startsOn: '2037-04-10', endsOn: '2037-04-12' })
+      .expect(200)
+      .expect((response) => expect(response.body.isAvailable).toBe(false));
+    await request(app.getHttpServer())
+      .delete(`${pooledUrl}/availability-blocks/${removable.body.id}`)
+      .set('Cookie', cookie)
+      .expect(204);
+    const removalAudit = await admin.$queryRaw<Array<{ action: string }>>`
+      SELECT action FROM audit_logs
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${pooledPropertyId}::uuid
+        AND action = 'availability_blocks.remove' AND target_id = ${removable.body.id}
+    `;
+    expect(removalAudit).toEqual([{ action: 'availability_blocks.remove' }]);
+    await request(app.getHttpServer())
+      .get(`${pooledUrl}/availability-blocks`)
+      .set('Cookie', cookie)
+      .expect(200)
+      .expect((response) =>
+        expect(response.body).not.toEqual(
+          expect.arrayContaining([expect.objectContaining({ id: removable.body.id })]),
+        ),
+      );
+    await request(app.getHttpServer())
+      .get(`${pooledUrl}/availability`)
+      .set('Cookie', cookie)
+      .query({ roomTypeId: pooledType.body.id, startsOn: '2037-04-10', endsOn: '2037-04-12' })
+      .expect(200)
+      .expect((response) => expect(response.body.isAvailable).toBe(true));
   });
 });

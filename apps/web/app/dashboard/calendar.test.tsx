@@ -5,7 +5,12 @@ import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { bookingsForDay, DashboardCalendar, type CalendarAvailability } from './calendar';
+import {
+  availabilityBlockDescription,
+  bookingsForDay,
+  DashboardCalendar,
+  type CalendarAvailability,
+} from './calendar';
 import { DashboardQueryProvider } from './query-provider';
 import type { Reservation } from './reservations';
 
@@ -130,6 +135,26 @@ describe('Dashboard calendar', () => {
     expect(day.departures).toEqual([bookings[1]]);
     expect(day.inHouse).toEqual([bookings[2]]);
     expect([...day.arrivals, ...day.departures, ...day.inHouse]).not.toContain(bookings[3]);
+  });
+
+  it('describes an existing block with its dates and targets for calendar staff', () => {
+    expect(
+      availabilityBlockDescription(
+        {
+          id: 'block-1',
+          startsOn: '2026-08-10',
+          endsOn: '2026-08-12',
+          all: false,
+          roomTypeIds: ['deluxe'],
+          roomIds: ['room-101'],
+        },
+        {
+          roomTypes: [{ id: 'deluxe', name: 'Deluxe King' }],
+          rooms: [{ id: 'room-101', name: '101', roomTypeId: 'deluxe' }],
+          availability: [],
+        },
+      ),
+    ).toContain('Deluxe King — 101');
   });
 
   it('opens a read-only day drill-in from the month grid', async () => {

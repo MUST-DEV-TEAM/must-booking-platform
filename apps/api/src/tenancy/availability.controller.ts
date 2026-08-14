@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Inject,
@@ -129,6 +130,32 @@ export class AvailabilityController {
       request.tenantContext.propertyId,
       request.tenantContext.userId,
       body,
+    );
+  }
+
+  @Get('availability-blocks')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  listAvailabilityBlocks(@Req() request: TenantPropertyRequest) {
+    return this.availability.listAvailabilityBlocks(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+    );
+  }
+
+  @Delete('availability-blocks/:availabilityBlockId')
+  @HttpCode(204)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresVerifiedEmail()
+  removeAvailabilityBlock(
+    @Param('availabilityBlockId') availabilityBlockId: string,
+    @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
+  ) {
+    return this.availability.removeAvailabilityBlock(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      availabilityBlockId,
+      request.tenantContext.userId,
     );
   }
 

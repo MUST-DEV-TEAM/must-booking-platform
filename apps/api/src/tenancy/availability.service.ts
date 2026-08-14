@@ -387,6 +387,50 @@ export class AvailabilityService {
     return { id, ...input };
   }
 
+  listAvailabilityBlocks(tenantId: string, propertyId: string): Promise<AvailabilityBlock[]> {
+    return this.database.withTenantTransaction({ tenantId, propertyId }, (tx) =>
+      tx.$queryRaw<AvailabilityBlock[]>`
+        SELECT ab.id, ab.starts_on::text AS "startsOn", ab.ends_on::text AS "endsOn",
+          ab.blocks_all AS "all",
+          COALESCE(ARRAY_AGG(DISTINCT abrt.room_type_id::text) FILTER (WHERE abrt.room_type_id IS NOT NULL), ARRAY[]::text[]) AS "roomTypeIds",
+          COALESCE(ARRAY_AGG(DISTINCT abr.room_id::text) FILTER (WHERE abr.room_id IS NOT NULL), ARRAY[]::text[]) AS "roomIds"
+        FROM availability_blocks ab
+        LEFT JOIN availability_block_room_types abrt
+          ON abrt.tenant_id = ab.tenant_id AND abrt.property_id = ab.property_id AND abrt.block_id = ab.id
+        LEFT JOIN availability_block_rooms abr
+          ON abr.tenant_id = ab.tenant_id AND abr.property_id = ab.property_id AND abr.block_id = ab.id
+        WHERE ab.tenant_id = ${tenantId}::uuid AND ab.property_id = ${propertyId}::uuid
+        GROUP BY ab.id
+        ORDER BY ab.starts_on ASC, ab.created_at ASC, ab.id ASC
+      `,
+    );
+  }
+
+  async removeAvailabilityBlock(
+    tenantId: string,
+    propertyId: string,
+    availabilityBlockId: string,
+    actorUserId: string,
+  ): Promise<void> {
+    await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const removed = await tx.$queryRaw<Array<{ id: string }>>`
+        DELETE FROM availability_blocks
+        WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+          AND id = ${availabilityBlockId}::uuid
+        RETURNING id
+      `;
+      if (!removed[0]) throw new NotFoundException('Availability block not found.');
+      await this.audit.recordInTransaction(tx, {
+        tenantId,
+        propertyId,
+        actorUserId,
+        action: 'availability_blocks.remove',
+        targetType: 'availability_block',
+        targetId: availabilityBlockId,
+      });
+    });
+  }
+
   async reserveBookedUnits(
     tx: TenantTransaction,
     tenantId: string,

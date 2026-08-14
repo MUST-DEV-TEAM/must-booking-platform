@@ -139,6 +139,25 @@
   justify-content: center;
   width: fit-content;
 }
+.blocks {
+  display: grid;
+  gap: var(--must-space-8);
+}
+.blocks ul {
+  display: grid;
+  gap: var(--must-space-8);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.blocks li {
+  align-items: center;
+  border: 1px solid var(--must-color-border);
+  display: flex;
+  gap: var(--must-space-12);
+  justify-content: space-between;
+  padding: var(--must-space-8);
+}
 .bookingColumns {
   display: grid;
   gap: var(--must-space-16);

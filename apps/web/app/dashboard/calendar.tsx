@@ -21,6 +21,14 @@ export type CalendarAvailability = {
   isAvailable: boolean;
   availableUnits: number;
 };
+export type AvailabilityBlock = {
+  id: string;
+  startsOn: string;
+  endsOn: string;
+  all: boolean;
+  roomTypeIds: string[];
+  roomIds: string[];
+};
 
 type CalendarData = {
   roomTypes: RoomType[];
@@ -38,6 +46,7 @@ export function DashboardCalendar({
   initialRooms,
   initialAvailability,
   initialBookings,
+  initialBlocks,
 }: {
   tenantId: string;
   propertyId: string;
@@ -48,6 +57,7 @@ export function DashboardCalendar({
   initialRooms?: Room[];
   initialAvailability?: CalendarAvailability[];
   initialBookings?: Reservation[];
+  initialBlocks?: AvailabilityBlock[];
 }) {
   const [month, setMonth] = useState(initialMonth ?? monthStart(new Date()));
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
@@ -89,6 +99,12 @@ export function DashboardCalendar({
     initialData: initialBookings,
     staleTime: initialBookings ? Infinity : 0,
   });
+  const blocksQuery = useQuery({
+    queryKey: ['dashboard', 'availability-blocks', tenantId, propertyId],
+    queryFn: () => fetchAvailabilityBlocks(tenantId, propertyId),
+    enabled: canManageAvailability,
+    initialData: initialBlocks ?? [],
+  });
   const queryClient = useQueryClient();
   const blockMutation = useMutation({
     mutationFn: async (body: {
@@ -121,6 +137,25 @@ export function DashboardCalendar({
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : 'Unable to create availability block.'),
   });
+  const removeBlockMutation = useMutation({
+    mutationFn: async (blockId: string) => {
+      const response = await fetch(
+        `/api/tenants/${tenantId}/properties/${propertyId}/availability-blocks/${blockId}`,
+        { method: 'DELETE', credentials: 'include' },
+      );
+      if (!response.ok)
+        throw new Error(await errorMessage(response, 'Unable to remove availability block.'));
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: availabilityQueryKey });
+      void queryClient.invalidateQueries({
+        queryKey: ['dashboard', 'availability-blocks', tenantId, propertyId],
+      });
+      toast.success('Availability block removed.');
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Unable to remove availability block.'),
+  });
 
   const days = useMemo(() => calendarDays(month), [month]);
   const calendarData = availabilityQuery.data;
@@ -143,9 +178,10 @@ export function DashboardCalendar({
     });
   }
 
-  if (availabilityQuery.isPending || bookingsQuery.isPending)
+  if (availabilityQuery.isPending || bookingsQuery.isPending || (canManageAvailability && blocksQuery.isPending))
     return <DashboardLoadingSkeleton label="Loading calendar…" />;
-  const error = availabilityQuery.error ?? bookingsQuery.error;
+  const error =
+    availabilityQuery.error ?? bookingsQuery.error ?? (canManageAvailability ? blocksQuery.error : null);
   if (error || !calendarData || !bookings)
     return <Text className={styles.error}>{error?.message}</Text>;
 
@@ -325,10 +361,27 @@ export function DashboardCalendar({
                 )}
               </button>
             </form>
-            <Text tone="secondary">
-              Existing blocks are create-only for now because the availability API does not yet
-              expose block listing or removal.
-            </Text>
+            <div className={styles.blocks} aria-label="Existing availability blocks">
+              <Heading level={3}>Existing blocks</Heading>
+              {blocksQuery.data?.length ? (
+                <ul>
+                  {blocksQuery.data.map((block) => (
+                    <li key={block.id}>
+                      <Text>{availabilityBlockDescription(block, calendarData)}</Text>
+                      <button
+                        type="button"
+                        disabled={removeBlockMutation.isPending}
+                        onClick={() => removeBlockMutation.mutate(block.id)}
+                      >
+                        {removeBlockMutation.isPending ? 'Removing…' : 'Remove block'}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <Text tone="secondary">No active availability blocks.</Text>
+              )}
+            </div>
           </section>
         </Card>
       ) : null}
@@ -338,6 +391,34 @@ export function DashboardCalendar({
       ) : null}
     </Stack>
   );
+}
+
+export async function fetchAvailabilityBlocks(
+  tenantId: string,
+  propertyId: string,
+): Promise<AvailabilityBlock[]> {
+  const response = await fetch(
+    `/api/tenants/${tenantId}/properties/${propertyId}/availability-blocks`,
+    { credentials: 'include' },
+  );
+  if (!response.ok) throw new Error(await errorMessage(response, 'Unable to load availability blocks.'));
+  return (await response.json()) as AvailabilityBlock[];
+}
+
+export function availabilityBlockDescription(block: AvailabilityBlock, data: CalendarData): string {
+  const targets = [
+    ...(block.all ? ['all room types'] : []),
+    ...block.roomTypeIds.map(
+      (id) => data.roomTypes.find((roomType) => roomType.id === id)?.name ?? 'unknown room type',
+    ),
+    ...block.roomIds.map((id) => {
+      const room = data.rooms.find((item) => item.id === id);
+      if (!room) return 'unknown room';
+      const roomType = data.roomTypes.find((item) => item.id === room.roomTypeId);
+      return `${roomType?.name ?? 'Room type'} — ${room.name}`;
+    }),
+  ];
+  return `${formatDay(block.startsOn)} through ${formatDay(addDays(block.endsOn, -1))}: ${targets.join(', ')}`;
 }
 
 export async function fetchCalendarAvailability(
