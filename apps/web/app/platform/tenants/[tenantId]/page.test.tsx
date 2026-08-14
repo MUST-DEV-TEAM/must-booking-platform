@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AppShell } from '@must/ui';
-import { navigation, TenantDetailView } from './page';
+import { loadTenantDetail, navigation, TenantDetailView } from './page';
 
 const tenant = {
   id: 'tenant-1',
@@ -102,6 +102,30 @@ describe('Platform tenant detail page', () => {
       }),
     );
     expect(markup).toContain('Nothing needs review.');
+  });
+
+  it('keeps tenant details visible and marks provider health unavailable after a forced health error', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(tenant), { status: 200 }))
+      .mockResolvedValueOnce(new Response(null, { status: 503 }));
+    const result = await loadTenantDetail('tenant-1', request);
+
+    expect(result).toMatchObject({
+      tenant: { id: 'tenant-1' },
+      notFound: false,
+      health: { stripe: { status: 'unavailable' }, pokpay: { status: 'unavailable' } },
+    });
+    expect(
+      renderToStaticMarkup(
+        createElement(TenantDetailView, {
+          tenant: result.tenant,
+          loading: false,
+          notFound: false,
+          health: result.health,
+        }),
+      ),
+    ).toContain('health: unavailable');
   });
 
   it('lists an open manual review item and resolves it on click', async () => {

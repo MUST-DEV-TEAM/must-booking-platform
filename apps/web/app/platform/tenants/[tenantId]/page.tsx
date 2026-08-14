@@ -64,7 +64,16 @@ const providerLabels: Record<PlatformIntegrationConnection['provider'], string> 
   POKPAY: 'PokPay',
   CLOCK_PMS: 'Clock PMS',
 };
-type ProviderHealth = { status: 'checking' | 'healthy' | 'unhealthy' };
+type ProviderHealth = { status: 'checking' | 'healthy' | 'unhealthy' | 'unavailable' };
+type ProviderHealthResponse = { stripe: ProviderHealth; pokpay: ProviderHealth };
+const checkingHealth: ProviderHealthResponse = {
+  stripe: { status: 'checking' as const },
+  pokpay: { status: 'checking' as const },
+};
+const unavailableHealth: ProviderHealthResponse = {
+  stripe: { status: 'unavailable' as const },
+  pokpay: { status: 'unavailable' as const },
+};
 
 export function TenantDetailView({
   tenant,
@@ -332,7 +341,13 @@ function ProviderBadge({
   health?: ProviderHealth['status'];
 }) {
   const healthTone =
-    health === 'healthy' ? 'success' : health === 'unhealthy' ? 'danger' : 'warning';
+    health === 'healthy'
+      ? 'success'
+      : health === 'unhealthy'
+        ? 'danger'
+        : health === 'unavailable'
+          ? 'neutral'
+          : 'warning';
   return (
     <div className={detailStyles.provider}>
       <div>
@@ -359,10 +374,7 @@ export default function PlatformTenantDetailPage({
   const [tenant, setTenant] = useState<PlatformTenantDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const [health, setHealth] = useState({
-    stripe: { status: 'checking' as const },
-    pokpay: { status: 'checking' as const },
-  });
+  const [health, setHealth] = useState<ProviderHealthResponse>(checkingHealth);
   const [userEmail, setUserEmail] = useState<string>();
 
   useEffect(() => {
@@ -372,17 +384,10 @@ export default function PlatformTenantDetailPage({
   }, []);
 
   const refreshTenant = async (tenantId: string) => {
-    const [response, healthResponse] = await Promise.all([
-      fetch(`/api/platform/tenants/${tenantId}`, { credentials: 'include' }),
-      fetch('/api/platform/provider-health', { credentials: 'include' }),
-    ]);
-    if (response.status === 404) {
-      setNotFound(true);
-      return;
-    }
-    if (!response.ok) throw new Error('Unable to load tenant.');
-    setTenant((await response.json()) as PlatformTenantDetail);
-    if (healthResponse.ok) setHealth((await healthResponse.json()) as typeof health);
+    const result = await loadTenantDetail(tenantId);
+    setNotFound(result.notFound);
+    setTenant(result.tenant);
+    setHealth(result.health);
   };
 
   useEffect(() => {
@@ -452,6 +457,39 @@ export default function PlatformTenantDetailPage({
       </AppShell>
     </AuthRouteGuard>
   );
+}
+
+export async function loadTenantDetail(
+  tenantId: string,
+  request: typeof fetch = fetch,
+): Promise<{
+  tenant: PlatformTenantDetail | null;
+  notFound: boolean;
+  health: ProviderHealthResponse;
+}> {
+  const [tenantResult, healthResult] = await Promise.allSettled([
+    request(`/api/platform/tenants/${tenantId}`, { credentials: 'include' }),
+    request('/api/platform/provider-health', { credentials: 'include' }),
+  ]);
+  if (tenantResult.status === 'rejected') throw new Error('Unable to load tenant.');
+  const tenantResponse = tenantResult.value;
+  if (tenantResponse.status === 404)
+    return { tenant: null, notFound: true, health: checkingHealth };
+  if (!tenantResponse.ok) throw new Error('Unable to load tenant.');
+
+  let health: ProviderHealthResponse = unavailableHealth;
+  if (healthResult.status === 'fulfilled' && healthResult.value.ok) {
+    try {
+      health = (await healthResult.value.json()) as ProviderHealthResponse;
+    } catch {
+      health = unavailableHealth;
+    }
+  }
+  return {
+    tenant: (await tenantResponse.json()) as PlatformTenantDetail,
+    notFound: false,
+    health,
+  };
 }
 
 function formatDate(value: string) {
