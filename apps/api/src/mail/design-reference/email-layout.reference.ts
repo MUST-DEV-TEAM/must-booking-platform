@@ -52,7 +52,9 @@ export function escapeHtml(value: string): string {
 // Multi-line row values (e.g. one date per line) render as stacked lines
 // with a small gap, instead of a cramped run-on paragraph.
 function renderRowValue(value: string): string {
-  const lines = escapeHtml(value).split(/\r?\n/).filter((line) => line.trim());
+  const lines = escapeHtml(value)
+    .split(/\r?\n/)
+    .filter((line) => line.trim());
   if (lines.length <= 1) return escapeHtml(value);
   return lines.join('<br><span style="display:inline-block; height:8px;"></span>');
 }
@@ -126,8 +128,10 @@ function renderFooterMeta(brand: EmailBrand): string {
     : null;
   const parts = [
     name && `<p style="margin:0; font-weight:700;">${escapeHtml(name)}</p>`,
-    address && `<p style="margin:6px 0 0 0;"><a href="${escapeHtml(mapsUrl!)}" target="_blank" rel="noopener noreferrer" style="color:#141414; text-decoration:underline;">${escapeHtml(address)}</a></p>`,
-    websiteUrl && `<p style="margin:6px 0 0 0;"><a href="${escapeHtml(websiteUrl)}" target="_blank" rel="noopener noreferrer" style="color:#141414; text-decoration:underline;">${escapeHtml(displayUrl(websiteUrl))}</a></p>`,
+    address &&
+      `<p style="margin:6px 0 0 0;"><a href="${escapeHtml(mapsUrl!)}" target="_blank" rel="noopener noreferrer" style="color:#141414; text-decoration:underline;">${escapeHtml(address)}</a></p>`,
+    websiteUrl &&
+      `<p style="margin:6px 0 0 0;"><a href="${escapeHtml(websiteUrl)}" target="_blank" rel="noopener noreferrer" style="color:#141414; text-decoration:underline;">${escapeHtml(displayUrl(websiteUrl))}</a></p>`,
   ].filter(Boolean);
   return parts.length
     ? `<div style="font-family:Arial, sans-serif; font-size:13px; line-height:1.7; color:#5f5a50;">${parts.join('')}</div>`

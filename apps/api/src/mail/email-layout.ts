@@ -35,12 +35,12 @@ export function renderBrandedEmail(command: {
     : '';
   const summary = renderSummaryRows(command.summaryRows ?? []);
   const cta = command.cta ? renderCtaButton(command.cta) : '';
-  const support = renderSupportBlock(command.brand, command.supportStyle ?? 'icon-grid', command.supportLinks);
-  const footer = renderFooter(
+  const support = renderSupportBlock(
     command.brand,
-    command.showBrandFooter ?? true,
-    command.footerNote,
+    command.supportStyle ?? 'icon-grid',
+    command.supportLinks,
   );
+  const footer = renderFooter(command.brand, command.showBrandFooter ?? true, command.footerNote);
   const platformFooter = clean(command.platformFooter)
     ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;border-collapse:collapse;"><tr><td style="padding:20px 8px 0 8px;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#a39a86;">${escapeHtml(command.platformFooter!)}</td></tr></table>`
     : '';
@@ -54,23 +54,34 @@ export function renderBrandedEmail(command: {
 export function escapeHtml(value: string): string {
   return value.replace(/[&<>'"]/g, (character) => {
     const entities: Record<string, string> = {
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      "'": '&#39;',
+      '"': '&quot;',
     };
     return entities[character];
   });
 }
 
 function renderRowValue(value: string): string {
-  const lines = escapeHtml(value).split(/\r?\n/).filter((line) => line.trim());
-  return lines.length <= 1 ? escapeHtml(value) : lines.join('<br><span style="display:inline-block;height:8px;"></span>');
+  const lines = escapeHtml(value)
+    .split(/\r?\n/)
+    .filter((line) => line.trim());
+  return lines.length <= 1
+    ? escapeHtml(value)
+    : lines.join('<br><span style="display:inline-block;height:8px;"></span>');
 }
 
 function renderSummaryRows(rows: EmailSummaryRow[]): string {
   const normalized = rows.filter((row) => clean(row.label) && clean(row.value));
   if (!normalized.length) return '';
-  const body = normalized.map((row, index) =>
-    `<tr><td style="padding:12px 16px;width:38%;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:600;color:#58544a;${index ? 'border-top:1px solid #e5dfd2;' : ''}">${escapeHtml(row.label)}</td><td style="padding:12px 16px;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#141414;${index ? 'border-top:1px solid #e5dfd2;' : ''}">${renderRowValue(row.value)}</td></tr>`,
-  ).join('');
+  const body = normalized
+    .map(
+      (row, index) =>
+        `<tr><td style="padding:12px 16px;width:38%;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:600;color:#58544a;${index ? 'border-top:1px solid #e5dfd2;' : ''}">${escapeHtml(row.label)}</td><td style="padding:12px 16px;vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#141414;${index ? 'border-top:1px solid #e5dfd2;' : ''}">${renderRowValue(row.value)}</td></tr>`,
+    )
+    .join('');
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;border:1px solid #d8d2c4;margin:28px 0 0 0;"><tr><td colspan="2" style="padding:12px 16px;background:#f7f4ec;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#141414;">Booking Summary</td></tr>${body}</table>`;
 }
 
@@ -104,8 +115,10 @@ function supportIcon(href: string, glyph: string, label: string, glyphSize = 20)
 function renderSupportBlock(brand: EmailBrand, style: SupportStyle, links?: SupportLink[]): string {
   const resolvedLinks = links?.filter((link) => safeHref(link.href) && clean(link.label)) ?? [];
   if (style === 'plain') {
-    const plainLinks = (resolvedLinks.length ? resolvedLinks : defaultPlainLinks(brand))
-      .map((link) => `<a href="${escapeHtml(link.href)}" style="color:#141414;text-decoration:underline;"${link.href.startsWith('http') ? ' target="_blank"' : ''}>${escapeHtml(link.label)}</a>`);
+    const plainLinks = (resolvedLinks.length ? resolvedLinks : defaultPlainLinks(brand)).map(
+      (link) =>
+        `<a href="${escapeHtml(link.href)}" style="color:#141414;text-decoration:underline;"${link.href.startsWith('http') ? ' target="_blank"' : ''}>${escapeHtml(link.label)}</a>`,
+    );
     if (!plainLinks.length) return '';
     return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:28px 0 0 0;border:1px solid #ddd6c8;background:#faf7f0;"><tr><td style="padding:16px 18px;"><p style="margin:0 0 8px 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#141414;text-align:center;">Need Help?</p><p style="margin:0;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.7;color:#141414;">${plainLinks.join(' &nbsp;|&nbsp; ')}</p></td></tr></table>`;
   }
@@ -143,23 +156,37 @@ function renderFooterMeta(brand: EmailBrand): string {
   const name = clean(brand.name);
   const address = clean(brand.address).replace(/\r?\n/g, ', ');
   const websiteUrl = safeHttpUrl(brand.websiteUrl);
-  const mapsUrl = address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}` : null;
+  const mapsUrl = address
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`
+    : null;
   const parts = [
     name && `<p style="margin:0;font-weight:700;">${escapeHtml(name)}</p>`,
-    address && `<p style="margin:6px 0 0 0;"><a href="${escapeHtml(mapsUrl!)}" target="_blank" rel="noopener noreferrer" style="color:#141414;text-decoration:underline;">${escapeHtml(address)}</a></p>`,
-    websiteUrl && `<p style="margin:6px 0 0 0;"><a href="${escapeHtml(websiteUrl)}" target="_blank" rel="noopener noreferrer" style="color:#141414;text-decoration:underline;">${escapeHtml(displayUrl(websiteUrl))}</a></p>`,
+    address &&
+      `<p style="margin:6px 0 0 0;"><a href="${escapeHtml(mapsUrl!)}" target="_blank" rel="noopener noreferrer" style="color:#141414;text-decoration:underline;">${escapeHtml(address)}</a></p>`,
+    websiteUrl &&
+      `<p style="margin:6px 0 0 0;"><a href="${escapeHtml(websiteUrl)}" target="_blank" rel="noopener noreferrer" style="color:#141414;text-decoration:underline;">${escapeHtml(displayUrl(websiteUrl))}</a></p>`,
   ].filter(Boolean);
-  return parts.length ? `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.7;color:#5f5a50;">${parts.join('')}</div>` : '';
+  return parts.length
+    ? `<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.7;color:#5f5a50;">${parts.join('')}</div>`
+    : '';
 }
 
-function displayUrl(url: string): string { return url.replace(/^https?:\/\//, '').replace(/\/$/, ''); }
-function clean(value: string | null | undefined): string { return value?.trim() ?? ''; }
-function safeHref(value: string): boolean { return value.startsWith('mailto:') || value.startsWith('tel:') || !!safeHttpUrl(value); }
+function displayUrl(url: string): string {
+  return url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+}
+function clean(value: string | null | undefined): string {
+  return value?.trim() ?? '';
+}
+function safeHref(value: string): boolean {
+  return value.startsWith('mailto:') || value.startsWith('tel:') || !!safeHttpUrl(value);
+}
 function safeHttpUrl(value: string | null | undefined): string | null {
   const normalized = clean(value);
   if (!normalized) return null;
   try {
     const url = new URL(normalized);
     return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }

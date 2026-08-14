@@ -1,4 +1,12 @@
-import { BadRequestException, Controller, Get, Inject, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Inject,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import type { AvailabilityQuery } from '@must/domain-contracts';
 
 import { PmsProviderRegistry } from '../booking/pms-provider-registry';

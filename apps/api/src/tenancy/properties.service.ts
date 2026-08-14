@@ -450,7 +450,10 @@ export class PropertiesService {
     };
   }
 
-  private optionalLogoUrl(value: Record<string, unknown>, allowAbsent: boolean): string | null | undefined {
+  private optionalLogoUrl(
+    value: Record<string, unknown>,
+    allowAbsent: boolean,
+  ): string | null | undefined {
     if (!Object.hasOwn(value, 'logoUrl')) return allowAbsent ? undefined : null;
     const logoUrl = value.logoUrl;
     if (logoUrl === null || logoUrl === '') return null;

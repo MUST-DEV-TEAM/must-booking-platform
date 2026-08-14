@@ -129,7 +129,9 @@ describe('guest journey', () => {
       .expect(200);
 
     // Search / select: the plugin loads catalog, then checks the selected stay.
-    const catalog = await request(app!.getHttpServer()).get(`${propertyUrl}/public/catalog`).expect(200);
+    const catalog = await request(app!.getHttpServer())
+      .get(`${propertyUrl}/public/catalog`)
+      .expect(200);
     const guestCookie = catalog.headers['set-cookie'][0] as string;
     expect(guestCookie).toContain('must_guest_session=');
     expect(catalog.body).toMatchObject({
@@ -222,7 +224,10 @@ describe('guest journey', () => {
       .set('Idempotency-Key', randomUUID())
       .send({ expectedVersion: confirmation.body.version, reason: 'E2E cancellation' })
       .expect(200);
-    expect(cancelled.body).toMatchObject({ ok: true, value: { id: bookingId, status: 'CANCELLED' } });
+    expect(cancelled.body).toMatchObject({
+      ok: true,
+      value: { id: bookingId, status: 'CANCELLED' },
+    });
 
     const cancelledConfirmation = await request(app!.getHttpServer())
       .get(`${propertyUrl}/public/bookings/${bookingId}`)

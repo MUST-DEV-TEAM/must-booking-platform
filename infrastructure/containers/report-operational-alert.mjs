@@ -57,7 +57,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const source = args.at(args.indexOf('--source') + 1);
   const message = args.at(args.indexOf('--message') + 1);
   if (!source || !message) {
-    console.error('Usage: report-operational-alert.mjs --source deploy-drift|deploy-preflight --message TEXT');
+    console.error(
+      'Usage: report-operational-alert.mjs --source deploy-drift|deploy-preflight --message TEXT',
+    );
     process.exitCode = 2;
   } else {
     try {

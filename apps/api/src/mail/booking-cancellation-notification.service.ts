@@ -62,18 +62,29 @@ export class BookingCancellationNotificationService {
     const { row, staff } = notification;
     const guestName = [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || row.email;
     const brand = {
-      name: row.propertyName, logoUrl: row.logoUrl, supportEmail: row.supportEmail,
-      phone: row.propertyPhone, websiteUrl: row.publicWebsiteOrigin, address: row.propertyAddress,
+      name: row.propertyName,
+      logoUrl: row.logoUrl,
+      supportEmail: row.supportEmail,
+      phone: row.propertyPhone,
+      websiteUrl: row.publicWebsiteOrigin,
+      address: row.propertyAddress,
     };
     const details = {
-      bookingId, bookingReference: row.externalReference, brand, guest: { name: guestName },
-      stay: { startsOn: row.startsOn, endsOn: row.endsOn }, roomName: row.roomName,
-      guestCount: row.guestCount, nightlyRates: row.nightlyRates ?? undefined,
+      bookingId,
+      bookingReference: row.externalReference,
+      brand,
+      guest: { name: guestName },
+      stay: { startsOn: row.startsOn, endsOn: row.endsOn },
+      roomName: row.roomName,
+      guestCount: row.guestCount,
+      nightlyRates: row.nightlyRates ?? undefined,
     };
     await this.notifications.sendBookingCancelledEmailSafely({ to: row.email, ...details });
     for (const recipient of staff)
       await this.notifications.sendBookingCancelledStaffNotificationSafely({
-        ...details, staffUserId: recipient.staffUserId, to: recipient.email,
+        ...details,
+        staffUserId: recipient.staffUserId,
+        to: recipient.email,
         guest: { name: guestName, email: row.email, phone: row.phone },
       });
   }

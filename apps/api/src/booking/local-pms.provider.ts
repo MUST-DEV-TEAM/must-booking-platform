@@ -224,7 +224,10 @@ export class LocalPmsProvider implements PmsProvider {
       !this.validGuestCount(command.guestCount) ||
       !(command.quoteSessionId ?? command.staffActorId)
     ) {
-      return this.failure('INVALID_BOOKING_COMMAND', 'Booking dates, total, or guest count are invalid.');
+      return this.failure(
+        'INVALID_BOOKING_COMMAND',
+        'Booking dates, total, or guest count are invalid.',
+      );
     }
 
     let payAtHotelConfirmationBookingId: string | null = null;
@@ -860,7 +863,8 @@ export class LocalPmsProvider implements PmsProvider {
     );
     if (refundConfirmation)
       await this.notifications.sendRefundConfirmationEmailSafely(refundConfirmation);
-    if (cancelledBookingId) await this.cancellations.sendAfterCancellation(context, cancelledBookingId);
+    if (cancelledBookingId)
+      await this.cancellations.sendAfterCancellation(context, cancelledBookingId);
     return result;
   }
 

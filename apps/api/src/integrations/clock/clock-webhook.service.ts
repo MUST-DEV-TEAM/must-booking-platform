@@ -49,7 +49,9 @@ export class ClockWebhookService {
     // otherwise another valid AWS topic could inject provider events if this
     // opaque callback URL were exposed.
     if (!this.isExpectedTopic(connection, envelope.TopicArn)) {
-      this.logger.warn(`Rejected Clock webhook for connection ${connection.connectionId}: topic mismatch.`);
+      this.logger.warn(
+        `Rejected Clock webhook for connection ${connection.connectionId}: topic mismatch.`,
+      );
       throw new BadRequestException('Clock SNS topic is not authorized.');
     }
 
@@ -128,7 +130,9 @@ export class ClockWebhookService {
 
   private isExpectedTopic(connection: ConnectionLookup, receivedTopicArn: string): boolean {
     try {
-      const configuredTopicArn = this.cipher.decrypt(connection.encryptedCredentials).snsTopicArn?.trim();
+      const configuredTopicArn = this.cipher
+        .decrypt(connection.encryptedCredentials)
+        .snsTopicArn?.trim();
       return !!configuredTopicArn && configuredTopicArn === receivedTopicArn;
     } catch {
       // Treat malformed or undecryptable stored credentials as untrusted input;

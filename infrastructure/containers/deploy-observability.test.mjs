@@ -25,7 +25,9 @@ async function captureSentryEnvelope(run) {
     await run(`http://public-key@127.0.0.1:${address.port}/42`);
     return received;
   } finally {
-    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await new Promise((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
   }
 }
 
@@ -43,9 +45,13 @@ function run(command, args, options) {
 
 test('operational alert reporter sends a Sentry envelope', async () => {
   const envelope = await captureSentryEnvelope(async (dsn) => {
-    const result = await run(process.execPath, [reporter, '--source', 'deploy-drift', '--message', 'test drift'], {
-      env: { ...process.env, SENTRY_DSN: dsn, SENTRY_ENVIRONMENT: 'test' },
-    });
+    const result = await run(
+      process.execPath,
+      [reporter, '--source', 'deploy-drift', '--message', 'test drift'],
+      {
+        env: { ...process.env, SENTRY_DSN: dsn, SENTRY_ENVIRONMENT: 'test' },
+      },
+    );
     assert.equal(result.status, 0, result.stderr);
   });
   const event = JSON.parse(envelope.trim().split('\n')[2]);

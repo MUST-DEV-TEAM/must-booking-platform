@@ -49,7 +49,8 @@ async function main() {
     amount: { amount: '450.00', currency: 'EUR' },
     paymentMethod: 'stripe',
     guest: { name: 'Alex Morgan' },
-    cancellationUrl: 'https://rivieragrand.example/booking-confirmation?booking_id=test&cancellationToken=demo',
+    cancellationUrl:
+      'https://rivieragrand.example/booking-confirmation?booking_id=test&cancellationToken=demo',
     specialRequests: 'Late arrival after 22:00, please. No feathers in pillows.',
   });
   console.log('1/6 sent: guest confirmation (paid, Stripe)');
@@ -61,7 +62,8 @@ async function main() {
     amount: { amount: '450.00', currency: 'EUR' },
     paymentMethod: 'pay_at_hotel',
     guest: { name: 'Alex Morgan' },
-    cancellationUrl: 'https://rivieragrand.example/booking-confirmation?booking_id=test&cancellationToken=demo',
+    cancellationUrl:
+      'https://rivieragrand.example/booking-confirmation?booking_id=test&cancellationToken=demo',
   });
   console.log('2/6 sent: guest confirmation (pay at hotel)');
 

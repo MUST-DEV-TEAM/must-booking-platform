@@ -145,7 +145,10 @@ export class ClockBookingService {
       !this.validAmount(command.total.amount) ||
       !this.validGuestCount(command.guestCount)
     )
-      return this.failure('INVALID_BOOKING_COMMAND', 'Booking dates, total, or guest count are invalid.');
+      return this.failure(
+        'INVALID_BOOKING_COMMAND',
+        'Booking dates, total, or guest count are invalid.',
+      );
 
     // Fetched outside the transaction below — IntegrationConnectionsService
     // opens its own tenant transaction internally, and nesting transactions

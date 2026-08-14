@@ -129,18 +129,34 @@ describe('ResendMailProvider', () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     const common = {
-      bookingId: 'booking-2', bookingReference: 'MUST-TEST-002', brand: { name: 'Ocean Hotel' },
-      stay: { startsOn: '2027-09-01', endsOn: '2027-09-03' }, roomName: 'Ocean Suite',
-      guestCount: 2, nightlyRates: [{ date: '2027-09-01', amount: '90.00' }, { date: '2027-09-02', amount: '90.00' }],
+      bookingId: 'booking-2',
+      bookingReference: 'MUST-TEST-002',
+      brand: { name: 'Ocean Hotel' },
+      stay: { startsOn: '2027-09-01', endsOn: '2027-09-03' },
+      roomName: 'Ocean Suite',
+      guestCount: 2,
+      nightlyRates: [
+        { date: '2027-09-01', amount: '90.00' },
+        { date: '2027-09-02', amount: '90.00' },
+      ],
     };
     await provider.sendPaymentConfirmationEmail({
-      ...common, paymentId: 'pay-at-hotel-2', to: 'guest@example.test',
-      amount: { amount: '180.00', currency: 'EUR' }, paymentMethod: 'pay_at_hotel',
+      ...common,
+      paymentId: 'pay-at-hotel-2',
+      to: 'guest@example.test',
+      amount: { amount: '180.00', currency: 'EUR' },
+      paymentMethod: 'pay_at_hotel',
       guest: { name: 'Ada Guest' },
     });
-    await provider.sendBookingCancelledEmail({ ...common, to: 'guest@example.test', guest: { name: 'Ada Guest' } });
+    await provider.sendBookingCancelledEmail({
+      ...common,
+      to: 'guest@example.test',
+      guest: { name: 'Ada Guest' },
+    });
     await provider.sendBookingCancelledStaffNotification({
-      ...common, staffUserId: 'staff-2', to: 'staff@example.test',
+      ...common,
+      staffUserId: 'staff-2',
+      to: 'staff@example.test',
       guest: { name: 'Ada Guest', email: 'guest@example.test', phone: null },
     });
     const messages = fetchMock.mock.calls.map(([, options]) => JSON.parse(String(options?.body)));
@@ -248,60 +264,136 @@ describe('ResendMailProvider', () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     const brand = {
-      name: 'Ocean Bay Resort', logoUrl: 'https://oceanbayresort.com/logo.png',
-      supportEmail: 'reservations@oceanbayresort.com', phone: '+62 361 555 0142',
-      websiteUrl: 'https://oceanbayresort.com', address: '24 Marina Boulevard, Sanur, Bali 80228, Indonesia',
+      name: 'Ocean Bay Resort',
+      logoUrl: 'https://oceanbayresort.com/logo.png',
+      supportEmail: 'reservations@oceanbayresort.com',
+      phone: '+62 361 555 0142',
+      websiteUrl: 'https://oceanbayresort.com',
+      address: '24 Marina Boulevard, Sanur, Bali 80228, Indonesia',
     };
     const booking = {
-      bookingId: 'booking-reference', bookingReference: 'MLDH-260814-2216',
-      to: 'guest@example.test', brand, guest: { name: 'Alex Morgan' },
-      stay: { startsOn: '2026-08-28', endsOn: '2026-09-01' }, roomName: 'Ocean Suite', guestCount: 2,
+      bookingId: 'booking-reference',
+      bookingReference: 'MLDH-260814-2216',
+      to: 'guest@example.test',
+      brand,
+      guest: { name: 'Alex Morgan' },
+      stay: { startsOn: '2026-08-28', endsOn: '2026-09-01' },
+      roomName: 'Ocean Suite',
+      guestCount: 2,
       nightlyRates: [
-        { date: '2026-08-28', amount: '120.00' }, { date: '2026-08-29', amount: '120.00' },
+        { date: '2026-08-28', amount: '120.00' },
+        { date: '2026-08-29', amount: '120.00' },
       ],
     };
 
-    await provider.sendVerificationEmail({ userId: 'user-1', to: 'admin@example.test', organizationName: 'Coastal Hospitality Group', verificationUrl: 'https://app.mustbooking.com/email-verification?token=verify-1' });
-    await provider.sendWelcomeEmail({ userId: 'user-1', to: 'admin@example.test', organizationName: 'Coastal Hospitality Group' });
-    await provider.sendPasswordResetEmail({ userId: 'user-1', to: 'admin@example.test', resetUrl: 'https://app.mustbooking.com/reset-password?token=reset-1' });
-    await provider.sendPaymentConfirmationEmail({ ...booking, paymentId: 'paid-1', amount: { amount: '240.00', currency: 'USD' }, paymentMethod: 'stripe', cancellationUrl: 'https://oceanbayresort.com/booking/confirmation?booking=MLDH-260814-2216' });
-    await provider.sendPaymentConfirmationEmail({ ...booking, paymentId: 'hotel-1', amount: { amount: '240.00', currency: 'USD' }, paymentMethod: 'pay_at_hotel' });
+    await provider.sendVerificationEmail({
+      userId: 'user-1',
+      to: 'admin@example.test',
+      organizationName: 'Coastal Hospitality Group',
+      verificationUrl: 'https://app.mustbooking.com/email-verification?token=verify-1',
+    });
+    await provider.sendWelcomeEmail({
+      userId: 'user-1',
+      to: 'admin@example.test',
+      organizationName: 'Coastal Hospitality Group',
+    });
+    await provider.sendPasswordResetEmail({
+      userId: 'user-1',
+      to: 'admin@example.test',
+      resetUrl: 'https://app.mustbooking.com/reset-password?token=reset-1',
+    });
+    await provider.sendPaymentConfirmationEmail({
+      ...booking,
+      paymentId: 'paid-1',
+      amount: { amount: '240.00', currency: 'USD' },
+      paymentMethod: 'stripe',
+      cancellationUrl: 'https://oceanbayresort.com/booking/confirmation?booking=MLDH-260814-2216',
+    });
+    await provider.sendPaymentConfirmationEmail({
+      ...booking,
+      paymentId: 'hotel-1',
+      amount: { amount: '240.00', currency: 'USD' },
+      paymentMethod: 'pay_at_hotel',
+    });
     await provider.sendBookingCancelledEmail(booking);
-    await provider.sendNewBookingStaffNotification({ ...booking, paymentId: 'staff-1', staffUserId: 'staff-1', to: 'staff@example.test', guest: { name: 'Alex Morgan', email: 'alex.morgan@example.com', phone: '+1 415 555 0198' }, amount: { amount: '240.00', currency: 'USD' }, paymentMethod: 'stripe', specialRequests: 'Late check-in after 10 PM, if possible.' });
-    await provider.sendBookingCancelledStaffNotification({ ...booking, staffUserId: 'staff-1', to: 'staff@example.test', guest: { name: 'Alex Morgan', email: 'alex.morgan@example.com', phone: null } });
-    await provider.sendRefundConfirmationEmail({ ...booking, refundId: 'refund-1', amount: { amount: '240.00', currency: 'USD' } });
+    await provider.sendNewBookingStaffNotification({
+      ...booking,
+      paymentId: 'staff-1',
+      staffUserId: 'staff-1',
+      to: 'staff@example.test',
+      guest: { name: 'Alex Morgan', email: 'alex.morgan@example.com', phone: '+1 415 555 0198' },
+      amount: { amount: '240.00', currency: 'USD' },
+      paymentMethod: 'stripe',
+      specialRequests: 'Late check-in after 10 PM, if possible.',
+    });
+    await provider.sendBookingCancelledStaffNotification({
+      ...booking,
+      staffUserId: 'staff-1',
+      to: 'staff@example.test',
+      guest: { name: 'Alex Morgan', email: 'alex.morgan@example.com', phone: null },
+    });
+    await provider.sendRefundConfirmationEmail({
+      ...booking,
+      refundId: 'refund-1',
+      amount: { amount: '240.00', currency: 'USD' },
+    });
 
     const messages = fetchMock.mock.calls.map(([, options]) => JSON.parse(String(options?.body)));
     expect(messages).toHaveLength(9);
     expect(messages.map((message) => message.subject)).toEqual([
-      'Verify your MUST Booking email address', 'Welcome to MUST Booking', 'Reset your MUST Booking password',
-      'Ocean Bay Resort booking confirmed — MLDH-260814-2216', 'Ocean Bay Resort booking confirmed — MLDH-260814-2216',
-      'Booking MLDH-260814-2216 cancelled', 'Alex Morgan — new booking MLDH-260814-2216',
-      'Alex Morgan — booking cancelled MLDH-260814-2216', 'Ocean Bay Resort refund processed — MLDH-260814-2216',
+      'Verify your MUST Booking email address',
+      'Welcome to MUST Booking',
+      'Reset your MUST Booking password',
+      'Ocean Bay Resort booking confirmed — MLDH-260814-2216',
+      'Ocean Bay Resort booking confirmed — MLDH-260814-2216',
+      'Booking MLDH-260814-2216 cancelled',
+      'Alex Morgan — new booking MLDH-260814-2216',
+      'Alex Morgan — booking cancelled MLDH-260814-2216',
+      'Ocean Bay Resort refund processed — MLDH-260814-2216',
     ]);
     for (const message of messages) {
       expect(message.html).toContain('meta name="color-scheme" content="light dark"');
       expect(message.html).toContain('<!--[if mso]>');
       expect(message.html).toContain('max-width:600px');
     }
-    for (const message of [messages[0], messages[1], messages[2], messages[3], messages[5], messages[6], messages[7]])
+    for (const message of [
+      messages[0],
+      messages[1],
+      messages[2],
+      messages[3],
+      messages[5],
+      messages[6],
+      messages[7],
+    ])
       expect(message.html).toContain('border-radius:2px');
-    expect(messages[0].html).toContain('Confirm this email address to activate your account and start setting up your property.');
+    expect(messages[0].html).toContain(
+      'Confirm this email address to activate your account and start setting up your property.',
+    );
     expect(messages[1].html).toContain('Go to dashboard');
-    expect(messages[2].html).toContain("This link can only be used once.");
-    expect(messages[3].html).toContain("We've received your payment and your reservation is confirmed.");
+    expect(messages[2].html).toContain('This link can only be used once.');
+    expect(messages[3].html).toContain(
+      "We've received your payment and your reservation is confirmed.",
+    );
     expect(messages[4].html).toContain('Payment will be collected at the hotel on arrival.');
     expect(messages[5].html).toContain('Your booking was cancelled');
     expect(messages[6].html).toContain('New booking received');
     expect(messages[7].html).toContain('Booking cancelled');
-    expect(messages[8].html).toContain('It may take a few business days to appear on your original payment method.');
-    for (const message of [messages[3], messages[4], messages[5], messages[6], messages[7], messages[8]]) {
+    expect(messages[8].html).toContain(
+      'It may take a few business days to appear on your original payment method.',
+    );
+    for (const message of [
+      messages[3],
+      messages[4],
+      messages[5],
+      messages[6],
+      messages[7],
+      messages[8],
+    ]) {
       expect(message.html).toContain('Dates');
     }
     for (const message of [messages[3], messages[4], messages[6], messages[8]])
       expect(message.html).toContain('— 120.00 USD');
-    for (const message of [messages[5], messages[7]])
-      expect(message.html).toContain('— 120.00');
+    for (const message of [messages[5], messages[7]]) expect(message.html).toContain('— 120.00');
     for (const message of [messages[0], messages[1], messages[2], messages[6], messages[7]])
       expect(message.html).toContain('padding:16px 18px;');
     for (const message of [messages[3], messages[4], messages[5], messages[8]])

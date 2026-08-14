@@ -83,7 +83,10 @@ describe('DashboardSettings', () => {
       'Grand Hotel Tirana',
     );
 
-    await value(container.querySelector('[aria-label="Logo URL"]')!, 'https://example.test/logo.png');
+    await value(
+      container.querySelector('[aria-label="Logo URL"]')!,
+      'https://example.test/logo.png',
+    );
     await value(container.querySelector('[aria-label="Support email"]')!, 'stay@example.test');
     await value(container.querySelector('[aria-label="Hotel phone"]')!, '+355 69 123 4567');
     await submit(container, 'Save email branding');

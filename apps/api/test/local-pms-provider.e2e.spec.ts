@@ -19,6 +19,7 @@ import { PropertyRoleTemplatesService } from '../src/tenancy/property-role-templ
 import type { PaymentProvider } from '@must/domain-contracts';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
+import { PublicRateLimiterService } from '../src/tenancy/public-rate-limiter.service';
 
 const isoDateFromToday = (offsetDays: number) => {
   const date = new Date();
@@ -55,7 +56,9 @@ describe('LocalPmsProvider', () => {
   const staffBookingEmails: Parameters<MailProvider['sendNewBookingStaffNotification']>[0][] = [];
   const refundConfirmationEmails: Parameters<MailProvider['sendRefundConfirmationEmail']>[0][] = [];
   const cancelledGuestEmails: Parameters<MailProvider['sendBookingCancelledEmail']>[0][] = [];
-  const cancelledStaffEmails: Parameters<MailProvider['sendBookingCancelledStaffNotification']>[0][] = [];
+  const cancelledStaffEmails: Parameters<
+    MailProvider['sendBookingCancelledStaffNotification']
+  >[0][] = [];
   const refundCommands: Parameters<PaymentProvider['refund']>[1][] = [];
   const pokpayOrders = new Map<string, { amount: string; currency: string; status: string }>();
   let pokpayAmountOverride: string | undefined;
@@ -177,6 +180,8 @@ describe('LocalPmsProvider', () => {
       .useValue(payments)
       .overrideProvider(PokPayPaymentProvider)
       .useValue(pokpay)
+      .overrideProvider(PublicRateLimiterService)
+      .useValue({ consume: async () => ({ allowed: true, retryAfterSeconds: 0 }) })
       .compile();
     app = moduleRef.createNestApplication({ rawBody: true });
     await app.init();

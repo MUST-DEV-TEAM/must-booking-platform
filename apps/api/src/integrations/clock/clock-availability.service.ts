@@ -1,5 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { AvailabilityQuery, AvailabilityResult, Money, NightlyRate, Result } from '@must/domain-contracts';
+import type {
+  AvailabilityQuery,
+  AvailabilityResult,
+  Money,
+  NightlyRate,
+  Result,
+} from '@must/domain-contracts';
 
 import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
 import { IntegrationConnectionsService } from '../integration-connections.service';
@@ -263,7 +269,11 @@ export class ClockAvailabilityService {
         productSearch['product_search[adult_count]'] = String(query.adultCount);
       if (query.childrenCount !== undefined)
         productSearch['product_search[children_count]'] = String(query.childrenCount);
-      const response = await this.fetch<ClockProductsResponse>(parsed.value, productSearch, '/products');
+      const response = await this.fetch<ClockProductsResponse>(
+        parsed.value,
+        productSearch,
+        '/products',
+      );
       if (!response.ok) return failure(response.error);
       const roomType = response.value.find((item) => String(item.id) === externalRoomTypeId);
       const offer = roomType
@@ -272,9 +282,7 @@ export class ClockAvailabilityService {
             .find((entry) => entry.available && Object.keys(entry.errors ?? {}).length === 0)
         : undefined;
       if (!offer)
-        return failure(
-          classifyConfigurationError(`Clock has no available price for ${date}.`),
-        );
+        return failure(classifyConfigurationError(`Clock has no available price for ${date}.`));
       if (offer.price.currency !== total.value.currency)
         return failure(classifyConfigurationError('Clock returned inconsistent quote currencies.'));
       nightlyRates.push({ date, amount: (offer.price.cents / 100).toFixed(2) });

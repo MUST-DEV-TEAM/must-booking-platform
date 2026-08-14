@@ -38,7 +38,8 @@ export class ResendMailProvider implements MailProvider {
         supportStyle: 'plain',
         supportLinks: this.systemSupportLinks(true),
         showBrandFooter: false,
-        footerNote: "You&#39;re receiving this email because this address was used to sign up for MUST Booking. If this wasn&#39;t you, you can safely ignore it.",
+        footerNote:
+          'You&#39;re receiving this email because this address was used to sign up for MUST Booking. If this wasn&#39;t you, you can safely ignore it.',
         platformFooter: 'MUST Booking Platform',
       }),
       text: `Welcome to MUST Booking, ${command.organizationName}. Confirm this email address to activate your account: ${command.verificationUrl}`,
@@ -62,7 +63,9 @@ export class ResendMailProvider implements MailProvider {
         eyebrow: 'Welcome',
         heading: 'Welcome to MUST Booking',
         content: `<p style="margin:0 0 18px 0;">Your email is verified. Welcome to MUST Booking, <strong>${organizationName}</strong> — you're all set to add your first property, configure rooms and rates, and start taking bookings online.</p>`,
-        cta: this.appUrl('/dashboard') ? { url: this.appUrl('/dashboard')!, label: 'Go to dashboard' } : null,
+        cta: this.appUrl('/dashboard')
+          ? { url: this.appUrl('/dashboard')!, label: 'Go to dashboard' }
+          : null,
         supportStyle: 'plain',
         supportLinks: this.systemSupportLinks(false),
         showBrandFooter: false,
@@ -88,12 +91,14 @@ export class ResendMailProvider implements MailProvider {
         preheader: 'Use this link to set a new MUST Booking password.',
         eyebrow: 'Account security',
         heading: 'Reset your password',
-        content: "<p style=\"margin:0 0 18px 0;\">We received a request to reset the password on your MUST Booking account. Click below to create a new one.</p><p style=\"margin:0;color:#58544a;font-size:14px;\">This link can only be used once. If you didn't request this, you can ignore this email — your password won't change.</p>",
+        content:
+          '<p style="margin:0 0 18px 0;">We received a request to reset the password on your MUST Booking account. Click below to create a new one.</p><p style="margin:0;color:#58544a;font-size:14px;">This link can only be used once. If you didn\'t request this, you can ignore this email — your password won\'t change.</p>',
         cta: { url: command.resetUrl, label: 'Create a new password' },
         supportStyle: 'plain',
         supportLinks: this.systemSupportLinks(false),
         showBrandFooter: false,
-        footerNote: 'You&#39;re receiving this email because a password reset was requested for this MUST Booking account.',
+        footerNote:
+          'You&#39;re receiving this email because a password reset was requested for this MUST Booking account.',
         platformFooter: 'MUST Booking Platform',
       }),
       text: `We received a request to reset the password on your MUST Booking account. Create a new password: ${command.resetUrl}\nThis link can only be used once. If you didn't request this, you can ignore this email — your password won't change.`,
@@ -101,7 +106,9 @@ export class ResendMailProvider implements MailProvider {
     });
   }
 
-  async sendPaymentConfirmationEmail(command: Parameters<MailProvider['sendPaymentConfirmationEmail']>[0]): Promise<void> {
+  async sendPaymentConfirmationEmail(
+    command: Parameters<MailProvider['sendPaymentConfirmationEmail']>[0],
+  ): Promise<void> {
     const paid = command.paymentMethod === 'stripe' || command.paymentMethod === 'pokpay';
     const hotelName = command.brand.name || 'your hotel';
     const subject = `${hotelName} booking confirmed — ${command.bookingReference}`;
@@ -131,7 +138,9 @@ export class ResendMailProvider implements MailProvider {
     });
   }
 
-  async sendNewBookingStaffNotification(command: Parameters<MailProvider['sendNewBookingStaffNotification']>[0]): Promise<void> {
+  async sendNewBookingStaffNotification(
+    command: Parameters<MailProvider['sendNewBookingStaffNotification']>[0],
+  ): Promise<void> {
     const guestName = escapeHtml(command.guest.name);
     const subject = `${command.guest.name} — new booking ${command.bookingReference}`;
     await this.send({
@@ -149,7 +158,10 @@ export class ResendMailProvider implements MailProvider {
           dateFormat: 'us',
         }),
         cta: this.dashboardReservationUrl(command.bookingReference)
-          ? { url: this.dashboardReservationUrl(command.bookingReference)!, label: 'Open reservation' }
+          ? {
+              url: this.dashboardReservationUrl(command.bookingReference)!,
+              label: 'Open reservation',
+            }
           : null,
         supportStyle: 'plain',
         supportLinks: this.dashboardSupportLinks(),
@@ -162,7 +174,9 @@ export class ResendMailProvider implements MailProvider {
     });
   }
 
-  async sendRefundConfirmationEmail(command: Parameters<MailProvider['sendRefundConfirmationEmail']>[0]): Promise<void> {
+  async sendRefundConfirmationEmail(
+    command: Parameters<MailProvider['sendRefundConfirmationEmail']>[0],
+  ): Promise<void> {
     const hotelName = command.brand.name || 'your hotel';
     const subject = `${hotelName} refund processed — ${command.bookingReference}`;
     await this.send({
@@ -185,7 +199,9 @@ export class ResendMailProvider implements MailProvider {
     });
   }
 
-  async sendBookingCancelledEmail(command: Parameters<MailProvider['sendBookingCancelledEmail']>[0]): Promise<void> {
+  async sendBookingCancelledEmail(
+    command: Parameters<MailProvider['sendBookingCancelledEmail']>[0],
+  ): Promise<void> {
     const hotelName = command.brand.name || 'your hotel';
     const subject = `Booking ${command.bookingReference} cancelled`;
     await this.send({
@@ -199,7 +215,10 @@ export class ResendMailProvider implements MailProvider {
         content: `<p style="margin:0 0 18px 0;">Hello <strong>${escapeHtml(command.guest.name)}</strong>, your booking has been cancelled as requested. If you need help planning a new stay, we're here for you.</p>`,
         summaryRows: this.bookingSummaryRows(command, { includeGuests: false, dateFormat: 'us' }),
         cta: this.guestBookingUrl(command.brand, command.bookingReference)
-          ? { url: this.guestBookingUrl(command.brand, command.bookingReference)!, label: 'Review booking' }
+          ? {
+              url: this.guestBookingUrl(command.brand, command.bookingReference)!,
+              label: 'Review booking',
+            }
           : null,
         footerNote: `You&#39;re receiving this email because a reservation at ${escapeHtml(hotelName)} under your name was cancelled.`,
       }),
@@ -208,7 +227,9 @@ export class ResendMailProvider implements MailProvider {
     });
   }
 
-  async sendBookingCancelledStaffNotification(command: Parameters<MailProvider['sendBookingCancelledStaffNotification']>[0]): Promise<void> {
+  async sendBookingCancelledStaffNotification(
+    command: Parameters<MailProvider['sendBookingCancelledStaffNotification']>[0],
+  ): Promise<void> {
     const subject = `${command.guest.name} — booking cancelled ${command.bookingReference}`;
     await this.send({
       to: command.to,
@@ -221,7 +242,10 @@ export class ResendMailProvider implements MailProvider {
         content: `<p style="margin:0 0 4px 0;"><strong>Guest</strong><br>${escapeHtml(command.guest.name)}<br>${escapeHtml(command.guest.email)}${command.guest.phone ? `<br>${escapeHtml(command.guest.phone)}` : ''}</p>`,
         summaryRows: this.bookingSummaryRows(command, { includeGuests: false, dateFormat: 'us' }),
         cta: this.dashboardReservationUrl(command.bookingReference)
-          ? { url: this.dashboardReservationUrl(command.bookingReference)!, label: 'Open reservation' }
+          ? {
+              url: this.dashboardReservationUrl(command.bookingReference)!,
+              label: 'Open reservation',
+            }
           : null,
         supportStyle: 'plain',
         supportLinks: this.dashboardSupportLinks(),
@@ -253,7 +277,10 @@ export class ResendMailProvider implements MailProvider {
     const currency = command.amount?.currency;
     const dates = command.nightlyRates?.length
       ? command.nightlyRates
-          .map((rate) => `${this.formatDate(rate.date, options.dateFormat)} — ${rate.amount}${currency ? ` ${currency}` : ''}`)
+          .map(
+            (rate) =>
+              `${this.formatDate(rate.date, options.dateFormat)} — ${rate.amount}${currency ? ` ${currency}` : ''}`,
+          )
           .join('\n')
       : `${this.formatDate(command.stay.startsOn, options.dateFormat)} – ${this.formatDate(command.stay.endsOn, options.dateFormat)}`;
     const rows = [
@@ -261,7 +288,8 @@ export class ResendMailProvider implements MailProvider {
       { label: 'Room', value: command.roomName },
       { label: 'Dates', value: dates },
     ];
-    if (options.includeGuests ?? true) rows.push({ label: 'Guests', value: String(command.guestCount) });
+    if (options.includeGuests ?? true)
+      rows.push({ label: 'Guests', value: String(command.guestCount) });
     if (options.paymentMethod)
       rows.push({ label: 'Payment method', value: this.paymentMethodLabel(options.paymentMethod) });
     if (options.amountLabel && command.amount)
@@ -276,23 +304,36 @@ export class ResendMailProvider implements MailProvider {
   }
 
   private paymentMethodLabel(paymentMethod: string): string {
-    return { stripe: 'Card payment – Stripe', pokpay: 'PokPay', pay_at_hotel: 'Pay at hotel' }[paymentMethod] ?? paymentMethod;
+    return (
+      { stripe: 'Card payment – Stripe', pokpay: 'PokPay', pay_at_hotel: 'Pay at hotel' }[
+        paymentMethod
+      ] ?? paymentMethod
+    );
   }
 
-  private money(value: { amount: string; currency: string }): string { return `${value.amount} ${value.currency}`; }
+  private money(value: { amount: string; currency: string }): string {
+    return `${value.amount} ${value.currency}`;
+  }
 
   private formatDate(value: string, format: 'gb' | 'us'): string {
     const parsed = new Date(`${value}T00:00:00Z`);
     if (Number.isNaN(parsed.valueOf())) return value;
     return new Intl.DateTimeFormat(format === 'gb' ? 'en-GB' : 'en-US', {
-      day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
     }).format(parsed);
   }
 
   private appUrl(path: string): string | null {
     const base = process.env.WEB_APP_URL?.trim();
     if (!base) return null;
-    try { return new URL(path, base).toString(); } catch { return null; }
+    try {
+      return new URL(path, base).toString();
+    } catch {
+      return null;
+    }
   }
 
   private dashboardReservationUrl(reference: string): string | null {
@@ -305,18 +346,24 @@ export class ResendMailProvider implements MailProvider {
       const url = new URL('/booking/confirmation', brand.websiteUrl);
       url.searchParams.set('booking', reference);
       return url.toString();
-    } catch { return null; }
+    } catch {
+      return null;
+    }
   }
 
   private systemSupportLinks(includeWebsite: boolean): SupportLink[] {
-    const links: SupportLink[] = [{ href: 'mailto:support@mustbooking.com', label: 'support@mustbooking.com' }];
+    const links: SupportLink[] = [
+      { href: 'mailto:support@mustbooking.com', label: 'support@mustbooking.com' },
+    ];
     if (includeWebsite) links.push({ href: 'https://mustbooking.com', label: 'mustbooking.com' });
     return links;
   }
 
   private dashboardSupportLinks(): SupportLink[] {
     const dashboardUrl = this.appUrl('/dashboard');
-    return dashboardUrl ? [{ href: dashboardUrl, label: dashboardUrl.replace(/^https?:\/\//, '').replace(/\/$/, '') }] : [];
+    return dashboardUrl
+      ? [{ href: dashboardUrl, label: dashboardUrl.replace(/^https?:\/\//, '').replace(/\/$/, '') }]
+      : [];
   }
 
   private systemFooterNote(reason: string): string {
@@ -329,7 +376,13 @@ export class ResendMailProvider implements MailProvider {
     return `You&#39;re receiving this email because you manage bookings for ${escapeHtml(hotelName || 'this hotel')} on MUST Booking.${preferencesUrl ? ` <a href="${escapeHtml(preferencesUrl)}" style="color:#a39a86;text-decoration:underline;">Manage email preferences</a>.` : ''}`;
   }
 
-  private async send(message: { to: string; subject: string; html: string; text: string; idempotencyKey: string }): Promise<void> {
+  private async send(message: {
+    to: string;
+    subject: string;
+    html: string;
+    text: string;
+    idempotencyKey: string;
+  }): Promise<void> {
     const response = await fetch(resendEmailsUrl(), {
       method: 'POST',
       headers: {
@@ -339,11 +392,15 @@ export class ResendMailProvider implements MailProvider {
         'User-Agent': 'must-booking-platform/0.0.0',
       },
       body: JSON.stringify({
-        from: this.requiredEnvironment('MAIL_FROM_EMAIL'), to: [message.to], subject: message.subject,
-        html: message.html, text: message.text,
+        from: this.requiredEnvironment('MAIL_FROM_EMAIL'),
+        to: [message.to],
+        subject: message.subject,
+        html: message.html,
+        text: message.text,
       }),
     });
-    if (!response.ok) throw new Error(`Resend email delivery failed with status ${response.status}.`);
+    if (!response.ok)
+      throw new Error(`Resend email delivery failed with status ${response.status}.`);
   }
 
   private requiredEnvironment(name: 'RESEND_API_KEY' | 'MAIL_FROM_EMAIL'): string {
@@ -352,5 +409,7 @@ export class ResendMailProvider implements MailProvider {
     return value;
   }
 
-  private tokenFromUrl(url: string): string { return new URL(url).searchParams.get('token') ?? 'missing-token'; }
+  private tokenFromUrl(url: string): string {
+    return new URL(url).searchParams.get('token') ?? 'missing-token';
+  }
 }

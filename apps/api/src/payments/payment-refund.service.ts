@@ -167,7 +167,12 @@ export class PaymentRefundService {
           AND b.property_id = ${context.propertyId}::uuid
       `;
       if (guest[0]) {
-        confirmation = this.refundConfirmation(bookingId, refunded.value.id, guest[0], command.amount);
+        confirmation = this.refundConfirmation(
+          bookingId,
+          refunded.value.id,
+          guest[0],
+          command.amount,
+        );
       }
     }
     // StripePaymentProvider.refund has no booking context (RefundCommand doesn't carry one) and
@@ -280,7 +285,12 @@ export class PaymentRefundService {
           AND b.property_id = ${context.propertyId}::uuid
       `;
       if (guest[0])
-        confirmation = this.refundConfirmation(bookingId, externalPaymentId, guest[0], command.amount);
+        confirmation = this.refundConfirmation(
+          bookingId,
+          externalPaymentId,
+          guest[0],
+          command.amount,
+        );
     }
     return {
       result: {
