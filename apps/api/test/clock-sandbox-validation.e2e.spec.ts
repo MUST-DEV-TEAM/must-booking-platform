@@ -55,6 +55,8 @@ describe.skipIf(!hasSandboxCredentials)('Clock sandbox validation (Task 16, real
     async sendPaymentConfirmationEmail() {},
     async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
+    async sendBookingCancelledEmail() {},
+    async sendBookingCancelledStaffNotification() {},
   };
 
   beforeAll(async () => {

@@ -32,6 +32,8 @@ describe('local demo seed', () => {
     async sendPaymentConfirmationEmail() {},
     async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
+    async sendBookingCancelledEmail() {},
+    async sendBookingCancelledStaffNotification() {},
   };
 
   beforeAll(async () => {

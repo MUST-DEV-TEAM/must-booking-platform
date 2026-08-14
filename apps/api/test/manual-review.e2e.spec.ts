@@ -40,6 +40,8 @@ describe('Manual review (platform admin)', () => {
     async sendPaymentConfirmationEmail() {},
     async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
+    async sendBookingCancelledEmail() {},
+    async sendBookingCancelledStaffNotification() {},
   };
 
   beforeAll(async () => {

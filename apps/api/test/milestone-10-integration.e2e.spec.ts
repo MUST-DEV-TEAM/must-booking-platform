@@ -53,6 +53,8 @@ describe('Milestone 10 individual-room booking integration', () => {
     async sendPaymentConfirmationEmail() {},
     async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
+    async sendBookingCancelledEmail() {},
+    async sendBookingCancelledStaffNotification() {},
   };
 
   beforeAll(async () => {

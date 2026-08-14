@@ -36,6 +36,8 @@ describe('public catalog individual rooms', () => {
     async sendPaymentConfirmationEmail() {},
     async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
+    async sendBookingCancelledEmail() {},
+    async sendBookingCancelledStaffNotification() {},
   };
 
   beforeAll(async () => {

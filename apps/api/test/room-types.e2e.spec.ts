@@ -36,6 +36,8 @@ describe('room types', () => {
     async sendPaymentConfirmationEmail() {},
     async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
+    async sendBookingCancelledEmail() {},
+    async sendBookingCancelledStaffNotification() {},
   };
   const storage: StorageProvider = {
     async createPresignedUpload(command) {

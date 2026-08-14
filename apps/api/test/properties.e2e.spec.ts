@@ -40,6 +40,8 @@ describe('properties', () => {
     async sendPaymentConfirmationEmail() {},
     async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
+    async sendBookingCancelledEmail() {},
+    async sendBookingCancelledStaffNotification() {},
   };
   beforeAll(async () => {
     process.env.APP_PORT = '3000';

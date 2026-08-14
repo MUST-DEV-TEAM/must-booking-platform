@@ -31,6 +31,8 @@ describe('platform provider health', () => {
     async sendPaymentConfirmationEmail() {},
     async sendNewBookingStaffNotification() {},
     async sendRefundConfirmationEmail() {},
+    async sendBookingCancelledEmail() {},
+    async sendBookingCancelledStaffNotification() {},
   };
 
   beforeAll(async () => {
@@ -42,7 +44,7 @@ describe('platform provider health', () => {
 
     const redis = createClient({ url: 'redis://localhost:6379' });
     await redis.connect();
-    await redis.del('platform:provider-health:stripe', 'platform:provider-health:pokpay');
+    await redis.del(['platform:provider-health:stripe', 'platform:provider-health:pokpay']);
     await redis.quit();
 
     const hash = await bcrypt.hash(password, 12);
@@ -65,7 +67,7 @@ describe('platform provider health', () => {
 
     const redisAfterInit = createClient({ url: 'redis://localhost:6379' });
     await redisAfterInit.connect();
-    await redisAfterInit.del('platform:provider-health:stripe', 'platform:provider-health:pokpay');
+    await redisAfterInit.del(['platform:provider-health:stripe', 'platform:provider-health:pokpay']);
     await redisAfterInit.quit();
   });
 
@@ -75,7 +77,7 @@ describe('platform provider health', () => {
     await app.close();
     const redis = createClient({ url: 'redis://localhost:6379' });
     await redis.connect();
-    await redis.del('platform:provider-health:stripe', 'platform:provider-health:pokpay');
+    await redis.del(['platform:provider-health:stripe', 'platform:provider-health:pokpay']);
     await redis.quit();
     await migrationPrisma.$disconnect();
   });
