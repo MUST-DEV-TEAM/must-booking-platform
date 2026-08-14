@@ -8,6 +8,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MultiRoomBookingService } from '../src/booking/multi-room-booking.service';
 import { QuoteService } from '../src/booking/quote.service';
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
+import { PAYMENT_PROVIDER } from '../src/payments/payment.provider';
+import { StripeWebhookService } from '../src/payments/stripe-webhook.service';
+import { IntegrationConnectionsService } from '../src/integrations/integration-connections.service';
+import { ClockBookingService } from '../src/integrations/clock/clock-booking.service';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 
@@ -25,6 +29,8 @@ describe('Multi-room booking orders', () => {
   let propertyId: string;
   let userId: string;
   let verificationToken = '';
+  let clockConnected = false;
+  let failSecondClockReservation = false;
   const email = `multi-room-${randomUUID()}@example.test`;
   const mail: MailProvider = {
     async sendVerificationEmail(command) {
@@ -39,6 +45,26 @@ describe('Multi-room booking orders', () => {
     async sendBookingCancelledEmail() {},
     async sendBookingCancelledStaffNotification() {},
   };
+  const payments = {
+    async createCheckoutSession(_context: unknown, command: { bookingId: string }) {
+      return {
+        ok: true as const,
+        value: {
+          id: `cs_test_${command.bookingId}`,
+          url: `https://checkout.stripe.test/${command.bookingId}`,
+        },
+      };
+    },
+    async verifyWebhookEvent() {
+      return { ok: false as const, error: { code: 'NOT_USED', message: '', retryable: false } };
+    },
+    async refund() {
+      return { ok: false as const, error: { code: 'NOT_USED', message: '', retryable: false } };
+    },
+    async getPayment() {
+      return null;
+    },
+  };
 
   beforeAll(async () => {
     process.env.APP_PORT = '3000';
@@ -51,6 +77,57 @@ describe('Multi-room booking orders', () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(MAIL_PROVIDER)
       .useValue(mail)
+      .overrideProvider(PAYMENT_PROVIDER)
+      .useValue(payments)
+      .overrideProvider(IntegrationConnectionsService)
+      .useValue({
+        activePmsConnectionCredentials: async () =>
+          clockConnected ? { provider: 'CLOCK_PMS' } : null,
+      })
+      .overrideProvider(ClockBookingService)
+      .useValue({
+        attachRealReservation: async (
+          tx: PrismaClient,
+          context: { tenantId: string; propertyId: string },
+          bookingId: string,
+        ) => {
+          const rows = await tx.$queryRaw<Array<{ orderRoomNumber: number }>>`
+            SELECT order_room_number AS "orderRoomNumber" FROM bookings
+            WHERE id = ${bookingId}::uuid AND tenant_id = ${context.tenantId}::uuid
+              AND property_id = ${context.propertyId}::uuid
+          `;
+          if (failSecondClockReservation && rows[0]?.orderRoomNumber === 2) {
+            await tx.$executeRaw`
+              UPDATE bookings SET status = 'PMS_UNKNOWN_RESULT'::"BookingStatus"
+              WHERE id = ${bookingId}::uuid AND tenant_id = ${context.tenantId}::uuid
+                AND property_id = ${context.propertyId}::uuid
+            `;
+            await tx.$executeRaw`
+              INSERT INTO manual_review_items (
+                tenant_id, property_id, category, reference_type, reference_id, message
+              ) VALUES (
+                ${context.tenantId}::uuid, ${context.propertyId}::uuid,
+                'UNKNOWN_RESULT'::"ManualReviewCategory", 'booking', ${bookingId},
+                'Forced Clock create failure for multi-room order test.'
+              )
+            `;
+            return {
+              ok: false as const,
+              error: { code: 'forced', message: 'forced', retryable: false },
+            };
+          }
+          await tx.$executeRaw`
+            UPDATE bookings
+            SET external_booking_id = ${`clock-${bookingId}`}, status = 'CONFIRMED'::"BookingStatus"
+            WHERE id = ${bookingId}::uuid AND tenant_id = ${context.tenantId}::uuid
+              AND property_id = ${context.propertyId}::uuid
+          `;
+          return { ok: true as const, value: { id: bookingId } };
+        },
+        async postDeposit() {
+          return { ok: true as const, value: undefined };
+        },
+      })
       .compile();
     app = moduleRef.createNestApplication();
     await app.init();
@@ -249,7 +326,12 @@ describe('Multi-room booking orders', () => {
       'CONFIRMED',
     ]);
     const roomGuests = await admin.$queryRaw<
-      Array<{ orderReference: string; orderRoomNumber: number; firstName: string | null; lastName: string | null }>
+      Array<{
+        orderReference: string;
+        orderRoomNumber: number;
+        firstName: string | null;
+        lastName: string | null;
+      }>
     >`
       SELECT order_reference AS "orderReference", order_room_number AS "orderRoomNumber",
         room_guest_first_name AS "firstName", room_guest_last_name AS "lastName"
@@ -272,5 +354,129 @@ describe('Multi-room booking orders', () => {
         lastName: 'Guest',
       },
     ]);
+
+    await request(app!.getHttpServer())
+      .patch(`${propertyUrl}/payment-gateways`)
+      .set('Cookie', cookie)
+      .send({ stripe: true, pokpay: false, payAtHotel: true })
+      .expect(200);
+    const paidStartsOn = '2026-12-01';
+    const paidEndsOn = '2026-12-03';
+    await Promise.all([
+      request(app!.getHttpServer())
+        .put(`${propertyUrl}/inventory-units`)
+        .set('Cookie', cookie)
+        .send({
+          roomTypeId: firstType.body.id,
+          startsOn: paidStartsOn,
+          endsOn: paidEndsOn,
+          availableUnits: 1,
+        }),
+      request(app!.getHttpServer())
+        .put(`${propertyUrl}/inventory-units`)
+        .set('Cookie', cookie)
+        .send({
+          roomTypeId: secondType.body.id,
+          startsOn: paidStartsOn,
+          endsOn: paidEndsOn,
+          availableUnits: 1,
+        }),
+    ]);
+    const paidSessionId = randomUUID();
+    const [paidFirstQuote, paidSecondQuote] = await Promise.all([
+      quotes.create(tenantId, propertyId, paidSessionId, {
+        roomTypeId: firstType.body.id,
+        ratePlanId: ratePlan.body.id,
+        startsOn: paidStartsOn,
+        endsOn: paidEndsOn,
+      }),
+      quotes.create(tenantId, propertyId, paidSessionId, {
+        roomTypeId: secondType.body.id,
+        ratePlanId: ratePlan.body.id,
+        startsOn: paidStartsOn,
+        endsOn: paidEndsOn,
+      }),
+    ]);
+    const paidOrder = await orders.create(
+      { tenantId, propertyId },
+      {
+        idempotencyKey: randomUUID(),
+        externalReference: `must-order-${randomUUID()}`,
+        startsOn: paidStartsOn,
+        endsOn: paidEndsOn,
+        quoteSessionId: paidSessionId,
+        paymentMethod: 'stripe',
+        guest: {
+          email: `paid-guest-${randomUUID()}@example.test`,
+          firstName: 'Paid',
+          lastName: 'Guest',
+          phone: null,
+        },
+        rooms: [
+          {
+            roomTypeId: firstType.body.id,
+            ratePlanId: ratePlan.body.id,
+            total: paidFirstQuote.total,
+            quoteToken: paidFirstQuote.quoteToken,
+          },
+          {
+            roomTypeId: secondType.body.id,
+            ratePlanId: ratePlan.body.id,
+            total: paidSecondQuote.total,
+            quoteToken: paidSecondQuote.quoteToken,
+          },
+        ],
+      },
+    );
+    expect(paidOrder.ok).toBe(true);
+    if (!paidOrder.ok) return;
+    expect(paidOrder.value.checkoutUrl).toContain(paidOrder.value.bookings[0]!.id);
+
+    clockConnected = true;
+    failSecondClockReservation = true;
+    const webhook = app!.get(StripeWebhookService);
+    await expect(
+      webhook.processPaymentSucceeded({
+        id: randomUUID(),
+        type: 'checkout.session.completed',
+        externalPaymentId: `cs_test_${paidOrder.value.bookings[0]!.id}`,
+        tenantId,
+        propertyId,
+        bookingId: paidOrder.value.bookings[0]!.id,
+      }),
+    ).resolves.toMatchObject({ ok: true, value: { duplicate: false } });
+    const paidRows = await admin.$queryRaw<
+      Array<{ externalReference: string; status: string; externalBookingId: string | null }>
+    >`
+      SELECT external_reference AS "externalReference", status::text, external_booking_id AS "externalBookingId"
+      FROM bookings
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND order_reference = ${paidOrder.value.orderReference}
+      ORDER BY order_room_number
+    `;
+    expect(paidRows).toEqual([
+      {
+        externalReference: `${paidOrder.value.orderReference}-room1`,
+        status: 'CONFIRMED',
+        externalBookingId: `clock-${paidOrder.value.bookings[0]!.id}`,
+      },
+      {
+        externalReference: `${paidOrder.value.orderReference}-room2`,
+        status: 'PMS_UNKNOWN_RESULT',
+        externalBookingId: null,
+      },
+    ]);
+    const payment = await admin.$queryRaw<Array<{ amount: string }>>`
+      SELECT amount::text AS amount FROM payments
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND booking_id = ${paidOrder.value.bookings[0]!.id}::uuid
+    `;
+    expect(payment).toEqual([{ amount: '420.00' }]);
+    const manualReviews = await admin.$queryRaw<Array<{ referenceId: string }>>`
+      SELECT reference_id AS "referenceId" FROM manual_review_items
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND reference_id = ${paidOrder.value.bookings[1]!.id}
+    `;
+    expect(manualReviews).toEqual([{ referenceId: paidOrder.value.bookings[1]!.id }]);
   });
 });

@@ -61,6 +61,7 @@ type BookingRow = {
   currency: string;
   nightlyRates: unknown;
   externalReference: string;
+  orderReference: string | null;
   externalBookingId: string | null;
   version: number;
   createdAt: Date;
@@ -636,6 +637,7 @@ export class LocalPmsProvider implements PmsProvider {
   ): Promise<Result<Booking>> {
     const row = await this.bookingById(tx, context, bookingId);
     if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
+    if (row.orderReference) return this.continueMultiRoomOrderAfterPayment(tx, context, row);
     if (row.status !== BookingStatus.PAYMENT_PENDING) {
       return this.failure(
         'INVALID_BOOKING_STATE',
@@ -698,6 +700,66 @@ export class LocalPmsProvider implements PmsProvider {
       : this.failure('BOOKING_NOT_FOUND', 'Confirmed booking could not be loaded.');
   }
 
+  /** Task 15: one confirmed gateway charge fans out to every child in its local
+   * order. Each Clock attach is intentionally independent: attachRealReservation
+   * records a manual-review item for only the failed child, while this loop keeps
+   * confirming its siblings. */
+  private async continueMultiRoomOrderAfterPayment(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    anchor: BookingRow,
+  ): Promise<Result<Booking>> {
+    if (anchor.status !== BookingStatus.PAYMENT_PENDING)
+      return this.failure(
+        'INVALID_BOOKING_STATE',
+        `Booking cannot be confirmed from ${anchor.status}.`,
+      );
+    const childIds = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM bookings
+      WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+        AND order_reference = ${anchor.orderReference}
+      ORDER BY order_room_number, id
+      FOR UPDATE
+    `;
+    const clockConnected = await this.isClockConnected(context);
+    for (const child of childIds) {
+      const row = await this.bookingById(tx, context, child.id);
+      if (!row || row.status !== BookingStatus.PAYMENT_PENDING) continue;
+      let status = await this.transition(
+        tx,
+        context,
+        row.id,
+        BookingStatus.PAYMENT_PENDING,
+        BookingStatus.PMS_CREATION_PENDING,
+      );
+      if (clockConnected) {
+        const attached = await this.clockBooking.attachRealReservation(tx, context, row.id);
+        if (!attached.ok) continue;
+        await this.clockBooking.postDeposit(
+          tx,
+          context,
+          row.id,
+          { amount: row.totalAmount, currency: row.currency },
+          row.paymentMethod === BookingPaymentMethod.STRIPE_CHECKOUT ? 'Stripe' : 'PokPay',
+          row.externalReference,
+        );
+        continue;
+      }
+      status = await this.transition(
+        tx,
+        context,
+        row.id,
+        status,
+        BookingStatus.PMS_CONFIRMATION_PENDING,
+      );
+      await this.transition(tx, context, row.id, status, BookingStatus.CONFIRMED);
+    }
+    const confirmed = await this.bookingById(tx, context, anchor.id);
+    return confirmed && this.toBooking(confirmed)
+      ? { ok: true, value: this.toBooking(confirmed)! }
+      : this.failure('BOOKING_NOT_FOUND', 'Booking could not be reloaded.');
+  }
+
   async expirePaymentPending(
     tx: TenantTransaction,
     context: PmsProviderContext,
@@ -711,6 +773,37 @@ export class LocalPmsProvider implements PmsProvider {
       row.createdAt.getTime() > cutoffAt.getTime()
     ) {
       return false;
+    }
+    if (row.orderReference) {
+      const children = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM bookings
+        WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+          AND order_reference = ${row.orderReference}
+        ORDER BY order_room_number, id
+        FOR UPDATE
+      `;
+      for (const child of children) {
+        const childRow = await this.bookingById(tx, context, child.id);
+        if (!childRow || childRow.status !== BookingStatus.PAYMENT_PENDING) continue;
+        if (!childRow.roomId)
+          await this.availability.releaseBookedUnits(tx, context.tenantId, context.propertyId, {
+            roomTypeId: childRow.roomTypeId,
+            startsOn: childRow.startsOn,
+            endsOn: childRow.endsOn,
+            units: 1,
+          });
+        await this.transition(tx, context, childRow.id, childRow.status, BookingStatus.EXPIRED);
+      }
+      await this.audit.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        actorUserId: null,
+        action: 'booking.order_payment_expired',
+        targetType: 'booking_order',
+        targetId: row.orderReference,
+        details: { cutoffAt: cutoffAt.toISOString() },
+      });
+      return true;
     }
     if (!row.roomId)
       await this.availability.releaseBookedUnits(tx, context.tenantId, context.propertyId, {
@@ -1202,7 +1295,7 @@ export class LocalPmsProvider implements PmsProvider {
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
         b.payment_method AS "paymentMethod",
         b.total_amount::text AS "totalAmount", b.guest_count AS "guestCount", b.nightly_rates AS "nightlyRates",
-        rp.currency, b.external_reference AS "externalReference",
+        rp.currency, b.external_reference AS "externalReference", b.order_reference AS "orderReference",
         b.external_booking_id AS "externalBookingId",
         b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
       FROM bookings b JOIN rate_plans rp
@@ -1225,7 +1318,7 @@ export class LocalPmsProvider implements PmsProvider {
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
         b.payment_method AS "paymentMethod",
         b.total_amount::text AS "totalAmount", b.guest_count AS "guestCount", b.nightly_rates AS "nightlyRates",
-        rp.currency, b.external_reference AS "externalReference",
+        rp.currency, b.external_reference AS "externalReference", b.order_reference AS "orderReference",
         b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
       FROM bookings b JOIN rate_plans rp
         ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id

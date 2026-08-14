@@ -111,6 +111,8 @@ type BookingRow = {
   guestCount: number;
   currency: string;
   externalReference: string;
+  roomGuestFirstName: string | null;
+  roomGuestLastName: string | null;
   externalBookingId: string | null;
   version: number;
   createdAt: Date;
@@ -368,7 +370,10 @@ export class ClockBookingService {
     const guestRows = await tx.$queryRaw<
       Array<{ email: string; firstName: string | null; lastName: string | null }>
     >`
-      SELECT email, first_name AS "firstName", last_name AS "lastName" FROM guests
+      SELECT email,
+        COALESCE(${row.roomGuestFirstName}, first_name) AS "firstName",
+        COALESCE(${row.roomGuestLastName}, last_name) AS "lastName"
+      FROM guests
       WHERE id = ${row.guestId}::uuid AND tenant_id = ${context.tenantId}::uuid
     `;
     const guest = guestRows[0];
@@ -1106,6 +1111,7 @@ export class ClockBookingService {
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
         b.payment_method AS "paymentMethod", b.total_amount::text AS "totalAmount", b.guest_count AS "guestCount", rp.currency,
         b.external_reference AS "externalReference", b.external_booking_id AS "externalBookingId",
+        b.room_guest_first_name AS "roomGuestFirstName", b.room_guest_last_name AS "roomGuestLastName",
         b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
       FROM bookings b JOIN rate_plans rp
         ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id

@@ -45,12 +45,18 @@ export class PokPayPaymentService {
       context,
       async (tx) => {
         const rows = await tx.$queryRaw<BookingRow[]>`
-        SELECT b.id, b.total_amount::text AS "totalAmount", rp.currency, b.status,
+        SELECT b.id, COALESCE(order_totals.total_amount, b.total_amount)::text AS "totalAmount", rp.currency, b.status,
           b.payment_method AS "paymentMethod"
         FROM bookings b JOIN rate_plans rp
           ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
         JOIN payment_provider_sessions s
           ON s.tenant_id = b.tenant_id AND s.property_id = b.property_id AND s.booking_id = b.id
+        LEFT JOIN LATERAL (
+          SELECT SUM(child.total_amount) AS total_amount
+          FROM bookings child
+          WHERE child.tenant_id = b.tenant_id AND child.property_id = b.property_id
+            AND child.order_reference = b.order_reference
+        ) order_totals ON b.order_reference IS NOT NULL
         WHERE b.id = ${candidate.bookingId}::uuid AND b.tenant_id = ${context.tenantId}::uuid
           AND b.property_id = ${context.propertyId}::uuid AND s.provider = 'pokpay'
           AND s.external_payment_id = ${orderId}
