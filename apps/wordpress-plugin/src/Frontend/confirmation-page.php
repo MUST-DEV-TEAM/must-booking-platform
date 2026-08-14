@@ -41,7 +41,10 @@ function maybe_process_confirmation_cancellation(): string
     $token = isset($_GET['cancellationToken']) ? \sanitize_text_field((string) \wp_unslash($_GET['cancellationToken'])) : '';
     if ($bookingId === '') return \__('Booking not found.', 'must-hotel-booking');
 
-    $current = MustApiClient::get('/public/bookings/' . \rawurlencode($bookingId));
+    $current = MustApiClient::get(
+        '/public/bookings/' . \rawurlencode($bookingId),
+        $token !== '' ? ['cancellationToken' => $token] : []
+    );
     if (!$current['ok'] || !\is_array($current['body'])) {
         return \__('Booking not found.', 'must-hotel-booking');
     }
@@ -91,7 +94,10 @@ function get_confirmation_result_view_data(string $bookingId): array
     $cancellationReview = [];
     $status = '';
 
-    $response = MustApiClient::get('/public/bookings/' . \rawurlencode($bookingId));
+    $response = MustApiClient::get(
+        '/public/bookings/' . \rawurlencode($bookingId),
+        $token !== '' ? ['cancellationToken' => $token] : []
+    );
     if ($response['ok'] && \is_array($response['body'])) {
         $booking = $response['body'];
         $status = (string) ($booking['status'] ?? '');
