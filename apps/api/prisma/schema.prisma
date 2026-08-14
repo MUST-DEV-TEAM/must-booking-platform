@@ -513,6 +513,10 @@ model Booking {
   guestReturnUrl             String?       @map("guest_return_url") @db.VarChar(2000)
   specialRequests            String?       @map("special_requests") @db.VarChar(2000)
   externalReference          String        @map("external_reference") @db.VarChar(200)
+  orderReference             String?       @map("order_reference") @db.VarChar(200)
+  orderRoomNumber            Int?          @map("order_room_number")
+  roomGuestFirstName         String?       @map("room_guest_first_name") @db.VarChar(100)
+  roomGuestLastName          String?       @map("room_guest_last_name") @db.VarChar(100)
   externalBookingId          String?       @map("external_booking_id") @db.VarChar(64)
   status                     BookingStatus @default(DRAFT)
   paymentMethod              BookingPaymentMethod @default(STRIPE_CHECKOUT) @map("payment_method")
@@ -541,6 +545,7 @@ model Booking {
   @@index([tenantId, propertyId, roomTypeId, startsOn, endsOn])
   @@index([tenantId, propertyId, roomId, startsOn, endsOn])
   @@index([tenantId, propertyId, guestId])
+  @@index([tenantId, propertyId, orderReference, orderRoomNumber])
   @@index([tenantId, propertyId, externalBookingId])
   @@map("bookings")
 }

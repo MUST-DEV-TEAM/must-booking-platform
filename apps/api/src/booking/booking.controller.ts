@@ -30,6 +30,7 @@ import { LocalPmsProvider } from './local-pms.provider';
 import { BookingProjectionService } from './booking-projection.service';
 import { CancellationLinkService } from './cancellation-link.service';
 import { PmsProviderRegistry } from './pms-provider-registry';
+import { MultiRoomBookingService } from './multi-room-booking.service';
 
 type GuestBookingRequest = {
   tenantContext: { tenantId: string; propertyId: string };
@@ -46,6 +47,7 @@ export class BookingController {
     @Inject(PmsProviderRegistry) private readonly providers: PmsProviderRegistry,
     @Inject(BookingProjectionService) private readonly projections: BookingProjectionService,
     @Inject(CancellationLinkService) private readonly cancellations: CancellationLinkService,
+    @Inject(MultiRoomBookingService) private readonly multiRoomBookings: MultiRoomBookingService,
   ) {}
 
   @Get()
@@ -93,6 +95,24 @@ export class BookingController {
       };
     }
     return result;
+  }
+
+  @Post('orders')
+  @PublicTenantScoped({ propertyParam: 'propertyId' })
+  @UseGuards(PublicRateLimitGuard)
+  @PublicRateLimit(PUBLIC_BOOKING_MUTATION_RATE_LIMIT)
+  async createOrder(
+    @Body() body: unknown,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Req() request: GuestBookingRequest,
+  ) {
+    return this.noConflict(
+      await this.multiRoomBookings.create(request.tenantContext, {
+        ...this.multiRoomCreateInput(body),
+        idempotencyKey: this.idempotencyKey(idempotencyKey),
+        quoteSessionId: request.guestSessionId,
+      }),
+    );
   }
 
   @Patch(':bookingId')
@@ -186,6 +206,49 @@ export class BookingController {
       payAtHotel: typeof value.payAtHotel === 'boolean' ? value.payAtHotel : undefined,
       quoteToken: typeof value.quoteToken === 'string' ? value.quoteToken : '',
       returnUrl: typeof value.returnUrl === 'string' ? value.returnUrl : undefined,
+    };
+  }
+
+  private multiRoomCreateInput(body: unknown) {
+    const value = (body ?? {}) as Record<string, unknown>;
+    const guest = (value.guest ?? {}) as Record<string, unknown>;
+    const rooms = Array.isArray(value.rooms) ? value.rooms : [];
+    return {
+      externalReference:
+        typeof value.externalReference === 'string' ? value.externalReference : undefined,
+      startsOn: typeof value.startsOn === 'string' ? value.startsOn : '',
+      endsOn: typeof value.endsOn === 'string' ? value.endsOn : '',
+      guest: {
+        email: typeof guest.email === 'string' ? guest.email : '',
+        firstName: typeof guest.firstName === 'string' ? guest.firstName : '',
+        lastName: typeof guest.lastName === 'string' ? guest.lastName : '',
+        phone: typeof guest.phone === 'string' ? guest.phone : null,
+      },
+      paymentMethod:
+        value.paymentMethod === 'stripe' ||
+        value.paymentMethod === 'pokpay' ||
+        value.paymentMethod === 'pay_at_hotel'
+          ? value.paymentMethod
+          : (undefined as GuestPaymentMethod | undefined),
+      rooms: rooms.map((candidate) => {
+        const room = (candidate ?? {}) as Record<string, unknown>;
+        const roomGuest = (room.guest ?? {}) as Record<string, unknown>;
+        return {
+          roomTypeId: typeof room.roomTypeId === 'string' ? room.roomTypeId : '',
+          roomId: typeof room.roomId === 'string' ? room.roomId : undefined,
+          ratePlanId: typeof room.ratePlanId === 'string' ? room.ratePlanId : '',
+          total: this.money(room.total) ?? { amount: '', currency: '' },
+          guestCount: typeof room.guestCount === 'number' ? room.guestCount : undefined,
+          quoteToken: typeof room.quoteToken === 'string' ? room.quoteToken : '',
+          guest:
+            typeof roomGuest.firstName === 'string' || typeof roomGuest.lastName === 'string'
+              ? {
+                  firstName: typeof roomGuest.firstName === 'string' ? roomGuest.firstName : '',
+                  lastName: typeof roomGuest.lastName === 'string' ? roomGuest.lastName : '',
+                }
+              : undefined,
+        };
+      }),
     };
   }
 

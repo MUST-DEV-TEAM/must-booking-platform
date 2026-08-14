@@ -74,6 +74,7 @@ import { StaffBookingController } from './booking/staff-booking.controller';
 import { PublicBookingController } from './booking/public-booking.controller';
 import { BookingProjectionService } from './booking/booking-projection.service';
 import { CancellationLinkService } from './booking/cancellation-link.service';
+import { MultiRoomBookingService } from './booking/multi-room-booking.service';
 import { PAYMENT_PROVIDER } from './payments/payment.provider';
 import { StripePaymentProvider } from './payments/stripe-payment.provider';
 import { PokPayPaymentProvider } from './payments/pokpay-payment.provider';
@@ -216,6 +217,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     BookingStateMachine,
     BookingProjectionService,
     CancellationLinkService,
+    MultiRoomBookingService,
     QuoteService,
     LocalPmsProvider,
     { provide: PMS_PROVIDER, useExisting: LocalPmsProvider },
