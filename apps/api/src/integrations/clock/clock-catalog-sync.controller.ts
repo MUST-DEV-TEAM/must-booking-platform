@@ -1,8 +1,9 @@
-import { Controller, Get, Inject, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Patch, Post, Req } from '@nestjs/common';
 
 import { RequiresVerifiedEmail } from '../../auth/requires-verified-email.decorator';
 import { RequiresCapability } from '../../tenancy/capabilities.decorator';
 import { Role, Roles } from '../../tenancy/roles.decorator';
+import { RatePlansService } from '../../tenancy/rate-plans.service';
 import { TenantScoped } from '../../tenancy/tenant-context.decorator';
 import { ClockCatalogSyncService } from './clock-catalog-sync.service';
 
@@ -12,6 +13,7 @@ type TenantRequest = { tenantContext: { tenantId: string; userId: string } };
 export class ClockCatalogSyncController {
   constructor(
     @Inject(ClockCatalogSyncService) private readonly catalogSync: ClockCatalogSyncService,
+    @Inject(RatePlansService) private readonly ratePlans: RatePlansService,
   ) {}
 
   @Post('sync')
@@ -33,6 +35,37 @@ export class ClockCatalogSyncController {
   @RequiresCapability('settings.manage')
   listMappings(@Param('propertyId') propertyId: string, @Req() request: TenantRequest) {
     return this.catalogSync.listMappings(request.tenantContext.tenantId, propertyId);
+  }
+
+  @Get('cancellation-policies')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('settings.manage')
+  listCancellationPolicies(@Param('propertyId') propertyId: string, @Req() request: TenantRequest) {
+    return this.ratePlans.listClockShadowCancellationPolicies(
+      request.tenantContext.tenantId,
+      propertyId,
+    );
+  }
+
+  @Patch('cancellation-policies/:ratePlanId')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('settings.manage')
+  @RequiresVerifiedEmail()
+  updateCancellationPolicy(
+    @Param('propertyId') propertyId: string,
+    @Param('ratePlanId') ratePlanId: string,
+    @Body() body: unknown,
+    @Req() request: TenantRequest,
+  ) {
+    return this.ratePlans.updateClockShadowCancellationPolicy(
+      request.tenantContext.tenantId,
+      propertyId,
+      ratePlanId,
+      request.tenantContext.userId,
+      body,
+    );
   }
 
   @Post('mappings/:mappingId/confirm')

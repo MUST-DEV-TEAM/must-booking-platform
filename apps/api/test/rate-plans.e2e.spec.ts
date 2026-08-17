@@ -99,6 +99,53 @@ describe('rate plans', () => {
       .expect(201);
     roomTypeId = roomType.body.id;
 
+    const clockShadowRatePlanId = randomUUID();
+    await admin.$executeRaw`
+      INSERT INTO rate_plans (
+        id, tenant_id, property_id, name, currency, is_active, clock_shadow_room_type_id
+      ) VALUES (
+        ${clockShadowRatePlanId}::uuid, ${tenantId}::uuid, ${propertyId}::uuid,
+        'Clock: Standard Room', 'EUR', true, ${roomTypeId}::uuid
+      )
+    `;
+    await request(app.getHttpServer())
+      .get(`/tenants/${tenantId}/properties/${propertyId}/clock-catalog/cancellation-policies`)
+      .set('Cookie', cookie)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toMatchObject({
+          propertyFreeCancellationDays: 21,
+          ratePlans: [
+            {
+              ratePlanId: clockShadowRatePlanId,
+              ratePlanName: 'Clock: Standard Room',
+              freeCancellationDays: null,
+            },
+          ],
+        });
+      });
+    await request(app.getHttpServer())
+      .patch(
+        `/tenants/${tenantId}/properties/${propertyId}/clock-catalog/cancellation-policies/${clockShadowRatePlanId}`,
+      )
+      .set('Cookie', cookie)
+      .send({ freeCancellationDays: 21.5 })
+      .expect(400);
+    await request(app.getHttpServer())
+      .patch(
+        `/tenants/${tenantId}/properties/${propertyId}/clock-catalog/cancellation-policies/${clockShadowRatePlanId}`,
+      )
+      .set('Cookie', cookie)
+      .send({ freeCancellationDays: 21 })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual({
+          ratePlanId: clockShadowRatePlanId,
+          ratePlanName: 'Clock: Standard Room',
+          freeCancellationDays: 21,
+        });
+      });
+
     const created = await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans`)
       .set('Cookie', cookie)
@@ -335,5 +382,9 @@ describe('rate plans', () => {
     expect(logs).toContainEqual({ action: 'rate_rule.created', target_id: baseRule.body.id });
     expect(logs).toContainEqual({ action: 'rate_rule.deleted', target_id: firstRuleId });
     expect(logs).toContainEqual({ action: 'rate_plan.deleted', target_id: ratePlanId });
+    expect(logs).toContainEqual({
+      action: 'clock_shadow_rate_plan.cancellation_policy_updated',
+      target_id: clockShadowRatePlanId,
+    });
   });
 });
