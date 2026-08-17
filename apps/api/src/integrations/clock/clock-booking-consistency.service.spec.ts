@@ -10,7 +10,7 @@ const credentials = { host: 'h', accountId: '1', subscriptionId: '2', apiUser: '
 function makeService(
   bookings: unknown[],
   operations: Array<{ externalReference: string }>,
-  clockBookings: unknown[],
+  clockResponses: unknown[],
 ) {
   const transaction = {
     $queryRaw: vi.fn().mockResolvedValueOnce(bookings).mockResolvedValueOnce(operations),
@@ -24,7 +24,12 @@ function makeService(
       .mockResolvedValue({ connectionId: 'connection', provider: 'CLOCK_PMS', credentials }),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
-  const client = { request: vi.fn().mockResolvedValue({ status: 200, body: clockBookings }) };
+  const client = {
+    request: vi.fn().mockImplementation(() => {
+      const body = clockResponses.shift();
+      return Promise.resolve({ status: 200, body });
+    }),
+  };
   const rateLimiter = { consume: vi.fn().mockResolvedValue({ allowed: true }) };
   const circuitBreaker = {
     assertClosed: vi.fn(),
@@ -42,12 +47,14 @@ function makeService(
     ),
     client,
     audit,
+    rateLimiter,
+    circuitBreaker,
   };
 }
 
 describe('ClockBookingConsistencyService', () => {
   it('accepts Clock expected/no-show for local CONFIRMED and a missing Clock row for local CANCELLED', async () => {
-    const { service, client, audit } = makeService(
+    const { service, client, audit, rateLimiter, circuitBreaker } = makeService(
       [
         {
           id: 'local-confirmed',
@@ -63,7 +70,7 @@ describe('ClockBookingConsistencyService', () => {
         },
       ],
       [{ externalReference: 'must-1' }, { externalReference: 'must-2' }],
-      [{ id: 100, status: 'no_show', reference_number: 'must-1' }],
+      [[100], { id: 100, status: 'no_show', reference_number: 'must-1' }],
     );
 
     await expect(
@@ -82,6 +89,13 @@ describe('ClockBookingConsistencyService', () => {
         query: { 'arrival.lt': '2026-08-31', 'departure.gt': '2026-08-01' },
       }),
     );
+    expect(client.request).toHaveBeenNthCalledWith(
+      2,
+      credentials,
+      expect.objectContaining({ path: '/bookings/100', query: undefined }),
+    );
+    expect(rateLimiter.consume).toHaveBeenCalledTimes(2);
+    expect(circuitBreaker.assertClosed).toHaveBeenCalledTimes(2);
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'clock_booking_consistency.checked',
@@ -108,6 +122,7 @@ describe('ClockBookingConsistencyService', () => {
       ],
       [{ externalReference: 'must-clock-only' }, { externalReference: 'must-order' }],
       [
+        [102, 103, 105, 104],
         { id: 102, status: 'canceled', reference_number: 'must-status' },
         { id: 103, status: 'expected', reference_number: 'must-clock-only' },
         { id: 105, status: 'expected', reference_number: 'must-order-room1' },

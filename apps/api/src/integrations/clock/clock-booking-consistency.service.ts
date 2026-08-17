@@ -245,6 +245,39 @@ export class ClockBookingConsistencyService {
     credentials: ClockConnectionCredentials,
     range: { startsOn: string; endsOn: string },
   ): Promise<ClockBookingResource[]> {
+    const listed = await this.fetchClock<unknown>(credentials, '/bookings/', {
+      // Clock documents comparison filters for booking date fields. These
+      // two filters return reservations that overlap [startsOn, endsOn).
+      'arrival.lt': range.endsOn,
+      'departure.gt': range.startsOn,
+    });
+    // Confirmed against Empire Beach Resort production on 2026-08-17: the
+    // list endpoint returns only numeric IDs, not booking resources. Detail
+    // reads are therefore mandatory before comparing Clock status/reference.
+    if (!Array.isArray(listed) || !listed.every(isClockBookingId))
+      throw new Error('Clock returned an unexpected booking-list response.');
+
+    const bookings: ClockBookingResource[] = [];
+    for (const id of listed) {
+      const booking = await this.fetchClock<unknown>(credentials, `/bookings/${id}`);
+      if (!isClockBookingResource(booking))
+        throw new Error(`Clock returned an unexpected booking detail for ${id}.`);
+      bookings.push(booking);
+    }
+    return bookings;
+  }
+
+  /**
+   * Every Clock request, including each read after a list response, shares
+   * the same circuit breaker and 4/s operational limit. A rate-limited GET
+   * waits and retries safely; it never retries a write because this checker
+   * has no write path.
+   */
+  private async fetchClock<T>(
+    credentials: ClockConnectionCredentials,
+    path: string,
+    query?: Record<string, string>,
+  ): Promise<T> {
     const breakerKey = credentials.apiUser;
     try {
       this.circuitBreaker.assertClosed(breakerKey);
@@ -253,29 +286,23 @@ export class ClockBookingConsistencyService {
         throw new Error(`Clock booking consistency check unavailable: ${error.message}`);
       throw error;
     }
-    const rateLimit = await this.rateLimiter.consume(breakerKey);
-    if (!rateLimit.allowed)
-      throw new Error(
-        `Clock booking consistency check rate-limited; retry in ${rateLimit.retryAfterSeconds}s.`,
-      );
+    for (;;) {
+      const rateLimit = await this.rateLimiter.consume(breakerKey);
+      if (rateLimit.allowed) break;
+      await wait(rateLimit.retryAfterSeconds * 1_000);
+    }
 
     try {
-      const response = await this.client.request<unknown>(credentials, {
+      const response = await this.client.request<T>(credentials, {
         api: 'pms_api',
         method: 'GET',
-        path: '/bookings/',
-        // Clock documents comparison filters for booking date fields. These
-        // two filters return reservations that overlap [startsOn, endsOn).
-        query: { 'arrival.lt': range.endsOn, 'departure.gt': range.startsOn },
+        path,
+        query,
         timeoutMs: 15_000,
       });
       if (response.status < 200 || response.status >= 300) {
         this.circuitBreaker.recordFailure(breakerKey);
         throw new Error(classifyClockHttpResponse(response.status, response.body).message);
-      }
-      if (!Array.isArray(response.body) || !response.body.every(isClockBookingResource)) {
-        this.circuitBreaker.recordFailure(breakerKey);
-        throw new Error('Clock returned an unexpected booking-list response.');
       }
       this.circuitBreaker.recordSuccess(breakerKey);
       return response.body;
@@ -302,6 +329,10 @@ export class ClockBookingConsistencyService {
     if (days > 31)
       throw new Error('Clock booking consistency checks are limited to a 31-day range.');
   }
+}
+
+function isClockBookingId(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }
 
 function isClockBookingResource(value: unknown): value is ClockBookingResource {
@@ -341,4 +372,8 @@ function hasMustOperationReference(references: Set<string>, clockReference: stri
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
