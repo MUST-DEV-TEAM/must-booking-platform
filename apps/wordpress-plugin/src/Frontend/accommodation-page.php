@@ -245,6 +245,10 @@ function get_accommodation_page_view_data(): array
     $rooms = [];
     if ($hasContext) {
         $index = 0;
+        // A zero room count is the existing "Auto" single-room request.  Do
+        // not hide options for explicit multi-room searches: combining rooms
+        // is deliberately outside this task's scope.
+        $requiresSingleRoomCapacity = $roomCount <= 1;
         // A property configured INDIVIDUAL_ROOM_ONLY requires an explicit
         // roomId on every booking (LocalPmsProvider.validateRoomSelection
         // rejects otherwise) — the catalog already returns each room type's
@@ -257,6 +261,7 @@ function get_accommodation_page_view_data(): array
         foreach (get_must_room_types($checkin, $checkout) as $roomType) {
             $roomTypeId = (string) ($roomType['id'] ?? '');
             if ($roomTypeId === '' || ($accommodationType !== '' && $roomTypeId !== $accommodationType)) continue;
+            if ($requiresSingleRoomCapacity && (int) ($roomType['maxOccupancy'] ?? 0) < $guests) continue;
 
             if ($bookingMode === 'INDIVIDUAL_ROOM_ONLY') {
                 $roomCurrency = (string) ($roomType['ratePlans'][0]['currency'] ?? 'USD');
