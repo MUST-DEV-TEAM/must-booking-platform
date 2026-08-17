@@ -13,10 +13,7 @@ function makeService(
   clockBookings: unknown[],
 ) {
   const transaction = {
-    $queryRaw: vi
-      .fn()
-      .mockResolvedValueOnce(bookings)
-      .mockResolvedValueOnce(operations),
+    $queryRaw: vi.fn().mockResolvedValueOnce(bookings).mockResolvedValueOnce(operations),
   };
   const database = {
     withTenantTransaction: vi.fn((_context, callback) => callback(transaction)),

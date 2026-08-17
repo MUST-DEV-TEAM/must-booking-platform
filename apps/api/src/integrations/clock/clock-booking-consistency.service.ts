@@ -109,7 +109,9 @@ export class ClockBookingConsistencyService {
 
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (!connection || connection.provider !== 'CLOCK_PMS')
-      throw new Error(classifyConfigurationError('This property has no active Clock PMS connection.').message);
+      throw new Error(
+        classifyConfigurationError('This property has no active Clock PMS connection.').message,
+      );
     const parsed = parseClockCredentials(connection.credentials);
     if (!parsed.ok) throw new Error(classifyConfigurationError(parsed.message).message);
 
@@ -212,7 +214,9 @@ export class ClockBookingConsistencyService {
     }
 
     const localReferences = new Set(
-      localBookings.flatMap((booking) => (booking.externalReference ? [booking.externalReference] : [])),
+      localBookings.flatMap((booking) =>
+        booking.externalReference ? [booking.externalReference] : [],
+      ),
     );
     for (const clock of clockBookings) {
       const reference = clock.reference_number;
