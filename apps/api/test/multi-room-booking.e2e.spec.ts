@@ -122,7 +122,7 @@ describe('Multi-room booking orders', () => {
             WHERE id = ${bookingId}::uuid AND tenant_id = ${context.tenantId}::uuid
               AND property_id = ${context.propertyId}::uuid
           `;
-          return { ok: true as const, value: { id: bookingId } };
+          return { ok: true as const, value: { id: bookingId, status: 'CONFIRMED' } };
         },
         async postDeposit() {
           return { ok: true as const, value: undefined };
@@ -287,6 +287,8 @@ describe('Multi-room booking orders', () => {
         endsOn,
       }),
     ]);
+    clockConnected = true;
+    failSecondClockReservation = false;
     const held = await orders.create(
       { tenantId, propertyId },
       {
@@ -325,6 +327,19 @@ describe('Multi-room booking orders', () => {
       'CONFIRMED',
       'CONFIRMED',
     ]);
+    const payAtHotelClockBookings = await admin.$queryRaw<
+      Array<{ externalBookingId: string | null }>
+    >`
+      SELECT external_booking_id AS "externalBookingId"
+      FROM bookings
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND order_reference = ${held.value.orderReference}
+      ORDER BY order_room_number
+    `;
+    expect(payAtHotelClockBookings).toEqual([
+      { externalBookingId: `clock-${held.value.bookings[0]!.id}` },
+      { externalBookingId: `clock-${held.value.bookings[1]!.id}` },
+    ]);
     const roomGuests = await admin.$queryRaw<
       Array<{
         orderReference: string;
@@ -354,6 +369,9 @@ describe('Multi-room booking orders', () => {
         lastName: 'Guest',
       },
     ]);
+    // Later quotes intentionally exercise the local pricing path; Clock is
+    // re-enabled just before the paid order's webhook fan-out below.
+    clockConnected = false;
 
     await request(app!.getHttpServer())
       .patch(`${propertyUrl}/payment-gateways`)

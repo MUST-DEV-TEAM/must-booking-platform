@@ -11,6 +11,8 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import { AvailabilityService } from '../tenancy/availability.service';
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
+import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
+import { ClockBookingService } from '../integrations/clock/clock-booking.service';
 import { PaymentProviderRegistry } from '../payments/payment-provider-registry';
 import { QuoteService } from './quote.service';
 
@@ -63,6 +65,9 @@ export class MultiRoomBookingService {
     @Inject(AvailabilityService) private readonly availability: AvailabilityService,
     @Inject(QuoteService) private readonly quotes: QuoteService,
     @Inject(PaymentProviderRegistry) private readonly paymentProviders: PaymentProviderRegistry,
+    @Inject(IntegrationConnectionsService)
+    private readonly connections: IntegrationConnectionsService,
+    @Inject(ClockBookingService) private readonly clockBooking: ClockBookingService,
   ) {}
 
   async create(
@@ -122,7 +127,9 @@ export class MultiRoomBookingService {
               paymentMethod.value === BookingPaymentMethod.STRIPE_CHECKOUT ||
               paymentMethod.value === BookingPaymentMethod.POKPAY
                 ? BookingStatus.PAYMENT_PENDING
-                : BookingStatus.CONFIRMED;
+                : paymentMethod.value === BookingPaymentMethod.PAY_AT_HOTEL
+                  ? BookingStatus.PMS_CREATION_PENDING
+                  : BookingStatus.CONFIRMED;
             const bookings: MultiRoomOrder['bookings'] = [];
             for (const [index, room] of command.rooms.entries()) {
               const externalReference = `${orderReference}-room${index + 1}`;
@@ -146,6 +153,34 @@ export class MultiRoomBookingService {
                 RETURNING id
               `;
               bookings.push({ id: inserted[0]!.id, externalReference, status, total: room.total });
+            }
+            if (paymentMethod.value === BookingPaymentMethod.PAY_AT_HOTEL) {
+              if (await this.isClockConnected(context)) {
+                for (const booking of bookings) {
+                  // Match Task 15's payment-confirmed fan-out: a Clock failure for
+                  // one room is already recorded by attachRealReservation and must
+                  // not stop its siblings from receiving their own reservation.
+                  const attached = await this.clockBooking.attachRealReservation(
+                    tx,
+                    context,
+                    booking.id,
+                  );
+                  booking.status = attached.ok
+                    ? attached.value.status
+                    : BookingStatus.PMS_UNKNOWN_RESULT;
+                }
+              } else {
+                await tx.$executeRaw`
+                  UPDATE bookings
+                  SET status = ${BookingStatus.CONFIRMED}::"BookingStatus", updated_at = CURRENT_TIMESTAMP
+                  WHERE tenant_id = ${context.tenantId}::uuid
+                    AND property_id = ${context.propertyId}::uuid
+                    AND order_reference = ${orderReference}
+                    AND status = ${BookingStatus.PMS_CREATION_PENDING}::"BookingStatus"
+                `;
+                for (const booking of bookings) booking.status = BookingStatus.CONFIRMED;
+              }
+              return { ok: true, value: { orderReference, bookings } };
             }
             if (
               paymentMethod.value === BookingPaymentMethod.STRIPE_CHECKOUT ||
@@ -184,7 +219,7 @@ export class MultiRoomBookingService {
             return { ok: true, value: { orderReference, bookings } };
           });
         },
-        { timeoutMs: 30_000 },
+        { timeoutMs: 45_000 },
       );
     } catch (error) {
       if (error instanceof MultiRoomAvailabilityError)
@@ -465,6 +500,17 @@ export class MultiRoomBookingService {
       `/bookings/${bookingId}/payment/${outcome}`,
       process.env.WEB_APP_URL!,
     ).toString();
+  }
+
+  private async isClockConnected(context: {
+    tenantId: string;
+    propertyId: string;
+  }): Promise<boolean> {
+    const connection = await this.connections.activePmsConnectionCredentials(
+      context.tenantId,
+      context.propertyId,
+    );
+    return connection?.provider === 'CLOCK_PMS';
   }
 
   private failure(code: string, message: string, retryable = false): Result<never> {
