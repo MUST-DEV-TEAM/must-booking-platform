@@ -30,17 +30,6 @@ type RoomPriceOverride = {
   amount: string;
 };
 
-export type ClockShadowCancellationPolicy = {
-  ratePlanId: string;
-  ratePlanName: string;
-  freeCancellationDays: number | null;
-};
-
-export type ClockShadowCancellationPolicies = {
-  propertyFreeCancellationDays: number;
-  ratePlans: ClockShadowCancellationPolicy[];
-};
-
 type RatePlanInput = {
   name: string;
   currency: string;
@@ -75,60 +64,6 @@ export class RatePlansService {
         ORDER BY created_at
       `,
     );
-  }
-
-  async listClockShadowCancellationPolicies(
-    tenantId: string,
-    propertyId: string,
-  ): Promise<ClockShadowCancellationPolicies> {
-    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      const property = await tx.$queryRaw<Array<{ freeCancellationDays: number }>>`
-        SELECT free_cancellation_days_before_arrival AS "freeCancellationDays"
-        FROM properties
-        WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
-      `;
-      if (!property[0]) throw new NotFoundException('Property not found.');
-      const ratePlans = await tx.$queryRaw<ClockShadowCancellationPolicy[]>`
-        SELECT id AS "ratePlanId", name AS "ratePlanName",
-          free_cancellation_until_hours / 24 AS "freeCancellationDays"
-        FROM rate_plans
-        WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
-          AND clock_shadow_room_type_id IS NOT NULL
-        ORDER BY created_at
-      `;
-      return { propertyFreeCancellationDays: property[0].freeCancellationDays, ratePlans };
-    });
-  }
-
-  async updateClockShadowCancellationPolicy(
-    tenantId: string,
-    propertyId: string,
-    ratePlanId: string,
-    actorUserId: string,
-    body: unknown,
-  ): Promise<ClockShadowCancellationPolicy> {
-    const freeCancellationDays = this.freeCancellationDaysInput(body);
-    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      const rows = await tx.$queryRaw<ClockShadowCancellationPolicy[]>`
-        UPDATE rate_plans
-        SET free_cancellation_until_hours = ${freeCancellationDays * 24}, updated_at = CURRENT_TIMESTAMP
-        WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
-          AND id = ${ratePlanId}::uuid AND clock_shadow_room_type_id IS NOT NULL
-        RETURNING id AS "ratePlanId", name AS "ratePlanName",
-          free_cancellation_until_hours / 24 AS "freeCancellationDays"
-      `;
-      if (!rows[0]) throw new NotFoundException('Clock-managed rate plan not found.');
-      await this.record(
-        tx,
-        tenantId,
-        propertyId,
-        actorUserId,
-        'clock_shadow_rate_plan.cancellation_policy_updated',
-        'rate_plan',
-        ratePlanId,
-      );
-      return rows[0];
-    });
   }
 
   async create(
@@ -524,14 +459,6 @@ export class RatePlansService {
       freeCancellationUntilHours:
         typeof rawFreeCancellationUntilHours === 'number' ? rawFreeCancellationUntilHours : null,
     };
-  }
-
-  private freeCancellationDaysInput(body: unknown): number {
-    const value = (body ?? {}) as Record<string, unknown>;
-    const days = value.freeCancellationDays;
-    if (typeof days !== 'number' || !Number.isInteger(days) || days < 0)
-      throw new BadRequestException('freeCancellationDays must be a non-negative integer.');
-    return days;
   }
 
   private rateRuleInput(body: unknown): RateRuleInput {

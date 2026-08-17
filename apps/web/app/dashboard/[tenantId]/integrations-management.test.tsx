@@ -158,19 +158,6 @@ describe('ClockCatalogSync', () => {
             },
           ]),
         );
-      if (url === '/api/tenants/t/properties/p/clock-catalog/cancellation-policies')
-        return new Response(
-          JSON.stringify({
-            propertyFreeCancellationDays: 21,
-            ratePlans: [
-              {
-                ratePlanId: 'rp-clock',
-                ratePlanName: 'Clock: Standard',
-                freeCancellationDays: null,
-              },
-            ],
-          }),
-        );
       return new Response(JSON.stringify([]));
     });
     vi.stubGlobal('fetch', fetch);
@@ -178,8 +165,6 @@ describe('ClockCatalogSync', () => {
 
     expect(container.textContent).toContain('Clock catalog sync');
     expect(container.textContent).toContain('Standard');
-    expect(container.textContent).toContain('Cancellation policy for Clock rate plans');
-    expect(container.textContent).toContain("does not match the property's 21-day");
     await act(async () => root.unmount());
   });
 });

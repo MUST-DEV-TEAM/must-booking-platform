@@ -414,15 +414,6 @@ type ClockCatalogMapping = {
   localEntityId: string | null;
 };
 
-type ClockShadowCancellationPolicies = {
-  propertyFreeCancellationDays: number;
-  ratePlans: Array<{
-    ratePlanId: string;
-    ratePlanName: string;
-    freeCancellationDays: number | null;
-  }>;
-};
-
 function ClockCatalogSync({ tenantId, property }: { tenantId: string; property: Property }) {
   const queryClient = useQueryClient();
   const base = `/api/tenants/${tenantId}/properties/${property.id}/clock-catalog`;
@@ -521,121 +512,7 @@ function ClockCatalogSync({ tenantId, property }: { tenantId: string; property: 
           </button>
         </div>
       ))}
-      <ClockCancellationPolicies base={base} tenantId={tenantId} propertyId={property.id} />
     </Card>
-  );
-}
-
-function ClockCancellationPolicies({
-  base,
-  tenantId,
-  propertyId,
-}: {
-  base: string;
-  tenantId: string;
-  propertyId: string;
-}) {
-  const queryClient = useQueryClient();
-  const queryKey = ['dashboard', 'clock-cancellation-policies', tenantId, propertyId] as const;
-  const policiesQuery = useQuery({
-    queryKey,
-    queryFn: async (): Promise<ClockShadowCancellationPolicies> => {
-      const response = await fetch(`${base}/cancellation-policies`, { credentials: 'include' });
-      if (!response.ok) throw new Error('Unable to load Clock cancellation policies.');
-      return (await response.json()) as ClockShadowCancellationPolicies;
-    },
-  });
-  const updateMutation = useMutation({
-    mutationFn: async ({
-      ratePlanId,
-      freeCancellationDays,
-    }: {
-      ratePlanId: string;
-      freeCancellationDays: number;
-    }) => {
-      const response = await fetch(`${base}/cancellation-policies/${ratePlanId}`, {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ freeCancellationDays }),
-      });
-      if (!response.ok)
-        throw new Error(await errorMessage(response, 'Unable to update the cancellation policy.'));
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey });
-      toast.success('Clock cancellation policy updated.');
-    },
-    onError: (error) =>
-      toast.error(
-        error instanceof Error ? error.message : 'Unable to update the cancellation policy.',
-      ),
-  });
-
-  const policies = policiesQuery.data;
-  if (policiesQuery.isPending) return <Text>Loading Clock cancellation policiesâ€¦</Text>;
-  if (!policies || policies.ratePlans.length === 0)
-    return <Text tone="secondary">No Clock-managed rate plans are available yet.</Text>;
-
-  return (
-    <section className="must-field" aria-label="Clock cancellation policies">
-      <Text>
-        <strong>Cancellation policy for Clock rate plans</strong>
-      </Text>
-      <Text tone="secondary">
-        Set the free-cancellation window in whole days. It should match the property gate of{' '}
-        {policies.propertyFreeCancellationDays} days so every self-service cancellation is
-        refundable.
-      </Text>
-      {policies.ratePlans.map((ratePlan) => {
-        const differs = ratePlan.freeCancellationDays !== policies.propertyFreeCancellationDays;
-        return (
-          <form
-            key={ratePlan.ratePlanId}
-            className="must-field"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const days = Number(
-                new FormData(event.currentTarget).get(
-                  `freeCancellationDays-${ratePlan.ratePlanId}`,
-                ),
-              );
-              updateMutation.mutate({
-                ratePlanId: ratePlan.ratePlanId,
-                freeCancellationDays: days,
-              });
-            }}
-          >
-            <label className="must-field">
-              <span className="must-field__label">{ratePlan.ratePlanName}</span>
-              <input
-                className="must-input"
-                aria-label={`Free cancellation days for ${ratePlan.ratePlanName}`}
-                name={`freeCancellationDays-${ratePlan.ratePlanId}`}
-                type="number"
-                min="0"
-                step="1"
-                required
-                defaultValue={ratePlan.freeCancellationDays ?? ''}
-              />
-            </label>
-            {differs ? (
-              <Text tone="secondary">
-                This rate plan does not match the property&apos;s{' '}
-                {policies.propertyFreeCancellationDays}-day self-service cancellation gate.
-              </Text>
-            ) : null}
-            <button
-              className="must-button must-button--secondary"
-              type="submit"
-              disabled={updateMutation.isPending}
-            >
-              {updateMutation.isPending ? 'Savingâ€¦' : 'Save cancellation policy'}
-            </button>
-          </form>
-        );
-      })}
-    </section>
   );
 }
 
