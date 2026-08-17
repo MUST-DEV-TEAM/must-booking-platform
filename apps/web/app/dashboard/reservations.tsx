@@ -1,7 +1,7 @@
 'use client';
 
 import { Card, Heading, Stack, Text } from '@must/ui';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { useMemo, useState } from 'react';
 
@@ -52,6 +52,7 @@ export function DashboardReservations({
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const bookingsQuery = useQuery({
     queryKey: ['dashboard', 'reservations', tenantId, propertyId],
@@ -241,7 +242,17 @@ export function DashboardReservations({
       </Card>
 
       {selectedBooking ? (
-        <ReservationDetails booking={selectedBooking} onClose={() => setSelectedId(null)} />
+        <ReservationDetails
+          booking={selectedBooking}
+          onClose={() => setSelectedId(null)}
+          onCancelled={() =>
+            void queryClient.invalidateQueries({
+              queryKey: ['dashboard', 'reservations', tenantId, propertyId],
+            })
+          }
+          tenantId={tenantId}
+          propertyId={propertyId}
+        />
       ) : null}
     </Stack>
   );
@@ -273,7 +284,54 @@ export function filterReservations(
   });
 }
 
-function ReservationDetails({ booking, onClose }: { booking: Reservation; onClose: () => void }) {
+function ReservationDetails({
+  booking,
+  onClose,
+  onCancelled,
+  tenantId,
+  propertyId,
+}: {
+  booking: Reservation;
+  onClose: () => void;
+  onCancelled: () => void;
+  tenantId: string;
+  propertyId: string;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const canCancel = ['PAYMENT_PENDING', 'PMS_CONFIRMATION_PENDING', 'CONFIRMED'].includes(
+    booking.status,
+  );
+
+  async function cancel() {
+    if (!window.confirm(`Cancel reservation ${booking.externalReference}?`)) return;
+    setCancelling(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/tenants/${tenantId}/properties/${propertyId}/staff-bookings/${booking.id}`,
+        {
+          method: 'DELETE',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+          body: JSON.stringify({
+            expectedVersion: booking.version,
+            reason: 'Cancelled by property staff.',
+          }),
+        },
+      );
+      if (!response.ok) throw new Error('Unable to cancel reservation.');
+      const result = (await response.json()) as { ok: boolean; error?: { message: string } };
+      if (!result.ok) throw new Error(result.error?.message ?? 'Unable to cancel reservation.');
+      onCancelled();
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to cancel reservation.');
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   return (
     <section aria-label="Reservation details">
       <Card className={styles.details}>
@@ -329,6 +387,18 @@ function ReservationDetails({ booking, onClose }: { booking: Reservation; onClos
             </div>
           ) : null}
         </dl>
+        {canCancel ? (
+          <div>
+            <button type="button" disabled={cancelling} onClick={() => void cancel()}>
+              {cancelling ? 'Cancellingâ€¦' : 'Cancel reservation'}
+            </button>
+            {error ? (
+              <div role="alert">
+                <Text>{error}</Text>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </Card>
     </section>
   );

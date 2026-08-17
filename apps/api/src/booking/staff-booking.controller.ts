@@ -3,9 +3,11 @@ import {
   Body,
   ConflictException,
   Controller,
+  Delete,
   Headers,
   HttpCode,
   Inject,
+  Param,
   Post,
   Req,
 } from '@nestjs/common';
@@ -24,6 +26,33 @@ export class StaffBookingController {
     @Inject(LocalPmsProvider) private readonly provider: LocalPmsProvider,
     @Inject(QuoteService) private readonly quotes: QuoteService,
   ) {}
+
+  @Delete(':bookingId')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.manage')
+  @RequiresVerifiedEmail()
+  async cancel(
+    @Param('bookingId') bookingId: string,
+    @Body() body: unknown,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
+  ) {
+    const value = (body ?? {}) as Record<string, unknown>;
+    const result = await this.provider.cancelBooking(request.tenantContext, {
+      idempotencyKey: this.idempotencyKey(idempotencyKey),
+      bookingId,
+      expectedVersion: typeof value.expectedVersion === 'number' ? value.expectedVersion : NaN,
+      reason: typeof value.reason === 'string' ? value.reason : null,
+      staffActorId: request.tenantContext.userId,
+    });
+    if (!result.ok && result.error.code === 'IDEMPOTENCY_KEY_CONFLICT')
+      throw new ConflictException(
+        'This idempotency key was already used with a different request.',
+      );
+    return result;
+  }
 
   @Post()
   @HttpCode(201)

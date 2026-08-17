@@ -270,6 +270,8 @@ export interface CancelBookingCommand {
   guestSessionId?: string;
   expectedVersion: number;
   reason: string | null;
+  /** Present only for an authenticated staff cancellation. */
+  staffActorId?: string;
 }
 
 export interface PmsProvider {
