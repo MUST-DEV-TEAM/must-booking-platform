@@ -413,6 +413,11 @@ type ClockCatalogMapping = {
   syncStatus: 'PROPOSED' | 'CONFIRMED' | 'REJECTED';
   localEntityId: string | null;
 };
+type ClockPolicyCatalog = {
+  propertyFreeCancellationDays: number;
+  policies: Array<{ id: string; name: string; freeCancellationDaysBeforeArrival: number }>;
+  ratePlans: Array<{ id: string; name: string; cancellationPolicyId: string | null }>;
+};
 
 function ClockCatalogSync({ tenantId, property }: { tenantId: string; property: Property }) {
   const queryClient = useQueryClient();
@@ -512,7 +517,256 @@ function ClockCatalogSync({ tenantId, property }: { tenantId: string; property: 
           </button>
         </div>
       ))}
+      <ClockCancellationPolicies base={base} tenantId={tenantId} propertyId={property.id} />
     </Card>
+  );
+}
+
+function ClockCancellationPolicies({
+  base,
+  tenantId,
+  propertyId,
+}: {
+  base: string;
+  tenantId: string;
+  propertyId: string;
+}) {
+  const queryClient = useQueryClient();
+  const key = ['dashboard', 'clock-cancellation-policies', tenantId, propertyId] as const;
+  const query = useQuery({
+    queryKey: key,
+    queryFn: async (): Promise<ClockPolicyCatalog> => {
+      const response = await fetch(`${base}/cancellation-policies`, { credentials: 'include' });
+      if (!response.ok) throw new Error('Unable to load cancellation policies.');
+      return (await response.json()) as ClockPolicyCatalog;
+    },
+  });
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: key });
+  const create = useMutation({
+    mutationFn: async (body: { name: string; freeCancellationDaysBeforeArrival: number }) => {
+      const response = await fetch(`${base}/cancellation-policies`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok)
+        throw new Error(await errorMessage(response, 'Unable to create cancellation policy.'));
+    },
+    onSuccess: () => {
+      refresh();
+      toast.success('Cancellation policy created.');
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Unable to create cancellation policy.'),
+  });
+  const update = useMutation({
+    mutationFn: async ({
+      id,
+      body,
+    }: {
+      id: string;
+      body: { name: string; freeCancellationDaysBeforeArrival: number };
+    }) => {
+      const response = await fetch(`${base}/cancellation-policies/${id}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok)
+        throw new Error(await errorMessage(response, 'Unable to update cancellation policy.'));
+    },
+    onSuccess: () => {
+      refresh();
+      toast.success('Cancellation policy saved.');
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Unable to update cancellation policy.'),
+  });
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await fetch(`${base}/cancellation-policies/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!response.ok)
+        throw new Error(await errorMessage(response, 'Unable to delete cancellation policy.'));
+    },
+    onSuccess: () => {
+      refresh();
+      toast.success('Cancellation policy deleted.');
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Unable to delete cancellation policy.'),
+  });
+  const assign = useMutation({
+    mutationFn: async ({
+      ratePlanId,
+      cancellationPolicyId,
+    }: {
+      ratePlanId: string;
+      cancellationPolicyId: string | null;
+    }) => {
+      const response = await fetch(`${base}/cancellation-policies/rate-plans/${ratePlanId}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ cancellationPolicyId }),
+      });
+      if (!response.ok)
+        throw new Error(await errorMessage(response, 'Unable to assign cancellation policy.'));
+    },
+    onSuccess: () => {
+      refresh();
+      toast.success('Cancellation policy assigned.');
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Unable to assign cancellation policy.'),
+  });
+  const catalog = query.data;
+  if (query.isPending) return <Text>Loading named cancellation policies…</Text>;
+  if (!catalog) return <Text tone="secondary">Cancellation policies are unavailable.</Text>;
+  const policies = catalog.policies ?? [];
+  const ratePlans = catalog.ratePlans ?? [];
+  const propertyWindow = catalog.propertyFreeCancellationDays ?? 0;
+  const quickStarts = [
+    ['Flexible', 3],
+    ['Standard', 7],
+    ['Moderate', 14],
+    ['Strict', 30],
+    ['Non-refundable', 0],
+  ] as const;
+  return (
+    <section className="must-field" aria-label="Named cancellation policies">
+      <Text>
+        <strong>Named cancellation policies</strong>
+      </Text>
+      <Text tone="secondary">
+        Policies may not exceed this property&apos;s {propertyWindow}-day self-service cancellation
+        window.
+      </Text>
+      <div>
+        {quickStarts.map(([name, days]) => (
+          <button
+            key={name}
+            className="must-button must-button--secondary"
+            type="button"
+            disabled={create.isPending}
+            onClick={() => create.mutate({ name, freeCancellationDaysBeforeArrival: days })}
+          >
+            {name} ({days} days)
+          </button>
+        ))}
+      </div>
+      <form
+        className="must-field"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          create.mutate({
+            name: String(form.get('name') ?? ''),
+            freeCancellationDaysBeforeArrival: Number(form.get('days')),
+          });
+          event.currentTarget.reset();
+        }}
+      >
+        <input className="must-input" name="name" placeholder="Policy name" required />
+        <input
+          className="must-input"
+          name="days"
+          type="number"
+          min="0"
+          step="1"
+          required
+          aria-label="Free cancellation days"
+        />
+        <button
+          className="must-button must-button--primary"
+          type="submit"
+          disabled={create.isPending}
+        >
+          Create policy
+        </button>
+      </form>
+      {policies.map((policy) => (
+        <form
+          key={policy.id}
+          className="must-field"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const form = new FormData(event.currentTarget);
+            update.mutate({
+              id: policy.id,
+              body: {
+                name: String(form.get('name') ?? ''),
+                freeCancellationDaysBeforeArrival: Number(form.get('days')),
+              },
+            });
+          }}
+        >
+          <input
+            className="must-input"
+            name="name"
+            defaultValue={policy.name}
+            required
+            aria-label={`Policy name ${policy.name}`}
+          />
+          <input
+            className="must-input"
+            name="days"
+            type="number"
+            min="0"
+            step="1"
+            defaultValue={policy.freeCancellationDaysBeforeArrival}
+            required
+            aria-label={`Free cancellation days for ${policy.name}`}
+          />
+          <button
+            className="must-button must-button--secondary"
+            type="submit"
+            disabled={update.isPending}
+          >
+            Save
+          </button>
+          <button
+            className="must-button must-button--secondary"
+            type="button"
+            disabled={remove.isPending}
+            onClick={() => remove.mutate(policy.id)}
+          >
+            Delete
+          </button>
+        </form>
+      ))}
+      {ratePlans.length === 0 ? (
+        <Text tone="secondary">No Clock-managed rate plans are available yet.</Text>
+      ) : (
+        ratePlans.map((ratePlan) => (
+          <label className="must-field" key={ratePlan.id}>
+            <span className="must-field__label">{ratePlan.name}</span>
+            <select
+              className="must-input"
+              value={ratePlan.cancellationPolicyId ?? ''}
+              onChange={(event) =>
+                assign.mutate({
+                  ratePlanId: ratePlan.id,
+                  cancellationPolicyId: event.target.value || null,
+                })
+              }
+              disabled={assign.isPending}
+            >
+              <option value="">No free cancellation</option>
+              {policies.map((policy) => (
+                <option key={policy.id} value={policy.id}>
+                  {policy.name} ({policy.freeCancellationDaysBeforeArrival} days)
+                </option>
+              ))}
+            </select>
+          </label>
+        ))
+      )}
+    </section>
   );
 }
 
