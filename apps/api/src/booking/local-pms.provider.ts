@@ -913,7 +913,7 @@ export class LocalPmsProvider implements PmsProvider {
                 `cancellation-refund:${command.idempotencyKey}`,
               );
               if (!refunded.result.ok)
-                return this.failure(refunded.result.error.code, refunded.result.error.message);
+                await this.recordAutomaticRefundFailure(tx, context, row.id, refunded.result.error);
               if (refunded.confirmation) refundConfirmations.push(refunded.confirmation);
             }
 
@@ -1094,15 +1094,10 @@ export class LocalPmsProvider implements PmsProvider {
         `order-cancellation-refund:${command.idempotencyKey}`,
       );
       if (!refunded.result.ok)
-        return {
-          result: this.failure(
-            refunded.result.error.code,
-            refunded.result.error.message,
-            refunded.result.error.retryable,
-          ),
-          refundConfirmations,
-          cancelledBookingIds,
-        };
+        await this.recordAutomaticRefundFailure(tx, context, anchor.id, refunded.result.error, {
+          orderReference,
+          amount,
+        });
       if (refunded.confirmation) refundConfirmations.push(refunded.confirmation);
     }
 
@@ -1195,6 +1190,32 @@ export class LocalPmsProvider implements PmsProvider {
       refundConfirmations: [],
       cancelledBookingIds: [],
     };
+  }
+
+  /** A failed gateway refund must not undo an eligible cancellation. The
+   * original charge remains the staff team's responsibility, so record the
+   * exact outcome once in the same transaction as the local cancellation. */
+  private async recordAutomaticRefundFailure(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    bookingId: string,
+    error: { code: string; message: string; retryable: boolean },
+    details: { orderReference?: string; amount?: Money } = {},
+  ): Promise<void> {
+    await this.manualReview.recordInTransaction(tx, {
+      tenantId: context.tenantId,
+      propertyId: context.propertyId,
+      category: 'UNKNOWN_RESULT',
+      referenceType: 'booking',
+      referenceId: bookingId,
+      message: `Automatic cancellation refund needs manual action: ${error.message}`,
+      context: {
+        automaticRefund: true,
+        errorCode: error.code,
+        retryable: error.retryable,
+        ...details,
+      },
+    });
   }
 
   private async withIdempotency(

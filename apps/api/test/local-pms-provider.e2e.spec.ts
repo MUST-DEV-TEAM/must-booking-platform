@@ -62,6 +62,7 @@ describe('LocalPmsProvider', () => {
   const refundCommands: Parameters<PaymentProvider['refund']>[1][] = [];
   const pokpayOrders = new Map<string, { amount: string; currency: string; status: string }>();
   let pokpayAmountOverride: string | undefined;
+  let failAutomaticRefund = false;
   // Only used below for verifyWebhookEvent's signature parsing, which stays
   // environment-based (not tenant-owned) — the injected service is never
   // called in that path, so a stub is sufficient here.
@@ -106,6 +107,15 @@ describe('LocalPmsProvider', () => {
     },
     async refund(_context, command) {
       refundCommands.push(command);
+      if (failAutomaticRefund)
+        return {
+          ok: false as const,
+          error: {
+            code: 'REFUND_GATEWAY_UNAVAILABLE',
+            message: 'Forced refund gateway failure.',
+            retryable: true,
+          },
+        };
       return {
         ok: true,
         value: {
@@ -1132,6 +1142,95 @@ describe('LocalPmsProvider', () => {
         to: 'guest@example.test',
         amount: { amount: '180.00', currency: 'EUR' },
         guestCount: 2,
+      }),
+    ]);
+
+    const failedRefundQuote = await quotes.create(tenantId, propertyId, quoteSessionId, {
+      roomTypeId,
+      ratePlanId,
+      startsOn: '2027-09-01',
+      endsOn: '2027-09-03',
+    });
+    const failedRefundBooking = await provider.createBooking(context, {
+      ...bookingRequest,
+      idempotencyKey: randomUUID(),
+      externalReference: `must-${randomUUID()}`,
+      total: failedRefundQuote.total,
+      quoteToken: failedRefundQuote.quoteToken,
+      quoteSessionId,
+    });
+    expect(failedRefundBooking).toMatchObject({ ok: true, value: { status: 'PAYMENT_PENDING' } });
+    if (!failedRefundBooking.ok) throw new Error('Expected failed-refund booking to be created.');
+    const failedRefundWebhookPayload = JSON.stringify({
+      id: `evt_test_refund_failure_${randomUUID()}`,
+      object: 'event',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: `cs_test_${failedRefundBooking.value.id}`,
+          object: 'checkout.session',
+          payment_status: 'paid',
+          metadata: { tenantId, propertyId, bookingId: failedRefundBooking.value.id },
+        },
+      },
+    });
+    const failedRefundWebhookSignature = new Stripe(
+      stripeSecretKey,
+    ).webhooks.generateTestHeaderString({
+      payload: failedRefundWebhookPayload,
+      secret: stripeWebhookSecret,
+    });
+    await request(app!.getHttpServer())
+      .post('/webhooks/stripe')
+      .set('Content-Type', 'application/json')
+      .set('Stripe-Signature', failedRefundWebhookSignature)
+      .send(failedRefundWebhookPayload)
+      .expect(200)
+      .expect({ received: true });
+    const failedRefundConfirmed = await provider.getBooking(context, failedRefundBooking.value.id);
+    expect(failedRefundConfirmed).toMatchObject({ status: 'CONFIRMED' });
+    failAutomaticRefund = true;
+    const failedRefundCancellation = await provider.cancelBooking(context, {
+      idempotencyKey: randomUUID(),
+      bookingId: failedRefundBooking.value.id,
+      guestSessionId: quoteSessionId,
+      expectedVersion: failedRefundConfirmed!.version,
+      reason: 'Force the automatic refund to fail.',
+    });
+    failAutomaticRefund = false;
+    expect(failedRefundCancellation).toMatchObject({ ok: true, value: { status: 'CANCELLED' } });
+    await expect(provider.getBooking(context, failedRefundBooking.value.id)).resolves.toMatchObject(
+      {
+        status: 'CANCELLED',
+      },
+    );
+    const failedRefundReview = await admin.$queryRaw<
+      Array<{
+        category: string;
+        referenceType: string;
+        referenceId: string;
+        message: string;
+        context: unknown;
+      }>
+    >`
+      SELECT category::text AS category, reference_type AS "referenceType", reference_id AS "referenceId",
+        message, context
+      FROM manual_review_items
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND reference_id = ${failedRefundBooking.value.id}
+    `;
+    expect(failedRefundReview).toEqual([
+      expect.objectContaining({
+        category: 'UNKNOWN_RESULT',
+        referenceType: 'booking',
+        referenceId: failedRefundBooking.value.id,
+        message:
+          'Automatic cancellation refund needs manual action: Forced refund gateway failure.',
+        context: expect.objectContaining({
+          automaticRefund: true,
+          errorCode: 'REFUND_GATEWAY_UNAVAILABLE',
+          retryable: true,
+        }),
       }),
     ]);
 

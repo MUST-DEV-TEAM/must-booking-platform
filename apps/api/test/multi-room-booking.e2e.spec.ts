@@ -33,6 +33,7 @@ describe('Multi-room booking orders', () => {
   let clockConnected = false;
   let failSecondClockReservation = false;
   let failSecondClockCancellation = false;
+  let failAutomaticRefund = false;
   let clockCancellationAttempts = 0;
   const cancelledClockBookingIds: string[] = [];
   const refundCommands: Array<{
@@ -76,6 +77,15 @@ describe('Multi-room booking orders', () => {
       },
     ) {
       refundCommands.push(command);
+      if (failAutomaticRefund)
+        return {
+          ok: false as const,
+          error: {
+            code: 'REFUND_GATEWAY_UNAVAILABLE',
+            message: 'Forced refund gateway failure.',
+            retryable: true,
+          },
+        };
       return {
         ok: true as const,
         value: {
@@ -684,5 +694,135 @@ describe('Multi-room booking orders', () => {
       ORDER BY order_room_number
     `;
     expect(cancelledPaidStatuses).toEqual([{ status: 'CANCELLED' }, { status: 'CANCELLED' }]);
+
+    const failedRefundStartsOn = '2026-12-10';
+    const failedRefundEndsOn = '2026-12-12';
+    await Promise.all([
+      request(app!.getHttpServer())
+        .put(`${propertyUrl}/inventory-units`)
+        .set('Cookie', cookie)
+        .send({
+          roomTypeId: firstType.body.id,
+          startsOn: failedRefundStartsOn,
+          endsOn: failedRefundEndsOn,
+          availableUnits: 1,
+        }),
+      request(app!.getHttpServer())
+        .put(`${propertyUrl}/inventory-units`)
+        .set('Cookie', cookie)
+        .send({
+          roomTypeId: secondType.body.id,
+          startsOn: failedRefundStartsOn,
+          endsOn: failedRefundEndsOn,
+          availableUnits: 1,
+        }),
+    ]);
+    clockConnected = false;
+    const failedRefundSessionId = randomUUID();
+    const [failedRefundFirstQuote, failedRefundSecondQuote] = await Promise.all([
+      quotes.create(tenantId, propertyId, failedRefundSessionId, {
+        roomTypeId: firstType.body.id,
+        ratePlanId: ratePlan.body.id,
+        startsOn: failedRefundStartsOn,
+        endsOn: failedRefundEndsOn,
+      }),
+      quotes.create(tenantId, propertyId, failedRefundSessionId, {
+        roomTypeId: secondType.body.id,
+        ratePlanId: ratePlan.body.id,
+        startsOn: failedRefundStartsOn,
+        endsOn: failedRefundEndsOn,
+      }),
+    ]);
+    const failedRefundOrder = await orders.create(
+      { tenantId, propertyId },
+      {
+        idempotencyKey: randomUUID(),
+        externalReference: `must-order-${randomUUID()}`,
+        startsOn: failedRefundStartsOn,
+        endsOn: failedRefundEndsOn,
+        quoteSessionId: failedRefundSessionId,
+        paymentMethod: 'stripe',
+        guest: {
+          email: `refund-failure-${randomUUID()}@example.test`,
+          firstName: 'Refund',
+          lastName: 'Failure',
+          phone: null,
+        },
+        rooms: [
+          {
+            roomTypeId: firstType.body.id,
+            ratePlanId: ratePlan.body.id,
+            total: failedRefundFirstQuote.total,
+            quoteToken: failedRefundFirstQuote.quoteToken,
+          },
+          {
+            roomTypeId: secondType.body.id,
+            ratePlanId: ratePlan.body.id,
+            total: failedRefundSecondQuote.total,
+            quoteToken: failedRefundSecondQuote.quoteToken,
+          },
+        ],
+      },
+    );
+    expect(failedRefundOrder.ok).toBe(true);
+    if (!failedRefundOrder.ok) return;
+    await expect(
+      webhook.processPaymentSucceeded({
+        id: randomUUID(),
+        type: 'checkout.session.completed',
+        externalPaymentId: `cs_test_${failedRefundOrder.value.bookings[0]!.id}`,
+        tenantId,
+        propertyId,
+        bookingId: failedRefundOrder.value.bookings[0]!.id,
+      }),
+    ).resolves.toMatchObject({ ok: true, value: { duplicate: false } });
+    const failedRefundAnchor = await admin.$queryRaw<Array<{ version: number }>>`
+      SELECT version FROM bookings
+      WHERE id = ${failedRefundOrder.value.bookings[0]!.id}::uuid
+        AND tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+    `;
+    failAutomaticRefund = true;
+    const cancelledFailedRefundOrder = await provider.cancelBooking(
+      { tenantId, propertyId },
+      {
+        idempotencyKey: randomUUID(),
+        bookingId: failedRefundOrder.value.bookings[0]!.id,
+        guestSessionId: failedRefundSessionId,
+        expectedVersion: failedRefundAnchor[0]!.version,
+        reason: 'Force the automatic refund to fail.',
+      },
+    );
+    failAutomaticRefund = false;
+    expect(cancelledFailedRefundOrder).toMatchObject({ ok: true, value: { status: 'CANCELLED' } });
+    const failedRefundStatuses = await admin.$queryRaw<Array<{ status: string }>>`
+      SELECT status::text AS status FROM bookings
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND order_reference = ${failedRefundOrder.value.orderReference}
+      ORDER BY order_room_number
+    `;
+    expect(failedRefundStatuses).toEqual([{ status: 'CANCELLED' }, { status: 'CANCELLED' }]);
+    const failedRefundManualReviews = await admin.$queryRaw<
+      Array<{ category: string; referenceId: string; message: string; context: unknown }>
+    >`
+      SELECT category::text AS category, reference_id AS "referenceId", message, context
+      FROM manual_review_items
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND reference_id = ${failedRefundOrder.value.bookings[0]!.id}
+    `;
+    expect(failedRefundManualReviews).toEqual([
+      expect.objectContaining({
+        category: 'UNKNOWN_RESULT',
+        referenceId: failedRefundOrder.value.bookings[0]!.id,
+        message:
+          'Automatic cancellation refund needs manual action: Forced refund gateway failure.',
+        context: expect.objectContaining({
+          automaticRefund: true,
+          errorCode: 'REFUND_GATEWAY_UNAVAILABLE',
+          retryable: true,
+          orderReference: failedRefundOrder.value.orderReference,
+          amount: { amount: '420.00', currency: 'EUR' },
+        }),
+      }),
+    ]);
   });
 });
