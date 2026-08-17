@@ -232,35 +232,8 @@ function get_booking_page_view_data(): array
         $fixedRoom = resolve_fixed_physical_room($roomTypes, $bookingMode, $selectedRoomTypeId, $selectedRoomId, $selection);
     }
 
-    // A room-type link from a widget is enough to skip the picker only when
-    // the property can book a room type without a guest-selected physical
-    // room. INDIVIDUAL_ROOM_ONLY must continue to the date-aware room picker.
-    if ($fixedRoom === null && $accommodationType !== '' && $bookingMode !== 'INDIVIDUAL_ROOM_ONLY') {
-        foreach ($roomTypes as $roomType) {
-            if ((string) ($roomType['id'] ?? '') !== $accommodationType) {
-                continue;
-            }
-
-            $ratePlan = \is_array($roomType['ratePlans'][0] ?? null) ? $roomType['ratePlans'][0] : [];
-            $fixedRoom = [
-                'id' => $accommodationType,
-                'room_type_id' => $accommodationType,
-                'name' => (string) ($roomType['name'] ?? ''),
-                'category_label' => (string) ($roomType['name'] ?? ''),
-                'description' => (string) ($roomType['description'] ?? ''),
-                'max_guests' => (int) ($roomType['maxOccupancy'] ?? 0),
-                // The public catalog intentionally has no media or legacy
-                // inventory-detail fields. The existing template hides these
-                // values when empty.
-                'room_size' => '', 'beds' => '', 'view_type' => '', 'floor' => 0, 'primary_image_url' => '',
-                // Select the same primary rate plan the accommodation card
-                // uses. Clock-backed room types legitimately have no rate
-                // plan, and its existing selection handler permits that.
-                'rate_plan_id' => (string) ($ratePlan['id'] ?? ''),
-            ];
-            break;
-        }
-    }
+    // A widget's accommodation_type is a clearable search filter. Only a
+    // validated physical room (room_id) may activate the locked room flow.
 
     return [
         'messages' => [], 'rooms' => [],
