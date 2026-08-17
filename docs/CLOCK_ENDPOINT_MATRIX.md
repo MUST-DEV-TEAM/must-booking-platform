@@ -20,6 +20,8 @@ Sandbox used for verification: HOTEL DEMO account (`support@must.al`), `sky-eu1.
 
 ## Notes
 
+- **Task 3 (2026-08-17):** `ClockBookingConsistencyService` uses the documented read-only `GET /bookings/` date filters `arrival.lt=<endsOn>` and `departure.gt=<startsOn>` for a 31-day-or-less, on-demand stay-overlap check. It reads only booking `id`, `status`, and `reference_number`; reports findings through the operational alert channel; and never auto-corrects. A Clock-only record is flagged only when its reference is corroborated by a tenant/property-scoped MUST `integration_operations` record, because this phase deliberately does not import external-channel Clock reservations. The endpoint/filter contract is **CONFIRMED_BY_DOCS** (Clock public Postman API docs); the required Empire Beach Resort live execution is still pending.
+
 (Chronological by the task that discovered them — see `docs/roadmap/milestones/11-clock-pms-adapter-basic.md` for full task context.)
 
 - **Kickoff / Task 4**: The account/subscription ID pair in the URL path (`172528`/`16307` for this sandbox) — which one is the "Clock account ID" vs. "subscription ID" per source brief section 8's terminology was not disambiguated at the time. `room_types` and `rooms` were confirmed reachable and correctly shaped with **real data already present in the sandbox account** (e.g. room type "Standard Rooms", room "Direct Pool") — not empty-state guesses.

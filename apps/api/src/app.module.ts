@@ -109,6 +109,7 @@ import { ClockCatalogSyncService } from './integrations/clock/clock-catalog-sync
 import { ClockCatalogSyncController } from './integrations/clock/clock-catalog-sync.controller';
 import { ClockAvailabilityService } from './integrations/clock/clock-availability.service';
 import { ClockBookingService } from './integrations/clock/clock-booking.service';
+import { ClockBookingConsistencyService } from './integrations/clock/clock-booking-consistency.service';
 import { ClockQueueService } from './integrations/clock/clock-queue.service';
 import { ClockWorkerService } from './integrations/clock/clock-worker.service';
 import { ClockWebhookVerificationService } from './integrations/clock/clock-webhook-verification.service';
@@ -247,6 +248,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ClockCatalogSyncService,
     ClockAvailabilityService,
     ClockBookingService,
+    ClockBookingConsistencyService,
     ClockQueueService,
     ClockWorkerService,
     {
