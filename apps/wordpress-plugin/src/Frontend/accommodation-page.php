@@ -122,8 +122,34 @@ function maybe_process_accommodation_selection(): string
         'roomName' => $roomName, 'ratePlanName' => $ratePlanName,
         'checkin' => $checkin, 'checkout' => $checkout, 'guests' => $guests, 'quote' => $quote['body'],
     ]);
-    \wp_safe_redirect(get_checkout_page_url());
-    exit;
+    if (!\wp_doing_ajax()) {
+        \wp_safe_redirect(get_checkout_page_url());
+        exit;
+    }
+    return '';
+}
+
+/** AJAX counterpart for the Select Accommodation form.  It shares the exact
+ * validation and transient update path above, while keeping ordinary form POST
+ * navigation as a no-JavaScript fallback. */
+function update_accommodation_selection(): void
+{
+    $message = maybe_process_accommodation_selection();
+    if ($message !== '') {
+        \wp_send_json_error(['messages' => [$message]], 400);
+    }
+    $action = isset($_POST['must_accommodation_action']) ? \sanitize_key((string) \wp_unslash($_POST['must_accommodation_action'])) : '';
+    if ($action === 'select_room') {
+        \wp_send_json_success(['redirect_url' => get_checkout_page_url()]);
+    }
+    \wp_send_json_success([
+        'messages' => [],
+        'selected_room_ids' => [],
+        'selected_room_rate_plans' => [],
+        'can_continue' => false,
+        'selection_status_message' => '',
+        'selection_status_tone' => 'neutral',
+    ]);
 }
 
 /** @param array<string, mixed> $roomType @return array<int, array<string, mixed>> */
@@ -298,5 +324,34 @@ function get_accommodation_page_view_data(): array
     ];
 }
 
-function enqueue_booking_accommodation_page_assets(): void { if (is_frontend_booking_accommodation_page()) enqueue_shared_booking_assets(); }
+function enqueue_booking_accommodation_page_assets(): void
+{
+    if (!is_frontend_booking_accommodation_page()) return;
+    enqueue_shared_booking_assets();
+    \wp_enqueue_style('must-hotel-booking-flatpickr', 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css', [], MUST_HOTEL_BOOKING_VERSION);
+    \wp_enqueue_script('must-hotel-booking-flatpickr', 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.js', [], MUST_HOTEL_BOOKING_VERSION, true);
+    \wp_enqueue_script('must-hotel-booking-accommodation', MUST_HOTEL_BOOKING_URL . 'assets/js/booking-accommodation.js', ['must-hotel-booking-flatpickr'], MUST_HOTEL_BOOKING_VERSION, true);
+    \wp_localize_script('must-hotel-booking-accommodation', 'mustBookingAccommodationConfig', [
+        'ajaxUrl' => \admin_url('admin-ajax.php'),
+        'ajaxAction' => 'must_booking_accommodation_selection',
+        'today' => \wp_date('Y-m-d'),
+        'bookingWindowDays' => 365,
+        'queryDateFormat' => 'Y-m-d',
+        'displayDateFormat' => 'd/m/Y',
+        'labels' => [
+            'requestFailed' => \__('Unable to update your room selection right now. Please try again.', 'must-hotel-booking'),
+            'removeSelection' => \__('Remove Selection', 'must-hotel-booking'),
+            'chooseRate' => \__('Choose This Rate', 'must-hotel-booking'),
+            'bookNow' => \__('Book Now', 'must-hotel-booking'),
+            'selectionFull' => \__('Selection Full', 'must-hotel-booking'),
+            'addRoom' => \__('Add Room', 'must-hotel-booking'),
+        ],
+        'icons' => [
+            'lightboxPrev' => \must_hotel_booking_asset_url('assets/img/lightboxleft.svg'),
+            'lightboxNext' => \must_hotel_booking_asset_url('assets/img/lightboxright.svg'),
+        ],
+    ]);
+}
+\add_action('wp_ajax_must_booking_accommodation_selection', __NAMESPACE__ . '\\update_accommodation_selection');
+\add_action('wp_ajax_nopriv_must_booking_accommodation_selection', __NAMESPACE__ . '\\update_accommodation_selection');
 \add_action('wp_enqueue_scripts', __NAMESPACE__ . '\\enqueue_booking_accommodation_page_assets');
