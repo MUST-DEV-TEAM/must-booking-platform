@@ -1,6 +1,12 @@
-import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { TenantDatabaseService } from './tenant-database.service';
+import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 import { AuditLogService } from './audit-log.service';
 import { PropertyRoleTemplatesService } from './property-role-templates.service';
 import { StaffInviteService, type ProvisionedStaffAccount } from './staff-invite.service';
@@ -27,6 +33,7 @@ type Property = {
   wordpressConnectedAt: Date | null;
 };
 type CreatedProperty = Property & { provisionedStaff: ProvisionedStaffAccount[] };
+type PropertyDeleteBlocker = { resource: string; count: number };
 @Injectable()
 export class PropertiesService {
   constructor(
@@ -187,6 +194,53 @@ export class PropertiesService {
       return rows[0];
     });
   }
+
+  async remove(
+    tenantId: string,
+    propertyId: string,
+    actorUserId: string,
+    body: unknown,
+    actorType: 'TENANT_USER' | 'PLATFORM_ADMIN' = 'TENANT_USER',
+  ): Promise<{ deleted: true }> {
+    const confirmationName = this.deleteConfirmationName(body);
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const properties = await tx.$queryRaw<Array<{ id: string; name: string }>>`
+        SELECT id, name FROM properties
+        WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
+        FOR UPDATE
+      `;
+      const property = properties[0];
+      if (!property) throw new NotFoundException('Property not found.');
+      if (property.name !== confirmationName)
+        throw new BadRequestException('Type the exact property name to confirm deletion.');
+
+      const blockers = await this.propertyDeleteBlockers(tx, tenantId, propertyId);
+      if (blockers.length > 0) {
+        throw new ConflictException({
+          message: 'This property cannot be deleted because dependent records still exist.',
+          blockers,
+        });
+      }
+
+      const deleted = await tx.$queryRaw<Array<{ id: string }>>`
+        DELETE FROM properties
+        WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
+        RETURNING id
+      `;
+      if (!deleted[0]) throw new NotFoundException('Property not found.');
+      await this.audit.recordInTransaction(tx, {
+        tenantId,
+        propertyId,
+        actorUserId,
+        actorType,
+        action: 'properties.remove',
+        targetType: 'property',
+        targetId: propertyId,
+        details: { name: property.name },
+      });
+      return { deleted: true };
+    });
+  }
   async updatePublicWebsiteOrigin(
     tenantId: string,
     propertyId: string,
@@ -282,6 +336,49 @@ export class PropertiesService {
         'publicWebsiteOrigin must contain only scheme, host, and optional port.',
       );
     return parsed.origin;
+  }
+
+  private deleteConfirmationName(body: unknown): string {
+    const value = (body ?? {}) as Record<string, unknown>;
+    if (typeof value.confirmationName !== 'string' || value.confirmationName.trim() === '')
+      throw new BadRequestException('Type the exact property name to confirm deletion.');
+    return value.confirmationName.trim();
+  }
+
+  private async propertyDeleteBlockers(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+  ): Promise<PropertyDeleteBlocker[]> {
+    const rows = await tx.$queryRaw<PropertyDeleteBlocker[]>`
+      SELECT resource, count FROM (
+        SELECT 'property role templates' AS resource, COUNT(*)::int AS count FROM property_role_templates WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'staff assignments', COUNT(*)::int FROM property_staff_assignments WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'notifications', COUNT(*)::int FROM notifications WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'room types', COUNT(*)::int FROM room_types WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'rooms', COUNT(*)::int FROM rooms WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'room availability records', COUNT(*)::int FROM room_availability WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'availability blocks', COUNT(*)::int FROM availability_blocks WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'inventory units', COUNT(*)::int FROM inventory_units WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'rate plans', COUNT(*)::int FROM rate_plans WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'rate rules', COUNT(*)::int FROM rate_rules WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'room price overrides', COUNT(*)::int FROM room_price_overrides WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'bookings', COUNT(*)::int FROM bookings WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'payments', COUNT(*)::int FROM payments WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'payment provider sessions', COUNT(*)::int FROM payment_provider_sessions WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'integration operations', COUNT(*)::int FROM integration_operations WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'integration connections', COUNT(*)::int FROM property_integration_connections WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'Clock catalog mappings', COUNT(*)::int FROM clock_catalog_mappings WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'manual review items', COUNT(*)::int FROM manual_review_items WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'provider events', COUNT(*)::int FROM provider_events WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'amenities', COUNT(*)::int FROM amenities WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'room type amenities', COUNT(*)::int FROM room_type_amenities WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        UNION ALL SELECT 'room amenities', COUNT(*)::int FROM room_amenities WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+      ) blockers
+      WHERE count > 0
+      ORDER BY resource
+    `;
+    return rows;
   }
   private input(body: unknown): {
     name: string;

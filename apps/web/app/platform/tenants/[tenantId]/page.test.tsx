@@ -22,6 +22,11 @@ const tenant = {
   stripeEnabledPropertyCount: 2,
   pokpayEnabledPropertyCount: 0,
   payAtHotelEnabledPropertyCount: 3,
+  properties: [
+    { id: 'property-1', name: 'Acme Beach House' },
+    { id: 'property-2', name: 'Acme City Hotel' },
+    { id: 'property-3', name: 'Acme Mountain Lodge' },
+  ],
   connections: [
     {
       id: 'conn-1',

@@ -55,6 +55,40 @@ export function PropertyManagement({ tenantId }: { tenantId: string }) {
     },
     onError: () => toast.error('Unable to create property.'),
   });
+  const deletePropertyMutation = useMutation({
+    mutationFn: async ({
+      property,
+      confirmationName,
+    }: {
+      property: Property;
+      confirmationName: string;
+    }) => {
+      const response = await fetch(`/api/tenants/${tenantId}/properties/${property.id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ confirmationName }),
+      });
+      if (response.ok) return;
+      const result = (await response.json().catch(() => null)) as {
+        message?: string;
+        blockers?: Array<{ resource: string; count: number }>;
+      } | null;
+      const blockers = result?.blockers
+        ?.map((blocker) => `${blocker.count} ${blocker.resource}`)
+        .join(', ');
+      throw new Error(
+        blockers
+          ? `Cannot delete this property: ${blockers}.`
+          : (result?.message ?? 'Unable to delete property.'),
+      );
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: propertiesQueryKey });
+      toast.success('Property deleted.');
+    },
+    onError: (error) => toast.error(error.message),
+  });
   const properties = propertiesQuery.data?.properties ?? [];
   const usage = propertiesQuery.data?.usage;
   const atCap = !!usage && usage.usage.properties >= usage.plan.maxProperties;
@@ -68,6 +102,14 @@ export function PropertyManagement({ tenantId }: { tenantId: string }) {
       timezone: f.get('timezone'),
       form: e.currentTarget,
     });
+  }
+
+  function confirmDelete(property: Property) {
+    const confirmationName = window.prompt(
+      `Type "${property.name}" to permanently delete this property.`,
+    );
+    if (confirmationName === null) return;
+    deletePropertyMutation.mutate({ property, confirmationName });
   }
 
   if (propertiesQuery.isPending)
@@ -97,6 +139,14 @@ export function PropertyManagement({ tenantId }: { tenantId: string }) {
         {properties.map((p) => (
           <li key={p.id}>
             {p.name} — {p.address} ({p.timezone})
+            <button
+              className="must-button"
+              type="button"
+              disabled={deletePropertyMutation.isPending}
+              onClick={() => confirmDelete(p)}
+            >
+              Delete property
+            </button>
           </li>
         ))}
       </ul>

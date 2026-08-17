@@ -47,6 +47,7 @@ export type PlatformTenantDetail = {
   stripeEnabledPropertyCount: number;
   pokpayEnabledPropertyCount: number;
   payAtHotelEnabledPropertyCount: number;
+  properties: Array<{ id: string; name: string }>;
   connections: PlatformIntegrationConnection[];
   manualReviewItems: ManualReviewItemSummary[];
 };
@@ -83,6 +84,7 @@ export function TenantDetailView({
   onTransition,
   onPasswordReset,
   onResolveManualReview,
+  onDeleteProperty,
 }: {
   tenant: PlatformTenantDetail | null;
   loading: boolean;
@@ -91,6 +93,7 @@ export function TenantDetailView({
   onTransition?: (status: 'ACTIVE' | 'SUSPENDED') => Promise<void>;
   onPasswordReset?: (userId: string) => Promise<void>;
   onResolveManualReview?: (itemId: string) => Promise<void>;
+  onDeleteProperty?: (property: { id: string; name: string }) => Promise<void>;
 }) {
   const [transitionPending, setTransitionPending] = useState(false);
   const [transitionError, setTransitionError] = useState<string | null>(null);
@@ -98,6 +101,8 @@ export function TenantDetailView({
   const [resetSuccess, setResetSuccess] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
   const [resolvingItemId, setResolvingItemId] = useState<string | null>(null);
+  const [deletingPropertyId, setDeletingPropertyId] = useState<string | null>(null);
+  const [propertyDeleteError, setPropertyDeleteError] = useState<string | null>(null);
   if (loading)
     return (
       <Stack className={styles.page} gap="lg">
@@ -142,6 +147,43 @@ export function TenantDetailView({
           <Text tone="secondary">{tenant.propertyCount === 1 ? 'property' : 'properties'}</Text>
         </Card>
       </section>
+      <Card>
+        <Heading level={2}>Properties</Heading>
+        <Text tone="secondary">
+          Deleting a property is permanent and is only available when it has no dependent records.
+        </Text>
+        {propertyDeleteError ? <Text className={styles.error}>{propertyDeleteError}</Text> : null}
+        <div className={detailStyles.providers}>
+          {tenant.properties.map((property) => (
+            <div className={detailStyles.provider} key={property.id}>
+              <strong>{property.name}</strong>
+              <Button
+                disabled={deletingPropertyId !== null || !onDeleteProperty}
+                onClick={async () => {
+                  const confirmationName = window.prompt(
+                    `Type "${property.name}" to permanently delete this property.`,
+                  );
+                  if (confirmationName === null || !onDeleteProperty) return;
+                  setDeletingPropertyId(property.id);
+                  setPropertyDeleteError(null);
+                  try {
+                    await onDeleteProperty({ ...property, name: confirmationName });
+                  } catch (error) {
+                    setPropertyDeleteError(
+                      error instanceof Error ? error.message : 'Unable to delete property.',
+                    );
+                  } finally {
+                    setDeletingPropertyId(null);
+                  }
+                }}
+                variant="secondary"
+              >
+                {deletingPropertyId === property.id ? 'Deleting…' : 'Delete property'}
+              </Button>
+            </div>
+          ))}
+        </div>
+      </Card>
       <Card>
         <Heading level={2}>Payment providers</Heading>
         <Text tone="secondary">
@@ -452,6 +494,34 @@ export default function PlatformTenantDetailPage({
             );
             if (!response.ok) throw new Error('Unable to mark this item reviewed.');
             await refreshTenant(tenant.id);
+          }}
+          onDeleteProperty={async (property) => {
+            if (!tenant) return;
+            const response = await fetch(
+              `/api/platform/tenants/${tenant.id}/properties/${property.id}`,
+              {
+                credentials: 'include',
+                method: 'DELETE',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ confirmationName: property.name }),
+              },
+            );
+            if (response.ok) {
+              await refreshTenant(tenant.id);
+              return;
+            }
+            const result = (await response.json().catch(() => null)) as {
+              message?: string;
+              blockers?: Array<{ resource: string; count: number }>;
+            } | null;
+            const blockers = result?.blockers
+              ?.map((blocker) => `${blocker.count} ${blocker.resource}`)
+              .join(', ');
+            throw new Error(
+              blockers
+                ? `Cannot delete this property: ${blockers}.`
+                : (result?.message ?? 'Unable to delete property.'),
+            );
           }}
         />
       </AppShell>
