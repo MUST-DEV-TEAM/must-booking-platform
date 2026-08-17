@@ -853,7 +853,7 @@ export class LocalPmsProvider implements PmsProvider {
           async () => {
             const row = await this.bookingById(tx, context, command.bookingId);
             if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
-            if (row.guestSessionId !== command.guestSessionId)
+            if (!command.staffActorId && row.guestSessionId !== command.guestSessionId)
               return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
             if (row.version !== command.expectedVersion)
               return this.failure(
@@ -880,9 +880,10 @@ export class LocalPmsProvider implements PmsProvider {
             // is an access gate (can the guest cancel online at all), not a
             // money question. Every cancellation reaching this point is
             // guest-initiated (row.guestSessionId matched command.guestSessionId
-            // above; staff-created bookings have no guest session and can
-            // never match here today), so this applies unconditionally.
-            const selfServiceWindow = await tx.$queryRaw<Array<{ canCancel: boolean }>>`
+            // above), so staff cancellations deliberately bypass this gate.
+            const selfServiceWindow = command.staffActorId
+              ? [{ canCancel: true }]
+              : await tx.$queryRaw<Array<{ canCancel: boolean }>>`
             SELECT CURRENT_TIMESTAMP <= (b.starts_on::timestamp AT TIME ZONE p.timezone)
               - make_interval(days => p.free_cancellation_days_before_arrival) AS "canCancel"
             FROM bookings b JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
@@ -947,7 +948,7 @@ export class LocalPmsProvider implements PmsProvider {
             await this.audit.recordInTransaction(tx, {
               tenantId: context.tenantId,
               propertyId: context.propertyId,
-              actorUserId: null,
+              actorUserId: command.staffActorId ?? null,
               action: 'booking.cancelled',
               targetType: 'booking',
               targetId: row.id,
@@ -1010,14 +1011,17 @@ export class LocalPmsProvider implements PmsProvider {
     // updated before attempting the next child (Task 20).
     for (const child of childIds) {
       const row = await this.bookingById(tx, context, child.id);
-      if (!row || row.guestSessionId !== command.guestSessionId)
+      if (!row || (!command.staffActorId && row.guestSessionId !== command.guestSessionId))
         return this.multiRoomCancellationFailure('BOOKING_NOT_FOUND', 'Booking was not found.');
       if (!this.stateMachine.canTransition(row.status, BookingStatus.CANCELLED))
         return this.multiRoomCancellationFailure(
           'INVALID_BOOKING_STATE',
           `Booking cannot be cancelled from ${row.status}.`,
         );
-      if (!(await this.selfServiceCancellationAllowed(tx, context, row.id)))
+      if (
+        !command.staffActorId &&
+        !(await this.selfServiceCancellationAllowed(tx, context, row.id))
+      )
         return this.multiRoomCancellationFailure(
           'CANCELLATION_WINDOW_CLOSED',
           'This booking is too close to arrival to cancel online. Please contact the hotel directly.',
@@ -1073,6 +1077,7 @@ export class LocalPmsProvider implements PmsProvider {
         orderReference,
         child.row,
         child.cancellationPolicy,
+        command.staffActorId,
       );
       cancelledBookingIds.push(child.row.id);
       cancelledChildren.push(child);
@@ -1119,6 +1124,7 @@ export class LocalPmsProvider implements PmsProvider {
     orderReference: string,
     row: BookingRow,
     cancellationPolicy: CancellationPolicy,
+    staffActorId?: string,
   ): Promise<void> {
     if (
       !row.roomId &&
@@ -1149,7 +1155,7 @@ export class LocalPmsProvider implements PmsProvider {
     await this.audit.recordInTransaction(tx, {
       tenantId: context.tenantId,
       propertyId: context.propertyId,
-      actorUserId: null,
+      actorUserId: staffActorId ?? null,
       action: 'booking.cancelled',
       targetType: 'booking',
       targetId: row.id,
