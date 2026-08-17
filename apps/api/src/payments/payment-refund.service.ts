@@ -94,6 +94,39 @@ export class PaymentRefundService {
     return { result: outcome.result, confirmation: outcome.confirmation };
   }
 
+  /** A multi-room order captures one gateway charge on its anchor booking, while
+   * cancellation policy is evaluated per child. This is the bounded partial-refund
+   * variant used by that order cancellation path. */
+  async refundPaidChargeForBookingAmount(
+    tx: TenantTransaction,
+    context: PaymentProviderContext,
+    bookingId: string,
+    amount: Money,
+    idempotencyKey: string,
+  ): Promise<{ result: Result<Payment | null>; confirmation: RefundConfirmation | null }> {
+    const charge = await this.chargeForBooking(tx, context, bookingId, ['PAID']);
+    if (!charge) return { result: { ok: true, value: null }, confirmation: null };
+    const alreadyRefunded = await this.refundedAmount(tx, context, bookingId);
+    const remaining = this.minorUnits(charge.amount) - alreadyRefunded;
+    if (
+      amount.currency !== charge.currency ||
+      !this.validMoney(amount.amount) ||
+      this.minorUnits(amount.amount) > remaining
+    )
+      return {
+        result: this.failure(
+          'INVALID_REFUND_AMOUNT',
+          'Refund amount exceeds the remaining booking charge.',
+        ),
+        confirmation: null,
+      };
+    const outcome = await this.refundCharge(tx, context, bookingId, charge, {
+      amount,
+      idempotencyKey,
+    });
+    return { result: outcome.result, confirmation: outcome.confirmation };
+  }
+
   async refundCharge(
     tx: TenantTransaction,
     context: PaymentProviderContext,

@@ -10,6 +10,7 @@ import {
   type CatalogItem,
   type CreateBookingCommand,
   type GuestPaymentMethod,
+  type Money,
   type Page,
   type PmsProvider,
   type PmsProviderContext,
@@ -85,6 +86,12 @@ type CancellationPolicy = {
   freeCancellationUntilHours: number | null;
   cutoffAt: Date | null;
   isFree: boolean;
+};
+
+type MultiRoomCancellation = {
+  result: Result<Booking>;
+  refundConfirmations: RefundConfirmation[];
+  cancelledBookingIds: string[];
 };
 
 type RoomSelection = { autoAssign: boolean };
@@ -829,8 +836,8 @@ export class LocalPmsProvider implements PmsProvider {
     context: PmsProviderContext,
     command: CancelBookingCommand,
   ): Promise<Result<Booking>> {
-    let refundConfirmation: RefundConfirmation | null = null;
-    let cancelledBookingId: string | null = null;
+    const refundConfirmations: RefundConfirmation[] = [];
+    const cancelledBookingIds: string[] = [];
     const result = await this.database.withTenantTransaction(
       context,
       (tx) =>
@@ -852,6 +859,12 @@ export class LocalPmsProvider implements PmsProvider {
                 'Booking has changed; reload it before cancelling.',
                 true,
               );
+            if (row.orderReference) {
+              const cancelled = await this.cancelMultiRoomOrder(tx, context, command, row);
+              refundConfirmations.push(...cancelled.refundConfirmations);
+              cancelledBookingIds.push(...cancelled.cancelledBookingIds);
+              return cancelled.result;
+            }
             const booking = this.toBooking(row);
             if (!booking) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
             if (!this.stateMachine.canTransition(row.status, BookingStatus.CANCELLED))
@@ -899,7 +912,7 @@ export class LocalPmsProvider implements PmsProvider {
               );
               if (!refunded.result.ok)
                 return this.failure(refunded.result.error.code, refunded.result.error.message);
-              refundConfirmation = refunded.confirmation;
+              if (refunded.confirmation) refundConfirmations.push(refunded.confirmation);
             }
 
             if (
@@ -945,7 +958,7 @@ export class LocalPmsProvider implements PmsProvider {
                 },
               },
             });
-            cancelledBookingId = row.id;
+            cancelledBookingIds.push(row.id);
             const cancelled = await this.bookingById(tx, context, row.id);
             return cancelled && this.toBooking(cancelled)
               ? { ok: true, value: this.toBooking(cancelled)! }
@@ -954,11 +967,182 @@ export class LocalPmsProvider implements PmsProvider {
         ),
       { timeoutMs: 30_000 },
     );
-    if (refundConfirmation)
+    for (const refundConfirmation of refundConfirmations)
       await this.notifications.sendRefundConfirmationEmailSafely(refundConfirmation);
-    if (cancelledBookingId)
+    for (const cancelledBookingId of cancelledBookingIds)
       await this.cancellations.sendAfterCancellation(context, cancelledBookingId);
     return result;
+  }
+
+  /** Task 19: a cancellation request for any child is an order cancellation.
+   * Every child remains independently subject to its own Clock, inventory and
+   * refund-policy work; the one gateway charge is refunded only for the sum of
+   * children whose policies permit it. */
+  private async cancelMultiRoomOrder(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    command: CancelBookingCommand,
+    anchor: BookingRow,
+  ): Promise<MultiRoomCancellation> {
+    const childIds = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM bookings
+      WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+        AND order_reference = ${anchor.orderReference}
+      ORDER BY order_room_number, id
+      FOR UPDATE
+    `;
+    const clockConnected = await this.isClockConnected(context);
+    const refundConfirmations: RefundConfirmation[] = [];
+    const cancelledBookingIds: string[] = [];
+    const children: Array<{ row: BookingRow; cancellationPolicy: CancellationPolicy }> = [];
+    let refundableMinorUnits = 0n;
+    let refundCurrency: string | null = null;
+
+    for (const child of childIds) {
+      const row = await this.bookingById(tx, context, child.id);
+      if (!row || row.guestSessionId !== command.guestSessionId)
+        return this.multiRoomCancellationFailure('BOOKING_NOT_FOUND', 'Booking was not found.');
+      if (!this.stateMachine.canTransition(row.status, BookingStatus.CANCELLED))
+        return this.multiRoomCancellationFailure(
+          'INVALID_BOOKING_STATE',
+          `Booking cannot be cancelled from ${row.status}.`,
+        );
+      if (!(await this.selfServiceCancellationAllowed(tx, context, row.id)))
+        return this.multiRoomCancellationFailure(
+          'CANCELLATION_WINDOW_CLOSED',
+          'This booking is too close to arrival to cancel online. Please contact the hotel directly.',
+        );
+
+      if (clockConnected && row.externalBookingId) {
+        const cancelledAtClock = await this.clockBooking.cancelRealReservation(
+          context,
+          row.externalBookingId,
+        );
+        if (!cancelledAtClock.ok)
+          return this.multiRoomCancellationFailure(
+            cancelledAtClock.error.code,
+            cancelledAtClock.error.message,
+            cancelledAtClock.error.retryable,
+          );
+      }
+
+      const cancellationPolicy = await this.cancellationPolicy(tx, context, row.id);
+      if (cancellationPolicy.isFree) {
+        if (refundCurrency && refundCurrency !== row.currency)
+          return this.multiRoomCancellationFailure(
+            'CURRENCY_MISMATCH',
+            'Rooms in one order must use the same refund currency.',
+          );
+        refundCurrency = row.currency;
+        refundableMinorUnits += this.minorUnits(row.totalAmount);
+      }
+      children.push({ row, cancellationPolicy });
+    }
+
+    // Complete the monetary operation before changing local booking state. A
+    // declined/refused refund therefore cannot leave a locally-cancelled order
+    // with a still-captured charge.
+    if (refundableMinorUnits > 0n && refundCurrency) {
+      const amount: Money = { amount: this.money(refundableMinorUnits), currency: refundCurrency };
+      const refunded = await this.refunds.refundPaidChargeForBookingAmount(
+        tx,
+        context,
+        anchor.id,
+        amount,
+        `order-cancellation-refund:${command.idempotencyKey}`,
+      );
+      if (!refunded.result.ok)
+        return this.multiRoomCancellationFailure(
+          refunded.result.error.code,
+          refunded.result.error.message,
+          refunded.result.error.retryable,
+        );
+      if (refunded.confirmation) refundConfirmations.push(refunded.confirmation);
+    }
+
+    for (const { row, cancellationPolicy } of children) {
+      if (
+        !row.roomId &&
+        (row.status === BookingStatus.PAYMENT_PENDING ||
+          row.status === BookingStatus.PMS_CONFIRMATION_PENDING ||
+          row.status === BookingStatus.CONFIRMED)
+      ) {
+        await this.availability.releaseBookedUnits(tx, context.tenantId, context.propertyId, {
+          roomTypeId: row.roomTypeId,
+          startsOn: row.startsOn,
+          endsOn: row.endsOn,
+          units: 1,
+        });
+      }
+      this.stateMachine.transition(row.status, BookingStatus.CANCELLED);
+      await tx.$executeRaw`
+        UPDATE bookings
+        SET status = ${BookingStatus.CANCELLED}::"BookingStatus",
+            cancellation_is_free = ${cancellationPolicy.isFree},
+            cancellation_free_until_hours = ${cancellationPolicy.freeCancellationUntilHours},
+            cancellation_cutoff_at = ${cancellationPolicy.cutoffAt}::timestamptz,
+            version = version + 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ${row.id}::uuid AND tenant_id = ${context.tenantId}::uuid
+          AND property_id = ${context.propertyId}::uuid AND version = ${row.version}
+      `;
+      const booking = this.toBooking(row);
+      await this.audit.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        actorUserId: null,
+        action: 'booking.cancelled',
+        targetType: 'booking',
+        targetId: row.id,
+        details: {
+          guestId: booking?.guestId ?? null,
+          cancellation: {
+            isFree: cancellationPolicy.isFree,
+            freeCancellationUntilHours: cancellationPolicy.freeCancellationUntilHours,
+            cutoffAt: cancellationPolicy.cutoffAt?.toISOString() ?? null,
+          },
+          orderReference: anchor.orderReference,
+        },
+      });
+      cancelledBookingIds.push(row.id);
+    }
+
+    const cancelledAnchor = await this.bookingById(tx, context, anchor.id);
+    return {
+      result:
+        cancelledAnchor && this.toBooking(cancelledAnchor)
+          ? { ok: true, value: this.toBooking(cancelledAnchor)! }
+          : this.failure('BOOKING_NOT_FOUND', 'Booking could not be reloaded.'),
+      refundConfirmations,
+      cancelledBookingIds,
+    };
+  }
+
+  private async selfServiceCancellationAllowed(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    bookingId: string,
+  ): Promise<boolean> {
+    const rows = await tx.$queryRaw<Array<{ canCancel: boolean }>>`
+      SELECT CURRENT_TIMESTAMP <= (b.starts_on::timestamp AT TIME ZONE p.timezone)
+        - make_interval(days => p.free_cancellation_days_before_arrival) AS "canCancel"
+      FROM bookings b JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
+      WHERE b.id = ${bookingId}::uuid AND b.tenant_id = ${context.tenantId}::uuid
+        AND b.property_id = ${context.propertyId}::uuid
+    `;
+    return rows[0]?.canCancel !== false;
+  }
+
+  private multiRoomCancellationFailure(
+    code: string,
+    message: string,
+    retryable = false,
+  ): MultiRoomCancellation {
+    return {
+      result: this.failure(code, message, retryable),
+      refundConfirmations: [],
+      cancelledBookingIds: [],
+    };
   }
 
   private async withIdempotency(
@@ -1498,6 +1682,15 @@ export class LocalPmsProvider implements PmsProvider {
       throw new BadRequestException('returnUrl must use the property public website origin.');
 
     return candidate.toString();
+  }
+
+  private minorUnits(amount: string): bigint {
+    const [whole, fraction = ''] = amount.split('.');
+    return BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0'));
+  }
+
+  private money(minorUnits: bigint): string {
+    return `${minorUnits / 100n}.${(minorUnits % 100n).toString().padStart(2, '0')}`;
   }
 
   private failure(code: string, message: string, retryable = false): Result<never> {

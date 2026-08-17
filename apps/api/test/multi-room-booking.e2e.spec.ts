@@ -6,6 +6,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { MultiRoomBookingService } from '../src/booking/multi-room-booking.service';
+import { LocalPmsProvider } from '../src/booking/local-pms.provider';
 import { QuoteService } from '../src/booking/quote.service';
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { PAYMENT_PROVIDER } from '../src/payments/payment.provider';
@@ -31,6 +32,12 @@ describe('Multi-room booking orders', () => {
   let verificationToken = '';
   let clockConnected = false;
   let failSecondClockReservation = false;
+  const cancelledClockBookingIds: string[] = [];
+  const refundCommands: Array<{
+    paymentId: string;
+    amount: { amount: string; currency: string };
+    idempotencyKey: string;
+  }> = [];
   const email = `multi-room-${randomUUID()}@example.test`;
   const mail: MailProvider = {
     async sendVerificationEmail(command) {
@@ -58,8 +65,24 @@ describe('Multi-room booking orders', () => {
     async verifyWebhookEvent() {
       return { ok: false as const, error: { code: 'NOT_USED', message: '', retryable: false } };
     },
-    async refund() {
-      return { ok: false as const, error: { code: 'NOT_USED', message: '', retryable: false } };
+    async refund(
+      _context: unknown,
+      command: {
+        paymentId: string;
+        amount: { amount: string; currency: string };
+        idempotencyKey: string;
+      },
+    ) {
+      refundCommands.push(command);
+      return {
+        ok: true as const,
+        value: {
+          id: `refund-${command.paymentId}`,
+          bookingId: command.paymentId,
+          amount: command.amount,
+          status: 'REFUNDED',
+        },
+      };
     },
     async getPayment() {
       return null;
@@ -127,6 +150,10 @@ describe('Multi-room booking orders', () => {
         async postDeposit() {
           return { ok: true as const, value: undefined };
         },
+        async cancelRealReservation(_context: unknown, externalBookingId: string) {
+          cancelledClockBookingIds.push(externalBookingId);
+          return { ok: true as const, value: undefined };
+        },
       })
       .compile();
     app = moduleRef.createNestApplication();
@@ -179,7 +206,7 @@ describe('Multi-room booking orders', () => {
       request(app!.getHttpServer())
         .post(`${propertyUrl}/rate-plans`)
         .set('Cookie', cookie)
-        .send({ name: 'Flexible', currency: 'EUR' }),
+        .send({ name: 'Flexible', currency: 'EUR', freeCancellationUntilHours: 48 }),
     ]);
     expect(firstType.status).toBe(201);
     expect(secondType.status).toBe(201);
@@ -340,6 +367,29 @@ describe('Multi-room booking orders', () => {
       { externalBookingId: `clock-${held.value.bookings[0]!.id}` },
       { externalBookingId: `clock-${held.value.bookings[1]!.id}` },
     ]);
+    const provider = app!.get(LocalPmsProvider);
+    const cancelledOrder = await provider.cancelBooking(
+      { tenantId, propertyId },
+      {
+        idempotencyKey: randomUUID(),
+        bookingId: held.value.bookings[0]!.id,
+        guestSessionId: sessionId,
+        expectedVersion: 1,
+        reason: 'The family changed its plans.',
+      },
+    );
+    expect(cancelledOrder).toMatchObject({ ok: true, value: { status: 'CANCELLED' } });
+    expect(cancelledClockBookingIds).toEqual([
+      `clock-${held.value.bookings[0]!.id}`,
+      `clock-${held.value.bookings[1]!.id}`,
+    ]);
+    const cancelledStatuses = await admin.$queryRaw<Array<{ status: string }>>`
+      SELECT status::text FROM bookings
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND order_reference = ${held.value.orderReference}
+      ORDER BY order_room_number
+    `;
+    expect(cancelledStatuses).toEqual([{ status: 'CANCELLED' }, { status: 'CANCELLED' }]);
     const roomGuests = await admin.$queryRaw<
       Array<{
         orderReference: string;
@@ -496,5 +546,43 @@ describe('Multi-room booking orders', () => {
         AND reference_id = ${paidOrder.value.bookings[1]!.id}
     `;
     expect(manualReviews).toEqual([{ referenceId: paidOrder.value.bookings[1]!.id }]);
+    const paidAnchor = await admin.$queryRaw<Array<{ version: number }>>`
+      SELECT version FROM bookings
+      WHERE id = ${paidOrder.value.bookings[0]!.id}::uuid
+        AND tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+    `;
+    const cancelledPaidOrder = await provider.cancelBooking(
+      { tenantId, propertyId },
+      {
+        idempotencyKey: randomUUID(),
+        bookingId: paidOrder.value.bookings[0]!.id,
+        guestSessionId: paidSessionId,
+        expectedVersion: paidAnchor[0]!.version,
+        reason: 'The group needs to cancel.',
+      },
+    );
+    expect(cancelledPaidOrder).toMatchObject({ ok: true, value: { status: 'CANCELLED' } });
+    expect(refundCommands).toHaveLength(1);
+    expect(refundCommands[0]).toMatchObject({
+      paymentId: `cs_test_${paidOrder.value.bookings[0]!.id}`,
+      amount: { amount: '420.00', currency: 'EUR' },
+    });
+    const paidRefund = await admin.$queryRaw<Array<{ amount: string; kind: string }>>`
+      SELECT amount::text AS amount, kind::text AS kind FROM payments
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND booking_id = ${paidOrder.value.bookings[0]!.id}::uuid
+      ORDER BY created_at
+    `;
+    expect(paidRefund).toEqual([
+      { amount: '420.00', kind: 'CHARGE' },
+      { amount: '420.00', kind: 'REFUND' },
+    ]);
+    const cancelledPaidStatuses = await admin.$queryRaw<Array<{ status: string }>>`
+      SELECT status::text AS status FROM bookings
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND order_reference = ${paidOrder.value.orderReference}
+      ORDER BY order_room_number
+    `;
+    expect(cancelledPaidStatuses).toEqual([{ status: 'CANCELLED' }, { status: 'CANCELLED' }]);
   });
 });
