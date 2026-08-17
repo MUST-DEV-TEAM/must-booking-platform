@@ -1,0 +1,187 @@
+.connectionCard,
+.assignments {
+  display: grid;
+  gap: var(--must-space-16);
+}
+
+.connectionHeader,
+.providerIdentity,
+.connectionActions,
+.dialogHeader {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--must-space-12);
+  justify-content: space-between;
+}
+
+.providerIdentity,
+.connectionActions {
+  align-items: center;
+}
+
+.providerIcon {
+  align-items: center;
+  background: var(--must-color-surface-selected);
+  border-radius: var(--must-radius-control);
+  color: var(--must-color-ink);
+  display: inline-flex;
+  height: 2.5rem;
+  justify-content: center;
+  width: 2.5rem;
+}
+
+.actionMenu {
+  position: relative;
+}
+
+.actionButton {
+  min-height: 2.5rem;
+  padding: var(--must-space-8);
+  width: 2.5rem;
+}
+
+.actionMenuPanel {
+  background: var(--must-color-surface);
+  border: 1px solid var(--must-color-border);
+  border-radius: var(--must-radius-control);
+  box-shadow: var(--must-shadow-float);
+  display: grid;
+  gap: var(--must-space-4);
+  min-width: 10.5rem;
+  padding: var(--must-space-8);
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--must-space-8));
+  z-index: 2;
+}
+
+.actionMenuPanel button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--must-radius-control);
+  color: var(--must-color-text-primary);
+  cursor: pointer;
+  display: flex;
+  font: 600 0.8125rem/1.25 var(--must-font-sans);
+  gap: var(--must-space-8);
+  min-height: 2.25rem;
+  padding: 0 var(--must-space-8);
+  text-align: left;
+}
+
+.actionMenuPanel button:hover:not(:disabled) {
+  background: var(--must-color-canvas);
+}
+
+.actionMenuPanel button:focus-visible,
+.assignmentsToggle:focus-visible,
+.assignmentOption input:focus-visible {
+  box-shadow: var(--must-focus-ring);
+  outline: 0;
+}
+
+.deleteAction {
+  color: var(--must-color-danger) !important;
+}
+
+.assignments {
+  border-top: 1px solid var(--must-color-border);
+  padding-top: var(--must-space-12);
+}
+
+.assignmentsToggle {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--must-color-text-primary);
+  cursor: pointer;
+  display: flex;
+  font: 650 0.875rem/1.25 var(--must-font-sans);
+  justify-content: space-between;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+
+.assignmentList {
+  border: 0;
+  display: grid;
+  gap: var(--must-space-8);
+  margin: 0;
+  padding: 0;
+}
+
+.assignmentOption {
+  align-items: center;
+  color: var(--must-color-text-primary);
+  display: flex;
+  font: 0.875rem/1.25 var(--must-font-sans);
+  gap: var(--must-space-8);
+}
+
+.assignmentOption input {
+  accent-color: var(--must-color-ink);
+  height: 1rem;
+  margin: 0;
+  width: 1rem;
+}
+
+.addConnectionButton {
+  justify-self: start;
+}
+
+.dialogBackdrop {
+  align-items: center;
+  background: rgb(28 39 35 / 0.45);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: var(--must-space-16);
+  position: fixed;
+  z-index: 100;
+}
+
+.dialog {
+  max-height: calc(100vh - 2rem);
+  max-width: 34rem;
+  overflow: auto;
+  width: 100%;
+}
+
+.dialogHeader {
+  margin-bottom: var(--must-space-20);
+}
+
+.eyebrow {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-bottom: var(--must-space-4);
+}
+
+.visuallyHidden {
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  width: 1px;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .connectionHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .connectionActions {
+    width: 100%;
+  }
+
+  .actionMenu {
+    margin-left: auto;
+  }
+}
