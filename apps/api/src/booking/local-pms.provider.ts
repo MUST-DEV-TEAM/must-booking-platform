@@ -1465,7 +1465,7 @@ export class LocalPmsProvider implements PmsProvider {
       JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
       WHERE b.id = ${bookingId}::uuid AND b.tenant_id = ${context.tenantId}::uuid
         AND b.property_id = ${context.propertyId}::uuid
-      FOR UPDATE
+      FOR UPDATE OF b, rp
     `;
     const policy = rows[0];
     if (!policy) return { freeCancellationUntilHours: null, cutoffAt: null, isFree: false };

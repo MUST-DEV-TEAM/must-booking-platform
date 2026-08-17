@@ -2058,29 +2058,59 @@ describe('LocalPmsProvider', () => {
       .expect((response) => {
         expect(response.body).toMatchObject({ ok: false, error: { code: 'BOOKING_NOT_FOUND' } });
       });
+    // Cancellation coverage below runs against its own booking/date range so it
+    // doesn't free up staffBooking's inventory slot out from under the
+    // pre-existing idempotent-replay/availability/manual-payment assertions
+    // that follow, which assume staffBooking is still CONFIRMED.
     await request(app!.getHttpServer())
-      .delete(`${propertyUrl}/staff-bookings/${staffBooking.body.value.id}`)
-      .set('Cookie', crossPropertyStaffCookie)
-      .set('Idempotency-Key', randomUUID())
-      .send({ expectedVersion: staffBooking.body.value.version })
-      .expect(403);
-    const staffCancellation = await request(app!.getHttpServer())
-      .delete(`${propertyUrl}/staff-bookings/${staffBooking.body.value.id}`)
+      .put(`${propertyUrl}/inventory-units`)
+      .set('Cookie', cookie)
+      .send({
+        roomTypeId,
+        startsOn: '2030-12-05',
+        endsOn: '2030-12-07',
+        availableUnits: 1,
+      })
+      .expect(204);
+    const cancellableStaffBooking = await request(app!.getHttpServer())
+      .post(`${propertyUrl}/staff-bookings`)
       .set('Cookie', propertyStaffCookie)
       .set('Idempotency-Key', randomUUID())
       .send({
-        expectedVersion: staffBooking.body.value.version,
+        ...staffBookingRequest,
+        startsOn: '2030-12-05',
+        endsOn: '2030-12-07',
+        guest: {
+          email: `staff-cancel-${randomUUID()}@example.test`,
+          firstName: 'Staff',
+          lastName: 'Cancel',
+          phone: '+355000002',
+        },
+      })
+      .expect(201);
+    await request(app!.getHttpServer())
+      .delete(`${propertyUrl}/staff-bookings/${cancellableStaffBooking.body.value.id}`)
+      .set('Cookie', crossPropertyStaffCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ expectedVersion: cancellableStaffBooking.body.value.version })
+      .expect(403);
+    const staffCancellation = await request(app!.getHttpServer())
+      .delete(`${propertyUrl}/staff-bookings/${cancellableStaffBooking.body.value.id}`)
+      .set('Cookie', propertyStaffCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({
+        expectedVersion: cancellableStaffBooking.body.value.version,
         reason: 'Guest requested cancellation.',
       })
       .expect(200);
     expect(staffCancellation.body).toMatchObject({ ok: true, value: { status: 'CANCELLED' } });
     expect(cancelledGuestEmails).toContainEqual(
-      expect.objectContaining({ bookingId: staffBooking.body.value.id }),
+      expect.objectContaining({ bookingId: cancellableStaffBooking.body.value.id }),
     );
     const staffCancellationAudit = await admin.$queryRaw<Array<{ actorUserId: string | null }>>`
       SELECT actor_user_id AS "actorUserId" FROM audit_logs
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
-        AND target_id = ${staffBooking.body.value.id} AND action = 'booking.cancelled'
+        AND target_id = ${cancellableStaffBooking.body.value.id} AND action = 'booking.cancelled'
       ORDER BY created_at DESC LIMIT 1
     `;
     expect(staffCancellationAudit).toEqual([{ actorUserId: propertyStaffUserId }]);
