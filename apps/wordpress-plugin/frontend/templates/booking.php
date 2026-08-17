@@ -250,6 +250,9 @@ if ($checkout !== '') {
                         <label class="must-booking-step-select-row" for="must-booking-accommodation-type">
                             <span><?php echo \esc_html__('Accommodation type', 'must-hotel-booking'); ?></span>
                             <select id="must-booking-accommodation-type" name="accommodation_type">
+                                <option value="" <?php selected($accommodation_type, ''); ?>>
+                                    <?php echo \esc_html__('All types', 'must-hotel-booking'); ?>
+                                </option>
                                 <?php foreach ($booking_categories as $category_value => $category_label) : ?>
                                     <option value="<?php echo \esc_attr((string) $category_value); ?>" <?php selected($accommodation_type, (string) $category_value); ?>>
                                         <?php echo \esc_html((string) $category_label); ?>
