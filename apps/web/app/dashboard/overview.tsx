@@ -151,7 +151,8 @@ export function DashboardOverview({
   );
 }
 
-function Stat({
+/** Reusable standard dashboard KPI card for property and portfolio summaries. */
+export function Stat({
   label,
   value,
   detail,
