@@ -25,6 +25,16 @@ type CancellationRow = {
 
 type StaffRecipient = { staffUserId: string; email: string };
 
+type CancellationRefund = {
+  refundAmount: string | null;
+  refundCurrency: string | null;
+  chargeAmount: string | null;
+  chargeCurrency: string | null;
+  paymentProvider: string | null;
+  paymentMethod: string | null;
+  needsManualAction: boolean;
+};
+
 @Injectable()
 export class BookingCancellationNotificationService {
   constructor(
@@ -56,10 +66,36 @@ export class BookingCancellationNotificationService {
         FROM property_staff_assignments psa JOIN users u ON u.id = psa.user_id
         WHERE psa.tenant_id = ${context.tenantId}::uuid AND psa.property_id = ${context.propertyId}::uuid
       `;
-      return { row, staff };
+      const refunds = await tx.$queryRaw<CancellationRefund[]>`
+        SELECT refunded.amount::text AS "refundAmount", refunded.currency AS "refundCurrency",
+          charged.amount::text AS "chargeAmount", charged.currency AS "chargeCurrency",
+          charged.provider AS "paymentProvider", charged.method AS "paymentMethod",
+          EXISTS (
+            SELECT 1 FROM manual_review_items mri
+            WHERE mri.tenant_id = ${context.tenantId}::uuid
+              AND mri.property_id = ${context.propertyId}::uuid
+              AND mri.reference_type = 'booking' AND mri.reference_id = ${bookingId}
+              AND mri.context @> '{"automaticRefund":true}'::jsonb
+          ) AS "needsManualAction"
+        FROM (SELECT 1) seed
+        LEFT JOIN LATERAL (
+          SELECT amount, currency FROM payments
+          WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+            AND booking_id = ${bookingId}::uuid AND kind = 'REFUND'::"PaymentKind"
+            AND status = 'REFUNDED'
+          ORDER BY created_at DESC LIMIT 1
+        ) refunded ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT provider, method, amount, currency FROM payments
+          WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+            AND booking_id = ${bookingId}::uuid AND kind = 'CHARGE'::"PaymentKind"
+          ORDER BY created_at DESC LIMIT 1
+        ) charged ON TRUE
+      `;
+      return { row, staff, refund: refunds[0] };
     });
     if (!notification) return;
-    const { row, staff } = notification;
+    const { row, staff, refund } = notification;
     const guestName = [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || row.email;
     const brand = {
       name: row.propertyName,
@@ -79,6 +115,25 @@ export class BookingCancellationNotificationService {
       guestCount: row.guestCount,
       nightlyRates: row.nightlyRates ?? undefined,
     };
+    const refundDetails = refund?.needsManualAction
+      ? (refund.refundAmount ?? refund.chargeAmount) &&
+        (refund.refundCurrency ?? refund.chargeCurrency)
+        ? {
+            status: 'manual_action' as const,
+            amount: {
+              amount: refund.refundAmount ?? refund.chargeAmount!,
+              currency: refund.refundCurrency ?? refund.chargeCurrency!,
+            },
+            paymentMethod: refund.paymentMethod ?? refund.paymentProvider,
+          }
+        : undefined
+      : refund?.refundAmount && refund.refundCurrency
+        ? {
+            status: 'processed' as const,
+            amount: { amount: refund.refundAmount, currency: refund.refundCurrency },
+            paymentMethod: refund.paymentMethod ?? refund.paymentProvider,
+          }
+        : undefined;
     await this.notifications.sendBookingCancelledEmailSafely({ to: row.email, ...details });
     for (const recipient of staff)
       await this.notifications.sendBookingCancelledStaffNotificationSafely({
@@ -86,6 +141,7 @@ export class BookingCancellationNotificationService {
         staffUserId: recipient.staffUserId,
         to: recipient.email,
         guest: { name: guestName, email: row.email, phone: row.phone },
+        ...(refundDetails ? { refund: refundDetails } : {}),
       });
   }
 }

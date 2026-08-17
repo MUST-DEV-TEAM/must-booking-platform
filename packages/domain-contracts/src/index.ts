@@ -91,6 +91,11 @@ export interface MailProvider {
     roomName: string;
     guestCount: number;
     nightlyRates?: NightlyRate[];
+    refund?: {
+      status: 'processed' | 'manual_action';
+      amount: Money;
+      paymentMethod: string | null;
+    };
   }): Promise<void>;
 }
 

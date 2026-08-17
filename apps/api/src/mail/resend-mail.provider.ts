@@ -273,6 +273,17 @@ export class ResendMailProvider implements MailProvider {
     command: Parameters<MailProvider['sendBookingCancelledStaffNotification']>[0],
   ): Promise<void> {
     const subject = `${command.guest.name} — booking cancelled ${command.bookingReference}`;
+    const refund = command.refund;
+    const refundLabel = refund
+      ? refund.status === 'processed'
+        ? 'Automatic refund processed'
+        : 'Manual refund required'
+      : null;
+    const refundContent = refund
+      ? refund.status === 'processed'
+        ? `<p style="margin:16px 0 0 0;"><strong>Automatic refund processed</strong><br>${this.money(refund.amount)}${refund.paymentMethod ? ` via ${escapeHtml(refund.paymentMethod)}` : ''}</p>`
+        : `<p style="margin:16px 0 0 0;"><strong>Manual refund required</strong><br>The automatic refund of ${this.money(refund.amount)}${refund.paymentMethod ? ` via ${escapeHtml(refund.paymentMethod)}` : ''} failed. Please refund the guest manually.</p>`
+      : '';
     await this.send({
       to: command.to,
       subject,
@@ -281,8 +292,13 @@ export class ResendMailProvider implements MailProvider {
         brand: command.brand,
         preheader: `A reservation for ${command.roomName} was just cancelled.`,
         heading: 'Booking cancelled',
-        content: `<p style="margin:0 0 4px 0;"><strong>Guest</strong><br>${escapeHtml(command.guest.name)}<br>${escapeHtml(command.guest.email)}${command.guest.phone ? `<br>${escapeHtml(command.guest.phone)}` : ''}</p>`,
-        summaryRows: this.bookingSummaryRows(command, { includeGuests: false, dateFormat: 'us' }),
+        content: `<p style="margin:0 0 4px 0;"><strong>Guest</strong><br>${escapeHtml(command.guest.name)}<br>${escapeHtml(command.guest.email)}${command.guest.phone ? `<br>${escapeHtml(command.guest.phone)}` : ''}</p>${refundContent}`,
+        summaryRows: [
+          ...this.bookingSummaryRows(command, { includeGuests: false, dateFormat: 'us' }),
+          ...(refundLabel && refund
+            ? [{ label: refundLabel, value: this.money(refund.amount) }]
+            : []),
+        ],
         cta: this.dashboardReservationUrl(command.bookingReference)
           ? {
               url: this.dashboardReservationUrl(command.bookingReference)!,
@@ -295,7 +311,7 @@ export class ResendMailProvider implements MailProvider {
         footerNote: this.staffFooterNote(command.brand.name),
         platformFooter: 'MUST Booking Platform',
       }),
-      text: `${command.guest.name}'s booking ${command.bookingReference} has been cancelled.`,
+      text: `${command.guest.name}'s booking ${command.bookingReference} has been cancelled.${refund ? (refund.status === 'processed' ? ` Automatic refund processed: ${this.money(refund.amount)}${refund.paymentMethod ? ` via ${refund.paymentMethod}` : ''}.` : ` Manual refund required: the automatic refund of ${this.money(refund.amount)}${refund.paymentMethod ? ` via ${refund.paymentMethod}` : ''} failed.`) : ''}`,
       idempotencyKey: `booking-cancelled/staff/${command.bookingId}/${command.staffUserId}`,
     });
   }

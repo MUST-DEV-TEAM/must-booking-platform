@@ -1118,7 +1118,14 @@ describe('LocalPmsProvider', () => {
       }),
     );
     expect(cancelledStaffEmails).toContainEqual(
-      expect.objectContaining({ bookingId: created.value.id, guestCount: 2 }),
+      expect.objectContaining({
+        bookingId: created.value.id,
+        guestCount: 2,
+        refund: expect.objectContaining({
+          status: 'processed',
+          amount: { amount: '180.00', currency: 'EUR' },
+        }),
+      }),
     );
     await expect(provider.cancelBooking(context, cancelCommand)).resolves.toEqual(cancelled);
     const automaticRefundRows = await admin.$queryRaw<
@@ -1233,6 +1240,15 @@ describe('LocalPmsProvider', () => {
         }),
       }),
     ]);
+    expect(cancelledStaffEmails).toContainEqual(
+      expect.objectContaining({
+        bookingId: failedRefundBooking.value.id,
+        refund: expect.objectContaining({
+          status: 'manual_action',
+          amount: { amount: '180.00', currency: 'EUR' },
+        }),
+      }),
+    );
 
     const concurrentStartsOn = '2026-10-01';
     const concurrentEndsOn = '2026-10-03';

@@ -331,6 +331,11 @@ describe('ResendMailProvider', () => {
       staffUserId: 'staff-1',
       to: 'staff@example.test',
       guest: { name: 'Alex Morgan', email: 'alex.morgan@example.com', phone: null },
+      refund: {
+        status: 'manual_action',
+        amount: { amount: '240.00', currency: 'USD' },
+        paymentMethod: 'stripe',
+      },
     });
     await provider.sendRefundConfirmationEmail({
       ...booking,
@@ -386,6 +391,7 @@ describe('ResendMailProvider', () => {
     expect(messages[5].html).toContain('Your booking was cancelled');
     expect(messages[6].html).toContain('New booking received');
     expect(messages[7].html).toContain('Booking cancelled');
+    expect(messages[7].html).toContain('Manual refund required');
     expect(messages[8].html).toContain(
       'It may take a few business days to appear on your original payment method.',
     );
