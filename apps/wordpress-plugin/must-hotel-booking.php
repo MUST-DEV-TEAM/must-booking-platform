@@ -61,6 +61,7 @@ require_once MUST_HOTEL_BOOKING_PATH . 'includes/autoloader.php';
 require_once MUST_HOTEL_BOOKING_PATH . 'includes/asset-url.php';
 require_once MUST_HOTEL_BOOKING_PATH . 'includes/config.php';
 
+\MustHotelBooking\Core\Updater::boot();
 \MustHotelBooking\Core\BookingPerformanceMonitor::bootstrap();
 
 \register_activation_hook(MUST_HOTEL_BOOKING_FILE, [\MustHotelBooking\Core\Plugin::class, 'activate']);

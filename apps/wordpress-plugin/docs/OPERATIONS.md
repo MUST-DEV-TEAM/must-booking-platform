@@ -187,25 +187,28 @@ Until that account-specific check passes, local fake-fixture tests establish onl
 | `tools/clock-e2e-settings.php` | Mutates plugin settings. |
 | `tools/clock-e2e-cleanup.php` | Mutates reservation/payment state. |
 | `tests/E2E/production-lifecycle-harness.php` | Default readiness mode is non-write; `--allow-external-writes` creates provider/local records and requires non-production isolation and backups. |
-| `tools/release-plugin.ps1` | Pulls, edits versions/changelog, stages all changes, commits, pushes, tags, and publishes; release-only. |
 
 Read a tool before running it. A filename or `read_only` flag is not proof of no network or no mutation.
 
 ## Deployment and release
 
-### Pre-deployment
+`apps/wordpress-plugin` in this monorepo is the only source of plugin code. `MUST-DEV-TEAM/must-hotel-booking` is a release-distribution target only; do not manually commit source or sync a working tree to it.
 
-1. Use a reviewed clean release branch/worktree.
-2. Confirm only intended files changed; preserve unrelated work.
-3. Align plugin header, version constant, `readme.txt` stable tag, changelog, tag, and ZIP name.
-4. Lint changed PHP/JS and run focused standalone tests.
-5. Review database/option compatibility and backup/rollback plan.
-6. Validate the package manifest excludes development, secret, backup, worktree, and temporary artifacts.
-7. Record which provider/runtime acceptance remains unverified.
+### Publish a release
 
-The GitHub release workflow validates version metadata and ZIP content/structure and publishes an asset. It does not run PHP lint, JavaScript checks, or the standalone test suite.
+1. In the reviewed change that is ready to release, update the `Version:` header and `MUST_HOTEL_BOOKING_VERSION` constant in `must-hotel-booking.php` to the same semantic version. Keep `readme.txt`'s stable tag and changelog aligned as part of normal release hygiene.
+2. Lint changed PHP/JS, run focused standalone tests, review database/option compatibility, and ensure the release can be rolled back safely.
+3. Merge the version bump to `main`. The monorepo workflow `wordpress-plugin-release.yml` detects the header change, packages only `admin/`, `assets/`, `database/`, `frontend/`, `includes/`, `lib/`, `src/`, `index.php`, `must-hotel-booking.php`, `readme.txt`, and `uninstall.php`, and creates `must-hotel-booking-<version>.zip`.
+4. The workflow creates or updates the matching `v<version>` GitHub Release in `MUST-DEV-TEAM/must-hotel-booking`. It requires the monorepo repository secret `MUST_HOTEL_BOOKING_RELEASE_TOKEN`, with Contents write access to that distribution repository. Do not substitute a personal token in the workflow.
+5. Confirm the GitHub Release has exactly the expected ZIP asset and that its version matches the installed plugin metadata.
 
-`tools/release-plugin.ps1` uses broad staging (`git add -A`) and performs remote release actions. Never run it from a dirty or unreviewed worktree.
+The workflow deliberately releases only when the `Version:` header changes. It does not bump versions, edit changelogs, run PHP lint, JavaScript checks, or the standalone test suite for you.
+
+### Update installed sites
+
+After the release is published, connected sites receive the normal WordPress update notification in **Plugins** and an administrator can update it there. Do not use SSH/manual directory sync as an update mechanism.
+
+An already-live site without this updater code needs one final manual sync to receive this bootstrap version. New sites still install the plugin once through the normal WordPress ZIP-install path; pairing and first-time onboarding are unchanged. Once this version is installed, future updates use the WordPress-native update path.
 
 ### Post-deployment
 

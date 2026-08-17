@@ -44,7 +44,6 @@ final class Plugin
         // already-existing page's assignment doesn't hit that path, which is
         // why this only ever surfaced once a brand-new page config was added.
         \add_action('init', [\MustHotelBooking\Core\ManagedPages::class, 'sync']);
-        \MustHotelBooking\Core\Updater::boot();
         \MustHotelBooking\Core\PluginSupportWidget::registerHooks();
         \MustHotelBooking\Core\ActivityLogger::registerHooks();
         \MustHotelBooking\Core\PublicCallbackUrl::registerHooks();

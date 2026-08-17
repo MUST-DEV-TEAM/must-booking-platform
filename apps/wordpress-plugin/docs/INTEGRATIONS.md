@@ -208,12 +208,12 @@ Widgets check Elementor availability before registration and reuse plugin-manage
 
 ## GitHub updater
 
-`src/Core/Updater.php` wraps the bundled Plugin Update Checker. Repository/branch/slug/optional token/enablement and release-asset rules are constants in `must-hotel-booking.php`.
+`src/Core/Updater.php` wraps the bundled Plugin Update Checker and is booted from `must-hotel-booking.php`. Repository/branch/slug/optional token/enablement and release-asset rules are constants in that bootstrap file.
 
-- Plugin header/version constant and `readme.txt` stable tag must match.
+- Plugin header and version constant must match. A differing `readme.txt` stable tag is surfaced by updater diagnostics but does not block release discovery.
 - Release assets use `must-hotel-booking-X.Y.Z.zip`.
 - Public release discovery needs no token; private access requires a protected token.
-- The current Linux-compatible package workflow is part of the updater contract.
+- The monorepo's `wordpress-plugin-release.yml` workflow publishes releases from version-header bumps on `main` to `MUST-DEV-TEAM/must-hotel-booking`; its ZIP manifest and release-asset name are part of the updater contract.
 
 Repository inspection does not prove package provenance, production reachability, successful installation, or rollback readiness.
 

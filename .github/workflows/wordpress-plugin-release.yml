@@ -1,0 +1,123 @@
+name: Publish WordPress Plugin Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - apps/wordpress-plugin/must-hotel-booking.php
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Read and validate the release version
+        id: version
+        shell: bash
+        run: |
+          plugin_file='apps/wordpress-plugin/must-hotel-booking.php'
+          version="$(php -r '$contents = file_get_contents($argv[1]); preg_match("#^[[:space:]]*\\*[[:space:]]Version:\\s*([0-9]+\\.[0-9]+\\.[0-9]+)#m", $contents, $matches); echo $matches[1] ?? "";' "$plugin_file")"
+          constant_version="$(php -r '$contents = file_get_contents($argv[1]); preg_match("#define\\([\x27]MUST_HOTEL_BOOKING_VERSION[\x27],\\s*[\x27]([0-9]+\\.[0-9]+\\.[0-9]+)[\x27]\\);#", $contents, $matches); echo $matches[1] ?? "";' "$plugin_file")"
+
+          if [[ -z "$version" || -z "$constant_version" ]]; then
+            echo "Unable to read semantic version metadata from $plugin_file."
+            exit 1
+          fi
+
+          if [[ "$version" != "$constant_version" ]]; then
+            echo "The Version header ($version) does not match MUST_HOTEL_BOOKING_VERSION ($constant_version)."
+            exit 1
+          fi
+
+          previous_version="$(git show "${{ github.event.before }}:$plugin_file" 2>/dev/null | php -r '$contents = stream_get_contents(STDIN); preg_match("#^[[:space:]]*\\*[[:space:]]Version:\\s*([0-9]+\\.[0-9]+\\.[0-9]+)#m", $contents, $matches); echo $matches[1] ?? "";' || true)"
+
+          if [[ "$version" == "$previous_version" ]]; then
+            echo "The Version header did not change; no release will be published."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "asset=must-hotel-booking-$version.zip" >> "$GITHUB_OUTPUT"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build plugin ZIP
+        if: steps.version.outputs.changed == 'true'
+        shell: bash
+        run: |
+          package_root='dist/must-hotel-booking'
+          mkdir -p "$package_root"
+
+          for path in admin assets database frontend includes lib src index.php must-hotel-booking.php readme.txt uninstall.php; do
+            cp -a "apps/wordpress-plugin/$path" "$package_root/"
+          done
+
+          (
+            cd dist
+            zip -qr "../${{ steps.version.outputs.asset }}" must-hotel-booking
+          )
+
+      - name: Validate plugin ZIP
+        if: steps.version.outputs.changed == 'true'
+        shell: bash
+        run: |
+          asset='${{ steps.version.outputs.asset }}'
+          entries="$(unzip -Z1 "$asset")"
+
+          required=(
+            'must-hotel-booking/must-hotel-booking.php'
+            'must-hotel-booking/index.php'
+            'must-hotel-booking/readme.txt'
+            'must-hotel-booking/uninstall.php'
+            'must-hotel-booking/lib/plugin-update-checker/plugin-update-checker.php'
+          )
+
+          for entry in "${required[@]}"; do
+            if ! grep -Fqx "$entry" <<< "$entries"; then
+              echo "ZIP is missing required file: $entry"
+              exit 1
+            fi
+          done
+
+          if grep -Eq '^(must-hotel-booking/(docs|tests|tools)/|must-hotel-booking/(CHANGELOG\.md|AUDIT\.md)$)' <<< "$entries"; then
+            echo 'ZIP contains development-only content.'
+            exit 1
+          fi
+
+          if grep -Evq '^must-hotel-booking/' <<< "$entries"; then
+            echo 'ZIP contains entries outside the must-hotel-booking root.'
+            exit 1
+          fi
+
+      - name: Publish GitHub release
+        if: steps.version.outputs.changed == 'true'
+        env:
+          # Required repository secret: a token with Contents write access to MUST-DEV-TEAM/must-hotel-booking.
+          GH_TOKEN: ${{ secrets.MUST_HOTEL_BOOKING_RELEASE_TOKEN }}
+          ASSET: ${{ steps.version.outputs.asset }}
+          TAG: v${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo 'MUST_HOTEL_BOOKING_RELEASE_TOKEN is required to publish plugin releases.'
+            exit 1
+          fi
+
+          if gh release view "$TAG" --repo MUST-DEV-TEAM/must-hotel-booking >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ASSET" --repo MUST-DEV-TEAM/must-hotel-booking --clobber
+          else
+            gh release create "$TAG" "$ASSET" \
+              --repo MUST-DEV-TEAM/must-hotel-booking \
+              --title "$TAG" \
+              --generate-notes \
+              --latest
+          fi

@@ -32,7 +32,7 @@ The desired conceptual direction is surfaces → engines/providers → repositor
 - Declares plugin metadata and version `0.4.92`.
 - Defines path, URL, basename, slug, updater repository/branch/token and release-asset constants.
 - Loads `includes/autoloader.php` and `includes/config.php`.
-- Boots `BookingPerformanceMonitor` early.
+- Boots the updater and `BookingPerformanceMonitor` early.
 - Registers activation/deactivation hooks.
 - Runs database upgrade at `plugins_loaded` priority 5, then `Plugin::initPlugin()`.
 
@@ -60,7 +60,7 @@ Normal initialization:
 
 - Rechecks inventory backfill and payment-policy migration.
 - Repairs managed pages and staff capabilities.
-- Boots the updater, provider registry, support widget/diagnostics, activity logger, public callback URL filters, locks, jobs, Clock scheduler, payment routes, Clock accounting/inbound sync, availability AJAX, email, portal, and Clock WBE frontend.
+- Boots provider registry, support widget/diagnostics, activity logger, public callback URL filters, locks, jobs, Clock scheduler, payment routes, Clock accounting/inbound sync, availability AJAX, email, portal, and Clock WBE frontend.
 - Fires `must_hotel_booking/init`.
 
 Deactivation unschedules plugin cron hooks and flushes rewrite rules. It does not delete data.
@@ -81,7 +81,7 @@ Deactivation unschedules plugin cron hooks and flushes rewrite rules. It does no
 | `assets` | Scoped CSS, JavaScript, icons and images for public/admin/portal/widgets. |
 | `lib/plugin-update-checker` | Bundled third-party updater library. |
 | `tests` | Standalone PHP tests and guarded E2E harness. There is no Composer/PHPUnit runner. |
-| `tools` | Release, diagnostics, backup, settings, cleanup and smoke-test scripts with different side-effect boundaries. |
+| `tools` | Diagnostics, backup, settings, cleanup and smoke-test scripts with different side-effect boundaries. |
 
 ## Domain and service boundaries
 
@@ -266,8 +266,7 @@ Never document saved values or secrets. Configuration key names and safe meaning
 
 - Tests are executable PHP files under `tests/`; many stub WordPress/provider behavior or scan source text.
 - `tests/E2E` loads WordPress and can perform provider writes only behind explicit flags and readiness gates.
-- `.github/workflows/release-package.yml` builds and validates the release archive. Current workflow does not run the PHP standalone suite or repository-wide PHP lint.
-- `tools/release-plugin.ps1` mutates version/readme, pulls, tags, pushes and publishes; it is not a safe diagnostic command.
+- The monorepo's `.github/workflows/wordpress-plugin-release.yml` publishes a release only when the plugin `Version:` header changes on `main`. It builds the ZIP from the explicit runtime manifest and publishes it to the distribution repository; it does not run the PHP standalone suite or repository-wide PHP lint.
 
 ## Current architectural debt
 
