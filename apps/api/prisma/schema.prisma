@@ -161,6 +161,7 @@ model Property {
   amenities         Amenity[]
   roomTypeAmenities RoomTypeAmenity[]
   roomAmenities     RoomAmenity[]
+  cancellationPolicies CancellationPolicy[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, slug])
@@ -445,6 +446,7 @@ model RatePlan {
   currency                   String     @db.Char(3)
   isActive                   Boolean    @default(true) @map("is_active")
   freeCancellationUntilHours Int?       @map("free_cancellation_until_hours")
+  cancellationPolicyId       String?    @map("cancellation_policy_id") @db.Uuid
   // Non-null only for an auto-created "shadow" rate plan backing a
   // confirmed Clock ROOM_TYPE mapping — never staff-visible/selectable,
   // exists only so a Clock-priced booking still has a valid rate_plan_id
@@ -453,6 +455,7 @@ model RatePlan {
   createdAt                  DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                  DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   property                   Property   @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  cancellationPolicy         CancellationPolicy? @relation(fields: [tenantId, propertyId, cancellationPolicyId], references: [tenantId, propertyId, id], onDelete: Restrict)
   rules                      RateRule[]
   roomPriceOverrides         RoomPriceOverride[]
   bookings                   Booking[]
@@ -460,7 +463,25 @@ model RatePlan {
   @@unique([tenantId, propertyId, id])
   @@unique([tenantId, propertyId, name])
   @@index([tenantId, propertyId])
+  @@index([tenantId, propertyId, cancellationPolicyId])
   @@map("rate_plans")
+}
+
+model CancellationPolicy {
+  id                                String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                          String     @map("tenant_id") @db.Uuid
+  propertyId                        String     @map("property_id") @db.Uuid
+  name                              String     @db.VarChar(200)
+  freeCancellationDaysBeforeArrival Int        @map("free_cancellation_days_before_arrival")
+  createdAt                         DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                         DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property                          Property   @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  ratePlans                         RatePlan[]
+
+  @@unique([tenantId, propertyId, id])
+  @@unique([tenantId, propertyId, name])
+  @@index([tenantId, propertyId])
+  @@map("cancellation_policies")
 }
 
 model RateRule {

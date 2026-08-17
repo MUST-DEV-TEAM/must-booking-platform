@@ -1448,18 +1448,20 @@ export class LocalPmsProvider implements PmsProvider {
         isFree: boolean;
       }>
     >`
-      SELECT rp.free_cancellation_until_hours AS "freeCancellationUntilHours",
+      SELECT COALESCE(cp.free_cancellation_days_before_arrival * 24, rp.free_cancellation_until_hours) AS "freeCancellationUntilHours",
         CASE
-          WHEN rp.free_cancellation_until_hours IS NULL THEN NULL
+          WHEN COALESCE(cp.free_cancellation_days_before_arrival * 24, rp.free_cancellation_until_hours) IS NULL THEN NULL
           ELSE (b.starts_on::timestamp AT TIME ZONE p.timezone)
-            - make_interval(hours => rp.free_cancellation_until_hours)
+            - make_interval(hours => COALESCE(cp.free_cancellation_days_before_arrival * 24, rp.free_cancellation_until_hours))
         END AS "cutoffAt",
-        rp.free_cancellation_until_hours IS NOT NULL
+        COALESCE(cp.free_cancellation_days_before_arrival * 24, rp.free_cancellation_until_hours) IS NOT NULL
           AND CURRENT_TIMESTAMP <= (b.starts_on::timestamp AT TIME ZONE p.timezone)
-            - make_interval(hours => rp.free_cancellation_until_hours) AS "isFree"
+            - make_interval(hours => COALESCE(cp.free_cancellation_days_before_arrival * 24, rp.free_cancellation_until_hours)) AS "isFree"
       FROM bookings b
       JOIN rate_plans rp
         ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
+      LEFT JOIN cancellation_policies cp
+        ON cp.tenant_id = rp.tenant_id AND cp.property_id = rp.property_id AND cp.id = rp.cancellation_policy_id
       JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
       WHERE b.id = ${bookingId}::uuid AND b.tenant_id = ${context.tenantId}::uuid
         AND b.property_id = ${context.propertyId}::uuid

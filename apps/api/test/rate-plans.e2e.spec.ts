@@ -99,6 +99,53 @@ describe('rate plans', () => {
       .expect(201);
     roomTypeId = roomType.body.id;
 
+    const clockRatePlanOne = randomUUID();
+    const clockRatePlanTwo = randomUUID();
+    await admin.$executeRaw`
+      INSERT INTO rate_plans (id, tenant_id, property_id, name, currency, is_active, clock_shadow_room_type_id)
+      VALUES
+        (${clockRatePlanOne}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, 'Clock: Standard one', 'EUR', true, ${roomTypeId}::uuid),
+        (${clockRatePlanTwo}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, 'Clock: Standard two', 'EUR', true, ${randomUUID()}::uuid)
+    `;
+    const catalogBase = `/tenants/${tenantId}/properties/${propertyId}/clock-catalog/cancellation-policies`;
+    const policy = await request(app.getHttpServer())
+      .post(catalogBase)
+      .set('Cookie', cookie)
+      .send({ name: 'Reusable flexible', freeCancellationDaysBeforeArrival: 7 })
+      .expect(201);
+    await request(app.getHttpServer())
+      .patch(`${catalogBase}/rate-plans/${clockRatePlanOne}`)
+      .set('Cookie', cookie)
+      .send({ cancellationPolicyId: policy.body.id })
+      .expect(200);
+    await request(app.getHttpServer())
+      .patch(`${catalogBase}/rate-plans/${clockRatePlanTwo}`)
+      .set('Cookie', cookie)
+      .send({ cancellationPolicyId: policy.body.id })
+      .expect(200);
+    await request(app.getHttpServer())
+      .patch(`${catalogBase}/${policy.body.id}`)
+      .set('Cookie', cookie)
+      .send({ name: 'Reusable flexible renamed', freeCancellationDaysBeforeArrival: 14 })
+      .expect(200);
+    const assignedWindows = await admin.$queryRaw<Array<{ days: number }>>`
+      SELECT cp.free_cancellation_days_before_arrival AS days
+      FROM rate_plans rp JOIN cancellation_policies cp
+        ON cp.tenant_id=rp.tenant_id AND cp.property_id=rp.property_id AND cp.id=rp.cancellation_policy_id
+      WHERE rp.id IN (${clockRatePlanOne}::uuid, ${clockRatePlanTwo}::uuid)
+      ORDER BY rp.id
+    `;
+    expect(assignedWindows).toEqual([{ days: 14 }, { days: 14 }]);
+    await request(app.getHttpServer())
+      .patch(`${catalogBase}/${policy.body.id}`)
+      .set('Cookie', cookie)
+      .send({ name: 'Too late', freeCancellationDaysBeforeArrival: 22 })
+      .expect(400);
+    await request(app.getHttpServer())
+      .delete(`${catalogBase}/${policy.body.id}`)
+      .set('Cookie', cookie)
+      .expect(409);
+
     const created = await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans`)
       .set('Cookie', cookie)

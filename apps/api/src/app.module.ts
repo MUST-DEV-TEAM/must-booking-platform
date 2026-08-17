@@ -45,6 +45,8 @@ import { PlanUsageController } from './tenancy/plan-usage.controller';
 import { PlanUsageService } from './tenancy/plan-usage.service';
 import { PropertiesController } from './tenancy/properties.controller';
 import { PropertiesService } from './tenancy/properties.service';
+import { CancellationPoliciesController } from './tenancy/cancellation-policies.controller';
+import { CancellationPoliciesService } from './tenancy/cancellation-policies.service';
 import { STORAGE_PROVIDER } from './storage/storage.provider';
 import { R2StorageProvider } from './storage/r2-storage.provider';
 import { RoomTypesController } from './tenancy/room-types.controller';
@@ -161,6 +163,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     AuditLogController,
     PlanUsageController,
     PropertiesController,
+    CancellationPoliciesController,
     RoomTypesController,
     RoomsController,
     PropertyRoomsController,
@@ -208,6 +211,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     AuditLogService,
     PlanUsageService,
     PropertiesService,
+    CancellationPoliciesService,
     RoomTypesService,
     RoomsService,
     RatePlansService,
