@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Req,
+} from '@nestjs/common';
 import { TenantScoped } from './tenant-context.decorator';
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 import { RequiresCapability } from './capabilities.decorator';
@@ -29,6 +40,24 @@ export class PropertiesController {
     @Req() request: { tenantContext: { tenantId: string; userId: string } },
   ) {
     return this.properties.update(
+      request.tenantContext.tenantId,
+      propertyId,
+      request.tenantContext.userId,
+      body,
+    );
+  }
+
+  @Delete(':propertyId')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresVerifiedEmail()
+  remove(
+    @Param('propertyId') propertyId: string,
+    @Body() body: unknown,
+    @Req() request: { tenantContext: { tenantId: string; userId: string } },
+  ) {
+    return this.properties.remove(
       request.tenantContext.tenantId,
       propertyId,
       request.tenantContext.userId,

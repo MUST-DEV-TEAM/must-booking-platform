@@ -1,8 +1,9 @@
-import { Controller, Get, HttpCode, Inject, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Post, Req } from '@nestjs/common';
 
 import { Role, Roles } from '../tenancy/roles.decorator';
 import { PlatformAdminService, type OrganizationStatus } from './platform-admin.service';
 import { ProviderHealthService } from './provider-health.service';
+import { PropertiesService } from '../tenancy/properties.service';
 
 type PlatformRequest = { platformContext: { userId: string } };
 
@@ -12,6 +13,7 @@ export class PlatformAdminController {
   constructor(
     @Inject(PlatformAdminService) private readonly platformAdmin: PlatformAdminService,
     @Inject(ProviderHealthService) private readonly providerHealth: ProviderHealthService,
+    @Inject(PropertiesService) private readonly properties: PropertiesService,
   ) {}
 
   @Get('provider-health')
@@ -49,6 +51,22 @@ export class PlatformAdminController {
   @Get('tenants/:tenantId')
   tenant(@Param('tenantId') tenantId: string, @Req() request: PlatformRequest) {
     return this.platformAdmin.getTenant(tenantId, request.platformContext.userId);
+  }
+
+  @Delete('tenants/:tenantId/properties/:propertyId')
+  removeProperty(
+    @Param('tenantId') tenantId: string,
+    @Param('propertyId') propertyId: string,
+    @Body() body: unknown,
+    @Req() request: PlatformRequest,
+  ) {
+    return this.properties.remove(
+      tenantId,
+      propertyId,
+      request.platformContext.userId,
+      body,
+      'PLATFORM_ADMIN',
+    );
   }
 
   @Post('tenants/:tenantId/suspend')

@@ -189,22 +189,23 @@ export class PlatformAdminService {
       tenantId,
     });
 
-    const properties = await this.database.withTenantTransaction(
+    const [properties, propertyList] = await this.database.withTenantTransaction(
       { tenantId },
       (tx) =>
-        tx.$queryRaw<
-          [
-            {
-              propertyCount: number;
-              stripeEnabled: boolean;
-              pokpayEnabled: boolean;
-              payAtHotelEnabled: boolean;
-              stripeEnabledPropertyCount: number;
-              pokpayEnabledPropertyCount: number;
-              payAtHotelEnabledPropertyCount: number;
-            },
-          ]
-        >`
+        Promise.all([
+          tx.$queryRaw<
+            [
+              {
+                propertyCount: number;
+                stripeEnabled: boolean;
+                pokpayEnabled: boolean;
+                payAtHotelEnabled: boolean;
+                stripeEnabledPropertyCount: number;
+                pokpayEnabledPropertyCount: number;
+                payAtHotelEnabledPropertyCount: number;
+              },
+            ]
+          >`
         SELECT COUNT(*)::int AS "propertyCount",
           COALESCE(BOOL_OR("stripe_enabled"), false) AS "stripeEnabled",
           COALESCE(BOOL_OR("pokpay_enabled"), false) AS "pokpayEnabled",
@@ -212,8 +213,12 @@ export class PlatformAdminService {
           COUNT(*) FILTER (WHERE "stripe_enabled")::int AS "stripeEnabledPropertyCount",
           COUNT(*) FILTER (WHERE "pokpay_enabled")::int AS "pokpayEnabledPropertyCount",
           COUNT(*) FILTER (WHERE "pay_at_hotel_enabled")::int AS "payAtHotelEnabledPropertyCount"
-        FROM "properties"
-      `,
+          FROM "properties"
+        `,
+          tx.$queryRaw<PlatformProperty[]>`
+            SELECT "id", "name" FROM "properties" ORDER BY "created_at", "name"
+          `,
+        ]),
     );
     // Oversight only (ADR-0026 decision 5): who's connected to what, for
     // support/troubleshooting. Never returns credentials, and there is no
@@ -240,6 +245,7 @@ export class PlatformAdminService {
         pokpayEnabledPropertyCount: 0,
         payAtHotelEnabledPropertyCount: 0,
       }),
+      properties: propertyList,
       connections,
       manualReviewItems,
     };
@@ -409,8 +415,14 @@ export interface PlatformTenantDetail extends PlatformTenant {
   stripeEnabledPropertyCount: number;
   pokpayEnabledPropertyCount: number;
   payAtHotelEnabledPropertyCount: number;
+  properties: PlatformProperty[];
   connections: PlatformIntegrationConnection[];
   manualReviewItems: ManualReviewItemSummary[];
+}
+
+export interface PlatformProperty {
+  id: string;
+  name: string;
 }
 
 export interface PlatformIntegrationConnection {
