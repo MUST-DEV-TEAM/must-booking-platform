@@ -32,6 +32,8 @@ describe('Multi-room booking orders', () => {
   let verificationToken = '';
   let clockConnected = false;
   let failSecondClockReservation = false;
+  let failSecondClockCancellation = false;
+  let clockCancellationAttempts = 0;
   const cancelledClockBookingIds: string[] = [];
   const refundCommands: Array<{
     paymentId: string;
@@ -152,6 +154,16 @@ describe('Multi-room booking orders', () => {
         },
         async cancelRealReservation(_context: unknown, externalBookingId: string) {
           cancelledClockBookingIds.push(externalBookingId);
+          clockCancellationAttempts += 1;
+          if (failSecondClockCancellation && clockCancellationAttempts === 2)
+            return {
+              ok: false as const,
+              error: {
+                code: 'CLOCK_CANCELLATION_FAILED',
+                message: 'Forced second-room Clock cancellation failure.',
+                retryable: false,
+              },
+            };
           return { ok: true as const, value: undefined };
         },
       })
@@ -390,6 +402,94 @@ describe('Multi-room booking orders', () => {
       ORDER BY order_room_number
     `;
     expect(cancelledStatuses).toEqual([{ status: 'CANCELLED' }, { status: 'CANCELLED' }]);
+    const partialCancellationSessionId = randomUUID();
+    clockConnected = false;
+    const [partialFirstQuote, partialSecondQuote] = await Promise.all([
+      quotes.create(tenantId, propertyId, partialCancellationSessionId, {
+        roomTypeId: firstType.body.id,
+        ratePlanId: ratePlan.body.id,
+        startsOn,
+        endsOn,
+      }),
+      quotes.create(tenantId, propertyId, partialCancellationSessionId, {
+        roomTypeId: secondType.body.id,
+        ratePlanId: ratePlan.body.id,
+        startsOn,
+        endsOn,
+      }),
+    ]);
+    clockConnected = true;
+    const partialCancellationOrder = await orders.create(
+      { tenantId, propertyId },
+      {
+        idempotencyKey: randomUUID(),
+        externalReference: `must-order-${randomUUID()}`,
+        startsOn,
+        endsOn,
+        quoteSessionId: partialCancellationSessionId,
+        paymentMethod: 'pay_at_hotel',
+        guest: {
+          email: `partial-cancellation-${randomUUID()}@example.test`,
+          firstName: 'Partial',
+          lastName: 'Cancellation',
+          phone: null,
+        },
+        rooms: [
+          {
+            roomTypeId: firstType.body.id,
+            ratePlanId: ratePlan.body.id,
+            total: partialFirstQuote.total,
+            quoteToken: partialFirstQuote.quoteToken,
+          },
+          {
+            roomTypeId: secondType.body.id,
+            ratePlanId: ratePlan.body.id,
+            total: partialSecondQuote.total,
+            quoteToken: partialSecondQuote.quoteToken,
+          },
+        ],
+      },
+    );
+    expect(partialCancellationOrder.ok).toBe(true);
+    if (!partialCancellationOrder.ok) return;
+    clockCancellationAttempts = 0;
+    failSecondClockCancellation = true;
+    const partialCancellation = await provider.cancelBooking(
+      { tenantId, propertyId },
+      {
+        idempotencyKey: randomUUID(),
+        bookingId: partialCancellationOrder.value.bookings[0]!.id,
+        guestSessionId: partialCancellationSessionId,
+        expectedVersion: 1,
+        reason: 'Force the second Clock cancellation to fail.',
+      },
+    );
+    expect(partialCancellation).toMatchObject({
+      ok: false,
+      error: { code: 'ORDER_CANCELLATION_PARTIAL_FAILURE' },
+    });
+    expect(cancelledClockBookingIds.slice(-2)).toEqual([
+      `clock-${partialCancellationOrder.value.bookings[0]!.id}`,
+      `clock-${partialCancellationOrder.value.bookings[1]!.id}`,
+    ]);
+    const partialCancellationStatuses = await admin.$queryRaw<Array<{ status: string }>>`
+      SELECT status::text AS status FROM bookings
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND order_reference = ${partialCancellationOrder.value.orderReference}
+      ORDER BY order_room_number
+    `;
+    expect(partialCancellationStatuses).toEqual([{ status: 'CANCELLED' }, { status: 'CONFIRMED' }]);
+    const cancellationFailures = await admin.$queryRaw<
+      Array<{ category: string; referenceId: string }>
+    >`
+      SELECT category::text AS category, reference_id AS "referenceId" FROM manual_review_items
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND reference_id = ${partialCancellationOrder.value.bookings[1]!.id}
+    `;
+    expect(cancellationFailures).toEqual([
+      { category: 'UNKNOWN_RESULT', referenceId: partialCancellationOrder.value.bookings[1]!.id },
+    ]);
+    failSecondClockCancellation = false;
     const roomGuests = await admin.$queryRaw<
       Array<{
         orderReference: string;

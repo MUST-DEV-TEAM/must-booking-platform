@@ -31,6 +31,7 @@ import { bookingNeedsAttention } from './booking-attention';
 import { QuoteService } from './quote.service';
 import { NotificationsService } from '../tenancy/notifications.service';
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
+import { ManualReviewService } from '../integrations/manual-review.service';
 import { ClockBookingService } from '../integrations/clock/clock-booking.service';
 import { generateBookingReference } from './booking-reference';
 
@@ -114,6 +115,7 @@ export class LocalPmsProvider implements PmsProvider {
     @Inject(NotificationsService) private readonly notificationsService: NotificationsService,
     @Inject(IntegrationConnectionsService)
     private readonly connections: IntegrationConnectionsService,
+    @Inject(ManualReviewService) private readonly manualReview: ManualReviewService,
     @Inject(ClockBookingService) private readonly clockBooking: ClockBookingService,
   ) {}
 
@@ -984,10 +986,16 @@ export class LocalPmsProvider implements PmsProvider {
     command: CancelBookingCommand,
     anchor: BookingRow,
   ): Promise<MultiRoomCancellation> {
+    const orderReference = anchor.orderReference;
+    if (!orderReference)
+      return this.multiRoomCancellationFailure(
+        'BOOKING_NOT_FOUND',
+        'Multi-room order could not be identified.',
+      );
     const childIds = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id FROM bookings
       WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
-        AND order_reference = ${anchor.orderReference}
+        AND order_reference = ${orderReference}
       ORDER BY order_room_number, id
       FOR UPDATE
     `;
@@ -995,9 +1003,11 @@ export class LocalPmsProvider implements PmsProvider {
     const refundConfirmations: RefundConfirmation[] = [];
     const cancelledBookingIds: string[] = [];
     const children: Array<{ row: BookingRow; cancellationPolicy: CancellationPolicy }> = [];
-    let refundableMinorUnits = 0n;
     let refundCurrency: string | null = null;
 
+    // Validate every child before making an irreversible provider call. Once
+    // Clock confirms a room cancellation, its local projection must be
+    // updated before attempting the next child (Task 20).
     for (const child of childIds) {
       const row = await this.bookingById(tx, context, child.id);
       if (!row || row.guestSessionId !== command.guestSessionId)
@@ -1012,20 +1022,6 @@ export class LocalPmsProvider implements PmsProvider {
           'CANCELLATION_WINDOW_CLOSED',
           'This booking is too close to arrival to cancel online. Please contact the hotel directly.',
         );
-
-      if (clockConnected && row.externalBookingId) {
-        const cancelledAtClock = await this.clockBooking.cancelRealReservation(
-          context,
-          row.externalBookingId,
-        );
-        if (!cancelledAtClock.ok)
-          return this.multiRoomCancellationFailure(
-            cancelledAtClock.error.code,
-            cancelledAtClock.error.message,
-            cancelledAtClock.error.retryable,
-          );
-      }
-
       const cancellationPolicy = await this.cancellationPolicy(tx, context, row.id);
       if (cancellationPolicy.isFree) {
         if (refundCurrency && refundCurrency !== row.currency)
@@ -1034,14 +1030,60 @@ export class LocalPmsProvider implements PmsProvider {
             'Rooms in one order must use the same refund currency.',
           );
         refundCurrency = row.currency;
-        refundableMinorUnits += this.minorUnits(row.totalAmount);
       }
       children.push({ row, cancellationPolicy });
     }
 
-    // Complete the monetary operation before changing local booking state. A
-    // declined/refused refund therefore cannot leave a locally-cancelled order
-    // with a still-captured charge.
+    const cancelledChildren: Array<{ row: BookingRow; cancellationPolicy: CancellationPolicy }> =
+      [];
+    let cancellationFailure: Result<never> | null = null;
+    for (const child of children) {
+      if (clockConnected && child.row.externalBookingId) {
+        const cancelledAtClock = await this.clockBooking.cancelRealReservation(
+          context,
+          child.row.externalBookingId,
+        );
+        if (!cancelledAtClock.ok) {
+          await this.manualReview.recordInTransaction(tx, {
+            tenantId: context.tenantId,
+            propertyId: context.propertyId,
+            category: 'UNKNOWN_RESULT',
+            referenceType: 'booking',
+            referenceId: child.row.id,
+            message: `Clock cancellation could not be confirmed for this room: ${cancelledAtClock.error.message}`,
+            context: {
+              orderReference,
+              externalBookingId: child.row.externalBookingId,
+              errorCode: cancelledAtClock.error.code,
+              retryable: cancelledAtClock.error.retryable,
+            },
+          });
+          cancellationFailure ??= this.failure(
+            'ORDER_CANCELLATION_PARTIAL_FAILURE',
+            'Some rooms could not be cancelled. Hotel staff will review the affected room.',
+            cancelledAtClock.error.retryable,
+          );
+          continue;
+        }
+      }
+
+      await this.applyMultiRoomCancellation(
+        tx,
+        context,
+        orderReference,
+        child.row,
+        child.cancellationPolicy,
+      );
+      cancelledBookingIds.push(child.row.id);
+      cancelledChildren.push(child);
+    }
+
+    let refundableMinorUnits = 0n;
+    for (const { row, cancellationPolicy } of cancelledChildren) {
+      if (!cancellationPolicy.isFree) continue;
+      refundableMinorUnits += this.minorUnits(row.totalAmount);
+    }
+
     if (refundableMinorUnits > 0n && refundCurrency) {
       const amount: Money = { amount: this.money(refundableMinorUnits), currency: refundCurrency };
       const refunded = await this.refunds.refundPaidChargeForBookingAmount(
@@ -1052,70 +1094,80 @@ export class LocalPmsProvider implements PmsProvider {
         `order-cancellation-refund:${command.idempotencyKey}`,
       );
       if (!refunded.result.ok)
-        return this.multiRoomCancellationFailure(
-          refunded.result.error.code,
-          refunded.result.error.message,
-          refunded.result.error.retryable,
-        );
+        return {
+          result: this.failure(
+            refunded.result.error.code,
+            refunded.result.error.message,
+            refunded.result.error.retryable,
+          ),
+          refundConfirmations,
+          cancelledBookingIds,
+        };
       if (refunded.confirmation) refundConfirmations.push(refunded.confirmation);
-    }
-
-    for (const { row, cancellationPolicy } of children) {
-      if (
-        !row.roomId &&
-        (row.status === BookingStatus.PAYMENT_PENDING ||
-          row.status === BookingStatus.PMS_CONFIRMATION_PENDING ||
-          row.status === BookingStatus.CONFIRMED)
-      ) {
-        await this.availability.releaseBookedUnits(tx, context.tenantId, context.propertyId, {
-          roomTypeId: row.roomTypeId,
-          startsOn: row.startsOn,
-          endsOn: row.endsOn,
-          units: 1,
-        });
-      }
-      this.stateMachine.transition(row.status, BookingStatus.CANCELLED);
-      await tx.$executeRaw`
-        UPDATE bookings
-        SET status = ${BookingStatus.CANCELLED}::"BookingStatus",
-            cancellation_is_free = ${cancellationPolicy.isFree},
-            cancellation_free_until_hours = ${cancellationPolicy.freeCancellationUntilHours},
-            cancellation_cutoff_at = ${cancellationPolicy.cutoffAt}::timestamptz,
-            version = version + 1,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = ${row.id}::uuid AND tenant_id = ${context.tenantId}::uuid
-          AND property_id = ${context.propertyId}::uuid AND version = ${row.version}
-      `;
-      const booking = this.toBooking(row);
-      await this.audit.recordInTransaction(tx, {
-        tenantId: context.tenantId,
-        propertyId: context.propertyId,
-        actorUserId: null,
-        action: 'booking.cancelled',
-        targetType: 'booking',
-        targetId: row.id,
-        details: {
-          guestId: booking?.guestId ?? null,
-          cancellation: {
-            isFree: cancellationPolicy.isFree,
-            freeCancellationUntilHours: cancellationPolicy.freeCancellationUntilHours,
-            cutoffAt: cancellationPolicy.cutoffAt?.toISOString() ?? null,
-          },
-          orderReference: anchor.orderReference,
-        },
-      });
-      cancelledBookingIds.push(row.id);
     }
 
     const cancelledAnchor = await this.bookingById(tx, context, anchor.id);
     return {
       result:
-        cancelledAnchor && this.toBooking(cancelledAnchor)
+        cancellationFailure ??
+        (cancelledAnchor && this.toBooking(cancelledAnchor)
           ? { ok: true, value: this.toBooking(cancelledAnchor)! }
-          : this.failure('BOOKING_NOT_FOUND', 'Booking could not be reloaded.'),
+          : this.failure('BOOKING_NOT_FOUND', 'Booking could not be reloaded.')),
       refundConfirmations,
       cancelledBookingIds,
     };
+  }
+
+  private async applyMultiRoomCancellation(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    orderReference: string,
+    row: BookingRow,
+    cancellationPolicy: CancellationPolicy,
+  ): Promise<void> {
+    if (
+      !row.roomId &&
+      (row.status === BookingStatus.PAYMENT_PENDING ||
+        row.status === BookingStatus.PMS_CONFIRMATION_PENDING ||
+        row.status === BookingStatus.CONFIRMED)
+    ) {
+      await this.availability.releaseBookedUnits(tx, context.tenantId, context.propertyId, {
+        roomTypeId: row.roomTypeId,
+        startsOn: row.startsOn,
+        endsOn: row.endsOn,
+        units: 1,
+      });
+    }
+    this.stateMachine.transition(row.status, BookingStatus.CANCELLED);
+    await tx.$executeRaw`
+      UPDATE bookings
+      SET status = ${BookingStatus.CANCELLED}::"BookingStatus",
+          cancellation_is_free = ${cancellationPolicy.isFree},
+          cancellation_free_until_hours = ${cancellationPolicy.freeCancellationUntilHours},
+          cancellation_cutoff_at = ${cancellationPolicy.cutoffAt}::timestamptz,
+          version = version + 1,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ${row.id}::uuid AND tenant_id = ${context.tenantId}::uuid
+        AND property_id = ${context.propertyId}::uuid AND version = ${row.version}
+    `;
+    const booking = this.toBooking(row);
+    await this.audit.recordInTransaction(tx, {
+      tenantId: context.tenantId,
+      propertyId: context.propertyId,
+      actorUserId: null,
+      action: 'booking.cancelled',
+      targetType: 'booking',
+      targetId: row.id,
+      details: {
+        guestId: booking?.guestId ?? null,
+        cancellation: {
+          isFree: cancellationPolicy.isFree,
+          freeCancellationUntilHours: cancellationPolicy.freeCancellationUntilHours,
+          cutoffAt: cancellationPolicy.cutoffAt?.toISOString() ?? null,
+        },
+        orderReference,
+      },
+    });
   }
 
   private async selfServiceCancellationAllowed(
