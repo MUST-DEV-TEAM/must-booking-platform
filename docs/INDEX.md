@@ -12,6 +12,7 @@ Read only the documents routed for your task. Do not load the whole `docs/` tree
 | Delivery order / what to build next | `ROADMAP.md` (milestone index), then `roadmap/README.md` (process) and the active milestone file under `roadmap/milestones/` |
 | Durable, cross-cutting, or hard-to-reverse decisions | `decisions/` (ADR log) |
 | Notable changes | `../CHANGELOG.md` |
+| Building/running the full stack in Docker for deployment | `../infrastructure/containers/README.md` |
 
 ## Canonical document ownership
 

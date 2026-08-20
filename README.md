@@ -16,6 +16,7 @@ The WordPress plugin is not discarded: it is being repositioned as a thin embedd
 - [docs/ROADMAP.md](docs/ROADMAP.md) — phased delivery plan.
 - [docs/decisions/](docs/decisions/) — architecture decision records (ADRs).
 - [docs/source/clock-pms-integration.pdf](docs/source/clock-pms-integration.pdf) — original Clock PMS+ integration brief (source material for the PMS adapter work).
+- [infrastructure/containers/README.md](infrastructure/containers/README.md) — how to build and run the full stack in Docker for a production-style deployment.
 
 ## Repository status
 

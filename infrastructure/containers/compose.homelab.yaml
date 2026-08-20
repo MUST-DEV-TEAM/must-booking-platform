@@ -66,11 +66,21 @@ services:
       dockerfile: infrastructure/containers/web.Dockerfile
       args:
         API_URL: http://api:3000
+        # NEXT_PUBLIC_* vars are inlined into the client bundle at build time, not
+        # read at container start -- must be passed here, not just below.
+        NEXT_PUBLIC_SENTRY_DSN: ${WEB_SENTRY_DSN:-}
+        SENTRY_ORG: ${SENTRY_ORG:-}
+        SENTRY_PROJECT: ${SENTRY_PROJECT:-}
+        SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN:-}
     restart: unless-stopped
     depends_on:
       - api
     environment:
       API_URL: http://api:3000
+      # Distinct from the api service's SENTRY_DSN above -- apps/web is a separate
+      # Sentry project.
+      SENTRY_DSN: ${WEB_SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
     ports:
       - '4011:3001'
     networks:

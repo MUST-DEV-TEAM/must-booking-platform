@@ -1,6 +1,6 @@
 # Roadmap
 
-The roadmap is 14 milestones, numbered 0-13, worked in order (per [ADR-0023](decisions/ADR-0023-platform-admin-dashboard-resequencing.md); Platform Billing further resequenced to last by [ADR-0025](decisions/ADR-0025-platform-billing-moved-to-final-milestone.md)). Reaching Milestone 12 done = an initial, usable, end-to-end version of the platform, not the fully hardened/feature-complete product. Milestone 13 (Platform Billing) follows that checkpoint — it's monetization for MUST, not a blocker to a functional product, since Milestone 2's permanent Free plan already covers that. The process (kickoff, task lifecycle, who marks things done, archiving) is in [docs/roadmap/README.md](roadmap/README.md) — read that before starting or reviewing any milestone work.
+The roadmap is 16 milestones, numbered 0-15, worked in order (per [ADR-0023](decisions/ADR-0023-platform-admin-dashboard-resequencing.md); Platform Billing further resequenced by [ADR-0025](decisions/ADR-0025-platform-billing-moved-to-final-milestone.md) and again by [ADR-0028](decisions/ADR-0028-app-polish-and-security-audit-milestones-inserted.md), which also inserted Milestones 13-14). Reaching Milestone 12 done = an initial, usable, end-to-end version of the platform, not the fully hardened/feature-complete product. Milestones 13 (Application UI/UX & Feature Enhancements) and 14 (Security & Architecture Audit) follow that checkpoint before Milestone 15 (Platform Billing) — billing is monetization for MUST, not a blocker to a functional product, since Milestone 2's permanent Free plan already covers that. The process (kickoff, task lifecycle, who marks things done, archiving) is in [docs/roadmap/README.md](roadmap/README.md) — read that before starting or reviewing any milestone work.
 
 ## Milestones
 
@@ -19,9 +19,11 @@ The roadmap is 14 milestones, numbered 0-13, worked in order (per [ADR-0023](dec
 | [10](roadmap/completed/10-individual-room-booking.md) | Individual Room Booking (ADR-0022) | Per-property booking-mode (room-type-only / individual-room / mixed), room-level availability and optional per-room pricing, flexible All/type/room manual blocking. Now sequenced after the Tenant Dashboard, not before. **Done 2026-08-03 (10 tasks — one send-back on task 5, otherwise clean).** |
 | [11](roadmap/completed/11-clock-pms-adapter-basic.md) | Clock PMS+ Adapter (Basic) | Sandbox-validated `ClockPmsProvider`: connect, catalog sync, availability, bookings. **Done 2026-08-04 (16 tasks).** |
 | [12](roadmap/milestones/12-integration-and-initial-release.md) | Integration & Initial Release Readiness | Everything working together, including WordPress's deferred consolidated integration pass; demoable initial version; go/no-go review. **This is now the "initial usable version" checkpoint (ADR-0025), not Milestone 13.** |
-| [13](roadmap/milestones/13-platform-billing.md) | Platform Billing | Real subscriptions via Stripe Billing, plan enforcement, dunning, cancellation/retention. Platform Admin dashboard moved to Milestone 8 — this is billing only now. **Moved to last, after Milestone 12, per ADR-0025 — monetization for MUST, not a blocker to a functional product.** |
+| [13](roadmap/milestones/13-app-ui-ux-and-features.md) | Application UI/UX & Feature Enhancements | Figma-fidelity audit pass, open frontend-library decisions, accessibility/responsive verification, owner-directed feature work. **New (ADR-0028).** |
+| [14](roadmap/milestones/14-security-and-architecture-audit.md) | Security & Architecture Audit | Systematic pass across tenancy isolation, payment/billing separation, PMS-integration idempotency, auth, webhooks, database, secrets, public API surface, and the WordPress plugin's domain-logic boundary. **New (ADR-0028).** |
+| [15](roadmap/milestones/15-platform-billing.md) | Platform Billing | Real subscriptions via Stripe Billing, plan enforcement, dunning, cancellation/retention. Platform Admin dashboard moved to Milestone 8 — this is billing only now. **Moved to last, after Milestones 12-14, per ADR-0025 and ADR-0028 — monetization for MUST, not a blocker to a functional product.** |
 
-## Backlog — after Milestone 13, not scheduled
+## Backlog — after Milestone 15, not scheduled
 
 Explicitly deferred, not forgotten. Bring any of these back as a new milestone when the owner wants to prioritize it:
 

@@ -23,6 +23,18 @@ COPY apps/web apps/web
 ARG API_URL=http://api:3000
 ENV API_URL=$API_URL
 
+# NEXT_PUBLIC_SENTRY_DSN is inlined into the client bundle at build time. The other
+# three are only used by withSentryConfig() to upload source maps during this build;
+# omit them and the build proceeds without source map upload (no error).
+ARG NEXT_PUBLIC_SENTRY_DSN=""
+ARG SENTRY_ORG=""
+ARG SENTRY_PROJECT=""
+ARG SENTRY_AUTH_TOKEN=""
+ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
+ENV SENTRY_ORG=$SENTRY_ORG
+ENV SENTRY_PROJECT=$SENTRY_PROJECT
+ENV SENTRY_AUTH_TOKEN=$SENTRY_AUTH_TOKEN
+
 RUN pnpm --filter @must/ui build \
  && pnpm --filter web build
 

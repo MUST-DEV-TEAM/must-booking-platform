@@ -1,11 +1,13 @@
-# Milestone 13: Platform Billing
+# Milestone 15: Platform Billing
 
 Status: Not started
-Depends on: Milestone 9 (Tenant Admin Dashboard, for shared `apps/web` UI foundation); Milestone 12 (Integration & Initial Release Readiness — billing intentionally lands after the initial usable version, not before); ADR-0003 (Stripe Billing), ADR-0005 (hybrid enforcement), ADR-0007 (plan shape — illustrative, PMS connections capped not unlimited, finalized here), ADR-0008 (permanent Free plan + separate paid-plan trial), ADR-0009 (30-day tenant-data retention, billing/legal records excluded)
+Depends on: Milestone 9 (Tenant Admin Dashboard, for shared `apps/web` UI foundation); Milestone 12 (Integration & Initial Release Readiness — billing intentionally lands after the initial usable version, not before); Milestones 13-14 (Application UI/UX & Feature Enhancements, Security & Architecture Audit — billing lands after those passes too, per ADR-0028); ADR-0003 (Stripe Billing), ADR-0005 (hybrid enforcement), ADR-0007 (plan shape — illustrative, PMS connections capped not unlimited, finalized here), ADR-0008 (permanent Free plan + separate paid-plan trial), ADR-0009 (30-day tenant-data retention, billing/legal records excluded)
 
 **Scope note (2026-07-31):** ADR-0020 originally folded the Platform Admin dashboard into this milestone. That's since been split out into its own, earlier Milestone 8 (see ADR-0020's amendment) — this milestone is billing only: subscriptions, dunning, plan enforcement, cancellation. Don't reintroduce platform-admin dashboard tasks here.
 
-**Resequencing note (2026-08-03, ADR-0025):** moved from Milestone 11 to last (Milestone 13), after Clock (11) and Integration & Initial Release Readiness (12) rather than before them. Billing is monetization for MUST, not a blocker to a functional product — Milestone 2's permanent Free plan already lets tenants use the platform without it. The owner asked to reach a working end-to-end product first; this milestone now follows that checkpoint instead of gating it.
+**Resequencing note (2026-08-03, ADR-0025):** moved from Milestone 11 to last (Milestone 13 at the time), after Clock (11) and Integration & Initial Release Readiness (12) rather than before them. Billing is monetization for MUST, not a blocker to a functional product — Milestone 2's permanent Free plan already lets tenants use the platform without it. The owner asked to reach a working end-to-end product first; this milestone now follows that checkpoint instead of gating it.
+
+**Resequencing note (2026-08-17, ADR-0028):** renumbered from Milestone 13 to Milestone 15 — two new milestones (13: Application UI/UX & Feature Enhancements, 14: Security & Architecture Audit) were inserted ahead of it. No change to this milestone's own scope.
 
 ## Goal
 

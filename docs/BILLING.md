@@ -6,7 +6,7 @@ All decisions below are accepted (2026-07-27) — see `decisions/` for full cont
 
 ## Plans (ADR-0007)
 
-Flat tiered plans — the shape is confirmed. The table below is an **illustrative example only**, not a final catalog; real tier count/names/limits are confirmed together with the owner at Milestone 13 (Platform Billing, moved to last per ADR-0025) kickoff — see `docs/roadmap/milestones/13-platform-billing.md`.
+Flat tiered plans — the shape is confirmed. The table below is an **illustrative example only**, not a final catalog; real tier count/names/limits are confirmed together with the owner at Milestone 15 (Platform Billing, moved to last per ADR-0025, further resequenced by ADR-0028) kickoff — see `docs/roadmap/milestones/15-platform-billing.md`.
 
 | Plan | Properties | Staff seats | PMS connections |
 | --- | --- | --- | --- |
