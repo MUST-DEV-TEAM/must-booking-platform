@@ -1,0 +1,81 @@
+.page {
+  margin: 0 auto;
+  max-width: 78rem;
+}
+
+.heading {
+  display: grid;
+  gap: var(--must-space-8);
+}
+
+.eyebrow {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.stats,
+.propertyGrid {
+  display: grid;
+  gap: var(--must-space-16);
+}
+
+.stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: var(--must-space-16);
+}
+
+.properties {
+  display: grid;
+  gap: var(--must-space-16);
+}
+
+.propertyGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.propertyCardLink {
+  border-radius: var(--must-radius-card);
+  color: inherit;
+  text-decoration: none;
+}
+
+.propertyCardLink:focus-visible {
+  box-shadow: var(--must-focus-ring);
+  outline: 0;
+}
+
+.propertyCardLink:hover .propertyCard {
+  border-color: var(--must-color-border-strong);
+  box-shadow: var(--must-shadow-float);
+}
+
+.propertyCard {
+  display: grid;
+  gap: var(--must-space-12);
+  height: 100%;
+  transition:
+    border-color var(--must-motion-fast) ease,
+    box-shadow var(--must-motion-fast) ease;
+}
+
+.propertyCardHeader {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--must-space-12);
+  justify-content: space-between;
+}
+
+@media (max-width: 800px) {
+  .stats,
+  .propertyGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .stats,
+  .propertyGrid {
+    grid-template-columns: 1fr;
+  }
+}
