@@ -16,7 +16,9 @@ services:
       WEBHOOK_SECRET: ${WEBHOOK_SECRET}
       PORT: 8090
       DEPLOY_SCRIPT: /deploy/infrastructure/containers/deploy.sh
-      SENTRY_DSN: ${SENTRY_DSN:?required for deploy-drift alerts}
+      # Optional: unset until Milestone 14 wires a real SENTRY_DSN for this service.
+      # Deploy-drift alerting is silent (not broken) without it.
+      SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
       HOME: /tmp
     volumes:
