@@ -139,7 +139,7 @@
 
 .field :global(.must-input:focus-visible),
 .field textarea:focus-visible {
-  box-shadow: var(--must-focus-ring);
+  box-shadow: var(--must-focus-ring-secondary);
 }
 
 .fieldFull {
@@ -188,7 +188,7 @@
 
 .passwordToggle:focus-visible {
   border-radius: var(--must-radius-control);
-  box-shadow: var(--must-focus-ring);
+  box-shadow: var(--must-focus-ring-secondary);
   outline: 0;
 }
 

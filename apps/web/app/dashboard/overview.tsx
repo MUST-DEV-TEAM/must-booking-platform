@@ -1,13 +1,12 @@
 'use client';
 
-import { Card, Heading, Stack, Text } from '@must/ui';
+import { Card, Heading, Stack, StatePanel, StatusBadge, Text } from '@must/ui';
 import { useQuery } from '@tanstack/react-query';
-import { CalendarPlus, UserPlus } from 'lucide-react';
+import { CalendarPlus, CircleAlert, CircleCheck, LoaderCircle, UserPlus } from 'lucide-react';
 
 import styles from './overview.module.css';
-import { DashboardLoadingSkeleton } from './loading-skeleton';
 
-type Overview = {
+export type Overview = {
   kpis: {
     date: string;
     arrivals: number;
@@ -35,31 +34,52 @@ type Overview = {
   }>;
 };
 
+type AttentionStatusBadge =
+  | { domain: 'booking'; state: 'pending'; label: string }
+  | { domain: 'payment'; state: 'failed'; label: string };
+
+async function fetchOverview(tenantId: string, propertyId: string): Promise<Overview> {
+  const response = await fetch(`/api/tenants/${tenantId}/properties/${propertyId}/overview`, {
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error('Unable to load the property overview.');
+  return (await response.json()) as Overview;
+}
+
+function useOverviewQuery(tenantId: string, propertyId: string, initialOverview?: Overview) {
+  return useQuery({
+    queryKey: ['dashboard', 'overview', tenantId, propertyId],
+    queryFn: () => fetchOverview(tenantId, propertyId),
+    initialData: initialOverview,
+    staleTime: initialOverview ? Infinity : 0,
+  });
+}
+
 export function DashboardOverview({
   tenantId,
   propertyId,
   role,
+  canManageQuickBooking,
   initialOverview,
 }: {
   tenantId: string;
   propertyId: string;
   role: 'OWNER' | 'ADMIN' | 'STAFF';
+  canManageQuickBooking?: boolean;
   initialOverview?: Overview;
 }) {
-  const overviewQuery = useQuery({
-    queryKey: ['dashboard', 'overview', tenantId, propertyId],
-    queryFn: async () => {
-      const response = await fetch(`/api/tenants/${tenantId}/properties/${propertyId}/overview`, {
-        credentials: 'include',
-      });
-      if (!response.ok) throw new Error('Unable to load the property overview.');
-      return (await response.json()) as Overview;
-    },
-    initialData: initialOverview,
-    staleTime: initialOverview ? Infinity : 0,
-  });
+  const overviewQuery = useOverviewQuery(tenantId, propertyId, initialOverview);
+  const canShowQuickBooking = canManageQuickBooking ?? role !== 'STAFF';
 
-  if (overviewQuery.isPending) return <DashboardLoadingSkeleton label="Loading overview…" />;
+  if (overviewQuery.isPending)
+    return (
+      <StatePanel
+        body={null}
+        icon={<LoaderCircle aria-hidden="true" />}
+        title="Loading overview…"
+        variant="loading"
+      />
+    );
   if (overviewQuery.isError)
     return (
       <div className={styles.error} role="alert">
@@ -84,10 +104,12 @@ export function DashboardOverview({
             A live view of today’s arrivals, stays, and property activity.
           </Text>
         </div>
-        <div className={styles.quickActions} aria-label="Quick actions">
-          <a href={dashboardHref(tenantId, propertyId, 'walk-in')}>
-            <CalendarPlus aria-hidden="true" size={18} /> New booking
-          </a>
+        <div aria-label="Quick actions" className={styles.quickActions} role="group">
+          {canShowQuickBooking ? (
+            <a href={dashboardHref(tenantId, propertyId, 'overview', 'quick-booking')}>
+              <CalendarPlus aria-hidden="true" size={18} /> New booking
+            </a>
+          ) : null}
           {role !== 'STAFF' ? (
             <a href={dashboardHref(tenantId, propertyId, 'staff')}>
               <UserPlus aria-hidden="true" size={18} /> Add staff
@@ -108,26 +130,6 @@ export function DashboardOverview({
       </section>
 
       <section className={styles.panels}>
-        <Card>
-          <Heading level={2}>Needs attention</Heading>
-          {overview.needsAttention.length === 0 ? (
-            <Text tone="secondary">No bookings need attention right now.</Text>
-          ) : (
-            <ul className={styles.list}>
-              {overview.needsAttention.map((booking) => (
-                <li key={booking.id}>
-                  <div>
-                    <strong>{booking.guestName ?? booking.guestEmail}</strong>
-                    <Text tone="secondary">
-                      {booking.roomTypeName} · {booking.startsOn} – {booking.endsOn}
-                    </Text>
-                  </div>
-                  <span className={styles.status}>{formatStatus(booking.status)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
         <Card>
           <Heading level={2}>Recent activity</Heading>
           {overview.recentActivity.length === 0 ? (
@@ -151,6 +153,79 @@ export function DashboardOverview({
   );
 }
 
+export function NeedsAttentionTab({
+  tenantId,
+  propertyId,
+}: {
+  tenantId: string;
+  propertyId: string;
+}) {
+  const overviewQuery = useOverviewQuery(tenantId, propertyId);
+
+  if (overviewQuery.isPending)
+    return (
+      <StatePanel
+        body={null}
+        icon={<LoaderCircle aria-hidden="true" />}
+        title="Loading needs attention..."
+        variant="loading"
+      />
+    );
+  if (overviewQuery.isError)
+    return (
+      <StatePanel
+        body={overviewQuery.error.message}
+        icon={<CircleAlert aria-hidden="true" />}
+        title="Needs attention unavailable"
+        variant="error"
+      />
+    );
+
+  const bookings = overviewQuery.data.needsAttention;
+  return (
+    <Stack className={styles.page} gap="lg">
+      <header className={styles.heading}>
+        <div>
+          <Text className={styles.eyebrow} tone="secondary">
+            DAILY OPERATIONS
+          </Text>
+          <Heading>Needs attention</Heading>
+          <Text tone="secondary">Bookings requiring follow-up from the property team.</Text>
+        </div>
+      </header>
+      {bookings.length === 0 ? (
+        <StatePanel
+          action={
+            <a href={dashboardHref(tenantId, propertyId, 'overview', 'overview')}>
+              Back to Overview
+            </a>
+          }
+          body="No bookings need attention right now."
+          icon={<CircleCheck aria-hidden="true" />}
+          title="No bookings need attention"
+          variant="empty"
+        />
+      ) : (
+        <Card>
+          <ul aria-label="Bookings needing attention" className={styles.list}>
+            {bookings.map((booking) => (
+              <li key={booking.id}>
+                <div>
+                  <strong>{booking.guestName ?? booking.guestEmail}</strong>
+                  <Text tone="secondary">
+                    {booking.roomTypeName} - {booking.startsOn} - {booking.endsOn}
+                  </Text>
+                </div>
+                <StatusBadge {...attentionStatusBadge(booking.status)} />
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+    </Stack>
+  );
+}
+
 function Stat({
   label,
   value,
@@ -169,12 +244,23 @@ function Stat({
   );
 }
 
-function dashboardHref(tenantId: string, propertyId: string, section: string) {
-  return `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=${section}`;
+function dashboardHref(tenantId: string, propertyId: string, section: string, tab?: string) {
+  const href = `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=${section}`;
+  return tab ? `${href}&tab=${tab}` : href;
 }
 
 function formatStatus(status: string) {
   return status.toLowerCase().replaceAll('_', ' ');
+}
+
+function attentionStatusBadge(status: string): AttentionStatusBadge {
+  if (status === 'PAYMENT_FAILED') {
+    return { domain: 'payment', state: 'failed', label: formatStatus(status) };
+  }
+  if (status === 'MANUAL_REVIEW') {
+    return { domain: 'booking', state: 'pending', label: 'Needs review' };
+  }
+  return { domain: 'booking', state: 'pending', label: formatStatus(status) };
 }
 
 function formatAction(action: string) {

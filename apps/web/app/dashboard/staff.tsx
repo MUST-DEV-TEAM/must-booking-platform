@@ -1,11 +1,10 @@
 'use client';
-import { Card, Heading, Stack, Text } from '@must/ui';
+import { Card, Heading, Stack, StatePanel, Text } from '@must/ui';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { Loader2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { DashboardLoadingSkeleton } from './loading-skeleton';
 import styles from './data-table.module.css';
 type Template = { id: string; name: string; capabilities: Array<{ key: string }> };
 type Staff = {
@@ -210,7 +209,15 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
         </button>
       </Stack>
     );
-  if (staffQuery.isPending) return <DashboardLoadingSkeleton label="Loading staff…" />;
+  if (staffQuery.isPending)
+    return (
+      <StatePanel
+        body={null}
+        icon={<Loader2 aria-hidden="true" />}
+        title="Loading staff…"
+        variant="loading"
+      />
+    );
   return (
     <Stack gap="lg">
       <Heading>Staff</Heading>

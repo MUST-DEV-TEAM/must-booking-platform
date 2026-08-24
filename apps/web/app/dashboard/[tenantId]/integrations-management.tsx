@@ -83,8 +83,8 @@ export function IntegrationsManagement({
 
   // A connection can be assigned to any subset of the tenant's properties, so
   // load each property's assignment list in parallel rather than assuming one
-  // fixed property (this component now lives on the Main Dashboard, not a
-  // single property's Settings page).
+  // fixed property (this component lives in the tenant-scoped Hotels section,
+  // not a single property's Settings page).
   const propertyConnectionQueries = useQueries({
     queries: properties.map((property) => ({
       queryKey: ['dashboard', 'integration-connections', 'property', tenantId, property.id],

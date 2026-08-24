@@ -83,7 +83,6 @@
   margin-top: var(--must-space-4);
 }
 
-.status,
 .list time {
   color: var(--must-color-text-secondary);
   font-size: 0.75rem;

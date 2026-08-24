@@ -15,7 +15,7 @@ Multi-tenant SaaS hotel booking platform with PMS integration (Clock PMS+ first)
 
 ## Milestone/task workflow
 
-Work is organized as 11 milestones (`docs/roadmap/README.md`), each with exactly 10 tasks defined at that milestone's kickoff.
+Work is organized as 16 milestones, numbered 0 to 15 (`docs/roadmap/README.md`), each with its task list defined at that milestone's kickoff. **The number of tasks per milestone varies** — it is whatever that milestone's scope actually needs, not a fixed count. Milestone 6 ran to 51 tasks, Milestone 9 to 30, Milestone 12 to 25, Milestone 13 to 32. A high task number is not a sign something is wrong: if the active milestone's table lists Task 27, Task 27 is a real task. Trust the table, not a remembered count.
 
 - Only work on tasks that exist in the active milestone's task table. Do not start a task from a future milestone, and do not invent a task not in the table, even if it seems like an obvious next step — flag the gap instead.
 - You implement; you do not mark a task or milestone **Done**. Report what you did per the "Final response" format below and let Claude review and update the milestone file's status.

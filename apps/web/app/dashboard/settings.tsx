@@ -2,11 +2,10 @@
 
 import { Card, Heading, Stack, Text } from '@must/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FormEvent, useEffect, useState } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-
-import { PropertyManagement } from './[tenantId]/property-management';
+import styles from './settings.module.css';
 
 type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
 type Connection = {
@@ -40,6 +39,41 @@ type Property = {
 type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
 
 type PlanUsage = { plan: { name: string } };
+
+export const settingsAreas = [
+  { key: 'general', label: 'General', description: 'Hotel identity and core property details.' },
+  {
+    key: 'booking-rules',
+    label: 'Booking rules',
+    description: 'Stay restrictions, booking mode, cancellation windows, and guest-facing rules.',
+  },
+  {
+    key: 'payments',
+    label: 'Payments',
+    description: 'Choose the payment methods available for this property.',
+  },
+  {
+    key: 'branding',
+    label: 'Branding',
+    description: 'Customize the identity and contact details used in booking emails.',
+  },
+  {
+    key: 'managed-pages',
+    label: 'Managed Pages',
+    description: 'Connect the property website and manage its WordPress pairing.',
+  },
+  {
+    key: 'billing',
+    label: 'Billing account',
+    description: 'View the current platform plan and future billing controls.',
+  },
+] as const;
+
+export type SettingsArea = (typeof settingsAreas)[number]['key'];
+
+export function isSettingsArea(value: string | null): value is SettingsArea {
+  return settingsAreas.some((area) => area.key === value);
+}
 
 type IdentityFields = Pick<Property, 'name' | 'address' | 'timezone'>;
 type EmailBrandingFields = Pick<Property, 'logoUrl' | 'phone' | 'supportEmail'>;
@@ -76,12 +110,63 @@ function rulesFrom(property: Property): RuleFields {
   };
 }
 
+function dashboardSectionHref(tenantId: string, propertyId: string, section: string) {
+  return `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=${section}`;
+}
+
+function settingsAreaHref(tenantId: string, propertyId: string, area?: SettingsArea) {
+  const href = dashboardSectionHref(tenantId, propertyId, 'settings');
+  return area ? `${href}&settingsArea=${area}` : href;
+}
+
+export function SettingsHub({ tenantId, propertyId }: { tenantId: string; propertyId: string }) {
+  return (
+    <Stack className={styles.hub} gap="lg">
+      <header className={styles.hubHeading}>
+        <div>
+          <Text tone="secondary">PROPERTY SETTINGS</Text>
+          <Heading>Settings</Heading>
+          <Text tone="secondary">Manage the settings currently available for this property.</Text>
+        </div>
+      </header>
+      <div className={styles.hubGrid}>
+        {settingsAreas.map((area) => (
+          <Card className={styles.hubCard} key={area.key}>
+            <a
+              className={styles.hubCardLink}
+              href={settingsAreaHref(tenantId, propertyId, area.key)}
+            >
+              <Heading level={2}>{area.label}</Heading>
+              <Text tone="secondary">{area.description}</Text>
+              <span className={styles.hubCardAction}>Open {area.label}</span>
+            </a>
+          </Card>
+        ))}
+      </div>
+    </Stack>
+  );
+}
+
+function SettingsAreaPanel({
+  area,
+  activeArea,
+  children,
+}: {
+  area: SettingsArea;
+  activeArea?: SettingsArea;
+  children: ReactNode;
+}) {
+  return !activeArea || activeArea === area ? children : null;
+}
+
 export function DashboardSettings({
   tenantId,
   propertyId,
+  settingsArea,
 }: {
   tenantId: string;
   propertyId: string;
+  settingsArea?: SettingsArea;
 }) {
   const [identity, setIdentity] = useState<IdentityFields | null>(null);
   const [emailBranding, setEmailBranding] = useState<EmailBrandingFields | null>(null);
@@ -325,444 +410,482 @@ export function DashboardSettings({
 
   return (
     <Stack gap="lg">
-      <Heading level={1}>Settings</Heading>
+      {settingsArea ? (
+        <a className={styles.backLink} href={settingsAreaHref(tenantId, propertyId)}>
+          Back to Settings overview
+        </a>
+      ) : null}
+      <Heading level={1}>
+        {settingsArea
+          ? (settingsAreas.find((area) => area.key === settingsArea)?.label ?? 'Settings')
+          : 'Settings'}
+      </Heading>
 
-      <Card>
-        <Stack gap="md">
-          <Heading level={2}>Hotel identity</Heading>
-          <form className="must-stack must-stack--md" onSubmit={saveIdentity}>
-            <label className="must-field">
-              <span className="must-field__label">Hotel name</span>
-              <input
-                className="must-input"
-                aria-label="Hotel name"
-                required
-                value={identity.name}
-                onChange={(event) => setIdentity({ ...identity, name: event.target.value })}
-              />
-            </label>
-            <label className="must-field">
-              <span className="must-field__label">Address</span>
-              <input
-                className="must-input"
-                aria-label="Address"
-                required
-                value={identity.address}
-                onChange={(event) => setIdentity({ ...identity, address: event.target.value })}
-              />
-            </label>
-            <label className="must-field">
-              <span className="must-field__label">Timezone</span>
-              <input
-                className="must-input"
-                aria-label="Timezone"
-                required
-                value={identity.timezone}
-                onChange={(event) => setIdentity({ ...identity, timezone: event.target.value })}
-              />
-            </label>
-            <button className="must-button must-button--primary" disabled={saveMutation.isPending}>
-              {saveMutation.isPending ? (
-                <>
-                  <Loader2 aria-hidden="true" size={16} /> Saving…
-                </>
-              ) : (
-                'Save hotel identity'
-              )}
-            </button>
-          </form>
-        </Stack>
-      </Card>
-
-      <Card>
-        <Stack gap="md">
-          <Heading level={2}>Email branding</Heading>
-          <Text tone="secondary">
-            Booking emails use this hotel name, logo, and contact information. Leave any optional
-            field empty to omit it from the email.
-          </Text>
-          <form className="must-stack must-stack--md" onSubmit={saveEmailBranding}>
-            <label className="must-field">
-              <span className="must-field__label">Logo URL</span>
-              <input
-                className="must-input"
-                aria-label="Logo URL"
-                type="url"
-                placeholder="https://your-hotel-site.com/logo.png"
-                value={emailBranding.logoUrl ?? ''}
-                onChange={(event) =>
-                  setEmailBranding({ ...emailBranding, logoUrl: event.target.value || null })
-                }
-              />
-            </label>
-            <label className="must-field">
-              <span className="must-field__label">Support email</span>
-              <input
-                className="must-input"
-                aria-label="Support email"
-                type="email"
-                value={emailBranding.supportEmail ?? ''}
-                onChange={(event) =>
-                  setEmailBranding({ ...emailBranding, supportEmail: event.target.value || null })
-                }
-              />
-            </label>
-            <label className="must-field">
-              <span className="must-field__label">Phone</span>
-              <input
-                className="must-input"
-                aria-label="Hotel phone"
-                type="tel"
-                value={emailBranding.phone ?? ''}
-                onChange={(event) =>
-                  setEmailBranding({ ...emailBranding, phone: event.target.value || null })
-                }
-              />
-            </label>
-            <button className="must-button must-button--primary" disabled={saveMutation.isPending}>
-              {saveMutation.isPending ? (
-                <>
-                  <Loader2 aria-hidden="true" size={16} /> Saving…
-                </>
-              ) : (
-                'Save email branding'
-              )}
-            </button>
-          </form>
-        </Stack>
-      </Card>
-
-      <Card>
-        <Stack gap="md">
-          <Heading level={2}>Booking rules</Heading>
-          <Text tone="secondary">
-            Configure booking restrictions and guest-facing stay information.
-          </Text>
-          <form className="must-stack must-stack--md" onSubmit={saveRules}>
-            <label className="must-field">
-              <span className="must-field__label">Minimum stay (nights)</span>
-              <input
-                className="must-input"
-                aria-label="Minimum stay (nights)"
-                type="number"
-                min="1"
-                value={numberRule('minStayNights')}
-                onChange={(event) =>
-                  setRules({
-                    ...rules,
-                    minStayNights: event.target.value === '' ? null : Number(event.target.value),
-                  })
-                }
-              />
-            </label>
-            <label className="must-field">
-              <span className="must-field__label">Maximum stay (nights)</span>
-              <input
-                className="must-input"
-                aria-label="Maximum stay (nights)"
-                type="number"
-                min="1"
-                value={numberRule('maxStayNights')}
-                onChange={(event) =>
-                  setRules({
-                    ...rules,
-                    maxStayNights: event.target.value === '' ? null : Number(event.target.value),
-                  })
-                }
-              />
-            </label>
-            <label className="must-field">
-              <span className="must-field__label">Advance booking window (days)</span>
-              <input
-                className="must-input"
-                aria-label="Advance booking window (days)"
-                type="number"
-                min="0"
-                value={numberRule('advanceBookingDays')}
-                onChange={(event) =>
-                  setRules({
-                    ...rules,
-                    advanceBookingDays:
-                      event.target.value === '' ? null : Number(event.target.value),
-                  })
-                }
-              />
-            </label>
-            <label className="must-field">
-              <span className="must-field__label">
-                Free cancellation window (days before arrival)
-              </span>
-              <input
-                className="must-input"
-                aria-label="Free cancellation window (days before arrival)"
-                type="number"
-                min="0"
-                value={String(rules.freeCancellationDaysBeforeArrival)}
-                onChange={(event) =>
-                  setRules({
-                    ...rules,
-                    freeCancellationDaysBeforeArrival:
-                      event.target.value === '' ? 0 : Number(event.target.value),
-                  })
-                }
-              />
-            </label>
-            <Text tone="secondary">
-              Cancellations requested at least this many days before arrival are refunded
-              automatically. Closer to arrival, the guest is directed to contact the hotel and staff
-              handle the cancellation manually.
-            </Text>
-            <Text tone="secondary">
-              Check-in and check-out times are displayed to guests. They do not validate or block
-              bookings.
-            </Text>
-            <label className="must-field">
-              <span className="must-field__label">Check-in time</span>
-              <input
-                className="must-input"
-                aria-label="Check-in time"
-                value={rules.checkInTime ?? ''}
-                onChange={(event) =>
-                  setRules({ ...rules, checkInTime: event.target.value || null })
-                }
-              />
-            </label>
-            <label className="must-field">
-              <span className="must-field__label">Check-out time</span>
-              <input
-                className="must-input"
-                aria-label="Check-out time"
-                value={rules.checkOutTime ?? ''}
-                onChange={(event) =>
-                  setRules({ ...rules, checkOutTime: event.target.value || null })
-                }
-              />
-            </label>
-            <label className="must-field">
-              <span className="must-field__label">Room rules</span>
-              <textarea
-                className="must-input"
-                aria-label="Room rules"
-                placeholder="Age restrictions, cancellation details, and house rules."
-                value={rules.rules ?? ''}
-                onChange={(event) => setRules({ ...rules, rules: event.target.value || null })}
-              />
-            </label>
-            <Text tone="secondary">
-              Shown on individual room detail pages unless that room has its own full replacement.
-            </Text>
-            <button className="must-button must-button--primary" disabled={saveMutation.isPending}>
-              {saveMutation.isPending ? (
-                <>
-                  <Loader2 aria-hidden="true" size={16} /> Saving…
-                </>
-              ) : (
-                'Save booking rules'
-              )}
-            </button>
-          </form>
-        </Stack>
-      </Card>
-
-      <Card>
-        <Stack gap="md">
-          <Heading level={2}>Booking mode</Heading>
-          <Text tone="secondary">
-            Choose whether guests book a room type, a specific room, or either option.
-          </Text>
-          <form className="must-stack must-stack--md" onSubmit={saveBookingMode}>
-            <label className="must-field">
-              <span className="must-field__label">Booking mode</span>
-              <select
-                className="must-input"
-                aria-label="Booking mode"
-                value={bookingMode}
-                onChange={(event) => setBookingMode(event.target.value as BookingMode)}
-              >
-                <option value="ROOM_TYPE_ONLY">Room-Type-Only</option>
-                <option value="INDIVIDUAL_ROOM_ONLY">Individual-Room-Only</option>
-                <option value="MIXED">Mixed</option>
-              </select>
-            </label>
-            <button className="must-button must-button--primary" disabled={saveMutation.isPending}>
-              {saveMutation.isPending ? (
-                <>
-                  <Loader2 aria-hidden="true" size={16} /> Saving…
-                </>
-              ) : (
-                'Save booking mode'
-              )}
-            </button>
-          </form>
-        </Stack>
-      </Card>
-
-      <Card>
-        <Stack gap="md">
-          <Heading level={2}>Payment methods</Heading>
-          <Text tone="secondary">
-            Choose which payment methods guests and staff can use for bookings at this property.
-            Stripe and PokPay also need a working connection under Integrations.
-          </Text>
-          {unavailablePaymentProviders.length > 0 ? (
-            <div role="alert">
-              <Text>
-                {unavailablePaymentProviders.join(' and ')}{' '}
-                {unavailablePaymentProviders.length === 1 ? 'is' : 'are'} enabled but not connected
-                and assigned to this property. Guests will not be offered{' '}
-                {unavailablePaymentProviders.join(' or ')} until that is fixed in Integrations.
-              </Text>
-            </div>
-          ) : null}
-          <form className="must-stack must-stack--md" onSubmit={savePaymentGateways}>
-            <label className="must-field">
-              <input
-                type="checkbox"
-                checked={paymentGateways.payAtHotel}
-                onChange={(event) =>
-                  setPaymentGateways({ ...paymentGateways, payAtHotel: event.target.checked })
-                }
-              />
-              <span className="must-field__label">Pay at hotel</span>
-            </label>
-            <label className="must-field">
-              <input
-                type="checkbox"
-                checked={paymentGateways.stripe}
-                onChange={(event) =>
-                  setPaymentGateways({ ...paymentGateways, stripe: event.target.checked })
-                }
-              />
-              <span className="must-field__label">Stripe</span>
-            </label>
-            <label className="must-field">
-              <input
-                type="checkbox"
-                checked={paymentGateways.pokpay}
-                onChange={(event) =>
-                  setPaymentGateways({ ...paymentGateways, pokpay: event.target.checked })
-                }
-              />
-              <span className="must-field__label">PokPay</span>
-            </label>
-            <button
-              className="must-button must-button--primary"
-              disabled={paymentGatewaysMutation.isPending}
-            >
-              {paymentGatewaysMutation.isPending ? (
-                <>
-                  <Loader2 aria-hidden="true" size={16} /> Saving…
-                </>
-              ) : (
-                'Save payment methods'
-              )}
-            </button>
-          </form>
-        </Stack>
-      </Card>
-
-      <Card>
-        <Stack gap="md">
-          <Heading level={2}>Connect WordPress site</Heading>
-          <Text tone="secondary">
-            Generate a one-time connection code and paste it into the MUST Booking plugin's settings
-            screen on your WordPress site to link it to this property.
-          </Text>
-          {property.wordpressConnectedAt && (
-            <Text tone="secondary">
-              Connected on {new Date(property.wordpressConnectedAt).toLocaleString()}
-            </Text>
-          )}
-          <form className="must-stack must-stack--md" onSubmit={savePublicWebsiteOrigin}>
-            <label className="must-field">
-              <span className="must-field__label">Public website origin</span>
-              <input
-                className="must-input"
-                aria-label="Public website origin"
-                type="url"
-                placeholder="https://your-hotel-site.com"
-                value={publicWebsiteOrigin}
-                onChange={(event) => setPublicWebsiteOrigin(event.target.value)}
-              />
-            </label>
-            <Text tone="secondary">
-              Must exactly match your WordPress site&apos;s address (scheme + domain, no path).
-              Required before guests can complete a booking through the connected site — without it,
-              booking creation is rejected.
-            </Text>
-            <button
-              className="must-button must-button--primary"
-              disabled={publicWebsiteOriginMutation.isPending}
-            >
-              {publicWebsiteOriginMutation.isPending ? (
-                <>
-                  <Loader2 aria-hidden="true" size={16} /> Saving…
-                </>
-              ) : (
-                'Save public website origin'
-              )}
-            </button>
-          </form>
-          {pairingCode && (
-            <Stack gap="sm">
+      <SettingsAreaPanel activeArea={settingsArea} area="general">
+        <Card>
+          <Stack gap="md">
+            <Heading level={2}>Hotel identity</Heading>
+            <form className="must-stack must-stack--md" onSubmit={saveIdentity}>
               <label className="must-field">
-                <span className="must-field__label">Connection code</span>
+                <span className="must-field__label">Hotel name</span>
                 <input
                   className="must-input"
-                  aria-label="Connection code"
-                  readOnly
-                  value={pairingCode}
-                  onFocus={(event) => event.target.select()}
+                  aria-label="Hotel name"
+                  required
+                  value={identity.name}
+                  onChange={(event) => setIdentity({ ...identity, name: event.target.value })}
                 />
               </label>
-              <button className="must-button" type="button" onClick={() => void copyPairingCode()}>
-                Copy code
+              <label className="must-field">
+                <span className="must-field__label">Address</span>
+                <input
+                  className="must-input"
+                  aria-label="Address"
+                  required
+                  value={identity.address}
+                  onChange={(event) => setIdentity({ ...identity, address: event.target.value })}
+                />
+              </label>
+              <label className="must-field">
+                <span className="must-field__label">Timezone</span>
+                <input
+                  className="must-input"
+                  aria-label="Timezone"
+                  required
+                  value={identity.timezone}
+                  onChange={(event) => setIdentity({ ...identity, timezone: event.target.value })}
+                />
+              </label>
+              <button
+                className="must-button must-button--primary"
+                disabled={saveMutation.isPending}
+              >
+                {saveMutation.isPending ? (
+                  <>
+                    <Loader2 aria-hidden="true" size={16} /> Saving…
+                  </>
+                ) : (
+                  'Save hotel identity'
+                )}
               </button>
+            </form>
+          </Stack>
+        </Card>
+      </SettingsAreaPanel>
+
+      <SettingsAreaPanel activeArea={settingsArea} area="branding">
+        <Card>
+          <Stack gap="md">
+            <Heading level={2}>Email branding</Heading>
+            <Text tone="secondary">
+              Booking emails use this hotel name, logo, and contact information. Leave any optional
+              field empty to omit it from the email.
+            </Text>
+            <form className="must-stack must-stack--md" onSubmit={saveEmailBranding}>
+              <label className="must-field">
+                <span className="must-field__label">Logo URL</span>
+                <input
+                  className="must-input"
+                  aria-label="Logo URL"
+                  type="url"
+                  placeholder="https://your-hotel-site.com/logo.png"
+                  value={emailBranding.logoUrl ?? ''}
+                  onChange={(event) =>
+                    setEmailBranding({ ...emailBranding, logoUrl: event.target.value || null })
+                  }
+                />
+              </label>
+              <label className="must-field">
+                <span className="must-field__label">Support email</span>
+                <input
+                  className="must-input"
+                  aria-label="Support email"
+                  type="email"
+                  value={emailBranding.supportEmail ?? ''}
+                  onChange={(event) =>
+                    setEmailBranding({ ...emailBranding, supportEmail: event.target.value || null })
+                  }
+                />
+              </label>
+              <label className="must-field">
+                <span className="must-field__label">Phone</span>
+                <input
+                  className="must-input"
+                  aria-label="Hotel phone"
+                  type="tel"
+                  value={emailBranding.phone ?? ''}
+                  onChange={(event) =>
+                    setEmailBranding({ ...emailBranding, phone: event.target.value || null })
+                  }
+                />
+              </label>
+              <button
+                className="must-button must-button--primary"
+                disabled={saveMutation.isPending}
+              >
+                {saveMutation.isPending ? (
+                  <>
+                    <Loader2 aria-hidden="true" size={16} /> Saving…
+                  </>
+                ) : (
+                  'Save email branding'
+                )}
+              </button>
+            </form>
+          </Stack>
+        </Card>
+      </SettingsAreaPanel>
+
+      <SettingsAreaPanel activeArea={settingsArea} area="booking-rules">
+        <Card>
+          <Stack gap="md">
+            <Heading level={2}>Booking rules</Heading>
+            <Text tone="secondary">
+              Configure booking restrictions and guest-facing stay information.
+            </Text>
+            <form className="must-stack must-stack--md" onSubmit={saveRules}>
+              <label className="must-field">
+                <span className="must-field__label">Minimum stay (nights)</span>
+                <input
+                  className="must-input"
+                  aria-label="Minimum stay (nights)"
+                  type="number"
+                  min="1"
+                  value={numberRule('minStayNights')}
+                  onChange={(event) =>
+                    setRules({
+                      ...rules,
+                      minStayNights: event.target.value === '' ? null : Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label className="must-field">
+                <span className="must-field__label">Maximum stay (nights)</span>
+                <input
+                  className="must-input"
+                  aria-label="Maximum stay (nights)"
+                  type="number"
+                  min="1"
+                  value={numberRule('maxStayNights')}
+                  onChange={(event) =>
+                    setRules({
+                      ...rules,
+                      maxStayNights: event.target.value === '' ? null : Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label className="must-field">
+                <span className="must-field__label">Advance booking window (days)</span>
+                <input
+                  className="must-input"
+                  aria-label="Advance booking window (days)"
+                  type="number"
+                  min="0"
+                  value={numberRule('advanceBookingDays')}
+                  onChange={(event) =>
+                    setRules({
+                      ...rules,
+                      advanceBookingDays:
+                        event.target.value === '' ? null : Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label className="must-field">
+                <span className="must-field__label">
+                  Free cancellation window (days before arrival)
+                </span>
+                <input
+                  className="must-input"
+                  aria-label="Free cancellation window (days before arrival)"
+                  type="number"
+                  min="0"
+                  value={String(rules.freeCancellationDaysBeforeArrival)}
+                  onChange={(event) =>
+                    setRules({
+                      ...rules,
+                      freeCancellationDaysBeforeArrival:
+                        event.target.value === '' ? 0 : Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
               <Text tone="secondary">
-                Expires in 30 minutes and can only be used once. Generating a new code invalidates
-                this one.
+                Cancellations requested at least this many days before arrival are refunded
+                automatically. Closer to arrival, the guest is directed to contact the hotel and
+                staff handle the cancellation manually.
               </Text>
-            </Stack>
-          )}
-          <button
-            className="must-button must-button--primary"
-            type="button"
-            disabled={wordpressPairingMutation.isPending}
-            onClick={() => wordpressPairingMutation.mutate()}
-          >
-            {wordpressPairingMutation.isPending ? (
-              <>
-                <Loader2 aria-hidden="true" size={16} /> Generating…
-              </>
-            ) : property.wordpressConnectedAt || pairingCode ? (
-              'Generate new code'
-            ) : (
-              'Generate connection code'
+              <Text tone="secondary">
+                Check-in and check-out times are displayed to guests. They do not validate or block
+                bookings.
+              </Text>
+              <label className="must-field">
+                <span className="must-field__label">Check-in time</span>
+                <input
+                  className="must-input"
+                  aria-label="Check-in time"
+                  value={rules.checkInTime ?? ''}
+                  onChange={(event) =>
+                    setRules({ ...rules, checkInTime: event.target.value || null })
+                  }
+                />
+              </label>
+              <label className="must-field">
+                <span className="must-field__label">Check-out time</span>
+                <input
+                  className="must-input"
+                  aria-label="Check-out time"
+                  value={rules.checkOutTime ?? ''}
+                  onChange={(event) =>
+                    setRules({ ...rules, checkOutTime: event.target.value || null })
+                  }
+                />
+              </label>
+              <label className="must-field">
+                <span className="must-field__label">Room rules</span>
+                <textarea
+                  className="must-input"
+                  aria-label="Room rules"
+                  placeholder="Age restrictions, cancellation details, and house rules."
+                  value={rules.rules ?? ''}
+                  onChange={(event) => setRules({ ...rules, rules: event.target.value || null })}
+                />
+              </label>
+              <Text tone="secondary">
+                Shown on individual room detail pages unless that room has its own full replacement.
+              </Text>
+              <button
+                className="must-button must-button--primary"
+                disabled={saveMutation.isPending}
+              >
+                {saveMutation.isPending ? (
+                  <>
+                    <Loader2 aria-hidden="true" size={16} /> Saving…
+                  </>
+                ) : (
+                  'Save booking rules'
+                )}
+              </button>
+            </form>
+          </Stack>
+        </Card>
+      </SettingsAreaPanel>
+
+      <SettingsAreaPanel activeArea={settingsArea} area="booking-rules">
+        <Card>
+          <Stack gap="md">
+            <Heading level={2}>Booking mode</Heading>
+            <Text tone="secondary">
+              Choose whether guests book a room type, a specific room, or either option.
+            </Text>
+            <form className="must-stack must-stack--md" onSubmit={saveBookingMode}>
+              <label className="must-field">
+                <span className="must-field__label">Booking mode</span>
+                <select
+                  className="must-input"
+                  aria-label="Booking mode"
+                  value={bookingMode}
+                  onChange={(event) => setBookingMode(event.target.value as BookingMode)}
+                >
+                  <option value="ROOM_TYPE_ONLY">Room-Type-Only</option>
+                  <option value="INDIVIDUAL_ROOM_ONLY">Individual-Room-Only</option>
+                  <option value="MIXED">Mixed</option>
+                </select>
+              </label>
+              <button
+                className="must-button must-button--primary"
+                disabled={saveMutation.isPending}
+              >
+                {saveMutation.isPending ? (
+                  <>
+                    <Loader2 aria-hidden="true" size={16} /> Saving…
+                  </>
+                ) : (
+                  'Save booking mode'
+                )}
+              </button>
+            </form>
+          </Stack>
+        </Card>
+      </SettingsAreaPanel>
+
+      <SettingsAreaPanel activeArea={settingsArea} area="payments">
+        <Card>
+          <Stack gap="md">
+            <Heading level={2}>Payment methods</Heading>
+            <Text tone="secondary">
+              Choose which payment methods guests and staff can use for bookings at this property.
+              Stripe and PokPay also need a working connection under Integrations.
+            </Text>
+            <a
+              className="must-button must-button--secondary"
+              href={dashboardSectionHref(tenantId, propertyId, 'payments')}
+            >
+              Open payment operations
+            </a>
+            {unavailablePaymentProviders.length > 0 ? (
+              <div role="alert">
+                <Text>
+                  {unavailablePaymentProviders.join(' and ')}{' '}
+                  {unavailablePaymentProviders.length === 1 ? 'is' : 'are'} enabled but not
+                  connected and assigned to this property. Guests will not be offered{' '}
+                  {unavailablePaymentProviders.join(' or ')} until that is fixed in Integrations.
+                </Text>
+              </div>
+            ) : null}
+            <form className="must-stack must-stack--md" onSubmit={savePaymentGateways}>
+              <label className="must-field">
+                <input
+                  type="checkbox"
+                  checked={paymentGateways.payAtHotel}
+                  onChange={(event) =>
+                    setPaymentGateways({ ...paymentGateways, payAtHotel: event.target.checked })
+                  }
+                />
+                <span className="must-field__label">Pay at hotel</span>
+              </label>
+              <label className="must-field">
+                <input
+                  type="checkbox"
+                  checked={paymentGateways.stripe}
+                  onChange={(event) =>
+                    setPaymentGateways({ ...paymentGateways, stripe: event.target.checked })
+                  }
+                />
+                <span className="must-field__label">Stripe</span>
+              </label>
+              <label className="must-field">
+                <input
+                  type="checkbox"
+                  checked={paymentGateways.pokpay}
+                  onChange={(event) =>
+                    setPaymentGateways({ ...paymentGateways, pokpay: event.target.checked })
+                  }
+                />
+                <span className="must-field__label">PokPay</span>
+              </label>
+              <button
+                className="must-button must-button--primary"
+                disabled={paymentGatewaysMutation.isPending}
+              >
+                {paymentGatewaysMutation.isPending ? (
+                  <>
+                    <Loader2 aria-hidden="true" size={16} /> Saving…
+                  </>
+                ) : (
+                  'Save payment methods'
+                )}
+              </button>
+            </form>
+          </Stack>
+        </Card>
+      </SettingsAreaPanel>
+
+      <SettingsAreaPanel activeArea={settingsArea} area="managed-pages">
+        <Card>
+          <Stack gap="md">
+            <Heading level={2}>Connect WordPress site</Heading>
+            <Text tone="secondary">
+              Generate a one-time connection code and paste it into the MUST Booking plugin's
+              settings screen on your WordPress site to link it to this property.
+            </Text>
+            {property.wordpressConnectedAt && (
+              <Text tone="secondary">
+                Connected on {new Date(property.wordpressConnectedAt).toLocaleString()}
+              </Text>
             )}
-          </button>
-        </Stack>
-      </Card>
+            <form className="must-stack must-stack--md" onSubmit={savePublicWebsiteOrigin}>
+              <label className="must-field">
+                <span className="must-field__label">Public website origin</span>
+                <input
+                  className="must-input"
+                  aria-label="Public website origin"
+                  type="url"
+                  placeholder="https://your-hotel-site.com"
+                  value={publicWebsiteOrigin}
+                  onChange={(event) => setPublicWebsiteOrigin(event.target.value)}
+                />
+              </label>
+              <Text tone="secondary">
+                Must exactly match your WordPress site&apos;s address (scheme + domain, no path).
+                Required before guests can complete a booking through the connected site — without
+                it, booking creation is rejected.
+              </Text>
+              <button
+                className="must-button must-button--primary"
+                disabled={publicWebsiteOriginMutation.isPending}
+              >
+                {publicWebsiteOriginMutation.isPending ? (
+                  <>
+                    <Loader2 aria-hidden="true" size={16} /> Saving…
+                  </>
+                ) : (
+                  'Save public website origin'
+                )}
+              </button>
+            </form>
+            {pairingCode && (
+              <Stack gap="sm">
+                <label className="must-field">
+                  <span className="must-field__label">Connection code</span>
+                  <input
+                    className="must-input"
+                    aria-label="Connection code"
+                    readOnly
+                    value={pairingCode}
+                    onFocus={(event) => event.target.select()}
+                  />
+                </label>
+                <button
+                  className="must-button"
+                  type="button"
+                  onClick={() => void copyPairingCode()}
+                >
+                  Copy code
+                </button>
+                <Text tone="secondary">
+                  Expires in 30 minutes and can only be used once. Generating a new code invalidates
+                  this one.
+                </Text>
+              </Stack>
+            )}
+            <button
+              className="must-button must-button--primary"
+              type="button"
+              disabled={wordpressPairingMutation.isPending}
+              onClick={() => wordpressPairingMutation.mutate()}
+            >
+              {wordpressPairingMutation.isPending ? (
+                <>
+                  <Loader2 aria-hidden="true" size={16} /> Generating…
+                </>
+              ) : property.wordpressConnectedAt || pairingCode ? (
+                'Generate new code'
+              ) : (
+                'Generate connection code'
+              )}
+            </button>
+          </Stack>
+        </Card>
+      </SettingsAreaPanel>
 
-      <Card>
-        <Stack gap="md">
-          <Heading level={2}>Billing account</Heading>
-          <Text tone="secondary">Current plan: {planName ?? 'Loading…'}</Text>
-          <button
-            className="must-button must-button--secondary"
-            disabled
-            title="Billing management arrives in Milestone 13"
-          >
-            Billing management available in Milestone 13
-          </button>
-        </Stack>
-      </Card>
-
-      <Card>
-        <Stack gap="md">
-          <Heading level={2}>Manage properties</Heading>
-          <PropertyManagement tenantId={tenantId} />
-        </Stack>
-      </Card>
+      <SettingsAreaPanel activeArea={settingsArea} area="billing">
+        <Card>
+          <Stack gap="md">
+            <Heading level={2}>Billing account</Heading>
+            <Text tone="secondary">Current plan: {planName ?? 'Loading…'}</Text>
+            <button
+              className="must-button must-button--secondary"
+              disabled
+              title="Platform billing is not available yet"
+            >
+              Platform billing is not available yet
+            </button>
+          </Stack>
+        </Card>
+      </SettingsAreaPanel>
     </Stack>
   );
 }

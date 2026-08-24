@@ -188,7 +188,7 @@ Every asynchronous or data-driven component needs a truthful state:
 - Branding and state colors must meet usable contrast; do not rely on color alone.
 - Touch targets and mobile controls must remain usable at supported responsive breakpoints.
 
-Current defect: `assets/css/pages/booking-page.css` removes focus outlines/box shadows from focused controls across the managed flow. New work must restore an intentional visible focus indicator and verify keyboard navigation; do not perpetuate the suppression.
+Resolved in Milestone 13, Task 3: `assets/css/booking-page.css` now restores a brass-token focus indicator across the managed booking flow. The scoped primary, secondary, link, and danger rings preserve the visual reset while keeping keyboard focus visible. Keyboard navigation still requires browser/theme/Elementor acceptance at deployment time.
 
 ## JavaScript contract
 

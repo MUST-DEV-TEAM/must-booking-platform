@@ -1,12 +1,12 @@
 'use client';
 
-import { Card, Heading, Stack, Text } from '@must/ui';
+import { Card, Heading, Stack, StatePanel, StatusBadge, Text } from '@must/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
+import { LoaderCircle } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import styles from './reservations.module.css';
-import { DashboardLoadingSkeleton } from './loading-skeleton';
 
 export type Reservation = {
   id: string;
@@ -101,9 +101,7 @@ export function DashboardReservations({
       {
         accessorKey: 'status',
         header: 'Status',
-        cell: ({ row }) => (
-          <span className={styles.status}>{formatStatus(row.original.status)}</span>
-        ),
+        cell: ({ row }) => <StatusBadge {...reservationStatusBadge(row.original.status)} />,
       },
       {
         id: 'payment',
@@ -134,7 +132,15 @@ export function DashboardReservations({
     getRowId: (booking) => booking.id,
   });
 
-  if (bookingsQuery.isPending) return <DashboardLoadingSkeleton label="Loading reservations…" />;
+  if (bookingsQuery.isPending)
+    return (
+      <StatePanel
+        body={null}
+        icon={<LoaderCircle aria-hidden="true" />}
+        title="Loading reservations…"
+        variant="loading"
+      />
+    );
   if (bookingsQuery.isError)
     return (
       <div className={styles.error} role="alert">
@@ -160,7 +166,7 @@ export function DashboardReservations({
       </header>
 
       <Card>
-        <div className={styles.filters} aria-label="Reservation filters">
+        <div aria-label="Reservation filters" className={styles.filters} role="group">
           <label>
             <span>Search guest</span>
             <input
@@ -368,7 +374,9 @@ function ReservationDetails({
           </div>
           <div>
             <dt>Status</dt>
-            <dd>{formatStatus(booking.status)}</dd>
+            <dd>
+              <StatusBadge {...reservationStatusBadge(booking.status)} />
+            </dd>
           </div>
           <div>
             <dt>Payment</dt>
@@ -413,6 +421,21 @@ function guestName(booking: Pick<Reservation, 'guestFirstName' | 'guestLastName'
 function formatStatus(value: string) {
   return value.toLocaleLowerCase().replaceAll('_', ' ');
 }
+
+function reservationStatusBadge(status: string) {
+  const label = formatStatus(status);
+  if (status === 'CONFIRMED') {
+    return { domain: 'booking' as const, state: 'confirmed' as const, label: 'Confirmed' };
+  }
+  if (status === 'CANCELLED') {
+    return { domain: 'booking' as const, state: 'cancelled' as const, label: 'Cancelled' };
+  }
+  if (status === 'MANUAL_REVIEW') {
+    return { domain: 'booking' as const, state: 'pending' as const, label: 'Needs review' };
+  }
+  return { domain: 'booking' as const, state: 'pending' as const, label };
+}
+
 function formatPaymentMethod(value: string) {
   return value.toLocaleLowerCase().replaceAll('_', ' ');
 }

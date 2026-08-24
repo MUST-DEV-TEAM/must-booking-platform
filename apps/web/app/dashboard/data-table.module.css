@@ -38,3 +38,56 @@
   padding: var(--must-space-8);
   white-space: nowrap;
 }
+.dialogBackdrop {
+  align-items: center;
+  background: color-mix(in srgb, var(--must-color-text-primary) 45%, transparent);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: var(--must-space-16);
+  position: fixed;
+  z-index: 20;
+}
+.dialog {
+  background: var(--must-color-surface);
+  border: 1px solid var(--must-color-border-strong);
+  border-radius: var(--must-radius-card);
+  box-shadow: var(--must-shadow-modal);
+  max-width: 32rem;
+  padding: var(--must-space-24);
+  width: 100%;
+}
+.dialogHeader {
+  margin-bottom: var(--must-space-20);
+}
+.dialogFields {
+  display: grid;
+  gap: var(--must-space-12);
+}
+.dialogFields label {
+  color: var(--must-color-text-primary);
+  display: grid;
+  font-weight: 650;
+  gap: var(--must-space-4);
+}
+.dialogFields input,
+.dialogFields select,
+.dialogFields textarea {
+  border: 1px solid var(--must-color-border);
+  border-radius: var(--must-radius-control);
+  color: var(--must-color-text-primary);
+  font: inherit;
+  padding: var(--must-space-8);
+}
+.dialogFields textarea {
+  resize: vertical;
+}
+.dialogError {
+  color: var(--must-color-danger);
+}
+.dialogActions {
+  display: flex;
+  gap: var(--must-space-8);
+  justify-content: flex-end;
+  margin-top: var(--must-space-24);
+}

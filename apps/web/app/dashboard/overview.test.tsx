@@ -51,7 +51,7 @@ describe('DashboardOverview', () => {
     );
     const { container, root } = await mount();
 
-    expect(container.querySelector('[aria-busy="true"]')?.getAttribute('aria-label')).toBe(
+    expect(container.querySelector('[aria-busy="true"]')?.textContent).toContain(
       'Loading overview…',
     );
 
@@ -84,7 +84,7 @@ describe('DashboardOverview', () => {
     );
 
     expect(fetch).toHaveBeenCalledTimes(2);
-    expect(container.textContent).toContain('Ada Guest');
+    expect(container.textContent).not.toContain('Ada Guest');
     expect(container.textContent).toContain('71%');
     await act(async () => root.unmount());
   });
@@ -94,10 +94,17 @@ describe('DashboardOverview', () => {
     vi.stubGlobal('fetch', fetch);
     const { container, root } = await mount({ initialOverview: overview });
 
-    expect(container.textContent).toContain('payment failed');
+    expect(container.textContent).not.toContain('Ada Guest');
     expect(container.textContent).toContain('booking created');
     expect(container.textContent).toContain('New booking');
     expect(container.textContent).toContain('Add staff');
+    expect(container.textContent).not.toContain('Needs attention');
+    expect(container.querySelector('a[href*="section=walk-in"]')).toBeNull();
+    expect(
+      container.querySelector(
+        'a[href="/dashboard/tenant-1?propertyId=property-1&section=overview&tab=quick-booking"]',
+      ),
+    ).not.toBeNull();
     expect(fetch).not.toHaveBeenCalled();
     await act(async () => root.unmount());
   });

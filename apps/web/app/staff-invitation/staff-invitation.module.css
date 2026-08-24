@@ -104,7 +104,7 @@
 }
 
 .field :global(.must-input:focus-visible) {
-  box-shadow: var(--must-focus-ring);
+  box-shadow: var(--must-focus-ring-secondary);
 }
 
 .passwordToggle {
@@ -117,7 +117,7 @@
 
 .passwordToggle:focus-visible {
   border-radius: var(--must-radius-control);
-  box-shadow: var(--must-focus-ring);
+  box-shadow: var(--must-focus-ring-secondary);
   outline: 0;
 }
 

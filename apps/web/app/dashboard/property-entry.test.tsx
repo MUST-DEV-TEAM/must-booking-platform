@@ -11,15 +11,21 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(() => vi.unstubAllGlobals());
 
 describe('PropertyEntry', () => {
-  it('shows the Main Dashboard for an owner with multiple accessible properties', async () => {
-    const { container, root } = await mount([
-      { id: 'property-1', name: 'Grand Hotel' },
-      { id: 'property-2', name: 'Coast Hotel' },
-    ]);
+  it('opens the operational shell for an owner with multiple accessible properties', async () => {
+    const { container, root, fetch } = await mount(
+      [
+        { id: 'property-1', name: 'Grand Hotel' },
+        { id: 'property-2', name: 'Coast Hotel' },
+      ],
+      'OWNER',
+    );
 
-    expect(container.textContent).toContain('Main Dashboard');
+    expect(container.textContent).toContain('Overview');
     expect(container.textContent).toContain('Grand Hotel');
     expect(container.textContent).toContain('Coast Hotel');
+    expect(fetch).toHaveBeenCalledWith('/api/tenants/tenant-1/properties/property-1/overview', {
+      credentials: 'include',
+    });
     await act(async () => root.unmount());
   });
 
@@ -33,7 +39,10 @@ describe('PropertyEntry', () => {
   });
 });
 
-async function mount(properties: Array<{ id: string; name: string }>) {
+async function mount(
+  properties: Array<{ id: string; name: string }>,
+  role: 'OWNER' | 'STAFF' = 'STAFF',
+) {
   const fetch = vi.fn((url: string) => {
     if (url === '/api/auth/session')
       return Promise.resolve(
@@ -50,7 +59,7 @@ async function mount(properties: Array<{ id: string; name: string }>) {
       );
     if (url === '/api/auth/memberships')
       return Promise.resolve(
-        new Response(JSON.stringify({ memberships: [{ tenantId: 'tenant-1', role: 'STAFF' }] })),
+        new Response(JSON.stringify({ memberships: [{ tenantId: 'tenant-1', role }] })),
       );
     if (url.endsWith('/overview'))
       return Promise.resolve(
@@ -90,5 +99,5 @@ async function mount(properties: Array<{ id: string; name: string }>) {
     await Promise.resolve();
     await Promise.resolve();
   });
-  return { container, root };
+  return { container, fetch, root };
 }

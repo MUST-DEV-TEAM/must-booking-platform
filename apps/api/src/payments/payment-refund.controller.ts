@@ -37,6 +37,8 @@ export class PaymentRefundController {
       bookingId: typeof value.bookingId === 'string' ? value.bookingId : '',
       idempotencyKey: this.idempotencyKey(idempotencyKey),
       amount: this.money(value.amount),
+      percentage: this.percentage(value.percentage),
+      note: this.note(value.note),
       actorUserId: request.tenantContext.userId,
     });
     if (!result.ok && result.error.code === 'IDEMPOTENCY_KEY_CONFLICT')
@@ -59,5 +61,20 @@ export class PaymentRefundController {
     if (typeof money.amount !== 'string' || typeof money.currency !== 'string')
       throw new BadRequestException('Invalid refund amount.');
     return { amount: money.amount, currency: money.currency };
+  }
+
+  private percentage(value: unknown): number | undefined {
+    if (value === undefined) return undefined;
+    if (typeof value !== 'number' || !Number.isFinite(value))
+      throw new BadRequestException('percentage must be a number between 1 and 100.');
+    return value;
+  }
+
+  private note(value: unknown): string | undefined {
+    if (value === undefined) return undefined;
+    if (typeof value !== 'string' || value.length > 500)
+      throw new BadRequestException('note must be 500 characters or fewer.');
+    const note = value.trim();
+    return note || undefined;
   }
 }

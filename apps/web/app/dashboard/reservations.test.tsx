@@ -80,6 +80,9 @@ describe('Dashboard reservations', () => {
     expect(markup).toContain('Ada Lovelace');
     expect(markup).toContain('Deluxe King');
     expect(markup).toContain('Flexible');
+    expect(markup).toContain('data-domain="booking"');
+    expect(markup).toContain('data-state="confirmed"');
+    expect(markup).toContain('>Confirmed</span>');
     expect(markup).toContain('pay at hotel');
     expect(markup).toContain('€360.00');
   });

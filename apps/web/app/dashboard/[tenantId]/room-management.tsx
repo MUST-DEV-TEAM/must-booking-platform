@@ -1,12 +1,10 @@
 'use client';
 
-import { Card, Heading, Stack, Text } from '@must/ui';
+import { Card, Heading, Stack, StatePanel, Text } from '@must/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { LoaderCircle, Plus } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-
-import { DashboardLoadingSkeleton } from '../loading-skeleton';
 
 type Property = { id: string; name: string };
 const amenityIcons = [
@@ -556,7 +554,14 @@ export function RoomManagement({
   }
 
   if (propertiesQuery.isPending || (propertyId && roomManagementQuery.isPending))
-    return <DashboardLoadingSkeleton label="Loading rooms…" />;
+    return (
+      <StatePanel
+        body={null}
+        icon={<LoaderCircle aria-hidden="true" />}
+        title="Loading rooms…"
+        variant="loading"
+      />
+    );
   if (propertyId && roomManagementQuery.isError)
     return (
       <section aria-label="Rooms unavailable">

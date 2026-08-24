@@ -60,9 +60,7 @@ describe('Dashboard guests', () => {
       await settleQueries();
     });
 
-    expect(container.querySelector('[aria-busy="true"]')?.getAttribute('aria-label')).toBe(
-      'Loading guests…',
-    );
+    expect(container.querySelector('[aria-busy="true"]')?.textContent).toContain('Loading guests…');
 
     await act(async () => {
       resolveGuests(new Response(JSON.stringify(guests)));

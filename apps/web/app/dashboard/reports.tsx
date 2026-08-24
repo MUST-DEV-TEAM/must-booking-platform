@@ -1,17 +1,12 @@
 'use client';
 
-import { Card, Heading, Stack, Text } from '@must/ui';
+import { Card, Heading, Stack, StatePanel, Text } from '@must/ui';
 import { useQuery } from '@tanstack/react-query';
+import { LoaderCircle } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 
 import { EChart, type ChartOption } from './echart';
-import { DashboardLoadingSkeleton } from './loading-skeleton';
 import styles from './reports.module.css';
-
-// Charts render to <canvas>, which cannot resolve CSS custom properties, so these mirror
-// --must-color-ink / --must-color-success from packages/ui/src/styles.css.
-const INK_COLOR = '#174c3c';
-const SUCCESS_COLOR = '#027a48';
 
 type PropertyReports = {
   from: string;
@@ -76,7 +71,15 @@ export function DashboardReports({
     setRange({ from, to });
   }
 
-  if (reportsQuery.isPending) return <DashboardLoadingSkeleton label="Loading reports…" />;
+  if (reportsQuery.isPending)
+    return (
+      <StatePanel
+        body={null}
+        icon={<LoaderCircle aria-hidden="true" />}
+        title="Loading reports…"
+        variant="loading"
+      />
+    );
   if (reportsQuery.isError)
     return (
       <div className={styles.error} role="alert">
@@ -172,7 +175,6 @@ function OccupancyChart({ occupancy }: { occupancy: PropertyReports['occupancy']
           type: 'line',
           smooth: true,
           data: occupancy.map((day) => day.rate),
-          color: INK_COLOR,
         },
       ],
     }),
@@ -219,7 +221,6 @@ function BookingsChart({
           name: 'Bookings',
           type: 'bar',
           data: bookingsCreated.map((day) => day.count),
-          color: INK_COLOR,
         },
       ],
     }),
@@ -295,7 +296,6 @@ function CurrencyChart({ currency, days }: { currency: string; days: PropertyRep
           name: 'Revenue',
           type: 'bar',
           data: days.map((day) => Number(day.amount)),
-          color: SUCCESS_COLOR,
         },
       ],
     }),

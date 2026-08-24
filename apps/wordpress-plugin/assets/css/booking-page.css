@@ -1,9 +1,29 @@
 .must-hotel-booking-page-booking {
     --must-booking-calendar-day-gap: 8px;
     --must-booking-calendar-day-size: 75px;
+    --color-focus-ring: #c9953c;
+    --shadow-focus-ring: 0 0 0 3px rgb(201 149 60 / 0.45);
+    --must-color-focus-ring: var(--color-focus-ring);
+    --must-shadow-focus-ring: var(--shadow-focus-ring);
+    --must-focus-ring-primary: var(--must-shadow-focus-ring);
+    --must-focus-ring-secondary: 0 0 0 2px #f5f3ec, 0 0 0 4px var(--must-color-focus-ring);
+    --must-focus-ring-link: 0 0 0 2px var(--must-color-focus-ring);
+    --must-focus-ring-danger: 0 0 0 3px var(--must-color-focus-ring);
     background: #f5f3ec;
     color: #141414;
     font-family: 'PP Neue Montreal', sans-serif;
+}
+
+.must-hotel-booking-page-booking-confirmation,
+.must-booking-process-page {
+    --color-focus-ring: #c9953c;
+    --shadow-focus-ring: 0 0 0 3px rgb(201 149 60 / 0.45);
+    --must-color-focus-ring: var(--color-focus-ring);
+    --must-shadow-focus-ring: var(--shadow-focus-ring);
+    --must-focus-ring-primary: var(--must-shadow-focus-ring);
+    --must-focus-ring-secondary: 0 0 0 2px #f5f3ec, 0 0 0 4px var(--must-color-focus-ring);
+    --must-focus-ring-link: 0 0 0 2px var(--must-color-focus-ring);
+    --must-focus-ring-danger: 0 0 0 3px var(--must-color-focus-ring);
 }
 
 body.must-hotel-booking-flow-page {
@@ -135,22 +155,6 @@ body.must-hotel-booking-flow-page {
     color: #858585;
     background: transparent;
     outline: none;
-}
-
-.must-booking-process-page button:focus,
-.must-booking-process-page button:focus-visible,
-.must-booking-process-page [type="button"]:focus,
-.must-booking-process-page [type="button"]:focus-visible,
-.must-booking-process-page [type="submit"]:focus,
-.must-booking-process-page [type="submit"]:focus-visible,
-.must-booking-process-page input:focus,
-.must-booking-process-page input:focus-visible,
-.must-booking-process-page select:focus,
-.must-booking-process-page select:focus-visible,
-.must-booking-process-page textarea:focus,
-.must-booking-process-page textarea:focus-visible {
-    outline: none;
-    box-shadow: none;
 }
 
 .must-booking-process-page .must-booking-stepper-nav span {
@@ -1815,8 +1819,9 @@ body .must-booking-room-modal .must-booking-room-modal-close:focus-visible,
 body .must-booking-room-modal .must-booking-room-modal-close:active {
     border: 0 !important;
     background: #f5f3ec !important;
-    box-shadow: none !important;
-    outline: none !important;
+    box-shadow: var(--must-focus-ring-primary) !important;
+    outline: 2px solid var(--must-color-focus-ring) !important;
+    outline-offset: 3px;
     transform: none !important;
 }
 
@@ -1896,8 +1901,9 @@ body .must-booking-room-modal .must-booking-room-modal-close:active {
 .must-booking-room-inline-details-close:active {
     border: 0 !important;
     background: #f5f3ec !important;
-    box-shadow: none !important;
-    outline: none !important;
+    box-shadow: var(--must-focus-ring-primary) !important;
+    outline: 2px solid var(--must-color-focus-ring) !important;
+    outline-offset: 3px;
     transform: none !important;
 }
 
@@ -5763,7 +5769,30 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
 .must-hotel-booking-page-booking :where(a, button, input, select, textarea, [role="button"], [tabindex]):focus-visible,
 .must-hotel-booking-page-booking-confirmation :where(a, button, input, select, textarea, [role="button"], [tabindex]):focus-visible,
 .must-booking-process-page :where(a, button, input, select, textarea, [role="button"], [tabindex]):focus-visible {
-    outline: 2px solid #141414 !important;
+    outline: 2px solid var(--must-color-focus-ring) !important;
     outline-offset: 3px;
-    box-shadow: none !important;
+}
+
+.must-hotel-booking-page-booking :where(button, [role="button"], [type="button"], [type="submit"]):focus-visible,
+.must-hotel-booking-page-booking-confirmation :where(button, [role="button"], [type="button"], [type="submit"]):focus-visible,
+.must-booking-process-page :where(button, [role="button"], [type="button"], [type="submit"]):focus-visible {
+    box-shadow: var(--must-focus-ring-primary) !important;
+}
+
+.must-hotel-booking-page-booking :where(input, select, textarea):focus-visible,
+.must-hotel-booking-page-booking-confirmation :where(input, select, textarea):focus-visible,
+.must-booking-process-page :where(input, select, textarea):focus-visible {
+    box-shadow: var(--must-focus-ring-secondary) !important;
+}
+
+.must-hotel-booking-page-booking :where(a):focus-visible,
+.must-hotel-booking-page-booking-confirmation :where(a):focus-visible,
+.must-booking-process-page :where(a):focus-visible {
+    box-shadow: var(--must-focus-ring-link) !important;
+}
+
+.must-hotel-booking-page-booking :where(.must-button--danger, [data-danger], .is-danger):focus-visible,
+.must-hotel-booking-page-booking-confirmation :where(.must-button--danger, [data-danger], .is-danger):focus-visible,
+.must-booking-process-page :where(.must-button--danger, [data-danger], .is-danger):focus-visible {
+    box-shadow: var(--must-focus-ring-danger) !important;
 }

@@ -1,10 +1,10 @@
 'use client';
-import { Card, Heading, Stack, Text } from '@must/ui';
+import { Card, Heading, Stack, StatePanel, Text } from '@must/ui';
 import { useQuery } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
+import { LoaderCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { fetchPropertyBookings } from './reservations';
-import { DashboardLoadingSkeleton } from './loading-skeleton';
 import styles from './data-table.module.css';
 type Guest = {
   id: string;
@@ -84,7 +84,14 @@ export function DashboardGuests({
     getRowId: (guest) => guest.id,
   });
   if (guestsQuery.isPending || bookingsQuery.isPending)
-    return <DashboardLoadingSkeleton label="Loading guests…" />;
+    return (
+      <StatePanel
+        body={null}
+        icon={<LoaderCircle aria-hidden="true" />}
+        title="Loading guests…"
+        variant="loading"
+      />
+    );
   const error = guestsQuery.error ?? bookingsQuery.error;
   if (error)
     return (

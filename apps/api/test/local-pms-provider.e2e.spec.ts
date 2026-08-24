@@ -2245,33 +2245,88 @@ describe('LocalPmsProvider', () => {
       .post(`${propertyUrl}/payments/refunds`)
       .set('Cookie', propertyStaffCookie)
       .set('Idempotency-Key', randomUUID())
-      .send({ bookingId: firstBooking.value.id, amount: { amount: '20.00', currency: 'EUR' } })
+      .send({
+        bookingId: firstBooking.value.id,
+        percentage: 25,
+        note: 'Guest services approval',
+      })
       .expect(200);
     expect(propertyStaffRefund.body).toMatchObject({
       ok: true,
-      value: { amount: { amount: '20.00', currency: 'EUR' } },
+      value: { amount: { amount: '45.00', currency: 'EUR' } },
     });
     const manualRefund = await request(app!.getHttpServer())
       .post(`${propertyUrl}/payments/refunds`)
       .set('Cookie', cookie)
       .set('Idempotency-Key', manualRefundKey)
-      .send({ bookingId: firstBooking.value.id, amount: { amount: '50.00', currency: 'EUR' } })
+      .send({
+        bookingId: firstBooking.value.id,
+        amount: { amount: '50.00', currency: 'EUR' },
+        note: 'Fixed adjustment approved',
+      })
       .expect(200);
     expect(manualRefund.body).toMatchObject({
       ok: true,
       value: { amount: { amount: '50.00', currency: 'EUR' }, status: 'succeeded' },
     });
+    const cappedRefund = await request(app!.getHttpServer())
+      .post(`${propertyUrl}/payments/refunds`)
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({
+        bookingId: firstBooking.value.id,
+        amount: { amount: '100.00', currency: 'EUR' },
+        note: 'Close remaining balance',
+      })
+      .expect(200);
+    expect(cappedRefund.body).toMatchObject({
+      ok: true,
+      value: { amount: { amount: '85.00', currency: 'EUR' }, status: 'succeeded' },
+    });
+    const refundRows = await admin.$queryRaw<Array<{ amount: string; note: string | null }>>`
+      SELECT amount::text AS amount, note
+      FROM payments
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND booking_id = ${firstBooking.value.id}::uuid AND kind = 'REFUND'::"PaymentKind"
+      ORDER BY created_at
+    `;
+    expect(refundRows).toEqual([
+      { amount: '45.00', note: 'Guest services approval' },
+      { amount: '50.00', note: 'Fixed adjustment approved' },
+      { amount: '85.00', note: 'Close remaining balance' },
+    ]);
+    const refundAuditDetails = await admin.$queryRaw<Array<{ details: Record<string, unknown> }>>`
+      SELECT details
+      FROM audit_logs
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND target_id = ${firstBooking.value.id} AND action = 'payment.refunded'
+      ORDER BY created_at
+    `;
+    expect(refundAuditDetails.map(({ details }) => details.note)).toEqual([
+      'Guest services approval',
+      'Fixed adjustment approved',
+      'Close remaining balance',
+    ]);
+    expect(
+      refundConfirmationEmails
+        .filter((email) => email.bookingId === firstBooking.value.id)
+        .some((email) => JSON.stringify(email).includes('Guest services approval')),
+    ).toBe(false);
     const refundNotifications = await admin.$queryRaw<Array<{ type: string }>>`
       SELECT type FROM notifications
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
         AND type = 'PAYMENT_REFUNDED' AND payload->>'bookingId' = ${firstBooking.value.id}
     `;
-    expect(refundNotifications).toHaveLength(2);
+    expect(refundNotifications).toHaveLength(3);
     await request(app!.getHttpServer())
       .post(`${propertyUrl}/payments/refunds`)
       .set('Cookie', cookie)
       .set('Idempotency-Key', manualRefundKey)
-      .send({ bookingId: firstBooking.value.id, amount: { amount: '50.00', currency: 'EUR' } })
+      .send({
+        bookingId: firstBooking.value.id,
+        amount: { amount: '50.00', currency: 'EUR' },
+        note: 'Fixed adjustment approved',
+      })
       .expect(200)
       .expect(manualRefund.body);
     expect(refundConfirmationEmails).toEqual([
@@ -2282,13 +2337,19 @@ describe('LocalPmsProvider', () => {
       expect.objectContaining({
         bookingId: firstBooking.value.id,
         to: 'guest@example.test',
-        amount: { amount: '20.00', currency: 'EUR' },
+        amount: { amount: '45.00', currency: 'EUR' },
         guestCount: 2,
       }),
       expect.objectContaining({
         bookingId: firstBooking.value.id,
         to: 'guest@example.test',
         amount: { amount: '50.00', currency: 'EUR' },
+        guestCount: 2,
+      }),
+      expect.objectContaining({
+        bookingId: firstBooking.value.id,
+        to: 'guest@example.test',
+        amount: { amount: '85.00', currency: 'EUR' },
         guestCount: 2,
       }),
     ]);

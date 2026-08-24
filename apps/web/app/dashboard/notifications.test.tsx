@@ -3,7 +3,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { DashboardNotifications } from './notifications';
+import { DashboardNotifications, NotificationsInbox } from './notifications';
 import { DashboardQueryProvider } from './query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -45,7 +45,7 @@ describe('DashboardNotifications', () => {
     const { container, root } = await mount({ settle: false });
 
     await click(container.querySelector('[aria-label="Notifications"]')!);
-    expect(container.querySelector('[aria-busy="true"]')?.getAttribute('aria-label')).toBe(
+    expect(container.querySelector('[aria-busy="true"]')?.textContent).toContain(
       'Loading notifications…',
     );
 
@@ -79,6 +79,11 @@ describe('DashboardNotifications', () => {
     ])
       expect(container.textContent).toContain(label);
 
+    expect(
+      container.querySelector('a[href="/dashboard/t?propertyId=p&section=notifications"]')
+        ?.textContent,
+    ).toBe('View all notifications');
+
     await click(
       Array.from(container.querySelectorAll('button')).find(
         (button) => button.textContent === 'Mark as read',
@@ -91,6 +96,44 @@ describe('DashboardNotifications', () => {
     expect(fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')?.[0]).toBe(
       '/api/tenants/t/properties/p/notifications/booking',
     );
+    await act(async () => root.unmount());
+  });
+
+  it('uses an explicit 20+ badge when the first page is truncated', async () => {
+    const firstPage = Array.from({ length: 20 }, (_, index) => ({
+      ...notifications[0],
+      id: `booking-${index}`,
+    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        expect(url).toBe('/api/tenants/t/properties/p/notifications?page=1&pageSize=20');
+        return new Response(JSON.stringify({ items: firstPage, total: 25 }));
+      }),
+    );
+    const { container, root } = await mount();
+
+    const bell = container.querySelector('[aria-label="Notifications (20+ unread)"]');
+    expect(bell?.textContent).toBe('20+');
+
+    await act(async () => root.unmount());
+  });
+
+  it('keeps the popover empty state reachable from the inbox link', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [], page: 1, pageSize: 20, total: 0 })),
+      ),
+    );
+    const { container, root } = await mount();
+
+    await click(container.querySelector('[aria-label="Notifications"]')!);
+    expect(container.textContent).toContain('No notifications.');
+    expect(
+      container.querySelector('a[href="/dashboard/t?propertyId=p&section=notifications"]'),
+    ).not.toBeNull();
+
     await act(async () => root.unmount());
   });
 
@@ -117,6 +160,59 @@ describe('DashboardNotifications', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
     await act(async () => root.unmount());
   });
+
+  it('paginates the inbox and exposes text-bearing unread status', async () => {
+    const firstPage = {
+      items: [notifications[0]],
+      page: 1,
+      pageSize: 20,
+      total: 21,
+    };
+    const secondPage = {
+      items: [{ ...notifications[2], id: 'refund-page-2' }],
+      page: 2,
+      pageSize: 20,
+      total: 21,
+    };
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PATCH')
+        return new Response(
+          JSON.stringify({ ...notifications[0], readAt: '2026-08-03T11:00:00.000Z' }),
+        );
+      if (url.endsWith('page=1&pageSize=20')) return new Response(JSON.stringify(firstPage));
+      if (url.endsWith('page=2&pageSize=20')) return new Response(JSON.stringify(secondPage));
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    const { container, root } = await mountInbox();
+
+    expect(container.textContent).toContain('Booking created');
+    expect(container.textContent).toContain('Unread');
+    expect(container.textContent).toContain('Page 1 of 2');
+    expect(container.textContent).not.toContain('Mark all as read');
+
+    await click(
+      Array.from(container.querySelectorAll('button')).find(
+        (button) => button.textContent === 'Mark as read',
+      )!,
+    );
+    expect(container.textContent).toContain('Read');
+    expect(fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')?.[0]).toBe(
+      '/api/tenants/t/properties/p/notifications/booking',
+    );
+
+    await click(
+      Array.from(container.querySelectorAll('button')).find(
+        (button) => button.textContent === 'Next',
+      )!,
+    );
+    expect(container.textContent).toContain('Payment refunded');
+    expect(container.textContent).toContain('Page 2 of 2');
+    expect(container.textContent).toContain('Read');
+    expect(fetch.mock.calls.some(([url]) => url.endsWith('page=2&pageSize=20'))).toBe(true);
+
+    await act(async () => root.unmount());
+  });
 });
 
 async function mount({ settle = true }: { settle?: boolean } = {}) {
@@ -136,6 +232,24 @@ async function mount({ settle = true }: { settle?: boolean } = {}) {
       await settleQueries();
     });
   }
+  return { container, root };
+}
+
+async function mountInbox() {
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(NotificationsInbox, { tenantId: 't', propertyId: 'p' }),
+      ),
+    );
+  });
+  await act(async () => {
+    await settleQueries();
+  });
   return { container, root };
 }
 

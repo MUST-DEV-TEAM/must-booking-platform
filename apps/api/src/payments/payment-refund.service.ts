@@ -27,6 +27,8 @@ type ManualRefundCommand = {
   bookingId: string;
   idempotencyKey: string;
   amount?: Money;
+  percentage?: number;
+  note?: string;
   actorUserId: string;
 };
 
@@ -68,6 +70,20 @@ type RefundEmailRow = {
   websiteUrl: string | null;
   address: string | null;
 };
+
+export function percentageRefundMinorUnits(amount: string, percentage: number): bigint | null {
+  if (!Number.isFinite(percentage) || percentage < 1 || percentage > 100) return null;
+  const match = /^(\d+)(?:\.(\d{1,4}))?$/.exec(String(percentage));
+  if (!match) return null;
+  const [wholeAmount, fractionAmount = ''] = amount.split('.');
+  const originalMinorUnits =
+    BigInt(wholeAmount || '0') * 100n + BigInt(fractionAmount.padEnd(2, '0'));
+  const fraction = match[2] ?? '';
+  const scale = 10n ** BigInt(fraction.length);
+  const numerator = BigInt(match[1]) * scale + BigInt(fraction || '0');
+  const denominator = 100n * scale;
+  return (originalMinorUnits * numerator + denominator / 2n) / denominator;
+}
 
 @Injectable()
 export class PaymentRefundService {
@@ -132,7 +148,7 @@ export class PaymentRefundService {
     context: PaymentProviderContext,
     bookingId: string,
     charge: Pick<Charge, 'provider' | 'externalPaymentId' | 'amount' | 'currency'>,
-    command: { amount: Money; idempotencyKey: string; actorUserId?: string },
+    command: { amount: Money; idempotencyKey: string; actorUserId?: string; note?: string },
   ): Promise<RefundChargeOutcome> {
     if (charge.provider === 'manual')
       return this.recordManualRefund(tx, context, bookingId, charge, command);
@@ -154,11 +170,11 @@ export class PaymentRefundService {
 
     const inserted = await tx.$queryRaw<Array<{ id: string }>>`
       INSERT INTO payments (
-        tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency
+        tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency, note
       ) VALUES (
         ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${bookingId}::uuid,
         'REFUND'::"PaymentKind", ${charge.provider}, ${refunded.value.id}, 'REFUNDED',
-        ${command.amount.amount}::numeric, ${command.amount.currency}
+        ${command.amount.amount}::numeric, ${command.amount.currency}, ${command.note ?? null}
       )
       ON CONFLICT (tenant_id, external_payment_id) DO NOTHING
       RETURNING id
@@ -176,6 +192,7 @@ export class PaymentRefundService {
           chargeExternalPaymentId: charge.externalPaymentId,
           refundExternalPaymentId: refunded.value.id,
           amount: command.amount,
+          ...(command.note ? { note: command.note } : {}),
         },
       });
       await this.inAppNotifications.recordInTransaction(tx, {
@@ -218,10 +235,22 @@ export class PaymentRefundService {
     context: PaymentProviderContext,
     command: ManualRefundCommand,
   ): Promise<Result<Payment>> {
+    if (command.note !== undefined && command.note.length > 500)
+      return this.failure('INVALID_REFUND_NOTE', 'Refund note must be 500 characters or fewer.');
     let confirmation: RefundConfirmation | null = null;
     const result = await this.database.withTenantTransaction(context, (tx) =>
       this.withIdempotency(tx, context, command, async () => {
         await this.lockBooking(tx, context, command.bookingId);
+        if (command.amount && command.percentage !== undefined)
+          return this.failure(
+            'INVALID_REFUND_REQUEST',
+            'Provide a fixed amount or a percentage, not both.',
+          );
+        if (command.percentage !== undefined && !this.validPercentage(command.percentage))
+          return this.failure(
+            'INVALID_REFUND_PERCENTAGE',
+            'Refund percentage must be between 1 and 100.',
+          );
         const charge = await this.chargeForBooking(tx, context, command.bookingId, [
           'PAID',
           'LATE_AFTER_EXPIRY',
@@ -235,24 +264,34 @@ export class PaymentRefundService {
             'REFUND_NOT_AVAILABLE',
             'The charge has already been fully refunded.',
           );
-        const amount = command.amount ?? {
-          amount: this.money(remaining),
-          currency: charge.currency,
-        };
         if (
-          amount.currency !== charge.currency ||
-          !this.validMoney(amount.amount) ||
-          this.minorUnits(amount.amount) > remaining
-        ) {
+          command.amount &&
+          (command.amount.currency !== charge.currency || !this.validMoney(command.amount.amount))
+        )
           return this.failure(
             'INVALID_REFUND_AMOUNT',
-            'Refund amount exceeds the remaining charge.',
+            'Refund amount must be positive and use the charge currency.',
+          );
+        const requestedAmount = command.amount
+          ? this.minorUnits(command.amount.amount)
+          : command.percentage !== undefined
+            ? this.percentageAmount(charge.amount, command.percentage)
+            : remaining;
+        if (requestedAmount === null || requestedAmount <= 0n) {
+          return this.failure(
+            'INVALID_REFUND_AMOUNT',
+            'Refund amount must be positive and use the charge currency.',
           );
         }
+        const amount = {
+          amount: this.money(requestedAmount > remaining ? remaining : requestedAmount),
+          currency: charge.currency,
+        };
         const outcome = await this.refundCharge(tx, context, command.bookingId, charge, {
           amount,
           idempotencyKey: `manual-refund:${command.idempotencyKey}`,
           actorUserId: command.actorUserId,
+          note: command.note,
         });
         confirmation = outcome.confirmation;
         return outcome.result;
@@ -267,16 +306,16 @@ export class PaymentRefundService {
     context: PaymentProviderContext,
     bookingId: string,
     charge: Pick<Charge, 'externalPaymentId' | 'amount' | 'currency'>,
-    command: { amount: Money; actorUserId?: string },
+    command: { amount: Money; actorUserId?: string; note?: string },
   ): Promise<RefundChargeOutcome> {
     const externalPaymentId = `manual:refund:${randomUUID()}`;
     const inserted = await tx.$queryRaw<Array<{ id: string }>>`
       INSERT INTO payments (
-        tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency
+        tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency, note
       ) VALUES (
         ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${bookingId}::uuid,
         'REFUND'::"PaymentKind", 'manual', ${externalPaymentId}, 'REFUNDED',
-        ${command.amount.amount}::numeric, ${command.amount.currency}
+        ${command.amount.amount}::numeric, ${command.amount.currency}, ${command.note ?? null}
       )
       ON CONFLICT (tenant_id, external_payment_id) DO NOTHING
       RETURNING id
@@ -294,6 +333,7 @@ export class PaymentRefundService {
           chargeExternalPaymentId: charge.externalPaymentId,
           refundExternalPaymentId: externalPaymentId,
           amount: command.amount,
+          ...(command.note ? { note: command.note } : {}),
         },
       });
       await this.inAppNotifications.recordInTransaction(tx, {
@@ -447,6 +487,19 @@ export class PaymentRefundService {
 
   private validMoney(amount: string): boolean {
     return /^\d+(?:\.\d{1,2})?$/.test(amount) && this.minorUnits(amount) > 0n;
+  }
+
+  private validPercentage(percentage: number): boolean {
+    return (
+      Number.isFinite(percentage) &&
+      percentage >= 1 &&
+      percentage <= 100 &&
+      /^\d+(?:\.\d{1,4})?$/.test(String(percentage))
+    );
+  }
+
+  private percentageAmount(amount: string, percentage: number): bigint | null {
+    return percentageRefundMinorUnits(amount, percentage);
   }
 
   private failure(code: string, message: string, retryable = false): Result<never> {

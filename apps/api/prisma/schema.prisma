@@ -583,6 +583,7 @@ model Payment {
   status            String      @db.VarChar(32)
   amount            Decimal     @db.Decimal(12, 2)
   currency          String      @db.VarChar(3)
+  note              String?     @db.VarChar(500)
   createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   property          Property    @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
   booking           Booking     @relation(fields: [tenantId, propertyId, bookingId], references: [tenantId, propertyId, id], onDelete: Restrict)

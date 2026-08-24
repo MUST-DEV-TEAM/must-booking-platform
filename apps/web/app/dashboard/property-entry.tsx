@@ -4,7 +4,6 @@ import { Text } from '@must/ui';
 import { useEffect, useState } from 'react';
 
 import { DashboardShell } from './dashboard-shell';
-import { MainDashboard } from './main-dashboard';
 import styles from './selection.module.css';
 
 type Property = { id: string; name: string };
@@ -33,8 +32,5 @@ export function PropertyEntry({ tenantId }: { tenantId: string }) {
         <Text>No properties are available for this workspace.</Text>
       </main>
     );
-  const requested = new URLSearchParams(window.location.search).get('propertyId');
-  if (properties.length === 1 || properties.some((property) => property.id === requested))
-    return <DashboardShell tenantId={tenantId} />;
-  return <MainDashboard tenantId={tenantId} properties={properties} />;
+  return <DashboardShell tenantId={tenantId} />;
 }

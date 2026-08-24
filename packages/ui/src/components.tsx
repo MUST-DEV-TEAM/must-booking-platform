@@ -10,7 +10,16 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ChevronDown, LogOut } from 'lucide-react';
+import {
+  CalendarDays,
+  ChevronDown,
+  ClipboardList,
+  Home,
+  LogOut,
+  Menu,
+  MoreHorizontal,
+  X,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 type ClassName = { className?: string };
@@ -150,6 +159,83 @@ export function Stack({
 
 export type NavigationItem = { href: string; label: string; current?: boolean; icon?: LucideIcon };
 
+export function NavigationSectionTabBar({
+  children,
+  label = 'Dashboard tabs',
+}: {
+  children: ReactNode;
+  label?: string;
+}) {
+  return (
+    <nav aria-label={label} className="must-navigation-section-tabs">
+      {children}
+    </nav>
+  );
+}
+
+export function NavigationSectionTabItem({
+  href,
+  label,
+  current = false,
+}: {
+  href: string;
+  label: string;
+  current?: boolean;
+}) {
+  return (
+    <a
+      aria-current={current ? 'page' : undefined}
+      className="must-navigation-section-tab"
+      href={href}
+    >
+      {label}
+    </a>
+  );
+}
+
+export function NavigationPagination({
+  page,
+  pageSize,
+  total,
+  onPageChange,
+  label = 'Pagination',
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  onPageChange: (page: number) => void;
+  label?: string;
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (totalPages <= 1) return null;
+
+  return (
+    <nav aria-label={label} className="must-navigation-pagination">
+      <span>
+        Page {page} of {totalPages}
+      </span>
+      <div className="must-navigation-pagination__actions">
+        <button
+          className="must-button must-button--secondary"
+          disabled={page <= 1}
+          onClick={() => onPageChange(page - 1)}
+          type="button"
+        >
+          Previous
+        </button>
+        <button
+          className="must-button must-button--secondary"
+          disabled={page >= totalPages}
+          onClick={() => onPageChange(page + 1)}
+          type="button"
+        >
+          Next
+        </button>
+      </div>
+    </nav>
+  );
+}
+
 function NavigationLinks({
   items,
   onNavigate,
@@ -162,12 +248,13 @@ function NavigationLinks({
       {items.map((item) => (
         <a
           aria-current={item.current ? 'page' : undefined}
+          aria-label={item.label}
           href={item.href}
           key={item.href}
           onClick={onNavigate}
         >
           {item.icon ? <item.icon aria-hidden="true" size={18} strokeWidth={2} /> : null}
-          {item.label}
+          <span className="must-navigation-link__label">{item.label}</span>
         </a>
       ))}
     </nav>
@@ -184,7 +271,8 @@ async function logOut() {
 function LogOutButton() {
   return (
     <button onClick={() => void logOut()} type="button">
-      Log out
+      <LogOut aria-hidden="true" size={16} />
+      <span className="must-rail-label">Log out</span>
     </button>
   );
 }
@@ -254,7 +342,7 @@ export function SidebarNavigation({
     <aside className={classNames('must-sidebar-navigation', className)}>
       <a className="must-shell-brand" href={homeHref} aria-label="MUST Hotel home">
         <img alt="" src="/auth/portal-m-mark.svg" />
-        <span>MUST Hotel</span>
+        <span className="must-rail-label">MUST Hotel</span>
       </a>
       <NavigationLinks items={items} />
       <div className="must-shell-profile">
@@ -287,21 +375,43 @@ export function Text({
   return <p className={classNames('must-text', `must-text--${tone}`, className)}>{children}</p>;
 }
 
-/** Mobile/tablet navigation. It replaces the desktop sidebar below the 1024px desktop breakpoint. */
+/** Mobile navigation. It replaces the desktop sidebar below the 768px mobile breakpoint. */
 export function MobileDrawerNavigation({
   items,
   title = 'Navigation',
+  homeHref,
+  onOpenChange,
+  open: controlledOpen,
+  renderBottomNavigation = true,
 }: {
   items: readonly NavigationItem[];
   title?: string;
+  homeHref?: string;
+  onOpenChange?: (open: boolean) => void;
+  open?: boolean;
+  renderBottomNavigation?: boolean;
 }) {
   const firstLinkRef = useRef<HTMLAnchorElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const wasOpenRef = useRef(false);
   const titleId = useId();
-  const [open, setOpen] = useState(false);
+  const drawerId = useId();
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (nextOpen: boolean) => {
+    if (controlledOpen === undefined) setInternalOpen(nextOpen);
+    onOpenChange?.(nextOpen);
+  };
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      if (wasOpenRef.current) {
+        wasOpenRef.current = false;
+        triggerRef.current?.focus();
+      }
+      return;
+    }
+    wasOpenRef.current = true;
     firstLinkRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setOpen(false);
@@ -310,59 +420,151 @@ export function MobileDrawerNavigation({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [open]);
 
-  useEffect(() => {
-    if (!open) triggerRef.current?.focus();
-  }, [open]);
+  const bottomNavigation = (
+    <MobileBottomNavigation
+      items={items}
+      onMore={() => setOpen(true)}
+      open={open}
+      homeHref={homeHref}
+    />
+  );
 
   return (
-    <div className="must-mobile-navigation">
-      <Button
+    <>
+      <div className="must-mobile-navigation">
+        <Button
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          aria-label="Open navigation"
+          className="must-mobile-navigation__trigger"
+          aria-controls={drawerId}
+          onClick={() => setOpen(true)}
+          ref={triggerRef}
+          type="button"
+          variant="ghost"
+        >
+          <Menu aria-hidden="true" size={20} />
+          <span className="must-mobile-navigation__trigger-label">Menu</span>
+        </Button>
+        {open ? (
+          <div className="must-drawer-backdrop" onMouseDown={() => setOpen(false)}>
+            <div
+              aria-labelledby={titleId}
+              aria-modal="true"
+              className="must-drawer"
+              id={drawerId}
+              onMouseDown={(event) => event.stopPropagation()}
+              role="dialog"
+            >
+              <div className="must-drawer__header">
+                <h2 id={titleId}>{title}</h2>
+                <Button
+                  aria-label="Close navigation"
+                  onClick={() => setOpen(false)}
+                  type="button"
+                  variant="ghost"
+                >
+                  <X aria-hidden="true" size={18} />
+                  Close
+                </Button>
+              </div>
+              <nav aria-label="Main navigation" className="must-navigation-links">
+                {items.map((item, index) => (
+                  <a
+                    aria-current={item.current ? 'page' : undefined}
+                    aria-label={item.label}
+                    href={item.href}
+                    key={item.href}
+                    onClick={() => setOpen(false)}
+                    ref={index === 0 ? firstLinkRef : undefined}
+                  >
+                    {item.label}
+                  </a>
+                ))}
+              </nav>
+            </div>
+          </div>
+        ) : null}
+      </div>
+      {renderBottomNavigation ? bottomNavigation : null}
+    </>
+  );
+}
+
+function MobileBottomNavigation({
+  items,
+  onMore,
+  open,
+  homeHref,
+}: {
+  items: readonly NavigationItem[];
+  onMore: () => void;
+  open: boolean;
+  homeHref?: string;
+}) {
+  const homeItem = items.find((item) => item.label === 'Dashboard') ?? items[0];
+  const bookingsItem = items.find(
+    (item) => item.label === 'Bookings' || item.href.includes('section=reservations'),
+  );
+  const calendarItem = items.find((item) => item.label === 'Calendar');
+
+  return (
+    <nav aria-label="Mobile navigation" className="must-mobile-bottom-navigation">
+      <MobileBottomNavigationItem
+        current={homeItem?.current}
+        href={homeHref ?? homeItem?.href ?? '/'}
+        icon={Home}
+        label="Home"
+      />
+      <MobileBottomNavigationItem item={bookingsItem} icon={ClipboardList} label="Bookings" />
+      <MobileBottomNavigationItem item={calendarItem} icon={CalendarDays} label="Calendar" />
+      <button
         aria-expanded={open}
         aria-haspopup="dialog"
-        onClick={() => setOpen(true)}
-        ref={triggerRef}
+        aria-label="More navigation"
+        className="must-mobile-bottom-navigation__item"
+        onClick={onMore}
         type="button"
-        variant="ghost"
       >
-        Menu
-      </Button>
-      {open ? (
-        <div className="must-drawer-backdrop" onMouseDown={() => setOpen(false)}>
-          <div
-            aria-labelledby={titleId}
-            aria-modal="true"
-            className="must-drawer"
-            onMouseDown={(event) => event.stopPropagation()}
-            role="dialog"
-          >
-            <div className="must-drawer__header">
-              <h2 id={titleId}>{title}</h2>
-              <Button
-                aria-label="Close navigation"
-                onClick={() => setOpen(false)}
-                type="button"
-                variant="ghost"
-              >
-                Close
-              </Button>
-            </div>
-            <nav aria-label="Main navigation" className="must-navigation-links">
-              {items.map((item, index) => (
-                <a
-                  aria-current={item.current ? 'page' : undefined}
-                  href={item.href}
-                  key={item.href}
-                  onClick={() => setOpen(false)}
-                  ref={index === 0 ? firstLinkRef : undefined}
-                >
-                  {item.label}
-                </a>
-              ))}
-            </nav>
-          </div>
-        </div>
-      ) : null}
-    </div>
+        <MoreHorizontal aria-hidden="true" size={20} />
+        <span>More</span>
+      </button>
+    </nav>
+  );
+}
+
+function MobileBottomNavigationItem({
+  current,
+  href,
+  icon: Icon,
+  item,
+  label,
+}: {
+  current?: boolean;
+  href?: string;
+  icon: LucideIcon;
+  item?: NavigationItem;
+  label: string;
+}) {
+  if (!item && !href) {
+    return (
+      <span aria-disabled="true" className="must-mobile-bottom-navigation__item">
+        <Icon aria-hidden="true" size={20} />
+        <span>{label}</span>
+      </span>
+    );
+  }
+
+  return (
+    <a
+      aria-current={(item?.current ?? current) ? 'page' : undefined}
+      aria-label={label}
+      className="must-mobile-bottom-navigation__item"
+      href={href ?? item?.href ?? '/'}
+    >
+      <Icon aria-hidden="true" size={20} />
+      <span>{label}</span>
+    </a>
   );
 }
 
@@ -388,8 +590,13 @@ export function AppShell({
   headerActions?: ReactNode;
   children: ReactNode;
 }) {
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+
   return (
     <div className="must-app-shell">
+      <a className="must-skip-link" href="#must-main-content">
+        Skip to main content
+      </a>
       <SidebarNavigation
         className="must-app-shell__sidebar"
         homeHref={homeHref}
@@ -398,7 +605,14 @@ export function AppShell({
       />
       <div className="must-app-shell__main">
         <header className="must-app-shell__header">
-          <MobileDrawerNavigation items={navigation} title={title} />
+          <MobileDrawerNavigation
+            homeHref={homeHref}
+            items={navigation}
+            onOpenChange={setMobileDrawerOpen}
+            open={mobileDrawerOpen}
+            renderBottomNavigation={false}
+            title={title}
+          />
           <div className="must-desktop-header">
             <Heading level={2}>{title}</Heading>
           </div>
@@ -407,7 +621,15 @@ export function AppShell({
             <AccountMenu email={userEmail} role={userRole} />
           </div>
         </header>
-        <main className="must-app-shell__content">{children}</main>
+        <main className="must-app-shell__content" id="must-main-content" tabIndex={-1}>
+          {children}
+        </main>
+        <MobileBottomNavigation
+          homeHref={homeHref}
+          items={navigation}
+          onMore={() => setMobileDrawerOpen(true)}
+          open={mobileDrawerOpen}
+        />
       </div>
     </div>
   );

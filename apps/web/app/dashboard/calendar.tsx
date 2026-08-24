@@ -1,6 +1,6 @@
 'use client';
 
-import { Card, Heading, Stack, Text } from '@must/ui';
+import { Card, Heading, Stack, StatePanel, Text } from '@must/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { type FormEvent, useMemo, useState } from 'react';
@@ -8,7 +8,6 @@ import { DayPicker, type DateRange } from 'react-day-picker';
 import { toast } from 'sonner';
 
 import { fetchPropertyBookings, type Reservation } from './reservations';
-import { DashboardLoadingSkeleton } from './loading-skeleton';
 import styles from './calendar.module.css';
 
 type RoomType = { id: string; name: string };
@@ -183,7 +182,14 @@ export function DashboardCalendar({
     bookingsQuery.isPending ||
     (canManageAvailability && blocksQuery.isPending)
   )
-    return <DashboardLoadingSkeleton label="Loading calendar…" />;
+    return (
+      <StatePanel
+        body={null}
+        icon={<Loader2 aria-hidden="true" />}
+        title="Loading calendar…"
+        variant="loading"
+      />
+    );
   const error =
     availabilityQuery.error ??
     bookingsQuery.error ??

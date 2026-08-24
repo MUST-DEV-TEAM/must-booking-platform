@@ -5,7 +5,7 @@
   border-radius: var(--must-radius-control);
   display: inline-flex;
   gap: var(--must-space-8);
-  height: 2.375rem;
+  height: 2.75rem;
   padding: 0 var(--must-space-12);
 }
 
@@ -97,4 +97,57 @@
   font-size: 0.8125rem;
   font-weight: 700;
   padding: 0;
+}
+
+.viewAllLink {
+  color: var(--must-color-ink);
+  display: inline-flex;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  margin-top: var(--must-space-16);
+  text-decoration: underline;
+}
+
+.hotelsSection {
+  margin: 0 auto;
+  max-width: 78rem;
+  width: 100%;
+}
+
+.hotelCards {
+  display: grid;
+  gap: var(--must-space-16);
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+}
+
+.hotelCard {
+  padding: 0;
+}
+
+.hotelCardLink {
+  color: inherit;
+  display: grid;
+  gap: var(--must-space-16);
+  height: 100%;
+  padding: var(--must-space-24);
+  text-decoration: none;
+  transition: background-color var(--must-motion-fast) ease;
+}
+
+.hotelCardLink:hover {
+  background: var(--must-color-canvas);
+}
+
+.hotelCardHeader {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--must-space-12);
+  justify-content: space-between;
+}
+
+.integrationsPanel {
+  border-top: 1px solid var(--must-color-border);
+  display: grid;
+  gap: var(--must-space-16);
+  padding-top: var(--must-space-24);
 }

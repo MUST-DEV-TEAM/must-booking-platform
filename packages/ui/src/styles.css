@@ -37,11 +37,175 @@
   --must-radius-pill: 999px;
   --must-shadow-float: 0 4px 12px rgb(23 76 60 / 0.12), 0 1px 3px rgb(23 76 60 / 0.08);
   --must-shadow-modal: 0 12px 32px rgb(23 76 60 / 0.22), 0 2px 6px rgb(23 76 60 / 0.12);
-  --must-focus-ring: 0 0 0 3px rgb(23 76 60 / 0.35);
+  /* Brass is an intentional semantic exception for focus, not a brand accent. */
+  --color-focus-ring: #c9953c;
+  --shadow-focus-ring: 0 0 0 3px rgb(201 149 60 / 0.45);
+  --must-color-focus-ring: var(--color-focus-ring);
+  --must-shadow-focus-ring: var(--shadow-focus-ring);
+  --must-focus-ring-primary: var(--must-shadow-focus-ring);
+  --must-focus-ring-secondary:
+    0 0 0 2px var(--must-color-surface), 0 0 0 4px var(--must-color-focus-ring);
+  --must-focus-ring-link: 0 0 0 2px var(--must-color-focus-ring);
+  --must-focus-ring-danger: 0 0 0 3px var(--must-color-focus-ring);
+  /* Kept for existing consumers while the semantic rings are adopted. */
+  --must-focus-ring: var(--must-focus-ring-primary);
+  --color-accent-brass: var(--must-color-focus-ring);
+  --must-color-accent-brass: var(--color-accent-brass);
+
+  --color-status-booking-pending-background: var(--must-color-warning-surface);
+  --color-status-booking-pending-foreground: var(--must-color-warning);
+  --color-status-booking-confirmed-background: var(--must-color-success-surface);
+  --color-status-booking-confirmed-foreground: var(--must-color-success);
+  --color-status-booking-cancelled-background: var(--must-color-danger-surface);
+  --color-status-booking-cancelled-foreground: var(--must-color-danger);
+  --color-status-booking-checked-in-background: var(--must-color-surface-selected);
+  --color-status-booking-checked-in-foreground: var(--must-color-ink);
+  --color-status-booking-checked-out-background: var(--must-color-canvas);
+  --color-status-booking-checked-out-foreground: var(--must-color-text-secondary);
+  --color-status-booking-no-show-background: var(--must-color-warning-surface);
+  --color-status-booking-no-show-foreground: var(--color-accent-brass);
+
+  --color-status-payment-pending-background: var(--must-color-warning-surface);
+  --color-status-payment-pending-foreground: var(--must-color-warning);
+  --color-status-payment-paid-background: var(--must-color-success-surface);
+  --color-status-payment-paid-foreground: var(--must-color-success);
+  --color-status-payment-failed-background: var(--must-color-danger-surface);
+  --color-status-payment-failed-foreground: var(--must-color-danger);
+  --color-status-payment-refunded-background: var(--must-color-warning-surface);
+  /* Brass is not AA-readable on the warning surface; keep refunded text on the verified warning pair. */
+  --color-status-payment-refunded-foreground: var(--must-color-warning);
+  --color-status-payment-unpaid-background: var(--must-color-warning-surface);
+  --color-status-payment-unpaid-foreground: var(--must-color-warning);
+
+  --color-status-room-available-background: var(--must-color-success-surface);
+  --color-status-room-available-foreground: var(--must-color-success);
+  --color-status-room-occupied-background: var(--must-color-surface-selected);
+  --color-status-room-occupied-foreground: var(--must-color-ink);
+  --color-status-room-cleaning-background: var(--must-color-info-surface);
+  --color-status-room-cleaning-foreground: var(--must-color-info);
+  --color-status-room-maintenance-background: var(--must-color-warning-surface);
+  --color-status-room-maintenance-foreground: var(--must-color-warning);
+  --color-status-room-reserved-background: var(--must-color-warning-surface);
+  --color-status-room-reserved-foreground: var(--color-accent-brass);
+  --color-status-room-out-of-service-background: var(--must-color-danger-surface);
+  --color-status-room-out-of-service-foreground: var(--must-color-danger);
+
+  --must-color-status-booking-pending-background: var(--color-status-booking-pending-background);
+  --must-color-status-booking-pending-foreground: var(--color-status-booking-pending-foreground);
+  --must-color-status-booking-confirmed-background: var(
+    --color-status-booking-confirmed-background
+  );
+  --must-color-status-booking-confirmed-foreground: var(
+    --color-status-booking-confirmed-foreground
+  );
+  --must-color-status-booking-cancelled-background: var(
+    --color-status-booking-cancelled-background
+  );
+  --must-color-status-booking-cancelled-foreground: var(
+    --color-status-booking-cancelled-foreground
+  );
+  --must-color-status-booking-checked-in-background: var(
+    --color-status-booking-checked-in-background
+  );
+  --must-color-status-booking-checked-in-foreground: var(
+    --color-status-booking-checked-in-foreground
+  );
+  --must-color-status-booking-checked-out-background: var(
+    --color-status-booking-checked-out-background
+  );
+  --must-color-status-booking-checked-out-foreground: var(
+    --color-status-booking-checked-out-foreground
+  );
+  --must-color-status-booking-no-show-background: var(--color-status-booking-no-show-background);
+  --must-color-status-booking-no-show-foreground: var(--color-status-booking-no-show-foreground);
+  --must-color-status-payment-pending-background: var(--color-status-payment-pending-background);
+  --must-color-status-payment-pending-foreground: var(--color-status-payment-pending-foreground);
+  --must-color-status-payment-paid-background: var(--color-status-payment-paid-background);
+  --must-color-status-payment-paid-foreground: var(--color-status-payment-paid-foreground);
+  --must-color-status-payment-failed-background: var(--color-status-payment-failed-background);
+  --must-color-status-payment-failed-foreground: var(--color-status-payment-failed-foreground);
+  --must-color-status-payment-refunded-background: var(--color-status-payment-refunded-background);
+  --must-color-status-payment-refunded-foreground: var(--color-status-payment-refunded-foreground);
+  --must-color-status-payment-unpaid-background: var(--color-status-payment-unpaid-background);
+  --must-color-status-payment-unpaid-foreground: var(--color-status-payment-unpaid-foreground);
+  --must-color-status-room-available-background: var(--color-status-room-available-background);
+  --must-color-status-room-available-foreground: var(--color-status-room-available-foreground);
+  --must-color-status-room-occupied-background: var(--color-status-room-occupied-background);
+  --must-color-status-room-occupied-foreground: var(--color-status-room-occupied-foreground);
+  --must-color-status-room-cleaning-background: var(--color-status-room-cleaning-background);
+  --must-color-status-room-cleaning-foreground: var(--color-status-room-cleaning-foreground);
+  --must-color-status-room-maintenance-background: var(--color-status-room-maintenance-background);
+  --must-color-status-room-maintenance-foreground: var(--color-status-room-maintenance-foreground);
+  --must-color-status-room-reserved-background: var(--color-status-room-reserved-background);
+  --must-color-status-room-reserved-foreground: var(--color-status-room-reserved-foreground);
+  --must-color-status-room-out-of-service-background: var(
+    --color-status-room-out-of-service-background
+  );
+  --must-color-status-room-out-of-service-foreground: var(
+    --color-status-room-out-of-service-foreground
+  );
+  /* Fixed chart order: pine, brass, sky, violet, green, amber. Never add a seventh slot. */
+  --color-chart-series-1: var(--color-pine-800, var(--must-color-ink));
+  --color-chart-series-2: var(--color-brass-500, var(--must-color-focus-ring));
+  --color-chart-series-3: var(--color-sky-500, var(--must-color-info));
+  --color-chart-series-4: var(--color-violet-500, var(--must-color-danger));
+  --color-chart-series-5: var(--color-green-500, var(--must-color-success));
+  --color-chart-series-6: var(--color-amber-500-2, var(--must-color-warning));
+  --must-color-chart-series-1: var(--color-chart-series-1);
+  --must-color-chart-series-2: var(--color-chart-series-2);
+  --must-color-chart-series-3: var(--color-chart-series-3);
+  --must-color-chart-series-4: var(--color-chart-series-4);
+  --must-color-chart-series-5: var(--color-chart-series-5);
+  --must-color-chart-series-6: var(--color-chart-series-6);
   --must-font-sans: 'Manrope', system-ui, sans-serif;
   --must-motion-fast: 120ms;
   --must-motion-normal: 180ms;
   --must-motion-slow: 240ms;
+
+  /* Responsive contract. The media-query literals below mirror these breakpoint tokens because
+     CSS custom properties cannot parameterize media queries. Values are intentionally unused here;
+     Tasks 26-29 consume this vocabulary without changing layout in the foundation task. */
+  --must-breakpoint-mobile-max: 767px;
+  --must-breakpoint-tablet-min: 768px;
+  --must-breakpoint-laptop-min: 1200px;
+  --must-breakpoint-xl-min: 1440px;
+  --must-responsive-page-padding: 16px;
+  --must-responsive-card-gap: 12px;
+  --must-responsive-heading-size: 24px;
+  --must-responsive-heading-line-height: 30px;
+  --must-responsive-body-size: 14px;
+  --must-responsive-body-line-height: 21px;
+  --must-responsive-touch-target: 48px;
+  --must-responsive-card-radius: 10px;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --must-responsive-touch-target: 44px;
+    --must-responsive-card-radius: 12px;
+  }
+}
+
+@media (min-width: 1200px) {
+  :root {
+    --must-responsive-page-padding: 24px;
+    --must-responsive-card-gap: 16px;
+    --must-responsive-heading-size: 28px;
+    --must-responsive-heading-line-height: 34px;
+    --must-responsive-body-size: 13px;
+    --must-responsive-body-line-height: 20px;
+  }
+}
+
+@media (min-width: 1440px) {
+  :root {
+    --must-responsive-page-padding: 32px;
+    --must-responsive-card-gap: 24px;
+    --must-responsive-heading-size: 32px;
+    --must-responsive-heading-line-height: 38px;
+    --must-responsive-body-size: 14px;
+    --must-responsive-touch-target: 40px;
+  }
 }
 
 * {
@@ -58,6 +222,27 @@ body {
   color: var(--must-color-text-primary);
   font-family: var(--must-font-sans);
   margin: 0;
+}
+.must-skip-link {
+  align-items: center;
+  background: var(--must-color-ink);
+  border-radius: var(--must-radius-control);
+  color: var(--must-color-surface);
+  display: inline-flex;
+  font: 700 0.875rem/1.25rem var(--must-font-sans);
+  left: var(--must-space-16);
+  min-height: 44px;
+  padding: 0 var(--must-space-16);
+  position: fixed;
+  text-decoration: none;
+  top: var(--must-space-16);
+  transform: translateY(-200%);
+  transition: transform var(--must-motion-fast) ease;
+  z-index: 200;
+}
+.must-skip-link:focus,
+.must-skip-link:focus-visible {
+  transform: translateY(0);
 }
 .must-button,
 .must-input {
@@ -79,9 +264,29 @@ body {
     border-color var(--must-motion-fast) ease;
 }
 .must-button:focus-visible,
+button:focus-visible {
+  box-shadow: var(--must-focus-ring-primary);
+  outline: 0;
+}
+.must-button--secondary:focus-visible,
+.must-button--ghost:focus-visible,
 .must-input:focus-visible,
-.must-navigation-links a:focus-visible {
-  box-shadow: var(--must-focus-ring);
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  box-shadow: var(--must-focus-ring-secondary);
+  outline: 0;
+}
+.must-button--danger:focus-visible,
+.must-account-menu__item--danger:focus-visible,
+[data-danger]:focus-visible {
+  box-shadow: var(--must-focus-ring-danger);
+  outline: 0;
+}
+a:focus-visible:not(.must-button),
+.must-navigation-links a:focus-visible,
+.must-shell-brand:focus-visible {
+  box-shadow: var(--must-focus-ring-link);
   outline: 0;
 }
 .must-button:disabled {
@@ -260,6 +465,17 @@ body {
   background: var(--must-color-danger-surface);
   color: var(--must-color-danger);
 }
+.must-status-badge {
+  align-items: center;
+  background: var(--must-status-badge-background);
+  border-radius: var(--must-radius-pill);
+  color: var(--must-status-badge-foreground);
+  display: inline-flex;
+  font: 650 0.75rem/1 var(--must-font-sans);
+  min-height: 1.5rem;
+  padding: 0.375rem 0.5rem;
+  white-space: nowrap;
+}
 .must-stack {
   display: grid;
 }
@@ -271,6 +487,74 @@ body {
 }
 .must-stack--lg {
   gap: var(--must-space-24);
+}
+.must-state-panel {
+  align-items: center;
+  background: var(--must-color-surface);
+  border: 1px solid var(--must-color-border);
+  border-radius: var(--must-radius-card);
+  display: flex;
+  flex-direction: column;
+  gap: var(--must-space-16);
+  padding: var(--must-space-40) var(--must-space-24);
+  text-align: center;
+}
+.must-state-panel__icon {
+  align-items: center;
+  background: var(--must-color-surface-selected);
+  border-radius: var(--must-radius-pill);
+  color: var(--must-color-ink);
+  display: inline-flex;
+  height: 3rem;
+  justify-content: center;
+  width: 3rem;
+}
+.must-state-panel__title {
+  color: var(--must-color-text-primary);
+  font: 650 1.25rem/1.75rem var(--must-font-sans);
+  margin: 0;
+}
+.must-state-panel__body {
+  color: var(--must-color-text-secondary);
+  font: 400 0.875rem/1.25rem var(--must-font-sans);
+  max-width: 32rem;
+}
+.must-state-panel__action {
+  margin-top: var(--must-space-8);
+}
+.must-state-panel--loading {
+  align-items: stretch;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  gap: var(--must-space-24);
+  padding: 0;
+  text-align: left;
+}
+.must-state-panel--loading .must-state-panel__icon,
+.must-state-panel--loading .must-state-panel__body {
+  display: none;
+}
+.must-state-panel--loading .must-state-panel__title {
+  font: 400 0.875rem/1.25rem var(--must-font-sans);
+}
+.must-state-panel__loading-card {
+  background: var(--must-color-surface);
+  border: 1px solid var(--must-color-border);
+  border-radius: var(--must-radius-card);
+  padding: var(--must-space-24);
+}
+.must-state-panel--error .must-state-panel__icon {
+  background: var(--must-color-danger-surface);
+  color: var(--must-color-danger);
+}
+.must-state-panel--no-permission .must-state-panel__icon {
+  background: var(--must-color-warning-surface);
+  color: var(--must-color-warning);
+}
+.must-state-panel--not-available .must-state-panel__icon {
+  background: var(--must-color-info-surface);
+  color: var(--must-color-info);
 }
 .must-heading {
   color: var(--must-color-text-primary);
@@ -305,6 +589,16 @@ body {
   display: grid;
   grid-template-columns: 16rem 1fr;
   min-height: 100vh;
+}
+@media (min-width: 1200px) {
+  .must-app-shell {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+}
+@media (min-width: 1440px) {
+  .must-app-shell {
+    grid-template-columns: 252px minmax(0, 1fr);
+  }
 }
 .must-app-shell__sidebar {
   grid-column: 1;
@@ -460,6 +754,62 @@ body {
     padding: var(--must-space-16);
   }
 }
+@media (min-width: 768px) and (max-width: 1199px) {
+  .must-app-shell {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+  .must-app-shell__sidebar {
+    min-width: 0;
+    padding: var(--must-space-8);
+    width: 72px;
+  }
+  .must-app-shell__main {
+    grid-column: 2;
+  }
+  .must-app-shell__header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  .must-desktop-header {
+    display: flex;
+  }
+  .must-shell-brand {
+    justify-content: center;
+  }
+  .must-shell-brand img {
+    flex: 0 0 auto;
+  }
+  .must-navigation-links a {
+    justify-content: center;
+    min-height: 44px;
+    padding: var(--must-space-8);
+  }
+  .must-shell-profile {
+    justify-items: center;
+  }
+  .must-shell-profile button {
+    align-items: center;
+    display: flex;
+    justify-content: center;
+    padding: var(--must-space-8);
+    width: 100%;
+  }
+  .must-rail-label,
+  .must-navigation-link__label,
+  .must-shell-profile__email {
+    border: 0;
+    clip: rect(0 0 0 0);
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    padding: 0;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
+  }
+}
 @media (max-width: 639px) {
   .must-account-menu__identity,
   .must-account-menu__chevron {
@@ -469,6 +819,97 @@ body {
     height: 2.75rem;
     padding: 0;
     width: 2.75rem;
+  }
+}
+@media (max-width: 767px) {
+  .must-app-shell {
+    display: block;
+    min-height: 100svh;
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+  }
+  .must-app-shell__sidebar {
+    display: none;
+  }
+  .must-app-shell__header {
+    min-height: 3.5rem;
+    padding: var(--must-space-8) var(--must-space-12);
+    position: sticky;
+    top: 0;
+    z-index: 30;
+  }
+  .must-mobile-navigation {
+    display: flex;
+    flex-shrink: 0;
+  }
+  .must-mobile-navigation__trigger {
+    height: 44px;
+    min-height: 44px;
+    padding: 0;
+    width: 44px;
+  }
+  .must-mobile-navigation__trigger-label {
+    border: 0;
+    clip: rect(0 0 0 0);
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    padding: 0;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
+  }
+  .must-desktop-header {
+    display: flex;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    padding-left: var(--must-space-8);
+  }
+  .must-desktop-header .must-heading {
+    font-size: 1.125rem;
+    line-height: 1.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .must-app-shell__header-actions {
+    gap: var(--must-space-8);
+    min-width: 0;
+  }
+  .must-mobile-bottom-navigation {
+    align-items: stretch;
+    background: var(--must-color-surface);
+    border-top: 1px solid var(--must-color-border);
+    bottom: 0;
+    display: grid;
+    gap: var(--must-space-4);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    left: 0;
+    padding: var(--must-space-4) var(--must-space-8)
+      calc(var(--must-space-8) + env(safe-area-inset-bottom));
+    position: fixed;
+    right: 0;
+    z-index: 40;
+  }
+  .must-mobile-bottom-navigation__item {
+    align-items: center;
+    background: none;
+    border: 0;
+    border-radius: var(--must-radius-control);
+    color: var(--must-color-text-secondary);
+    display: flex;
+    flex-direction: column;
+    font: 650 0.6875rem/1rem var(--must-font-sans);
+    gap: var(--must-space-2);
+    justify-content: center;
+    min-height: 44px;
+    min-width: 0;
+    padding: var(--must-space-4);
+    text-decoration: none;
+  }
+  .must-mobile-bottom-navigation__item[aria-current='page'] {
+    background: var(--must-color-surface-selected);
+    color: var(--must-color-ink);
   }
 }
 .must-sidebar-navigation {
@@ -486,6 +927,7 @@ body {
   font-size: 1rem;
   font-weight: 800;
   gap: var(--must-space-8);
+  min-height: 44px;
   margin-bottom: var(--must-space-24);
   text-decoration: none;
 }
@@ -521,6 +963,48 @@ body {
   color: var(--must-color-ink);
   font-weight: 700;
 }
+.must-navigation-section-tabs {
+  border-bottom: 1px solid var(--must-color-border);
+  display: flex;
+  gap: var(--must-space-4);
+  overflow-x: auto;
+}
+.must-navigation-section-tab {
+  align-items: center;
+  border-bottom: 2px solid transparent;
+  color: var(--must-color-text-secondary);
+  display: inline-flex;
+  font: 600 0.875rem/1.25rem var(--must-font-sans);
+  min-height: 2.75rem;
+  padding: var(--must-space-8) var(--must-space-12);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.must-navigation-section-tab:hover {
+  color: var(--must-color-text-primary);
+}
+.must-navigation-section-tab[aria-current='page'] {
+  border-bottom-color: var(--must-color-ink);
+  color: var(--must-color-ink);
+  font-weight: 700;
+}
+.must-navigation-pagination {
+  align-items: center;
+  display: flex;
+  gap: var(--must-space-16);
+  justify-content: space-between;
+  margin-top: var(--must-space-20);
+}
+.must-navigation-pagination__actions {
+  display: flex;
+  gap: var(--must-space-8);
+}
+@media (max-width: 600px) {
+  .must-navigation-pagination {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
 .must-shell-profile {
   border-top: 1px solid var(--must-color-border);
   display: grid;
@@ -529,6 +1013,9 @@ body {
   padding-top: var(--must-space-16);
 }
 .must-mobile-navigation {
+  display: none;
+}
+.must-mobile-bottom-navigation {
   display: none;
 }
 .must-drawer-backdrop {
@@ -560,5 +1047,25 @@ body {
 @media (max-width: 767px) {
   .must-card {
     padding: var(--must-space-16);
+  }
+}
+@media (max-width: 767px) {
+  .must-app-shell__sidebar {
+    display: none;
+  }
+  .must-mobile-bottom-navigation {
+    display: grid;
+  }
+  .must-mobile-navigation {
+    display: flex;
+  }
+}
+@media (min-width: 768px) and (max-width: 1199px) {
+  .must-app-shell__sidebar {
+    padding: var(--must-space-8);
+  }
+  .must-shell-brand,
+  .must-shell-profile {
+    width: 100%;
   }
 }
