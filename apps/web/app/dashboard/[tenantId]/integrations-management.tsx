@@ -1,8 +1,11 @@
 'use client';
-import { Card, Heading, Stack, Text } from '@must/ui';
+import { Badge, Button, Card, Heading, Stack, Text } from '@must/ui';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FormEvent, useState } from 'react';
+import { ChevronDown, ChevronUp, MoreHorizontal, Plug, Trash2, X } from 'lucide-react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+
+import styles from './integrations-management.module.css';
 
 type Property = { id: string; name: string };
 type ConnectionKind = 'PAYMENT' | 'PMS';
@@ -68,6 +71,10 @@ export function IntegrationsManagement({
   const [provider, setProvider] = useState<ConnectionProvider>('STRIPE');
   const [name, setName] = useState('');
   const [credentials, setCredentials] = useState<Record<string, string>>({});
+  const [createOpen, setCreateOpen] = useState(false);
+  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
+  const [expandedAssignmentIds, setExpandedAssignmentIds] = useState<Set<string>>(new Set());
+  const createDialogRef = useRef<HTMLDivElement>(null);
 
   const connectionsQueryKey = ['dashboard', 'integration-connections', tenantId] as const;
   const connectionsQuery = useQuery({
@@ -134,6 +141,7 @@ export function IntegrationsManagement({
       form.reset();
       setName('');
       setCredentials({});
+      setCreateOpen(false);
       void queryClient.invalidateQueries({ queryKey: connectionsQueryKey });
       toast.success('Connection created.');
     },
@@ -230,6 +238,17 @@ export function IntegrationsManagement({
     );
   }
 
+  useEffect(() => {
+    if (!createOpen) return;
+    const dialog = createDialogRef.current;
+    dialog?.querySelector<HTMLElement>('select, input, button')?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setCreateOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [createOpen]);
+
   function submitConnection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -246,6 +265,15 @@ export function IntegrationsManagement({
       name: trimmedName,
       credentials: trimmedCredentials,
       form,
+    });
+  }
+
+  function toggleAssignments(connectionId: string) {
+    setExpandedAssignmentIds((current) => {
+      const next = new Set(current);
+      if (next.has(connectionId)) next.delete(connectionId);
+      else next.add(connectionId);
+      return next;
     });
   }
 
@@ -276,51 +304,54 @@ export function IntegrationsManagement({
             const enabledPropertyIds =
               enabledPropertyIdsByConnectionId.get(connection.id) ?? new Set<string>();
             return (
-              <Card key={connection.id}>
-                <Heading level={3}>{connection.name}</Heading>
-                <Text tone="secondary">
+              <Card className={styles.connectionCard} key={connection.id}>
+                <div className={styles.connectionHeader}>
+                  <div className={styles.providerIdentity}>
+                    <span aria-hidden="true" className={styles.providerIcon}>
+                      <Plug size={20} />
+                    </span>
+                    <div>
+                      <Heading level={3}>{connection.name}</Heading>
+                      <Text tone="secondary">
+                        {providerLabels[connection.provider]}{' '}
+                        {connection.kind === 'PMS' ? 'PMS' : 'Payment'}
+                      </Text>
+                    </div>
+                  </div>
+                  <div className={styles.connectionActions}>
+                    <StatusBadge status={connection.status} />
+                    <ConnectionActions
+                      connection={connection}
+                      deletePending={deleteMutation.isPending}
+                      menuOpen={openActionMenuId === connection.id}
+                      onDelete={() => deleteMutation.mutate(connection.id)}
+                      onToggle={() =>
+                        setOpenActionMenuId((current) =>
+                          current === connection.id ? null : connection.id,
+                        )
+                      }
+                      onTest={() => testMutation.mutate(connection.id)}
+                      testPending={testMutation.isPending}
+                    />
+                  </div>
+                </div>
+                <Text className={styles.visuallyHidden} tone="secondary">
                   {providerLabels[connection.provider]} ·{' '}
                   {connection.kind === 'PMS' ? 'PMS' : 'Payment'} · {connection.status}
                 </Text>
                 {connection.lastTestResult ? (
                   <Text tone="secondary">{connection.lastTestResult}</Text>
                 ) : null}
-                <fieldset>
-                  <legend>Assigned properties</legend>
-                  {properties.map((property) => (
-                    <label className="must-field" key={property.id}>
-                      <input
-                        className="must-input"
-                        type="checkbox"
-                        checked={enabledPropertyIds.has(property.id)}
-                        onChange={(event) =>
-                          assignMutation.mutate({
-                            connectionId: connection.id,
-                            propertyId: property.id,
-                            enabled: event.target.checked,
-                          })
-                        }
-                      />
-                      {property.name}
-                    </label>
-                  ))}
-                </fieldset>
-                <button
-                  className="must-button must-button--secondary"
-                  type="button"
-                  disabled={testMutation.isPending}
-                  onClick={() => testMutation.mutate(connection.id)}
-                >
-                  Test connection
-                </button>
-                <button
-                  className="must-button must-button--danger"
-                  type="button"
-                  disabled={deleteMutation.isPending}
-                  onClick={() => deleteMutation.mutate(connection.id)}
-                >
-                  Delete
-                </button>
+                <ConnectionAssignments
+                  connectionId={connection.id}
+                  enabledPropertyIds={enabledPropertyIds}
+                  expanded={expandedAssignmentIds.has(connection.id)}
+                  onChange={(propertyId, enabled) =>
+                    assignMutation.mutate({ connectionId: connection.id, propertyId, enabled })
+                  }
+                  onToggle={() => toggleAssignments(connection.id)}
+                  properties={properties}
+                />
                 {clockPropertiesByConnectionId.get(connection.id)?.map((property) => (
                   <ClockCatalogSync key={property.id} tenantId={tenantId} property={property} />
                 ))}
@@ -329,78 +360,241 @@ export function IntegrationsManagement({
           })}
         </>
       ) : null}
-      <Card>
-        <Heading level={3}>Add a connection</Heading>
-        <form className="must-stack must-stack--md" onSubmit={submitConnection}>
-          <label className="must-field">
-            <span className="must-field__label">Type</span>
-            <select
-              className="must-input"
-              value={kind}
-              onChange={(event) => {
-                const nextKind = event.target.value as ConnectionKind;
-                setKind(nextKind);
-                setProvider(nextKind === 'PMS' ? 'CLOCK_PMS' : 'STRIPE');
-                setCredentials({});
-              }}
-            >
-              <option value="PAYMENT">Payment gateway</option>
-              <option value="PMS">Property Management System</option>
-            </select>
-          </label>
-          <label className="must-field">
-            <span className="must-field__label">Provider</span>
-            <select
-              className="must-input"
-              value={provider}
-              onChange={(event) => {
-                setProvider(event.target.value as ConnectionProvider);
-                setCredentials({});
-              }}
-            >
-              {kind === 'PMS' ? (
-                <option value="CLOCK_PMS">Clock PMS</option>
-              ) : (
-                <>
-                  <option value="STRIPE">Stripe</option>
-                  <option value="POKPAY">PokPay</option>
-                </>
-              )}
-            </select>
-          </label>
-          <label className="must-field">
-            <span className="must-field__label">Name</span>
-            <input
-              className="must-input"
-              required
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="e.g. Main Stripe account"
-            />
-          </label>
-          <fieldset>
-            <legend>Credentials</legend>
-            {credentialFieldsByProvider[provider].map((field) => (
-              <label className="must-field" key={field.key}>
-                <span className="must-field__label">{field.label}</span>
-                <input
-                  className="must-input"
-                  type={field.secret ? 'password' : 'text'}
-                  required
-                  value={credentials[field.key] ?? ''}
-                  onChange={(event) =>
-                    setCredentials((current) => ({ ...current, [field.key]: event.target.value }))
-                  }
-                />
-              </label>
-            ))}
-          </fieldset>
-          <button className="must-button must-button--primary" disabled={createMutation.isPending}>
-            {createMutation.isPending ? 'Creating…' : 'Add connection'}
-          </button>
-        </form>
-      </Card>
+      <Button
+        className={styles.addConnectionButton}
+        onClick={() => setCreateOpen(true)}
+        type="button"
+      >
+        <Plug aria-hidden="true" size={18} /> Add a connection
+      </Button>
+      {createOpen ? (
+        <div className={styles.dialogBackdrop} onMouseDown={() => setCreateOpen(false)}>
+          <div
+            aria-labelledby="add-connection-title"
+            aria-modal="true"
+            className={styles.dialog}
+            onMouseDown={(event) => event.stopPropagation()}
+            ref={createDialogRef}
+            role="dialog"
+          >
+            <Card>
+              <div className={styles.dialogHeader}>
+                <div>
+                  <Text className={styles.eyebrow} tone="secondary">
+                    INTEGRATION
+                  </Text>
+                  <Heading id="add-connection-title" level={3}>
+                    Add a connection
+                  </Heading>
+                </div>
+                <Button
+                  aria-label="Close add connection dialog"
+                  className={styles.actionButton}
+                  onClick={() => setCreateOpen(false)}
+                  type="button"
+                  variant="ghost"
+                >
+                  <X aria-hidden="true" size={20} />
+                </Button>
+              </div>
+              <form className="must-stack must-stack--md" onSubmit={submitConnection}>
+                <label className="must-field">
+                  <span className="must-field__label">Type</span>
+                  <select
+                    className="must-input"
+                    value={kind}
+                    onChange={(event) => {
+                      const nextKind = event.target.value as ConnectionKind;
+                      setKind(nextKind);
+                      setProvider(nextKind === 'PMS' ? 'CLOCK_PMS' : 'STRIPE');
+                      setCredentials({});
+                    }}
+                  >
+                    <option value="PAYMENT">Payment gateway</option>
+                    <option value="PMS">Property Management System</option>
+                  </select>
+                </label>
+                <label className="must-field">
+                  <span className="must-field__label">Provider</span>
+                  <select
+                    className="must-input"
+                    value={provider}
+                    onChange={(event) => {
+                      setProvider(event.target.value as ConnectionProvider);
+                      setCredentials({});
+                    }}
+                  >
+                    {kind === 'PMS' ? (
+                      <option value="CLOCK_PMS">Clock PMS</option>
+                    ) : (
+                      <>
+                        <option value="STRIPE">Stripe</option>
+                        <option value="POKPAY">PokPay</option>
+                      </>
+                    )}
+                  </select>
+                </label>
+                <label className="must-field">
+                  <span className="must-field__label">Name</span>
+                  <input
+                    className="must-input"
+                    required
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    placeholder="e.g. Main Stripe account"
+                  />
+                </label>
+                <fieldset>
+                  <legend>Credentials</legend>
+                  {credentialFieldsByProvider[provider].map((field) => (
+                    <label className="must-field" key={field.key}>
+                      <span className="must-field__label">{field.label}</span>
+                      <input
+                        className="must-input"
+                        type={field.secret ? 'password' : 'text'}
+                        required
+                        value={credentials[field.key] ?? ''}
+                        onChange={(event) =>
+                          setCredentials((current) => ({
+                            ...current,
+                            [field.key]: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                  ))}
+                </fieldset>
+                <button
+                  className="must-button must-button--primary"
+                  disabled={createMutation.isPending}
+                >
+                  {createMutation.isPending ? 'Creating…' : 'Add connection'}
+                </button>
+              </form>
+            </Card>
+          </div>
+        </div>
+      ) : null}
     </Stack>
+  );
+}
+
+function StatusBadge({ status }: { status: Connection['status'] }) {
+  const toneByStatus = { PENDING: 'warning', CONNECTED: 'success', FAILED: 'danger' } as const;
+  return <Badge tone={toneByStatus[status]}>{status.toLowerCase()}</Badge>;
+}
+
+function ConnectionActions({
+  connection,
+  deletePending,
+  menuOpen,
+  onDelete,
+  onTest,
+  onToggle,
+  testPending,
+}: {
+  connection: Connection;
+  deletePending: boolean;
+  menuOpen: boolean;
+  onDelete: () => void;
+  onTest: () => void;
+  onToggle: () => void;
+  testPending: boolean;
+}) {
+  return (
+    <div className={styles.actionMenu}>
+      <Button
+        aria-expanded={menuOpen}
+        aria-haspopup="menu"
+        aria-label={`Actions for ${connection.name}`}
+        className={styles.actionButton}
+        onClick={onToggle}
+        type="button"
+        variant="ghost"
+      >
+        <MoreHorizontal aria-hidden="true" size={20} />
+      </Button>
+      {menuOpen ? (
+        <div className={styles.actionMenuPanel} role="menu">
+          <button
+            disabled={testPending}
+            onClick={() => {
+              onToggle();
+              onTest();
+            }}
+            role="menuitem"
+            type="button"
+          >
+            Test connection
+          </button>
+          <button
+            className={styles.deleteAction}
+            disabled={deletePending}
+            onClick={() => {
+              onToggle();
+              onDelete();
+            }}
+            role="menuitem"
+            type="button"
+          >
+            <Trash2 aria-hidden="true" size={16} /> Delete
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ConnectionAssignments({
+  connectionId,
+  enabledPropertyIds,
+  expanded,
+  onChange,
+  onToggle,
+  properties,
+}: {
+  connectionId: string;
+  enabledPropertyIds: Set<string>;
+  expanded: boolean;
+  onChange: (propertyId: string, enabled: boolean) => void;
+  onToggle: () => void;
+  properties: Property[];
+}) {
+  const assignmentsId = `connection-${connectionId}-assignments`;
+  return (
+    <div className={styles.assignments}>
+      <button
+        aria-controls={assignmentsId}
+        aria-expanded={expanded}
+        className={styles.assignmentsToggle}
+        onClick={onToggle}
+        type="button"
+      >
+        <span>
+          Assigned properties ({enabledPropertyIds.size} of {properties.length})
+        </span>
+        {expanded ? (
+          <ChevronUp aria-hidden="true" size={18} />
+        ) : (
+          <ChevronDown aria-hidden="true" size={18} />
+        )}
+      </button>
+      {expanded ? (
+        <fieldset className={styles.assignmentList} id={assignmentsId}>
+          <legend className={styles.visuallyHidden}>Assigned properties</legend>
+          {properties.map((property) => (
+            <label className={styles.assignmentOption} key={property.id}>
+              <input
+                checked={enabledPropertyIds.has(property.id)}
+                onChange={(event) => onChange(property.id, event.target.checked)}
+                type="checkbox"
+              />
+              {property.name}
+            </label>
+          ))}
+        </fieldset>
+      ) : null}
+    </div>
   );
 }
 
