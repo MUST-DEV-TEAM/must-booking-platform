@@ -113,10 +113,12 @@ import { ClockAvailabilityService } from './integrations/clock/clock-availabilit
 import { ClockBookingService } from './integrations/clock/clock-booking.service';
 import { ClockBookingConsistencyService } from './integrations/clock/clock-booking-consistency.service';
 import { ClockBookingHydrationService } from './integrations/clock/clock-booking-hydration.service';
+import { ClockFolioHydrationService } from './integrations/clock/clock-folio-hydration.service';
 import { ClockQueueService } from './integrations/clock/clock-queue.service';
 import { ClockWorkerService } from './integrations/clock/clock-worker.service';
 import { ClockWebhookVerificationService } from './integrations/clock/clock-webhook-verification.service';
 import { ClockWebhookService } from './integrations/clock/clock-webhook.service';
+import { ClockWebhookHealthService } from './integrations/clock/clock-webhook-health.service';
 import { ClockWebhookController } from './integrations/clock/clock-webhook.controller';
 
 @Module({
@@ -255,6 +257,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ClockBookingService,
     ClockBookingConsistencyService,
     ClockBookingHydrationService,
+    ClockFolioHydrationService,
     ClockQueueService,
     ClockWorkerService,
     {
@@ -262,6 +265,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
       useFactory: () => new ClockWebhookVerificationService(),
     },
     ClockWebhookService,
+    ClockWebhookHealthService,
     ManualReviewService,
     { provide: PAYMENT_PROVIDER, useExisting: StripePaymentProvider },
     R2StorageProvider,

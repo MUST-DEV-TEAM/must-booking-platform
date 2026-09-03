@@ -1,5 +1,5 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { Queue, type JobsOptions } from 'bullmq';
+import { Queue, type JobsOptions, type RepeatOptions } from 'bullmq';
 import IORedis from 'ioredis';
 
 import {
@@ -59,6 +59,26 @@ export class ClockQueueService implements OnModuleInit, OnModuleDestroy {
       ...DEFAULT_JOB_OPTIONS,
       priority: CLOCK_QUEUE_PRIORITY[queueName],
       ...options,
+    });
+  }
+
+  async upsertScheduler<T = unknown>(
+    queueName: ClockQueueName,
+    schedulerId: string,
+    jobName: string,
+    data: T,
+    repeat: Omit<RepeatOptions, 'key'>,
+    options: JobsOptions = {},
+  ): Promise<void> {
+    const queue = this.requireQueue(queueName);
+    await queue.upsertJobScheduler(schedulerId, repeat, {
+      name: jobName,
+      data,
+      opts: {
+        ...DEFAULT_JOB_OPTIONS,
+        priority: CLOCK_QUEUE_PRIORITY[queueName],
+        ...options,
+      },
     });
   }
 

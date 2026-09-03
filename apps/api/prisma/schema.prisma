@@ -551,6 +551,16 @@ model Booking {
   cancellationIsFree         Boolean?      @map("cancellation_is_free")
   cancellationFreeUntilHours Int?          @map("cancellation_free_until_hours")
   cancellationCutoffAt       DateTime?     @map("cancellation_cutoff_at") @db.Timestamptz(6)
+  // Visibility only (Clock certification gap Task C, docs/CLOCK_CERTIFICATION_GAPS_PLAN.md)
+  // — mirrors whichever Clock folio last sent a folio_update/folio_close
+  // event referencing this booking. Deliberately not a real relation to
+  // `payments`/`payment_provider_sessions` and never written to by any
+  // guest-payment/billing code path. A booking can have more than one Clock
+  // folio (deposit + main, for example); this tracks only the most recently
+  // touched one, a known simplification, not an aggregate.
+  clockFolioId               String?       @map("clock_folio_id") @db.VarChar(64)
+  clockFolioBalance          Decimal?      @map("clock_folio_balance") @db.Decimal(12, 2)
+  clockFolioClosedAt         DateTime?     @map("clock_folio_closed_at") @db.Timestamptz(6)
   createdAt                  DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                  DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   property                   Property      @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
@@ -686,6 +696,11 @@ model IntegrationConnection {
   status               IntegrationConnectionStatus  @default(PENDING)
   lastTestedAt         DateTime?                    @map("last_tested_at") @db.Timestamptz(6)
   lastTestResult       String?                      @map("last_test_result") @db.VarChar(500)
+  // Set on every real, signature-verified SNS message (any envelope Type —
+  // proves connectivity even before a Notification carries business data),
+  // never on a rejected one. Missing-webhook alerting (ClockWebhookHealthService)
+  // compares this against createdAt for a connection that's never received one yet.
+  lastWebhookReceivedAt DateTime?                   @map("last_webhook_received_at") @db.Timestamptz(6)
   // Random, unguessable id used in the public webhook URL path (source brief
   // section 27/29: "random webhook installation ID") — never the internal
   // `id`, so the callback URL doesn't expose or enumerate connection rows.

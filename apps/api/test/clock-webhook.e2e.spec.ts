@@ -191,6 +191,12 @@ describe('Clock webhook gateway', () => {
     const counts = await queue.getJobCounts();
     expect(counts.waiting + counts.active + counts.completed).toBeGreaterThan(0);
     redis.disconnect();
+
+    const connectionRow = await admin.$queryRaw<Array<{ lastWebhookReceivedAt: Date | null }>>`
+      SELECT last_webhook_received_at AS "lastWebhookReceivedAt" FROM integration_connections
+      WHERE id = ${connectionId}::uuid
+    `;
+    expect(connectionRow[0]!.lastWebhookReceivedAt).not.toBeNull();
   });
 
   it('parses a real Clock event shape (Subject carries the type, Message is a single-key id) — captured 2026-09-03 against Empire Beach Resort', async () => {

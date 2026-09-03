@@ -63,6 +63,12 @@ export class ClockWebhookService {
       throw new BadRequestException(verified.reason);
     }
 
+    // Proves the Message Channels connection is genuinely alive, regardless
+    // of envelope Type or what happens downstream — a rejected message never
+    // reaches here. Missing-webhook alerting (ClockWebhookHealthService,
+    // docs/CLOCK_CERTIFICATION_GAPS_PLAN.md Task B) reads this.
+    await this.markConnectionSeen(connection.tenantId, connection.connectionId);
+
     if (
       envelope.Type === 'SubscriptionConfirmation' ||
       envelope.Type === 'UnsubscribeConfirmation'
@@ -113,6 +119,17 @@ export class ClockWebhookService {
     )
       return null;
     return candidate as SnsEnvelope;
+  }
+
+  private async markConnectionSeen(tenantId: string, connectionId: string): Promise<void> {
+    await this.database.withTenantTransaction({ tenantId }, (tx) =>
+      tx.$executeRawUnsafe(
+        `UPDATE integration_connections SET last_webhook_received_at = CURRENT_TIMESTAMP
+         WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+        tenantId,
+        connectionId,
+      ),
+    );
   }
 
   private async findConnection(webhookPublicId: string): Promise<ConnectionLookup | null> {

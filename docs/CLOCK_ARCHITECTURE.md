@@ -85,7 +85,9 @@ Per-API-user (not global), in-memory (not distributed — a second API instance 
 
 ## Queue infrastructure
 
-`ClockQueueService` owns 6 named BullMQ queues (`clock.critical.commands`, `clock.webhooks`, `clock.booking.sync`, `clock.catalog.sync`, `clock.financial.sync`, `clock.reconciliation`) plus `clock.dead-letter`, backed by a shared `ioredis` connection. `ClockWorkerService` starts one real `Worker` per named queue; a job that exhausts its configured `attempts` is copied onto the dead-letter queue by the worker's `failed` handler. **Processors are skeleton-only** (log receipt) — no queue in this milestone has real business logic wired to it yet. `clock.webhooks` receives real jobs from the webhook gateway (Task 11) but the processor doesn't do anything with them beyond logging (see `CLOCK_WEBHOOK_FLOW.md`).
+`ClockQueueService` owns 6 named BullMQ queues (`clock.critical.commands`, `clock.webhooks`, `clock.booking.sync`, `clock.catalog.sync`, `clock.financial.sync`, `clock.reconciliation`) plus `clock.dead-letter`, backed by a shared `ioredis` connection. `ClockWorkerService` starts one real `Worker` per named queue; a job that exhausts its configured `attempts` is copied onto the dead-letter queue by the worker's `failed` handler.
+
+Two consumers have real business logic: `clock.webhooks` hydrates supported booking events (see `CLOCK_WEBHOOK_FLOW.md`), and `clock.reconciliation` runs daily at 03:00 UTC. On application startup, the worker idempotently upserts BullMQ's `daily-clock-booking-reconciliation` Job Scheduler. Each run discovers enabled Clock PMS properties through tenant-scoped reads, enqueues one idempotent `reconcile-property` job per property, and checks the preceding 31-day rolling window with `ClockBookingConsistencyService`. That service remains the single owner of reconciliation audit records and mismatch alerting. The remaining queue processors log receipt only.
 
 ## Security posture actually built
 

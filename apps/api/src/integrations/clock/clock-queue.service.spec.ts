@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { Queue } from 'bullmq';
 import IORedis from 'ioredis';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { TenantDatabaseService } from '../../tenancy/tenant-database.service';
 import { CLOCK_DEAD_LETTER_QUEUE_NAME, CLOCK_QUEUE_PRIORITY } from './clock-queue-names';
 import type { ClockBookingHydrationService } from './clock-booking-hydration.service';
+import type { ClockFolioHydrationService } from './clock-folio-hydration.service';
+import type { ClockBookingConsistencyService } from './clock-booking-consistency.service';
 import { ClockQueueService } from './clock-queue.service';
 import { ClockWorkerService } from './clock-worker.service';
 
@@ -28,11 +30,16 @@ describe('ClockQueueService + ClockWorkerService (real Redis)', () => {
     queues,
     {} as TenantDatabaseService,
     {} as ClockBookingHydrationService,
+    {} as ClockFolioHydrationService,
+    { activeClockPmsProperties: async () => [] } as never,
+    {} as ClockBookingConsistencyService,
   );
   const inspectionConnection = new IORedis(process.env.REDIS_URL!, { maxRetriesPerRequest: null });
 
-  queues.onModuleInit();
-  workers.onModuleInit();
+  beforeAll(async () => {
+    queues.onModuleInit();
+    await workers.onModuleInit();
+  });
 
   afterAll(async () => {
     await workers.onModuleDestroy();
@@ -47,6 +54,17 @@ describe('ClockQueueService + ClockWorkerService (real Redis)', () => {
     const inspection = new Queue('clock.critical.commands', { connection: inspectionConnection });
     const job = await inspection.getJob(jobId);
     expect(job?.opts.priority).toBe(CLOCK_QUEUE_PRIORITY['clock.critical.commands']);
+  });
+
+  it('registers the daily reconciliation scheduler in real Redis', async () => {
+    const inspection = new Queue('clock.reconciliation', { connection: inspectionConnection });
+    const scheduler = await inspection.getJobScheduler('daily-clock-booking-reconciliation');
+    expect(scheduler).toMatchObject({
+      id: 'daily-clock-booking-reconciliation',
+      name: 'schedule-reconciliation',
+      pattern: '0 3 * * *',
+      tz: 'UTC',
+    });
   });
 
   it('a real worker picks up and processes an enqueued job (skeleton logging only)', async () => {

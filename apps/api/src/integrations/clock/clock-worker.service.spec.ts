@@ -14,9 +14,26 @@ function makeWorker(providerEventsRow: unknown) {
   const hydration = {
     hydrateBooking: vi.fn().mockResolvedValue({ outcome: 'created', bookingId: 'b1' }),
   };
-  const queues = {};
-  const worker = new ClockWorkerService(queues as never, database as never, hydration as never);
-  return { worker, database, hydration };
+  const folioHydration = {
+    hydrateFolio: vi.fn().mockResolvedValue({ outcome: 'applied', bookingId: 'b1' }),
+  };
+  const queues = { enqueue: vi.fn().mockResolvedValue(undefined) };
+  const connections = {
+    activeClockPmsProperties: vi.fn().mockResolvedValue([
+      { tenantId: 'tenant-1', propertyId: 'property-1' },
+      { tenantId: 'tenant-2', propertyId: 'property-2' },
+    ]),
+  };
+  const consistency = { check: vi.fn().mockResolvedValue({ findings: [] }) };
+  const worker = new ClockWorkerService(
+    queues as never,
+    database as never,
+    hydration as never,
+    folioHydration as never,
+    connections as never,
+    consistency as never,
+  );
+  return { worker, database, hydration, folioHydration, queues, connections, consistency };
 }
 
 const jobData = {
@@ -42,11 +59,33 @@ describe('ClockWorkerService dispatch — clock.webhooks/hydrate-event', () => {
     },
   );
 
-  it('does not call hydrateBooking for an event type not yet applied (e.g. folio_update)', async () => {
-    const { worker, hydration } = makeWorker({ eventType: 'folio_update', objectId: '76076600' });
+  it.each(['folio_update', 'folio_close'])(
+    'calls hydrateFolio for a real %s event (Task C, docs/CLOCK_CERTIFICATION_GAPS_PLAN.md)',
+    async (eventType) => {
+      const { worker, hydration, folioHydration } = makeWorker({
+        eventType,
+        objectId: '76076600',
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (worker as any).process('clock.webhooks', fakeJob('j2', 'hydrate-event', jobData));
+      expect(folioHydration.hydrateFolio).toHaveBeenCalledWith(
+        jobData.tenantId,
+        jobData.propertyId,
+        '76076600',
+      );
+      expect(hydration.hydrateBooking).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not call hydrateBooking or hydrateFolio for an event type not yet applied', async () => {
+    const { worker, hydration, folioHydration } = makeWorker({
+      eventType: 'booking_task_update',
+      objectId: '31482380',
+    });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (worker as any).process('clock.webhooks', fakeJob('j2', 'hydrate-event', jobData));
+    await (worker as any).process('clock.webhooks', fakeJob('j2b', 'hydrate-event', jobData));
     expect(hydration.hydrateBooking).not.toHaveBeenCalled();
+    expect(folioHydration.hydrateFolio).not.toHaveBeenCalled();
   });
 
   it('does not throw and does not call hydrateBooking when no provider_events row is found', async () => {
@@ -74,5 +113,70 @@ describe('ClockWorkerService dispatch — clock.webhooks/hydrate-event', () => {
       fakeJob('j5', 'full-sync', { anything: true }),
     );
     expect(hydration.hydrateBooking).not.toHaveBeenCalled();
+  });
+});
+
+describe('ClockWorkerService dispatch — clock.reconciliation', () => {
+  it('fans a scheduled run out to every active Clock property over a 31-day rolling window', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-03T12:00:00.000Z'));
+    try {
+      const { worker, connections, queues } = makeWorker(undefined);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (worker as any).process(
+        'clock.reconciliation',
+        fakeJob('reconcile-schedule', 'schedule-reconciliation', {}),
+      );
+
+      expect(connections.activeClockPmsProperties).toHaveBeenCalledOnce();
+      expect(queues.enqueue).toHaveBeenCalledTimes(2);
+      expect(queues.enqueue).toHaveBeenNthCalledWith(
+        1,
+        'clock.reconciliation',
+        'reconcile-property',
+        {
+          tenantId: 'tenant-1',
+          propertyId: 'property-1',
+          startsOn: '2026-08-04',
+          endsOn: '2026-09-04',
+        },
+        { jobId: 'clock-reconciliation-tenant-1-property-1-2026-08-04' },
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('runs the existing consistency checker without duplicating its alerting', async () => {
+    const { worker, consistency } = makeWorker(undefined);
+    const data = {
+      tenantId: 'tenant-1',
+      propertyId: 'property-1',
+      startsOn: '2026-08-04',
+      endsOn: '2026-09-04',
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (worker as any).process(
+      'clock.reconciliation',
+      fakeJob('reconcile-property', 'reconcile-property', data),
+    );
+
+    expect(consistency.check).toHaveBeenCalledWith('tenant-1', 'property-1', {
+      startsOn: '2026-08-04',
+      endsOn: '2026-09-04',
+    });
+  });
+
+  it('rejects malformed reconciliation jobs', async () => {
+    const { worker } = makeWorker(undefined);
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (worker as any).process(
+        'clock.reconciliation',
+        fakeJob('malformed-reconcile-property', 'reconcile-property', { tenantId: 'tenant-1' }),
+      ),
+    ).rejects.toThrow(/malformed data/);
   });
 });
