@@ -75,6 +75,7 @@ Report:
 Claude has SSH access to the homelab at `dejvis@homelab` via keypair (`~/.ssh/homelab_claude`). This enables direct operational tasks without being blocked by local filesystem limits or webhook delays.
 
 **Unprompted (no need to ask per-action):**
+
 - Run `deploy.sh` to pull, rebuild, migrate, and restart the stack.
 - Check container status: `docker compose ps`, logs: `docker compose logs -f <service>`.
 - Tail or inspect `.env` config, restart individual services.
@@ -83,6 +84,7 @@ Claude has SSH access to the homelab at `dejvis@homelab` via keypair (`~/.ssh/ho
 - Pull logs from the deploy-webhook container for debugging CI/deploy issues.
 
 **Ask first (flag to user, don't execute):**
+
 - Deletion/downgrade of services, volumes, or databases (backups, rollback plan required).
 - Rotating secrets or changing `.env` values that affect live services (e.g. `INTEGRATION_CREDENTIALS_KEY`, provider API keys).
 - Changing firewall, DNS, proxy, or TLS configuration.
