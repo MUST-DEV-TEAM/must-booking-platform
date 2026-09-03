@@ -33,6 +33,11 @@ export interface PropertyConnectionAssignment {
   enabled: boolean;
 }
 
+export interface ActiveClockPmsProperty {
+  tenantId: string;
+  propertyId: string;
+}
+
 const SUMMARY_COLUMNS = `id, kind, provider, name, status,
   last_tested_at AS "lastTestedAt", last_test_result AS "lastTestResult",
   webhook_public_id AS "webhookPublicId", created_at AS "createdAt"`;
@@ -200,6 +205,41 @@ export class IntegrationConnectionsService {
         credentials: this.cipher.decrypt(rows[0].encryptedCredentials),
       };
     });
+  }
+
+  /**
+   * Internal-only: all properties with an enabled Clock PMS connection.
+   *
+   * The first read uses the existing platform-admin read-only organization
+   * carve-out solely to enumerate tenant IDs. Each connection lookup then
+   * runs in that tenant's normal RLS context, so this background scheduler
+   * never needs a cross-tenant integration-connection policy or bypass.
+   */
+  async activeClockPmsProperties(): Promise<ActiveClockPmsProperty[]> {
+    const tenants = await this.database.withPlatformAdminTransaction(
+      { role: 'platform_admin' },
+      (tx) => tx.$queryRaw<Array<{ tenantId: string }>>`SELECT id AS "tenantId" FROM organizations`,
+    );
+    const byTenant = await Promise.all(
+      tenants.map(({ tenantId }) =>
+        this.database.withTenantTransaction({ tenantId }, (tx) =>
+          tx.$queryRawUnsafe<Array<{ propertyId: string }>>(
+            `SELECT pic.property_id AS "propertyId"
+             FROM integration_connections c
+             JOIN property_integration_connections pic
+               ON pic.tenant_id = c.tenant_id AND pic.connection_id = c.id
+             WHERE c.tenant_id = $1::uuid
+               AND c.kind = 'PMS' AND c.provider = 'CLOCK_PMS'
+               AND pic.enabled = true
+             ORDER BY pic.property_id`,
+            tenantId,
+          ),
+        ),
+      ),
+    );
+    return byTenant.flatMap((properties, index) =>
+      properties.map(({ propertyId }) => ({ tenantId: tenants[index]!.tenantId, propertyId })),
+    );
   }
 
   /**

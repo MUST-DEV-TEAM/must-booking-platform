@@ -14,9 +14,22 @@ function makeWorker(providerEventsRow: unknown) {
   const hydration = {
     hydrateBooking: vi.fn().mockResolvedValue({ outcome: 'created', bookingId: 'b1' }),
   };
-  const queues = {};
-  const worker = new ClockWorkerService(queues as never, database as never, hydration as never);
-  return { worker, database, hydration };
+  const queues = { enqueue: vi.fn().mockResolvedValue(undefined) };
+  const connections = {
+    activeClockPmsProperties: vi.fn().mockResolvedValue([
+      { tenantId: 'tenant-1', propertyId: 'property-1' },
+      { tenantId: 'tenant-2', propertyId: 'property-2' },
+    ]),
+  };
+  const consistency = { check: vi.fn().mockResolvedValue({ findings: [] }) };
+  const worker = new ClockWorkerService(
+    queues as never,
+    database as never,
+    hydration as never,
+    connections as never,
+    consistency as never,
+  );
+  return { worker, database, hydration, queues, connections, consistency };
 }
 
 const jobData = {
@@ -74,5 +87,70 @@ describe('ClockWorkerService dispatch — clock.webhooks/hydrate-event', () => {
       fakeJob('j5', 'full-sync', { anything: true }),
     );
     expect(hydration.hydrateBooking).not.toHaveBeenCalled();
+  });
+});
+
+describe('ClockWorkerService dispatch — clock.reconciliation', () => {
+  it('fans a scheduled run out to every active Clock property over a 31-day rolling window', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-03T12:00:00.000Z'));
+    try {
+      const { worker, connections, queues } = makeWorker(undefined);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (worker as any).process(
+        'clock.reconciliation',
+        fakeJob('reconcile-schedule', 'schedule-reconciliation', {}),
+      );
+
+      expect(connections.activeClockPmsProperties).toHaveBeenCalledOnce();
+      expect(queues.enqueue).toHaveBeenCalledTimes(2);
+      expect(queues.enqueue).toHaveBeenNthCalledWith(
+        1,
+        'clock.reconciliation',
+        'reconcile-property',
+        {
+          tenantId: 'tenant-1',
+          propertyId: 'property-1',
+          startsOn: '2026-08-04',
+          endsOn: '2026-09-04',
+        },
+        { jobId: 'clock-reconciliation-tenant-1-property-1-2026-08-04' },
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('runs the existing consistency checker without duplicating its alerting', async () => {
+    const { worker, consistency } = makeWorker(undefined);
+    const data = {
+      tenantId: 'tenant-1',
+      propertyId: 'property-1',
+      startsOn: '2026-08-04',
+      endsOn: '2026-09-04',
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (worker as any).process(
+      'clock.reconciliation',
+      fakeJob('reconcile-property', 'reconcile-property', data),
+    );
+
+    expect(consistency.check).toHaveBeenCalledWith('tenant-1', 'property-1', {
+      startsOn: '2026-08-04',
+      endsOn: '2026-09-04',
+    });
+  });
+
+  it('rejects malformed reconciliation jobs', async () => {
+    const { worker } = makeWorker(undefined);
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (worker as any).process(
+        'clock.reconciliation',
+        fakeJob('malformed-reconcile-property', 'reconcile-property', { tenantId: 'tenant-1' }),
+      ),
+    ).rejects.toThrow(/malformed data/);
   });
 });
