@@ -252,6 +252,56 @@ describe('Clock booking hydration', () => {
     expect(rows[0]!.guestId).not.toBeNull();
   });
 
+  it('fills a blank guest field from Clock but never overwrites one that already has a value — real 2026-09-03 finding', async () => {
+    const email = `hydration-fillblanks-${randomUUID()}@example.test`;
+    const hydration = app!.get(ClockBookingHydrationService);
+
+    // First hydration: Clock only has a first name for this guest.
+    queuedResponses = [
+      {
+        status: 200,
+        body: realBookingDetail({
+          id: 38144006,
+          number: '366',
+          guest_e_mail: email,
+          guest_first_name: 'RealFirstName',
+          guest_last_name: '',
+          guest_phone_number: '',
+        }),
+      },
+    ];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144006');
+
+    // A later booking for the same guest arrives with a *different* first
+    // name (e.g. stale/placeholder text left in an unrelated old booking)
+    // plus a last name and phone Clock has now, that weren't there before.
+    queuedResponses = [
+      {
+        status: 200,
+        body: realBookingDetail({
+          id: 38144007,
+          number: '367',
+          guest_e_mail: email,
+          guest_first_name: 'StalePlaceholderName',
+          guest_last_name: 'RealLastName',
+          guest_phone_number: '+355000000',
+        }),
+      },
+    ];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144007');
+
+    const rows = await admin.$queryRaw<
+      Array<{ firstName: string | null; lastName: string | null; phone: string | null }>
+    >`
+      SELECT first_name AS "firstName", last_name AS "lastName", phone
+      FROM guests WHERE tenant_id = ${tenantId}::uuid AND lower(email) = ${email}
+    `;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.firstName).toBe('RealFirstName'); // not overwritten
+    expect(rows[0]!.lastName).toBe('RealLastName'); // was blank, now filled
+    expect(rows[0]!.phone).toBe('+355000000'); // was blank, now filled
+  });
+
   it('raises a MISSING_MAPPING review item and creates no booking when the room type is unmapped', async () => {
     queuedResponses = [
       {

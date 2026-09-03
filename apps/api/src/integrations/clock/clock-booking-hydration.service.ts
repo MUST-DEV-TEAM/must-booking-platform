@@ -262,10 +262,20 @@ export class ClockBookingHydrationService {
   }
 
   /** Same find-then-insert-with-race-fallback pattern as
-   * ClockBookingService.resolveGuest / MultiRoomBookingService, reused
-   * verbatim. Returns null (never a fabricated email) when Clock hasn't
-   * captured a guest email yet — real, observed 2026-09-03: a freshly
-   * created demo booking's guest_e_mail was an empty string. */
+   * ClockBookingService.resolveGuest / MultiRoomBookingService for matching/
+   * creating by email. Returns null (never a fabricated email) when Clock
+   * hasn't captured a guest email yet — real, observed 2026-09-03: a freshly
+   * created demo booking's guest_e_mail was an empty string.
+   *
+   * Fill-blanks-only for an existing match (owner decision, 2026-09-03): a
+   * matched guest's name/phone is only filled in where currently blank,
+   * never overwritten. Real-world proof this matters, same day: a guest's
+   * actual name would otherwise have been silently replaced by stale
+   * placeholder text ("QA Task8RefundTrial") left in an unrelated old Clock
+   * booking that happened to share the same email — booking data stays
+   * fully Clock-owned, but guest identity fields don't, since the same
+   * guest can also have self-entered, more trustworthy data from a MUST
+   * checkout. */
   private async resolveGuest(
     tx: TenantTransaction,
     tenantId: string,
@@ -273,13 +283,28 @@ export class ClockBookingHydrationService {
   ): Promise<string | null> {
     const email = detail.guest_e_mail?.trim().toLowerCase();
     if (!email) return null;
+    const firstName = detail.guest_first_name?.trim() || null;
+    const lastName = detail.guest_last_name?.trim() || null;
+    const phone = detail.guest_phone_number?.trim() || null;
 
     const existing = await tx.$queryRawUnsafe<Array<{ id: string }>>(
       `SELECT id FROM guests WHERE tenant_id = $1::uuid AND lower(email) = $2`,
       tenantId,
       email,
     );
-    if (existing[0]) return existing[0].id;
+    if (existing[0]) {
+      await tx.$executeRawUnsafe(
+        `UPDATE guests SET first_name = COALESCE(first_name, $3), last_name = COALESCE(last_name, $4),
+           phone = COALESCE(phone, $5), updated_at = CURRENT_TIMESTAMP
+         WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+        tenantId,
+        existing[0].id,
+        firstName,
+        lastName,
+        phone,
+      );
+      return existing[0].id;
+    }
 
     const inserted = await tx.$queryRawUnsafe<Array<{ id: string }>>(
       `INSERT INTO guests (tenant_id, email, first_name, last_name, phone)
@@ -288,9 +313,9 @@ export class ClockBookingHydrationService {
        RETURNING id`,
       tenantId,
       email,
-      detail.guest_first_name ?? null,
-      detail.guest_last_name ?? null,
-      detail.guest_phone_number ?? null,
+      firstName,
+      lastName,
+      phone,
     );
     if (inserted[0]) return inserted[0].id;
 
