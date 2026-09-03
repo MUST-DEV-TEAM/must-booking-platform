@@ -33,6 +33,11 @@ export type Reservation = {
   paidAmount: string;
   refundedAmount: string;
   externalReference: string;
+  // Visibility only — whichever Clock folio most recently sent an update
+  // for this booking. Not necessarily the payment/deposit folio specifically.
+  clockFolioId: string | null;
+  clockFolioBalance: string | null;
+  clockFolioClosedAt: string | null;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -388,6 +393,18 @@ function ReservationDetails({
             <dt>Reference</dt>
             <dd>{booking.externalReference}</dd>
           </div>
+          {booking.clockFolioId ? (
+            <div>
+              <dt>Clock folio</dt>
+              <dd>
+                {formatMoney({
+                  amount: booking.clockFolioBalance ?? '0',
+                  currency: booking.total.currency,
+                })}{' '}
+                balance · {booking.clockFolioClosedAt ? 'Closed' : 'Open'}
+              </dd>
+            </div>
+          ) : null}
           {booking.specialRequests ? (
             <div className={styles.specialRequests}>
               <dt>Special requests</dt>

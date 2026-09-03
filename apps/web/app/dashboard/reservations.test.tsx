@@ -64,6 +64,15 @@ const bookings: Reservation[] = [
   },
 ];
 
+const bookingWithFolio: Reservation = {
+  ...bookings[0]!,
+  id: 'booking-clock',
+  externalReference: 'MUST-CLOCK',
+  clockFolioId: '76090570',
+  clockFolioBalance: '450.00',
+  clockFolioClosedAt: null,
+};
+
 describe('Dashboard reservations', () => {
   it('renders booking guest, room, rate, status, and payment data from the bookings projection', () => {
     const markup = renderToStaticMarkup(
@@ -144,6 +153,45 @@ describe('Dashboard reservations', () => {
     )!;
     await act(async () => closeButton.click());
     expect(container.querySelector('[aria-label="Reservation details"]')).toBeNull();
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it('shows the Clock folio balance/status when present, and omits the row entirely when absent', async () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(DashboardReservations, {
+            tenantId: 'tenant-1',
+            propertyId: 'property-1',
+            initialBookings: [bookingWithFolio, bookings[1]!],
+          }),
+        ),
+      );
+    });
+
+    const detailButtons = Array.from(container.querySelectorAll('button')).filter(
+      (button) => button.textContent === 'View details',
+    );
+
+    await act(async () => detailButtons[0]!.click());
+    expect(container.querySelector('[aria-label="Reservation details"]')?.textContent).toContain(
+      'Clock folio',
+    );
+    expect(container.textContent).toContain('€450.00');
+    expect(container.textContent).toContain('Open');
+
+    await act(async () => detailButtons[1]!.click());
+    expect(
+      container.querySelector('[aria-label="Reservation details"]')?.textContent,
+    ).not.toContain('Clock folio');
+
     await act(async () => root.unmount());
     container.remove();
   });

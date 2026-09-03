@@ -29,6 +29,13 @@ export type BookingProjection = {
   paidAmount: string;
   refundedAmount: string;
   externalReference: string;
+  // Visibility only (Clock certification gap Task C) — whichever Clock
+  // folio most recently sent an update for this booking. Not necessarily
+  // the "payment" folio specifically (Clock keeps a separate deposit folio
+  // for that); don't read this as a payment reconciliation signal.
+  clockFolioId: string | null;
+  clockFolioBalance: string | null;
+  clockFolioClosedAt: Date | null;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -62,6 +69,8 @@ export class BookingProjectionService {
           b.total_amount::text AS "totalAmount", rp.currency, b.external_reference AS "externalReference",
           COALESCE(payment_totals."paidAmount", 0)::text AS "paidAmount",
           COALESCE(payment_totals."refundedAmount", 0)::text AS "refundedAmount",
+          b.clock_folio_id AS "clockFolioId", b.clock_folio_balance::text AS "clockFolioBalance",
+          b.clock_folio_closed_at AS "clockFolioClosedAt",
           b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
         FROM bookings b
         JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
