@@ -166,7 +166,7 @@ describe('Clock payment reconciliation (read-only)', () => {
   async function manualReviewItemsFor(bookingId: string) {
     return admin.$queryRaw<Array<{ category: string; message: string }>>`
       SELECT category, message FROM manual_review_items
-      WHERE tenant_id = ${tenantId}::uuid AND reference_type = 'booking' AND reference_id = ${bookingId}::uuid
+      WHERE tenant_id = ${tenantId}::uuid AND reference_type = 'booking' AND reference_id = ${bookingId}
     `;
   }
 
@@ -175,7 +175,7 @@ describe('Clock payment reconciliation (read-only)', () => {
   // check() would also re-process an earlier test's booking against a stub
   // queue that only has responses for the one booking it's testing.
   async function deleteBooking(bookingId: string): Promise<void> {
-    await admin.$executeRaw`DELETE FROM manual_review_items WHERE tenant_id = ${tenantId}::uuid AND reference_id = ${bookingId}::uuid`;
+    await admin.$executeRaw`DELETE FROM manual_review_items WHERE tenant_id = ${tenantId}::uuid AND reference_id = ${bookingId}`;
     await admin.$executeRaw`DELETE FROM payments WHERE tenant_id = ${tenantId}::uuid AND booking_id = ${bookingId}::uuid`;
     await admin.$executeRaw`DELETE FROM bookings WHERE tenant_id = ${tenantId}::uuid AND id = ${bookingId}::uuid`;
   }
