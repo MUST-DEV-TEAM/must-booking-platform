@@ -59,8 +59,12 @@ describe('ClockQueueService + ClockWorkerService (real Redis)', () => {
   it('registers the daily reconciliation scheduler in real Redis', async () => {
     const inspection = new Queue('clock.reconciliation', { connection: inspectionConnection });
     const scheduler = await inspection.getJobScheduler('daily-clock-booking-reconciliation');
+    // BullMQ's real JobSchedulerJson shape (confirmed against the installed
+    // bullmq@6 typings, not assumed): the scheduler's own identifier comes
+    // back as `key`, not `id` — `id` is a separate, unrelated optional field
+    // (a per-job id template) that upsertJobScheduler was never given one of.
     expect(scheduler).toMatchObject({
-      id: 'daily-clock-booking-reconciliation',
+      key: 'daily-clock-booking-reconciliation',
       name: 'schedule-reconciliation',
       pattern: '0 3 * * *',
       tz: 'UTC',

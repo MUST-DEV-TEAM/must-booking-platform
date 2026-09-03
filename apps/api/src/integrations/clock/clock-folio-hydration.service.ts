@@ -98,7 +98,7 @@ export class ClockFolioHydrationService {
       const closedAt = detail.closed_at ?? null;
 
       const updated = await tx.$executeRawUnsafe(
-        `UPDATE bookings SET clock_folio_id = $3, clock_folio_balance = $4::decimal, clock_folio_closed_at = $5,
+        `UPDATE bookings SET clock_folio_id = $3, clock_folio_balance = $4::decimal, clock_folio_closed_at = $5::timestamptz,
            updated_at = CURRENT_TIMESTAMP
          WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND external_booking_id = $6`,
         tenantId,
