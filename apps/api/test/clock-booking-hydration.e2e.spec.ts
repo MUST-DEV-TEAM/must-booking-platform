@@ -187,7 +187,7 @@ describe('Clock booking hydration', () => {
       }>
     >`
       SELECT status, external_reference AS "externalReference", external_booking_id AS "externalBookingId",
-        starts_on AS "startsOn", ends_on AS "endsOn", total_amount AS "totalAmount", guest_count AS "guestCount",
+        starts_on AS "startsOn", ends_on AS "endsOn", total_amount::text AS "totalAmount", guest_count AS "guestCount",
         payment_method AS "paymentMethod", guest_id AS "guestId", rate_plan_id AS "ratePlanId"
       FROM bookings WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
         AND external_booking_id = '38144004'

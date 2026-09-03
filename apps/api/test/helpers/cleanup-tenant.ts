@@ -15,6 +15,7 @@ export async function cleanupTenant(
   tenantId: string,
 ): Promise<void> {
   await admin.$executeRaw`DELETE FROM provider_events WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM manual_review_items WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM clock_catalog_mappings WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM property_integration_connections WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM integration_connections WHERE tenant_id = ${tenantId}::uuid`;
