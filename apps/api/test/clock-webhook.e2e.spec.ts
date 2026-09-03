@@ -15,9 +15,12 @@ import { buildCanonicalString } from '../src/integrations/clock/clock-webhook-si
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 
-// Real AWS SNS traffic can't be exercised here (no live Message Channels
-// subscription exists for this account — see docs/CLOCK_ENDPOINT_MATRIX.md).
-// Everything except the literal "fetch cert bytes from AWS" step is real:
+// A live Message Channels subscription now exists for this account (activated
+// 2026-09-03, see docs/CLOCK_RUNBOOK.md) and real event shapes were captured
+// from it — see the 'parses a real Clock event shape' test below. Real AWS
+// SNS traffic still isn't exercised directly *in this suite* (that needs a
+// live subscription and a public URL, neither available in CI); everything
+// except the literal "fetch cert bytes from AWS" step is real:
 // real HTTP routing, real RLS-carve-out lookup by webhookPublicId, real
 // RSA signature verification against a real generated key pair, real
 // dedup via the unique (connection_id, event_id) constraint, and a real
@@ -188,6 +191,25 @@ describe('Clock webhook gateway', () => {
     const counts = await queue.getJobCounts();
     expect(counts.waiting + counts.active + counts.completed).toBeGreaterThan(0);
     redis.disconnect();
+  });
+
+  it('parses a real Clock event shape (Subject carries the type, Message is a single-key id) — captured 2026-09-03 against Empire Beach Resort', async () => {
+    const envelope = signedNotification({
+      Subject: 'booking_new',
+      Message: JSON.stringify({ booking_id: 38144004 }),
+    });
+
+    await request(app!.getHttpServer())
+      .post(`/clock-webhooks/${webhookPublicId}`)
+      .send(envelope)
+      .expect(200);
+
+    const stored = await admin.$queryRaw<Array<{ eventType: string; objectId: string }>>`
+      SELECT event_type AS "eventType", object_id AS "objectId" FROM provider_events
+      WHERE connection_id = ${connectionId}::uuid AND event_id = ${envelope.MessageId}
+    `;
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toEqual({ eventType: 'booking_new', objectId: '38144004' });
   });
 
   it('is idempotent — replaying the same MessageId does not create a second event', async () => {

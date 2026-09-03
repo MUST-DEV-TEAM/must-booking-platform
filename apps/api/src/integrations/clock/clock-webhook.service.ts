@@ -193,10 +193,16 @@ export class ClockWebhookService {
     );
   }
 
-  /** Clock's own event payload (inside SNS's Message field) is expected to carry a `type`
-   * once real payload shapes are confirmed against a live subscription (Task 14/16) — until
-   * then this falls back to the SNS envelope's own Type so nothing is silently unlabeled. */
+  /** CONFIRMED_IN_SANDBOX 2026-09-03 against a real Empire Beach Resort Message
+   * Channels subscription: Clock puts the event name in SNS's own `Subject`
+   * field (e.g. `booking_new`, `booking_guests_update`, `folio_update`), not
+   * inside `Message`. `Subject` is only present on real `Notification`
+   * envelopes (never on SubscriptionConfirmation), so this can't misfire on
+   * the confirmation path. Falls back to the old type-in-Message guess, then
+   * the bare envelope Type, for anything that doesn't match — nothing is
+   * silently unlabeled. */
   private eventTypeOf(envelope: SnsEnvelope): string {
+    if (envelope.Subject) return envelope.Subject;
     try {
       const parsed = JSON.parse(envelope.Message) as { type?: unknown };
       if (typeof parsed.type === 'string') return parsed.type;
@@ -206,9 +212,17 @@ export class ClockWebhookService {
     return envelope.Type;
   }
 
+  /** CONFIRMED_IN_SANDBOX 2026-09-03: `Message` is a single-key JSON object
+   * whose key names the resource (`{"booking_id": 38144004}`,
+   * `{"folio_id": 76073379}` — real captured examples, not every resource
+   * key is known yet). Rather than hardcode every `<resource>_id` key name,
+   * take the lone value when exactly one key is present. Falls back to the
+   * old `id`/`object_id` guess for anything shaped differently. */
   private objectIdOf(envelope: SnsEnvelope): string | null {
     try {
-      const parsed = JSON.parse(envelope.Message) as { id?: unknown; object_id?: unknown };
+      const parsed = JSON.parse(envelope.Message) as Record<string, unknown>;
+      const values = Object.values(parsed).filter((value) => value !== undefined && value !== null);
+      if (values.length === 1) return String(values[0]);
       const id = parsed.id ?? parsed.object_id;
       return id === undefined || id === null ? null : String(id);
     } catch {
