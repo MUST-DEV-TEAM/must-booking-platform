@@ -13,7 +13,10 @@ export type Reservation = {
   guestId: string;
   guestFirstName: string | null;
   guestLastName: string | null;
-  guestEmail: string;
+  // Real, matches the API (2026-09-04, fixing the same-day dashboard-list
+  // gap): a Clock-hydrated booking with no captured guest email genuinely
+  // has no guest at all — never a fabricated placeholder string.
+  guestEmail: string | null;
   guestPhone: string | null;
   guestStreetAddress: string | null;
   guestAddressLine2: string | null;
@@ -285,7 +288,10 @@ export function filterReservations(
   return bookings.filter((booking) => {
     const matchesSearch =
       !search ||
-      [guestName(booking), booking.guestEmail, booking.guestPhone ?? ''].some((value) =>
+      // guestEmail is genuinely null for a Clock-hydrated booking with no
+      // captured guest (real, previously unreachable here — these bookings
+      // were silently hidden from this list entirely until 2026-09-04's fix).
+      [guestName(booking), booking.guestEmail ?? '', booking.guestPhone ?? ''].some((value) =>
         value.toLocaleLowerCase().includes(search),
       );
     const matchesStatus = !filters.status || booking.status === filters.status;
@@ -361,7 +367,7 @@ function ReservationDetails({
           <div>
             <dt>Guest</dt>
             <dd>
-              {booking.guestEmail}
+              {booking.guestEmail ?? 'No guest on file'}
               {booking.guestPhone ? ` · ${booking.guestPhone}` : ''}
             </dd>
           </div>
@@ -431,7 +437,9 @@ function ReservationDetails({
 
 function guestName(booking: Pick<Reservation, 'guestFirstName' | 'guestLastName' | 'guestEmail'>) {
   return (
-    [booking.guestFirstName, booking.guestLastName].filter(Boolean).join(' ') || booking.guestEmail
+    [booking.guestFirstName, booking.guestLastName].filter(Boolean).join(' ') ||
+    booking.guestEmail ||
+    'No guest on file'
   );
 }
 

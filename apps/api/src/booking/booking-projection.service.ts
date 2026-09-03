@@ -5,10 +5,10 @@ import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 
 export type BookingProjection = {
   id: string;
-  guestId: string;
+  guestId: string | null;
   guestFirstName: string | null;
   guestLastName: string | null;
-  guestEmail: string;
+  guestEmail: string | null;
   guestPhone: string | null;
   guestStreetAddress: string | null;
   guestAddressLine2: string | null;
@@ -73,7 +73,7 @@ export class BookingProjectionService {
           b.clock_folio_closed_at AS "clockFolioClosedAt",
           b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
         FROM bookings b
-        JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
+        LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
         JOIN room_types rt
           ON rt.tenant_id = b.tenant_id AND rt.property_id = b.property_id AND rt.id = b.room_type_id
         JOIN rate_plans rp

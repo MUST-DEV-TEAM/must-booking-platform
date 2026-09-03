@@ -73,6 +73,21 @@ const bookingWithFolio: Reservation = {
   clockFolioClosedAt: null,
 };
 
+// Real, previously unreachable case (2026-09-04 fix): a Clock-hydrated
+// booking with no captured guest at all now genuinely appears in this list
+// (was silently hidden by an inner join before) — no name, no email, no
+// phone.
+const bookingWithNoGuest: Reservation = {
+  ...bookings[0]!,
+  id: 'booking-no-guest',
+  externalReference: 'MUST-NOGUEST',
+  guestId: null,
+  guestFirstName: null,
+  guestLastName: null,
+  guestEmail: null,
+  guestPhone: null,
+};
+
 describe('Dashboard reservations', () => {
   it('renders booking guest, room, rate, status, and payment data from the bookings projection', () => {
     const markup = renderToStaticMarkup(
@@ -119,6 +134,49 @@ describe('Dashboard reservations', () => {
         to: '2026-08-19',
       }),
     ).toEqual([]);
+  });
+
+  it('does not throw when searching a list that includes a booking with no guest at all', () => {
+    const withNoGuest = [...bookings, bookingWithNoGuest];
+    expect(() =>
+      filterReservations(withNoGuest, { search: 'lovelace', status: '', from: '', to: '' }),
+    ).not.toThrow();
+    expect(
+      filterReservations(withNoGuest, { search: 'lovelace', status: '', from: '', to: '' }),
+    ).toEqual([bookings[0]]);
+  });
+
+  it('renders "No guest on file" instead of blank or crashing for a booking with no guest', async () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(DashboardReservations, {
+            tenantId: 'tenant-1',
+            propertyId: 'property-1',
+            initialBookings: [bookingWithNoGuest],
+          }),
+        ),
+      );
+    });
+    expect(container.textContent).toContain('No guest on file');
+
+    const searchInput = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Search guest"]',
+    )!;
+    await act(async () => {
+      searchInput.value = 'anything';
+      searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(container.textContent).not.toContain('undefined');
+
+    await act(async () => root.unmount());
+    container.remove();
   });
 
   it('opens and closes the client-side detail panel for the selected booking', async () => {
