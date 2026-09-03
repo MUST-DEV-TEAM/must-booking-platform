@@ -171,6 +171,7 @@ describe('Clock booking hydration', () => {
     const outcome = await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144004');
     expect(outcome.outcome).toBe('created');
     expect(outcome).toHaveProperty('bookingId');
+    if (outcome.outcome !== 'created') throw new Error('Expected a created Clock booking.');
 
     const rows = await admin.$queryRaw<
       Array<{
@@ -200,6 +201,24 @@ describe('Clock booking hydration', () => {
     expect(row.guestCount).toBe(2);
     expect(row.paymentMethod).toBe('PAY_AT_HOTEL');
     expect(row.guestId).toBeNull(); // real captured response had a blank guest email
+
+    await request(app!.getHttpServer())
+      .get(`/tenants/${tenantId}/properties/${propertyId}/bookings`)
+      .set('Cookie', cookie)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              id: outcome.bookingId,
+              guestId: null,
+              guestFirstName: null,
+              guestLastName: null,
+              guestEmail: null,
+            }),
+          ]),
+        );
+      });
 
     const shadowRatePlan = await admin.$queryRaw<
       Array<{ id: string; clockShadowRoomTypeId: string }>
