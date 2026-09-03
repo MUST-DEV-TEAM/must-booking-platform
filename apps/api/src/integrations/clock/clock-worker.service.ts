@@ -10,11 +10,22 @@ import { reportOperationalFailure } from '../../observability/error-tracking';
 
 // Event types this worker actually applies (source brief's Fetch/Normalize/
 // Apply steps) — see docs/CLOCK_WEBHOOK_FLOW.md for how this was confirmed
-// against real captured events 2026-09-03. Anything else (folio_update and
-// whatever else Clock sends) is acknowledged but not yet applied — logged,
-// not silently dropped, so a future task extending coverage has something to
-// grep for.
-const BOOKING_EVENT_TYPES = new Set(['booking_new', 'booking_guests_update']);
+// against real captured events 2026-09-03. All four share one handler
+// because ClockBookingHydrationService.hydrateBooking always re-fetches the
+// booking's current full state from Clock rather than diffing the event
+// itself — a cancellation, a date/room change, and a guest-count change are
+// all just "something about this booking changed, go re-read it," including
+// a booking_canceled correctly landing the local row as CANCELLED (the
+// fetched detail's own status drives that, same code path as any other
+// update). folio_update (and anything else Clock sends) is acknowledged but
+// not yet applied — logged, not silently dropped, so a future task adding
+// folio/payment sync has something to grep for.
+const BOOKING_EVENT_TYPES = new Set([
+  'booking_new',
+  'booking_guests_update',
+  'booking_update',
+  'booking_canceled',
+]);
 
 interface HydrateEventJobData {
   tenantId: string;
