@@ -171,20 +171,21 @@ describe('Clock folio hydration (visibility only)', () => {
 
     const rows = await admin.$queryRaw<
       Array<{
-        clockFolioId: string | null;
-        clockFolioBalance: string | null;
-        clockFolioClosedAt: Date | null;
+        clockFolioId: string;
+        isDeposit: boolean;
+        balance: string | null;
+        closedAt: Date | null;
       }>
     >`
-      SELECT clock_folio_id AS "clockFolioId", clock_folio_balance::text AS "clockFolioBalance",
-        clock_folio_closed_at AS "clockFolioClosedAt"
-      FROM bookings WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
-        AND external_booking_id = '38149736'
+      SELECT clock_folio_id AS "clockFolioId", is_deposit AS "isDeposit",
+        balance::text AS "balance", closed_at AS "closedAt"
+      FROM clock_folios WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND clock_folio_id = '76090570'
     `;
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.clockFolioId).toBe('76090570');
-    expect(rows[0]!.clockFolioBalance).toBe('450.00');
-    expect(rows[0]!.clockFolioClosedAt).toBeNull();
+    expect(rows[0]!.isDeposit).toBe(false);
+    expect(rows[0]!.balance).toBe('450.00');
+    expect(rows[0]!.closedAt).toBeNull();
   });
 
   it('records a real close event, never touching payments/payment_provider_sessions', async () => {
@@ -196,16 +197,45 @@ describe('Clock folio hydration (visibility only)', () => {
     const outcome = await folioHydration.hydrateFolio(tenantId, propertyId, '76090570');
     expect(outcome.outcome).toBe('applied');
 
-    const rows = await admin.$queryRaw<Array<{ clockFolioClosedAt: Date | null }>>`
-      SELECT clock_folio_closed_at AS "clockFolioClosedAt" FROM bookings
-      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND external_booking_id = '38149736'
+    const rows = await admin.$queryRaw<Array<{ closedAt: Date | null }>>`
+      SELECT closed_at AS "closedAt" FROM clock_folios
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND clock_folio_id = '76090570'
     `;
-    expect(rows[0]!.clockFolioClosedAt).not.toBeNull();
+    expect(rows[0]!.closedAt).not.toBeNull();
 
     const payments = await admin.$queryRaw<Array<{ id: string }>>`
       SELECT id FROM payments WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
     `;
     expect(payments).toHaveLength(0);
+  });
+
+  it('keeps a deposit folio and a general folio for the same booking as two separate rows', async () => {
+    queuedResponses = [
+      { status: 200, body: realFolioDetail({ id: 76090571, deposit: true, balance: null }) },
+    ];
+    const folioHydration = app!.get(ClockFolioHydrationService);
+    const depositOutcome = await folioHydration.hydrateFolio(tenantId, propertyId, '76090571');
+    expect(depositOutcome).toEqual({ outcome: 'applied', bookingId: expect.any(String) });
+
+    queuedResponses = [{ status: 200, body: realFolioDetail({ deposit: false }) }];
+    const generalOutcome = await folioHydration.hydrateFolio(tenantId, propertyId, '76090570');
+    expect(generalOutcome).toEqual({ outcome: 'applied', bookingId: expect.any(String) });
+
+    const rows = await admin.$queryRaw<
+      Array<{ clockFolioId: string; isDeposit: boolean; balance: string | null }>
+    >`
+      SELECT clock_folio_id AS "clockFolioId", is_deposit AS "isDeposit", balance::text AS "balance"
+      FROM clock_folios WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND clock_folio_id IN ('76090570', '76090571')
+      ORDER BY is_deposit DESC
+    `;
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ clockFolioId: '76090571', isDeposit: true, balance: null });
+    expect(rows[1]).toMatchObject({
+      clockFolioId: '76090570',
+      isDeposit: false,
+      balance: '450.00',
+    });
   });
 
   it('skips a folio that does not belong to a single booking (visibility-only scope)', async () => {

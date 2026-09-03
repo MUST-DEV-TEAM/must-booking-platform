@@ -29,16 +29,22 @@ export type BookingProjection = {
   paidAmount: string;
   refundedAmount: string;
   externalReference: string;
-  // Visibility only (Clock certification gap Task C) — whichever Clock
-  // folio most recently sent an update for this booking. Not necessarily
-  // the "payment" folio specifically (Clock keeps a separate deposit folio
-  // for that); don't read this as a payment reconciliation signal.
-  clockFolioId: string | null;
-  clockFolioBalance: string | null;
-  clockFolioClosedAt: Date | null;
+  // Visibility only — every real Clock folio for this booking (Task B,
+  // docs/CLOCK_FINANCIAL_RECONCILIATION_PLAN.md). A booking can genuinely
+  // have both a deposit folio and a general folio at once; this is not a
+  // payment-reconciliation signal on its own (Task C compares MUST's own
+  // payment totals against the deposit folio specifically, in Clock).
+  clockFolios: ClockFolioProjection[];
   version: number;
   createdAt: Date;
   updatedAt: Date;
+};
+
+export type ClockFolioProjection = {
+  id: string;
+  isDeposit: boolean;
+  balance: string | null;
+  closedAt: Date | null;
 };
 
 @Injectable()
@@ -69,8 +75,7 @@ export class BookingProjectionService {
           b.total_amount::text AS "totalAmount", rp.currency, b.external_reference AS "externalReference",
           COALESCE(payment_totals."paidAmount", 0)::text AS "paidAmount",
           COALESCE(payment_totals."refundedAmount", 0)::text AS "refundedAmount",
-          b.clock_folio_id AS "clockFolioId", b.clock_folio_balance::text AS "clockFolioBalance",
-          b.clock_folio_closed_at AS "clockFolioClosedAt",
+          COALESCE(folios."clockFolios", '[]'::jsonb) AS "clockFolios",
           b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
         FROM bookings b
         LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
@@ -84,6 +89,16 @@ export class BookingProjectionService {
           FROM payments p
           WHERE p.tenant_id = b.tenant_id AND p.property_id = b.property_id AND p.booking_id = b.id
         ) payment_totals ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT jsonb_agg(
+            jsonb_build_object(
+              'id', cf.clock_folio_id, 'isDeposit', cf.is_deposit,
+              'balance', cf.balance::text, 'closedAt', cf.closed_at
+            ) ORDER BY cf.is_deposit DESC, cf.created_at
+          ) AS "clockFolios"
+          FROM clock_folios cf
+          WHERE cf.tenant_id = b.tenant_id AND cf.property_id = b.property_id AND cf.booking_id = b.id
+        ) folios ON TRUE
         WHERE b.tenant_id = ${tenantId}::uuid AND b.property_id = ${propertyId}::uuid
         ORDER BY b.starts_on DESC, b.created_at DESC, b.id DESC
       `,

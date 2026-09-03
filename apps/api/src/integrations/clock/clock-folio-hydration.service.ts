@@ -25,6 +25,10 @@ export interface ClockFolioDetail {
   id: number;
   payer_type: string;
   payer_id: number | null;
+  // CONFIRMED_IN_SANDBOX 2026-09-04 (Task 0, docs/CLOCK_FINANCIAL_RECONCILIATION_PLAN.md):
+  // a booking genuinely has both a deposit (true) and a general (false)
+  // folio at once, neither ever netting into the other's own balance.
+  deposit?: boolean | null;
   balance?: { cents: number; currency: string } | null;
   closed_at?: string | null;
 }
@@ -42,14 +46,18 @@ export type FolioHydrationOutcome =
   | { outcome: 'no_active_connection' };
 
 /**
- * Visibility-only Clock folio sync (Clock certification gap Task C,
- * docs/CLOCK_CERTIFICATION_GAPS_PLAN.md) — deliberately narrow. Fetches the
- * real folio state and mirrors id/balance/closed-at onto whichever local
- * booking it belongs to (the folio's own payer_id, when payer_type is
- * "Booking" — no separate lookup needed). Never touches `payments` or
+ * Visibility-only Clock folio sync — originally Clock certification gap
+ * Task C (docs/CLOCK_CERTIFICATION_GAPS_PLAN.md), now writing into a real
+ * `clock_folios` table (financial-flow Task B,
+ * docs/CLOCK_FINANCIAL_RECONCILIATION_PLAN.md) instead of single-folio
+ * columns on the booking, since a booking genuinely has more than one real
+ * folio at once (deposit + general). Fetches the real folio state and
+ * upserts it, keyed on the folio's own id, onto whichever local booking it
+ * belongs to (the folio's own payer_id, when payer_type is "Booking" — no
+ * separate lookup needed). Never touches `payments` or
  * `payment_provider_sessions`, never writes anything back to Clock. Real
- * payment/charge reconciliation is a separate, bigger, higher-stakes design
- * question intentionally left for later — see the plan doc.
+ * payment/charge reconciliation (comparing this against MUST's own payment
+ * totals) is Task C of the financial-flow plan, not this service.
  */
 @Injectable()
 export class ClockFolioHydrationService {
@@ -91,37 +99,48 @@ export class ClockFolioHydrationService {
     }
 
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      const balance =
-        detail.balance !== undefined && detail.balance !== null
-          ? (detail.balance.cents / 100).toFixed(2)
-          : null;
-      const closedAt = detail.closed_at ?? null;
-
-      const updated = await tx.$executeRawUnsafe(
-        `UPDATE bookings SET clock_folio_id = $3, clock_folio_balance = $4::decimal, clock_folio_closed_at = $5::timestamptz,
-           updated_at = CURRENT_TIMESTAMP
-         WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND external_booking_id = $6`,
+      const bookingRows = await tx.$queryRawUnsafe<Array<{ id: string }>>(
+        `SELECT id FROM bookings WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND external_booking_id = $3`,
         tenantId,
         propertyId,
-        String(detail.id),
-        balance,
-        closedAt,
         String(detail.payer_id),
       );
-      if (updated === 0) {
+      const bookingId = bookingRows[0]?.id;
+      if (!bookingId) {
         this.logger.warn(
           `Folio ${folioId} belongs to Clock booking ${detail.payer_id}, which has no local shadow booking yet.`,
         );
         return { outcome: 'booking_not_found' };
       }
 
-      const rows = await tx.$queryRawUnsafe<Array<{ id: string }>>(
-        `SELECT id FROM bookings WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND external_booking_id = $3`,
+      const balance =
+        detail.balance !== undefined && detail.balance !== null
+          ? (detail.balance.cents / 100).toFixed(2)
+          : null;
+      const closedAt = detail.closed_at ?? null;
+
+      // Real table now (Task B, docs/CLOCK_FINANCIAL_RECONCILIATION_PLAN.md)
+      // — one row per real Clock folio, keyed on the folio's own id, so a
+      // deposit and a general folio for the same booking never overwrite
+      // each other the way the earlier single-column version did.
+      await tx.$executeRawUnsafe(
+        `INSERT INTO clock_folios (tenant_id, property_id, booking_id, clock_folio_id, is_deposit, balance, closed_at)
+         VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::decimal, $7::timestamptz)
+         ON CONFLICT (tenant_id, property_id, clock_folio_id) DO UPDATE SET
+           is_deposit = EXCLUDED.is_deposit,
+           balance = EXCLUDED.balance,
+           closed_at = EXCLUDED.closed_at,
+           updated_at = CURRENT_TIMESTAMP`,
         tenantId,
         propertyId,
-        String(detail.payer_id),
+        bookingId,
+        String(detail.id),
+        detail.deposit ?? false,
+        balance,
+        closedAt,
       );
-      return { outcome: 'applied', bookingId: rows[0]!.id };
+
+      return { outcome: 'applied', bookingId };
     });
   }
 

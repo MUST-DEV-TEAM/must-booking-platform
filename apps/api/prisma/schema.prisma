@@ -120,48 +120,48 @@ model User {
 }
 
 model Property {
-  id                String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId          String                    @map("tenant_id") @db.Uuid
-  name              String                    @db.VarChar(200)
-  slug              String                    @db.VarChar(100)
-  address           String?                   @db.VarChar(500)
-  timezone          String?                   @db.VarChar(100)
-  logoUrl           String?                   @map("logo_url") @db.VarChar(2048)
-  phone             String?                   @db.VarChar(100)
-  supportEmail      String?                   @map("support_email") @db.VarChar(320)
-  bookingMode       PropertyBookingMode       @default(ROOM_TYPE_ONLY) @map("booking_mode")
-  minStayNights     Int?                      @map("min_stay_nights")
-  maxStayNights     Int?                      @map("max_stay_nights")
-  checkInTime       String?                   @map("check_in_time")
-  checkOutTime      String?                   @map("check_out_time")
-  rules             String?                   @db.Text
-  advanceBookingDays Int?                     @map("advance_booking_days")
-  freeCancellationDaysBeforeArrival Int       @default(21) @map("free_cancellation_days_before_arrival")
-  publicWebsiteOrigin String?                 @map("public_website_origin") @db.VarChar(500)
-  wordpressConnectedAt DateTime?              @map("wordpress_connected_at") @db.Timestamptz(6)
-  stripeEnabled     Boolean                   @default(false) @map("stripe_enabled")
-  pokpayEnabled     Boolean                   @default(false) @map("pokpay_enabled")
-  payAtHotelEnabled Boolean                   @default(false) @map("pay_at_hotel_enabled")
-  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  organization      Organization              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  roleTemplates     PropertyRoleTemplate[]
-  staffAssignments  PropertyStaffAssignment[]
-  roomTypes         RoomType[]
-  rooms             Room[]
-  roomAvailability  RoomAvailability[]
-  inventoryUnits    InventoryUnit[]
-  ratePlans         RatePlan[]
-  rateRules         RateRule[]
-  roomPriceOverrides RoomPriceOverride[]
-  bookings          Booking[]
-  notifications     Notification[]
-  payments          Payment[]
-  paymentProviderSessions PaymentProviderSession[]
-  amenities         Amenity[]
-  roomTypeAmenities RoomTypeAmenity[]
-  roomAmenities     RoomAmenity[]
-  cancellationPolicies CancellationPolicy[]
+  id                                String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                          String                    @map("tenant_id") @db.Uuid
+  name                              String                    @db.VarChar(200)
+  slug                              String                    @db.VarChar(100)
+  address                           String?                   @db.VarChar(500)
+  timezone                          String?                   @db.VarChar(100)
+  logoUrl                           String?                   @map("logo_url") @db.VarChar(2048)
+  phone                             String?                   @db.VarChar(100)
+  supportEmail                      String?                   @map("support_email") @db.VarChar(320)
+  bookingMode                       PropertyBookingMode       @default(ROOM_TYPE_ONLY) @map("booking_mode")
+  minStayNights                     Int?                      @map("min_stay_nights")
+  maxStayNights                     Int?                      @map("max_stay_nights")
+  checkInTime                       String?                   @map("check_in_time")
+  checkOutTime                      String?                   @map("check_out_time")
+  rules                             String?                   @db.Text
+  advanceBookingDays                Int?                      @map("advance_booking_days")
+  freeCancellationDaysBeforeArrival Int                       @default(21) @map("free_cancellation_days_before_arrival")
+  publicWebsiteOrigin               String?                   @map("public_website_origin") @db.VarChar(500)
+  wordpressConnectedAt              DateTime?                 @map("wordpress_connected_at") @db.Timestamptz(6)
+  stripeEnabled                     Boolean                   @default(false) @map("stripe_enabled")
+  pokpayEnabled                     Boolean                   @default(false) @map("pokpay_enabled")
+  payAtHotelEnabled                 Boolean                   @default(false) @map("pay_at_hotel_enabled")
+  createdAt                         DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                         DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  organization                      Organization              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  roleTemplates                     PropertyRoleTemplate[]
+  staffAssignments                  PropertyStaffAssignment[]
+  roomTypes                         RoomType[]
+  rooms                             Room[]
+  roomAvailability                  RoomAvailability[]
+  inventoryUnits                    InventoryUnit[]
+  ratePlans                         RatePlan[]
+  rateRules                         RateRule[]
+  roomPriceOverrides                RoomPriceOverride[]
+  bookings                          Booking[]
+  notifications                     Notification[]
+  payments                          Payment[]
+  paymentProviderSessions           PaymentProviderSession[]
+  amenities                         Amenity[]
+  roomTypeAmenities                 RoomTypeAmenity[]
+  roomAmenities                     RoomAmenity[]
+  cancellationPolicies              CancellationPolicy[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, slug])
@@ -274,16 +274,16 @@ model PropertyStaffCapabilityOverride {
 }
 
 model AuditLog {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId    String?  @map("tenant_id") @db.Uuid
-  propertyId  String?  @map("property_id") @db.Uuid
-  actorUserId String?  @map("actor_user_id") @db.Uuid
+  id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String?        @map("tenant_id") @db.Uuid
+  propertyId  String?        @map("property_id") @db.Uuid
+  actorUserId String?        @map("actor_user_id") @db.Uuid
   actorType   AuditActorType @default(TENANT_USER) @map("actor_type")
-  action      String   @db.VarChar(100)
-  targetType  String   @map("target_type") @db.VarChar(100)
-  targetId    String   @map("target_id") @db.VarChar(320)
-  details     Json     @default("{}")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  action      String         @db.VarChar(100)
+  targetType  String         @map("target_type") @db.VarChar(100)
+  targetId    String         @map("target_id") @db.VarChar(320)
+  details     Json           @default("{}")
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([tenantId, createdAt])
   @@index([actorUserId, createdAt])
@@ -291,14 +291,14 @@ model AuditLog {
 }
 
 model Notification {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId   String   @map("tenant_id") @db.Uuid
-  propertyId String   @map("property_id") @db.Uuid
-  type       String   @db.VarChar(100)
-  payload    Json     @default("{}")
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  propertyId String    @map("property_id") @db.Uuid
+  type       String    @db.VarChar(100)
+  payload    Json      @default("{}")
   readAt     DateTime? @map("read_at") @db.Timestamptz(6)
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  property   Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  property   Property  @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
 
   @@index([tenantId, propertyId, createdAt])
   @@index([tenantId, propertyId, readAt])
@@ -343,25 +343,25 @@ model RoomTypeImage {
 }
 
 model Room {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId       String   @map("tenant_id") @db.Uuid
-  propertyId     String   @map("property_id") @db.Uuid
-  roomTypeId     String   @map("room_type_id") @db.Uuid
-  name           String   @db.VarChar(200)
-  title          String?  @db.VarChar(200)
-  roomSize       String?  @map("room_size") @db.VarChar(50)
-  rules          String?  @db.Text
-  description    String?  @db.Text
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String              @map("tenant_id") @db.Uuid
+  propertyId     String              @map("property_id") @db.Uuid
+  roomTypeId     String              @map("room_type_id") @db.Uuid
+  name           String              @db.VarChar(200)
+  title          String?             @db.VarChar(200)
+  roomSize       String?             @map("room_size") @db.VarChar(50)
+  rules          String?             @db.Text
+  description    String?             @db.Text
   floor          Int?
-  viewType       String?  @map("view_type") @db.VarChar(100)
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  property       Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
-  roomType       RoomType @relation(fields: [tenantId, propertyId, roomTypeId], references: [tenantId, propertyId, id], onDelete: Restrict)
-  availability RoomAvailability[]
+  viewType       String?             @map("view_type") @db.VarChar(100)
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property       Property            @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  roomType       RoomType            @relation(fields: [tenantId, propertyId, roomTypeId], references: [tenantId, propertyId, id], onDelete: Restrict)
+  availability   RoomAvailability[]
   priceOverrides RoomPriceOverride[]
-  bookings Booking[]
-  amenities RoomAmenity[]
+  bookings       Booking[]
+  amenities      RoomAmenity[]
 
   @@unique([tenantId, propertyId, id])
   @@unique([tenantId, propertyId, name])
@@ -370,15 +370,15 @@ model Room {
 }
 
 model RoomAvailability {
-  tenantId   String   @map("tenant_id") @db.Uuid
-  propertyId String   @map("property_id") @db.Uuid
-  roomId     String   @map("room_id") @db.Uuid
-  staysOn    DateTime @map("stays_on") @db.Date
-  isAvailable Boolean @default(true) @map("is_available")
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  property   Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
-  room       Room     @relation(fields: [tenantId, propertyId, roomId], references: [tenantId, propertyId, id], onDelete: Restrict)
+  tenantId    String   @map("tenant_id") @db.Uuid
+  propertyId  String   @map("property_id") @db.Uuid
+  roomId      String   @map("room_id") @db.Uuid
+  staysOn     DateTime @map("stays_on") @db.Date
+  isAvailable Boolean  @default(true) @map("is_available")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property    Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  room        Room     @relation(fields: [tenantId, propertyId, roomId], references: [tenantId, propertyId, id], onDelete: Restrict)
 
   @@id([tenantId, propertyId, roomId, staysOn])
   @@index([tenantId, propertyId, roomId, staysOn])
@@ -439,22 +439,22 @@ model InventoryUnit {
 }
 
 model RatePlan {
-  id                         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId                   String     @map("tenant_id") @db.Uuid
-  propertyId                 String     @map("property_id") @db.Uuid
-  name                       String     @db.VarChar(200)
-  currency                   String     @db.Char(3)
-  isActive                   Boolean    @default(true) @map("is_active")
-  freeCancellationUntilHours Int?       @map("free_cancellation_until_hours")
-  cancellationPolicyId       String?    @map("cancellation_policy_id") @db.Uuid
+  id                         String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                   String              @map("tenant_id") @db.Uuid
+  propertyId                 String              @map("property_id") @db.Uuid
+  name                       String              @db.VarChar(200)
+  currency                   String              @db.Char(3)
+  isActive                   Boolean             @default(true) @map("is_active")
+  freeCancellationUntilHours Int?                @map("free_cancellation_until_hours")
+  cancellationPolicyId       String?             @map("cancellation_policy_id") @db.Uuid
   // Non-null only for an auto-created "shadow" rate plan backing a
   // confirmed Clock ROOM_TYPE mapping — never staff-visible/selectable,
   // exists only so a Clock-priced booking still has a valid rate_plan_id
   // (also the cancellation-policy carrier) without a manual local rate plan.
-  clockShadowRoomTypeId      String?    @map("clock_shadow_room_type_id") @db.Uuid
-  createdAt                  DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                  DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  property                   Property   @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  clockShadowRoomTypeId      String?             @map("clock_shadow_room_type_id") @db.Uuid
+  createdAt                  DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property                   Property            @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
   cancellationPolicy         CancellationPolicy? @relation(fields: [tenantId, propertyId, cancellationPolicyId], references: [tenantId, propertyId, id], onDelete: Restrict)
   rules                      RateRule[]
   roomPriceOverrides         RoomPriceOverride[]
@@ -524,50 +524,41 @@ model RoomPriceOverride {
 }
 
 model Booking {
-  id                         String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId                   String        @map("tenant_id") @db.Uuid
-  propertyId                 String        @map("property_id") @db.Uuid
-  roomTypeId                 String        @map("room_type_id") @db.Uuid
-  roomId                     String?       @map("room_id") @db.Uuid
-  guestId                    String?       @map("guest_id") @db.Uuid
-  guestSessionId             String?       @map("guest_session_id") @db.Uuid
-  guestReturnUrl             String?       @map("guest_return_url") @db.VarChar(2000)
-  specialRequests            String?       @map("special_requests") @db.VarChar(2000)
-  externalReference          String        @map("external_reference") @db.VarChar(200)
-  orderReference             String?       @map("order_reference") @db.VarChar(200)
-  orderRoomNumber            Int?          @map("order_room_number")
-  roomGuestFirstName         String?       @map("room_guest_first_name") @db.VarChar(100)
-  roomGuestLastName          String?       @map("room_guest_last_name") @db.VarChar(100)
-  externalBookingId          String?       @map("external_booking_id") @db.VarChar(64)
-  status                     BookingStatus @default(DRAFT)
-  paymentMethod              BookingPaymentMethod @default(STRIPE_CHECKOUT) @map("payment_method")
-  startsOn                   DateTime      @map("starts_on") @db.Date
-  endsOn                     DateTime      @map("ends_on") @db.Date
-  ratePlanId                 String        @map("rate_plan_id") @db.Uuid
-  totalAmount                Decimal       @map("total_amount") @db.Decimal(12, 2)
-  guestCount                 Int           @default(1) @map("guest_count")
-  nightlyRates               Json?         @map("nightly_rates")
-  version                    Int           @default(1)
-  cancellationIsFree         Boolean?      @map("cancellation_is_free")
-  cancellationFreeUntilHours Int?          @map("cancellation_free_until_hours")
-  cancellationCutoffAt       DateTime?     @map("cancellation_cutoff_at") @db.Timestamptz(6)
-  // Visibility only (Clock certification gap Task C, docs/CLOCK_CERTIFICATION_GAPS_PLAN.md)
-  // — mirrors whichever Clock folio last sent a folio_update/folio_close
-  // event referencing this booking. Deliberately not a real relation to
-  // `payments`/`payment_provider_sessions` and never written to by any
-  // guest-payment/billing code path. A booking can have more than one Clock
-  // folio (deposit + main, for example); this tracks only the most recently
-  // touched one, a known simplification, not an aggregate.
-  clockFolioId               String?       @map("clock_folio_id") @db.VarChar(64)
-  clockFolioBalance          Decimal?      @map("clock_folio_balance") @db.Decimal(12, 2)
-  clockFolioClosedAt         DateTime?     @map("clock_folio_closed_at") @db.Timestamptz(6)
-  createdAt                  DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                  DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  property                   Property      @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
-  roomType                   RoomType      @relation(fields: [tenantId, propertyId, roomTypeId], references: [tenantId, propertyId, id], onDelete: Restrict)
-  room                       Room?         @relation(fields: [tenantId, propertyId, roomId], references: [tenantId, propertyId, id], onDelete: Restrict)
-  ratePlan                   RatePlan      @relation(fields: [tenantId, propertyId, ratePlanId], references: [tenantId, propertyId, id], onDelete: Restrict)
+  id                         String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId                   String                   @map("tenant_id") @db.Uuid
+  propertyId                 String                   @map("property_id") @db.Uuid
+  roomTypeId                 String                   @map("room_type_id") @db.Uuid
+  roomId                     String?                  @map("room_id") @db.Uuid
+  guestId                    String?                  @map("guest_id") @db.Uuid
+  guestSessionId             String?                  @map("guest_session_id") @db.Uuid
+  guestReturnUrl             String?                  @map("guest_return_url") @db.VarChar(2000)
+  specialRequests            String?                  @map("special_requests") @db.VarChar(2000)
+  externalReference          String                   @map("external_reference") @db.VarChar(200)
+  orderReference             String?                  @map("order_reference") @db.VarChar(200)
+  orderRoomNumber            Int?                     @map("order_room_number")
+  roomGuestFirstName         String?                  @map("room_guest_first_name") @db.VarChar(100)
+  roomGuestLastName          String?                  @map("room_guest_last_name") @db.VarChar(100)
+  externalBookingId          String?                  @map("external_booking_id") @db.VarChar(64)
+  status                     BookingStatus            @default(DRAFT)
+  paymentMethod              BookingPaymentMethod     @default(STRIPE_CHECKOUT) @map("payment_method")
+  startsOn                   DateTime                 @map("starts_on") @db.Date
+  endsOn                     DateTime                 @map("ends_on") @db.Date
+  ratePlanId                 String                   @map("rate_plan_id") @db.Uuid
+  totalAmount                Decimal                  @map("total_amount") @db.Decimal(12, 2)
+  guestCount                 Int                      @default(1) @map("guest_count")
+  nightlyRates               Json?                    @map("nightly_rates")
+  version                    Int                      @default(1)
+  cancellationIsFree         Boolean?                 @map("cancellation_is_free")
+  cancellationFreeUntilHours Int?                     @map("cancellation_free_until_hours")
+  cancellationCutoffAt       DateTime?                @map("cancellation_cutoff_at") @db.Timestamptz(6)
+  createdAt                  DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property                   Property                 @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
+  roomType                   RoomType                 @relation(fields: [tenantId, propertyId, roomTypeId], references: [tenantId, propertyId, id], onDelete: Restrict)
+  room                       Room?                    @relation(fields: [tenantId, propertyId, roomId], references: [tenantId, propertyId, id], onDelete: Restrict)
+  ratePlan                   RatePlan                 @relation(fields: [tenantId, propertyId, ratePlanId], references: [tenantId, propertyId, id], onDelete: Restrict)
   payments                   Payment[]
+  clockFolios                ClockFolio[]
   paymentProviderSessions    PaymentProviderSession[]
 
   @@unique([tenantId, propertyId, id])
@@ -584,6 +575,36 @@ model Booking {
   @@index([tenantId, propertyId, guestId])
   @@index([tenantId, propertyId, orderReference, orderRoomNumber])
   @@map("bookings")
+}
+
+// Financial-flow gap Task B (docs/CLOCK_FINANCIAL_RECONCILIATION_PLAN.md,
+// 2026-09-04): replaces the earlier same-night single-folio-per-booking
+// columns on Booking, which couldn't tell a deposit folio from a general
+// one — a booking genuinely has both at once (CONFIRMED_IN_SANDBOX, Task 0:
+// a real paid booking had one of each, never netting into each other).
+// Visibility only, same as before: no relation to Payment, no write path
+// back to Clock. `isDeposit` is what Task C's reconciliation targets
+// specifically — never the general folio.
+model ClockFolio {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  propertyId   String    @map("property_id") @db.Uuid
+  bookingId    String    @map("booking_id") @db.Uuid
+  clockFolioId String    @map("clock_folio_id") @db.VarChar(64)
+  isDeposit    Boolean   @map("is_deposit")
+  // Not the folio's own `currency` field — CONFIRMED_IN_SANDBOX (Task 0)
+  // that field defaults to the property's base currency regardless of what
+  // was actually posted, not a usable signal. This balance is informational
+  // only; Task C's comparison uses credit_items' own currency, not this.
+  balance      Decimal?  @map("balance") @db.Decimal(12, 2)
+  closedAt     DateTime? @map("closed_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  booking      Booking   @relation(fields: [tenantId, propertyId, bookingId], references: [tenantId, propertyId, id], onDelete: Restrict)
+
+  @@unique([tenantId, propertyId, clockFolioId])
+  @@index([tenantId, propertyId, bookingId])
+  @@map("clock_folios")
 }
 
 model Payment {
@@ -687,15 +708,15 @@ enum IntegrationConnectionStatus {
 // encryptedCredentials is an AES-256-GCM-encrypted JSON blob (IntegrationCredentialCipher),
 // shape varies per provider and is never represented in the schema directly.
 model IntegrationConnection {
-  id                   String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId             String                       @map("tenant_id") @db.Uuid
-  kind                 IntegrationConnectionKind
-  provider             IntegrationProvider
-  name                 String                       @db.VarChar(200)
-  encryptedCredentials String                       @map("encrypted_credentials") @db.Text
-  status               IntegrationConnectionStatus  @default(PENDING)
-  lastTestedAt         DateTime?                    @map("last_tested_at") @db.Timestamptz(6)
-  lastTestResult       String?                      @map("last_test_result") @db.VarChar(500)
+  id                    String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId              String                      @map("tenant_id") @db.Uuid
+  kind                  IntegrationConnectionKind
+  provider              IntegrationProvider
+  name                  String                      @db.VarChar(200)
+  encryptedCredentials  String                      @map("encrypted_credentials") @db.Text
+  status                IntegrationConnectionStatus @default(PENDING)
+  lastTestedAt          DateTime?                   @map("last_tested_at") @db.Timestamptz(6)
+  lastTestResult        String?                     @map("last_test_result") @db.VarChar(500)
   // Set on every real, signature-verified SNS message (any envelope Type —
   // proves connectivity even before a Notification carries business data),
   // never on a rejected one. Missing-webhook alerting (ClockWebhookHealthService)
@@ -704,9 +725,9 @@ model IntegrationConnection {
   // Random, unguessable id used in the public webhook URL path (source brief
   // section 27/29: "random webhook installation ID") — never the internal
   // `id`, so the callback URL doesn't expose or enumerate connection rows.
-  webhookPublicId      String                       @unique @default(dbgenerated("gen_random_uuid()")) @map("webhook_public_id") @db.Uuid
-  createdAt            DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime                     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  webhookPublicId       String                      @unique @default(dbgenerated("gen_random_uuid()")) @map("webhook_public_id") @db.Uuid
+  createdAt             DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime                    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([tenantId, id])
   @@index([tenantId, kind])
@@ -823,20 +844,20 @@ enum ProviderEventStatus {
 // this table isn't meant to be Clock-specific if another PMS's webhooks
 // land here later.
 model ProviderEvent {
-  id            String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId      String              @map("tenant_id") @db.Uuid
-  propertyId    String              @map("property_id") @db.Uuid
-  connectionId  String              @map("connection_id") @db.Uuid
-  provider      IntegrationProvider
-  eventId       String              @map("event_id") @db.VarChar(200)
-  eventType     String              @map("event_type") @db.VarChar(200)
-  objectId      String?             @map("object_id") @db.VarChar(200)
-  payloadHash   String              @map("payload_hash") @db.VarChar(64)
-  rawPayload    Json                @map("raw_payload")
-  status        ProviderEventStatus @default(RECEIVED)
-  attempts      Int                 @default(0)
-  createdAt     DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id           String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String              @map("tenant_id") @db.Uuid
+  propertyId   String              @map("property_id") @db.Uuid
+  connectionId String              @map("connection_id") @db.Uuid
+  provider     IntegrationProvider
+  eventId      String              @map("event_id") @db.VarChar(200)
+  eventType    String              @map("event_type") @db.VarChar(200)
+  objectId     String?             @map("object_id") @db.VarChar(200)
+  payloadHash  String              @map("payload_hash") @db.VarChar(64)
+  rawPayload   Json                @map("raw_payload")
+  status       ProviderEventStatus @default(RECEIVED)
+  attempts     Int                 @default(0)
+  createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([connectionId, eventId])
   @@index([tenantId, propertyId, status])

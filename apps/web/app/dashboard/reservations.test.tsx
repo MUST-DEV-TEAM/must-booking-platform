@@ -32,6 +32,7 @@ const bookings: Reservation[] = [
     paymentMethod: 'PAY_AT_HOTEL',
     total: { amount: '360.00', currency: 'EUR' },
     externalReference: 'MUST-ADA',
+    clockFolios: [],
     version: 1,
     createdAt: '2026-08-01T10:00:00.000Z',
     updatedAt: '2026-08-01T10:00:00.000Z',
@@ -58,6 +59,7 @@ const bookings: Reservation[] = [
     paymentMethod: 'STRIPE',
     total: { amount: '180.00', currency: 'EUR' },
     externalReference: 'MUST-GRACE',
+    clockFolios: [],
     version: 2,
     createdAt: '2026-08-02T10:00:00.000Z',
     updatedAt: '2026-08-03T10:00:00.000Z',
@@ -68,9 +70,19 @@ const bookingWithFolio: Reservation = {
   ...bookings[0]!,
   id: 'booking-clock',
   externalReference: 'MUST-CLOCK',
-  clockFolioId: '76090570',
-  clockFolioBalance: '450.00',
-  clockFolioClosedAt: null,
+  clockFolios: [{ id: '76090570', isDeposit: false, balance: '450.00', closedAt: null }],
+};
+
+// Real sandbox case (Task 0, docs/CLOCK_FINANCIAL_RECONCILIATION_PLAN.md): a
+// booking genuinely has both a deposit folio and a general folio at once.
+const bookingWithBothFolios: Reservation = {
+  ...bookings[0]!,
+  id: 'booking-clock-both',
+  externalReference: 'MUST-CLOCK-BOTH',
+  clockFolios: [
+    { id: '76090571', isDeposit: true, balance: null, closedAt: null },
+    { id: '76090570', isDeposit: false, balance: '450.00', closedAt: null },
+  ],
 };
 
 // Real, previously unreachable case (2026-09-04 fix): a Clock-hydrated
@@ -249,6 +261,39 @@ describe('Dashboard reservations', () => {
     expect(
       container.querySelector('[aria-label="Reservation details"]')?.textContent,
     ).not.toContain('Clock folio');
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it('shows a deposit folio and a general folio as two distinct labeled rows', async () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(DashboardReservations, {
+            tenantId: 'tenant-1',
+            propertyId: 'property-1',
+            initialBookings: [bookingWithBothFolios],
+          }),
+        ),
+      );
+    });
+
+    const detailButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent === 'View details',
+    )!;
+    await act(async () => detailButton.click());
+
+    const details = container.querySelector('[aria-label="Reservation details"]')!.textContent!;
+    expect(details).toContain('Clock deposit folio');
+    expect(details).toContain('Clock folio');
+    expect(details).toContain('€450.00');
 
     await act(async () => root.unmount());
     container.remove();
