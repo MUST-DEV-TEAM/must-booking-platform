@@ -3,7 +3,9 @@ import { Queue } from 'bullmq';
 import IORedis from 'ioredis';
 import { afterAll, describe, expect, it } from 'vitest';
 
+import type { TenantDatabaseService } from '../../tenancy/tenant-database.service';
 import { CLOCK_DEAD_LETTER_QUEUE_NAME, CLOCK_QUEUE_PRIORITY } from './clock-queue-names';
+import type { ClockBookingHydrationService } from './clock-booking-hydration.service';
 import { ClockQueueService } from './clock-queue.service';
 import { ClockWorkerService } from './clock-worker.service';
 
@@ -20,7 +22,13 @@ async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 5_00
 
 describe('ClockQueueService + ClockWorkerService (real Redis)', () => {
   const queues = new ClockQueueService();
-  const workers = new ClockWorkerService(queues);
+  // Neither generic worker-mechanics test below exercises hydrate-event
+  // (moved to clock-worker.service.spec.ts), so these never get called.
+  const workers = new ClockWorkerService(
+    queues,
+    {} as TenantDatabaseService,
+    {} as ClockBookingHydrationService,
+  );
   const inspectionConnection = new IORedis(process.env.REDIS_URL!, { maxRetriesPerRequest: null });
 
   queues.onModuleInit();
@@ -42,10 +50,14 @@ describe('ClockQueueService + ClockWorkerService (real Redis)', () => {
   });
 
   it('a real worker picks up and processes an enqueued job (skeleton logging only)', async () => {
+    // clock.webhooks/hydrate-event now has real processing logic (Task
+    // 16/17, 2026-09-03) with its own coverage in clock-worker.service.spec.ts
+    // — this test only needs a queue/job pair that's still skeleton-only, to
+    // keep testing generic worker mechanics (pickup, completion) in isolation.
     const jobId = randomUUID();
-    await queues.enqueue('clock.webhooks', 'hydrate-event', { jobId }, { jobId, attempts: 1 });
+    await queues.enqueue('clock.catalog.sync', 'full-sync', { jobId }, { jobId, attempts: 1 });
 
-    const inspection = new Queue('clock.webhooks', { connection: inspectionConnection });
+    const inspection = new Queue('clock.catalog.sync', { connection: inspectionConnection });
     await waitFor(async () => (await (await inspection.getJob(jobId))?.isCompleted()) ?? false);
   });
 

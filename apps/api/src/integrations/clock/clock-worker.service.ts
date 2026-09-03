@@ -2,9 +2,37 @@ import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nest
 import { Worker, type Job } from 'bullmq';
 import IORedis from 'ioredis';
 
+import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
 import { CLOCK_QUEUE_NAMES, type ClockQueueName } from './clock-queue-names';
+import { ClockBookingHydrationService } from './clock-booking-hydration.service';
 import { ClockQueueService } from './clock-queue.service';
 import { reportOperationalFailure } from '../../observability/error-tracking';
+
+// Event types this worker actually applies (source brief's Fetch/Normalize/
+// Apply steps) — see docs/CLOCK_WEBHOOK_FLOW.md for how this was confirmed
+// against real captured events 2026-09-03. Anything else (folio_update and
+// whatever else Clock sends) is acknowledged but not yet applied — logged,
+// not silently dropped, so a future task extending coverage has something to
+// grep for.
+const BOOKING_EVENT_TYPES = new Set(['booking_new', 'booking_guests_update']);
+
+interface HydrateEventJobData {
+  tenantId: string;
+  propertyId: string;
+  connectionId: string;
+  eventId: string;
+}
+
+function isHydrateEventJobData(value: unknown): value is HydrateEventJobData {
+  if (!value || typeof value !== 'object') return false;
+  const data = value as Record<string, unknown>;
+  return (
+    typeof data.tenantId === 'string' &&
+    typeof data.propertyId === 'string' &&
+    typeof data.connectionId === 'string' &&
+    typeof data.eventId === 'string'
+  );
+}
 
 /**
  * Worker skeletons only (Task 9's explicit scope) — every queue gets a real
@@ -21,7 +49,11 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
   private connection!: IORedis;
   private readonly workers: Worker[] = [];
 
-  constructor(@Inject(ClockQueueService) private readonly queues: ClockQueueService) {}
+  constructor(
+    @Inject(ClockQueueService) private readonly queues: ClockQueueService,
+    @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
+    @Inject(ClockBookingHydrationService) private readonly hydration: ClockBookingHydrationService,
+  ) {}
 
   onModuleInit(): void {
     this.connection = new IORedis(process.env.REDIS_URL!, { maxRetriesPerRequest: null });
@@ -55,8 +87,55 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async process(queueName: ClockQueueName, job: Job): Promise<void> {
+    if (queueName === 'clock.webhooks' && job.name === 'hydrate-event') {
+      await this.processHydrateEvent(job);
+      return;
+    }
     this.logger.debug(
       `Clock queue "${queueName}" received job "${job.name}" (${job.id}) — no processor wired yet.`,
     );
+  }
+
+  private async processHydrateEvent(job: Job): Promise<void> {
+    if (!isHydrateEventJobData(job.data)) {
+      throw new Error(`hydrate-event job ${job.id} has malformed data.`);
+    }
+    const { tenantId, propertyId, connectionId, eventId } = job.data;
+
+    const event = await this.database.withTenantTransaction({ tenantId, propertyId }, (tx) =>
+      tx.$queryRawUnsafe<Array<{ eventType: string; objectId: string | null }>>(
+        `SELECT event_type AS "eventType", object_id AS "objectId" FROM provider_events
+         WHERE tenant_id = $1::uuid AND connection_id = $2::uuid AND event_id = $3`,
+        tenantId,
+        connectionId,
+        eventId,
+      ),
+    );
+    const row = event[0];
+    if (!row) {
+      this.logger.warn(`hydrate-event job ${job.id}: no provider_events row for event ${eventId}.`);
+      return;
+    }
+
+    if (!BOOKING_EVENT_TYPES.has(row.eventType)) {
+      this.logger.debug(
+        `hydrate-event job ${job.id}: event type "${row.eventType}" is acknowledged but not applied yet.`,
+      );
+      return;
+    }
+    if (!row.objectId) {
+      this.logger.warn(
+        `hydrate-event job ${job.id}: event type "${row.eventType}" has no object id, cannot hydrate.`,
+      );
+      return;
+    }
+
+    const outcome = await this.hydration.hydrateBooking(
+      tenantId,
+      propertyId,
+      connectionId,
+      row.objectId,
+    );
+    this.logger.log(`hydrate-event job ${job.id}: booking ${row.objectId} -> ${outcome.outcome}.`);
   }
 }
