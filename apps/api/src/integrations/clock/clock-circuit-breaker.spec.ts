@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const { reportOperationalFailure } = vi.hoisted(() => ({ reportOperationalFailure: vi.fn() }));
+vi.mock('../../observability/error-tracking', () => ({ reportOperationalFailure }));
+
 import {
   CIRCUIT_BREAKER_COOLDOWN_MS,
   CIRCUIT_BREAKER_FAILURE_THRESHOLD,
@@ -13,6 +16,7 @@ describe('ClockCircuitBreakerService', () => {
   beforeEach(() => {
     breaker = new ClockCircuitBreakerService();
     vi.useFakeTimers();
+    reportOperationalFailure.mockClear();
   });
 
   afterEach(() => {
@@ -68,6 +72,27 @@ describe('ClockCircuitBreakerService', () => {
 
     breaker.recordSuccess('user-a');
     expect(breaker.stateOf('user-a')).toBe('CLOSED');
+  });
+
+  it('alerts exactly once when the breaker opens, not on every failure leading up to it', () => {
+    for (let i = 0; i < CIRCUIT_BREAKER_FAILURE_THRESHOLD - 1; i += 1)
+      breaker.recordFailure('user-a');
+    expect(reportOperationalFailure).not.toHaveBeenCalled();
+
+    breaker.recordFailure('user-a');
+    expect(reportOperationalFailure).toHaveBeenCalledTimes(1);
+    const [, context] = reportOperationalFailure.mock.calls[0]!;
+    expect(context).toEqual({ component: 'clock', operation: 'circuit-breaker-opened' });
+  });
+
+  it('alerts again when a half-open trial call fails and re-opens it', () => {
+    for (let i = 0; i < CIRCUIT_BREAKER_FAILURE_THRESHOLD; i += 1) breaker.recordFailure('user-a');
+    reportOperationalFailure.mockClear();
+    vi.advanceTimersByTime(CIRCUIT_BREAKER_COOLDOWN_MS + 1);
+    breaker.assertClosed('user-a');
+
+    breaker.recordFailure('user-a');
+    expect(reportOperationalFailure).toHaveBeenCalledTimes(1);
   });
 
   it('keeps breakers independent per key', () => {

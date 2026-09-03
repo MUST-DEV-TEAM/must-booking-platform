@@ -451,7 +451,9 @@ export class ClockAvailabilityService {
     } catch (error) {
       this.circuitBreaker.recordFailure(breakerKey);
       if (error instanceof ClockHttpError)
-        return failure(classifyClockClientFailure('network', error.message));
+        return failure(
+          classifyClockClientFailure(error.isTimeout ? 'timeout' : 'network', error.message),
+        );
       throw error;
     }
   }

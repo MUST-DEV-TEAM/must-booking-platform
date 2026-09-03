@@ -309,7 +309,10 @@ export class ClockBookingConsistencyService {
     } catch (error) {
       if (error instanceof ClockHttpError) {
         this.circuitBreaker.recordFailure(breakerKey);
-        throw new Error(classifyClockClientFailure('network', error.message).message);
+        throw new Error(
+          classifyClockClientFailure(error.isTimeout ? 'timeout' : 'network', error.message)
+            .message,
+        );
       }
       throw error;
     }

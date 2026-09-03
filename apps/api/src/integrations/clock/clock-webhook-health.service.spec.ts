@@ -18,7 +18,7 @@ function makeService(rows: unknown[]) {
 
 const HOUR = 60 * 60_000;
 
-describe('ClockWebhookHealthService', () => {
+describe('ClockWebhookHealthService.checkWebhookFreshness', () => {
   afterEach(() => {
     reportOperationalFailure.mockClear();
   });
@@ -32,7 +32,7 @@ describe('ClockWebhookHealthService', () => {
         createdAt: new Date(Date.now() - 100 * HOUR),
       },
     ]);
-    const result = await service.checkAll();
+    const result = await service.checkWebhookFreshness();
     expect(result).toEqual({ checked: 1, stale: 0 });
     expect(reportOperationalFailure).not.toHaveBeenCalled();
     await service.onModuleDestroy();
@@ -47,7 +47,7 @@ describe('ClockWebhookHealthService', () => {
         createdAt: new Date(Date.now() - 200 * HOUR),
       },
     ]);
-    const result = await service.checkAll();
+    const result = await service.checkWebhookFreshness();
     expect(result).toEqual({ checked: 1, stale: 1 });
     expect(reportOperationalFailure).toHaveBeenCalledTimes(1);
     const [, context] = reportOperationalFailure.mock.calls[0]!;
@@ -63,7 +63,7 @@ describe('ClockWebhookHealthService', () => {
     const { service } = makeService([
       { id: 'conn-3', tenantId: 'tenant-3', lastWebhookReceivedAt: null, createdAt: new Date() },
     ]);
-    const result = await service.checkAll();
+    const result = await service.checkWebhookFreshness();
     expect(result).toEqual({ checked: 1, stale: 0 });
     expect(reportOperationalFailure).not.toHaveBeenCalled();
     await service.onModuleDestroy();
@@ -78,9 +78,47 @@ describe('ClockWebhookHealthService', () => {
         createdAt: new Date(Date.now() - 200 * HOUR),
       },
     ]);
-    const result = await service.checkAll();
+    const result = await service.checkWebhookFreshness();
     expect(result).toEqual({ checked: 1, stale: 1 });
     expect(reportOperationalFailure).toHaveBeenCalledTimes(1);
+    await service.onModuleDestroy();
+  });
+});
+
+describe('ClockWebhookHealthService.checkStuckBookings', () => {
+  afterEach(() => {
+    reportOperationalFailure.mockClear();
+  });
+
+  it('alerts once per booking genuinely stuck in a Clock in-flight status', async () => {
+    const { service } = makeService([
+      {
+        id: 'booking-1',
+        tenantId: 'tenant-1',
+        propertyId: 'property-1',
+        status: 'PMS_CREATION_PENDING',
+        updatedAt: new Date(Date.now() - 2 * HOUR),
+      },
+    ]);
+    const count = await service.checkStuckBookings();
+    expect(count).toBe(1);
+    expect(reportOperationalFailure).toHaveBeenCalledTimes(1);
+    const [error, context] = reportOperationalFailure.mock.calls[0]!;
+    expect((error as Error).message).toContain('PMS_CREATION_PENDING');
+    expect(context).toEqual({
+      component: 'clock',
+      operation: 'pending-booking-timeout-check',
+      tenantId: 'tenant-1',
+      propertyId: 'property-1',
+    });
+    await service.onModuleDestroy();
+  });
+
+  it('does not alert when the query returns nothing (no bookings past the cutoff)', async () => {
+    const { service } = makeService([]);
+    const count = await service.checkStuckBookings();
+    expect(count).toBe(0);
+    expect(reportOperationalFailure).not.toHaveBeenCalled();
     await service.onModuleDestroy();
   });
 });

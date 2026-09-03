@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
+import { reportOperationalFailure } from '../observability/error-tracking';
 
 export type ManualReviewCategory =
   | 'UNKNOWN_RESULT'
@@ -61,6 +62,19 @@ export class ManualReviewService {
       input.message,
       input.context === undefined ? null : JSON.stringify(input.context),
     );
+    // Every category here means something needs a human to look — Clock
+    // certification gap (docs/CLOCK_CERTIFICATION_GAPS_PLAN.md): the row was
+    // always recorded for real, but until now nothing surfaced it in real
+    // time, only a manual check of the list. One hook here covers every
+    // category (schema mismatches, unmapped catalog entries, unknown
+    // results, etc.) rather than alerting at each of the many call sites
+    // individually.
+    reportOperationalFailure(new Error(`Manual review required: ${input.message}`), {
+      component: 'clock',
+      operation: `manual-review.${input.category.toLowerCase()}`,
+      tenantId: input.tenantId,
+      propertyId: input.propertyId,
+    });
   }
 
   list(tenantId: string, propertyId?: string): Promise<ManualReviewItem[]> {

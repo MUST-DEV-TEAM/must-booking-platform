@@ -70,7 +70,10 @@ export class ClockConnectionPingService {
     } catch (error) {
       this.circuitBreaker.recordFailure(breakerKey);
       if (error instanceof ClockHttpError) {
-        const classified = classifyClockClientFailure('network', error.message);
+        const classified = classifyClockClientFailure(
+          error.isTimeout ? 'timeout' : 'network',
+          error.message,
+        );
         return { ok: false, message: classified.message };
       }
       throw error;

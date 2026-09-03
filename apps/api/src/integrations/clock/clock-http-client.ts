@@ -43,6 +43,26 @@ export class ClockHttpError extends Error {
     super(message);
     this.name = 'ClockHttpError';
   }
+
+  /** Real bug found and fixed 2026-09-03 (Clock certification gap loose end,
+   * docs/CLOCK_CERTIFICATION_GAPS_PLAN.md): every caller across the Clock
+   * integration classified a ClockHttpError as `classifyClockClientFailure
+   * ('network', ...)` unconditionally, even when the underlying failure was
+   * a genuine timeout — confirmed against undici's own real error codes
+   * (node_modules/undici/lib/core/errors.js: HeadersTimeoutError/
+   * BodyTimeoutError set `code: 'UND_ERR_HEADERS_TIMEOUT'`/
+   * `'UND_ERR_BODY_TIMEOUT'`), not guessed. This matters for real:
+   * clock-retry-policy.ts's isRetryEligible treats 'network' as always
+   * retryable but 'timeout' as GET-only — a POST /bookings/ timeout being
+   * mislabeled 'network' would make it look safe to retry (Clock may have
+   * already created the booking) instead of GET-only per section 11. Not
+   * yet an active bug in production (isRetryEligible isn't wired into a real
+   * retry loop anywhere yet — CLOCK_ARCHITECTURE.md), but a real landmine
+   * for whenever it is. */
+  get isTimeout(): boolean {
+    const code = (this.cause as { code?: unknown } | undefined)?.code;
+    return code === 'UND_ERR_HEADERS_TIMEOUT' || code === 'UND_ERR_BODY_TIMEOUT';
+  }
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;

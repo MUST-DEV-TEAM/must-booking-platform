@@ -150,17 +150,24 @@ describe('ClockHttpClient', () => {
     expect(result.body).toContain('Not Found');
   });
 
-  it('wraps a network failure in ClockHttpError rather than an unhandled rejection', async () => {
+  it('wraps a network failure in ClockHttpError, correctly NOT flagged as a timeout', async () => {
     client = new ClockHttpClient('http:');
-    await expect(
-      client.request(
+    const error = await client
+      .request(
         { ...credentials, host: '127.0.0.1:1' },
         { api: 'pms_api', method: 'GET', path: '/room_types', timeoutMs: 500 },
-      ),
-    ).rejects.toThrow(ClockHttpError);
+      )
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ClockHttpError);
+    // Real bug found and fixed 2026-09-03 (Clock certification gap loose
+    // end): every caller across the Clock integration used to classify
+    // every ClockHttpError as 'network', even a genuine timeout. This case
+    // (connection refused, not a timeout) must stay isTimeout: false so the
+    // fix doesn't just flip the bug the other way.
+    expect((error as ClockHttpError).isTimeout).toBe(false);
   });
 
-  it('aborts a request that exceeds the configured timeout', async () => {
+  it('aborts a request that exceeds the configured timeout, correctly flagged as isTimeout', async () => {
     const host = await startMockServer((_request, response) => {
       setTimeout(() => {
         response.writeHead(200, { 'content-type': 'application/json' });
@@ -169,12 +176,16 @@ describe('ClockHttpClient', () => {
     });
 
     client = new ClockHttpClient('http:');
-    await expect(
-      client.request(
+    const error = await client
+      .request(
         { ...credentials, host },
         { api: 'pms_api', method: 'GET', path: '/slow', timeoutMs: 100 },
-      ),
-    ).rejects.toThrow(ClockHttpError);
+      )
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ClockHttpError);
+    // Confirmed against undici's own real error codes (not guessed) — see
+    // ClockHttpError.isTimeout's doc comment in clock-http-client.ts.
+    expect((error as ClockHttpError).isTimeout).toBe(true);
   });
 });
 

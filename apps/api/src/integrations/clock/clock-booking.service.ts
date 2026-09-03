@@ -1307,7 +1307,9 @@ export class ClockBookingService {
     } catch (error) {
       this.circuitBreaker.recordFailure(breakerKey);
       if (error instanceof ClockHttpError)
-        return this.failureError(classifyClockClientFailure('network', error.message));
+        return this.failureError(
+          classifyClockClientFailure(error.isTimeout ? 'timeout' : 'network', error.message),
+        );
       throw error;
     }
   }

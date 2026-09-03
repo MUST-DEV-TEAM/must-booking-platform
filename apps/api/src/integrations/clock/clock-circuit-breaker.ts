@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
+import { reportOperationalFailure } from '../../observability/error-tracking';
+
 // Source brief section 9 requires a circuit breaker; it doesn't specify
 // thresholds, so these are reasonable, documented defaults (ASSUMPTION),
 // not derived from anything Clock-specific. One breaker per key (API user)
@@ -52,11 +54,13 @@ export class ClockCircuitBreakerService {
         consecutiveFailures: breaker.consecutiveFailures + 1,
         openedAt: Date.now(),
       });
+      this.alertOpened(breaker.consecutiveFailures + 1);
       return;
     }
     const consecutiveFailures = breaker.consecutiveFailures + 1;
     if (consecutiveFailures >= CIRCUIT_BREAKER_FAILURE_THRESHOLD) {
       this.breakers.set(key, { state: 'OPEN', consecutiveFailures, openedAt: Date.now() });
+      this.alertOpened(consecutiveFailures);
       return;
     }
     this.breakers.set(key, { state: 'CLOSED', consecutiveFailures, openedAt: null });
@@ -64,6 +68,22 @@ export class ClockCircuitBreakerService {
 
   stateOf(key: string): CircuitState {
     return this.record(key).state;
+  }
+
+  /** Fires exactly once per opening — assertClosed() throws before any real
+   * attempt while already OPEN, so recordFailure() is never called again
+   * until a trial (HALF_OPEN) call happens. Covers Clock certification gap
+   * Task B's remaining alert case (docs/CLOCK_CERTIFICATION_GAPS_PLAN.md):
+   * repeated auth/5xx failures against Clock, including a real 429 that
+   * slips past the self-imposed rate-limit ceiling. No tenant/apiUser
+   * identifier in the alert — this service is intentionally tenant-agnostic
+   * (one breaker per Clock API user, not per tenant) and never sees a
+   * tenantId to attach. */
+  private alertOpened(consecutiveFailures: number): void {
+    reportOperationalFailure(
+      new Error(`Clock circuit breaker opened after ${consecutiveFailures} consecutive failures.`),
+      { component: 'clock', operation: 'circuit-breaker-opened' },
+    );
   }
 
   private record(key: string): BreakerRecord {
