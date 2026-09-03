@@ -59,6 +59,7 @@ services:
       - '4010:3000'
     networks:
       - internal
+      - proxy
 
   web:
     build:
