@@ -8,6 +8,7 @@ import { CLOCK_DEAD_LETTER_QUEUE_NAME, CLOCK_QUEUE_PRIORITY } from './clock-queu
 import type { ClockBookingHydrationService } from './clock-booking-hydration.service';
 import type { ClockFolioHydrationService } from './clock-folio-hydration.service';
 import type { ClockBookingConsistencyService } from './clock-booking-consistency.service';
+import type { ClockPaymentReconciliationService } from './clock-payment-reconciliation.service';
 import { ClockQueueService } from './clock-queue.service';
 import { ClockWorkerService } from './clock-worker.service';
 
@@ -33,6 +34,7 @@ describe('ClockQueueService + ClockWorkerService (real Redis)', () => {
     {} as ClockFolioHydrationService,
     { activeClockPmsProperties: async () => [] } as never,
     {} as ClockBookingConsistencyService,
+    {} as ClockPaymentReconciliationService,
   );
   const inspectionConnection = new IORedis(process.env.REDIS_URL!, { maxRetriesPerRequest: null });
 

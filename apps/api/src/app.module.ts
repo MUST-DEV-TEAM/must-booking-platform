@@ -114,6 +114,7 @@ import { ClockBookingService } from './integrations/clock/clock-booking.service'
 import { ClockBookingConsistencyService } from './integrations/clock/clock-booking-consistency.service';
 import { ClockBookingHydrationService } from './integrations/clock/clock-booking-hydration.service';
 import { ClockFolioHydrationService } from './integrations/clock/clock-folio-hydration.service';
+import { ClockPaymentReconciliationService } from './integrations/clock/clock-payment-reconciliation.service';
 import { ClockQueueService } from './integrations/clock/clock-queue.service';
 import { ClockWorkerService } from './integrations/clock/clock-worker.service';
 import { ClockWebhookVerificationService } from './integrations/clock/clock-webhook-verification.service';
@@ -258,6 +259,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ClockBookingConsistencyService,
     ClockBookingHydrationService,
     ClockFolioHydrationService,
+    ClockPaymentReconciliationService,
     ClockQueueService,
     ClockWorkerService,
     {

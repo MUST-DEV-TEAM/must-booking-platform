@@ -25,6 +25,9 @@ function makeWorker(providerEventsRow: unknown) {
     ]),
   };
   const consistency = { check: vi.fn().mockResolvedValue({ findings: [] }) };
+  const paymentReconciliation = {
+    check: vi.fn().mockResolvedValue({ bookingsChecked: 0, findings: [] }),
+  };
   const worker = new ClockWorkerService(
     queues as never,
     database as never,
@@ -32,8 +35,18 @@ function makeWorker(providerEventsRow: unknown) {
     folioHydration as never,
     connections as never,
     consistency as never,
+    paymentReconciliation as never,
   );
-  return { worker, database, hydration, folioHydration, queues, connections, consistency };
+  return {
+    worker,
+    database,
+    hydration,
+    folioHydration,
+    queues,
+    connections,
+    consistency,
+    paymentReconciliation,
+  };
 }
 
 const jobData = {
@@ -130,7 +143,7 @@ describe('ClockWorkerService dispatch — clock.reconciliation', () => {
       );
 
       expect(connections.activeClockPmsProperties).toHaveBeenCalledOnce();
-      expect(queues.enqueue).toHaveBeenCalledTimes(2);
+      expect(queues.enqueue).toHaveBeenCalledTimes(4);
       expect(queues.enqueue).toHaveBeenNthCalledWith(
         1,
         'clock.reconciliation',
@@ -142,6 +155,13 @@ describe('ClockWorkerService dispatch — clock.reconciliation', () => {
           endsOn: '2026-09-04',
         },
         { jobId: 'clock-reconciliation-tenant-1-property-1-2026-08-04' },
+      );
+      expect(queues.enqueue).toHaveBeenNthCalledWith(
+        2,
+        'clock.reconciliation',
+        'reconcile-payments',
+        { tenantId: 'tenant-1', propertyId: 'property-1', since: '2026-08-04' },
+        { jobId: 'clock-payment-reconciliation-tenant-1-property-1-2026-08-04' },
       );
     } finally {
       vi.useRealTimers();
@@ -167,6 +187,34 @@ describe('ClockWorkerService dispatch — clock.reconciliation', () => {
       startsOn: '2026-08-04',
       endsOn: '2026-09-04',
     });
+  });
+
+  it('runs the payment reconciliation checker on reconcile-payments jobs', async () => {
+    const { worker, paymentReconciliation } = makeWorker(undefined);
+    const data = { tenantId: 'tenant-1', propertyId: 'property-1', since: '2026-08-04' };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (worker as any).process(
+      'clock.reconciliation',
+      fakeJob('reconcile-payments', 'reconcile-payments', data),
+    );
+
+    expect(paymentReconciliation.check).toHaveBeenCalledWith(
+      'tenant-1',
+      'property-1',
+      new Date('2026-08-04T00:00:00Z'),
+    );
+  });
+
+  it('rejects malformed payment-reconciliation jobs', async () => {
+    const { worker } = makeWorker(undefined);
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (worker as any).process(
+        'clock.reconciliation',
+        fakeJob('malformed-reconcile-payments', 'reconcile-payments', { tenantId: 'tenant-1' }),
+      ),
+    ).rejects.toThrow(/malformed data/);
   });
 
   it('rejects malformed reconciliation jobs', async () => {

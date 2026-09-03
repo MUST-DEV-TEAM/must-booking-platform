@@ -8,6 +8,7 @@ import { CLOCK_QUEUE_NAMES, type ClockQueueName } from './clock-queue-names';
 import { ClockBookingConsistencyService } from './clock-booking-consistency.service';
 import { ClockBookingHydrationService } from './clock-booking-hydration.service';
 import { ClockFolioHydrationService } from './clock-folio-hydration.service';
+import { ClockPaymentReconciliationService } from './clock-payment-reconciliation.service';
 import { ClockQueueService } from './clock-queue.service';
 import { reportOperationalFailure } from '../../observability/error-tracking';
 
@@ -40,6 +41,7 @@ const FOLIO_EVENT_TYPES = new Set(['folio_update', 'folio_close']);
 const RECONCILIATION_SCHEDULER_ID = 'daily-clock-booking-reconciliation';
 const RECONCILIATION_SCHEDULE_JOB = 'schedule-reconciliation';
 const RECONCILE_PROPERTY_JOB = 'reconcile-property';
+const RECONCILE_PAYMENTS_JOB = 'reconcile-payments';
 const RECONCILIATION_CRON = '0 3 * * *';
 
 interface HydrateEventJobData {
@@ -54,6 +56,12 @@ interface ReconcilePropertyJobData {
   propertyId: string;
   startsOn: string;
   endsOn: string;
+}
+
+interface ReconcilePaymentsJobData {
+  tenantId: string;
+  propertyId: string;
+  since: string;
 }
 
 function isHydrateEventJobData(value: unknown): value is HydrateEventJobData {
@@ -75,6 +83,16 @@ function isReconcilePropertyJobData(value: unknown): value is ReconcilePropertyJ
     typeof data.propertyId === 'string' &&
     typeof data.startsOn === 'string' &&
     typeof data.endsOn === 'string'
+  );
+}
+
+function isReconcilePaymentsJobData(value: unknown): value is ReconcilePaymentsJobData {
+  if (!value || typeof value !== 'object') return false;
+  const data = value as Record<string, unknown>;
+  return (
+    typeof data.tenantId === 'string' &&
+    typeof data.propertyId === 'string' &&
+    typeof data.since === 'string'
   );
 }
 
@@ -102,6 +120,8 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
     private readonly connections: IntegrationConnectionsService,
     @Inject(ClockBookingConsistencyService)
     private readonly consistency: ClockBookingConsistencyService,
+    @Inject(ClockPaymentReconciliationService)
+    private readonly paymentReconciliation: ClockPaymentReconciliationService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -155,6 +175,10 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
     }
     if (queueName === 'clock.reconciliation' && job.name === RECONCILE_PROPERTY_JOB) {
       await this.processReconcileProperty(job);
+      return;
+    }
+    if (queueName === 'clock.reconciliation' && job.name === RECONCILE_PAYMENTS_JOB) {
+      await this.processReconcilePayments(job);
       return;
     }
     this.logger.debug(
@@ -223,17 +247,23 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
     const properties = await this.connections.activeClockPmsProperties();
     const range = reconciliationRange(new Date());
     await Promise.all(
-      properties.map(({ tenantId, propertyId }) =>
+      properties.flatMap(({ tenantId, propertyId }) => [
         this.queues.enqueue(
           'clock.reconciliation',
           RECONCILE_PROPERTY_JOB,
           { tenantId, propertyId, ...range },
           { jobId: `clock-reconciliation-${tenantId}-${propertyId}-${range.startsOn}` },
         ),
-      ),
+        this.queues.enqueue(
+          'clock.reconciliation',
+          RECONCILE_PAYMENTS_JOB,
+          { tenantId, propertyId, since: range.startsOn },
+          { jobId: `clock-payment-reconciliation-${tenantId}-${propertyId}-${range.startsOn}` },
+        ),
+      ]),
     );
     this.logger.log(
-      `Scheduled ${properties.length} Clock booking consistency check(s) for ${range.startsOn} to ${range.endsOn}.`,
+      `Scheduled ${properties.length} Clock booking consistency check(s) and payment reconciliation check(s) for ${range.startsOn} to ${range.endsOn}.`,
     );
   }
 
@@ -243,6 +273,14 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
     }
     const { tenantId, propertyId, startsOn, endsOn } = job.data;
     await this.consistency.check(tenantId, propertyId, { startsOn, endsOn });
+  }
+
+  private async processReconcilePayments(job: Job): Promise<void> {
+    if (!isReconcilePaymentsJobData(job.data)) {
+      throw new Error(`reconcile-payments job ${job.id} has malformed data.`);
+    }
+    const { tenantId, propertyId, since } = job.data;
+    await this.paymentReconciliation.check(tenantId, propertyId, new Date(`${since}T00:00:00Z`));
   }
 }
 
