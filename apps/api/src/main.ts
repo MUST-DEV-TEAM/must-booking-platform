@@ -16,7 +16,11 @@ type BodyCarrier = IncomingMessage & { body?: unknown };
 // envelope" before ClockWebhookService ever ran). Only reads the stream when
 // Nest's own default parser left `body` empty, so a genuine `application/json`
 // delivery (already parsed by then) is left untouched.
-function parseAnyContentTypeAsJson(req: BodyCarrier, _res: ServerResponse, next: (err?: unknown) => void): void {
+function parseAnyContentTypeAsJson(
+  req: BodyCarrier,
+  _res: ServerResponse,
+  next: (err?: unknown) => void,
+): void {
   const alreadyParsed =
     req.body !== undefined &&
     req.body !== null &&
