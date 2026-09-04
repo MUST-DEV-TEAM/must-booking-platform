@@ -8,6 +8,7 @@
     "prisma": "prisma",
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
+    "db:set-app-password": "node --env-file-if-exists=.env --import=tsx scripts/set-app-database-password.ts",
     "seed:platform-admin": "node --env-file-if-exists=.env --import=tsx scripts/seed-platform-admin.ts",
     "seed:local-demo": "node --env-file-if-exists=.env --import=tsx scripts/seed-local-demo.ts",
     "check:empire-clock-bookings": "node --env-file-if-exists=.env --import=tsx scripts/check-empire-clock-booking-consistency.ts",

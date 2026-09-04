@@ -35,6 +35,9 @@ fi
 docker compose -f compose.homelab.yaml --env-file .env build
 docker compose -f compose.homelab.yaml --env-file .env up -d postgres redis
 docker compose -f compose.homelab.yaml --env-file .env run --rm api pnpm --filter api prisma migrate deploy
+# Must run after migrate (the role may have just been created with its placeholder
+# password) and before the api container starts using APP_DATABASE_PASSWORD.
+docker compose -f compose.homelab.yaml --env-file .env run --rm api pnpm --filter api db:set-app-password
 docker compose -f compose.homelab.yaml --env-file .env up -d
 docker compose -f compose.homelab.yaml --env-file .env ps
 

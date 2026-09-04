@@ -47,8 +47,8 @@ optional automation needs to exist for a manual deployment.
 
    Every variable in `homelab.env.example` has a comment explaining what it's for and whether it's
    required. Generate fresh secrets for a new environment — `POSTGRES_PASSWORD`,
-   `QUOTE_SIGNING_SECRET`, and `INTEGRATION_CREDENTIALS_KEY` must not be reused from another
-   deployment.
+   `APP_DATABASE_PASSWORD`, `QUOTE_SIGNING_SECRET`, and `INTEGRATION_CREDENTIALS_KEY` must not be
+   reused from another deployment.
 
 2. Build, start the database and cache, migrate, then bring up the app:
 
@@ -56,6 +56,7 @@ optional automation needs to exist for a manual deployment.
    docker compose -f compose.homelab.yaml --env-file .env build
    docker compose -f compose.homelab.yaml --env-file .env up -d postgres redis
    docker compose -f compose.homelab.yaml --env-file .env run --rm api pnpm --filter api prisma migrate deploy
+   docker compose -f compose.homelab.yaml --env-file .env run --rm api pnpm --filter api db:set-app-password
    docker compose -f compose.homelab.yaml --env-file .env up -d
    ```
 
@@ -65,10 +66,17 @@ optional automation needs to exist for a manual deployment.
 3. Confirm health: `docker compose -f compose.homelab.yaml --env-file .env ps` — `api` and `web`
    should be running, not restarting.
 
-## Known gap
+## The runtime database role
 
-`compose.homelab.yaml`'s `api` service currently hardcodes its runtime database password as a
-literal string instead of reading it from `.env` the way `MIGRATION_DATABASE_URL` does. It hasn't
-mattered on the homelab (Postgres isn't reachable outside its Docker network), but it should be
-parameterized before this compose file is handed to a new environment — see the migration that
-creates the `must_booking_app` role.
+The API connects as `must_booking_app`, a non-superuser role that RLS actually applies to — not as
+the migration owner, which would bypass it. A migration has no access to the deployment's secrets,
+so `20260727180000_runtime_database_role_and_users_insert_policy` creates that role with a
+placeholder password and `db:set-app-password` rewrites it from `APP_DATABASE_PASSWORD` afterwards.
+
+Run `db:set-app-password` after every `prisma migrate deploy` and before starting `api`; `deploy.sh`
+already does. It is idempotent, and it must run on the migration-owner connection, since the API's
+own role cannot change its own password.
+
+Changing `APP_DATABASE_PASSWORD` in `.env` therefore takes two steps: run `db:set-app-password` to
+move the role to the new value, then recreate `api` so it picks the new value up. Restarting `api`
+alone will leave it unable to authenticate.

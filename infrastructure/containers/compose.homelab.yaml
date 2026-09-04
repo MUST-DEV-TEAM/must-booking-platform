@@ -43,7 +43,8 @@ services:
         condition: service_healthy
     environment:
       APP_PORT: 3000
-      DATABASE_URL: postgresql://must_booking_app:must_booking_app_dev@postgres:5432/must_booking?schema=public
+      APP_DATABASE_PASSWORD: ${APP_DATABASE_PASSWORD}
+      DATABASE_URL: postgresql://must_booking_app:${APP_DATABASE_PASSWORD}@postgres:5432/must_booking?schema=public
       MIGRATION_DATABASE_URL: postgresql://must_booking:${POSTGRES_PASSWORD}@postgres:5432/must_booking?schema=public
       REDIS_URL: redis://redis:6379
       WEB_APP_URL: ${WEB_APP_URL}
