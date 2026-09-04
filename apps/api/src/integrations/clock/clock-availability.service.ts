@@ -55,7 +55,14 @@ type ClockProductsResponse = Array<{
 
 type ClockQuote = { total: Money; nightlyRates: NightlyRate[] };
 
-const CACHE_TTL_MS = 60_000; // Task 8 acceptance: short-lived cache, no fixed brief-specified TTL.
+// Clock support confirmed 2026-09-04: /rates_availability should not be
+// called more than once every 15 minutes, and recommends caching for longer
+// than that. 20 minutes gives a safety margin above their stated minimum —
+// the same margin pattern already used for our own rate limiter (4 req/s
+// against Clock's documented 5 req/s). The final pre-booking check
+// (skipCache) always bypasses this regardless, so a stale cached answer can
+// never actually gate a real booking.
+const CACHE_TTL_MS = 1_200_000;
 
 interface CacheEntry<T> {
   value: T;
