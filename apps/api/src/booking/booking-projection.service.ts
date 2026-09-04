@@ -84,7 +84,9 @@ export class BookingProjectionService {
         JOIN rate_plans rp
           ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
         LEFT JOIN LATERAL (
-          SELECT SUM(CASE WHEN p.kind = 'CHARGE' AND p.status = 'succeeded' THEN p.amount ELSE 0 END) AS "paidAmount",
+          -- Real gateways (Stripe, PokPay) write status 'PAID'; only staff-recorded
+          -- manual payments write 'succeeded' — both mean a real successful charge.
+          SELECT SUM(CASE WHEN p.kind = 'CHARGE' AND p.status IN ('succeeded', 'PAID') THEN p.amount ELSE 0 END) AS "paidAmount",
             SUM(CASE WHEN p.kind = 'REFUND' THEN p.amount ELSE 0 END) AS "refundedAmount"
           FROM payments p
           WHERE p.tenant_id = b.tenant_id AND p.property_id = b.property_id AND p.booking_id = b.id

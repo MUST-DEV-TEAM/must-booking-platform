@@ -119,12 +119,14 @@ export class ManualPaymentService {
     context: PaymentProviderContext,
     bookingId: string,
   ): Promise<bigint> {
+    // Real gateways (Stripe, PokPay) write status 'PAID'; only staff-recorded
+    // manual payments write 'succeeded' — both mean a real successful charge.
     const rows = await tx.$queryRaw<Array<{ amount: string }>>`
       SELECT COALESCE(SUM(amount), 0)::text AS amount
       FROM payments
       WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
         AND booking_id = ${bookingId}::uuid AND kind = 'CHARGE'::"PaymentKind"
-        AND status = 'succeeded'
+        AND status IN ('succeeded', 'PAID')
     `;
     return this.minorUnits(rows[0]?.amount ?? '0');
   }

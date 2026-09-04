@@ -232,10 +232,12 @@ export class ClockPaymentReconciliationService {
         JOIN rate_plans rp
           ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
         JOIN LATERAL (
+          -- Real gateways (Stripe, PokPay) write status 'PAID'; only staff-recorded
+          -- manual payments write 'succeeded' — both mean a real successful charge.
           SELECT SUM(p.amount)::text AS "paidAmount"
           FROM payments p
           WHERE p.tenant_id = b.tenant_id AND p.property_id = b.property_id AND p.booking_id = b.id
-            AND p.kind = 'CHARGE' AND p.status = 'succeeded'
+            AND p.kind = 'CHARGE' AND p.status IN ('succeeded', 'PAID')
         ) paid ON TRUE
         WHERE b.tenant_id = ${tenantId}::uuid AND b.property_id = ${propertyId}::uuid
           AND b.external_booking_id IS NOT NULL

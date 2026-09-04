@@ -140,6 +140,11 @@ describe('Clock payment reconciliation (read-only)', () => {
     externalBookingId: string,
     externalReference: string,
     chargedAmount: string,
+    // Real gateways (Stripe, PokPay) write 'PAID', not 'succeeded' — confirmed
+    // 2026-09-04 against real production payment rows. Defaults to 'succeeded'
+    // to keep the other test cases below unchanged; the dedicated case further
+    // down passes 'PAID' to prove the real gateway value is recognized too.
+    paymentStatus = 'succeeded',
   ): Promise<string> {
     const bookingId = randomUUID();
     await admin.$executeRaw`
@@ -157,7 +162,7 @@ describe('Clock payment reconciliation (read-only)', () => {
         tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency
       ) VALUES (
         ${tenantId}::uuid, ${propertyId}::uuid, ${bookingId}::uuid,
-        'CHARGE'::"PaymentKind", 'stripe', ${'pi-' + bookingId}, 'succeeded', ${chargedAmount}::decimal, 'EUR'
+        'CHARGE'::"PaymentKind", 'stripe', ${'pi-' + bookingId}, ${paymentStatus}, ${chargedAmount}::decimal, 'EUR'
       )
     `;
     return bookingId;
@@ -238,6 +243,40 @@ describe('Clock payment reconciliation (read-only)', () => {
     const result = await service.check(tenantId, propertyId, new Date('2026-01-01T00:00:00Z'));
     expect(result.findings).toEqual([{ type: 'DEPOSIT_FOLIO_MISSING', bookingId }]);
     expect(await manualReviewItemsFor(bookingId)).toHaveLength(1);
+    await deleteBooking(bookingId);
+  });
+
+  it('finds a booking paid with the real gateway status "PAID", not just the manual-payment "succeeded"', async () => {
+    // Real bug, found 2026-09-04 against real production data: Stripe and
+    // PokPay both write status 'PAID' on a real successful charge — only
+    // staff-recorded manual payments write 'succeeded'. This booking's
+    // payment uses 'PAID' specifically to prove that's recognized too.
+    const bookingId = await insertPaidClockBooking(
+      '90000004',
+      'must-recon-real-gateway-status',
+      '250.00',
+      'PAID',
+    );
+    queuedResponses = [
+      { status: 200, body: [76090570] },
+      { status: 200, body: { id: 76090570, deposit: true } },
+      {
+        status: 200,
+        body: [
+          {
+            id: 1,
+            reference: 'must-recon-real-gateway-status',
+            value_cents: 25000,
+            currency: 'EUR',
+          },
+        ],
+      },
+    ];
+    const service = app!.get(ClockPaymentReconciliationService);
+
+    const result = await service.check(tenantId, propertyId, new Date('2026-01-01T00:00:00Z'));
+    expect(result.bookingsChecked).toBe(1);
+    expect(result.findings).toEqual([]);
     await deleteBooking(bookingId);
   });
 });

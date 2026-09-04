@@ -79,13 +79,15 @@ export class ReportsService {
             WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
               AND created_at >= ${from}::date AND created_at < ${to}::date + INTERVAL '1 day'
           ), totals AS (
+            -- Real gateways (Stripe, PokPay) write status 'PAID'; only staff-recorded
+            -- manual payments write 'succeeded' — both mean a real successful charge.
             SELECT p.created_at::date AS date, p.currency, SUM(
               CASE WHEN p.kind = 'REFUND'::"PaymentKind" THEN -p.amount ELSE p.amount END
             ) AS amount
             FROM payments p
             WHERE p.tenant_id = ${tenantId}::uuid AND p.property_id = ${propertyId}::uuid
               AND p.created_at >= ${from}::date AND p.created_at < ${to}::date + INTERVAL '1 day'
-              AND ((p.kind = 'CHARGE'::"PaymentKind" AND p.status = 'succeeded')
+              AND ((p.kind = 'CHARGE'::"PaymentKind" AND p.status IN ('succeeded', 'PAID'))
                 OR p.kind = 'REFUND'::"PaymentKind")
             GROUP BY p.created_at::date, p.currency
           )
