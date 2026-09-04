@@ -73,15 +73,31 @@ final class MustApiClient
         return $result;
     }
 
-    /** Already-configured API URL wins (so a re-paired dev/test site keeps hitting its own
-     * backend); otherwise falls back to the plugin's compiled-in production platform URL. */
+    /**
+     * A pairing code is only ever valid against the backend that generated it, so redemption
+     * must target that backend, not whatever this site happened to have saved before. The one
+     * exception is local development: a site manually pointed at localhost/127.0.0.1 keeps
+     * hitting that local backend (where the code was actually generated), instead of being
+     * redirected to the compiled-in production platform URL. Any other already-configured
+     * value — including a stale one left over from a previous production host — is ignored in
+     * favor of the current compiled-in platform URL.
+     */
     private static function pairingPlatformBaseUrl(): string
     {
         $configured = MustBookingConfig::get_must_api_base_url();
-        if ($configured !== '') {
+        if ($configured !== '' && self::isLocalDevHost($configured)) {
             return $configured;
         }
-        return \defined('MUST_HOTEL_BOOKING_PLATFORM_URL') ? (string) MUST_HOTEL_BOOKING_PLATFORM_URL : '';
+        if (\defined('MUST_HOTEL_BOOKING_PLATFORM_URL') && (string) MUST_HOTEL_BOOKING_PLATFORM_URL !== '') {
+            return (string) MUST_HOTEL_BOOKING_PLATFORM_URL;
+        }
+        return $configured;
+    }
+
+    private static function isLocalDevHost(string $url): bool
+    {
+        $host = (string) (\wp_parse_url($url, \PHP_URL_HOST) ?? '');
+        return \in_array($host, ['localhost', '127.0.0.1'], true);
     }
 
     /**
