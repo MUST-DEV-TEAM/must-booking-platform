@@ -35,7 +35,10 @@ ENV SENTRY_ORG=$SENTRY_ORG
 ENV SENTRY_PROJECT=$SENTRY_PROJECT
 ENV SENTRY_AUTH_TOKEN=$SENTRY_AUTH_TOKEN
 
-RUN pnpm --filter @must/ui build \
+# V8 sizes its default heap from physical memory and ignores swap, so this step
+# OOMs (exit 134) on a small host. Cap it explicitly rather than inherit that.
+RUN export NODE_OPTIONS=--max-old-space-size=3072 \
+ && pnpm --filter @must/ui build \
  && pnpm --filter web build
 
 FROM node:22-bookworm-slim

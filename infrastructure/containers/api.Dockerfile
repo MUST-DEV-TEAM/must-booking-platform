@@ -3,6 +3,13 @@ FROM node:22-bookworm-slim
 WORKDIR /workspace
 RUN corepack enable
 
+# node:22-bookworm-slim ships without openssl, so Prisma cannot detect a libssl
+# version and falls back to a guessed engine at every startup. This is a single
+# stage image, so installing it here also covers the runtime.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssl \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY apps/api/package.json apps/api/package.json
 # apps/api's postinstall runs `prisma generate`, which needs the schema present
@@ -16,7 +23,10 @@ COPY packages/shared-types packages/shared-types
 COPY packages/domain-contracts packages/domain-contracts
 COPY apps/api apps/api
 
-RUN pnpm --filter @must/shared-types build \
+# V8 sizes its default heap from physical memory and ignores swap, so this step
+# OOMs (exit 134) on a small host. Cap it explicitly rather than inherit that.
+RUN export NODE_OPTIONS=--max-old-space-size=3072 \
+ && pnpm --filter @must/shared-types build \
  && pnpm --filter @must/domain-contracts build \
  && pnpm --filter api build
 
