@@ -3221,6 +3221,18 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
     gap: 13px;
 }
 
+.must-hotel-booking-page-booking-confirmation .must-confirmation-occupancy-summary {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 14px 16px;
+    border: 1px solid rgba(20, 20, 20, 0.16);
+    background: #f5f3ec;
+    color: #141414;
+    font-family: 'PP Neue Montreal', sans-serif;
+    font-size: 15px;
+    line-height: 1.35;
+}
+
 .must-hotel-booking-page-booking-confirmation .must-confirmation-field {
     position: relative;
     display: flex;
@@ -5810,6 +5822,108 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
         width: 400px;
         max-width: 400px;
     }
+}
+
+/* Accommodation filter panels: make the party controls feel like one
+ * composed guest-and-room editor while keeping the existing forms and date
+ * picker behavior unchanged. */
+.must-hotel-booking-page-accommodation .must-booking-results-filter-panel-dates {
+    grid-template-columns: minmax(0, 220px) minmax(0, 1fr) auto;
+    background: #fff;
+}
+
+.must-hotel-booking-page-accommodation .must-booking-results-filter-panel-party {
+    grid-template-columns: minmax(0, 260px) minmax(0, 1fr) auto;
+    background: #f5f3ec;
+    border-color: rgba(20, 20, 20, 0.2);
+}
+
+.must-hotel-booking-page-accommodation .must-booking-results-filter-panel-party .must-booking-results-filter-panel-copy {
+    align-content: center;
+    padding-right: 12px;
+    border-right: 1px solid rgba(20, 20, 20, 0.12);
+}
+
+.must-hotel-booking-page-accommodation .must-booking-results-filter-panel-detail {
+    margin: 0;
+    font-family: 'PP Neue Montreal', sans-serif;
+    font-size: 15px;
+    line-height: 1.35;
+    color: rgba(20, 20, 20, 0.62);
+}
+
+.must-hotel-booking-page-accommodation .must-booking-results-filter-panel-fields-party {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.must-hotel-booking-page-accommodation .must-booking-results-filter-panel-party .must-booking-results-filter-field {
+    gap: 8px;
+}
+
+.must-hotel-booking-page-accommodation .must-booking-results-filter-panel-party .must-booking-results-filter-field select,
+.must-hotel-booking-page-accommodation .must-booking-results-filter-panel-party .must-booking-results-filter-field output {
+    border-color: rgba(20, 20, 20, 0.24);
+    background: #fff;
+}
+
+.must-hotel-booking-page-accommodation .must-booking-results-filter-panel-party .must-booking-results-filter-field-readonly output {
+    justify-content: center;
+    font-weight: 500;
+    background: #e8e3d5;
+}
+
+.must-hotel-booking-page-accommodation .must-booking-results-filter-panel-party .must-booking-party-capacity-message {
+    grid-column: 2 / -1;
+}
+
+.must-hotel-booking-page-accommodation .must-booking-results-filter-panel-party .must-booking-results-filter-panel-actions {
+    align-self: stretch;
+}
+
+@media (max-width: 1023px) {
+    .must-hotel-booking-page-accommodation .must-booking-results-filter-panel-party {
+        grid-template-columns: minmax(0, 190px) minmax(0, 1fr);
+    }
+
+    .must-hotel-booking-page-accommodation .must-booking-results-filter-panel-party .must-booking-results-filter-panel-actions {
+        grid-column: 2;
+    }
+}
+
+@media (max-width: 767px) {
+    .must-hotel-booking-page-accommodation .must-booking-results-filter-panel-dates,
+    .must-hotel-booking-page-accommodation .must-booking-results-filter-panel-party {
+        grid-template-columns: 1fr;
+    }
+
+    .must-hotel-booking-page-accommodation .must-booking-results-filter-panel-party .must-booking-results-filter-panel-copy {
+        padding-right: 0;
+        padding-bottom: 12px;
+        border-right: 0;
+        border-bottom: 1px solid rgba(20, 20, 20, 0.12);
+    }
+
+    .must-hotel-booking-page-accommodation .must-booking-results-filter-panel-fields-party {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .must-hotel-booking-page-accommodation .must-booking-results-filter-panel-party .must-booking-party-capacity-message,
+    .must-hotel-booking-page-accommodation .must-booking-results-filter-panel-party .must-booking-results-filter-panel-actions {
+        grid-column: 1 / -1;
+    }
+}
+
+/* Checkout contact controls intentionally have no browser/theme outline or
+ * focus glow in any pointer or keyboard state, per the requested treatment. */
+.must-hotel-booking-page-checkout .must-checkout-contact-grid :where(input, select, textarea, button, [role="button"]):hover,
+.must-hotel-booking-page-checkout .must-checkout-contact-grid :where(input, select, textarea, button, [role="button"]):active,
+.must-hotel-booking-page-checkout .must-checkout-contact-grid :where(input, select, textarea, button, [role="button"]):focus,
+.must-hotel-booking-page-checkout .must-checkout-contact-grid :where(input, select, textarea, button, [role="button"]):focus-visible,
+.must-hotel-booking-page-checkout .must-checkout-contact-grid :where(.must-checkout-field, .must-checkout-phone-shell):focus-within {
+    outline: none !important;
+    outline-offset: 0 !important;
+    box-shadow: none !important;
 }
 
 /* Keep keyboard focus visible after the visual reset rules above. */

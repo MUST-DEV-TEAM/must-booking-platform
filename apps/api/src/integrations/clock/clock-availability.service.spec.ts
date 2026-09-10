@@ -682,6 +682,90 @@ describe('ClockAvailabilityService.getQuote', () => {
   });
 });
 
+describe('ClockAvailabilityService.getQuotesForStay', () => {
+  it('uses one products request for multiple visible room types', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69243, bookable_id: 42024, bookable_type: 'Pms::RoomType', wbe: true }],
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '69242': [{ available: true, room_type_free_rooms: 2, price: { cents: 11000, currency: 'EUR' }, errors: {} }],
+            },
+          },
+          {
+            id: 42024,
+            rates: {
+              '69243': [{ available: true, room_type_free_rooms: 2, price: { cents: 12500, currency: 'EUR' }, errors: {} }],
+            },
+          },
+        ],
+      });
+    const { service } = makeService({ client: { request } });
+
+    const stay = [
+      { roomTypeId: 'local-rt-1', externalRoomTypeId: '42023', startsOn: '2026-08-10', endsOn: '2026-08-12', adultCount: 2, childrenCount: 0, currency: 'EUR' },
+      { roomTypeId: 'local-rt-2', externalRoomTypeId: '42024', startsOn: '2026-08-10', endsOn: '2026-08-12', adultCount: 2, childrenCount: 0, currency: 'EUR' },
+    ];
+    const result = await service.getQuotesForStay('t1', 'p1', stay);
+
+    expect(result).toEqual({
+      'local-rt-1': { ok: true, value: { amount: '110.00', currency: 'EUR' } },
+      'local-rt-2': { ok: true, value: { amount: '125.00', currency: 'EUR' } },
+    });
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(request).toHaveBeenLastCalledWith(
+      credentials,
+      expect.objectContaining({
+        path: '/products',
+        query: expect.objectContaining({ rates: ['69242', '69243'] }),
+      }),
+    );
+
+    const cached = await service.getQuotesForStay('t1', 'p1', stay);
+    expect(cached).toEqual(result);
+    expect(request).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not share display prices across tenants', async () => {
+    const request = vi.fn().mockImplementation((_credentials, options: { path: string }) => {
+      if (options.path === '/rates/') {
+        return Promise.resolve({
+          status: 200,
+          body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+        });
+      }
+      return Promise.resolve({
+        status: 200,
+        body: [{
+          id: 42023,
+          rates: {
+            '69242': [{ available: true, room_type_free_rooms: 2, price: { cents: 11000, currency: 'EUR' }, errors: {} }],
+          },
+        }],
+      });
+    });
+    const { service } = makeService({ client: { request } });
+    const stay = [{ roomTypeId: 'local-rt-1', externalRoomTypeId: '42023', startsOn: '2026-08-10', endsOn: '2026-08-12', adultCount: 2, childrenCount: 0, currency: 'EUR' }];
+
+    await service.getQuotesForStay('tenant-a', 'p1', stay);
+    await service.getQuotesForStay('tenant-a', 'p1', stay);
+    await service.getQuotesForStay('tenant-b', 'p1', stay);
+
+    expect(request.mock.calls.filter((call) => call[1]?.path === '/products')).toHaveLength(2);
+  });
+});
+
 describe('ClockAvailabilityService.ratesForRoomTypeDetailed', () => {
   it('returns only wbe:true rates for the room type, with name and occupancy caps', async () => {
     const request = vi.fn().mockResolvedValueOnce({

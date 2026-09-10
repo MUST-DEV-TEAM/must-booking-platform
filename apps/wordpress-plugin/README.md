@@ -4,7 +4,7 @@ MUST Hotel Booking is a WordPress hotel-booking and operations plugin. It manage
 
 ## Project status
 
-- Current working-tree release candidate: `0.4.92`, based on commit `b0380ad`.
+- Current working-tree release candidate: `0.4.94`.
 - Runtime: WordPress plugin; metadata declares PHP 7.4+ and active payment, email, portal, and quote paths use PHP 7.4-compatible helpers.
 - Status: active development with substantial local, Stripe, PokPay, Clock PMS, admin, staff-portal, and Elementor functionality.
 - Readiness: **code-hardened, not production-certified**. Local checks pass, but real WordPress/database upgrades, Clock account rights and response shapes, callbacks, cron, and payment/refund E2E still require approved environment acceptance. See [Project Context](docs/PROJECT_CONTEXT.md) and [Operations](docs/OPERATIONS.md).

@@ -2,6 +2,16 @@
 
 Notable product, architecture, integration, operational, compatibility, and security changes are recorded here. Exact implementation history remains in Git.
 
+## 0.4.94 - 2026-09-10
+
+### Changed
+
+- Restored the booking-search widget to a single total-guests field while preserving the existing booking query contract.
+- Redesigned the accommodation date and guest/room filter panels without changing their forms or date-picker behavior.
+- Added one bounded, short-lived provider-backed display-price request for accommodation cards; cards now show the provider-backed stay total or an honest unavailable state instead of a zero placeholder.
+- Added the quoted guest-composition summary after the email field on the confirmation form.
+- Removed checkout contact-field outlines and focus glow in every requested interaction state, scoped to the contact grid.
+
 ## 0.4.93 - 2026-09-10
 
 ### Added

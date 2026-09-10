@@ -376,10 +376,16 @@ function get_confirmation_review_view_data(): array
         'postcode' => (string) ($guestInfo['postcode'] ?? ''),
         'special_requests' => (string) ($guestInfo['specialRequests'] ?? ''),
     ];
+    $occupancy = get_confirmation_occupancy_view_data([
+        'guestCount' => $canConfirm ? (int) ($selection['guests'] ?? 1) : 1,
+        'adults' => $canConfirm ? (int) ($selection['adults'] ?? $selection['guests'] ?? 1) : 1,
+        'children' => $canConfirm ? (int) ($selection['children'] ?? 0) : 0,
+    ]);
 
     return [
         'success' => false, 'is_form_mode' => true, 'can_confirm' => $canConfirm, 'messages' => $messages,
         'reservations' => [], 'selected_rooms' => $selectedRooms, 'summary' => $summary, 'billing_form' => $billingForm,
+        'occupancy' => $occupancy,
         'payment_method' => \array_key_first($paymentMethods) ?? '',
         'payment_methods' => $paymentMethods,
         'pending_payment' => [],

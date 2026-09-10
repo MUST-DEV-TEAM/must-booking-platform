@@ -11,6 +11,7 @@ $messages = isset($view['messages']) && \is_array($view['messages']) ? $view['me
 $reservations = isset($view['reservations']) && \is_array($view['reservations']) ? $view['reservations'] : [];
 $selected_rooms = isset($view['selected_rooms']) && \is_array($view['selected_rooms']) ? $view['selected_rooms'] : [];
 $summary = isset($view['summary']) && \is_array($view['summary']) ? $view['summary'] : [];
+$occupancy = isset($view['occupancy']) && \is_array($view['occupancy']) ? $view['occupancy'] : [];
 $billing_form = isset($view['billing_form']) && \is_array($view['billing_form']) ? $view['billing_form'] : [];
 $payment_method = isset($view['payment_method']) ? (string) $view['payment_method'] : '';
 $payment_methods = isset($view['payment_methods']) && \is_array($view['payment_methods']) ? $view['payment_methods'] : [];
@@ -167,10 +168,7 @@ if (!empty($selected_rooms[0]['room']) && \is_array($selected_rooms[0]['room']) 
 $format_money = static function (float $amount, string $currency = 'USD'): string {
     return \must_hotel_booking\format_frontend_money($amount, $currency);
 };
-$format_reservation_occupancy = static function (array $reservation): string {
-    $occupancy = isset($reservation['occupancy']) && \is_array($reservation['occupancy'])
-        ? $reservation['occupancy']
-        : [];
+$format_occupancy = static function (array $occupancy): string {
     $guests = \max(1, (int) ($occupancy['guests'] ?? 1));
     if (empty($occupancy['has_breakdown'])) {
         return \sprintf(\_n('%d guest', '%d guests', $guests, 'must-hotel-booking'), $guests);
@@ -188,6 +186,14 @@ $format_reservation_occupancy = static function (array $reservation): string {
         $childrenLabel
     );
 };
+$format_reservation_occupancy = static function (array $reservation) use ($format_occupancy): string {
+    return $format_occupancy(
+        isset($reservation['occupancy']) && \is_array($reservation['occupancy'])
+            ? $reservation['occupancy']
+            : []
+    );
+};
+$confirmation_occupancy_summary = $format_occupancy($occupancy);
 $format_display_date = static function (string $date): string {
     $timestamp = \strtotime($date . ' 00:00:00');
     return $timestamp === false ? $date : \wp_date('D, M j Y', $timestamp);
@@ -684,6 +690,11 @@ $render_payment_method_icon = static function (string $payment_method_key, strin
                                                 placeholder="<?php echo \esc_attr__('Email Address*', 'must-hotel-booking'); ?>"
                                                 required />
                                         </label>
+                                        <?php if ($is_form_mode && $can_confirm) : ?>
+                                            <p class="must-confirmation-occupancy-summary" role="status">
+                                                <?php echo \esc_html(\sprintf(__('Guests: %s', 'must-hotel-booking'), $confirmation_occupancy_summary)); ?>
+                                            </p>
+                                        <?php endif; ?>
                                     </div>
                                 </div>
                                 <div class="must-confirmation-special-section">

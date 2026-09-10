@@ -76,6 +76,17 @@ export type ClockRateSelection = {
   total: Money;
 };
 
+export type ClockStayQuoteQuery = {
+  roomTypeId: string;
+  externalRoomTypeId?: string;
+  startsOn: string;
+  endsOn: string;
+  adultCount?: number;
+  childrenCount?: number;
+  roomCount?: number;
+  currency?: string;
+};
+
 type ClockProductOffer = {
   available: boolean;
   room_type_free_rooms: number;
@@ -113,6 +124,9 @@ export type ClockRateSummary = {
 // (skipCache) always bypasses this regardless, so a stale cached answer can
 // never actually gate a real booking.
 const CACHE_TTL_MS = 1_200_000;
+// Display prices are informational only, so keep them short-lived while
+// avoiding one provider request per accommodation card on every page load.
+const DISPLAY_PRICE_CACHE_TTL_MS = 300_000;
 
 interface CacheEntry<T> {
   value: T;
@@ -123,6 +137,7 @@ interface CacheEntry<T> {
 export class ClockAvailabilityService {
   private readonly availabilityCache = new Map<string, CacheEntry<AvailabilityResult>>();
   private readonly ratesCache = new Map<string, CacheEntry<RoomTypeRates>>();
+  private readonly displayPriceCache = new Map<string, CacheEntry<Money>>();
 
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
@@ -242,6 +257,163 @@ export class ClockAvailabilityService {
     });
     if (!selection.ok) return selection;
     return { ok: true, value: selection.value.total };
+  }
+
+  /**
+   * Prices several visible room types for the same stay in one bounded Clock
+   * /products request. This is presentation data for the accommodation page;
+   * the normal quote path remains the authoritative final-price check.
+   */
+  async getQuotesForStay(
+    tenantId: string,
+    propertyId: string,
+    queries: ClockStayQuoteQuery[],
+  ): Promise<Record<string, Result<Money>>> {
+    const results: Record<string, Result<Money>> = {};
+    const uniqueQueries = Array.from(
+      new Map(queries.map((query) => [query.roomTypeId, query])).values(),
+    );
+    if (uniqueQueries.length === 0) return results;
+
+    const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
+    if (!connection || connection.provider !== 'CLOCK_PMS') {
+      const error = classifyConfigurationError('This property has no active Clock PMS connection.');
+      uniqueQueries.forEach((query) => { results[query.roomTypeId] = failure(error); });
+      return results;
+    }
+    const parsed = parseClockCredentials(connection.credentials);
+    if (!parsed.ok) {
+      uniqueQueries.forEach((query) => { results[query.roomTypeId] = failure(classifyConfigurationError(parsed.message)); });
+      return results;
+    }
+
+    const resolved = await Promise.all(uniqueQueries.map(async (query) => {
+      const externalRoomTypeId = query.externalRoomTypeId
+        ?? await this.mappedExternalRoomTypeId(tenantId, propertyId, query.roomTypeId);
+      if (!externalRoomTypeId) {
+        return {
+          query,
+          externalRoomTypeId: null,
+          rates: failure(classifyConfigurationError(
+            'This room type has no confirmed Clock catalog mapping — sync and confirm it first.',
+          )),
+        };
+      }
+      return {
+        query,
+        externalRoomTypeId,
+        rates: await this.ratesForRoomType(parsed.value, externalRoomTypeId),
+      };
+    }));
+
+    const usable = resolved.filter((entry) => {
+      if (!entry.rates.ok) {
+        results[entry.query.roomTypeId] = failure(entry.rates.error);
+        return false;
+      }
+      if (entry.rates.value.ids.length === 0) {
+        results[entry.query.roomTypeId] = failure(noRatesError(entry.rates.value));
+        return false;
+      }
+      return true;
+    });
+    if (usable.length === 0) return results;
+
+    const ranked = await Promise.all(
+      usable.map(async (entry) => ({
+        entry,
+        rankOrder: await this.rateRankings.rankOrder(tenantId, propertyId, entry.query.roomTypeId),
+      })),
+    );
+    const misses = ranked.filter(({ entry, rankOrder }) => {
+      const cacheKey = this.displayPriceCacheKey(
+        tenantId,
+        propertyId,
+        connection.connectionId,
+        entry.query,
+        String(entry.externalRoomTypeId),
+        entry.rates.ok ? entry.rates.value.ids : [],
+        rankOrder,
+      );
+      const cached = this.displayPriceCache.get(cacheKey);
+      if (!cached) return true;
+      if (cached.expiresAt <= Date.now()) {
+        this.displayPriceCache.delete(cacheKey);
+        return true;
+      }
+      results[entry.query.roomTypeId] = { ok: true, value: cached.value };
+      return false;
+    });
+    if (misses.length === 0) return results;
+
+    const first = misses[0]!.entry.query;
+    const rateIds = Array.from(new Set(misses.flatMap(({ entry }) => (
+      entry.rates.ok ? entry.rates.value.ids : []
+    ))));
+    const response = await this.fetch<ClockProductsResponse>(
+      parsed.value,
+      {
+        'product_search[arrival]': first.startsOn,
+        'product_search[departure]': first.endsOn,
+        'product_search[adult_count]': String(first.adultCount ?? 1),
+        'product_search[children_count]': String(first.childrenCount ?? 0),
+        rates: rateIds,
+      },
+      '/products',
+    );
+    if (!response.ok) {
+      misses.forEach(({ entry }) => { results[entry.query.roomTypeId] = failure(response.error); });
+      return results;
+    }
+
+    misses.forEach(({ entry, rankOrder }) => {
+      const roomType = response.value.find((item) => String(item.id) === entry.externalRoomTypeId);
+      const winner = roomType ? selectBestOffer(roomType.rates, rankOrder) : undefined;
+      if (!winner) {
+        results[entry.query.roomTypeId] = failure(classifyConfigurationError('Clock has no available price for the requested stay.'));
+        return;
+      }
+      const value = { amount: (winner.offer.price.cents / 100).toFixed(2), currency: winner.offer.price.currency };
+      const cacheKey = this.displayPriceCacheKey(
+        tenantId,
+        propertyId,
+        connection.connectionId,
+        entry.query,
+        String(entry.externalRoomTypeId),
+        entry.rates.ok ? entry.rates.value.ids : [],
+        rankOrder,
+      );
+      this.displayPriceCache.set(cacheKey, { value, expiresAt: Date.now() + DISPLAY_PRICE_CACHE_TTL_MS });
+      results[entry.query.roomTypeId] = { ok: true, value };
+    });
+    return results;
+  }
+
+  private displayPriceCacheKey(
+    tenantId: string,
+    propertyId: string,
+    connectionId: string,
+    query: ClockStayQuoteQuery,
+    externalRoomTypeId: string,
+    rateIds: string[],
+    rankOrder: string[],
+  ): string {
+    return JSON.stringify([
+      'clock-display-price-v1',
+      tenantId,
+      propertyId,
+      connectionId,
+      externalRoomTypeId,
+      query.roomTypeId,
+      query.startsOn,
+      query.endsOn,
+      query.adultCount ?? 1,
+      query.childrenCount ?? 0,
+      query.roomCount ?? 1,
+      query.currency ?? '',
+      rateIds,
+      rankOrder,
+    ]);
   }
 
   /**

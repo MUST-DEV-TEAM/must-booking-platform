@@ -4,7 +4,7 @@ Tags: hotel, booking, reservation, accommodation
 Requires at least: 5.0
 Tested up to: 6.0
 Requires PHP: 7.4
-Stable tag: 0.4.92
+Stable tag: 0.4.94
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,16 @@ Main features include:
 5. When updating, upload the new release ZIP or use the configured updater, then review **Diagnostics & Maintenance** after the update completes.
 
 == Changelog ==
+
+= 0.4.94 =
+* Restored the total-guests booking-search control.
+* Improved accommodation filter-panel presentation.
+* Replaced room-card zero-price placeholders with provider-backed display totals or an unavailable state.
+* Added guest-composition text after the confirmation email field.
+* Removed checkout contact-field outlines and focus glow.
+
+= 0.4.93 =
+* Added adult/child party controls, capacity validation, and confirmation occupancy details.
 
 = 0.4.92 =
 * Aligned Clock transport, endpoint validation, rate-limit handling, write recovery, and folio credit-item reconciliation with the official Clock API contract.

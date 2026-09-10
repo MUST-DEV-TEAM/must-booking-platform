@@ -43,6 +43,15 @@ $results_date_range = \function_exists('\must_hotel_booking\format_booking_resul
 $results_selection_summary = \function_exists('\must_hotel_booking\format_booking_results_selection_summary')
     ? \must_hotel_booking\format_booking_results_selection_summary($accommodation_type, $guests, $room_count)
     : \__('Standard Rooms / 1 Guests / 1 Room', 'must-hotel-booking');
+$party_panel_summary = \sprintf(
+    /* translators: 1: adults, 2: children, 3: room count label. */
+    __('%1$d adults · %2$d children · %3$s', 'must-hotel-booking'),
+    $adults,
+    $children,
+    \function_exists('\must_hotel_booking\format_booking_room_count_label')
+        ? \must_hotel_booking\format_booking_room_count_label($resolved_room_count)
+        : (string) $resolved_room_count
+);
 $selection_target_label = \function_exists('\must_hotel_booking\format_booking_room_count_label')
     ? \must_hotel_booking\format_booking_room_count_label($resolved_room_count)
     : (string) $resolved_room_count;
@@ -141,7 +150,7 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                 <div class="must-booking-results-filter-panels">
                     <form
                         id="must-booking-accommodation-dates-panel"
-                        class="must-booking-results-filter-panel"
+                        class="must-booking-results-filter-panel must-booking-results-filter-panel-dates"
                         method="get"
                         action="<?php echo \esc_url(\must_hotel_booking\get_booking_accommodation_page_url()); ?>"
                         aria-label="<?php echo \esc_attr__('Update stay dates', 'must-hotel-booking'); ?>"
@@ -158,7 +167,7 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                             <p class="must-booking-results-filter-panel-title"><?php echo \esc_html($results_date_range); ?></p>
                         </div>
 
-                        <div class="must-booking-results-filter-panel-fields">
+                        <div class="must-booking-results-filter-panel-fields must-booking-results-filter-panel-fields-dates">
                             <label class="must-booking-results-filter-field">
                                 <span><?php echo \esc_html__('Check-in', 'must-hotel-booking'); ?></span>
                                 <input
@@ -195,7 +204,7 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
 
                     <form
                         id="must-booking-accommodation-party-panel"
-                        class="must-booking-results-filter-panel"
+                        class="must-booking-results-filter-panel must-booking-results-filter-panel-party"
                         method="get"
                         action="<?php echo \esc_url(\must_hotel_booking\get_booking_accommodation_page_url()); ?>"
                         aria-label="<?php echo \esc_attr__('Update guest and room details', 'must-hotel-booking'); ?>"
@@ -211,9 +220,10 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                         <div class="must-booking-results-filter-panel-copy">
                             <p class="must-booking-results-filter-panel-kicker"><?php echo \esc_html__('Guest Setup', 'must-hotel-booking'); ?></p>
                             <p class="must-booking-results-filter-panel-title"><?php echo \esc_html($results_selection_summary); ?></p>
+                            <p class="must-booking-results-filter-panel-detail"><?php echo \esc_html($party_panel_summary); ?></p>
                         </div>
 
-                        <div class="must-booking-results-filter-panel-fields">
+                        <div class="must-booking-results-filter-panel-fields must-booking-results-filter-panel-fields-party">
                             <label class="must-booking-results-filter-field">
                                 <span><?php echo \esc_html__('Adults', 'must-hotel-booking'); ?></span>
                                 <select id="must-booking-accommodation-adults" name="adults">
@@ -282,9 +292,24 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                             $beds = isset($room['beds']) ? (string) $room['beds'] : '';
                             $view_type = isset($room['view_type']) ? (string) $room['view_type'] : '';
                             $floor = isset($room['floor']) ? (int) $room['floor'] : 0;
-                            $base_price = isset($room['base_price']) ? (float) $room['base_price'] : 0.0;
                             $available_count = isset($room['available_count']) ? (int) $room['available_count'] : 0;
                             $currency = isset($room['currency']) ? (string) $room['currency'] : 'USD';
+                            $display_price = isset($room['display_price']) && \is_array($room['display_price']) ? $room['display_price'] : [];
+                            $display_price_available = !empty($display_price['available']) && isset($display_price['total']) && \is_array($display_price['total']);
+                            $display_price_currency = $display_price_available && isset($display_price['total']['currency'])
+                                ? (string) $display_price['total']['currency']
+                                : $currency;
+                            $display_price_label = $display_price_available
+                                ? \must_hotel_booking\format_frontend_money((float) ($display_price['total']['amount'] ?? 0), $display_price_currency) . ' ' . \__('total', 'must-hotel-booking')
+                                : \__('Price unavailable', 'must-hotel-booking');
+                            $display_nights = 0;
+                            if ($checkin !== '' && $checkout !== '') {
+                                try {
+                                    $display_nights = (int) (new \DateTimeImmutable($checkin))->diff(new \DateTimeImmutable($checkout))->days;
+                                } catch (\Throwable $exception) {
+                                    $display_nights = 0;
+                                }
+                            }
                             $primary_image_url = isset($room['primary_image_url']) ? (string) $room['primary_image_url'] : '';
                             $gallery_images = isset($room['gallery_images']) && \is_array($room['gallery_images']) ? $room['gallery_images'] : [];
                             $lightbox_images = isset($room['lightbox_images']) && \is_array($room['lightbox_images']) ? $room['lightbox_images'] : [];
@@ -337,7 +362,6 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                                 }
                             }
 
-                            $nightly_price = \must_hotel_booking\format_frontend_money($base_price, $currency);
                             ?>
                             <div class="must-booking-accommodation-room-entry">
                                 <article
@@ -533,8 +557,22 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                                                 <?php endif; ?>
 
                                                 <section class="must-booking-room-popup-section">
-                                                    <h3><?php echo \esc_html($nightly_price . '/Night'); ?></h3>
-                                                    <p><?php echo \esc_html__('Including Taxes & Fees', 'must-hotel-booking'); ?></p>
+                                                    <h3><?php echo \esc_html($display_price_label); ?></h3>
+                                                    <?php if ($display_price_available && $display_nights > 0) : ?>
+                                                        <p>
+                                                            <?php
+                                                            echo \esc_html(
+                                                                \sprintf(
+                                                                    /* translators: 1: number of nights. */
+                                                                    \_n('%d night · Including Taxes & Fees', '%d nights · Including Taxes & Fees', $display_nights, 'must-hotel-booking'),
+                                                                    $display_nights
+                                                                )
+                                                            );
+                                                            ?>
+                                                        </p>
+                                                    <?php else : ?>
+                                                        <p><?php echo \esc_html__('Pricing will be confirmed before booking.', 'must-hotel-booking'); ?></p>
+                                                    <?php endif; ?>
                                                 </section>
                                             </div>
 

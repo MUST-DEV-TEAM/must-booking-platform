@@ -368,6 +368,25 @@ function get_accommodation_page_view_data(): array
         }
     }
 
+    $displayPriceItems = [];
+    foreach ($rooms as $room) {
+        $ratePlans = isset($room['rate_plans']) && \is_array($room['rate_plans']) ? $room['rate_plans'] : [];
+        $firstRatePlan = \is_array($ratePlans[0] ?? null) ? $ratePlans[0] : [];
+        $displayPriceItems[] = [
+            'key' => (string) ($room['id'] ?? ''),
+            'room_type_id' => (string) ($room['must_room_type_uuid'] ?? ''),
+            'room_id' => (string) ($room['must_room_uuid'] ?? ''),
+            'rate_plan_id' => (string) ($firstRatePlan['must_rate_plan_uuid'] ?? ''),
+            'currency' => (string) ($room['currency'] ?? ''),
+        ];
+    }
+    $displayPrices = get_must_display_prices($displayPriceItems, $checkin, $checkout, $adults, $children, $guests, 1);
+    foreach ($rooms as &$room) {
+        $roomKey = (string) ($room['id'] ?? '');
+        $room['display_price'] = $displayPrices[$roomKey] ?? ['key' => $roomKey, 'available' => false];
+    }
+    unset($room);
+
     $noRoomsMessage = $hasContext
         ? __('No rooms are available for the selected dates.', 'must-hotel-booking')
         : __('Choose your dates to see available rooms.', 'must-hotel-booking');

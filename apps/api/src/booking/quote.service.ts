@@ -4,7 +4,10 @@ import type { Money, NightlyRate } from '@must/domain-contracts';
 
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
-import { ClockAvailabilityService } from '../integrations/clock/clock-availability.service';
+import {
+  ClockAvailabilityService,
+  type ClockStayQuoteQuery,
+} from '../integrations/clock/clock-availability.service';
 import { resolveBookingOccupancy, validBookingOccupancy } from './booking-occupancy';
 
 export type QuoteInput = {
@@ -32,6 +35,25 @@ type QuotePayload = QuoteInput & {
 };
 
 export type PricedQuote = { total: Money; nightlyRates: NightlyRate[] };
+
+export type DisplayPriceItem = {
+  key: string;
+  roomTypeId: string;
+  roomId?: string;
+  ratePlanId?: string;
+  currency?: string;
+};
+
+export type DisplayPrice = {
+  key: string;
+  roomTypeId: string;
+  available: boolean;
+  total?: Money;
+};
+
+export type DisplayPriceInput = Omit<QuoteInput, 'roomTypeId' | 'roomId' | 'ratePlanId'> & {
+  roomCount?: number;
+};
 
 type QuoteValidationError = { code: string; message: string };
 
@@ -186,6 +208,70 @@ export class QuoteService {
         ),
       };
     });
+  }
+
+  /**
+   * Returns bounded, guest-session-scoped display prices for visible room
+   * cards. Clock-connected properties use one bounded provider request for the
+   * cache misses; the final room-selection quote remains authoritative and
+   * uncached.
+   */
+  async displayPrices(
+    tenantId: string,
+    propertyId: string,
+    input: DisplayPriceInput,
+    items: DisplayPriceItem[],
+  ): Promise<DisplayPrice[]> {
+    if (items.length === 0) return [];
+    const { roomCount: requestedRoomCount, ...quoteInput } = input;
+    const roomCount = Number.isInteger(requestedRoomCount) && (requestedRoomCount ?? 0) > 0
+      ? requestedRoomCount!
+      : 1;
+    const normalized = this.normalizeOccupancy({ roomTypeId: 'display', ...quoteInput });
+    this.validStayInput(normalized);
+    await this.enforceBookingRules(tenantId, propertyId, normalized);
+
+    const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
+    if (connection?.provider === 'CLOCK_PMS') {
+      const queries: ClockStayQuoteQuery[] = items.map((item) => ({
+        roomTypeId: item.roomTypeId,
+        startsOn: normalized.startsOn,
+        endsOn: normalized.endsOn,
+        adultCount: normalized.adults,
+        childrenCount: normalized.children,
+        roomCount,
+        currency: item.currency,
+      }));
+      const quotes = await this.clockAvailability.getQuotesForStay(tenantId, propertyId, queries);
+      return items.map((item) => {
+        const quote = quotes[item.roomTypeId];
+        return {
+          key: item.key,
+          roomTypeId: item.roomTypeId,
+          available: Boolean(quote?.ok),
+          ...(quote?.ok ? { total: quote.value } : {}),
+        };
+      });
+    }
+
+    const prices = await Promise.all(items.map(async (item) => {
+      try {
+        const quote = await this.priceWithNightlyRates(tenantId, propertyId, {
+          roomTypeId: item.roomTypeId,
+          roomId: item.roomId,
+          ratePlanId: item.ratePlanId,
+          startsOn: normalized.startsOn,
+          endsOn: normalized.endsOn,
+          adults: normalized.adults,
+          children: normalized.children,
+          guestCount: normalized.guestCount,
+        });
+        return { key: item.key, roomTypeId: item.roomTypeId, available: true, total: quote.total };
+      } catch {
+        return { key: item.key, roomTypeId: item.roomTypeId, available: false };
+      }
+    }));
+    return prices;
   }
 
   /** Read only after validate() succeeds; the quote token is the source of truth for booking snapshots. */

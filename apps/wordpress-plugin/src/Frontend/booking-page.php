@@ -78,6 +78,70 @@ function get_must_room_types(string $startsOn = '', string $endsOn = ''): array
     return \is_array($catalog['roomTypes'] ?? null) ? $catalog['roomTypes'] : [];
 }
 
+/**
+ * Fetch one bounded display-price response for all visible accommodation cards.
+ * These prices are informational only; final room selection creates a fresh
+ * authoritative quote.
+ *
+ * @param array<int, array<string, mixed>> $items
+ * @return array<string, array<string, mixed>> keyed by the caller's item key
+ */
+function get_must_display_prices(
+    array $items,
+    string $startsOn,
+    string $endsOn,
+    int $adults,
+    int $children,
+    int $guestCount,
+    int $roomCount = 1
+): array {
+    if ($items === [] || $startsOn === '' || $endsOn === '') {
+        return [];
+    }
+
+    $requestItems = [];
+    foreach (\array_slice($items, 0, 50) as $item) {
+        $key = isset($item['key']) ? (string) $item['key'] : '';
+        $roomTypeId = isset($item['room_type_id']) ? (string) $item['room_type_id'] : '';
+        if ($key === '' || $roomTypeId === '') {
+            continue;
+        }
+        $requestItems[] = [
+            'key' => $key,
+            'roomTypeId' => $roomTypeId,
+            'roomId' => isset($item['room_id']) ? (string) $item['room_id'] : '',
+            'ratePlanId' => isset($item['rate_plan_id']) ? (string) $item['rate_plan_id'] : '',
+            'currency' => isset($item['currency']) ? (string) $item['currency'] : '',
+        ];
+    }
+    if ($requestItems === []) {
+        return [];
+    }
+
+    $response = MustApiClient::post('/quotes/display-prices', [
+        'startsOn' => $startsOn,
+        'endsOn' => $endsOn,
+        'adults' => \max(1, $adults),
+        'children' => \max(0, $children),
+        'guestCount' => \max(1, $guestCount),
+        'roomCount' => \max(1, $roomCount),
+        'items' => $requestItems,
+    ]);
+    if (!$response['ok'] || !\is_array($response['body'])) {
+        return [];
+    }
+
+    $prices = \is_array($response['body']['prices'] ?? null) ? $response['body']['prices'] : [];
+    $result = [];
+    foreach ($prices as $price) {
+        if (!\is_array($price) || !isset($price['key'])) {
+            continue;
+        }
+        $result[(string) $price['key']] = $price;
+    }
+    return $result;
+}
+
 /** @return string the property's bookingMode, e.g. 'ROOM_TYPE_ONLY'/'INDIVIDUAL_ROOM_ONLY'/'MIXED' (defaults to 'ROOM_TYPE_ONLY' if unknown) */
 function get_must_booking_mode(string $startsOn = '', string $endsOn = ''): string
 {
