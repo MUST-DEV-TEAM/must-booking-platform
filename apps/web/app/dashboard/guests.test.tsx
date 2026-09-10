@@ -41,6 +41,19 @@ const bookings = [
     endsOn: '2026-08-12',
   },
 ];
+const suspectedDuplicates = [
+  {
+    guest: guests[0],
+    suspectedDuplicate: {
+      id: 'guest-3',
+      firstName: 'A.',
+      lastName: 'Lovelace',
+      email: 'ada+old@test',
+      phone: '+355 69 123 4567',
+      bookingCount: 1,
+    },
+  },
+];
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -49,11 +62,13 @@ describe('Dashboard guests', () => {
     let resolveGuests!: (value: Response) => void;
     vi.stubGlobal(
       'fetch',
-      vi.fn((url: string) =>
-        url.endsWith('/guests')
+      vi.fn((url: string) => {
+        if (url.endsWith('/suspected-duplicates'))
+          return Promise.resolve(new Response(JSON.stringify([])));
+        return url.endsWith('/guests')
           ? new Promise<Response>((resolve) => (resolveGuests = resolve))
-          : Promise.resolve(new Response(JSON.stringify(bookings))),
-      ),
+          : Promise.resolve(new Response(JSON.stringify(bookings)));
+      }),
     );
     const { container, root } = await mount({ settle: false });
     await act(async () => {
@@ -88,6 +103,8 @@ describe('Dashboard guests', () => {
   it('shows an error and reloads both datasets when Retry succeeds', async () => {
     let failGuests = true;
     const fetch = vi.fn((url: string) => {
+      if (url.endsWith('/suspected-duplicates'))
+        return Promise.resolve(new Response(JSON.stringify([])));
       if (url.endsWith('/guests')) {
         const status = failGuests ? 500 : 200;
         return Promise.resolve(
@@ -125,6 +142,40 @@ describe('Dashboard guests', () => {
     expect(container.textContent).toContain('No bookings found.');
     await act(async () => root.unmount());
   });
+
+  it('shows suspected profiles side by side and sends the selected canonical guest', async () => {
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return new Response(null, { status: 204 });
+      if (url.endsWith('/suspected-duplicates'))
+        return new Response(JSON.stringify(suspectedDuplicates));
+      if (url.includes('/guests')) return new Response(JSON.stringify(guests));
+      return new Response(JSON.stringify(bookings));
+    });
+    vi.stubGlobal('fetch', fetch);
+    const { container, root } = await mount();
+
+    expect(container.textContent).toContain('Suspected duplicates');
+    expect(container.textContent).toContain('ada+old@test');
+    await click(
+      Array.from(container.querySelectorAll('input[type="radio"]')).find(
+        (input) => (input as HTMLInputElement).value === 'on',
+      )!,
+    );
+    await click(
+      Array.from(container.querySelectorAll('button')).find(
+        (button) => button.textContent === 'Merge',
+      )!,
+    );
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${base}/guests/guest-1/merge`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ canonicalGuestId: 'guest-1' }),
+      }),
+    );
+    await act(async () => root.unmount());
+  });
 });
 
 function mockFetch() {
@@ -132,7 +183,15 @@ function mockFetch() {
     'fetch',
     vi.fn((url: string) =>
       Promise.resolve(
-        new Response(JSON.stringify(url.startsWith(`${base}/guests`) ? guests : bookings)),
+        new Response(
+          JSON.stringify(
+            url.endsWith('/suspected-duplicates')
+              ? []
+              : url.startsWith(`${base}/guests`)
+                ? guests
+                : bookings,
+          ),
+        ),
       ),
     ),
   );

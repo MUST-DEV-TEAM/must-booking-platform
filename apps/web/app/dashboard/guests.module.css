@@ -1,0 +1,69 @@
+.queue {
+  display: grid;
+  gap: var(--must-space-16);
+  margin-top: var(--must-space-16);
+}
+
+.pair {
+  display: grid;
+  gap: var(--must-space-16);
+}
+
+.profiles {
+  display: grid;
+  gap: var(--must-space-16);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.profile {
+  background: var(--must-color-canvas);
+  border: 1px solid var(--must-color-border);
+  cursor: pointer;
+  display: grid;
+  gap: var(--must-space-12);
+  padding: var(--must-space-16);
+}
+
+.profileChoice {
+  align-items: center;
+  display: flex;
+  font-size: 0.75rem;
+  font-weight: 600;
+  gap: var(--must-space-8);
+}
+
+.profile dl {
+  display: grid;
+  gap: var(--must-space-8);
+  margin: 0;
+}
+
+.profile dl div {
+  display: grid;
+  gap: var(--must-space-4);
+}
+
+.profile dt {
+  color: var(--must-color-text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.profile dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--must-space-8);
+}
+
+@media (max-width: 44rem) {
+  .profiles {
+    grid-template-columns: 1fr;
+  }
+}

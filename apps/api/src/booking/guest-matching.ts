@@ -26,13 +26,24 @@ export async function resolveGuestWithPhoneSignal(
 ): Promise<string | null> {
   const email = guest.email.trim().toLowerCase();
   const existingByEmail = await tx.$queryRaw<Array<{ id: string }>>`
-    SELECT id FROM guests WHERE tenant_id = ${tenantId}::uuid AND lower(email) = ${email}
+    WITH RECURSIVE guest_chain AS (
+      SELECT id, merged_into_guest_id
+      FROM guests
+      WHERE tenant_id = ${tenantId}::uuid AND lower(email) = ${email}
+      UNION ALL
+      SELECT merged.id, merged.merged_into_guest_id
+      FROM guests merged
+      JOIN guest_chain chain
+        ON merged.tenant_id = ${tenantId}::uuid AND merged.id = chain.merged_into_guest_id
+    )
+    SELECT id FROM guest_chain WHERE merged_into_guest_id IS NULL LIMIT 1
   `;
   const phone = guest.phone?.trim() || null;
   const existingByPhone = phone
     ? await tx.$queryRaw<Array<{ id: string }>>`
         SELECT id FROM guests
         WHERE tenant_id = ${tenantId}::uuid
+          AND merged_into_guest_id IS NULL
           AND phone IS NOT NULL
           AND btrim(phone) = ${phone}
         ORDER BY (id = ${existingByEmail[0]?.id ?? null}::uuid) DESC, id
@@ -65,7 +76,17 @@ export async function resolveGuestWithPhoneSignal(
   if (inserted) return inserted;
 
   const matched = await tx.$queryRaw<Array<{ id: string }>>`
-    SELECT id FROM guests WHERE tenant_id = ${tenantId}::uuid AND lower(email) = ${email}
+    WITH RECURSIVE guest_chain AS (
+      SELECT id, merged_into_guest_id
+      FROM guests
+      WHERE tenant_id = ${tenantId}::uuid AND lower(email) = ${email}
+      UNION ALL
+      SELECT merged.id, merged.merged_into_guest_id
+      FROM guests merged
+      JOIN guest_chain chain
+        ON merged.tenant_id = ${tenantId}::uuid AND merged.id = chain.merged_into_guest_id
+    )
+    SELECT id FROM guest_chain WHERE merged_into_guest_id IS NULL LIMIT 1
   `;
   if (!matched[0]) return null;
   await flagSuspectedDuplicate(matched[0].id);
