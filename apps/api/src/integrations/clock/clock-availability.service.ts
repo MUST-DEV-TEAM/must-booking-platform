@@ -27,19 +27,34 @@ import { ClockRateLimiterService } from './clock-rate-limiter';
 // Confirmed against the real sandbox (2026-08-04) and Clock's own public
 // Postman docs: GET /rates_availability requires `from`, `to`, `rates`
 // (one or more rate plan ids), and one of `room_types`/`rooms`. Response is
-// an array of { id, rates: { [rateId]: { [date]: { free, room_type_free_rooms } } } }.
-// See docs/CLOCK_ENDPOINT_MATRIX.md.
+// an array of { id, rates: { [rateId]: { [date]: { free, room_type_free_rooms, price, errors } } } }.
+// The endpoint matrix's documented, CONFIRMED_IN_SANDBOX shape also carries a
+// per-date `price` (Task 10) — narrower callers (e.g. summarizeAvailability)
+// just don't read it. See docs/CLOCK_ENDPOINT_MATRIX.md.
 type ClockRateAvailabilityResponse = Array<{
   id: number | string;
-  rates: Record<string, Record<string, { free: boolean; room_type_free_rooms: number }>>;
+  rates: Record<
+    string,
+    Record<
+      string,
+      {
+        free: boolean;
+        room_type_free_rooms: number;
+        price?: { cents: number; currency: string };
+        errors?: Record<string, unknown>;
+      }
+    >
+  >;
 }>;
 
 // Confirmed against Clock's own public Postman docs ("products - VIEW"):
 // GET /products with product_search[arrival]/[departure] and rates[] returns,
 // per room type, the price AND availability together for that exact stay —
 // this is the real "quote" endpoint (it's what Clock's own booking engine's
-// second page uses), unlike /rates_availability which only ever returns
-// availability.
+// second page uses). /rates_availability also carries a price per date (see
+// above), but only /products is treated as authoritative for what a guest
+// is actually charged — getQuoteWithNightlyRates uses /rates_availability
+// only for the nightly *shape*, scaled to match /products' real total.
 type ClockProductsResponse = Array<{
   id: number | string;
   rates: Record<
@@ -223,10 +238,20 @@ export class ClockAvailabilityService {
   }
 
   /**
-   * Returns the authoritative stay total and one separately quoted price for
-   * each occupied date. Clock's `/products` response exposes a price for the
-   * requested stay, rather than a nightly array, so each nightly row is a
-   * one-night `/products` quote using the same room type and rate selection.
+   * Returns the authoritative stay total (from `getQuote`, unchanged — this
+   * is what a guest is actually charged) plus a nightly breakdown for
+   * display. The breakdown's *shape* comes from a single `/rates_availability`
+   * call spanning the whole stay (Task 10 — that endpoint carries a price per
+   * date already, confirmed against Clock's own documented response shape;
+   * see docs/CLOCK_ENDPOINT_MATRIX.md), then scaled so the nights always sum
+   * to exactly the authoritative total — Clock's per-night `/rates_availability`
+   * price isn't treated as itself authoritative (occupancy/restriction rules
+   * could differ subtly from `/products`), only as a relative weight.
+   *
+   * Falls back to the old one-`/products`-call-per-night method only if that
+   * single call doesn't cover every night with a valid, error-free, priced
+   * offer — e.g. a genuinely mixed-availability stay. Never less correct,
+   * just slower in that uncommon case.
    */
   async getQuoteWithNightlyRates(
     tenantId: string,
@@ -263,8 +288,22 @@ export class ClockAvailabilityService {
     const rateIds = await this.ratesForRoomType(parsed.value, externalRoomTypeId);
     if (!rateIds.ok) return failure(rateIds.error);
 
+    const nights = nightsBetween(query.startsOn, query.endsOn);
+    const shape = await this.nightlyShapeFromAvailability(
+      parsed.value,
+      externalRoomTypeId,
+      rateIds.value,
+      nights,
+      query,
+    );
+    if (shape)
+      return {
+        ok: true,
+        value: { total: total.value, nightlyRates: distributeToNights(nights, shape, total.value) },
+      };
+
     const nightlyRates: NightlyRate[] = [];
-    for (const date of nightsBetween(query.startsOn, query.endsOn)) {
+    for (const date of nights) {
       const nextDate = new Date(`${date}T00:00:00Z`);
       nextDate.setUTCDate(nextDate.getUTCDate() + 1);
       const productSearch: Record<string, string | string[]> = {
@@ -295,6 +334,54 @@ export class ClockAvailabilityService {
       nightlyRates.push({ date, amount: (offer.price.cents / 100).toFixed(2) });
     }
     return { ok: true, value: { total: total.value, nightlyRates } };
+  }
+
+  /**
+   * One `/rates_availability` call spanning the whole stay, returning each
+   * night's price in cents — or null if any night lacks a valid, available,
+   * error-free priced entry, so the caller can fall back to the guaranteed-
+   * correct per-night `/products` loop instead of guessing.
+   */
+  private async nightlyShapeFromAvailability(
+    credentials: ClockConnectionCredentials,
+    externalRoomTypeId: string,
+    rateIds: string[],
+    nights: string[],
+    query: { adultCount?: number; childrenCount?: number },
+  ): Promise<Record<string, number> | null> {
+    if (rateIds.length === 0 || nights.length === 0) return null;
+
+    const availabilityQuery: Record<string, string | string[]> = {
+      from: nights[0]!,
+      to: nights[nights.length - 1]!,
+      rates: rateIds,
+      room_types: externalRoomTypeId,
+    };
+    if (query.adultCount !== undefined) availabilityQuery.adults = String(query.adultCount);
+    if (query.childrenCount !== undefined) availabilityQuery.children = String(query.childrenCount);
+
+    const response = await this.fetch<ClockRateAvailabilityResponse>(
+      credentials,
+      availabilityQuery,
+    );
+    if (!response.ok) return null;
+
+    const roomType = response.value.find((item) => String(item.id) === externalRoomTypeId);
+    if (!roomType) return null;
+    const rateEntries = Object.values(roomType.rates);
+
+    const shape: Record<string, number> = {};
+    for (const night of nights) {
+      const offer = rateEntries
+        .map((dates) => dates[night])
+        .find(
+          (entry) =>
+            entry?.free && entry.price !== undefined && Object.keys(entry.errors ?? {}).length === 0,
+        );
+      if (!offer?.price) return null;
+      shape[night] = offer.price.cents;
+    }
+    return shape;
   }
 
   /**
@@ -482,6 +569,48 @@ function nightsBetween(startsOn: string, endsOn: string): string[] {
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return nights;
+}
+
+/**
+ * Splits `total` across `nights` in proportion to each night's relative
+ * weight in `shapeCents`, using the largest-remainder method so the parts
+ * always sum to exactly `total` in cents — never off by a rounding cent,
+ * regardless of what Clock's per-night shape looked like. Falls back to an
+ * even split if every night's weight is zero (a degenerate shape).
+ */
+function distributeToNights(
+  nights: string[],
+  shapeCents: Record<string, number>,
+  total: Money,
+): NightlyRate[] {
+  const totalCents = Math.round(Number(total.amount) * 100);
+  const shapeSum = nights.reduce((sum, night) => sum + shapeCents[night]!, 0);
+  if (shapeSum <= 0) return evenSplitToNights(nights, totalCents);
+
+  const shares = nights.map((night) => {
+    const exact = (shapeCents[night]! / shapeSum) * totalCents;
+    const floor = Math.floor(exact);
+    return { night, floor, remainder: exact - floor };
+  });
+  let leftover = totalCents - shares.reduce((sum, share) => sum + share.floor, 0);
+  for (const share of [...shares].sort((a, b) => b.remainder - a.remainder)) {
+    if (leftover <= 0) break;
+    share.floor += 1;
+    leftover -= 1;
+  }
+
+  const cents = new Map(shares.map((share) => [share.night, share.floor]));
+  return nights.map((night) => ({ date: night, amount: (cents.get(night)! / 100).toFixed(2) }));
+}
+
+function evenSplitToNights(nights: string[], totalCents: number): NightlyRate[] {
+  const base = Math.floor(totalCents / nights.length);
+  let leftover = totalCents - base * nights.length;
+  return nights.map((night) => {
+    const amount = base + (leftover > 0 ? 1 : 0);
+    leftover = Math.max(0, leftover - 1);
+    return { date: night, amount: (amount / 100).toFixed(2) };
+  });
 }
 
 function summarizeAvailability(
