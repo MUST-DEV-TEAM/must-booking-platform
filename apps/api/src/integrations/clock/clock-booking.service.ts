@@ -22,6 +22,7 @@ import { bookingNeedsAttention } from '../../booking/booking-attention';
 import { IntegrationConnectionsService } from '../integration-connections.service';
 import { ManualReviewService } from '../manual-review.service';
 import { generateBookingReference } from '../../booking/booking-reference';
+import { resolveGuestWithPhoneSignal } from '../../booking/guest-matching';
 import { ClockCircuitBreakerService, CircuitOpenError } from './clock-circuit-breaker';
 import { parseClockCredentials } from './clock-credentials';
 import {
@@ -1205,22 +1206,22 @@ export class ClockBookingService {
     tenantId: string,
     guest: CreateBookingCommand['guest'],
   ): Promise<string> {
-    const email = guest.email.trim().toLowerCase();
-    const existing = await tx.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM guests WHERE tenant_id = ${tenantId}::uuid AND lower(email) = ${email}
-    `;
-    if (existing[0]) return existing[0].id;
-    const inserted = await tx.$queryRaw<Array<{ id: string }>>`
-      INSERT INTO guests (tenant_id, email, first_name, last_name, phone)
-      VALUES (${tenantId}::uuid, ${email}, ${guest.firstName}, ${guest.lastName}, ${guest.phone})
-      ON CONFLICT (tenant_id, lower(email)) DO NOTHING
-      RETURNING id
-    `;
-    if (inserted[0]) return inserted[0].id;
-    const matched = await tx.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM guests WHERE tenant_id = ${tenantId}::uuid AND lower(email) = ${email}
-    `;
-    return matched[0]!.id;
+    const resolved = await resolveGuestWithPhoneSignal(tx, tenantId, guest, {
+      insertGuest: ({ email, phone, suspectedDuplicateOfGuestId }) =>
+        tx.$queryRaw<Array<{ id: string }>>`
+          INSERT INTO guests (
+            tenant_id, email, first_name, last_name, phone, suspected_duplicate_of_guest_id
+          )
+          VALUES (
+            ${tenantId}::uuid, ${email}, ${guest.firstName}, ${guest.lastName}, ${phone},
+            ${suspectedDuplicateOfGuestId}::uuid
+          )
+          ON CONFLICT (tenant_id, lower(email)) DO NOTHING
+          RETURNING id
+        `.then((rows) => rows[0]?.id ?? null),
+    });
+    if (!resolved) throw new Error('Guest matching could not be completed.');
+    return resolved;
   }
 
   private async generatedExternalReference(

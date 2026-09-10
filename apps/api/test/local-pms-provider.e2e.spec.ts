@@ -771,6 +771,57 @@ describe('LocalPmsProvider', () => {
     expect(directoryBookingOne).toMatchObject({ ok: true });
     expect(directoryBookingTwo).toMatchObject({ ok: true });
     expect(phoneGuestBooking).toMatchObject({ ok: true });
+    const phoneCandidateId = randomUUID();
+    await admin.$executeRaw`
+      INSERT INTO guests (id, tenant_id, email, first_name, last_name, phone)
+      VALUES (
+        ${phoneCandidateId}::uuid, ${tenantId}::uuid, 'phone-candidate@example.test',
+        'Phone', 'Candidate', '+355-555-0202'
+      )
+    `;
+    const partialMatchQuote = await quotes.create(tenantId, propertyId, quoteSessionId, {
+      roomTypeId,
+      ratePlanId,
+      startsOn: '2031-01-12',
+      endsOn: '2031-01-14',
+    });
+    const partialMatchBooking = await provider.createBooking(context, {
+      idempotencyKey: randomUUID(),
+      externalReference: `must-${randomUUID()}`,
+      roomTypeId,
+      ratePlanId,
+      startsOn: '2031-01-12',
+      endsOn: '2031-01-14',
+      guest: {
+        ...bookingRequest.guest,
+        email: 'phone-only-directory@example.test',
+        firstName: 'Phone Only',
+        lastName: 'Directory',
+        phone: '+355-555-0202',
+      },
+      total: partialMatchQuote.total,
+      quoteToken: partialMatchQuote.quoteToken,
+      quoteSessionId,
+      skipQuoteValidation: true,
+    });
+    expect(partialMatchBooking).toMatchObject({ ok: true });
+    if (!partialMatchBooking.ok) throw new Error('Expected partial-match booking to succeed.');
+    const partialMatchGuest = await admin.$queryRaw<
+      Array<{ id: string; suspectedDuplicateOfGuestId: string | null }>
+    >`
+      SELECT id, suspected_duplicate_of_guest_id AS "suspectedDuplicateOfGuestId"
+      FROM guests
+      WHERE tenant_id = ${tenantId}::uuid AND email = 'phone-only-directory@example.test'
+    `;
+    expect(partialMatchGuest).toEqual([
+      { id: partialMatchBooking.value.guestId, suspectedDuplicateOfGuestId: phoneCandidateId },
+    ]);
+    const partialMatchBookingGuest = await admin.$queryRaw<Array<{ guestId: string | null }>>`
+      SELECT guest_id AS "guestId" FROM bookings
+      WHERE tenant_id = ${tenantId}::uuid AND id = ${partialMatchBooking.value.id}::uuid
+    `;
+    expect(partialMatchBookingGuest).toEqual([{ guestId: partialMatchBooking.value.guestId }]);
+    expect(partialMatchBooking.value.guestId).not.toBe(phoneCandidateId);
     const refreshedGuest = await admin.$queryRaw<
       Array<{ id: string; firstName: string | null; lastName: string | null }>
     >`

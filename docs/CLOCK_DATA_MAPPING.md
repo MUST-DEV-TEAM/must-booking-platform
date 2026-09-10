@@ -43,7 +43,9 @@ Local `bookings` table ↔ Clock booking resource (`POST/GET/PUT /bookings/`):
 
 ## Guest mapping
 
-Matches `LocalPmsProvider`'s existing convention exactly: match-or-create by lowercased email within the tenant (`guests` table, `ON CONFLICT (tenant_id, lower(email)) DO NOTHING` then re-select). No Clock-side guest id is stored or reconciled — MUST's guest record and Clock's guest record are independent; Clock is only ever given guest details inline on the booking payload (`guest_e_mail`/`guest_first_name`/`guest_last_name`), never created as a standalone Clock guest via a separate call. Source brief section 24's fuller guest-matching requirement (external ID, phone, booking relationship, manual confirmation) is **not built** — email-only matching is what shipped.
+`ClockBookingService` and `LocalPmsProvider` use the same shared email-first match-or-create rule within the tenant (`guests` table, `ON CONFLICT (tenant_id, lower(email)) DO NOTHING` then re-select). They also perform an exact, trimmed phone lookup as a duplicate signal: when phone identifies a different guest, the email-matched or newly created guest stores that candidate in `suspected_duplicate_of_guest_id` for later staff review. The phone candidate is never attached automatically and no merge occurs during booking creation. A matching email and phone still reuses the same email guest, while a phone-only match creates a new email guest and records the candidate.
+
+No Clock-side guest id is stored or reconciled — MUST's guest record and Clock's guest record are independent; Clock is only ever given guest details inline on the booking payload (`guest_e_mail`/`guest_first_name`/`guest_last_name`), never created as a standalone Clock guest via a separate call. Clock-side guest lookup/attachment is Milestone 21 Task 4. Both local provider paths now share the local email/phone matcher; external ID and Clock-side lookup remain deferred. Source brief section 24's fuller guest-matching requirement (external ID, phone, booking relationship, manual confirmation) is only partially built here.
 
 ## Status mapping gap
 

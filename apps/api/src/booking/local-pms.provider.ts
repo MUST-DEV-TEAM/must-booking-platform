@@ -34,6 +34,7 @@ import { IntegrationConnectionsService } from '../integrations/integration-conne
 import { ManualReviewService } from '../integrations/manual-review.service';
 import { ClockBookingService } from '../integrations/clock/clock-booking.service';
 import { generateBookingReference } from './booking-reference';
+import { resolveGuestWithPhoneSignal } from './guest-matching';
 
 export const PMS_PROVIDER = Symbol('PMS_PROVIDER');
 
@@ -1481,46 +1482,41 @@ export class LocalPmsProvider implements PmsProvider {
     const firstName = guest.firstName?.trim() || null;
     const lastName = guest.lastName?.trim() || null;
     if (!email) return this.failure('INVALID_GUEST_EMAIL', 'Guest email is required.');
-    const existing = await tx.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM guests
-      WHERE tenant_id = ${tenantId}::uuid AND lower(email) = ${email}
-    `;
-    if (existing[0]) {
-      await tx.$executeRaw`
-        UPDATE guests
-        SET first_name = CASE WHEN ${firstName !== null} THEN ${firstName} ELSE first_name END,
-          last_name = CASE WHEN ${lastName !== null} THEN ${lastName} ELSE last_name END,
-          street_address = CASE WHEN ${guest.streetAddress !== undefined} THEN ${guest.streetAddress ?? null} ELSE street_address END,
-          address_line_2 = CASE WHEN ${guest.addressLine2 !== undefined} THEN ${guest.addressLine2 ?? null} ELSE address_line_2 END,
-          city = CASE WHEN ${guest.city !== undefined} THEN ${guest.city ?? null} ELSE city END,
-          county = CASE WHEN ${guest.county !== undefined} THEN ${guest.county ?? null} ELSE county END,
-          postcode = CASE WHEN ${guest.postcode !== undefined} THEN ${guest.postcode ?? null} ELSE postcode END,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = ${existing[0].id}::uuid AND tenant_id = ${tenantId}::uuid
-      `;
-      return { ok: true, value: existing[0].id };
-    }
-
-    const id = randomUUID();
-    const inserted = await tx.$queryRaw<Array<{ id: string }>>`
-      INSERT INTO guests (
-        id, tenant_id, email, first_name, last_name, phone, street_address, address_line_2, city, county, postcode
-      ) VALUES (
-        ${id}::uuid, ${tenantId}::uuid, ${email}, ${firstName}, ${lastName}, ${guest.phone},
-        ${guest.streetAddress ?? null}, ${guest.addressLine2 ?? null}, ${guest.city ?? null},
-        ${guest.county ?? null}, ${guest.postcode ?? null}
-      )
-      ON CONFLICT (tenant_id, lower(email)) DO NOTHING
-      RETURNING id
-    `;
-    if (inserted[0]) return { ok: true, value: inserted[0].id };
-    const matched = await tx.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM guests
-      WHERE tenant_id = ${tenantId}::uuid AND lower(email) = ${email}
-    `;
-    if (!matched[0])
+    const resolved = await resolveGuestWithPhoneSignal(tx, tenantId, guest, {
+      onEmailMatch: async (guestId) => {
+        await tx.$executeRaw`
+          UPDATE guests
+          SET first_name = CASE WHEN ${firstName !== null} THEN ${firstName} ELSE first_name END,
+            last_name = CASE WHEN ${lastName !== null} THEN ${lastName} ELSE last_name END,
+            street_address = CASE WHEN ${guest.streetAddress !== undefined} THEN ${guest.streetAddress ?? null} ELSE street_address END,
+            address_line_2 = CASE WHEN ${guest.addressLine2 !== undefined} THEN ${guest.addressLine2 ?? null} ELSE address_line_2 END,
+            city = CASE WHEN ${guest.city !== undefined} THEN ${guest.city ?? null} ELSE city END,
+            county = CASE WHEN ${guest.county !== undefined} THEN ${guest.county ?? null} ELSE county END,
+            postcode = CASE WHEN ${guest.postcode !== undefined} THEN ${guest.postcode ?? null} ELSE postcode END,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = ${guestId}::uuid AND tenant_id = ${tenantId}::uuid
+        `;
+      },
+      insertGuest: ({ email, phone, suspectedDuplicateOfGuestId }) => {
+        const id = randomUUID();
+        return tx.$queryRaw<Array<{ id: string }>>`
+          INSERT INTO guests (
+            id, tenant_id, email, first_name, last_name, phone, suspected_duplicate_of_guest_id,
+            street_address, address_line_2, city, county, postcode
+          ) VALUES (
+            ${id}::uuid, ${tenantId}::uuid, ${email}, ${firstName}, ${lastName}, ${phone},
+            ${suspectedDuplicateOfGuestId}::uuid, ${guest.streetAddress ?? null},
+            ${guest.addressLine2 ?? null}, ${guest.city ?? null}, ${guest.county ?? null},
+            ${guest.postcode ?? null}
+          )
+          ON CONFLICT (tenant_id, lower(email)) DO NOTHING
+          RETURNING id
+        `.then((rows) => rows[0]?.id ?? null);
+      },
+    });
+    if (!resolved)
       return this.failure('GUEST_MATCH_FAILED', 'Guest matching could not be completed.', true);
-    return { ok: true, value: matched[0].id };
+    return { ok: true, value: resolved };
   }
 
   private async transition(
