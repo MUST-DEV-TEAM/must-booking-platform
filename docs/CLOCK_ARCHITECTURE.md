@@ -111,12 +111,14 @@ ClockBookingService.createBooking
   │     a. resolve room_type/room external ids via clock_catalog_mappings
   │     b. resolve the property's single Clock rate plan (basic-milestone
   │        simplification — see CLOCK_DATA_MAPPING.md)
-  │     c. resolve/create the guest by email
+  │     c. resolve/create the local guest by email + phone signal
   │     d. INSERT bookings row (status DRAFT)
   │     e. drive BookingStateMachine: DRAFT → QUOTED → INVENTORY_REVALIDATING
   │        → PAYMENT_NOT_REQUIRED → PMS_CREATION_PENDING
-  │     f. POST to Clock /bookings/  (circuit breaker → rate limiter → HTTP client)
-  │     g. on success: validate response shape (schema_mismatch guard) → CONFIRMED
+  │     f. GET /guests/search by email (one call; exact match filtered
+  │        client-side; email match is sufficient for attachment)
+  │     g. POST to Clock /bookings/  (circuit breaker → rate limiter → HTTP client)
+  │     h. on success: validate response shape (schema_mismatch guard) → CONFIRMED
   │        on clean rejection: → PMS_REJECTED
   │        on timeout/network failure: search Clock by reference_number first
   │          (section 18) → CONFIRMED if found, else → PMS_UNKNOWN_RESULT +
@@ -126,4 +128,4 @@ ClockBookingService.createBooking
 
 ### Why the custom transaction timeout
 
-`TenantDatabaseService.withTenantTransaction` defaults to Prisma's 5000ms interactive-transaction timeout. `ClockBookingService` makes a real outbound HTTP call to Clock *inside* that transaction (steps 3f-g above) — under real network latency this can exceed 5s, which would abort an otherwise-successful local write. An optional `timeoutMs` override was added (Task 10, caught by the real sandbox e2e test failing under real latency) — 45s for create (up to 3 sequential Clock calls: rate plans, booking create, reconciliation lookup), 30s for update/cancel (GET current state + PUT).
+`TenantDatabaseService.withTenantTransaction` defaults to Prisma's 5000ms interactive-transaction timeout. `ClockBookingService` makes real outbound HTTP calls to Clock *inside* that transaction (steps 3f-h above) — under real network latency this can exceed 5s, which would abort an otherwise-successful local write. An optional `timeoutMs` override was added (Task 10, caught by the real sandbox e2e test failing under real latency) — 45s for create (up to 4 sequential Clock calls: rates, email search, booking create, reconciliation lookup), 30s for update/cancel (GET current state + PUT).

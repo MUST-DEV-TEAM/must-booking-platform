@@ -49,6 +49,11 @@ interface ClockBookingResource {
   status: string;
 }
 
+interface ClockGuestSearchResource {
+  family_id: number | string;
+  e_mail?: string | null;
+}
+
 /** Exported for unit testing (Task 12: schema_mismatch must have real, tested detection). */
 export function isClockBookingResource(value: unknown): value is ClockBookingResource {
   return (
@@ -246,23 +251,43 @@ export class ClockBookingService {
             BookingStatus.PMS_CREATION_PENDING,
           );
 
+          // Clock's free_text_search is fuzzy, so filter the one rate-limited
+          // email search client-side before deciding whether to attach.
+          const existingClockGuest = await this.clockGuestForBooking(
+            connection.value,
+            command.guest.email,
+          );
+          if (!existingClockGuest.ok)
+            return this.failure(
+              existingClockGuest.error.code,
+              existingClockGuest.error.message,
+              existingClockGuest.error.retryable,
+            );
+
+          const booking = {
+            arrival: command.startsOn,
+            departure: command.endsOn,
+            status: 'expected',
+            arrival_room_type_id: Number(externalRoomTypeId),
+            arrival_room_id: externalRoomId ? Number(externalRoomId) : null,
+            rate_id: Number(rate.value),
+            reference_number: externalReference,
+          };
+          const body = existingClockGuest.value
+            ? { main_booking_guest: existingClockGuest.value, booking }
+            : {
+                booking: {
+                  ...booking,
+                  guest_e_mail: command.guest.email,
+                  guest_first_name: command.guest.firstName,
+                  guest_last_name: command.guest.lastName,
+                },
+              };
+
           const response = await this.fetch<ClockBookingResource>(connection.value, {
             method: 'POST',
             path: '/bookings/',
-            body: {
-              booking: {
-                arrival: command.startsOn,
-                departure: command.endsOn,
-                status: 'expected',
-                arrival_room_type_id: Number(externalRoomTypeId),
-                arrival_room_id: externalRoomId ? Number(externalRoomId) : null,
-                rate_id: Number(rate.value),
-                reference_number: externalReference,
-                guest_e_mail: command.guest.email,
-                guest_first_name: command.guest.firstName,
-                guest_last_name: command.guest.lastName,
-              },
-            },
+            body,
           });
 
           if (!response.ok) {
@@ -348,8 +373,8 @@ export class ClockBookingService {
             ? { ok: true, value: this.toBooking(row)! }
             : this.failure('BOOKING_NOT_FOUND', 'Created booking could not be loaded.');
         }),
-      // Rate-plan lookup + booking create + possible reconciliation lookup —
-      // up to 3 real Clock calls inside this transaction.
+      // Rate lookup + email search + booking create + possible reconciliation
+      // lookup — up to 4 real Clock calls inside this transaction.
       { timeoutMs: 45_000 },
     );
   }
@@ -381,7 +406,11 @@ export class ClockBookingService {
     if (row.externalBookingId) return { ok: true, value: this.toBooking(row)! };
 
     const guestRows = await tx.$queryRaw<
-      Array<{ email: string; firstName: string | null; lastName: string | null }>
+      Array<{
+        email: string;
+        firstName: string | null;
+        lastName: string | null;
+      }>
     >`
       SELECT email,
         COALESCE(${row.roomGuestFirstName}, first_name) AS "firstName",
@@ -410,23 +439,43 @@ export class ClockBookingService {
     const rate = await this.rateIdForRoomType(connection.value, externalRoomTypeId);
     if (!rate.ok) return rate;
 
+    // Clock's free_text_search is fuzzy, so filter the one rate-limited email
+    // search client-side before deciding whether to attach.
+    const existingClockGuest = await this.clockGuestForBooking(
+      connection.value,
+      guest.email,
+    );
+    if (!existingClockGuest.ok)
+      return this.failure(
+        existingClockGuest.error.code,
+        existingClockGuest.error.message,
+        existingClockGuest.error.retryable,
+      );
+
+    const booking = {
+      arrival: row.startsOn,
+      departure: row.endsOn,
+      status: 'expected',
+      arrival_room_type_id: Number(externalRoomTypeId),
+      arrival_room_id: externalRoomId ? Number(externalRoomId) : null,
+      rate_id: Number(rate.value),
+      reference_number: row.externalReference,
+    };
+    const body = existingClockGuest.value
+      ? { main_booking_guest: existingClockGuest.value, booking }
+      : {
+          booking: {
+            ...booking,
+            guest_e_mail: guest.email,
+            guest_first_name: guest.firstName ?? '',
+            guest_last_name: guest.lastName ?? '',
+          },
+        };
+
     const response = await this.fetch<ClockBookingResource>(connection.value, {
       method: 'POST',
       path: '/bookings/',
-      body: {
-        booking: {
-          arrival: row.startsOn,
-          departure: row.endsOn,
-          status: 'expected',
-          arrival_room_type_id: Number(externalRoomTypeId),
-          arrival_room_id: externalRoomId ? Number(externalRoomId) : null,
-          rate_id: Number(rate.value),
-          reference_number: row.externalReference,
-          guest_e_mail: guest.email,
-          guest_first_name: guest.firstName ?? '',
-          guest_last_name: guest.lastName ?? '',
-        },
-      },
+      body,
     });
 
     if (!response.ok) {
@@ -1130,6 +1179,45 @@ export class ClockBookingService {
     );
     const row = await this.bookingById(tx, context, bookingId);
     return row ? this.toBooking(row) : null;
+  }
+
+  private async clockGuestForBooking(
+    credentials: ClockConnectionCredentials,
+    email: string,
+  ): Promise<ClockOutcome<string | null>> {
+    return this.exactClockGuestMatch(credentials, email);
+  }
+
+  private async exactClockGuestMatch(
+    credentials: ClockConnectionCredentials,
+    value: string,
+  ): Promise<ClockOutcome<string | null>> {
+    const normalizedValue = value.trim().toLowerCase();
+    if (!normalizedValue) return { ok: true, value: null };
+
+    const response = await this.fetch<unknown>(credentials, {
+      method: 'GET',
+      path: '/guests/search',
+      query: { free_text_search: value.trim() },
+    });
+    if (!response.ok) return response;
+
+    if (!Array.isArray(response.value)) return { ok: true, value: null };
+    const match = response.value.find((candidate): candidate is ClockGuestSearchResource => {
+      if (!candidate || typeof candidate !== 'object' || !('family_id' in candidate)) return false;
+      const familyId = (candidate as { family_id?: unknown }).family_id;
+      if (
+        (typeof familyId !== 'string' && typeof familyId !== 'number') ||
+        !String(familyId).trim()
+      )
+        return false;
+      const contact = (candidate as Record<string, unknown>).e_mail;
+      if (typeof contact !== 'string') return false;
+      const normalizedContact = contact.trim().toLowerCase();
+      return normalizedContact === normalizedValue;
+    });
+
+    return { ok: true, value: match ? String(match.family_id) : null };
   }
 
   private async credentials(
