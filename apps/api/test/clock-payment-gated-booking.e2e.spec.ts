@@ -488,6 +488,11 @@ describe.skipIf(!hasSandboxCredentials)(
 
       // GET .../folios/ returns bare numeric folio IDs, not objects
       // (confirmed for real) — each folio's own fields need GET /folios/{id}.
+      // Milestone 21 Task 1: postDeposit now closes the deposit folio right
+      // after posting the credit item (Clock certification requirement), so
+      // this can no longer find "the" deposit folio by `!closed_at` — it has
+      // to find the one carrying our own credit_item reference instead, then
+      // assert that one IS closed.
       const folioIds = await clockClient.request<number[]>(clockCredentials, {
         api: 'pms_api',
         method: 'GET',
@@ -495,32 +500,38 @@ describe.skipIf(!hasSandboxCredentials)(
       });
       expect(folioIds.status).toBe(200);
       let depositFolioId: number | undefined;
+      let depositFolioClosedAt: string | null | undefined;
+      let ourCreditItem:
+        | { reference?: string; value_cents?: number; currency?: string; payment_sub_type?: string }
+        | undefined;
       for (const folioId of folioIds.body) {
         const folio = await clockClient.request<{ deposit?: boolean; closed_at?: string | null }>(
           clockCredentials,
           { api: 'base_api', method: 'GET', path: `/folios/${folioId}` },
         );
-        if (folio.body.deposit === true && !folio.body.closed_at) {
+        if (folio.body.deposit !== true) continue;
+        const creditItems = await clockClient.request<
+          Array<{
+            reference?: string;
+            value_cents?: number;
+            currency?: string;
+            payment_sub_type?: string;
+          }>
+        >(clockCredentials, {
+          api: 'base_api',
+          method: 'GET',
+          path: `/folios/${folioId}/credit_items`,
+        });
+        const match = creditItems.body.find((item) => item.reference === externalReference);
+        if (match) {
           depositFolioId = folioId;
+          depositFolioClosedAt = folio.body.closed_at;
+          ourCreditItem = match;
           break;
         }
       }
       expect(depositFolioId).toBeDefined();
-
-      const creditItems = await clockClient.request<
-        Array<{
-          reference?: string;
-          value_cents?: number;
-          currency?: string;
-          payment_sub_type?: string;
-        }>
-      >(clockCredentials, {
-        api: 'base_api',
-        method: 'GET',
-        path: `/folios/${depositFolioId}/credit_items`,
-      });
-      expect(creditItems.status).toBe(200);
-      const ourCreditItem = creditItems.body.find((item) => item.reference === externalReference);
+      expect(depositFolioClosedAt).toBeTruthy();
       expect(ourCreditItem).toBeDefined();
       expect(ourCreditItem?.value_cents).toBe(50000);
       expect(ourCreditItem?.currency).toBe('EUR');

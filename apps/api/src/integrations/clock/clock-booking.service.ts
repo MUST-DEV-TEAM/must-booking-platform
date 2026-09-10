@@ -82,6 +82,14 @@ export function isClockFolioResource(value: unknown): value is ClockFolioResourc
   );
 }
 
+// depositFolio's result: either a folio ready to receive/already holding an
+// open credit_item post ('ready'), or one already fully completed by a
+// prior run — posted and closed — found by matching `reference`
+// ('already_completed'), see depositFolio's own doc comment.
+type DepositFolioResult =
+  | { status: 'ready'; folio: ClockFolioResource }
+  | { status: 'already_completed'; folio: ClockFolioResource; creditItem: ClockCreditItemResource };
+
 interface ClockCreditItemResource {
   id: number;
   reference?: string;
@@ -93,6 +101,10 @@ export function isClockCreditItemResource(value: unknown): value is ClockCreditI
     typeof value === 'object' &&
     typeof (value as ClockCreditItemResource).id === 'number'
   );
+}
+
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 type BookingRow = {
@@ -513,13 +525,30 @@ export class ClockBookingService {
    * confirmed at Clock); it records a ManualReviewItem instead so a human
    * posts the payment manually.
    *
+   * Also closes the deposit folio immediately after the credit item posts
+   * (Clock certification requirement, 2026-09-10 call) — `POST
+   * folios/{id}/close`. A close failure does not undo the payment or fail
+   * this call (the money has genuinely moved); it records a ManualReviewItem
+   * instead so a human closes the folio manually.
+   *
    * Idempotent across retries (e.g. a redelivered payment webhook hitting an
    * already-attached booking — attachRealReservation short-circuits `ok` on
    * a repeat call, so this can run more than once for the same payment):
    * reuses an existing open deposit folio rather than creating a new one
    * every time, and looks up an existing credit_item by our own `reference`
    * before posting, the same "never blind-retry" principle already used for
-   * booking creation (see linkIfClockHasIt).
+   * booking creation (see linkIfClockHasIt). Because folios are now closed
+   * as part of this flow, a *closed* deposit folio is also checked for a
+   * credit_item matching this `reference` — if a prior run already posted
+   * and closed it, this is a full no-op (no Clock writes at all), instead of
+   * opening a second folio and double-posting the deposit.
+   *
+   * Both outbound steps below are wrapped in withRetry: the most common
+   * real-world failure here is our own Clock rate limiter (4 req/s) tripping
+   * right after a burst of other Clock calls (e.g. a catalog sync just
+   * before checkout), which clears within ~1s — safe to retry because both
+   * steps are independently idempotent as described above, so a retry can
+   * never double-open a folio or double-post the credit item.
    */
   async postDeposit(
     tx: TenantTransaction,
@@ -533,13 +562,16 @@ export class ClockBookingService {
     if (!connection.ok) return connection;
 
     const row = await this.bookingById(tx, context, bookingId);
-    if (!row?.externalBookingId)
+    const externalBookingId = row?.externalBookingId;
+    if (!externalBookingId)
       return this.failure(
         'CLOCK_BOOKING_MISSING',
         'This booking has no real Clock reservation to post a deposit against.',
       );
 
-    const folio = await this.depositFolio(connection.value, row.externalBookingId);
+    const folio = await this.withRetry(() =>
+      this.depositFolio(connection.value, externalBookingId, reference),
+    );
     if (!folio.ok) {
       await this.manualReview.recordInTransaction(tx, {
         tenantId: context.tenantId,
@@ -548,17 +580,52 @@ export class ClockBookingService {
         referenceType: 'booking',
         referenceId: bookingId,
         message: `Booking is confirmed at Clock but no deposit folio could be opened: ${folio.error.message}`,
-        context: { externalBookingId: row.externalBookingId, errorCode: folio.error.code },
+        context: { externalBookingId, errorCode: folio.error.code },
+      });
+      // ManualReviewService's own alert only reaches anyone if SENTRY_DSN is
+      // configured (silently a no-op otherwise, confirmed 2026-09-04 — this
+      // property currently has none set). This is the actual staff-visible
+      // channel: same BOOKING_NEEDS_ATTENTION notification/bell already used
+      // elsewhere in this file (see transition()), so a guest paying but
+      // Clock not reflecting it surfaces in-app even with Sentry unset.
+      await this.notifications.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        type: 'BOOKING_NEEDS_ATTENTION',
+        payload: { bookingId, reason: 'clock_deposit_folio_failed', errorCode: folio.error.code },
       });
       return this.failure(folio.error.code, folio.error.message, folio.error.retryable);
     }
 
-    const creditItem = await this.postCreditItem(
-      connection.value,
-      folio.value.id,
-      amount,
-      paymentSubType,
-      reference,
+    if (folio.value.status === 'already_completed') {
+      // Redelivered webhook (or any other repeat call) landing after a
+      // prior run already posted the credit item AND closed the folio — the
+      // deposit folio search above found both by `reference`. Nothing left
+      // to do at Clock; still record the audit entry so this call's outcome
+      // is traceable the same way a fresh success is.
+      await this.audit.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        actorUserId: null,
+        action: 'booking.clock_deposit_posted',
+        targetType: 'booking',
+        targetId: bookingId,
+        details: {
+          externalBookingId: row.externalBookingId,
+          folioId: folio.value.folio.id,
+          creditItemId: folio.value.creditItem.id,
+          amount,
+          paymentSubType,
+          reference,
+          folioClosed: true,
+          idempotentReplay: true,
+        },
+      });
+      return { ok: true, value: undefined };
+    }
+
+    const creditItem = await this.withRetry(() =>
+      this.postCreditItem(connection.value, folio.value.folio.id, amount, paymentSubType, reference),
     );
     if (!creditItem.ok) {
       await this.manualReview.recordInTransaction(tx, {
@@ -570,7 +637,17 @@ export class ClockBookingService {
         message: `Booking is confirmed at Clock but the deposit could not be posted: ${creditItem.error.message}`,
         context: {
           externalBookingId: row.externalBookingId,
-          folioId: folio.value.id,
+          folioId: folio.value.folio.id,
+          errorCode: creditItem.error.code,
+        },
+      });
+      await this.notifications.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        type: 'BOOKING_NEEDS_ATTENTION',
+        payload: {
+          bookingId,
+          reason: 'clock_deposit_credit_item_failed',
           errorCode: creditItem.error.code,
         },
       });
@@ -579,6 +656,39 @@ export class ClockBookingService {
         creditItem.error.message,
         creditItem.error.retryable,
       );
+    }
+
+    const closed = await this.withRetry(() =>
+      this.closeFolio(connection.value, folio.value.folio.id),
+    );
+    if (!closed.ok) {
+      // Money has already moved (the credit item is posted) — a close
+      // failure must not fail this call or roll back the payment. Surface it
+      // for a human to close the folio manually or for a later retry.
+      await this.manualReview.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        category: 'PAYMENT_BOOKING_MISMATCH',
+        referenceType: 'booking',
+        referenceId: bookingId,
+        message: `Deposit was posted to Clock but the folio could not be closed: ${closed.error.message}`,
+        context: {
+          externalBookingId: row.externalBookingId,
+          folioId: folio.value.folio.id,
+          creditItemId: creditItem.value.id,
+          errorCode: closed.error.code,
+        },
+      });
+      await this.notifications.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        type: 'BOOKING_NEEDS_ATTENTION',
+        payload: {
+          bookingId,
+          reason: 'clock_deposit_folio_close_failed',
+          errorCode: closed.error.code,
+        },
+      });
     }
 
     await this.audit.recordInTransaction(tx, {
@@ -590,25 +700,54 @@ export class ClockBookingService {
       targetId: bookingId,
       details: {
         externalBookingId: row.externalBookingId,
-        folioId: folio.value.id,
+        folioId: folio.value.folio.id,
         creditItemId: creditItem.value.id,
         amount,
         paymentSubType,
         reference,
+        folioClosed: closed.ok,
       },
     });
     return { ok: true, value: undefined };
+  }
+
+  /** Bounded retry for postDeposit's two outbound steps: up to 3 attempts,
+   * ~1.2s apart (just over the Clock rate limiter's 1s window), only when
+   * the failure is itself marked retryable (rate-limited/circuit-open/
+   * timeout-like — never a genuine validation/schema error). Only ever used
+   * from postDeposit, where both wrapped calls are independently idempotent
+   * (see postDeposit's own doc comment), so a retry can't double-post. */
+  private async withRetry<T>(
+    attempt: () => Promise<ClockOutcome<T>>,
+    maxAttempts = 3,
+  ): Promise<ClockOutcome<T>> {
+    let result = await attempt();
+    for (let tries = 1; !result.ok && result.error.retryable && tries < maxAttempts; tries += 1) {
+      await sleep(1200);
+      result = await attempt();
+    }
+    return result;
   }
 
   /** Reuses an existing open `deposit=true` folio on this booking if one
    * exists; otherwise creates one. `GET .../folios/` only ever returns bare
    * numeric IDs (confirmed for real), so each one needs its own `GET
    * /folios/{id}` to see whether it's actually an open deposit folio —
-   * cheap in practice since a booking has very few folios. */
+   * cheap in practice since a booking has very few folios.
+   *
+   * Also checks each *closed* deposit folio for a credit_item matching
+   * `reference` before falling through to create a new one — since
+   * postDeposit now closes the folio it opens, a redelivered webhook must
+   * recognize a folio that was already fully completed (posted + closed) on
+   * a prior run, rather than opening a second folio and double-posting the
+   * deposit. Any closed deposit folio *without* a matching credit_item (e.g.
+   * one from a different stay/payment, or closed at checkout) is unrelated
+   * and skipped. */
   private async depositFolio(
     credentials: ClockConnectionCredentials,
     externalBookingId: string,
-  ): Promise<ClockOutcome<ClockFolioResource>> {
+    reference: string,
+  ): Promise<ClockOutcome<DepositFolioResult>> {
     const listed = await this.fetch<number[]>(credentials, {
       method: 'GET',
       path: `/bookings/${externalBookingId}/folios/`,
@@ -621,13 +760,18 @@ export class ClockBookingService {
         path: `/folios/${folioId}`,
         api: 'base_api',
       });
-      if (
-        viewed.ok &&
-        isClockFolioResource(viewed.value) &&
-        viewed.value.deposit === true &&
-        !viewed.value.closed_at
-      )
-        return { ok: true, value: viewed.value };
+      if (!viewed.ok || !isClockFolioResource(viewed.value) || viewed.value.deposit !== true)
+        continue;
+
+      if (!viewed.value.closed_at)
+        return { ok: true, value: { status: 'ready', folio: viewed.value } };
+
+      const existing = await this.creditItemByReference(credentials, folioId, reference);
+      if (existing.ok && existing.value)
+        return {
+          ok: true,
+          value: { status: 'already_completed', folio: viewed.value, creditItem: existing.value },
+        };
     }
 
     const created = await this.fetch<unknown>(credentials, {
@@ -648,7 +792,25 @@ export class ClockBookingService {
         message: 'Clock did not create a recognizable open deposit folio.',
         retryable: false,
       });
-    return { ok: true, value: created.value };
+    return { ok: true, value: { status: 'ready', folio: created.value } };
+  }
+
+  /** Closes a folio in Clock — required after posting a deposit's
+   * credit_item (Clock certification requirement, 2026-09-10 call); a
+   * deposit folio must not be left open indefinitely. No `document_type_id`
+   * is sent yet (closes without generating a fiscal document); selecting
+   * one is a separate, lower-priority follow-up. */
+  private async closeFolio(
+    credentials: ClockConnectionCredentials,
+    folioId: number,
+  ): Promise<ClockOutcome<void>> {
+    const response = await this.fetch<unknown>(credentials, {
+      method: 'POST',
+      path: `/folios/${folioId}/close`,
+      api: 'base_api',
+    });
+    if (!response.ok) return response;
+    return { ok: true, value: undefined };
   }
 
   /** Posts the credit item, or reconciles against an existing one by our own
