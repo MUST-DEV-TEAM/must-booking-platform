@@ -30,6 +30,6 @@ describe('display price card batches', () => {
     expect(displayPrices).toHaveBeenCalledTimes(1);
     expect(displayPrices.mock.calls[0]?.slice(0, 2)).toEqual(['tenant', 'property']);
     expect(result.prices).toHaveLength(Math.min(count, 250));
-    expect(result.prices[77]?.total.amount).toBe('1200.00');
+    expect(result.prices[77]?.total?.amount).toBe('1200.00');
   });
 });
