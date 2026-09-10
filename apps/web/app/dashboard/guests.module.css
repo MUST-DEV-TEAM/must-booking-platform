@@ -22,6 +22,26 @@
   display: grid;
   gap: var(--must-space-12);
   padding: var(--must-space-16);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.profileSelected {
+  border-color: var(--must-color-action-primary);
+  box-shadow: 0 0 0 1px var(--must-color-action-primary);
+}
+
+.matchReason {
+  font-size: 0.8125rem;
+  font-style: italic;
+}
+
+.differing {
+  color: var(--must-color-danger);
+  font-weight: 700;
+}
+
+.preview {
+  font-size: 0.8125rem;
 }
 
 .profileChoice {

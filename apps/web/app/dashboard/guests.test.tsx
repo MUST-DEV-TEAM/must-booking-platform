@@ -152,6 +152,7 @@ describe('Dashboard guests', () => {
       return new Response(JSON.stringify(bookings));
     });
     vi.stubGlobal('fetch', fetch);
+    vi.stubGlobal('confirm', vi.fn(() => true));
     const { container, root } = await mount();
 
     expect(container.textContent).toContain('Suspected duplicates');
@@ -174,6 +175,55 @@ describe('Dashboard guests', () => {
         body: JSON.stringify({ canonicalGuestId: 'guest-1' }),
       }),
     );
+    await act(async () => root.unmount());
+  });
+
+  it('explains why a phone-matched pair was flagged, highlights the differing field, and previews the merge result', async () => {
+    const phoneMatchPair = [
+      {
+        guest: {
+          id: 'guest-4',
+          firstName: 'Bob',
+          lastName: null,
+          email: 'bob@test',
+          phone: '+355 69 000 1111',
+          bookingCount: 3,
+        },
+        suspectedDuplicate: {
+          id: 'guest-5',
+          firstName: null,
+          lastName: null,
+          email: 'bob.alt@test',
+          phone: '+355 69 000 1111',
+          bookingCount: 1,
+        },
+      },
+    ];
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') return new Response(null, { status: 204 });
+      if (url.endsWith('/suspected-duplicates'))
+        return new Response(JSON.stringify(phoneMatchPair));
+      if (url.includes('/guests')) return new Response(JSON.stringify(guests));
+      return new Response(JSON.stringify(bookings));
+    });
+    vi.stubGlobal('fetch', fetch);
+    vi.stubGlobal('confirm', vi.fn(() => true));
+    const { container, root } = await mount();
+
+    expect(container.textContent).toContain(
+      'Flagged because the phone number matches, but the email addresses differ.',
+    );
+    const emailCells = Array.from(container.querySelectorAll('dd')).filter((dd) =>
+      dd.textContent?.includes('@test'),
+    );
+    expect(emailCells.some((dd) => dd.className.includes('differing'))).toBe(true);
+
+    // Keep guest-5 (the one missing a name) — the preview should mention
+    // backfilling its name from guest-4.
+    await click(container.querySelectorAll('input[type="radio"]')[1]!);
+    expect(container.textContent).toContain('Keeping bob.alt@test');
+    expect(container.textContent).toContain("the other profile's name Bob");
+
     await act(async () => root.unmount());
   });
 });

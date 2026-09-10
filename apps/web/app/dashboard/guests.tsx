@@ -226,12 +226,29 @@ export function DashboardGuests({
               const selectedCanonical = canonicalByGuest[pair.guest.id];
               const pending =
                 reviewMutation.isPending && reviewMutation.variables?.guestId === pair.guest.id;
+              const differing = differingFields(pair.guest, pair.suspectedDuplicate);
+              const canonicalProfile =
+                selectedCanonical === pair.guest.id
+                  ? pair.guest
+                  : selectedCanonical === pair.suspectedDuplicate.id
+                    ? pair.suspectedDuplicate
+                    : null;
+              const otherProfile =
+                canonicalProfile === pair.guest
+                  ? pair.suspectedDuplicate
+                  : canonicalProfile === pair.suspectedDuplicate
+                    ? pair.guest
+                    : null;
               return (
                 <Card className={reviewStyles.pair} key={pair.guest.id}>
+                  <Text className={reviewStyles.matchReason} tone="secondary">
+                    {matchReason(pair.guest, pair.suspectedDuplicate)}
+                  </Text>
                   <div className={reviewStyles.profiles}>
                     <ReviewProfile
                       profile={pair.guest}
                       checked={selectedCanonical === pair.guest.id}
+                      differing={differing}
                       name={pair.guest.id}
                       onSelect={() =>
                         setCanonicalByGuest((current) => ({
@@ -243,6 +260,7 @@ export function DashboardGuests({
                     <ReviewProfile
                       profile={pair.suspectedDuplicate}
                       checked={selectedCanonical === pair.suspectedDuplicate.id}
+                      differing={differing}
                       name={pair.guest.id}
                       onSelect={() =>
                         setCanonicalByGuest((current) => ({
@@ -252,12 +270,26 @@ export function DashboardGuests({
                       }
                     />
                   </div>
+                  {canonicalProfile && otherProfile ? (
+                    <Text className={reviewStyles.preview} tone="secondary">
+                      Keeping <strong>{guestName(canonicalProfile)}</strong> — the{' '}
+                      {otherProfile.bookingCount} booking{otherProfile.bookingCount === 1 ? '' : 's'}{' '}
+                      on the other profile move here.{' '}
+                      {mergePreviewNote(canonicalProfile, otherProfile)}
+                    </Text>
+                  ) : null}
                   <div className={reviewStyles.actions}>
                     <button
                       className="must-button must-button--primary"
                       disabled={!selectedCanonical || pending}
                       onClick={() => {
-                        if (!selectedCanonical) return;
+                        if (!selectedCanonical || !canonicalProfile) return;
+                        if (
+                          !window.confirm(
+                            `Merge these two profiles, keeping ${guestName(canonicalProfile)}? This moves the other profile's bookings here and cannot be undone from this screen.`,
+                          )
+                        )
+                          return;
                         reviewMutation.mutate({
                           kind: 'merge',
                           guestId: pair.guest.id,
@@ -316,29 +348,37 @@ export function DashboardGuests({
 function ReviewProfile({
   profile,
   checked,
+  differing,
   name,
   onSelect,
 }: {
   profile: GuestReviewProfile;
   checked: boolean;
+  differing: Set<'email' | 'phone' | 'name'>;
   name: string;
   onSelect: () => void;
 }) {
   return (
-    <label className={reviewStyles.profile}>
+    <label
+      className={`${reviewStyles.profile} ${checked ? reviewStyles.profileSelected : ''}`.trim()}
+    >
       <span className={reviewStyles.profileChoice}>
         <input checked={checked} name={`canonical-${name}`} onChange={onSelect} type="radio" />
         Keep this profile
       </span>
-      <strong>{guestName(profile)}</strong>
+      <strong className={differing.has('name') ? reviewStyles.differing : ''}>
+        {guestName(profile)}
+      </strong>
       <dl>
         <div>
           <dt>Email</dt>
-          <dd>{profile.email}</dd>
+          <dd className={differing.has('email') ? reviewStyles.differing : ''}>{profile.email}</dd>
         </div>
         <div>
           <dt>Phone</dt>
-          <dd>{profile.phone || '—'}</dd>
+          <dd className={differing.has('phone') ? reviewStyles.differing : ''}>
+            {profile.phone || '—'}
+          </dd>
         </div>
         <div>
           <dt>Bookings</dt>
@@ -351,6 +391,43 @@ function ReviewProfile({
 
 function guestName(guest: Pick<Guest, 'firstName' | 'lastName' | 'email'>) {
   return [guest.firstName, guest.lastName].filter(Boolean).join(' ') || guest.email;
+}
+
+/** Which fields actually differ between the pair — used to visually flag them
+ * rather than making staff eyeball-compare two dense cards. */
+function differingFields(
+  a: GuestReviewProfile,
+  b: GuestReviewProfile,
+): Set<'email' | 'phone' | 'name'> {
+  const differing = new Set<'email' | 'phone' | 'name'>();
+  if (a.email.trim().toLowerCase() !== b.email.trim().toLowerCase()) differing.add('email');
+  if ((a.phone?.trim() || null) !== (b.phone?.trim() || null)) differing.add('phone');
+  if (guestName(a) !== guestName(b)) differing.add('name');
+  return differing;
+}
+
+/** Explains why staff are seeing this pair at all — the signal that actually
+ * matched, since the review screen otherwise just shows two similar-looking
+ * profiles with no context for why they were flagged together. */
+function matchReason(a: GuestReviewProfile, b: GuestReviewProfile): string {
+  const emailMatches = a.email.trim().toLowerCase() === b.email.trim().toLowerCase();
+  const phoneMatches =
+    a.phone && b.phone && a.phone.trim() === b.phone.trim() ? true : false;
+  if (phoneMatches && !emailMatches) return 'Flagged because the phone number matches, but the email addresses differ.';
+  if (emailMatches && !phoneMatches) return 'Flagged because the email matches, but the phone numbers differ.';
+  return 'Flagged as a possible duplicate.';
+}
+
+/** Mirrors the backend's own merge backfill rule (guests.service.ts,
+ * mergeSuspectedDuplicate): the kept profile's own non-blank fields always
+ * win; a blank field is filled in from the other profile. Shown so staff
+ * know exactly what the result looks like before confirming. */
+function mergePreviewNote(canonical: GuestReviewProfile, other: GuestReviewProfile): string {
+  const fills: string[] = [];
+  if (!canonical.phone?.trim() && other.phone?.trim()) fills.push(`phone ${other.phone}`);
+  if (!canonical.firstName?.trim() && !canonical.lastName?.trim() && guestName(other) !== other.email)
+    fills.push(`name ${guestName(other)}`);
+  return fills.length ? `It will also pick up the other profile's ${fills.join(' and ')}.` : '';
 }
 
 function useDebouncedValue(value: string, delay: number) {
