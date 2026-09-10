@@ -47,7 +47,8 @@ export class BookingCancellationNotificationService {
       const rows = await tx.$queryRaw<CancellationRow[]>`
         SELECT g.email, g.first_name AS "firstName", g.last_name AS "lastName", g.phone,
           b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
-          b.ends_on::text AS "endsOn", b.guest_count AS "guestCount", b.nightly_rates AS "nightlyRates",
+          b.ends_on::text AS "endsOn", (b.adults + b.children) AS "guestCount",
+          b.nightly_rates AS "nightlyRates",
           COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
           p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone AS "propertyPhone",
           p.public_website_origin AS "publicWebsiteOrigin", p.address AS "propertyAddress"

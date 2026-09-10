@@ -96,6 +96,8 @@ export class StaffBookingController {
       ratePlanId: typeof value.ratePlanId === 'string' ? value.ratePlanId : '',
       startsOn: typeof value.startsOn === 'string' ? value.startsOn : '',
       endsOn: typeof value.endsOn === 'string' ? value.endsOn : '',
+      adults: typeof value.adults === 'number' ? value.adults : undefined,
+      children: typeof value.children === 'number' ? value.children : undefined,
       guestCount: typeof value.guestCount === 'number' ? value.guestCount : undefined,
       paymentMethod:
         value.paymentMethod === 'stripe' ||

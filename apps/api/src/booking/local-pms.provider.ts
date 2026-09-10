@@ -29,6 +29,7 @@ import { BookingCancellationNotificationService } from '../mail/booking-cancella
 import { BookingStateMachine } from './booking-state-machine';
 import { bookingNeedsAttention } from './booking-attention';
 import { QuoteService } from './quote.service';
+import { resolveBookingOccupancy, validBookingOccupancy } from './booking-occupancy';
 import { NotificationsService } from '../tenancy/notifications.service';
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
 import { ManualReviewService } from '../integrations/manual-review.service';
@@ -60,7 +61,8 @@ type BookingRow = {
   status: BookingStatus;
   paymentMethod: BookingPaymentMethod;
   totalAmount: string;
-  guestCount: number;
+  adults: number;
+  children: number;
   currency: string;
   nightlyRates: unknown;
   externalReference: string;
@@ -229,10 +231,11 @@ export class LocalPmsProvider implements PmsProvider {
     context: PmsProviderContext,
     command: LocalCreateBookingCommand,
   ): Promise<Result<BookingWithCheckout>> {
+    const occupancy = resolveBookingOccupancy(command);
     if (
       !this.validStay(command.startsOn, command.endsOn) ||
       !this.validAmount(command.total.amount) ||
-      !this.validGuestCount(command.guestCount) ||
+      !this.validGuestCount(occupancy.adults, occupancy.children) ||
       !(command.quoteSessionId ?? command.staffActorId)
     ) {
       return this.failure(
@@ -305,7 +308,7 @@ export class LocalPmsProvider implements PmsProvider {
         INSERT INTO bookings (
           tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
           guest_session_id, special_requests, status, payment_method, starts_on, ends_on, rate_plan_id, total_amount,
-          guest_count
+          adults, children, guest_count
         ) VALUES (
           ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${command.roomTypeId}::uuid,
           ${command.roomId ?? null}::uuid, ${guestId}::uuid, ${externalReference},
@@ -314,7 +317,8 @@ export class LocalPmsProvider implements PmsProvider {
           ${BookingStatus.DRAFT}::"BookingStatus",
           ${paymentMethod.value}::"BookingPaymentMethod",
           ${command.startsOn}::date, ${command.endsOn}::date, ${ratePlanId}::uuid,
-          ${command.total.amount}::numeric, ${command.guestCount ?? 1}
+          ${command.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children},
+          ${occupancy.guestCount}
         )
         RETURNING id
       `;
@@ -1555,7 +1559,7 @@ export class LocalPmsProvider implements PmsProvider {
         b.guest_session_id AS "guestSessionId", b.rate_plan_id AS "ratePlanId",
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
         b.payment_method AS "paymentMethod",
-        b.total_amount::text AS "totalAmount", b.guest_count AS "guestCount", b.nightly_rates AS "nightlyRates",
+        b.total_amount::text AS "totalAmount", b.adults, b.children, b.nightly_rates AS "nightlyRates",
         rp.currency, b.external_reference AS "externalReference", b.order_reference AS "orderReference",
         b.external_booking_id AS "externalBookingId",
         b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
@@ -1578,7 +1582,7 @@ export class LocalPmsProvider implements PmsProvider {
         b.room_type_id AS "roomTypeId", b.room_id AS "roomId", b.guest_id AS "guestId", b.rate_plan_id AS "ratePlanId",
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
         b.payment_method AS "paymentMethod",
-        b.total_amount::text AS "totalAmount", b.guest_count AS "guestCount", b.nightly_rates AS "nightlyRates",
+        b.total_amount::text AS "totalAmount", b.adults, b.children, b.nightly_rates AS "nightlyRates",
         rp.currency, b.external_reference AS "externalReference", b.order_reference AS "orderReference",
         b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
       FROM bookings b JOIN rate_plans rp
@@ -1605,7 +1609,9 @@ export class LocalPmsProvider implements PmsProvider {
       status: row.status,
       paymentMethod: row.paymentMethod,
       total: { amount: row.totalAmount, currency: row.currency },
-      guestCount: row.guestCount,
+      adults: row.adults,
+      children: row.children,
+      guestCount: row.adults + row.children,
       ...(nightlyRates ? { nightlyRates } : {}),
       externalReference: row.externalReference,
       externalBookingId: row.externalBookingId ?? row.id,
@@ -1646,8 +1652,8 @@ export class LocalPmsProvider implements PmsProvider {
     return /^\d+(?:\.\d{1,2})?$/.test(amount);
   }
 
-  private validGuestCount(value: number | undefined): boolean {
-    return value === undefined || (Number.isInteger(value) && value > 0);
+  private validGuestCount(adults: number, children: number): boolean {
+    return validBookingOccupancy({ adults, children });
   }
 
   private requiresCheckout(amount: string): boolean {

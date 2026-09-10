@@ -19,6 +19,7 @@ import {
   type ClockConnectionCredentials,
 } from './clock-http-client';
 import { ClockRateLimiterService } from './clock-rate-limiter';
+import { resolveBookingOccupancy } from '../../booking/booking-occupancy';
 
 // CONFIRMED_IN_SANDBOX 2026-09-03 against a real GET /bookings/{id} response
 // (Empire Beach Resort) — see docs/CLOCK_WEBHOOK_FLOW.md. Only the fields
@@ -156,7 +157,16 @@ export class ClockBookingHydrationService {
 
       const status = CANCELLED_CLOCK_STATUSES.has(detail.status) ? 'CANCELLED' : 'CONFIRMED';
       const totalAmount = ((detail.total_booking_value?.cents ?? 0) / 100).toFixed(2);
-      const guestCount = Math.max(1, (detail.adults ?? 1) + (detail.children ?? 0));
+      const occupancy = resolveBookingOccupancy({
+        adults:
+          detail.adults != null && Number.isInteger(detail.adults) && detail.adults >= 1
+            ? detail.adults
+            : undefined,
+        children:
+          detail.children != null && Number.isInteger(detail.children) && detail.children >= 0
+            ? detail.children
+            : undefined,
+      });
       const externalReference = `CLOCK-${detail.number ?? detail.id}`;
       const nightlyRates = (detail.rate_calculation ?? []).map((night) => ({
         date: night.date,
@@ -167,11 +177,11 @@ export class ClockBookingHydrationService {
         `INSERT INTO bookings (
            tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
            external_booking_id, status, payment_method, starts_on, ends_on, rate_plan_id,
-           total_amount, guest_count, nightly_rates
+           total_amount, adults, children, guest_count, nightly_rates
          ) VALUES (
            $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, $8::"BookingStatus",
            'PAY_AT_HOTEL'::"BookingPaymentMethod", $9::date, $10::date, $11::uuid, $12::decimal,
-           $13, $14::jsonb
+           $13, $14, $15, $16::jsonb
          )
          ON CONFLICT (tenant_id, property_id, external_booking_id) DO UPDATE SET
            room_type_id = EXCLUDED.room_type_id,
@@ -181,6 +191,8 @@ export class ClockBookingHydrationService {
            starts_on = EXCLUDED.starts_on,
            ends_on = EXCLUDED.ends_on,
            total_amount = EXCLUDED.total_amount,
+           adults = EXCLUDED.adults,
+           children = EXCLUDED.children,
            guest_count = EXCLUDED.guest_count,
            nightly_rates = EXCLUDED.nightly_rates,
            version = bookings.version + 1,
@@ -198,7 +210,9 @@ export class ClockBookingHydrationService {
         detail.departure,
         ratePlanId,
         totalAmount,
-        guestCount,
+        occupancy.adults,
+        occupancy.children,
+        occupancy.guestCount,
         JSON.stringify(nightlyRates),
       );
 

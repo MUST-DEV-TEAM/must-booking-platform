@@ -146,10 +146,12 @@ describe('Clock folio hydration (visibility only)', () => {
     await admin.$executeRaw`
       INSERT INTO bookings (
         tenant_id, property_id, room_type_id, external_reference, external_booking_id,
-        status, payment_method, starts_on, ends_on, rate_plan_id, total_amount, guest_count
+        status, payment_method, starts_on, ends_on, rate_plan_id, total_amount,
+        adults, children, guest_count
       ) VALUES (
         ${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid, 'CLOCK-367', '38149736',
-        'CONFIRMED', 'PAY_AT_HOTEL', '2026-09-30', '2026-10-01', ${ratePlanId}::uuid, 100.00, 3
+        'CONFIRMED', 'PAY_AT_HOTEL', '2026-09-30', '2026-10-01', ${ratePlanId}::uuid,
+        100.00, 3, 0, 3
       )
     `;
   });

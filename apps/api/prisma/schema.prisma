@@ -545,6 +545,9 @@ model Booking {
   endsOn                     DateTime                 @map("ends_on") @db.Date
   ratePlanId                 String                   @map("rate_plan_id") @db.Uuid
   totalAmount                Decimal                  @map("total_amount") @db.Decimal(12, 2)
+  adults                     Int                      @default(1)
+  children                   Int                      @default(0)
+  // Derived from adults + children; retained for backwards compatibility.
   guestCount                 Int                      @default(1) @map("guest_count")
   nightlyRates               Json?                    @map("nightly_rates")
   version                    Int                      @default(1)
@@ -655,6 +658,8 @@ model Guest {
   phone                       String?  @db.VarChar(50)
   // Advisory only: a phone-only/partial match candidate for staff review.
   suspectedDuplicateOfGuestId String?  @map("suspected_duplicate_of_guest_id") @db.Uuid
+  // Tombstone pointer: merged records remain auditable but are not active guests.
+  mergedIntoGuestId           String?  @map("merged_into_guest_id") @db.Uuid
   streetAddress               String?  @map("street_address") @db.VarChar(255)
   addressLine2                String?  @map("address_line_2") @db.VarChar(255)
   city                        String?  @db.VarChar(100)
@@ -666,6 +671,7 @@ model Guest {
   @@unique([tenantId, id])
   @@index([tenantId, createdAt])
   @@index([tenantId, suspectedDuplicateOfGuestId])
+  @@index([tenantId, mergedIntoGuestId])
   @@map("guests")
 }
 

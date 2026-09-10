@@ -22,6 +22,7 @@ import { bookingNeedsAttention } from '../../booking/booking-attention';
 import { IntegrationConnectionsService } from '../integration-connections.service';
 import { ManualReviewService } from '../manual-review.service';
 import { generateBookingReference } from '../../booking/booking-reference';
+import { resolveBookingOccupancy, validBookingOccupancy } from '../../booking/booking-occupancy';
 import { resolveGuestWithPhoneSignal } from '../../booking/guest-matching';
 import { ClockCircuitBreakerService, CircuitOpenError } from './clock-circuit-breaker';
 import { parseClockCredentials } from './clock-credentials';
@@ -126,7 +127,8 @@ type BookingRow = {
   status: BookingStatus;
   paymentMethod: BookingPaymentMethod;
   totalAmount: string;
-  guestCount: number;
+  adults: number;
+  children: number;
   currency: string;
   externalReference: string;
   roomGuestFirstName: string | null;
@@ -160,10 +162,11 @@ export class ClockBookingService {
     context: PmsProviderContext,
     command: CreateBookingCommand,
   ): Promise<Result<Booking>> {
+    const occupancy = resolveBookingOccupancy(command);
     if (
       !this.validStay(command.startsOn, command.endsOn) ||
       !this.validAmount(command.total.amount) ||
-      !this.validGuestCount(command.guestCount)
+      !this.validGuestCount(occupancy.adults, occupancy.children)
     )
       return this.failure(
         'INVALID_BOOKING_COMMAND',
@@ -205,14 +208,16 @@ export class ClockBookingService {
           const inserted = await tx.$queryRaw<Array<{ id: string }>>`
           INSERT INTO bookings (
             tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
-            status, payment_method, starts_on, ends_on, rate_plan_id, total_amount, guest_count
+            status, payment_method, starts_on, ends_on, rate_plan_id, total_amount,
+            adults, children, guest_count
           ) VALUES (
             ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${command.roomTypeId}::uuid,
             ${command.roomId ?? null}::uuid, ${guestId}::uuid, ${externalReference},
             ${BookingStatus.DRAFT}::"BookingStatus",
             ${this.paymentMethodOf(command)}::"BookingPaymentMethod",
             ${command.startsOn}::date, ${command.endsOn}::date, ${command.ratePlanId}::uuid,
-            ${command.total.amount}::numeric, ${command.guestCount ?? 1}
+            ${command.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children},
+            ${occupancy.guestCount}
           )
           RETURNING id
         `;
@@ -441,10 +446,7 @@ export class ClockBookingService {
 
     // Clock's free_text_search is fuzzy, so filter the one rate-limited email
     // search client-side before deciding whether to attach.
-    const existingClockGuest = await this.clockGuestForBooking(
-      connection.value,
-      guest.email,
-    );
+    const existingClockGuest = await this.clockGuestForBooking(connection.value, guest.email);
     if (!existingClockGuest.ok)
       return this.failure(
         existingClockGuest.error.code,
@@ -675,7 +677,13 @@ export class ClockBookingService {
     }
 
     const creditItem = await this.withRetry(() =>
-      this.postCreditItem(connection.value, folio.value.folio.id, amount, paymentSubType, reference),
+      this.postCreditItem(
+        connection.value,
+        folio.value.folio.id,
+        amount,
+        paymentSubType,
+        reference,
+      ),
     );
     if (!creditItem.ok) {
       await this.manualReview.recordInTransaction(tx, {
@@ -1110,7 +1118,8 @@ export class ClockBookingService {
         SELECT b.id, b.tenant_id AS "tenantId", b.property_id AS "propertyId", b.room_type_id AS "roomTypeId",
           b.room_id AS "roomId", b.guest_id AS "guestId", b.rate_plan_id AS "ratePlanId",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
-          b.payment_method AS "paymentMethod", b.total_amount::text AS "totalAmount", b.guest_count AS "guestCount", rp.currency,
+          b.payment_method AS "paymentMethod", b.total_amount::text AS "totalAmount",
+          b.adults, b.children, rp.currency,
           b.external_reference AS "externalReference", b.external_booking_id AS "externalBookingId",
           b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
         FROM bookings b JOIN rate_plans rp
@@ -1131,7 +1140,8 @@ export class ClockBookingService {
         SELECT b.id, b.tenant_id AS "tenantId", b.property_id AS "propertyId", b.room_type_id AS "roomTypeId",
           b.room_id AS "roomId", b.guest_id AS "guestId", b.rate_plan_id AS "ratePlanId",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
-          b.payment_method AS "paymentMethod", b.total_amount::text AS "totalAmount", b.guest_count AS "guestCount", rp.currency,
+          b.payment_method AS "paymentMethod", b.total_amount::text AS "totalAmount",
+          b.adults, b.children, rp.currency,
           b.external_reference AS "externalReference", b.external_booking_id AS "externalBookingId",
           b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
         FROM bookings b JOIN rate_plans rp
@@ -1364,7 +1374,8 @@ export class ClockBookingService {
       SELECT b.id, b.tenant_id AS "tenantId", b.property_id AS "propertyId", b.room_type_id AS "roomTypeId",
         b.room_id AS "roomId", b.guest_id AS "guestId", b.rate_plan_id AS "ratePlanId",
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
-        b.payment_method AS "paymentMethod", b.total_amount::text AS "totalAmount", b.guest_count AS "guestCount", rp.currency,
+        b.payment_method AS "paymentMethod", b.total_amount::text AS "totalAmount",
+        b.adults, b.children, rp.currency,
         b.external_reference AS "externalReference", b.external_booking_id AS "externalBookingId",
         b.room_guest_first_name AS "roomGuestFirstName", b.room_guest_last_name AS "roomGuestLastName",
         b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
@@ -1392,7 +1403,9 @@ export class ClockBookingService {
       status: row.status,
       paymentMethod: row.paymentMethod,
       total: { amount: row.totalAmount, currency: row.currency },
-      guestCount: row.guestCount,
+      adults: row.adults,
+      children: row.children,
+      guestCount: row.adults + row.children,
       externalReference: row.externalReference,
       externalBookingId: row.externalBookingId,
       version: row.version,
@@ -1417,8 +1430,8 @@ export class ClockBookingService {
     return /^\d+(?:\.\d{1,2})?$/.test(amount);
   }
 
-  private validGuestCount(value: number | undefined): boolean {
-    return value === undefined || (Number.isInteger(value) && value > 0);
+  private validGuestCount(adults: number, children: number): boolean {
+    return validBookingOccupancy({ adults, children });
   }
 
   private async withIdempotency(

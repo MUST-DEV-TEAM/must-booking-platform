@@ -204,7 +204,8 @@ export class PaymentRefundService {
       const guest = await tx.$queryRaw<Array<RefundEmailRow>>`
         SELECT g.email, g.first_name AS "firstName", g.last_name AS "lastName",
           b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
-          b.ends_on::text AS "endsOn", b.guest_count AS "guestCount", b.nightly_rates AS "nightlyRates",
+          b.ends_on::text AS "endsOn", (b.adults + b.children) AS "guestCount",
+          b.nightly_rates AS "nightlyRates",
           COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
           p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
           p.public_website_origin AS "websiteUrl", p.address
@@ -345,7 +346,8 @@ export class PaymentRefundService {
       const guest = await tx.$queryRaw<Array<RefundEmailRow>>`
         SELECT g.email, g.first_name AS "firstName", g.last_name AS "lastName",
           b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
-          b.ends_on::text AS "endsOn", b.guest_count AS "guestCount", b.nightly_rates AS "nightlyRates",
+          b.ends_on::text AS "endsOn", (b.adults + b.children) AS "guestCount",
+          b.nightly_rates AS "nightlyRates",
           COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
           p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
           p.public_website_origin AS "websiteUrl", p.address

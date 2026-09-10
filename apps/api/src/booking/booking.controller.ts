@@ -196,6 +196,8 @@ export class BookingController {
         specialRequests: this.optionalSpecialRequests(guest.specialRequests),
       },
       total: this.money(value.total) ?? { amount: '', currency: '' },
+      adults: typeof value.adults === 'number' ? value.adults : undefined,
+      children: typeof value.children === 'number' ? value.children : undefined,
       guestCount: typeof value.guestCount === 'number' ? value.guestCount : undefined,
       paymentMethod:
         value.paymentMethod === 'stripe' ||

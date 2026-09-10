@@ -15,6 +15,7 @@ import { IntegrationConnectionsService } from '../integrations/integration-conne
 import { ClockBookingService } from '../integrations/clock/clock-booking.service';
 import { PaymentProviderRegistry } from '../payments/payment-provider-registry';
 import { QuoteService } from './quote.service';
+import { resolveBookingOccupancy } from './booking-occupancy';
 
 type RoomGuestName = Pick<CreateBookingCommand['guest'], 'firstName' | 'lastName'>;
 
@@ -135,12 +136,14 @@ export class MultiRoomBookingService {
               const externalReference = `${orderReference}-room${index + 1}`;
               const nightlyRates = this.quotes.nightlyRates(room.quoteToken)!;
               const roomGuest = room.guest ?? command.guest;
+              const occupancy = resolveBookingOccupancy({ guestCount: room.guestCount });
               const inserted = await tx.$queryRaw<Array<{ id: string }>>`
                 INSERT INTO bookings (
                   tenant_id, property_id, room_type_id, room_id, guest_id, guest_session_id,
                   external_reference, order_reference, order_room_number,
                   room_guest_first_name, room_guest_last_name, status, payment_method,
-                  starts_on, ends_on, rate_plan_id, total_amount, guest_count, nightly_rates
+                  starts_on, ends_on, rate_plan_id, total_amount, adults, children, guest_count,
+                  nightly_rates
                 ) VALUES (
                   ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${room.roomTypeId}::uuid,
                   ${room.roomId ?? null}::uuid, ${guest.value}::uuid, ${command.quoteSessionId}::uuid,
@@ -148,7 +151,8 @@ export class MultiRoomBookingService {
                   ${roomGuest.firstName?.trim() || null}, ${roomGuest.lastName?.trim() || null},
                   ${status}::"BookingStatus", ${paymentMethod.value}::"BookingPaymentMethod",
                   ${command.startsOn}::date, ${command.endsOn}::date, ${room.ratePlanId}::uuid,
-                  ${room.total.amount}::numeric, ${room.guestCount ?? 1}, ${JSON.stringify(nightlyRates)}::jsonb
+                  ${room.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children},
+                  ${occupancy.guestCount}, ${JSON.stringify(nightlyRates)}::jsonb
                 )
                 RETURNING id
               `;

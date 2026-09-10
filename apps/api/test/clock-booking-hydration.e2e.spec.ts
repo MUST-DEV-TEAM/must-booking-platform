@@ -181,6 +181,8 @@ describe('Clock booking hydration', () => {
         startsOn: Date;
         endsOn: Date;
         totalAmount: string;
+        adults: number;
+        children: number;
         guestCount: number;
         paymentMethod: string;
         guestId: string | null;
@@ -188,7 +190,8 @@ describe('Clock booking hydration', () => {
       }>
     >`
       SELECT status, external_reference AS "externalReference", external_booking_id AS "externalBookingId",
-        starts_on AS "startsOn", ends_on AS "endsOn", total_amount::text AS "totalAmount", guest_count AS "guestCount",
+        starts_on AS "startsOn", ends_on AS "endsOn", total_amount::text AS "totalAmount",
+        adults, children, guest_count AS "guestCount",
         payment_method AS "paymentMethod", guest_id AS "guestId", rate_plan_id AS "ratePlanId"
       FROM bookings WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
         AND external_booking_id = '38144004'
@@ -198,6 +201,8 @@ describe('Clock booking hydration', () => {
     expect(row.status).toBe('CONFIRMED');
     expect(row.externalReference).toBe('CLOCK-364');
     expect(row.totalAmount).toBe('450.00');
+    expect(row.adults).toBe(1);
+    expect(row.children).toBe(1);
     expect(row.guestCount).toBe(2);
     expect(row.paymentMethod).toBe('PAY_AT_HOTEL');
     expect(row.guestId).toBeNull(); // real captured response had a blank guest email

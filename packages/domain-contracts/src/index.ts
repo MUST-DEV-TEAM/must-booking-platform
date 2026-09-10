@@ -194,6 +194,9 @@ export interface Booking {
   status: BookingStatus;
   paymentMethod: BookingPaymentMethod;
   total: Money;
+  adults: number;
+  children: number;
+  /** Derived from adults + children; retained for backwards compatibility. */
   guestCount: number;
   /** The per-night quote snapshot, when the booking was created from a guest quote. */
   nightlyRates?: NightlyRate[];
@@ -245,7 +248,9 @@ export interface CreateBookingCommand {
   endsOn: string;
   guest: GuestDetails;
   total: Money;
-  /** Optional for backwards compatibility; persisted as 1 when absent. */
+  adults?: number;
+  children?: number;
+  /** Legacy input; used as a fallback only when adults/children are absent. */
   guestCount?: number;
   paymentMethod?: GuestPaymentMethod;
   payAtHotel?: boolean;

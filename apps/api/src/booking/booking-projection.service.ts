@@ -25,6 +25,8 @@ export type BookingProjection = {
   endsOn: string;
   status: BookingStatus;
   paymentMethod: BookingPaymentMethod;
+  adults: number;
+  children: number;
   total: { amount: string; currency: string };
   paidAmount: string;
   refundedAmount: string;
@@ -72,6 +74,7 @@ export class BookingProjectionService {
           b.rate_plan_id AS "ratePlanId", rp.name AS "ratePlanName",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
           b.payment_method AS "paymentMethod",
+          b.adults, b.children,
           b.total_amount::text AS "totalAmount", rp.currency, b.external_reference AS "externalReference",
           COALESCE(payment_totals."paidAmount", 0)::text AS "paidAmount",
           COALESCE(payment_totals."refundedAmount", 0)::text AS "refundedAmount",

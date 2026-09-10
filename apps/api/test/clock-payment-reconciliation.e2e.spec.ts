@@ -150,11 +150,13 @@ describe('Clock payment reconciliation (read-only)', () => {
     await admin.$executeRaw`
       INSERT INTO bookings (
         id, tenant_id, property_id, room_type_id, external_reference, external_booking_id,
-        status, payment_method, starts_on, ends_on, rate_plan_id, total_amount, guest_count
+        status, payment_method, starts_on, ends_on, rate_plan_id, total_amount,
+        adults, children, guest_count
       ) VALUES (
         ${bookingId}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid,
         ${externalReference}, ${externalBookingId},
-        'CONFIRMED', 'STRIPE_CHECKOUT', '2026-09-30', '2026-10-01', ${ratePlanId}::uuid, ${chargedAmount}::decimal, 2
+        'CONFIRMED', 'STRIPE_CHECKOUT', '2026-09-30', '2026-10-01', ${ratePlanId}::uuid,
+        ${chargedAmount}::decimal, 2, 0, 2
       )
     `;
     await admin.$executeRaw`

@@ -548,6 +548,8 @@ describe('LocalPmsProvider', () => {
       },
       total: quote.body.total,
       quoteToken: quote.body.quoteToken,
+      adults: 1,
+      children: 1,
       guestCount: 2,
       paymentMethod: 'stripe' as const,
     };
@@ -617,7 +619,7 @@ describe('LocalPmsProvider', () => {
       .post(`${propertyUrl}/bookings`)
       .set('Cookie', guestCookie)
       .set('Idempotency-Key', randomUUID())
-      .send({ ...bookingRequest, guestCount: 0 })
+      .send({ ...bookingRequest, adults: 0 })
       .expect(201)
       .expect((response) => {
         expect(response.body).toMatchObject({
@@ -638,6 +640,8 @@ describe('LocalPmsProvider', () => {
       value: {
         status: 'PAYMENT_PENDING',
         paymentMethod: 'STRIPE_CHECKOUT',
+        adults: 1,
+        children: 1,
         guestCount: 2,
         nightlyRates: [
           { date: '2027-09-01', amount: '90.00' },
@@ -653,6 +657,8 @@ describe('LocalPmsProvider', () => {
       .set('Cookie', guestCookie)
       .expect(200)
       .expect((response) => {
+        expect(response.body.adults).toBe(1);
+        expect(response.body.children).toBe(1);
         expect(response.body.guestCount).toBe(2);
         expect(response.body.nightlyRates).toEqual([
           { date: '2027-09-01', amount: '90.00' },
