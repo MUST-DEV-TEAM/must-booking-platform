@@ -9,6 +9,14 @@ import { toast } from 'sonner';
 type Property = { id: string; name: string };
 type RoomType = { id: string; name: string };
 type RatePlan = { id: string; name: string; currency: string; isActive: boolean };
+type PmsStatus = { provider: 'CLOCK_PMS' | 'LOCAL' };
+type ClockRateRankingItem = {
+  externalRateId: string;
+  name: string;
+  maxAdults: number | null;
+  maxChildren: number | null;
+  rank: number | null;
+};
 type RateRule = {
   id: string;
   roomTypeId: string;
@@ -91,6 +99,24 @@ export function RateManagement({
     if (!propertyDataQuery.data) return;
     setSelectedPlanId((current) => current || propertyDataQuery.data.ratePlans[0]?.id || '');
   }, [propertyDataQuery.data]);
+
+  // A Clock-connected property is always priced live from Clock — MUST has
+  // no create/edit/delete over Clock's own rates, only a staff-set priority
+  // order among them (Task 13), so it gets a different page than the local
+  // rate-plan CRUD below.
+  const pmsStatusQuery = useQuery({
+    queryKey: ['dashboard', 'rate-management-pms-status', tenantId, propertyId] as const,
+    queryFn: async (): Promise<PmsStatus> => {
+      const response = await fetch(
+        `/api/tenants/${tenantId}/properties/${propertyId}/pms-connection-status`,
+        { credentials: 'include' },
+      );
+      if (!response.ok) throw new Error('Unable to determine the PMS connection.');
+      return (await response.json()) as PmsStatus;
+    },
+    enabled: !!propertyId,
+  });
+  const isClockConnected = pmsStatusQuery.data?.provider === 'CLOCK_PMS';
 
   const rulesQueryKey = [
     'dashboard',
@@ -387,6 +413,24 @@ export function RateManagement({
               Retry
             </button>
           </Card>
+        ) : isClockConnected ? (
+          <Stack gap="lg">
+            <Card>
+              <Text tone="secondary">
+                This property is connected to Clock PMS — rates themselves are managed in Clock,
+                not here. When more than one of Clock&rsquo;s rates could apply to the same
+                booking, set which one should win below.
+              </Text>
+            </Card>
+            {roomTypes.map((roomType) => (
+              <ClockRatePriority
+                key={roomType.id}
+                tenantId={tenantId}
+                propertyId={propertyId}
+                roomType={roomType}
+              />
+            ))}
+          </Stack>
         ) : (
           <Stack gap="lg">
             <Card>
@@ -643,6 +687,145 @@ export function RateManagement({
         )
       ) : null}
     </Stack>
+  );
+}
+
+/**
+ * Milestone 21 Task 13. Read+map only — Clock stays the source of truth for
+ * the rates themselves; staff can only set which of Clock's `wbe: true`
+ * rates should win when more than one could apply to the same room type
+ * (`ClockAvailabilityService.selectBestOffer`, Task 12, consults this
+ * ranking before falling back to cheapest-wins).
+ */
+function ClockRatePriority({
+  tenantId,
+  propertyId,
+  roomType,
+}: {
+  tenantId: string;
+  propertyId: string;
+  roomType: RoomType;
+}) {
+  const queryClient = useQueryClient();
+  const url = `/api/tenants/${tenantId}/properties/${propertyId}/room-types/${roomType.id}/clock-rate-ranking`;
+  const queryKey = ['dashboard', 'clock-rate-ranking', tenantId, propertyId, roomType.id] as const;
+
+  const rankingQuery = useQuery({
+    queryKey,
+    queryFn: async (): Promise<{ rates: ClockRateRankingItem[] }> => {
+      const response = await fetch(url, { credentials: 'include' });
+      if (!response.ok) throw new Error(await errorMessage(response, 'Unable to load Clock rates.'));
+      return (await response.json()) as { rates: ClockRateRankingItem[] };
+    },
+  });
+
+  const [order, setOrder] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (rankingQuery.data) setOrder(rankingQuery.data.rates.map((rate) => rate.externalRateId));
+  }, [rankingQuery.data]);
+
+  const saveMutation = useMutation({
+    mutationFn: async (externalRateIds: string[]) => {
+      const response = await fetch(url, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ externalRateIds }),
+      });
+      if (!response.ok)
+        throw new Error(await errorMessage(response, 'Unable to save the rate priority.'));
+      return (await response.json()) as { rates: ClockRateRankingItem[] };
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData(queryKey, result);
+      toast.success(`${roomType.name}: rate priority saved.`);
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Unable to save the rate priority.'),
+  });
+
+  function move(rateId: string, direction: -1 | 1) {
+    setOrder((current) => {
+      if (!current) return current;
+      const index = current.indexOf(rateId);
+      const swapWith = index + direction;
+      if (index < 0 || swapWith < 0 || swapWith >= current.length) return current;
+      const next = [...current];
+      [next[index], next[swapWith]] = [next[swapWith]!, next[index]!];
+      return next;
+    });
+  }
+
+  const rates = rankingQuery.data?.rates ?? [];
+  const byId = new Map(rates.map((rate) => [rate.externalRateId, rate]));
+  const orderedRates = (order ?? rates.map((rate) => rate.externalRateId))
+    .map((id) => byId.get(id))
+    .filter((rate): rate is ClockRateRankingItem => !!rate);
+  const hasUnranked = orderedRates.some((rate) => rate.rank === null);
+  const isDirty = !!order && order.join(',') !== rates.map((rate) => rate.externalRateId).join(',');
+
+  return (
+    <Card>
+      <Heading level={2}>{roomType.name}</Heading>
+      {rankingQuery.isPending ? (
+        <p>Loading Clock rates…</p>
+      ) : rankingQuery.isError ? (
+        <p>{rankingQuery.error.message}</p>
+      ) : orderedRates.length === 0 ? (
+        <p>
+          Clock has no rate published to the booking engine for this room type yet — nothing to
+          rank until one exists.
+        </p>
+      ) : (
+        <Stack gap="sm">
+          {hasUnranked ? (
+            <Text tone="secondary">
+              Rates marked &ldquo;not yet ranked&rdquo; sort last automatically and can never win
+              over a ranked rate by accident — rank them explicitly if you want to control where
+              they fall.
+            </Text>
+          ) : null}
+          <ol className="must-stack must-stack--sm">
+            {orderedRates.map((rate, index) => (
+              <li key={rate.externalRateId}>
+                <strong>{index + 1}.</strong> {rate.name}
+                {rate.maxAdults !== null || rate.maxChildren !== null ? (
+                  <Text tone="secondary">
+                    {' '}
+                    (up to {rate.maxAdults ?? '—'} adults, {rate.maxChildren ?? '—'} children)
+                  </Text>
+                ) : null}
+                {rate.rank === null ? <Text tone="secondary"> — not yet ranked</Text> : null}
+                <button
+                  className="must-button must-button--secondary"
+                  type="button"
+                  disabled={index === 0}
+                  onClick={() => move(rate.externalRateId, -1)}
+                >
+                  Move up
+                </button>
+                <button
+                  className="must-button must-button--secondary"
+                  type="button"
+                  disabled={index === orderedRates.length - 1}
+                  onClick={() => move(rate.externalRateId, 1)}
+                >
+                  Move down
+                </button>
+              </li>
+            ))}
+          </ol>
+          <button
+            className="must-button must-button--primary"
+            type="button"
+            disabled={!isDirty || saveMutation.isPending}
+            onClick={() => order && saveMutation.mutate(order)}
+          >
+            Save rate priority
+          </button>
+        </Stack>
+      )}
+    </Card>
   );
 }
 

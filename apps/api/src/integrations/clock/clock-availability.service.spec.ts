@@ -9,6 +9,7 @@ function makeService(
   overrides: {
     client?: { request: ReturnType<typeof vi.fn> };
     mappedExternalId?: string | null;
+    rankOrder?: string[];
   } = {},
 ) {
   const database = {
@@ -38,14 +39,16 @@ function makeService(
     recordSuccess: vi.fn(),
     recordFailure: vi.fn(),
   };
+  const rateRankings = { rankOrder: vi.fn().mockResolvedValue(overrides.rankOrder ?? []) };
   const service = new ClockAvailabilityService(
     database as never,
     connections as never,
     client as never,
     rateLimiter as never,
     circuitBreaker as never,
+    rateRankings as never,
   );
-  return { service, client, connections };
+  return { service, client, connections, rateRankings };
 }
 
 describe('ClockAvailabilityService.getAvailability', () => {
@@ -642,5 +645,100 @@ describe('ClockAvailabilityService.getQuote', () => {
         }),
       }),
     );
+  });
+
+  it('a staff-set rate ranking (Task 13) wins over the cheapest-price default, even when the ranked rate costs more', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          { id: 803404, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true },
+          { id: 803405, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true },
+        ],
+      }) // /rates/
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              // 803404 is cheaper, but 803405 is ranked #1 by staff — it must win.
+              '803404': [
+                { available: true, room_type_free_rooms: 3, price: { cents: 11000, currency: 'EUR' }, errors: {} },
+              ],
+              '803405': [
+                { available: true, room_type_free_rooms: 3, price: { cents: 25000, currency: 'EUR' }, errors: {} },
+              ],
+            },
+          },
+        ],
+      }); // /products
+    const { service } = makeService({ client: { request }, rankOrder: ['803405', '803404'] });
+
+    const result = await service.getQuote('t1', 'p1', query);
+
+    expect(result).toEqual({ ok: true, value: { amount: '250.00', currency: 'EUR' } });
+  });
+});
+
+describe('ClockAvailabilityService.ratesForRoomTypeDetailed', () => {
+  it('returns only wbe:true rates for the room type, with name and occupancy caps', async () => {
+    const request = vi.fn().mockResolvedValueOnce({
+      status: 200,
+      body: [
+        {
+          id: 803404,
+          bookable_id: 42023,
+          bookable_type: 'Pms::RoomType',
+          wbe: true,
+          name: 'DBL - Summer',
+          rate_restriction: { max_adults: 6, max_children: 6 },
+        },
+        {
+          id: 803410,
+          bookable_id: 42023,
+          bookable_type: 'Pms::RoomType',
+          wbe: false,
+          name: 'DBL - Summer no WBE',
+          rate_restriction: { max_adults: 5, max_children: 5 },
+        },
+        {
+          id: 900001,
+          bookable_id: 99999,
+          bookable_type: 'Pms::RoomType',
+          wbe: true,
+          name: 'Different room type',
+          rate_restriction: null,
+        },
+      ],
+    });
+    const { service } = makeService({ client: { request } });
+
+    const result = await service.ratesForRoomTypeDetailed('t1', 'p1', 'local-rt-1');
+
+    expect(result).toEqual({
+      ok: true,
+      value: [
+        { externalRateId: '803404', name: 'DBL - Summer', maxAdults: 6, maxChildren: 6 },
+      ],
+    });
+  });
+
+  it('reports a configuration error when the room type has no confirmed Clock mapping', async () => {
+    const { service } = makeService({ mappedExternalId: null });
+
+    const result = await service.ratesForRoomTypeDetailed('t1', 'p1', 'local-rt-1');
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        category: 'configuration',
+        code: 'clock_configuration',
+        message:
+          'This room type has no confirmed Clock catalog mapping — sync and confirm it first.',
+        retryable: false,
+      },
+    });
   });
 });

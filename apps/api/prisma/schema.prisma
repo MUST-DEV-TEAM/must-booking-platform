@@ -323,6 +323,7 @@ model RoomType {
   amenities        RoomTypeAmenity[]
   inventoryUnits   InventoryUnit[]
   bookings         Booking[]
+  clockRateRankings ClockRateRanking[]
 
   @@unique([tenantId, propertyId, id])
   @@unique([tenantId, propertyId, name])
@@ -796,6 +797,28 @@ model ClockCatalogMapping {
   @@unique([tenantId, connectionId, entityType, externalEntityId])
   @@index([tenantId, propertyId, syncStatus])
   @@map("clock_catalog_mappings")
+}
+
+// Milestone 21 Task 13: staff-defined priority order among a Clock-connected
+// room type's `wbe: true` rates. MUST never stores Clock's rate data itself
+// here — only which of Clock's own rate ids should win a conflict, and in
+// what order. ClockAvailabilityService.selectBestOffer() (Task 12) consults
+// this before falling back to cheapest-wins.
+model ClockRateRanking {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  propertyId     String   @map("property_id") @db.Uuid
+  roomTypeId     String   @map("room_type_id") @db.Uuid
+  externalRateId String   @map("external_rate_id")
+  rank           Int
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  roomType       RoomType @relation(fields: [tenantId, propertyId, roomTypeId], references: [tenantId, propertyId, id], onDelete: Cascade)
+
+  @@unique([tenantId, roomTypeId, externalRateId])
+  @@unique([tenantId, roomTypeId, rank])
+  @@index([tenantId, propertyId])
+  @@map("clock_rate_rankings")
 }
 
 enum ManualReviewCategory {

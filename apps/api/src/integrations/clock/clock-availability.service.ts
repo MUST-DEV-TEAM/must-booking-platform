@@ -23,6 +23,7 @@ import {
   type ClockConnectionCredentials,
 } from './clock-http-client';
 import { ClockRateLimiterService } from './clock-rate-limiter';
+import { ClockRateRankingService } from './clock-rate-ranking.service';
 
 // Confirmed against the real sandbox (2026-08-04) and Clock's own public
 // Postman docs: GET /rates_availability requires `from`, `to`, `rates`
@@ -89,6 +90,16 @@ type ClockProductOffer = {
  */
 type RoomTypeRates = { ids: string[]; excludedForWbe: number };
 
+/** For the Task 13 staff rate-ranking UI — Clock's real, live rate data for
+ * one room type, narrowed to `wbe: true` (a rate staff can never see never
+ * needs a ranking). Never persisted; MUST only stores the rank order. */
+export type ClockRateSummary = {
+  externalRateId: string;
+  name: string;
+  maxAdults: number | null;
+  maxChildren: number | null;
+};
+
 // Clock support confirmed 2026-09-04: /rates_availability should not be
 // called more than once every 15 minutes, and recommends caching for longer
 // than that. 20 minutes gives a safety margin above their stated minimum —
@@ -115,6 +126,7 @@ export class ClockAvailabilityService {
     @Inject(ClockHttpClient) private readonly client: ClockHttpClient,
     @Inject(ClockRateLimiterService) private readonly rateLimiter: ClockRateLimiterService,
     @Inject(ClockCircuitBreakerService) private readonly circuitBreaker: ClockCircuitBreakerService,
+    @Inject(ClockRateRankingService) private readonly rateRankings: ClockRateRankingService,
   ) {}
 
   /**
@@ -237,8 +249,9 @@ export class ClockAvailabilityService {
     );
     if (!response.ok) return failure(response.error);
 
+    const rankOrder = await this.rateRankings.rankOrder(tenantId, propertyId, query.roomTypeId);
     const roomType = response.value.find((item) => String(item.id) === externalRoomTypeId);
-    const winner = roomType ? selectBestOffer(roomType.rates) : undefined;
+    const winner = roomType ? selectBestOffer(roomType.rates, rankOrder) : undefined;
     if (!winner)
       return failure(
         classifyConfigurationError('Clock has no available price for the requested stay.'),
@@ -318,6 +331,7 @@ export class ClockAvailabilityService {
         value: { total: total.value, nightlyRates: distributeToNights(nights, shape, total.value) },
       };
 
+    const rankOrder = await this.rateRankings.rankOrder(tenantId, propertyId, query.roomTypeId);
     const nightlyRates: NightlyRate[] = [];
     for (const date of nights) {
       const nextDate = new Date(`${date}T00:00:00Z`);
@@ -336,7 +350,7 @@ export class ClockAvailabilityService {
       );
       if (!response.ok) return failure(response.error);
       const roomType = response.value.find((item) => String(item.id) === externalRoomTypeId);
-      const winner = roomType ? selectBestOffer(roomType.rates) : undefined;
+      const winner = roomType ? selectBestOffer(roomType.rates, rankOrder) : undefined;
       if (!winner)
         return failure(classifyConfigurationError(`Clock has no available price for ${date}.`));
       if (winner.offer.price.currency !== total.value.currency)
@@ -512,6 +526,60 @@ export class ClockAvailabilityService {
     };
     this.ratesCache.set(cacheKey, { value, expiresAt: Date.now() + CACHE_TTL_MS });
     return { ok: true, value };
+  }
+
+  /** For the Task 13 staff rate-ranking page — the room type's real, live
+   * `wbe: true` Clock rates with enough detail to display and rank (name,
+   * occupancy caps). Not cached (low-traffic staff config page, not the hot
+   * quote path) and never persisted beyond what `ClockRateRankingService`
+   * stores (rate ids and rank only). */
+  async ratesForRoomTypeDetailed(
+    tenantId: string,
+    propertyId: string,
+    roomTypeId: string,
+  ): Promise<Result<ClockRateSummary[]>> {
+    const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
+    if (!connection || connection.provider !== 'CLOCK_PMS')
+      return failure(
+        classifyConfigurationError('This property has no active Clock PMS connection.'),
+      );
+    const parsed = parseClockCredentials(connection.credentials);
+    if (!parsed.ok) return failure(classifyConfigurationError(parsed.message));
+
+    const externalRoomTypeId = await this.mappedExternalRoomTypeId(tenantId, propertyId, roomTypeId);
+    if (!externalRoomTypeId)
+      return failure(
+        classifyConfigurationError(
+          'This room type has no confirmed Clock catalog mapping — sync and confirm it first.',
+        ),
+      );
+
+    const response = await this.fetch<
+      Array<{
+        id: number | string;
+        bookable_id: number | string;
+        bookable_type: string;
+        wbe: boolean;
+        name?: string;
+        rate_restriction?: { max_adults?: number | null; max_children?: number | null };
+      }>
+    >(parsed.value, undefined, '/rates/');
+    if (!response.ok) return failure(response.error);
+
+    const rates: ClockRateSummary[] = response.value
+      .filter(
+        (rate) =>
+          rate.bookable_type === 'Pms::RoomType' &&
+          String(rate.bookable_id) === externalRoomTypeId &&
+          rate.wbe,
+      )
+      .map((rate) => ({
+        externalRateId: String(rate.id),
+        name: rate.name?.trim() || `Rate ${rate.id}`,
+        maxAdults: rate.rate_restriction?.max_adults ?? null,
+        maxChildren: rate.rate_restriction?.max_children ?? null,
+      }));
+    return { ok: true, value: rates };
   }
 
   private async fetch<T>(
