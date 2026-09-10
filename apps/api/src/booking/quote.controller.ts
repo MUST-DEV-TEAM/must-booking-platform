@@ -34,33 +34,45 @@ export class QuoteController {
   async displayPrices(@Body() body: unknown, @Req() request: TenantPropertyRequest) {
     const value = (body ?? {}) as Record<string, unknown>;
     const rawItems = Array.isArray(value.items) ? value.items : [];
-    const items: DisplayPriceItem[] = rawItems.slice(0, 50).flatMap((item) => {
+    // Individual-room properties can have far more cards than room types.
+    // Keep the request bounded; Clock deduplicates these by room type.
+    const items: DisplayPriceItem[] = rawItems.slice(0, 250).flatMap((item) => {
       if (!item || typeof item !== 'object') return [];
       const current = item as Record<string, unknown>;
       const key = typeof current.key === 'string' ? current.key : '';
       const roomTypeId = typeof current.roomTypeId === 'string' ? current.roomTypeId : '';
       if (!key || !roomTypeId) return [];
-      return [{
-        key,
-        roomTypeId,
-        ...(typeof current.roomId === 'string' && current.roomId ? { roomId: current.roomId } : {}),
-        ...(typeof current.ratePlanId === 'string' && current.ratePlanId ? { ratePlanId: current.ratePlanId } : {}),
-        ...(typeof current.currency === 'string' && current.currency ? { currency: current.currency } : {}),
-      }];
+      return [
+        {
+          key,
+          roomTypeId,
+          ...(typeof current.roomId === 'string' && current.roomId
+            ? { roomId: current.roomId }
+            : {}),
+          ...(typeof current.ratePlanId === 'string' && current.ratePlanId
+            ? { ratePlanId: current.ratePlanId }
+            : {}),
+          ...(typeof current.currency === 'string' && current.currency
+            ? { currency: current.currency }
+            : {}),
+        },
+      ];
     });
-    return { prices: await this.quotes.displayPrices(
-      request.tenantContext.tenantId,
-      request.tenantContext.propertyId,
-      {
-        startsOn: typeof value.startsOn === 'string' ? value.startsOn : '',
-        endsOn: typeof value.endsOn === 'string' ? value.endsOn : '',
-        adults: typeof value.adults === 'number' ? value.adults : undefined,
-        children: typeof value.children === 'number' ? value.children : undefined,
-        guestCount: typeof value.guestCount === 'number' ? value.guestCount : undefined,
-        roomCount: typeof value.roomCount === 'number' ? value.roomCount : undefined,
-      },
-      items,
-    ) };
+    return {
+      prices: await this.quotes.displayPrices(
+        request.tenantContext.tenantId,
+        request.tenantContext.propertyId,
+        {
+          startsOn: typeof value.startsOn === 'string' ? value.startsOn : '',
+          endsOn: typeof value.endsOn === 'string' ? value.endsOn : '',
+          adults: typeof value.adults === 'number' ? value.adults : undefined,
+          children: typeof value.children === 'number' ? value.children : undefined,
+          guestCount: typeof value.guestCount === 'number' ? value.guestCount : undefined,
+          roomCount: typeof value.roomCount === 'number' ? value.roomCount : undefined,
+        },
+        items,
+      ),
+    };
   }
 
   private input(body: unknown) {
