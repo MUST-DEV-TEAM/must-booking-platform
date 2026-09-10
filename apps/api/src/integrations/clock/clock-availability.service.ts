@@ -70,6 +70,25 @@ type ClockProductsResponse = Array<{
 
 type ClockQuote = { total: Money; nightlyRates: NightlyRate[] };
 
+type ClockProductOffer = {
+  available: boolean;
+  room_type_free_rooms: number;
+  price: { cents: number; currency: string };
+  errors: Record<string, unknown>;
+};
+
+/**
+ * The rates a room type resolves to, already narrowed to `wbe: true` (Task
+ * 12 — Clock's own `/products`/`/rates_availability` do NOT exclude
+ * wbe:false rates on their own, confirmed against the real sandbox
+ * 2026-09-10: a rate explicitly marked "don't publish to the booking
+ * engine" still comes back available with a real bookable price). Any rate
+ * dropped for that reason is counted in `excludedForWbe` so callers can
+ * distinguish "this room type has no Clock rate at all" from "it has rates,
+ * but none are public" — the two need different, clearly-worded errors.
+ */
+type RoomTypeRates = { ids: string[]; excludedForWbe: number };
+
 // Clock support confirmed 2026-09-04: /rates_availability should not be
 // called more than once every 15 minutes, and recommends caching for longer
 // than that. 20 minutes gives a safety margin above their stated minimum —
@@ -87,7 +106,7 @@ interface CacheEntry<T> {
 @Injectable()
 export class ClockAvailabilityService {
   private readonly availabilityCache = new Map<string, CacheEntry<AvailabilityResult>>();
-  private readonly ratesCache = new Map<string, CacheEntry<string[]>>();
+  private readonly ratesCache = new Map<string, CacheEntry<RoomTypeRates>>();
 
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
@@ -137,10 +156,7 @@ export class ClockAvailabilityService {
 
     const rateIds = await this.ratesForRoomType(parsed.value, externalRoomTypeId);
     if (!rateIds.ok) return failure(rateIds.error);
-    if (rateIds.value.length === 0)
-      return failure(
-        classifyConfigurationError('This room type has no rate configured in Clock yet.'),
-      );
+    if (rateIds.value.ids.length === 0) return failure(noRatesError(rateIds.value));
 
     const nights = nightsBetween(query.startsOn, query.endsOn);
     if (nights.length === 0)
@@ -149,7 +165,7 @@ export class ClockAvailabilityService {
     const response = await this.fetch<ClockRateAvailabilityResponse>(parsed.value, {
       from: query.startsOn,
       to: nights[nights.length - 1],
-      rates: rateIds.value,
+      rates: rateIds.value.ids,
       room_types: externalRoomTypeId,
     });
     if (!response.ok) return failure(response.error);
@@ -199,41 +215,41 @@ export class ClockAvailabilityService {
 
     const rateIds = await this.ratesForRoomType(parsed.value, externalRoomTypeId);
     if (!rateIds.ok) return failure(rateIds.error);
-    if (rateIds.value.length === 0)
-      return failure(
-        classifyConfigurationError('This room type has no rate configured in Clock yet.'),
-      );
+    if (rateIds.value.ids.length === 0) return failure(noRatesError(rateIds.value));
 
+    // adult_count/children_count are always sent, never left to the caller
+    // to remember — Clock only enforces max_adults/max_children on a rate
+    // when these are present (confirmed against the real sandbox
+    // 2026-09-10: an over-capacity request with no occupancy fields comes
+    // back available with no error at all). Defaulting here means that
+    // enforcement can never silently not run.
     const productSearch: Record<string, string> = {
       'product_search[arrival]': query.startsOn,
       'product_search[departure]': query.endsOn,
+      'product_search[adult_count]': String(query.adultCount ?? 1),
+      'product_search[children_count]': String(query.childrenCount ?? 0),
     };
-    if (query.adultCount !== undefined)
-      productSearch['product_search[adult_count]'] = String(query.adultCount);
-    if (query.childrenCount !== undefined)
-      productSearch['product_search[children_count]'] = String(query.childrenCount);
 
     const response = await this.fetch<ClockProductsResponse>(
       parsed.value,
-      { ...productSearch, rates: rateIds.value },
+      { ...productSearch, rates: rateIds.value.ids },
       '/products',
     );
     if (!response.ok) return failure(response.error);
 
     const roomType = response.value.find((item) => String(item.id) === externalRoomTypeId);
-    const offer = roomType
-      ? Object.values(roomType.rates)
-          .flat()
-          .find((entry) => entry.available && Object.keys(entry.errors ?? {}).length === 0)
-      : undefined;
-    if (!offer)
+    const winner = roomType ? selectBestOffer(roomType.rates) : undefined;
+    if (!winner)
       return failure(
         classifyConfigurationError('Clock has no available price for the requested stay.'),
       );
 
     return {
       ok: true,
-      value: { amount: (offer.price.cents / 100).toFixed(2), currency: offer.price.currency },
+      value: {
+        amount: (winner.offer.price.cents / 100).toFixed(2),
+        currency: winner.offer.price.currency,
+      },
     };
   }
 
@@ -292,7 +308,7 @@ export class ClockAvailabilityService {
     const shape = await this.nightlyShapeFromAvailability(
       parsed.value,
       externalRoomTypeId,
-      rateIds.value,
+      rateIds.value.ids,
       nights,
       query,
     );
@@ -309,12 +325,10 @@ export class ClockAvailabilityService {
       const productSearch: Record<string, string | string[]> = {
         'product_search[arrival]': date,
         'product_search[departure]': nextDate.toISOString().slice(0, 10),
-        rates: rateIds.value,
+        'product_search[adult_count]': String(query.adultCount ?? 1),
+        'product_search[children_count]': String(query.childrenCount ?? 0),
+        rates: rateIds.value.ids,
       };
-      if (query.adultCount !== undefined)
-        productSearch['product_search[adult_count]'] = String(query.adultCount);
-      if (query.childrenCount !== undefined)
-        productSearch['product_search[children_count]'] = String(query.childrenCount);
       const response = await this.fetch<ClockProductsResponse>(
         parsed.value,
         productSearch,
@@ -322,16 +336,12 @@ export class ClockAvailabilityService {
       );
       if (!response.ok) return failure(response.error);
       const roomType = response.value.find((item) => String(item.id) === externalRoomTypeId);
-      const offer = roomType
-        ? Object.values(roomType.rates)
-            .flat()
-            .find((entry) => entry.available && Object.keys(entry.errors ?? {}).length === 0)
-        : undefined;
-      if (!offer)
+      const winner = roomType ? selectBestOffer(roomType.rates) : undefined;
+      if (!winner)
         return failure(classifyConfigurationError(`Clock has no available price for ${date}.`));
-      if (offer.price.currency !== total.value.currency)
+      if (winner.offer.price.currency !== total.value.currency)
         return failure(classifyConfigurationError('Clock returned inconsistent quote currencies.'));
-      nightlyRates.push({ date, amount: (offer.price.cents / 100).toFixed(2) });
+      nightlyRates.push({ date, amount: (winner.offer.price.cents / 100).toFixed(2) });
     }
     return { ok: true, value: { total: total.value, nightlyRates } };
   }
@@ -356,9 +366,9 @@ export class ClockAvailabilityService {
       to: nights[nights.length - 1]!,
       rates: rateIds,
       room_types: externalRoomTypeId,
+      adults: String(query.adultCount ?? 1),
+      children: String(query.childrenCount ?? 0),
     };
-    if (query.adultCount !== undefined) availabilityQuery.adults = String(query.adultCount);
-    if (query.childrenCount !== undefined) availabilityQuery.children = String(query.childrenCount);
 
     const response = await this.fetch<ClockRateAvailabilityResponse>(
       credentials,
@@ -370,16 +380,21 @@ export class ClockAvailabilityService {
     if (!roomType) return null;
     const rateEntries = Object.values(roomType.rates);
 
+    // Deterministic like `selectBestOffer` (Task 12): when more than one
+    // rate has a valid, priced, error-free offer for the same night, the
+    // cheapest one sets the shape for that night — never whichever happens
+    // to be first in `Object.values`' (unreliable) key order.
     const shape: Record<string, number> = {};
     for (const night of nights) {
-      const offer = rateEntries
-        .map((dates) => dates[night])
-        .find(
-          (entry) =>
-            entry?.free && entry.price !== undefined && Object.keys(entry.errors ?? {}).length === 0,
-        );
-      if (!offer?.price) return null;
-      shape[night] = offer.price.cents;
+      let cheapestCents: number | null = null;
+      for (const dates of rateEntries) {
+        const entry = dates[night];
+        if (!entry?.free || entry.price === undefined) continue;
+        if (Object.keys(entry.errors ?? {}).length > 0) continue;
+        if (cheapestCents === null || entry.price.cents < cheapestCents) cheapestCents = entry.price.cents;
+      }
+      if (cheapestCents === null) return null;
+      shape[night] = cheapestCents;
     }
     return shape;
   }
@@ -418,10 +433,7 @@ export class ClockAvailabilityService {
 
     const rateIds = await this.ratesForRoomType(parsed.value, externalRoomTypeId);
     if (!rateIds.ok) return failure(rateIds.error);
-    if (rateIds.value.length === 0)
-      return failure(
-        classifyConfigurationError('This room type has no rate configured in Clock yet.'),
-      );
+    if (rateIds.value.ids.length === 0) return failure(noRatesError(rateIds.value));
 
     if (!/^\d{4}-\d{2}$/.test(query.month))
       return failure(classifyConfigurationError('month must be YYYY-MM.'));
@@ -433,7 +445,7 @@ export class ClockAvailabilityService {
     const response = await this.fetch<ClockRateAvailabilityResponse>(parsed.value, {
       from: monthStart,
       to: nights[nights.length - 1]!,
-      rates: rateIds.value,
+      rates: rateIds.value.ids,
       room_types: externalRoomTypeId,
     });
     if (!response.ok) return failure(response.error);
@@ -481,23 +493,25 @@ export class ClockAvailabilityService {
   private async ratesForRoomType(
     credentials: ClockConnectionCredentials,
     externalRoomTypeId: string,
-  ): Promise<ClockOutcome<string[]>> {
+  ): Promise<ClockOutcome<RoomTypeRates>> {
     const cacheKey = `${credentials.apiUser}:${externalRoomTypeId}`;
     const cached = this.ratesCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) return { ok: true, value: cached.value };
 
     const response = await this.fetch<
-      Array<{ id: number | string; bookable_id: number | string; bookable_type: string }>
+      Array<{ id: number | string; bookable_id: number | string; bookable_type: string; wbe: boolean }>
     >(credentials, undefined, '/rates/');
     if (!response.ok) return response;
-    const ids = response.value
-      .filter(
-        (rate) =>
-          rate.bookable_type === 'Pms::RoomType' && String(rate.bookable_id) === externalRoomTypeId,
-      )
-      .map((rate) => String(rate.id));
-    this.ratesCache.set(cacheKey, { value: ids, expiresAt: Date.now() + CACHE_TTL_MS });
-    return { ok: true, value: ids };
+    const forRoomType = response.value.filter(
+      (rate) => rate.bookable_type === 'Pms::RoomType' && String(rate.bookable_id) === externalRoomTypeId,
+    );
+    const published = forRoomType.filter((rate) => rate.wbe);
+    const value: RoomTypeRates = {
+      ids: published.map((rate) => String(rate.id)),
+      excludedForWbe: forRoomType.length - published.length,
+    };
+    this.ratesCache.set(cacheKey, { value, expiresAt: Date.now() + CACHE_TTL_MS });
+    return { ok: true, value };
   }
 
   private async fetch<T>(
@@ -557,6 +571,51 @@ type ClockOutcome<T> = { ok: true; value: T } | { ok: false; error: ClockClassif
 
 function failure(error: ClockClassifiedError): { ok: false; error: ClockClassifiedError } {
   return { ok: false, error };
+}
+
+/** Distinguishes "no Clock rate at all" from "has rates, none published to
+ * the booking engine" — the two need different, actionable error text. */
+function noRatesError(rates: RoomTypeRates): ClockClassifiedError {
+  return classifyConfigurationError(
+    rates.excludedForWbe > 0
+      ? "This room type has Clock rates configured, but none are published to the booking engine (wbe) — check Clock's rate configuration."
+      : 'This room type has no rate configured in Clock yet.',
+  );
+}
+
+/**
+ * Deterministic offer selection among a room type's `/products` offers
+ * (Task 12). Replaces relying on `Object.values(...).find(...)`, which
+ * silently picks whichever rate id sorts numerically lowest — a real bug
+ * confirmed against the real sandbox 2026-09-10, not Clock's response
+ * order, not price, not any considered business rule. Only ever considers
+ * `available && no-errors` offers.
+ *
+ * `rankOrder` (Task 13 — a staff-defined per-room-type rate priority list)
+ * takes precedence when given: the highest-ranked rate id with a valid
+ * offer wins even if a lower-ranked one is cheaper. Without it, falls back
+ * to the lowest price, so quoting still works before any ranking exists.
+ */
+function selectBestOffer(
+  rateOffers: Record<string, ClockProductOffer[]>,
+  rankOrder?: string[],
+): { rateId: string; offer: ClockProductOffer } | undefined {
+  const valid: Array<{ rateId: string; offer: ClockProductOffer }> = [];
+  for (const [rateId, offers] of Object.entries(rateOffers)) {
+    for (const offer of offers) {
+      if (offer.available && Object.keys(offer.errors ?? {}).length === 0) valid.push({ rateId, offer });
+    }
+  }
+  if (valid.length === 0) return undefined;
+
+  if (rankOrder) {
+    for (const rankedId of rankOrder) {
+      const match = valid.find((entry) => entry.rateId === rankedId);
+      if (match) return match;
+    }
+  }
+
+  return valid.reduce((best, entry) => (entry.offer.price.cents < best.offer.price.cents ? entry : best));
 }
 
 /** Every calendar date the guest actually occupies the room: [startsOn, endsOn). */

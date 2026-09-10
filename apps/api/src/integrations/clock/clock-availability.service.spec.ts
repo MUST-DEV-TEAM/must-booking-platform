@@ -71,7 +71,7 @@ describe('ClockAvailabilityService.getAvailability', () => {
       .fn()
       .mockResolvedValueOnce({
         status: 200,
-        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType' }],
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
       }) // /rates/
       .mockResolvedValueOnce({
         status: 200,
@@ -120,7 +120,7 @@ describe('ClockAvailabilityService.getAvailability', () => {
       .fn()
       .mockResolvedValueOnce({
         status: 200,
-        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType' }],
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
       })
       .mockResolvedValueOnce({
         status: 200,
@@ -157,7 +157,7 @@ describe('ClockAvailabilityService.getAvailability', () => {
       .fn()
       .mockResolvedValueOnce({
         status: 200,
-        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType' }],
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
       })
       .mockResolvedValueOnce({
         status: 200,
@@ -206,7 +206,7 @@ describe('ClockAvailabilityService.getQuote', () => {
       .fn()
       .mockResolvedValueOnce({
         status: 200,
-        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType' }],
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
       }) // /rates/
       .mockResolvedValueOnce({
         status: 200,
@@ -238,6 +238,8 @@ describe('ClockAvailabilityService.getQuote', () => {
         query: {
           'product_search[arrival]': '2026-08-10',
           'product_search[departure]': '2026-08-12',
+          'product_search[adult_count]': '1',
+          'product_search[children_count]': '0',
           rates: ['69242'],
         },
       }),
@@ -249,7 +251,7 @@ describe('ClockAvailabilityService.getQuote', () => {
       .fn()
       .mockResolvedValueOnce({
         status: 200,
-        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType' }],
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
       }) // /rates/
       .mockResolvedValueOnce({
         status: 200,
@@ -300,7 +302,14 @@ describe('ClockAvailabilityService.getQuote', () => {
       credentials,
       expect.objectContaining({
         path: '/rates_availability',
-        query: { from: '2026-08-10', to: '2026-08-11', rates: ['69242'], room_types: '42023' },
+        query: {
+          from: '2026-08-10',
+          to: '2026-08-11',
+          rates: ['69242'],
+          room_types: '42023',
+          adults: '1',
+          children: '0',
+        },
       }),
     );
   });
@@ -310,7 +319,7 @@ describe('ClockAvailabilityService.getQuote', () => {
       .fn()
       .mockResolvedValueOnce({
         status: 200,
-        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType' }],
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
       })
       .mockResolvedValueOnce({
         status: 200,
@@ -375,7 +384,7 @@ describe('ClockAvailabilityService.getQuote', () => {
       .fn()
       .mockResolvedValueOnce({
         status: 200,
-        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType' }],
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
       }) // /rates/
       .mockResolvedValueOnce(product(23000)) // full stay /products
       .mockResolvedValueOnce({
@@ -423,7 +432,7 @@ describe('ClockAvailabilityService.getQuote', () => {
       .fn()
       .mockResolvedValueOnce({
         status: 200,
-        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType' }],
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
       })
       .mockResolvedValueOnce({
         status: 200,
@@ -471,7 +480,7 @@ describe('ClockAvailabilityService.getQuote', () => {
       .fn()
       .mockResolvedValueOnce({
         status: 200,
-        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType' }],
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
       })
       .mockResolvedValueOnce({
         status: 200,
@@ -504,5 +513,134 @@ describe('ClockAvailabilityService.getQuote', () => {
         retryable: false,
       },
     });
+  });
+
+  it('never quotes a rate not published to the booking engine (wbe: false), even when it is the only one available', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          { id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: false },
+          { id: 69243, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true },
+        ],
+      }) // /rates/
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              // Only rate 69243 (wbe: true) should ever be requested from Clock — the
+              // wbe:false rate 69242 must never even appear in the `rates` query param.
+              '69243': [
+                { available: true, room_type_free_rooms: 3, price: { cents: 15000, currency: 'EUR' }, errors: {} },
+              ],
+            },
+          },
+        ],
+      }); // /products
+    const { service } = makeService({ client: { request } });
+
+    const result = await service.getQuote('t1', 'p1', query);
+
+    expect(result).toEqual({ ok: true, value: { amount: '150.00', currency: 'EUR' } });
+    expect(request).toHaveBeenLastCalledWith(
+      credentials,
+      expect.objectContaining({ path: '/products', query: expect.objectContaining({ rates: ['69243'] }) }),
+    );
+  });
+
+  it('reports a distinct configuration error when every rate on the room type is wbe: false', async () => {
+    const request = vi.fn().mockResolvedValueOnce({
+      status: 200,
+      body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: false }],
+    }); // /rates/
+    const { service } = makeService({ client: { request } });
+
+    const result = await service.getQuote('t1', 'p1', query);
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        category: 'configuration',
+        code: 'clock_configuration',
+        message:
+          "This room type has Clock rates configured, but none are published to the booking engine (wbe) — check Clock's rate configuration.",
+        retryable: false,
+      },
+    });
+  });
+
+  it('picks the cheapest valid offer deterministically, regardless of which rate id is numerically lowest', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          { id: 99999, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true },
+          { id: 5, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true },
+        ],
+      }) // /rates/
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              // Rate id "5" is numerically lowest — the old `Object.values(...).find(...)`
+              // selection would have picked it regardless of price. It must lose here
+              // because rate "99999" is cheaper.
+              '5': [
+                { available: true, room_type_free_rooms: 3, price: { cents: 32500, currency: 'EUR' }, errors: {} },
+              ],
+              '99999': [
+                { available: true, room_type_free_rooms: 3, price: { cents: 11000, currency: 'EUR' }, errors: {} },
+              ],
+            },
+          },
+        ],
+      }); // /products
+    const { service } = makeService({ client: { request } });
+
+    const result = await service.getQuote('t1', 'p1', query);
+
+    expect(result).toEqual({ ok: true, value: { amount: '110.00', currency: 'EUR' } });
+  });
+
+  it('always sends adult/children counts to Clock so its own occupancy enforcement runs, even when the caller omits them', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '69242': [
+                { available: true, room_type_free_rooms: 3, price: { cents: 10000, currency: 'EUR' }, errors: {} },
+              ],
+            },
+          },
+        ],
+      });
+    const { service } = makeService({ client: { request } });
+
+    // `query` here carries no adultCount/childrenCount at all.
+    await service.getQuote('t1', 'p1', query);
+
+    expect(request).toHaveBeenLastCalledWith(
+      credentials,
+      expect.objectContaining({
+        query: expect.objectContaining({
+          'product_search[adult_count]': '1',
+          'product_search[children_count]': '0',
+        }),
+      }),
+    );
   });
 });
