@@ -61,6 +61,10 @@ jobs:
             cp -a "apps/wordpress-plugin/$path" "$package_root/"
           done
 
+          # Keep this bootstrap dependency explicit; a missing asset-url.php makes the
+          # entire WordPress installation fatal before any plugin page can load.
+          cp -a 'apps/wordpress-plugin/includes/asset-url.php' "$package_root/includes/asset-url.php"
+
           (
             cd dist
             zip -qr "../${{ steps.version.outputs.asset }}" must-hotel-booking
@@ -78,6 +82,7 @@ jobs:
             'must-hotel-booking/index.php'
             'must-hotel-booking/readme.txt'
             'must-hotel-booking/uninstall.php'
+            'must-hotel-booking/includes/asset-url.php'
             'must-hotel-booking/lib/plugin-update-checker/plugin-update-checker.php'
           )
 

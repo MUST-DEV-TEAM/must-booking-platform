@@ -2,6 +2,12 @@
 
 Notable product, architecture, integration, operational, compatibility, and security changes are recorded here. Exact implementation history remains in Git.
 
+## 0.4.96 - 2026-09-11
+
+### Fixed
+
+- Fixed release packaging so the required `includes/asset-url.php` bootstrap dependency is explicitly included and validated before publication.
+
 ## 0.4.95 - 2026-09-10
 
 ### Fixed
