@@ -204,6 +204,10 @@ Read a tool before running it. A filename or `read_only` flag is not proof of no
 
 The workflow deliberately releases only when the `Version:` header changes. It does not bump versions, edit changelogs, run PHP lint, JavaScript checks, or the standalone test suite for you.
 
+The distribution repository's legacy `release-package.yml` workflow must remain disabled. It was disabled during the `0.4.97` release repair because its `release: published` handler rebuilt obsolete distribution source and overwrote the validated monorepo ZIP. Verify the actual downloadable asset after publishing, not only the monorepo job result: check raw ZIP paths, required bootstrap files (especially `includes/asset-url.php`), version metadata, and PHP lint on Linux.
+
+Deploy API dependencies before the plugin that consumes them. Room display prices require `POST /quotes/display-prices`; both API and plugin accept up to 250 room cards, with provider work deduplicated by room type. A missing endpoint or mismatched batch limit must not be mistaken for a hotel with no prices.
+
 ### Update installed sites
 
 After the release is published, connected sites receive the normal WordPress update notification in **Plugins** and an administrator can update it there. Do not use SSH/manual directory sync as an update mechanism.
