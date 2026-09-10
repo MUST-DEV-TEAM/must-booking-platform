@@ -923,16 +923,20 @@ export class ClockBookingService {
           });
           if (!current.ok) return this.failure(current.error.code, current.error.message);
 
+          // Clock's guidance (2026-09-10 call): only send fields that actually
+          // changed on an update PUT, not the full booking payload. Since a
+          // caller may change just one of the two dates, only that one goes
+          // in the body — the other's current, unchanged value is never
+          // re-sent. lock_version is always included; it's the concurrency
+          // token, not a "changed field".
+          const changes: Record<string, unknown> = { lock_version: current.value.lock_version };
+          if (command.startsOn) changes.arrival = command.startsOn;
+          if (command.endsOn) changes.departure = command.endsOn;
+
           const response = await this.fetch<ClockBookingResource>(connection.value, {
             method: 'PUT',
             path: `/bookings/${row.externalBookingId}`,
-            body: {
-              booking: {
-                arrival: command.startsOn ?? row.startsOn,
-                departure: command.endsOn ?? row.endsOn,
-                lock_version: current.value.lock_version,
-              },
-            },
+            body: { booking: changes },
           });
           if (!response.ok) return this.failure(response.error.code, response.error.message);
 
