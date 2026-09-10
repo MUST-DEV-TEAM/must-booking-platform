@@ -199,8 +199,8 @@ Read a tool before running it. A filename or `read_only` flag is not proof of no
 1. In the reviewed change that is ready to release, update the `Version:` header and `MUST_HOTEL_BOOKING_VERSION` constant in `must-hotel-booking.php` to the same semantic version. Keep `readme.txt`'s stable tag and changelog aligned as part of normal release hygiene.
 2. Lint changed PHP/JS, run focused standalone tests, review database/option compatibility, and ensure the release can be rolled back safely.
 3. Merge the version bump to `main`. The monorepo workflow `wordpress-plugin-release.yml` detects the header change, packages only `admin/`, `assets/`, `database/`, `frontend/`, `includes/`, `lib/`, `src/`, `index.php`, `must-hotel-booking.php`, `readme.txt`, and `uninstall.php`, and creates `must-hotel-booking-<version>.zip`.
-4. The workflow creates or updates the matching `v<version>` GitHub Release in `MUST-DEV-TEAM/must-hotel-booking`. It requires the monorepo repository secret `MUST_HOTEL_BOOKING_RELEASE_TOKEN`, with Contents write access to that distribution repository. Do not substitute a personal token in the workflow.
-5. Confirm the GitHub Release has exactly the expected ZIP asset and that its version matches the installed plugin metadata.
+4. The workflow creates or updates the matching `v<version>` GitHub Release in `MUST-DEV-TEAM/must-hotel-booking`. For a new release it also creates a lightweight tag metadata commit containing the matching plugin header and stable tag; the attached ZIP remains the canonical package and the distribution repository's `main` is not changed. It requires the monorepo repository secret `MUST_HOTEL_BOOKING_RELEASE_TOKEN`, with Contents write access to that distribution repository. Do not substitute a personal token in the workflow.
+5. Confirm the GitHub Release has exactly the expected ZIP asset and that its tag metadata and ZIP version match the installed plugin metadata.
 
 The workflow deliberately releases only when the `Version:` header changes. It does not bump versions, edit changelogs, run PHP lint, JavaScript checks, or the standalone test suite for you.
 

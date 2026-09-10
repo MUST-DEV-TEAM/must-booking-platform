@@ -2,6 +2,13 @@
 
 Notable product, architecture, integration, operational, compatibility, and security changes are recorded here. Exact implementation history remains in Git.
 
+## 0.4.95 - 2026-09-10
+
+### Fixed
+
+- Fixed WordPress update detection when the distribution repository has stale source metadata: the updater now trusts the canonical release ZIP version.
+- Release tags now carry matching plugin header and stable-tag metadata so existing installations can discover the release before installing it.
+
 ## 0.4.94 - 2026-09-10
 
 ### Changed

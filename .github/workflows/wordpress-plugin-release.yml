@@ -98,6 +98,63 @@ jobs:
             exit 1
           fi
 
+      - name: Prepare release metadata reference
+        id: metadata
+        if: steps.version.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.MUST_HOTEL_BOOKING_RELEASE_TOKEN }}
+          ASSET: ${{ steps.version.outputs.asset }}
+          TAG: v${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          release_repo='MUST-DEV-TEAM/must-hotel-booking'
+          plugin_file='apps/wordpress-plugin/must-hotel-booking.php'
+          readme_file='apps/wordpress-plugin/readme.txt'
+
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo 'MUST_HOTEL_BOOKING_RELEASE_TOKEN is required to prepare plugin release metadata.'
+            exit 1
+          fi
+
+          if gh release view "$TAG" --repo "$release_repo" >/dev/null 2>&1; then
+            echo 'The release already exists; preserving its existing tag metadata.'
+            echo 'metadata_commit=' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          base_sha="$(gh api "repos/$release_repo/git/ref/heads/main" --jq '.object.sha')"
+          base_tree="$(gh api "repos/$release_repo/git/commits/$base_sha" --jq '.tree.sha')"
+          plugin_blob="$(gh api --method POST "repos/$release_repo/git/blobs" \
+            -f content="$(cat "$plugin_file")" -f encoding=utf-8 --jq '.sha')"
+          readme_blob="$(gh api --method POST "repos/$release_repo/git/blobs" \
+            -f content="$(cat "$readme_file")" -f encoding=utf-8 --jq '.sha')"
+
+          tree_payload="$(mktemp)"
+          cat > "$tree_payload" <<JSON
+          {
+            "base_tree": "$base_tree",
+            "tree": [
+              {"path": "must-hotel-booking.php", "mode": "100644", "type": "blob", "sha": "$plugin_blob"},
+              {"path": "readme.txt", "mode": "100644", "type": "blob", "sha": "$readme_blob"}
+            ]
+          }
+          JSON
+          metadata_tree="$(gh api --method POST "repos/$release_repo/git/trees" --input "$tree_payload" --jq '.sha')"
+          rm -f "$tree_payload"
+
+          commit_payload="$(mktemp)"
+          cat > "$commit_payload" <<JSON
+          {
+            "message": "Release metadata $TAG",
+            "tree": "$metadata_tree",
+            "parents": ["$base_sha"]
+          }
+          JSON
+          metadata_commit="$(gh api --method POST "repos/$release_repo/git/commits" --input "$commit_payload" --jq '.sha')"
+          rm -f "$commit_payload"
+
+          echo "metadata_commit=$metadata_commit" >> "$GITHUB_OUTPUT"
+
       - name: Publish GitHub release
         if: steps.version.outputs.changed == 'true'
         env:
@@ -105,18 +162,22 @@ jobs:
           GH_TOKEN: ${{ secrets.MUST_HOTEL_BOOKING_RELEASE_TOKEN }}
           ASSET: ${{ steps.version.outputs.asset }}
           TAG: v${{ steps.version.outputs.version }}
+          METADATA_COMMIT: ${{ steps.metadata.outputs.metadata_commit }}
         shell: bash
         run: |
+          release_repo='MUST-DEV-TEAM/must-hotel-booking'
+
           if [[ -z "$GH_TOKEN" ]]; then
             echo 'MUST_HOTEL_BOOKING_RELEASE_TOKEN is required to publish plugin releases.'
             exit 1
           fi
 
-          if gh release view "$TAG" --repo MUST-DEV-TEAM/must-hotel-booking >/dev/null 2>&1; then
-            gh release upload "$TAG" "$ASSET" --repo MUST-DEV-TEAM/must-hotel-booking --clobber
+          if gh release view "$TAG" --repo "$release_repo" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ASSET" --repo "$release_repo" --clobber
           else
             gh release create "$TAG" "$ASSET" \
-              --repo MUST-DEV-TEAM/must-hotel-booking \
+              --repo "$release_repo" \
+              --target "$METADATA_COMMIT" \
               --title "$TAG" \
               --generate-notes \
               --latest

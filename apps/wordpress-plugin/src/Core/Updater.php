@@ -55,6 +55,33 @@ final class Updater
             $updateChecker->getVcsApi()->enableReleaseAssets();
         }
 
+        // The distribution repository is intentionally not a second source tree. Its release
+        // tags carry lightweight metadata, while the attached ZIP is the canonical package.
+        // PUC reads the tag's plugin header after detecting the release and would otherwise let
+        // stale metadata hide a newer ZIP from already-installed sites.
+        \add_filter(
+            $updateChecker->getUniqueName('request_info_result'),
+            static function ($info) {
+                if (!\is_object($info)) {
+                    return $info;
+                }
+
+                $downloadUrl = isset($info->download_url) ? (string) $info->download_url : '';
+                $downloadPath = $downloadUrl !== '' ? (string) \parse_url($downloadUrl, \PHP_URL_PATH) : '';
+                $assetName = $downloadPath !== '' ? \basename($downloadPath) : '';
+                $assetPattern = '/^' . \preg_quote(MUST_HOTEL_BOOKING_PLUGIN_SLUG, '/')
+                    . '-([0-9]+\.[0-9]+\.[0-9]+)\.zip$/i';
+
+                if ($assetName !== '' && \preg_match($assetPattern, $assetName, $matches)) {
+                    $info->version = $matches[1];
+                }
+
+                return $info;
+            },
+            100,
+            1
+        );
+
         self::$updateChecker = $updateChecker;
     }
 
