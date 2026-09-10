@@ -655,20 +655,26 @@ export class LocalPmsProvider implements PmsProvider {
     const row = await this.bookingById(tx, context, bookingId);
     if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
     if (row.orderReference) return this.continueMultiRoomOrderAfterPayment(tx, context, row);
-    if (row.status !== BookingStatus.PAYMENT_PENDING) {
+    if (
+      row.status !== BookingStatus.PAYMENT_PENDING &&
+      row.status !== BookingStatus.PMS_CREATION_PENDING
+    ) {
       return this.failure(
         'INVALID_BOOKING_STATE',
         `Booking cannot be confirmed from ${row.status}.`,
       );
     }
 
-    let status = await this.transition(
-      tx,
-      context,
-      bookingId,
-      row.status,
-      BookingStatus.PMS_CREATION_PENDING,
-    );
+    let status: BookingStatus = row.status;
+    if (row.status === BookingStatus.PAYMENT_PENDING) {
+      status = await this.transition(
+        tx,
+        context,
+        bookingId,
+        row.status,
+        BookingStatus.PMS_CREATION_PENDING,
+      );
+    }
 
     // Milestone 11.5 Task 4 (ADR-0001 payment-first ordering): payment is
     // already confirmed at this point (the caller only reaches

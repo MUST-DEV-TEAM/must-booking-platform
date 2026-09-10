@@ -204,7 +204,6 @@ function get_booking_page_view_data(): array
     $legacyGuests = isset($raw['guests']) ? \max(1, (int) $raw['guests']) : 1;
     $adults = isset($raw['adults']) ? \max(1, (int) $raw['adults']) : $legacyGuests;
     $children = isset($raw['children']) ? \max(0, (int) $raw['children']) : 0;
-    $guests = $adults + $children;
     $roomCount = isset($raw['room_count']) ? \max(0, (int) $raw['room_count']) : 0;
     $accommodationType = isset($raw['accommodation_type']) ? \sanitize_key((string) $raw['accommodation_type']) : '';
     $urlRoomId = isset($raw['room_id']) ? \sanitize_text_field((string) $raw['room_id']) : '';
@@ -222,9 +221,13 @@ function get_booking_page_view_data(): array
     if ($selection !== null && $checkout === '' && isset($selection['checkout']) && \preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $selection['checkout']) === 1) {
         $checkout = (string) $selection['checkout'];
     }
-    if ($selection !== null && !isset($raw['guests']) && isset($selection['guests'])) {
-        $guests = \max(1, (int) $selection['guests']);
+    if ($selection !== null && !isset($raw['adults'])) {
+        $adults = \max(1, (int) ($selection['adults'] ?? $selection['guests'] ?? $adults));
     }
+    if ($selection !== null && !isset($raw['children'])) {
+        $children = \max(0, (int) ($selection['children'] ?? 0));
+    }
+    $guests = $adults + $children;
     $categories = get_booking_categories($checkin, $checkout);
     $bookingMode = get_must_booking_mode($checkin, $checkout);
     $roomTypes = get_must_room_types($checkin, $checkout);
@@ -330,6 +333,11 @@ function enqueue_booking_page_assets(): void
     $roomTypeId = $selection !== null && isset($selection['roomTypeId']) ? \sanitize_text_field((string) $selection['roomTypeId']) : '';
     \wp_localize_script('must-hotel-booking-calendar', 'mustHotelBookingCalendar', [
         'calendarLayout' => get_calendar_layout(),
+        'partyStrings' => [
+            'propertyCapacity' => __('This property accepts up to %d guests in one booking.', 'must-hotel-booking'),
+            'singleRoomOnly' => __('This booking flow can confirm one room at a time. Please choose 1 room.', 'must-hotel-booking'),
+            'totalGuests' => __('Total guests: %d', 'must-hotel-booking'),
+        ],
         'roomAvailability' => $roomId !== '' && $roomTypeId !== '' ? [
             'ajaxUrl' => \admin_url('admin-ajax.php'),
             'nonce' => \wp_create_nonce('must_booking_room_calendar'),

@@ -47,8 +47,8 @@ namespace MustHotelBooking\Frontend {
     /** @var array<string, mixed>|null $selection */
     $selection = [
         'roomTypeId' => 'room-type-50', 'ratePlanId' => 'rate-plan-50',
-        'checkin' => '2027-09-01', 'checkout' => '2027-09-03', 'guests' => 2,
-        'adults' => 1, 'children' => 1,
+        'checkin' => '2027-09-01', 'checkout' => '2027-09-03', 'guests' => 3,
+        'adults' => 2, 'children' => 1,
         'roomName' => 'Guest Count Suite', 'ratePlanName' => 'Flexible',
         'quote' => ['total' => ['amount' => '190.00', 'currency' => 'EUR'], 'quoteToken' => 'signed-quote'],
     ];
@@ -81,9 +81,9 @@ namespace MustHotelBooking\Frontend {
     } catch (\RuntimeException $error) {
         if (!str_starts_with($error->getMessage(), 'redirect:')) throw $error;
     }
-    if (($selection['guestInfo']['adults'] ?? null) !== 1 ||
+    if (($selection['guestInfo']['adults'] ?? null) !== 2 ||
         ($selection['guestInfo']['children'] ?? null) !== 1 ||
-        ($selection['guestInfo']['guestCount'] ?? null) !== 2) {
+        ($selection['guestInfo']['guestCount'] ?? null) !== 3) {
         fwrite(STDERR, "Checkout did not retain the submitted occupancy breakdown.\n");
         exit(1);
     }
@@ -104,9 +104,9 @@ namespace MustHotelBooking\Frontend {
 
     $posted = \MustHotelBooking\Core\MustApiClient::$postedBody;
     if (($posted['path'] ?? null) !== '/bookings' ||
-        ($posted['body']['adults'] ?? null) !== 1 ||
+        ($posted['body']['adults'] ?? null) !== 2 ||
         ($posted['body']['children'] ?? null) !== 1 ||
-        ($posted['body']['guestCount'] ?? null) !== 2) {
+        ($posted['body']['guestCount'] ?? null) !== 3) {
         fwrite(STDERR, "Booking creation did not receive the occupancy breakdown collected at checkout.\n");
         exit(1);
     }

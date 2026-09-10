@@ -60,4 +60,8 @@ Building a real Clock-status → MUST-status mapping (and wiring `UNKNOWN_STATUS
 
 ## Normalization pipeline (source brief section 15)
 
+## Milestone 21 Task 14 update
+
+Real booking creation no longer assumes one Clock rate. `ClockAvailabilityService.selectRateForStay` is the shared selector for guest quotes and both Clock booking-create paths: it filters to `wbe: true`, evaluates the actual stay dates and adult/child occupancy, applies the optional Task 13 room-type ranking, and otherwise chooses the cheapest valid offer. The selected child rate id is sent to Clock. Any post-commit creation failure records a tenant/property-scoped manual-review item and a `BOOKING_NEEDS_ATTENTION` notification.
+
 The brief's proposed pipeline is `Clock API response → validated Clock DTO → Clock Normalizer → Canonical MUST PMS Model`. What actually exists: inline TypeScript interfaces (`ClockBookingResource`, etc.) checked with a narrow type guard (`isClockBookingResource`) at the one point it matters (after a successful booking-create response, before trusting `id`/`lock_version`) — not a general-purpose validated-DTO/normalizer layer applied uniformly to every Clock response. Unrecognized/malformed shapes on the booking-create path are caught (routed to `SCHEMA_MISMATCH` manual review, never trusted); other response paths (`/room_types`, `/rooms`, `/rate_plans`, `/rates_availability`) are consumed with looser inline typing and no equivalent guard.

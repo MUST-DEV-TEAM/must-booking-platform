@@ -866,6 +866,33 @@ body.must-hotel-booking-flow-page {
     color: #141414;
 }
 
+.must-hotel-booking-page-booking .must-booking-step-select-row output {
+    margin-left: auto;
+    min-width: 160px;
+    max-width: 100%;
+    padding-right: 4px;
+    box-sizing: border-box;
+    color: #fff;
+    font-family: 'PP Neue Montreal', sans-serif;
+    font-style: normal;
+    font-weight: 400;
+    font-size: 20px;
+    line-height: 100%;
+    text-align: right;
+}
+
+.must-hotel-booking-page-booking .must-booking-step-select-row-readonly {
+    background: #b5b1a0;
+}
+
+.must-hotel-booking-page-booking .must-booking-party-capacity-message {
+    margin: 14px 0 0;
+    color: #fff;
+    font-family: 'PP Neue Montreal', sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
 .must-hotel-booking-page-booking .must-booking-check-availability {
     margin-top: auto;
     display: inline-flex;
@@ -1124,6 +1151,7 @@ body.must-hotel-booking-flow-page {
 
 .must-hotel-booking-page-booking .must-booking-results-filter-field input,
 .must-hotel-booking-page-booking .must-booking-results-filter-field select,
+.must-hotel-booking-page-booking .must-booking-results-filter-field output,
 .must-hotel-booking-page-booking .must-booking-results-filter-apply {
     min-height: 58px;
     border: 1px solid rgba(20, 20, 20, 0.16);
@@ -1823,6 +1851,25 @@ body .must-booking-room-modal .must-booking-room-modal-close:active {
     outline: 2px solid var(--must-color-focus-ring) !important;
     outline-offset: 3px;
     transform: none !important;
+}
+
+.must-hotel-booking-page-booking .must-booking-results-filter-field output {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 14px 16px;
+    box-sizing: border-box;
+}
+
+.must-hotel-booking-page-booking .must-booking-results-filter-field-readonly output {
+    border: 1px solid rgba(20, 20, 20, 0.16);
+    background: rgba(245, 243, 236, 0.8);
+}
+
+.must-hotel-booking-page-booking .must-booking-results-filter-panel .must-booking-party-capacity-message {
+    grid-column: 2 / 3;
+    margin: -6px 0 0;
+    color: #a32020;
 }
 
 .must-booking-room-modal-body {

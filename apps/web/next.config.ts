@@ -18,6 +18,14 @@ const nextConfig: NextConfig = {
         source: '/api/:path*',
         destination: `${apiUrl}/:path*`,
       },
+      // Unlike PokPay's webhook (mounted under /webhooks, reachable via the
+      // /api rewrite above), Clock's is mounted at the API's own root as
+      // /clock-webhooks — that's the literal URL Clock's dashboard is
+      // configured with (docs/CLOCK_RUNBOOK.md), so it needs its own rule.
+      {
+        source: '/clock-webhooks/:path*',
+        destination: `${apiUrl}/clock-webhooks/:path*`,
+      },
     ];
   },
 };

@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   type MailBrand,
@@ -13,6 +13,8 @@ import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant
 import { PaymentNotificationService } from '../mail/payment-notification.service';
 import { PaymentProviderRegistry } from './payment-provider-registry';
 import { NotificationsService } from '../tenancy/notifications.service';
+import { ClockBookingService } from '../integrations/clock/clock-booking.service';
+import { ManualReviewService } from '../integrations/manual-review.service';
 
 type Charge = {
   id: string;
@@ -51,6 +53,10 @@ export type RefundConfirmation = {
 type RefundChargeOutcome = {
   result: Result<Payment>;
   confirmation: RefundConfirmation | null;
+  /** Present only when this call created a new local refund row. Automatic
+   * cancellation refunds deliberately ignore it; Task 11's Clock sync is
+   * specifically for the staff/manual-refund command. */
+  clockRefund: { amount: Money; refundId: string } | null;
 };
 
 type RefundEmailRow = {
@@ -87,12 +93,16 @@ export function percentageRefundMinorUnits(amount: string, percentage: number): 
 
 @Injectable()
 export class PaymentRefundService {
+  private readonly logger = new Logger(PaymentRefundService.name);
+
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(AuditLogService) private readonly audit: AuditLogService,
     @Inject(PaymentProviderRegistry) private readonly paymentProviders: PaymentProviderRegistry,
     @Inject(PaymentNotificationService) private readonly notifications: PaymentNotificationService,
     @Inject(NotificationsService) private readonly inAppNotifications: NotificationsService,
+    @Inject(ClockBookingService) private readonly clockBooking: ClockBookingService,
+    @Inject(ManualReviewService) private readonly manualReview: ManualReviewService,
   ) {}
 
   async refundPaidChargeForBooking(
@@ -160,13 +170,14 @@ export class PaymentRefundService {
           'This payment provider cannot refund here.',
         ),
         confirmation: null,
+        clockRefund: null,
       };
     const refunded = await provider.refund(context, {
       idempotencyKey: command.idempotencyKey,
       paymentId: charge.externalPaymentId,
       amount: command.amount,
     });
-    if (!refunded.ok) return { result: refunded, confirmation: null };
+    if (!refunded.ok) return { result: refunded, confirmation: null, clockRefund: null };
 
     const inserted = await tx.$queryRaw<Array<{ id: string }>>`
       INSERT INTO payments (
@@ -229,7 +240,13 @@ export class PaymentRefundService {
     // StripePaymentProvider.refund has no booking context (RefundCommand doesn't carry one) and
     // returns command.paymentId (the Stripe charge/session id) in this slot as a placeholder;
     // correct it to the real booking id here, where it's actually known.
-    return { result: { ok: true, value: { ...refunded.value, bookingId } }, confirmation };
+    return {
+      result: { ok: true, value: { ...refunded.value, bookingId } },
+      confirmation,
+      clockRefund: inserted[0]
+        ? { amount: command.amount, refundId: refunded.value.id }
+        : null,
+    };
   }
 
   async manualRefund(
@@ -295,6 +312,14 @@ export class PaymentRefundService {
           note: command.note,
         });
         confirmation = outcome.confirmation;
+        if (outcome.result.ok && outcome.clockRefund) {
+          await this.syncManualRefundToClock(
+            tx,
+            context,
+            command.bookingId,
+            outcome.clockRefund,
+          );
+        }
         return outcome.result;
       }),
     );
@@ -378,7 +403,60 @@ export class PaymentRefundService {
         },
       },
       confirmation,
+      clockRefund: inserted[0]
+        ? { amount: command.amount, refundId: externalPaymentId }
+        : null,
     };
+  }
+
+  /** Task 11: the gateway refund and MUST ledger remain authoritative. Clock
+   * is a downstream accounting mirror, so any Clock failure is deliberately
+   * swallowed after a tenant/property-scoped review item is recorded. */
+  private async syncManualRefundToClock(
+    tx: TenantTransaction,
+    context: PaymentProviderContext,
+    bookingId: string,
+    refund: { amount: Money; refundId: string },
+  ): Promise<void> {
+    try {
+      await this.clockBooking.postRefund(
+        tx,
+        context,
+        bookingId,
+        refund.amount,
+        `must-refund:${refund.refundId}`,
+      );
+    } catch (error) {
+      // ClockBookingService normally returns a Result and records the review
+      // itself. This is the last-resort boundary for an unexpected adapter or
+      // transport exception: never let it roll back money already returned by
+      // the gateway.
+      this.logger.error(
+        `Clock refund sync crashed for booking ${bookingId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      try {
+        await this.manualReview.recordInTransaction(tx, {
+          tenantId: context.tenantId,
+          propertyId: context.propertyId,
+          category: 'PAYMENT_BOOKING_MISMATCH',
+          referenceType: 'booking',
+          referenceId: bookingId,
+          message:
+            'The refund succeeded in MUST, but Clock refund synchronization failed unexpectedly. Post the negative payment to the original Clock deposit folio and issue the Deposit Adjustment manually.',
+          context: { refundId: refund.refundId, amount: refund.amount },
+        });
+        await this.inAppNotifications.recordInTransaction(tx, {
+          tenantId: context.tenantId,
+          propertyId: context.propertyId,
+          type: 'BOOKING_NEEDS_ATTENTION',
+          payload: { bookingId, reason: 'clock_refund_sync_unexpected_failure' },
+        });
+      } catch (reviewError) {
+        this.logger.error(
+          `Could not record Clock refund-sync review for booking ${bookingId}: ${reviewError instanceof Error ? reviewError.message : String(reviewError)}`,
+        );
+      }
+    }
   }
 
   private async chargeForBooking(

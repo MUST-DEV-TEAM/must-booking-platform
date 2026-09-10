@@ -71,6 +71,11 @@ type ClockProductsResponse = Array<{
 
 type ClockQuote = { total: Money; nightlyRates: NightlyRate[] };
 
+export type ClockRateSelection = {
+  rateId: string;
+  total: Money;
+};
+
 type ClockProductOffer = {
   available: boolean;
   room_type_free_rooms: number;
@@ -225,16 +230,50 @@ export class ClockAvailabilityService {
         ),
       );
 
-    const rateIds = await this.ratesForRoomType(parsed.value, externalRoomTypeId);
+    const selection = await this.selectRateForStay(parsed.value, {
+      tenantId,
+      propertyId,
+      roomTypeId: query.roomTypeId,
+      externalRoomTypeId,
+      startsOn: query.startsOn,
+      endsOn: query.endsOn,
+      adultCount: query.adultCount,
+      childrenCount: query.childrenCount,
+    });
+    if (!selection.ok) return selection;
+    return { ok: true, value: selection.value.total };
+  }
+
+  /**
+   * Selects the exact Clock rate and total used by a quote. Booking creation
+   * calls this same method immediately before POST /bookings/ so a room type
+   * with multiple published rates follows the same wbe, occupancy, cheapest,
+   * and staff-ranking rules as the guest-facing quote.
+   *
+   * The caller supplies the already-resolved Clock credentials and room-type
+   * mapping because booking creation has both in hand inside its transaction.
+   */
+  async selectRateForStay(
+    credentials: ClockConnectionCredentials,
+    query: {
+      tenantId: string;
+      propertyId: string;
+      roomTypeId: string;
+      externalRoomTypeId: string;
+      startsOn: string;
+      endsOn: string;
+      adultCount?: number;
+      childrenCount?: number;
+    },
+  ): Promise<Result<ClockRateSelection>> {
+    const rateIds = await this.ratesForRoomType(credentials, query.externalRoomTypeId);
     if (!rateIds.ok) return failure(rateIds.error);
     if (rateIds.value.ids.length === 0) return failure(noRatesError(rateIds.value));
 
     // adult_count/children_count are always sent, never left to the caller
-    // to remember — Clock only enforces max_adults/max_children on a rate
-    // when these are present (confirmed against the real sandbox
-    // 2026-09-10: an over-capacity request with no occupancy fields comes
-    // back available with no error at all). Defaulting here means that
-    // enforcement can never silently not run.
+    // to remember. Clock only enforces max_adults/max_children on a rate
+    // when these are present, so defaulting here means enforcement cannot be
+    // silently skipped.
     const productSearch: Record<string, string> = {
       'product_search[arrival]': query.startsOn,
       'product_search[departure]': query.endsOn,
@@ -243,14 +282,18 @@ export class ClockAvailabilityService {
     };
 
     const response = await this.fetch<ClockProductsResponse>(
-      parsed.value,
+      credentials,
       { ...productSearch, rates: rateIds.value.ids },
       '/products',
     );
     if (!response.ok) return failure(response.error);
 
-    const rankOrder = await this.rateRankings.rankOrder(tenantId, propertyId, query.roomTypeId);
-    const roomType = response.value.find((item) => String(item.id) === externalRoomTypeId);
+    const rankOrder = await this.rateRankings.rankOrder(
+      query.tenantId,
+      query.propertyId,
+      query.roomTypeId,
+    );
+    const roomType = response.value.find((item) => String(item.id) === query.externalRoomTypeId);
     const winner = roomType ? selectBestOffer(roomType.rates, rankOrder) : undefined;
     if (!winner)
       return failure(
@@ -260,8 +303,11 @@ export class ClockAvailabilityService {
     return {
       ok: true,
       value: {
-        amount: (winner.offer.price.cents / 100).toFixed(2),
-        currency: winner.offer.price.currency,
+        rateId: winner.rateId,
+        total: {
+          amount: (winner.offer.price.cents / 100).toFixed(2),
+          currency: winner.offer.price.currency,
+        },
       },
     };
   }

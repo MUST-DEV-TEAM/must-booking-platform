@@ -167,6 +167,27 @@ if (!empty($selected_rooms[0]['room']) && \is_array($selected_rooms[0]['room']) 
 $format_money = static function (float $amount, string $currency = 'USD'): string {
     return \must_hotel_booking\format_frontend_money($amount, $currency);
 };
+$format_reservation_occupancy = static function (array $reservation): string {
+    $occupancy = isset($reservation['occupancy']) && \is_array($reservation['occupancy'])
+        ? $reservation['occupancy']
+        : [];
+    $guests = \max(1, (int) ($occupancy['guests'] ?? 1));
+    if (empty($occupancy['has_breakdown'])) {
+        return \sprintf(\_n('%d guest', '%d guests', $guests, 'must-hotel-booking'), $guests);
+    }
+
+    $adults = \max(1, (int) ($occupancy['adults'] ?? 1));
+    $children = \max(0, (int) ($occupancy['children'] ?? 0));
+    $adultLabel = \sprintf(\_n('%d adult', '%d adults', $adults, 'must-hotel-booking'), $adults);
+    $childrenLabel = \sprintf(\_n('%d child', '%d children', $children, 'must-hotel-booking'), $children);
+
+    return \sprintf(
+        \_n('%1$d guest — %2$s, %3$s', '%1$d guests — %2$s, %3$s', $guests, 'must-hotel-booking'),
+        $guests,
+        $adultLabel,
+        $childrenLabel
+    );
+};
 $format_display_date = static function (string $date): string {
     $timestamp = \strtotime($date . ' 00:00:00');
     return $timestamp === false ? $date : \wp_date('D, M j Y', $timestamp);
@@ -337,6 +358,7 @@ $render_payment_method_icon = static function (string $payment_method_key, strin
                             </p>
                             <?php foreach ($reservations as $reservation): ?>
                                 <?php
+                                $reservation_occupancy = $format_reservation_occupancy($reservation);
                                 $reservation_rates = isset($reservation['nightly_rates']) && \is_array($reservation['nightly_rates'])
                                     ? $reservation['nightly_rates']
                                     : [];
@@ -345,6 +367,9 @@ $render_payment_method_icon = static function (string $payment_method_key, strin
                                     (string) ($reservation['currency'] ?? $summary_currency)
                                 );
                                 ?>
+                                <p class="must-confirmation-paid-success-occupancy">
+                                    <?php echo \esc_html($reservation_occupancy); ?>
+                                </p>
                                 <?php if ($reservation_price_rows !== ''): ?>
                                     <div class="must-confirmation-order-table must-confirmation-paid-success-summary">
                                         <?php echo $reservation_price_rows; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
@@ -388,6 +413,7 @@ $render_payment_method_icon = static function (string $payment_method_key, strin
                         <p class="must-confirmation-success-message" data-booking-status-message="1" aria-live="polite"><?php echo \esc_html($status_message); ?></p>
                     <?php endif; ?>
                     <?php foreach ($reservations as $reservation): ?>
+                        <?php $reservation_occupancy = $format_reservation_occupancy($reservation); ?>
                         <div class="must-confirmation-success-card">
                             <p><strong><?php echo \esc_html((string) ($reservation['room_name'] ?? __('Room', 'must-hotel-booking'))); ?></strong>
                             </p>
@@ -405,7 +431,7 @@ $render_payment_method_icon = static function (string $payment_method_key, strin
                             <?php endif; ?>
                             <p><?php echo \esc_html(\sprintf(__('Stay: %1$s to %2$s', 'must-hotel-booking'), (string) $reservation['checkin'], (string) $reservation['checkout'])); ?>
                             </p>
-                            <p><?php echo \esc_html(\sprintf(__('Guests: %d', 'must-hotel-booking'), (int) $reservation['guests'])); ?>
+                            <p><?php echo \esc_html($reservation_occupancy); ?>
                             </p>
                             <p><?php echo \esc_html(\sprintf(__('Room Total: %s', 'must-hotel-booking'), $format_money((float) $reservation['total_price'], $summary_currency))); ?>
                             </p>

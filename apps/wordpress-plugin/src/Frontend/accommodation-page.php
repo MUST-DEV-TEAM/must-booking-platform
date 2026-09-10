@@ -76,15 +76,28 @@ function maybe_process_accommodation_selection(): string
     $adults = isset($_POST['adults']) ? \max(1, (int) $_POST['adults']) : $legacyGuests;
     $children = isset($_POST['children']) ? \max(0, (int) $_POST['children']) : 0;
     $guests = $adults + $children;
+    $roomCount = isset($_POST['room_count']) ? \min(get_max_booking_rooms_limit(), \max(0, (int) $_POST['room_count'])) : 0;
     if ($roomTypeId === '' || $checkin === '' || $checkout === '') {
         return \__('That room could not be selected. Please try again.', 'must-hotel-booking');
+    }
+    if ($guests > get_max_booking_guests_limit()) {
+        return \sprintf(
+            /* translators: %d is the property's maximum party size. */
+            __('This property accepts up to %d guests in one booking.', 'must-hotel-booking'),
+            get_max_booking_guests_limit()
+        );
+    }
+    if ($roomCount > 1) {
+        return \__('This booking flow can confirm one room at a time. Please choose 1 room.', 'must-hotel-booking');
     }
 
     $roomName = '';
     $ratePlanName = '';
     $requiresRatePlanSelection = true;
+    $roomCapacity = 0;
     foreach (get_must_room_types($checkin, $checkout) as $roomType) {
         if ((string) ($roomType['id'] ?? '') !== $roomTypeId) continue;
+        $roomCapacity = \max(0, (int) ($roomType['maxOccupancy'] ?? 0));
         $requiresRatePlanSelection = !isset($roomType['requiresRatePlanSelection']) || (bool) $roomType['requiresRatePlanSelection'];
         if ($roomId !== '') {
             foreach ((array) ($roomType['rooms'] ?? []) as $physicalRoom) {
@@ -101,6 +114,14 @@ function maybe_process_accommodation_selection(): string
                 $ratePlanName = (string) ($ratePlan['name'] ?? '');
             }
         }
+    }
+    if ($roomCapacity < $guests) {
+        return \sprintf(
+            /* translators: 1: requested guest count, 2: selected room capacity. */
+            __('This party has %1$d guests, but the selected room accommodates up to %2$d. Please choose another room.', 'must-hotel-booking'),
+            $guests,
+            $roomCapacity
+        );
     }
     // A Clock-connected room type is priced live by Clock, with no local rate
     // plan for the guest to pick — must_rate_plan_id is legitimately empty then.
@@ -246,20 +267,37 @@ function get_accommodation_page_view_data(): array
     $adults = isset($raw['adults']) ? \max(1, (int) $raw['adults']) : $legacyGuests;
     $children = isset($raw['children']) ? \max(0, (int) $raw['children']) : 0;
     $guests = $adults + $children;
-    $roomCount = isset($raw['room_count']) ? \max(0, (int) $raw['room_count']) : 0;
+    $roomCount = isset($raw['room_count']) ? \min(get_max_booking_rooms_limit(), \max(0, (int) $raw['room_count'])) : 0;
     $accommodationType = isset($raw['accommodation_type']) ? \sanitize_key((string) $raw['accommodation_type']) : '';
     $hasContext = $checkin !== '' && $checkout !== '';
 
     $selection = get_current_booking_selection();
-    $selectedRoomCount = $selection !== null ? 1 : 0;
+    $selectionMatchesContext = $selection !== null &&
+        (string) ($selection['checkin'] ?? '') === $checkin &&
+        (string) ($selection['checkout'] ?? '') === $checkout &&
+        (int) ($selection['adults'] ?? $selection['guests'] ?? 1) === $adults &&
+        (int) ($selection['children'] ?? 0) === $children;
+    $selectedRoomCount = $selectionMatchesContext ? 1 : 0;
 
     $rooms = [];
-    if ($hasContext) {
+    $partyCapacityMessage = '';
+    if ($guests > get_max_booking_guests_limit()) {
+        $partyCapacityMessage = \sprintf(
+            /* translators: %d is the property's maximum party size. */
+            __('This property accepts up to %d guests in one booking.', 'must-hotel-booking'),
+            get_max_booking_guests_limit()
+        );
+    } elseif ($roomCount > 1) {
+        $partyCapacityMessage = \__('This booking flow can confirm one room at a time. Please choose 1 room.', 'must-hotel-booking');
+    }
+    if ($partyCapacityMessage !== '') {
+        $messages[] = $partyCapacityMessage;
+    }
+    $hasRoomWithSufficientCapacity = false;
+    if ($hasContext && $partyCapacityMessage === '') {
         $index = 0;
-        // A zero room count is the existing "Auto" single-room request.  Do
-        // not hide options for explicit multi-room searches: combining rooms
-        // is deliberately outside this task's scope.
-        $requiresSingleRoomCapacity = $roomCount <= 1;
+        // The selection flow quotes and books one room only. It must therefore
+        // never present a multi-room search as if it could allocate rooms.
         // A property configured INDIVIDUAL_ROOM_ONLY requires an explicit
         // roomId on every booking (LocalPmsProvider.validateRoomSelection
         // rejects otherwise) — the catalog already returns each room type's
@@ -272,7 +310,8 @@ function get_accommodation_page_view_data(): array
         foreach (get_must_room_types($checkin, $checkout) as $roomType) {
             $roomTypeId = (string) ($roomType['id'] ?? '');
             if ($roomTypeId === '' || ($accommodationType !== '' && $roomTypeId !== $accommodationType)) continue;
-            if ($requiresSingleRoomCapacity && (int) ($roomType['maxOccupancy'] ?? 0) < $guests) continue;
+            if ((int) ($roomType['maxOccupancy'] ?? 0) < $guests) continue;
+            $hasRoomWithSufficientCapacity = true;
 
             if ($bookingMode === 'INDIVIDUAL_ROOM_ONLY') {
                 $roomCurrency = (string) ($roomType['ratePlans'][0]['currency'] ?? 'USD');
@@ -297,7 +336,7 @@ function get_accommodation_page_view_data(): array
                         ...$media,
                         'room_rules' => '',
                         'amenities' => $amenities, 'rate_plans' => $ratePlans,
-                        'is_selected' => $selection !== null && ($selection['roomId'] ?? '') === $physicalRoomId,
+                        'is_selected' => $selectionMatchesContext && ($selection['roomId'] ?? '') === $physicalRoomId,
                         'selected_rate_plan_id' => 0,
                     ];
                 }
@@ -323,10 +362,23 @@ function get_accommodation_page_view_data(): array
                 ...$media,
                 'room_rules' => '',
                 'amenities' => $amenities, 'rate_plans' => $ratePlans,
-                'is_selected' => $selection !== null && ($selection['roomTypeId'] ?? '') === $roomTypeId,
+                'is_selected' => $selectionMatchesContext && ($selection['roomTypeId'] ?? '') === $roomTypeId,
                 'selected_rate_plan_id' => 0,
             ];
         }
+    }
+
+    $noRoomsMessage = $hasContext
+        ? __('No rooms are available for the selected dates.', 'must-hotel-booking')
+        : __('Choose your dates to see available rooms.', 'must-hotel-booking');
+    if ($partyCapacityMessage !== '') {
+        $noRoomsMessage = $partyCapacityMessage;
+    } elseif ($hasContext && !$hasRoomWithSufficientCapacity) {
+        $noRoomsMessage = \sprintf(
+            /* translators: %d is requested guest count. */
+            __('No available room type can accommodate %d guests. Please adjust your party or choose another stay.', 'must-hotel-booking'),
+            $guests
+        );
     }
 
     return [
@@ -335,8 +387,8 @@ function get_accommodation_page_view_data(): array
         'adults' => $adults, 'children' => $children,
         'room_count' => $roomCount, 'resolved_room_count' => 1,
         'accommodation_type' => $accommodationType, 'selected_rooms' => [], 'selected_room_count' => $selectedRoomCount,
-        'can_continue' => $selectedRoomCount > 0, 'selection_limit_reached' => $selectedRoomCount > 0, 'single_room_mode' => true,
-        'no_rooms_message' => $hasContext ? \__('No rooms are available for the selected dates.', 'must-hotel-booking') : \__('Choose your dates to see available rooms.', 'must-hotel-booking'),
+        'can_continue' => $selectedRoomCount > 0 && $partyCapacityMessage === '', 'selection_limit_reached' => $selectedRoomCount > 0, 'single_room_mode' => true,
+        'no_rooms_message' => $noRoomsMessage,
         'selection_status_message' => '', 'selection_status_tone' => 'neutral',
         'booking_url' => get_booking_page_url(), 'checkout_url' => get_checkout_page_url(), 'accommodation_url' => get_booking_accommodation_page_url(),
     ];
@@ -363,6 +415,9 @@ function enqueue_booking_accommodation_page_assets(): void
             'bookNow' => \__('Book Now', 'must-hotel-booking'),
             'selectionFull' => \__('Selection Full', 'must-hotel-booking'),
             'addRoom' => \__('Add Room', 'must-hotel-booking'),
+            'propertyCapacity' => \__('This property accepts up to %d guests in one booking.', 'must-hotel-booking'),
+            'singleRoomOnly' => \__('This booking flow can confirm one room at a time. Please choose 1 room.', 'must-hotel-booking'),
+            'totalGuests' => \__('Total guests: %d', 'must-hotel-booking'),
         ],
         'icons' => [
             'lightboxPrev' => \must_hotel_booking_asset_url('assets/img/lightboxleft.svg'),

@@ -2,6 +2,13 @@
 
 Notable product, architecture, integration, operational, compatibility, and security changes are recorded here. Exact implementation history remains in Git.
 
+## 0.4.93 - 2026-09-10
+
+### Added
+
+- Adults/children party composer on the accommodation search page, with client- and server-side capacity validation against each room type's maximum occupancy and the property's overall guest limit.
+- Adults/children breakdown on the booking confirmation page, falling back to the legacy total-guest count display when a booking predates the split fields.
+
 ## 0.4.92 - 2026-07-17
 
 ### Changed

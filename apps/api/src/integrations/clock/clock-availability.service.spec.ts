@@ -742,3 +742,86 @@ describe('ClockAvailabilityService.ratesForRoomTypeDetailed', () => {
     });
   });
 });
+
+describe('ClockAvailabilityService.selectRateForStay', () => {
+  it('selects the same ranked rate and total that getQuote selects for identical stay data', async () => {
+    const responses = () =>
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          status: 200,
+          body: [
+            { id: 803404, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: false },
+            { id: 803405, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true },
+            { id: 803406, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true },
+          ],
+        })
+        .mockResolvedValueOnce({
+          status: 200,
+          body: [
+            {
+              id: 42023,
+              rates: {
+                '803405': [
+                  {
+                    available: true,
+                    room_type_free_rooms: 3,
+                    price: { cents: 32500, currency: 'EUR' },
+                    errors: {},
+                  },
+                ],
+                '803406': [
+                  {
+                    available: true,
+                    room_type_free_rooms: 3,
+                    price: { cents: 11000, currency: 'EUR' },
+                    errors: {},
+                  },
+                ],
+              },
+            },
+          ],
+        });
+
+    const quoteService = makeService({
+      client: { request: responses() },
+      rankOrder: ['803405'],
+    }).service;
+    const bookingService = makeService({
+      client: { request: responses() },
+      rankOrder: ['803405'],
+    }).service;
+    const stay = {
+      roomTypeId: 'local-rt-1',
+      externalRoomTypeId: '42023',
+      startsOn: '2026-08-10',
+      endsOn: '2026-08-12',
+      adultCount: 2,
+      childrenCount: 1,
+    };
+
+    const quote = await quoteService.getQuote('t1', 'p1', {
+      roomTypeId: stay.roomTypeId,
+      startsOn: stay.startsOn,
+      endsOn: stay.endsOn,
+      adultCount: stay.adultCount,
+      childrenCount: stay.childrenCount,
+    });
+    const selected = await bookingService.selectRateForStay(credentials, {
+      tenantId: 't1',
+      propertyId: 'p1',
+      roomTypeId: stay.roomTypeId,
+      externalRoomTypeId: stay.externalRoomTypeId,
+      startsOn: stay.startsOn,
+      endsOn: stay.endsOn,
+      adultCount: stay.adultCount,
+      childrenCount: stay.childrenCount,
+    });
+
+    expect(quote).toEqual({ ok: true, value: { amount: '325.00', currency: 'EUR' } });
+    expect(selected).toEqual({
+      ok: true,
+      value: { rateId: '803405', total: { amount: '325.00', currency: 'EUR' } },
+    });
+  });
+});

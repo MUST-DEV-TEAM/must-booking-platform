@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import {
   BookingPaymentMethod,
@@ -20,7 +20,7 @@ import { NotificationsService } from '../../tenancy/notifications.service';
 import { BookingStateMachine } from '../../booking/booking-state-machine';
 import { bookingNeedsAttention } from '../../booking/booking-attention';
 import { IntegrationConnectionsService } from '../integration-connections.service';
-import { ManualReviewService } from '../manual-review.service';
+import { ManualReviewService, type ManualReviewCategory } from '../manual-review.service';
 import { generateBookingReference } from '../../booking/booking-reference';
 import { resolveBookingOccupancy, validBookingOccupancy } from '../../booking/booking-occupancy';
 import { resolveGuestWithPhoneSignal } from '../../booking/guest-matching';
@@ -37,6 +37,7 @@ import {
   type ClockConnectionCredentials,
 } from './clock-http-client';
 import { ClockRateLimiterService } from './clock-rate-limiter';
+import { ClockAvailabilityService } from './clock-availability.service';
 
 // Confirmed against Clock's own public Postman docs (2026-08-04) — see
 // docs/CLOCK_ENDPOINT_MATRIX.md. Live sandbox success responses were not
@@ -53,6 +54,19 @@ interface ClockBookingResource {
 interface ClockGuestSearchResource {
   family_id: number | string;
   e_mail?: string | null;
+}
+
+interface ClockDocumentTypeResource {
+  id: number;
+}
+
+export function isClockDocumentTypeResource(value: unknown): value is ClockDocumentTypeResource {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    Number.isInteger((value as ClockDocumentTypeResource).id) &&
+    (value as ClockDocumentTypeResource).id > 0
+  );
 }
 
 /** Exported for unit testing (Task 12: schema_mismatch must have real, tested detection). */
@@ -100,6 +114,7 @@ type DepositFolioResult =
 interface ClockCreditItemResource {
   id: number;
   reference?: string;
+  payment_sub_type?: string;
 }
 
 export function isClockCreditItemResource(value: unknown): value is ClockCreditItemResource {
@@ -145,6 +160,8 @@ const STALE_OBJECT_MESSAGE = 'Attempted to update a stale object: Booking';
 
 @Injectable()
 export class ClockBookingService {
+  private readonly logger = new Logger(ClockBookingService.name);
+
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(IntegrationConnectionsService)
@@ -156,6 +173,7 @@ export class ClockBookingService {
     @Inject(ClockHttpClient) private readonly client: ClockHttpClient,
     @Inject(ClockRateLimiterService) private readonly rateLimiter: ClockRateLimiterService,
     @Inject(ClockCircuitBreakerService) private readonly circuitBreaker: ClockCircuitBreakerService,
+    @Inject(ClockAvailabilityService) private readonly availability: ClockAvailabilityService,
   ) {}
 
   async createBooking(
@@ -197,9 +215,6 @@ export class ClockBookingService {
           const externalRoomId = command.roomId
             ? await this.mappedExternalId(tx, context, 'ROOM', command.roomId)
             : null;
-
-          const rate = await this.rateIdForRoomType(connection.value, externalRoomTypeId);
-          if (!rate.ok) return rate;
 
           const guestId = await this.resolveGuest(tx, context.tenantId, command.guest);
           const externalReference =
@@ -256,18 +271,59 @@ export class ClockBookingService {
             BookingStatus.PMS_CREATION_PENDING,
           );
 
+          const rate = await this.rateIdForRoomType(
+            connection.value,
+            context,
+            command.roomTypeId,
+            externalRoomTypeId,
+            command.startsOn,
+            command.endsOn,
+            occupancy.adults,
+            occupancy.children,
+          );
+          if (!rate.ok) {
+            await this.transition(
+              tx,
+              context,
+              bookingId,
+              status,
+              BookingStatus.PMS_UNKNOWN_RESULT,
+            );
+            await this.recordPostCommitFailure(tx, context, bookingId, {
+              category: 'UNKNOWN_RESULT',
+              message: `The local booking was committed, but Clock rate selection failed: ${rate.error.message}`,
+              context: { externalReference, errorCode: rate.error.code },
+              notify: false,
+            });
+            return rate;
+          }
+
           // Clock's free_text_search is fuzzy, so filter the one rate-limited
           // email search client-side before deciding whether to attach.
           const existingClockGuest = await this.clockGuestForBooking(
             connection.value,
             command.guest.email,
           );
-          if (!existingClockGuest.ok)
+          if (!existingClockGuest.ok) {
+            await this.transition(
+              tx,
+              context,
+              bookingId,
+              status,
+              BookingStatus.PMS_UNKNOWN_RESULT,
+            );
+            await this.recordPostCommitFailure(tx, context, bookingId, {
+              category: 'UNKNOWN_RESULT',
+              message: `The local booking was committed, but Clock guest lookup failed: ${existingClockGuest.error.message}`,
+              context: { externalReference, errorCode: existingClockGuest.error.code },
+              notify: false,
+            });
             return this.failure(
               existingClockGuest.error.code,
               existingClockGuest.error.message,
               existingClockGuest.error.retryable,
             );
+          }
 
           const booking = {
             arrival: command.startsOn,
@@ -338,6 +394,11 @@ export class ClockBookingService {
               );
             }
             await this.transition(tx, context, bookingId, status, BookingStatus.PMS_REJECTED);
+            await this.recordPostCommitFailure(tx, context, bookingId, {
+              category: 'UNKNOWN_RESULT',
+              message: `The local booking was committed, but Clock rejected reservation creation: ${response.error.message}`,
+              context: { externalReference, errorCode: response.error.code },
+            });
             return this.failure(response.error.code, response.error.message, false);
           }
 
@@ -376,12 +437,17 @@ export class ClockBookingService {
           await this.transition(tx, context, bookingId, status, BookingStatus.CONFIRMED);
 
           const row = await this.bookingById(tx, context, bookingId);
-          return row && this.toBooking(row)
-            ? { ok: true, value: this.toBooking(row)! }
-            : this.failure('BOOKING_NOT_FOUND', 'Created booking could not be loaded.');
+          if (row && this.toBooking(row)) return { ok: true, value: this.toBooking(row)! };
+          await this.recordPostCommitFailure(tx, context, bookingId, {
+            category: 'UNKNOWN_RESULT',
+            message:
+              'Clock confirmed the reservation, but the committed local booking could not be reloaded.',
+            context: { externalReference },
+          });
+          return this.failure('BOOKING_NOT_FOUND', 'Created booking could not be loaded.');
         }),
-      // Rate lookup + email search + booking create + possible reconciliation
-      // lookup — up to 4 real Clock calls inside this transaction.
+      // Rate list + quote selection + email search + booking create + possible
+      // reconciliation lookup — up to 5 real Clock calls inside this transaction.
       { timeoutMs: 45_000 },
     );
   }
@@ -406,10 +472,23 @@ export class ClockBookingService {
     bookingId: string,
   ): Promise<Result<Booking>> {
     const connection = await this.credentials(context);
-    if (!connection.ok) return connection;
+    if (!connection.ok) {
+      await this.recordPostCommitFailure(tx, context, bookingId, {
+        category: 'UNKNOWN_RESULT',
+        message: `Payment was confirmed, but the Clock connection could not be loaded: ${connection.error.message}`,
+        context: { errorCode: connection.error.code },
+      });
+      return connection;
+    }
 
     const row = await this.bookingById(tx, context, bookingId);
-    if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
+    if (!row) {
+      await this.recordPostCommitFailure(tx, context, bookingId, {
+        category: 'UNKNOWN_RESULT',
+        message: 'Payment was confirmed, but the local booking could not be loaded for Clock attachment.',
+      });
+      return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
+    }
     if (row.externalBookingId) return { ok: true, value: this.toBooking(row)! };
 
     const guestRows = await tx.$queryRaw<
@@ -426,7 +505,14 @@ export class ClockBookingService {
       WHERE id = ${row.guestId}::uuid AND tenant_id = ${context.tenantId}::uuid
     `;
     const guest = guestRows[0];
-    if (!guest) return this.failure('BOOKING_GUEST_NOT_FOUND', 'Booking guest was not found.');
+    if (!guest) {
+      await this.recordPostCommitFailure(tx, context, bookingId, {
+        category: 'UNKNOWN_RESULT',
+        message: 'Payment was confirmed, but the local booking guest could not be loaded.',
+        context: { externalReference: row.externalReference },
+      });
+      return this.failure('BOOKING_GUEST_NOT_FOUND', 'Booking guest was not found.');
+    }
 
     const externalRoomTypeId = await this.mappedExternalId(
       tx,
@@ -434,6 +520,14 @@ export class ClockBookingService {
       'ROOM_TYPE',
       row.roomTypeId,
     );
+    if (!externalRoomTypeId) {
+      await this.recordPostCommitFailure(tx, context, bookingId, {
+        category: 'MISSING_MAPPING',
+        message:
+          'Payment was confirmed, but the room type has no confirmed Clock catalog mapping.',
+        context: { roomTypeId: row.roomTypeId },
+      });
+    }
     if (!externalRoomTypeId)
       return this.failure(
         'clock_configuration',
@@ -443,18 +537,48 @@ export class ClockBookingService {
       ? await this.mappedExternalId(tx, context, 'ROOM', row.roomId)
       : null;
 
-    const rate = await this.rateIdForRoomType(connection.value, externalRoomTypeId);
-    if (!rate.ok) return rate;
+    const rate = await this.rateIdForRoomType(
+      connection.value,
+      context,
+      row.roomTypeId,
+      externalRoomTypeId,
+      row.startsOn,
+      row.endsOn,
+      row.adults,
+      row.children,
+    );
+    if (!rate.ok) {
+      await this.transition(
+        tx,
+        context,
+        bookingId,
+        BookingStatus.PMS_CREATION_PENDING,
+        BookingStatus.PMS_UNKNOWN_RESULT,
+      );
+      await this.recordPostCommitFailure(tx, context, bookingId, {
+        category: 'UNKNOWN_RESULT',
+        message: `Payment was confirmed, but Clock rate selection failed: ${rate.error.message}`,
+        context: { externalReference: row.externalReference, errorCode: rate.error.code },
+        notify: false,
+      });
+      return rate;
+    }
 
     // Clock's free_text_search is fuzzy, so filter the one rate-limited email
     // search client-side before deciding whether to attach.
     const existingClockGuest = await this.clockGuestForBooking(connection.value, guest.email);
-    if (!existingClockGuest.ok)
+    if (!existingClockGuest.ok) {
+      await this.recordPostCommitFailure(tx, context, bookingId, {
+        category: 'UNKNOWN_RESULT',
+        message: `Payment was confirmed, but Clock guest lookup failed: ${existingClockGuest.error.message}`,
+        context: { externalReference: row.externalReference, errorCode: existingClockGuest.error.code },
+      });
       return this.failure(
         existingClockGuest.error.code,
         existingClockGuest.error.message,
         existingClockGuest.error.retryable,
       );
+    }
 
     const booking = {
       arrival: row.startsOn,
@@ -560,9 +684,14 @@ export class ClockBookingService {
       details: { externalBookingId: String(response.value.id) },
     });
     const updated = await this.bookingById(tx, context, bookingId);
-    return updated && this.toBooking(updated)
-      ? { ok: true, value: this.toBooking(updated)! }
-      : this.failure('BOOKING_NOT_FOUND', 'Booking could not be reloaded.');
+    if (updated && this.toBooking(updated)) return { ok: true, value: this.toBooking(updated)! };
+    await this.recordPostCommitFailure(tx, context, bookingId, {
+      category: 'UNKNOWN_RESULT',
+      message:
+        'Clock confirmed the reservation, but the committed local booking could not be reloaded.',
+      context: { externalReference: row.externalReference },
+    });
+    return this.failure('BOOKING_NOT_FOUND', 'Booking could not be reloaded.');
   }
 
   /**
@@ -720,8 +849,24 @@ export class ClockBookingService {
       );
     }
 
+    const documentTypes = await this.documentTypesForFolioClose(connection.value);
+    let documentTypeId: number | undefined;
+    if (!documentTypes.ok) {
+      this.logger.warn(
+        `Clock document type lookup failed for property ${context.propertyId}; closing deposit folio ${folio.value.folio.id} without document_type_id: ${documentTypes.error.message}`,
+      );
+    } else if (documentTypes.value.length === 1) {
+      documentTypeId = documentTypes.value[0]!.id;
+    } else {
+      this.logger.warn(
+        documentTypes.value.length === 0
+          ? `Clock has no configured fiscal document types for property ${context.propertyId}; closing deposit folio ${folio.value.folio.id} without document_type_id.`
+          : `Clock has ${documentTypes.value.length} configured fiscal document types for property ${context.propertyId} (${documentTypes.value.map((type) => type.id).join(', ')}); closing deposit folio ${folio.value.folio.id} without document_type_id rather than guessing.`,
+      );
+    }
+
     const closed = await this.withRetry(() =>
-      this.closeFolio(connection.value, folio.value.folio.id),
+      this.closeFolio(connection.value, folio.value.folio.id, documentTypeId),
     );
     if (!closed.ok) {
       // Money has already moved (the credit item is posted) — a close
@@ -767,7 +912,144 @@ export class ClockBookingService {
         amount,
         paymentSubType,
         reference,
+        documentTypeId,
         folioClosed: closed.ok,
+      },
+    });
+    return { ok: true, value: undefined };
+  }
+
+  /**
+   * Milestone 21 Task 11: reflect a refund already completed by MUST's
+   * gateway in Clock as a negative payment on the *original* deposit folio.
+   * Clock's own deposit documentation prescribes that placement even when
+   * the deposit folio is closed; adding the payment does not reopen it.
+   *
+   * A closed-deposit refund still needs Clock's UI-only "Deposit Adjustment"
+   * action to issue the associated correction document. The public Base API
+   * documents no endpoint for that action, so a successful post deliberately
+   * creates a staff-visible manual-review item rather than inventing an
+   * unsupported correction-folio write. Neither this failure path nor that
+   * required final action can roll back the gateway refund.
+   */
+  async postRefund(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    bookingId: string,
+    amount: { amount: string; currency: string },
+    refundReference: string,
+  ): Promise<Result<void>> {
+    const row = await this.bookingById(tx, context, bookingId);
+    if (!row?.externalBookingId) return { ok: true, value: undefined };
+
+    const connection = await this.credentials(context);
+    if (!connection.ok) {
+      await this.recordClockRefundReview(tx, context, bookingId, {
+        externalBookingId: row.externalBookingId,
+        amount,
+        refundReference,
+        message: `MUST refunded the guest, but Clock could not be reached to post the negative deposit payment: ${connection.error.message}`,
+        errorCode: connection.error.code,
+      });
+      return connection;
+    }
+
+    const originalDeposit = await this.withRetry(() =>
+      this.depositFolioWithPaymentReference(
+        connection.value,
+        row.externalBookingId!,
+        row.externalReference,
+      ),
+    );
+    if (!originalDeposit.ok) {
+      await this.recordClockRefundReview(tx, context, bookingId, {
+        externalBookingId: row.externalBookingId,
+        amount,
+        refundReference,
+        message: `MUST refunded the guest, but Clock's original deposit folio could not be found: ${originalDeposit.error.message}`,
+        errorCode: originalDeposit.error.code,
+      });
+      return this.failure(
+        originalDeposit.error.code,
+        originalDeposit.error.message,
+        originalDeposit.error.retryable,
+      );
+    }
+
+    const existingRefund = await this.creditItemByReference(
+      connection.value,
+      originalDeposit.value.folio.id,
+      refundReference,
+    );
+    if (!existingRefund.ok) {
+      await this.recordClockRefundReview(tx, context, bookingId, {
+        externalBookingId: row.externalBookingId,
+        folioId: originalDeposit.value.folio.id,
+        amount,
+        refundReference,
+        message: `MUST refunded the guest, but Clock's deposit payment history could not be read: ${existingRefund.error.message}`,
+        errorCode: existingRefund.error.code,
+      });
+      return this.failure(
+        existingRefund.error.code,
+        existingRefund.error.message,
+        existingRefund.error.retryable,
+      );
+    }
+
+    const refundCreditItem = existingRefund.value
+      ? { ok: true as const, value: existingRefund.value }
+      : await this.withRetry(() =>
+          this.postCreditItem(
+            connection.value,
+            originalDeposit.value.folio.id,
+            { amount: `-${amount.amount}`, currency: amount.currency },
+            originalDeposit.value.creditItem.payment_sub_type ||
+              this.paymentSubTypeForBooking(row.paymentMethod),
+            refundReference,
+            'refund',
+          ),
+        );
+    if (!refundCreditItem.ok) {
+      await this.recordClockRefundReview(tx, context, bookingId, {
+        externalBookingId: row.externalBookingId,
+        folioId: originalDeposit.value.folio.id,
+        amount,
+        refundReference,
+        message: `MUST refunded the guest, but Clock rejected the negative deposit payment: ${refundCreditItem.error.message}`,
+        errorCode: refundCreditItem.error.code,
+      });
+      return this.failure(
+        refundCreditItem.error.code,
+        refundCreditItem.error.message,
+        refundCreditItem.error.retryable,
+      );
+    }
+
+    await this.recordClockRefundReview(tx, context, bookingId, {
+      externalBookingId: row.externalBookingId,
+      folioId: originalDeposit.value.folio.id,
+      creditItemId: refundCreditItem.value.id,
+      amount,
+      refundReference,
+      message:
+        'Clock refund payment was posted. In Clock, issue the Deposit Adjustment to create the required correction document.',
+      idempotentReplay: !!existingRefund.value,
+    });
+    await this.audit.recordInTransaction(tx, {
+      tenantId: context.tenantId,
+      propertyId: context.propertyId,
+      actorUserId: null,
+      action: 'payment.clock_refund_posted',
+      targetType: 'booking',
+      targetId: bookingId,
+      details: {
+        externalBookingId: row.externalBookingId,
+        folioId: originalDeposit.value.folio.id,
+        creditItemId: refundCreditItem.value.id,
+        amount,
+        refundReference,
+        idempotentReplay: !!existingRefund.value,
       },
     });
     return { ok: true, value: undefined };
@@ -857,19 +1139,139 @@ export class ClockBookingService {
     return { ok: true, value: { status: 'ready', folio: created.value } };
   }
 
+  /** Finds the actual deposit folio used for MUST's original payment. A
+   * refund is never posted to a new folio: Clock treats it as a negative
+   * payment against this deposit, and correction folios cannot hold payments. */
+  private async depositFolioWithPaymentReference(
+    credentials: ClockConnectionCredentials,
+    externalBookingId: string,
+    paymentReference: string,
+  ): Promise<ClockOutcome<{ folio: ClockFolioResource; creditItem: ClockCreditItemResource }>> {
+    const listed = await this.fetch<number[]>(credentials, {
+      method: 'GET',
+      path: `/bookings/${externalBookingId}/folios/`,
+      api: 'pms_api',
+    });
+    if (!listed.ok) return listed;
+    for (const folioId of listed.value) {
+      const viewed = await this.fetch<unknown>(credentials, {
+        method: 'GET',
+        path: `/folios/${folioId}`,
+        api: 'base_api',
+      });
+      if (!viewed.ok) return viewed;
+      if (!isClockFolioResource(viewed.value) || viewed.value.deposit !== true) continue;
+
+      const originalPayment = await this.creditItemByReference(
+        credentials,
+        folioId,
+        paymentReference,
+      );
+      if (!originalPayment.ok) return originalPayment;
+      if (originalPayment.value)
+        return { ok: true, value: { folio: viewed.value, creditItem: originalPayment.value } };
+    }
+    return this.failureError({
+      category: 'not_found',
+      code: 'clock_original_deposit_missing',
+      message: 'Clock has no deposit folio containing MUST\'s original payment reference.',
+      retryable: false,
+    });
+  }
+
+  private paymentSubTypeForBooking(paymentMethod: BookingPaymentMethod): string {
+    return paymentMethod === BookingPaymentMethod.STRIPE_CHECKOUT
+      ? 'Stripe'
+      : paymentMethod === BookingPaymentMethod.POKPAY
+        ? 'PokPay'
+        : '';
+  }
+
+  private async recordClockRefundReview(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    bookingId: string,
+    details: {
+      externalBookingId: string;
+      amount: { amount: string; currency: string };
+      refundReference: string;
+      message: string;
+      folioId?: number;
+      creditItemId?: number;
+      errorCode?: string;
+      idempotentReplay?: boolean;
+    },
+  ): Promise<void> {
+    await this.manualReview.recordInTransaction(tx, {
+      tenantId: context.tenantId,
+      propertyId: context.propertyId,
+      category: 'PAYMENT_BOOKING_MISMATCH',
+      referenceType: 'booking',
+      referenceId: bookingId,
+      message: details.message,
+      context: details,
+    });
+    await this.notifications.recordInTransaction(tx, {
+      tenantId: context.tenantId,
+      propertyId: context.propertyId,
+      type: 'BOOKING_NEEDS_ATTENTION',
+      payload: {
+        bookingId,
+        reason: details.errorCode
+          ? 'clock_refund_sync_failed'
+          : 'clock_refund_deposit_adjustment_required',
+        ...(details.errorCode ? { errorCode: details.errorCode } : {}),
+      },
+    });
+  }
+
+  /** Reads the account's configured fiscal document types once per folio
+   * close flow. The Clock endpoint returns a bare array; the complete shape
+   * is validated before a sole document type is selected. */
+  private async documentTypesForFolioClose(
+    credentials: ClockConnectionCredentials,
+  ): Promise<ClockOutcome<ClockDocumentTypeResource[]>> {
+    const response = await this.fetch<unknown>(credentials, {
+      method: 'GET',
+      path: '/document_types',
+      api: 'base_api',
+    });
+    if (!response.ok) return response;
+    if (!Array.isArray(response.value))
+      return this.failureError({
+        category: 'schema_mismatch',
+        code: 'clock_schema_mismatch',
+        message: 'Clock returned an invalid document type list.',
+        retryable: false,
+      });
+
+    const documentTypes = response.value.filter(isClockDocumentTypeResource);
+    if (documentTypes.length !== response.value.length)
+      return this.failureError({
+        category: 'schema_mismatch',
+        code: 'clock_schema_mismatch',
+        message: 'Clock returned an invalid document type list.',
+        retryable: false,
+      });
+    return { ok: true, value: documentTypes };
+  }
+
   /** Closes a folio in Clock — required after posting a deposit's
    * credit_item (Clock certification requirement, 2026-09-10 call); a
-   * deposit folio must not be left open indefinitely. No `document_type_id`
-   * is sent yet (closes without generating a fiscal document); selecting
-   * one is a separate, lower-priority follow-up. */
+   * deposit folio must not be left open indefinitely. When the account has
+   * exactly one configured fiscal document type, its id is sent explicitly;
+   * ambiguous or unavailable configuration leaves the body blank so Clock's
+   * existing default behavior is preserved. */
   private async closeFolio(
     credentials: ClockConnectionCredentials,
     folioId: number,
+    documentTypeId?: number,
   ): Promise<ClockOutcome<void>> {
     const response = await this.fetch<unknown>(credentials, {
       method: 'POST',
       path: `/folios/${folioId}/close`,
       api: 'base_api',
+      ...(documentTypeId === undefined ? {} : { body: { document_type_id: documentTypeId } }),
     });
     if (!response.ok) return response;
     return { ok: true, value: undefined };
@@ -884,6 +1286,7 @@ export class ClockBookingService {
     amount: { amount: string; currency: string },
     paymentSubType: string,
     reference: string,
+    kind: 'payment' | 'refund' = 'payment',
   ): Promise<ClockOutcome<ClockCreditItemResource>> {
     const existing = await this.creditItemByReference(credentials, folioId, reference);
     if (existing.ok && existing.value) return { ok: true, value: existing.value };
@@ -896,7 +1299,7 @@ export class ClockBookingService {
         credit_item: {
           payment_type: 'on-line',
           payment_sub_type: paymentSubType,
-          text: `Website booking payment via ${paymentSubType}`,
+          text: `Website booking ${kind} via ${paymentSubType}`,
           value: amount.amount,
           currency: amount.currency.toUpperCase(),
           reference,
@@ -929,7 +1332,6 @@ export class ClockBookingService {
       method: 'GET',
       path: `/folios/${folioId}/credit_items`,
       api: 'base_api',
-      query: { 'reference.eq': reference },
     });
     if (!response.ok) return response;
     const match = this.asCreditItemList(response.value).find(
@@ -938,9 +1340,11 @@ export class ClockBookingService {
     return { ok: true, value: match ?? null };
   }
 
-  // Confirmed for real (scratch probe): GET .../credit_items returns a bare
-  // JSON array of full credit-item objects directly, same convention as
-  // every other Clock list endpoint already used in this integration.
+  // Confirmed for real: GET .../credit_items returns a bare JSON array of
+  // full credit-item objects directly. Clock rejects `reference.eq` with a
+  // database "column ... reference does not exist" error, so matching MUST's
+  // stable reference is deliberately client-side rather than an unsupported
+  // server-side filter.
   private asCreditItemList(value: unknown): ClockCreditItemResource[] {
     return Array.isArray(value) ? value.filter(isClockCreditItemResource) : [];
   }
@@ -1279,28 +1683,30 @@ export class ClockBookingService {
    * and Clock reports it as "not available" rather than "unknown rate id".
    * Clock has no rate catalog mapping yet (Task 7 only tracks room
    * types/rooms) — a "basic" milestone simplification: if this room type has
-   * exactly one Clock rate, use it; otherwise this is genuinely ambiguous
-   * and reported as a clear configuration error rather than guessing. */
+   * rate selection is delegated to ClockAvailabilityService so it follows
+   * the same live pricing, wbe filtering, occupancy, and ranking rules as a quote. */
   private async rateIdForRoomType(
     credentials: ClockConnectionCredentials,
+    context: PmsProviderContext,
+    roomTypeId: string,
     externalRoomTypeId: string,
+    startsOn: string,
+    endsOn: string,
+    adultCount: number,
+    childrenCount: number,
   ): Promise<Result<string>> {
-    const response = await this.fetch<
-      Array<{ id: number | string; bookable_id: number | string; bookable_type: string }>
-    >(credentials, { method: 'GET', path: '/rates/' });
-    if (!response.ok) return response;
-    const matches = response.value.filter(
-      (rate) =>
-        rate.bookable_type === 'Pms::RoomType' && String(rate.bookable_id) === externalRoomTypeId,
-    );
-    if (matches.length !== 1)
-      return this.failure(
-        'clock_configuration',
-        matches.length === 0
-          ? 'This room type has no rate configured in Clock yet.'
-          : 'This room type has multiple Clock rates — automatic rate selection is not supported yet.',
-      );
-    return { ok: true, value: String(matches[0]!.id) };
+    const selection = await this.availability.selectRateForStay(credentials, {
+      tenantId: context.tenantId,
+      propertyId: context.propertyId,
+      roomTypeId,
+      externalRoomTypeId,
+      startsOn,
+      endsOn,
+      adultCount,
+      childrenCount,
+    });
+    if (!selection.ok) return selection;
+    return { ok: true, value: selection.value.rateId };
   }
 
   private async resolveGuest(
@@ -1343,6 +1749,41 @@ export class ClockBookingService {
     if (command.paymentMethod === 'pay_at_hotel' || command.payAtHotel)
       return BookingPaymentMethod.PAY_AT_HOTEL;
     return BookingPaymentMethod.FREE;
+  }
+
+  /**
+   * Once a local booking is committed, no Clock failure may leave it without
+   * both an operational record and a durable staff-visible alert. Callers that
+   * already transition to PMS_UNKNOWN_RESULT can set notify=false because
+   * transition() emits the same in-app notification for that attention state.
+   */
+  private async recordPostCommitFailure(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    bookingId: string,
+    details: {
+      category: ManualReviewCategory;
+      message: string;
+      context?: unknown;
+      notify?: boolean;
+    },
+  ): Promise<void> {
+    await this.manualReview.recordInTransaction(tx, {
+      tenantId: context.tenantId,
+      propertyId: context.propertyId,
+      category: details.category,
+      referenceType: 'booking',
+      referenceId: bookingId,
+      message: details.message,
+      context: details.context,
+    });
+    if (details.notify === false) return;
+    await this.notifications.recordInTransaction(tx, {
+      tenantId: context.tenantId,
+      propertyId: context.propertyId,
+      type: 'BOOKING_NEEDS_ATTENTION',
+      payload: { bookingId, reason: 'clock_booking_creation_failed' },
+    });
   }
 
   private async transition(

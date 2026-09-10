@@ -37,6 +37,97 @@
 
     var config = getAccommodationConfig();
 
+    function parsePartyValue(input, fallback, minimum) {
+        var parsed = parseInt(String(input && input.value ? input.value : fallback), 10);
+        if (!Number.isFinite(parsed) || parsed < minimum) {
+            return fallback;
+        }
+        return parsed;
+    }
+
+    function getPartyCapacityMessage(guests, roomCount, maxGuests, singleRoomOnly) {
+        var labels = config.labels || {};
+        if (guests > maxGuests) {
+            return String(labels.propertyCapacity || 'This property accepts up to %d guests in one booking.')
+                .replace('%d', String(maxGuests));
+        }
+        if (singleRoomOnly && roomCount > 1) {
+            return String(labels.singleRoomOnly || 'This booking flow can confirm one room at a time. Please choose 1 room.');
+        }
+        return '';
+    }
+
+    function syncAccommodationPartyComposer(form) {
+        var adultsSelect = document.getElementById('must-booking-accommodation-adults');
+        var childrenSelect = document.getElementById('must-booking-accommodation-children');
+        var roomCountSelect = document.getElementById('must-booking-accommodation-room-count');
+        var guestsInput = document.getElementById('must-booking-accommodation-guests');
+        var totalOutput = document.getElementById('must-booking-accommodation-guests-total');
+        var capacityMessage = document.getElementById('must-booking-accommodation-party-capacity-message');
+        var submitButton = form.querySelector('.must-booking-results-filter-apply');
+        var adults = parsePartyValue(adultsSelect, 1, 1);
+        var children = parsePartyValue(childrenSelect, 0, 0);
+        var guests = adults + children;
+        var roomCount = parsePartyValue(roomCountSelect, 0, 0);
+        var maxGuests = parsePartyValue({ value: form.getAttribute('data-max-guests') }, 1, 1);
+        var error = getPartyCapacityMessage(
+            guests,
+            roomCount,
+            maxGuests,
+            form.getAttribute('data-single-room-only') === 'true'
+        );
+
+        if (guestsInput) guestsInput.value = String(guests);
+        if (totalOutput) {
+            totalOutput.textContent = String(guests);
+            totalOutput.setAttribute(
+                'aria-label',
+                String((config.labels || {}).totalGuests || 'Total guests: %d').replace('%d', String(guests))
+            );
+        }
+        [adultsSelect, childrenSelect, roomCountSelect].forEach(function (control) {
+            if (!control) return;
+            if (error) {
+                control.setAttribute('aria-invalid', 'true');
+            } else {
+                control.removeAttribute('aria-invalid');
+            }
+        });
+        if (capacityMessage) {
+            capacityMessage.textContent = error;
+            capacityMessage.hidden = error === '';
+        }
+        if (submitButton) {
+            submitButton.disabled = error !== '';
+            submitButton.setAttribute('aria-disabled', error !== '' ? 'true' : 'false');
+        }
+        return { adults: adults, children: children, guests: guests, error: error };
+    }
+
+    function initAccommodationPartyComposer() {
+        var form = document.getElementById('must-booking-accommodation-party-panel');
+        if (!form) {
+            return;
+        }
+        [
+            document.getElementById('must-booking-accommodation-adults'),
+            document.getElementById('must-booking-accommodation-children'),
+            document.getElementById('must-booking-accommodation-room-count')
+        ].forEach(function (control) {
+            if (control) {
+                control.addEventListener('change', function () {
+                    syncAccommodationPartyComposer(form);
+                });
+            }
+        });
+        form.addEventListener('submit', function (event) {
+            if (syncAccommodationPartyComposer(form).error !== '') {
+                event.preventDefault();
+            }
+        });
+        syncAccommodationPartyComposer(form);
+    }
+
     function escapeHtmlAttribute(value) {
         return String(value)
             .replace(/&/g, '&amp;')
@@ -827,5 +918,6 @@
     document.addEventListener('keydown', onDocumentKeyDown);
     initAccommodationDatePickers();
     initAccommodationFilters();
+    initAccommodationPartyComposer();
     initSelectionForms();
 })();

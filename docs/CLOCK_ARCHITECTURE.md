@@ -109,8 +109,8 @@ ClockBookingService.createBooking
   │  3. BEGIN transaction (30-45s timeout override — see "Why the custom
   │     transaction timeout" below)
   │     a. resolve room_type/room external ids via clock_catalog_mappings
-  │     b. resolve the property's single Clock rate plan (basic-milestone
-  │        simplification — see CLOCK_DATA_MAPPING.md)
+  │     b. select the room type's live rate with ClockAvailabilityService
+  │        (wbe filter + occupancy + ranking + cheapest fallback)
   │     c. resolve/create the local guest by email + phone signal
   │     d. INSERT bookings row (status DRAFT)
   │     e. drive BookingStateMachine: DRAFT → QUOTED → INVENTORY_REVALIDATING
@@ -125,6 +125,20 @@ ClockBookingService.createBooking
   │          manual_review_items row
   │  4. COMMIT (idempotency result stored in integration_operations)
 ```
+
+### Real booking rate selection and post-commit failure handling
+
+`ClockBookingService.createBooking` and `attachRealReservation` delegate rate selection to `ClockAvailabilityService.selectRateForStay`. The shared path queries the room type's live `wbe: true` rates, sends the real stay dates and normalized occupancy to `/products`, applies the Task 13 ranking, and returns the selected child rate id plus quote total. This keeps the rate sent to `POST /bookings/` consistent with the guest quote instead of rejecting multi-rate room types.
+
+After a local booking/payment has been committed, every booking-creation failure records a tenant/property-scoped manual-review item. Failures that do not already transition to `PMS_UNKNOWN_RESULT` also create a `BOOKING_NEEDS_ATTENTION` notification directly; the attention-state transition supplies that notification for unknown-result paths. A duplicate PokPay webhook retries `continueAfterPayment` only while a paid booking remains unfinished at `PMS_CREATION_PENDING`; confirmed bookings remain idempotent duplicate no-ops.
+
+### Deposit folio close and fiscal document types
+
+After a deposit `credit_item` is posted successfully, `ClockBookingService.postDeposit()` makes one `GET /document_types` call through the normal Clock HTTP stack. When the account returns exactly one valid configured fiscal document type, its integer `id` is sent as `document_type_id` in the following `POST /folios/{id}/close`. Zero or multiple configured types, an invalid response, or a failed lookup leaves the close body blank and logs a warning; MUST never guesses between multiple fiscal document types. A close failure still follows Task 1's existing policy: the posted payment remains successful locally, while the failure is recorded for manual attention.
+
+### Manual-refund synchronization
+
+`PaymentRefundService.manualRefund()` remains the gateway and local-ledger authority. Once it creates a new local refund row for a Clock-attached booking, `ClockBookingService.postRefund()` finds the booking's existing `deposit=true` folio by the original MUST payment reference and posts a negative `credit_item` with a stable `must-refund:{gatewayRefundId}` reference. It never opens a second folio and never reopens the closed original folio. Clock's documented workflow then requires its **Deposit Adjustment** action to issue the correction document; the published Base API has no endpoint for that action. Therefore every successfully mirrored refund creates a `PAYMENT_BOOKING_MISMATCH` manual-review item and `BOOKING_NEEDS_ATTENTION` notification instructing staff to issue the adjustment. A missing original deposit folio or a rejected/ambiguous negative payment takes the same non-blocking manual-review path; it cannot undo a gateway refund already completed by MUST.
 
 ### Why the custom transaction timeout
 

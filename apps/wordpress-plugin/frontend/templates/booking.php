@@ -119,7 +119,7 @@ if ($checkout !== '') {
             </div>
         </section>
 
-        <form id="must-booking-search-form" class="must-booking-calendar-step-form" method="<?php echo \esc_attr($form_method); ?>" action="<?php echo \esc_url($form_action_url); ?>" data-calendar-layout="<?php echo \esc_attr($calendar_layout); ?>">
+        <form id="must-booking-search-form" class="must-booking-calendar-step-form" method="<?php echo \esc_attr($form_method); ?>" action="<?php echo \esc_url($form_action_url); ?>" data-calendar-layout="<?php echo \esc_attr($calendar_layout); ?>" data-max-guests="<?php echo \esc_attr((string) $max_booking_guests); ?>" data-single-room-only="<?php echo $fixed_room_mode ? 'false' : 'true'; ?>">
             <input id="must-booking-checkin" class="must-hotel-booking-checkin" type="hidden" name="checkin" value="<?php echo \esc_attr($checkin); ?>" />
             <input id="must-booking-checkout" class="must-hotel-booking-checkout" type="hidden" name="checkout" value="<?php echo \esc_attr($checkout); ?>" />
             <input id="must-booking-guests" class="must-hotel-booking-guests" type="hidden" name="guests" value="<?php echo \esc_attr((string) $guests); ?>" />
@@ -287,6 +287,12 @@ if ($checkout !== '') {
                                 <?php endfor; ?>
                             </select>
                         </label>
+                        <div class="must-booking-step-select-row must-booking-step-select-row-readonly">
+                            <span><?php echo \esc_html__('Guests', 'must-hotel-booking'); ?></span>
+                            <output id="must-booking-guests-total" for="must-booking-adults-select must-booking-children-select" aria-live="polite" aria-label="<?php echo \esc_attr__('Total guests', 'must-hotel-booking'); ?>">
+                                <?php echo \esc_html((string) $guests); ?>
+                            </output>
+                        </div>
                     <?php endif; ?>
 
                     <?php if (!$fixed_room_mode) : ?>
@@ -302,6 +308,8 @@ if ($checkout !== '') {
                             </select>
                         </label>
                     <?php endif; ?>
+
+                    <p id="must-booking-party-capacity-message" class="must-booking-party-capacity-message" role="alert" hidden></p>
 
                     <button type="submit" class="must-booking-check-availability">
                         <span><?php echo \esc_html($fixed_room_mode ? __('Continue to Guest Information', 'must-hotel-booking') : __('Check Availability', 'must-hotel-booking')); ?></span>

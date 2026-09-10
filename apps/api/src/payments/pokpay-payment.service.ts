@@ -95,12 +95,22 @@ export class PokPayPaymentService {
           SELECT id FROM payments WHERE tenant_id = ${context.tenantId}::uuid
             AND external_payment_id = ${orderId}
         `;
-          return existing[0]
-            ? { ok: true, value: { duplicate: true } }
-            : this.failure(
-                'INVALID_BOOKING_STATE',
-                `Booking cannot accept payment from ${booking.status}.`,
-              );
+          if (existing[0]) {
+            // A prior webhook can have committed the payment and advanced the
+            // booking to PMS_CREATION_PENDING before Clock attachment failed.
+            // Re-enter the idempotent continuation for that unfinished state;
+            // CONFIRMED and all other paid states remain duplicate no-ops.
+            if (booking.status === BookingStatus.PMS_CREATION_PENDING) {
+              const resumed = await this.bookings.continueAfterPayment(tx, context, booking.id);
+              if (!resumed.ok) return resumed;
+              emailBookingId = booking.id;
+            }
+            return { ok: true, value: { duplicate: true } };
+          }
+          return this.failure(
+            'INVALID_BOOKING_STATE',
+            `Booking cannot accept payment from ${booking.status}.`,
+          );
         }
         const inserted = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO payments (tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency)

@@ -79,6 +79,41 @@ function get_booking_display_names(string $roomTypeId, string $ratePlanId, strin
     return ['room_name' => '', 'rate_plan_name' => ''];
 }
 
+/** @param array<string, mixed> $booking @return array{guests: int, adults: int|null, children: int|null, has_breakdown: bool} */
+function get_confirmation_occupancy_view_data(array $booking): array
+{
+    $legacyGuestCount = null;
+    if (isset($booking['guestCount']) && \preg_match('/^\d+$/', (string) $booking['guestCount']) === 1) {
+        $legacyGuestCount = \max(1, (int) $booking['guestCount']);
+    }
+
+    $adults = isset($booking['adults']) && \preg_match('/^\d+$/', (string) $booking['adults']) === 1
+        ? (int) $booking['adults']
+        : null;
+    $children = isset($booking['children']) && \preg_match('/^\d+$/', (string) $booking['children']) === 1
+        ? (int) $booking['children']
+        : null;
+
+    if ($adults !== null && $children !== null && $adults >= 1 && $children >= 0) {
+        $derivedGuestCount = $adults + $children;
+        if ($legacyGuestCount === null || $legacyGuestCount === $derivedGuestCount) {
+            return [
+                'guests' => $derivedGuestCount,
+                'adults' => $adults,
+                'children' => $children,
+                'has_breakdown' => true,
+            ];
+        }
+    }
+
+    return [
+        'guests' => $legacyGuestCount ?? 1,
+        'adults' => null,
+        'children' => null,
+        'has_breakdown' => false,
+    ];
+}
+
 /** @return array<string, mixed> */
 function get_confirmation_result_view_data(string $bookingId): array
 {
@@ -118,7 +153,7 @@ function get_confirmation_result_view_data(string $bookingId): array
             'status' => $status,
             'payment_status' => $status === 'CONFIRMED' && $onlinePaymentMethod ? 'paid' : 'pending',
             'checkin' => (string) ($booking['startsOn'] ?? ''), 'checkout' => (string) ($booking['endsOn'] ?? ''),
-            'guests' => \max(1, (int) ($booking['guestCount'] ?? 1)), 'booking_id' => $bookingId,
+            'occupancy' => get_confirmation_occupancy_view_data($booking), 'booking_id' => $bookingId,
             'room_name' => $names['room_name'], 'rate_plan_name' => $names['rate_plan_name'],
             'total_price' => $totalPrice,
             'currency' => (string) ($booking['total']['currency'] ?? ''),

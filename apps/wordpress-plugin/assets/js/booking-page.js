@@ -764,19 +764,31 @@
             });
         });
     }
+    function isInCurrentCalendarMonth(dayElement) {
+        return !dayElement.classList.contains('prevMonthDay') &&
+            !dayElement.classList.contains('nextMonthDay');
+    }
+
+    function isFlatpickrDisabledDay(dayElement) {
+        return dayElement.classList.contains('flatpickr-disabled') ||
+            dayElement.classList.contains('notAllowed');
+    }
+
     function markUnavailableDayElement(dayElement, unavailableDates) {
         if (!dayElement || !dayElement.dateObj) {
             return;
         }
         var dates = normalizeDateList(unavailableDates);
         var dateString = formatDate(dayElement.dateObj);
-        var isUnavailable = dates.indexOf(dateString) !== -1;
+        var isUnavailable = isInCurrentCalendarMonth(dayElement) && (
+            dates.indexOf(dateString) !== -1 || isFlatpickrDisabledDay(dayElement)
+        );
         dayElement.classList.toggle('must-booking-day-unavailable', isUnavailable);
         if (isUnavailable) {
             dayElement.setAttribute('aria-disabled', 'true');
             return;
         }
-        if (!dayElement.classList.contains('flatpickr-disabled') && !dayElement.classList.contains('notAllowed')) {
+        if (!isFlatpickrDisabledDay(dayElement)) {
             dayElement.removeAttribute('aria-disabled');
         }
     } function syncUnavailableDayClasses(picker, unavailableDates) {

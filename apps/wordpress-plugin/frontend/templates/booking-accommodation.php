@@ -199,11 +199,14 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                         method="get"
                         action="<?php echo \esc_url(\must_hotel_booking\get_booking_accommodation_page_url()); ?>"
                         aria-label="<?php echo \esc_attr__('Update guest and room details', 'must-hotel-booking'); ?>"
+                        data-max-guests="<?php echo \esc_attr((string) $max_booking_guests); ?>"
+                        data-single-room-only="true"
                         hidden
                     >
                         <input type="hidden" name="checkin" value="<?php echo \esc_attr($checkin); ?>" />
                         <input type="hidden" name="checkout" value="<?php echo \esc_attr($checkout); ?>" />
                         <input type="hidden" name="accommodation_type" value="<?php echo \esc_attr($accommodation_type); ?>" />
+                        <input id="must-booking-accommodation-guests" type="hidden" name="guests" value="<?php echo \esc_attr((string) $guests); ?>" />
 
                         <div class="must-booking-results-filter-panel-copy">
                             <p class="must-booking-results-filter-panel-kicker"><?php echo \esc_html__('Guest Setup', 'must-hotel-booking'); ?></p>
@@ -213,7 +216,7 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                         <div class="must-booking-results-filter-panel-fields">
                             <label class="must-booking-results-filter-field">
                                 <span><?php echo \esc_html__('Adults', 'must-hotel-booking'); ?></span>
-                                <select name="adults">
+                                <select id="must-booking-accommodation-adults" name="adults">
                                     <?php for ($adult_option = 1; $adult_option <= $max_booking_guests; $adult_option++) : ?>
                                         <option value="<?php echo \esc_attr((string) $adult_option); ?>" <?php selected($adults, $adult_option); ?>>
                                             <?php echo \esc_html((string) $adult_option); ?>
@@ -224,7 +227,7 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
 
                             <label class="must-booking-results-filter-field">
                                 <span><?php echo \esc_html__('Children', 'must-hotel-booking'); ?></span>
-                                <select name="children">
+                                <select id="must-booking-accommodation-children" name="children">
                                     <?php for ($child_option = 0; $child_option <= $max_booking_guests; $child_option++) : ?>
                                         <option value="<?php echo \esc_attr((string) $child_option); ?>" <?php selected($children, $child_option); ?>>
                                             <?php echo \esc_html((string) $child_option); ?>
@@ -233,9 +236,16 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                                 </select>
                             </label>
 
+                            <div class="must-booking-results-filter-field must-booking-results-filter-field-readonly">
+                                <span><?php echo \esc_html__('Guests', 'must-hotel-booking'); ?></span>
+                                <output id="must-booking-accommodation-guests-total" for="must-booking-accommodation-adults must-booking-accommodation-children" aria-live="polite" aria-label="<?php echo \esc_attr__('Total guests', 'must-hotel-booking'); ?>">
+                                    <?php echo \esc_html((string) $guests); ?>
+                                </output>
+                            </div>
+
                             <label class="must-booking-results-filter-field">
                                 <span><?php echo \esc_html__('Rooms', 'must-hotel-booking'); ?></span>
-                                <select name="room_count">
+                                <select id="must-booking-accommodation-room-count" name="room_count">
                                     <option value="0" <?php selected($room_count, 0); ?>><?php echo \esc_html__('Auto', 'must-hotel-booking'); ?></option>
                                     <?php for ($room_option = 1; $room_option <= $max_booking_rooms; $room_option++) : ?>
                                         <option value="<?php echo \esc_attr((string) $room_option); ?>" <?php selected($room_count, $room_option); ?>>
@@ -245,6 +255,8 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                                 </select>
                             </label>
                         </div>
+
+                        <p id="must-booking-accommodation-party-capacity-message" class="must-booking-party-capacity-message" role="alert" hidden></p>
 
                         <div class="must-booking-results-filter-panel-actions">
                             <button type="submit" class="must-booking-results-filter-apply"><?php echo \esc_html__('Update Results', 'must-hotel-booking'); ?></button>

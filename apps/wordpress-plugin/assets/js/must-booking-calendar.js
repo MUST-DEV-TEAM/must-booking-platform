@@ -1,9 +1,103 @@
 (function () {
     'use strict';
     var c = window.mustHotelBookingCalendar || {};
-    if (!window.flatpickr) return;
+    if (!window.flatpickr) {
+        initializePartyComposer();
+        return;
+    }
     var checkinField = document.querySelector('#must-booking-checkin');
     var checkoutField = document.querySelector('#must-booking-checkout');
+    function parsePartyValue(input, fallback, minimum) {
+        var parsed = parseInt(String(input && input.value ? input.value : fallback), 10);
+        if (!Number.isFinite(parsed) || parsed < minimum) {
+            return fallback;
+        }
+        return parsed;
+    }
+    function getPartyCapacityMessage(guests, roomCount, maxGuests, singleRoomOnly) {
+        var partyStrings = c.partyStrings || {};
+        if (guests > maxGuests) {
+            return String(partyStrings.propertyCapacity || 'This property accepts up to %d guests in one booking.')
+                .replace('%d', String(maxGuests));
+        }
+        if (singleRoomOnly && roomCount > 1) {
+            return String(partyStrings.singleRoomOnly || 'This booking flow can confirm one room at a time. Please choose 1 room.');
+        }
+        return '';
+    }
+    function syncPartyControls(adultsSelect, childrenSelect, adultsInput, childrenInput, guestsInput, totalOutput, capacityMessage, roomCountSelect, maxGuests, singleRoomOnly, submitButton) {
+        var adults = parsePartyValue(adultsSelect, 1, 1);
+        var children = parsePartyValue(childrenSelect, 0, 0);
+        var guests = adults + children;
+        var roomCount = parsePartyValue(roomCountSelect, 0, 0);
+        var error = getPartyCapacityMessage(guests, roomCount, maxGuests, singleRoomOnly);
+
+        if (adultsInput) adultsInput.value = String(adults);
+        if (childrenInput) childrenInput.value = String(children);
+        if (guestsInput) guestsInput.value = String(guests);
+        if (totalOutput) {
+            totalOutput.textContent = String(guests);
+            totalOutput.setAttribute(
+                'aria-label',
+                String((c.partyStrings || {}).totalGuests || 'Total guests: %d').replace('%d', String(guests))
+            );
+        }
+        [adultsSelect, childrenSelect, roomCountSelect].forEach(function (control) {
+            if (!control) return;
+            if (error) {
+                control.setAttribute('aria-invalid', 'true');
+            } else {
+                control.removeAttribute('aria-invalid');
+            }
+        });
+        if (capacityMessage) {
+            capacityMessage.textContent = error;
+            capacityMessage.hidden = error === '';
+        }
+        if (submitButton) {
+            submitButton.disabled = error !== '';
+            submitButton.setAttribute('aria-disabled', error !== '' ? 'true' : 'false');
+        }
+        return { adults: adults, children: children, guests: guests, error: error };
+    }
+    function initializePartyComposer() {
+        var form = document.querySelector('#must-booking-search-form');
+        if (!form) return;
+        var adultsSelect = document.querySelector('#must-booking-adults-select');
+        var childrenSelect = document.querySelector('#must-booking-children-select');
+        var adultsInput = document.querySelector('#must-booking-adults');
+        var childrenInput = document.querySelector('#must-booking-children');
+        var guestsInput = document.querySelector('#must-booking-guests');
+        var totalOutput = document.querySelector('#must-booking-guests-total');
+        var capacityMessage = document.querySelector('#must-booking-party-capacity-message');
+        var roomCountSelect = document.querySelector('#must-booking-room-count-select');
+        var submitButton = form.querySelector('.must-booking-check-availability');
+        if (!adultsSelect || !childrenSelect) return;
+        var maxGuests = parsePartyValue({ value: form.getAttribute('data-max-guests') }, 1, 1);
+        var singleRoomOnly = form.getAttribute('data-single-room-only') === 'true';
+        var sync = function () {
+            return syncPartyControls(
+                adultsSelect,
+                childrenSelect,
+                adultsInput,
+                childrenInput,
+                guestsInput,
+                totalOutput,
+                capacityMessage,
+                roomCountSelect,
+                maxGuests,
+                singleRoomOnly,
+                submitButton
+            );
+        };
+        [adultsSelect, childrenSelect, roomCountSelect].forEach(function (control) {
+            if (control) control.addEventListener('change', sync);
+        });
+        form.addEventListener('submit', function (event) {
+            if (sync().error !== '') event.preventDefault();
+        });
+        sync();
+    }
     var monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
     function populateMonthYear(monthSelect, yearSelect) {
         if (monthSelect && !monthSelect.options.length) {
@@ -200,5 +294,6 @@
         }
     }
     }
+    initializePartyComposer();
     loadAvailabilityMonth(todayDate).then(initializeCalendars, initializeCalendars);
 }());
