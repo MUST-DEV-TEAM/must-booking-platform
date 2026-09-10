@@ -3222,7 +3222,6 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
 }
 
 .must-hotel-booking-page-booking-confirmation .must-confirmation-occupancy-summary {
-    grid-column: 1 / -1;
     margin: 0;
     padding: 14px 16px;
     border: 1px solid rgba(20, 20, 20, 0.16);
@@ -5914,9 +5913,51 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
     }
 }
 
+/* Compact accommodation headings and actions without changing form behavior. */
+.must-hotel-booking-page-accommodation .must-booking-results-filter-panel-title {
+    font-size: 18px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.must-hotel-booking-page-accommodation .must-booking-results-filter-panel-actions {
+    align-items: center;
+}
+
+.must-hotel-booking-page-accommodation .must-booking-results-filter-apply {
+    align-self: center;
+    min-height: 44px;
+    min-width: 0;
+    height: auto;
+    width: auto;
+    padding: 10px 16px;
+    font-size: 14px;
+    line-height: 22px;
+    box-sizing: border-box;
+    box-shadow: none;
+}
+
+.must-hotel-booking-page-accommodation .must-booking-results-filter-apply:is(:hover, :focus, :focus-visible, :active) {
+    box-shadow: none;
+    transform: none;
+}
+
+@media (max-width: 767px) {
+    .must-hotel-booking-page-accommodation .must-booking-results-filter-panel-title {
+        font-size: 16px;
+    }
+}
+
 /* Checkout contact controls intentionally have no browser/theme outline or
  * focus glow in any pointer or keyboard state, per the requested treatment. */
 .must-hotel-booking-page-checkout .must-checkout-contact-grid :where(input, select, textarea, button, [role="button"]):hover,
+.must-hotel-booking-page-checkout .must-checkout-field-textarea textarea,
+.must-hotel-booking-page-checkout .must-checkout-field-textarea textarea:hover,
+.must-hotel-booking-page-checkout .must-checkout-field-textarea textarea:active,
+.must-hotel-booking-page-checkout .must-checkout-field-textarea textarea:focus,
+.must-hotel-booking-page-checkout .must-checkout-field-textarea textarea:focus-visible,
+.must-hotel-booking-page-checkout .must-checkout-field-textarea:focus-within,
 .must-hotel-booking-page-checkout .must-checkout-contact-grid :where(input, select, textarea, button, [role="button"]):active,
 .must-hotel-booking-page-checkout .must-checkout-contact-grid :where(input, select, textarea, button, [role="button"]):focus,
 .must-hotel-booking-page-checkout .must-checkout-contact-grid :where(input, select, textarea, button, [role="button"]):focus-visible,

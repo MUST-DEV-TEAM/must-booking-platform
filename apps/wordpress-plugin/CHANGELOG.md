@@ -2,6 +2,16 @@
 
 Notable product, architecture, integration, operational, compatibility, and security changes are recorded here. Exact implementation history remains in Git.
 
+## 0.4.97 - 2026-09-11
+
+### Fixed
+
+- Compact accommodation filter headings and Update Results buttons.
+- Keep the confirmation occupancy summary in a normal grid cell after email.
+- Extend the checkout outline/glow reset to the Special Requests field.
+- Price up to 250 accommodation cards per batch so individual rooms beyond the first 50 receive a total too; requires the matching API deployment.
+- Reject malformed raw ZIP paths during release validation.
+
 ## 0.4.96 - 2026-09-11
 
 ### Fixed

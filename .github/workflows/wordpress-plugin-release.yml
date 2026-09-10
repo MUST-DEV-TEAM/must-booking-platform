@@ -79,6 +79,15 @@ jobs:
         shell: bash
         run: |
           asset='${{ steps.version.outputs.asset }}'
+          python3 - "$asset" <<'PY'
+          import sys, zipfile
+          with zipfile.ZipFile(sys.argv[1]) as archive:
+              for name in archive.namelist():
+                  if '\\' in name or not name.startswith('must-hotel-booking/') or '..' in name.split('/'):
+                      raise SystemExit(f'Invalid plugin ZIP path: {name!r}')
+              if archive.testzip() is not None:
+                  raise SystemExit('Plugin ZIP integrity check failed')
+          PY
           entries="$(unzip -Z1 "$asset")"
 
           required=(

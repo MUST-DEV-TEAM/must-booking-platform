@@ -100,7 +100,7 @@ function get_must_display_prices(
     }
 
     $requestItems = [];
-    foreach (\array_slice($items, 0, 50) as $item) {
+    foreach (\array_slice($items, 0, 250) as $item) {
         $key = isset($item['key']) ? (string) $item['key'] : '';
         $roomTypeId = isset($item['room_type_id']) ? (string) $item['room_type_id'] : '';
         if ($key === '' || $roomTypeId === '') {
