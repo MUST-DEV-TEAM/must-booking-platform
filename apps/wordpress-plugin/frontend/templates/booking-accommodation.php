@@ -13,6 +13,8 @@ $is_valid = !empty($view['is_valid']);
 $checkin = isset($view['checkin']) ? (string) $view['checkin'] : '';
 $checkout = isset($view['checkout']) ? (string) $view['checkout'] : '';
 $guests = isset($view['guests']) ? (int) $view['guests'] : 1;
+$adults = isset($view['adults']) ? (int) $view['adults'] : $guests;
+$children = isset($view['children']) ? (int) $view['children'] : 0;
 $room_count = isset($view['room_count']) ? (int) $view['room_count'] : 0;
 $resolved_room_count = isset($view['resolved_room_count']) ? (int) $view['resolved_room_count'] : 1;
 $accommodation_type = isset($view['accommodation_type']) ? (string) $view['accommodation_type'] : 'standard-rooms';
@@ -146,6 +148,8 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                         hidden
                     >
                         <input type="hidden" name="guests" value="<?php echo \esc_attr((string) $guests); ?>" />
+                        <input type="hidden" name="adults" value="<?php echo \esc_attr((string) $adults); ?>" />
+                        <input type="hidden" name="children" value="<?php echo \esc_attr((string) $children); ?>" />
                         <input type="hidden" name="room_count" value="<?php echo \esc_attr((string) $room_count); ?>" />
                         <input type="hidden" name="accommodation_type" value="<?php echo \esc_attr($accommodation_type); ?>" />
 
@@ -208,11 +212,22 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
 
                         <div class="must-booking-results-filter-panel-fields">
                             <label class="must-booking-results-filter-field">
-                                <span><?php echo \esc_html__('Guests', 'must-hotel-booking'); ?></span>
-                                <select name="guests">
-                                    <?php for ($guest_option = 1; $guest_option <= $max_booking_guests; $guest_option++) : ?>
-                                        <option value="<?php echo \esc_attr((string) $guest_option); ?>" <?php selected($guests, $guest_option); ?>>
-                                            <?php echo \esc_html((string) $guest_option); ?>
+                                <span><?php echo \esc_html__('Adults', 'must-hotel-booking'); ?></span>
+                                <select name="adults">
+                                    <?php for ($adult_option = 1; $adult_option <= $max_booking_guests; $adult_option++) : ?>
+                                        <option value="<?php echo \esc_attr((string) $adult_option); ?>" <?php selected($adults, $adult_option); ?>>
+                                            <?php echo \esc_html((string) $adult_option); ?>
+                                        </option>
+                                    <?php endfor; ?>
+                                </select>
+                            </label>
+
+                            <label class="must-booking-results-filter-field">
+                                <span><?php echo \esc_html__('Children', 'must-hotel-booking'); ?></span>
+                                <select name="children">
+                                    <?php for ($child_option = 0; $child_option <= $max_booking_guests; $child_option++) : ?>
+                                        <option value="<?php echo \esc_attr((string) $child_option); ?>" <?php selected($children, $child_option); ?>>
+                                            <?php echo \esc_html((string) $child_option); ?>
                                         </option>
                                     <?php endfor; ?>
                                 </select>
@@ -414,6 +429,8 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                                                         <input type="hidden" name="checkin" value="<?php echo \esc_attr($checkin); ?>" />
                                                         <input type="hidden" name="checkout" value="<?php echo \esc_attr($checkout); ?>" />
                                                         <input type="hidden" name="guests" value="<?php echo \esc_attr((string) $guests); ?>" />
+                                                        <input type="hidden" name="adults" value="<?php echo \esc_attr((string) $adults); ?>" />
+                                                        <input type="hidden" name="children" value="<?php echo \esc_attr((string) $children); ?>" />
                                                         <input type="hidden" name="room_count" value="<?php echo \esc_attr((string) $room_count); ?>" />
                                                         <input type="hidden" name="accommodation_type" value="<?php echo \esc_attr($accommodation_type); ?>" />
                                                         <button

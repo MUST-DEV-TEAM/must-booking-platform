@@ -41,6 +41,8 @@ Local `bookings` table ↔ Clock booking resource (`POST/GET/PUT /bookings/`):
 | `guest_id` | `guest_e_mail`/`guest_first_name`/`guest_last_name` | See "Guest mapping" below. |
 | `status` (BookingStatus enum) | `status` (Clock string: `expected`/`checked_in`/`checked_out`/`canceled`/`no_show`) | **Not mapped at all** — see "Status mapping gap" below. |
 
+The booking payload carries `adults` and `children` as normalized integer occupancy fields used for Clock price calculation (**CONFIRMED_BY_DOCS**). Local `guestCount` remains a derived compatibility total (`adults + children`) and is never sent to Clock.
+
 ## Guest mapping
 
 `ClockBookingService` and `LocalPmsProvider` use the same shared email-first match-or-create rule within the tenant (`guests` table, `ON CONFLICT (tenant_id, lower(email)) DO NOTHING` then re-select). They also perform an exact, trimmed phone lookup as a duplicate signal: when phone identifies a different guest, the email-matched or newly created guest stores that candidate in `suspected_duplicate_of_guest_id` for later staff review. The phone candidate is never attached automatically and no merge occurs during booking creation. A matching email and phone still reuses the same email guest, while a phone-only match creates a new email guest and records the candidate.

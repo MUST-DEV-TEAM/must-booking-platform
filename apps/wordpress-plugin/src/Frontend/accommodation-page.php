@@ -72,7 +72,10 @@ function maybe_process_accommodation_selection(): string
     $ratePlanId = isset($_POST['must_rate_plan_id']) ? \sanitize_text_field((string) \wp_unslash($_POST['must_rate_plan_id'])) : '';
     $checkin = isset($_POST['checkin']) ? \sanitize_text_field((string) \wp_unslash($_POST['checkin'])) : '';
     $checkout = isset($_POST['checkout']) ? \sanitize_text_field((string) \wp_unslash($_POST['checkout'])) : '';
-    $guests = isset($_POST['guests']) ? \max(1, (int) $_POST['guests']) : 1;
+    $legacyGuests = isset($_POST['guests']) ? \max(1, (int) $_POST['guests']) : 1;
+    $adults = isset($_POST['adults']) ? \max(1, (int) $_POST['adults']) : $legacyGuests;
+    $children = isset($_POST['children']) ? \max(0, (int) $_POST['children']) : 0;
+    $guests = $adults + $children;
     if ($roomTypeId === '' || $checkin === '' || $checkout === '') {
         return \__('That room could not be selected. Please try again.', 'must-hotel-booking');
     }
@@ -108,7 +111,11 @@ function maybe_process_accommodation_selection(): string
         $ratePlanName = \__('Best available rate', 'must-hotel-booking');
     }
 
-    $quoteInput = ['roomTypeId' => $roomTypeId, 'ratePlanId' => $ratePlanId, 'startsOn' => $checkin, 'endsOn' => $checkout, 'guestCount' => $guests];
+    $quoteInput = [
+        'roomTypeId' => $roomTypeId, 'ratePlanId' => $ratePlanId,
+        'startsOn' => $checkin, 'endsOn' => $checkout,
+        'adults' => $adults, 'children' => $children, 'guestCount' => $guests,
+    ];
     if ($roomId !== '') {
         $quoteInput['roomId'] = $roomId;
     }
@@ -120,7 +127,8 @@ function maybe_process_accommodation_selection(): string
     set_current_booking_selection([
         'roomTypeId' => $roomTypeId, 'roomId' => $roomId, 'ratePlanId' => $ratePlanId,
         'roomName' => $roomName, 'ratePlanName' => $ratePlanName,
-        'checkin' => $checkin, 'checkout' => $checkout, 'guests' => $guests, 'quote' => $quote['body'],
+        'checkin' => $checkin, 'checkout' => $checkout, 'guests' => $guests,
+        'adults' => $adults, 'children' => $children, 'quote' => $quote['body'],
     ]);
     if (!\wp_doing_ajax()) {
         \wp_safe_redirect(get_checkout_page_url());
@@ -234,7 +242,10 @@ function get_accommodation_page_view_data(): array
     $raw = \is_array($_GET) ? $_GET : [];
     $checkin = isset($raw['checkin']) && \preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $raw['checkin']) === 1 ? (string) $raw['checkin'] : '';
     $checkout = isset($raw['checkout']) && \preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $raw['checkout']) === 1 ? (string) $raw['checkout'] : '';
-    $guests = isset($raw['guests']) ? \max(1, (int) $raw['guests']) : 1;
+    $legacyGuests = isset($raw['guests']) ? \max(1, (int) $raw['guests']) : 1;
+    $adults = isset($raw['adults']) ? \max(1, (int) $raw['adults']) : $legacyGuests;
+    $children = isset($raw['children']) ? \max(0, (int) $raw['children']) : 0;
+    $guests = $adults + $children;
     $roomCount = isset($raw['room_count']) ? \max(0, (int) $raw['room_count']) : 0;
     $accommodationType = isset($raw['accommodation_type']) ? \sanitize_key((string) $raw['accommodation_type']) : '';
     $hasContext = $checkin !== '' && $checkout !== '';
@@ -320,7 +331,9 @@ function get_accommodation_page_view_data(): array
 
     return [
         'messages' => $messages, 'rooms' => $rooms, 'has_context' => $hasContext, 'is_valid' => true,
-        'checkin' => $checkin, 'checkout' => $checkout, 'guests' => $guests, 'room_count' => $roomCount, 'resolved_room_count' => 1,
+        'checkin' => $checkin, 'checkout' => $checkout, 'guests' => $guests,
+        'adults' => $adults, 'children' => $children,
+        'room_count' => $roomCount, 'resolved_room_count' => 1,
         'accommodation_type' => $accommodationType, 'selected_rooms' => [], 'selected_room_count' => $selectedRoomCount,
         'can_continue' => $selectedRoomCount > 0, 'selection_limit_reached' => $selectedRoomCount > 0, 'single_room_mode' => true,
         'no_rooms_message' => $hasContext ? \__('No rooms are available for the selected dates.', 'must-hotel-booking') : \__('Choose your dates to see available rooms.', 'must-hotel-booking'),

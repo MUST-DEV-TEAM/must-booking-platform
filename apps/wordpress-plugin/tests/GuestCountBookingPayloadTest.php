@@ -48,6 +48,7 @@ namespace MustHotelBooking\Frontend {
     $selection = [
         'roomTypeId' => 'room-type-50', 'ratePlanId' => 'rate-plan-50',
         'checkin' => '2027-09-01', 'checkout' => '2027-09-03', 'guests' => 2,
+        'adults' => 1, 'children' => 1,
         'roomName' => 'Guest Count Suite', 'ratePlanName' => 'Flexible',
         'quote' => ['total' => ['amount' => '190.00', 'currency' => 'EUR'], 'quoteToken' => 'signed-quote'],
     ];
@@ -69,7 +70,9 @@ namespace MustHotelBooking\Frontend {
     $_POST = [
         'must_checkout_action' => 'continue_to_confirmation',
         'must_checkout_nonce' => 'valid',
-        'room_guest_count' => ['1' => '2'],
+        // The legacy total is deliberately different: the occupancy breakdown
+        // carried in the selection is the source of truth now.
+        'room_guest_count' => ['1' => '9'],
         'first_name' => 'Two', 'last_name' => 'Guests', 'email' => 'two@example.test',
     ];
     try {
@@ -78,8 +81,10 @@ namespace MustHotelBooking\Frontend {
     } catch (\RuntimeException $error) {
         if (!str_starts_with($error->getMessage(), 'redirect:')) throw $error;
     }
-    if (($selection['guestInfo']['guestCount'] ?? null) !== 2) {
-        fwrite(STDERR, "Checkout did not retain the submitted guest count.\n");
+    if (($selection['guestInfo']['adults'] ?? null) !== 1 ||
+        ($selection['guestInfo']['children'] ?? null) !== 1 ||
+        ($selection['guestInfo']['guestCount'] ?? null) !== 2) {
+        fwrite(STDERR, "Checkout did not retain the submitted occupancy breakdown.\n");
         exit(1);
     }
 
@@ -98,10 +103,13 @@ namespace MustHotelBooking\Frontend {
     }
 
     $posted = \MustHotelBooking\Core\MustApiClient::$postedBody;
-    if (($posted['path'] ?? null) !== '/bookings' || ($posted['body']['guestCount'] ?? null) !== 2) {
-        fwrite(STDERR, "Booking creation did not receive the guest count collected at checkout.\n");
+    if (($posted['path'] ?? null) !== '/bookings' ||
+        ($posted['body']['adults'] ?? null) !== 1 ||
+        ($posted['body']['children'] ?? null) !== 1 ||
+        ($posted['body']['guestCount'] ?? null) !== 2) {
+        fwrite(STDERR, "Booking creation did not receive the occupancy breakdown collected at checkout.\n");
         exit(1);
     }
 
-    echo "Guest count checkout-to-booking payload test passed.\n";
+    echo "Guest occupancy checkout-to-booking payload test passed.\n";
 }

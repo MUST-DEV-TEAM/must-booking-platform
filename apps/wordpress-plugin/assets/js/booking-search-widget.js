@@ -52,7 +52,7 @@
         return addDays(todayYmd, windowDays);
     }
 
-    function sanitizeGuestsValue(input, allowEmpty) {
+    function sanitizePartySizeValue(input, minimum, allowEmpty) {
         if (!input) {
             return;
         }
@@ -71,13 +71,13 @@
         }
 
         if (digitsOnly === '') {
-            digitsOnly = '1';
+            digitsOnly = String(minimum);
         }
 
         var numeric = parseInt(digitsOnly, 10);
 
-        if (!Number.isFinite(numeric) || numeric < 1) {
-            numeric = 1;
+        if (!Number.isFinite(numeric) || numeric < minimum) {
+            numeric = minimum;
         }
 
         if (numeric > maxGuests) {
@@ -87,7 +87,38 @@
         input.value = String(numeric);
     }
 
-    function attachNumericGuestsGuard(input) {
+    function sanitizeGuestsValue(input, allowEmpty) {
+        sanitizePartySizeValue(input, 1, allowEmpty);
+    }
+
+    function syncOccupancy(adultsInput, childrenInput, guestsInput) {
+        if (!adultsInput || !childrenInput) {
+            return;
+        }
+
+        var maxGuests = parseInt(String(config.maxGuests || '5'), 10);
+        if (!Number.isFinite(maxGuests) || maxGuests < 1) {
+            maxGuests = 5;
+        }
+
+        sanitizePartySizeValue(adultsInput, 1, false);
+        sanitizePartySizeValue(childrenInput, 0, false);
+        var adults = parseInt(String(adultsInput.value || '1'), 10);
+        var children = parseInt(String(childrenInput.value || '0'), 10);
+        if (adults > maxGuests) {
+            adults = maxGuests;
+            adultsInput.value = String(adults);
+        }
+        if (adults + children > maxGuests) {
+            children = Math.max(0, maxGuests - adults);
+            childrenInput.value = String(children);
+        }
+        if (guestsInput) {
+            guestsInput.value = String(adults + children);
+        }
+    }
+
+    function attachNumericPartySizeGuard(input, minimum) {
         if (!input || input.dataset.mustGuestsGuard === '1') {
             return;
         }
@@ -95,6 +126,7 @@
         input.dataset.mustGuestsGuard = '1';
         input.setAttribute('inputmode', 'numeric');
         input.setAttribute('pattern', '[0-9]*');
+        input.setAttribute('min', String(minimum));
         input.setAttribute('max', String(parseInt(String(config.maxGuests || '5'), 10) || 5));
 
         input.addEventListener('keydown', function (event) {
@@ -106,11 +138,11 @@
         });
 
         input.addEventListener('input', function () {
-            sanitizeGuestsValue(input, true);
+            sanitizePartySizeValue(input, minimum, true);
         });
 
         input.addEventListener('blur', function () {
-            sanitizeGuestsValue(input, true);
+            sanitizePartySizeValue(input, minimum, true);
         });
     }
 
@@ -285,21 +317,38 @@
             var isWbeInline = bookingMode === 'clock_wbe_inline';
             var checkinInput = form.querySelector('.must-hotel-booking-checkin');
             var checkoutInput = form.querySelector('.must-hotel-booking-checkout');
-            var guestsInput = form.querySelector('.must-hotel-booking-field-guests input');
+            var adultsInput = form.querySelector('[name="adults"]');
+            var childrenInput = form.querySelector('[name="children"]');
+            var guestsInput = form.querySelector('[name="guests"]');
+            var hasOccupancyBreakdown = Boolean(adultsInput && childrenInput);
 
-            attachNumericGuestsGuard(guestsInput);
-            sanitizeGuestsValue(guestsInput, true);
+            if (hasOccupancyBreakdown) {
+                attachNumericPartySizeGuard(adultsInput, 1);
+                attachNumericPartySizeGuard(childrenInput, 0);
+                syncOccupancy(adultsInput, childrenInput, guestsInput);
+            } else {
+                attachNumericPartySizeGuard(guestsInput, 1);
+                sanitizeGuestsValue(guestsInput, true);
+            }
 
             if (!isWbeInline) {
                 syncLinkedAccommodationTypeInput(form);
 
                 form.addEventListener('submit', function () {
                     syncLinkedAccommodationTypeInput(form);
-                    sanitizeGuestsValue(guestsInput, false);
+                    if (hasOccupancyBreakdown) {
+                        syncOccupancy(adultsInput, childrenInput, guestsInput);
+                    } else {
+                        sanitizeGuestsValue(guestsInput, false);
+                    }
                 });
             } else if (guestsInput) {
                 form.addEventListener('submit', function () {
-                    sanitizeGuestsValue(guestsInput, true);
+                    if (hasOccupancyBreakdown) {
+                        syncOccupancy(adultsInput, childrenInput, guestsInput);
+                    } else {
+                        sanitizeGuestsValue(guestsInput, true);
+                    }
                 });
             }
 

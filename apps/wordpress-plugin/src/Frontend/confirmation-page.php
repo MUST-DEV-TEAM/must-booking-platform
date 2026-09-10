@@ -206,7 +206,9 @@ function maybe_process_confirm_booking_submission(): string
     }
 
     $quote = $selection['quote'];
-    $guestCount = \max(1, (int) ($selection['guestInfo']['guestCount'] ?? $selection['guests'] ?? 1));
+    $adults = \max(1, (int) ($selection['adults'] ?? $selection['guestInfo']['adults'] ?? $selection['guests'] ?? 1));
+    $children = \max(0, (int) ($selection['children'] ?? $selection['guestInfo']['children'] ?? 0));
+    $guestCount = $adults + $children;
     $bookingInput = [
         'roomTypeId' => $selection['roomTypeId'],
         'ratePlanId' => $selection['ratePlanId'],
@@ -214,6 +216,8 @@ function maybe_process_confirm_booking_submission(): string
         'endsOn' => $selection['checkout'],
         'total' => $quote['total'],
         'quoteToken' => $quote['quoteToken'],
+        'adults' => $adults,
+        'children' => $children,
         'guestCount' => $guestCount,
         'paymentMethod' => $paymentMethod,
         'returnUrl' => ManagedPages::getBookingConfirmationPageUrl(),

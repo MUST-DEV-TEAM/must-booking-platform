@@ -19,7 +19,10 @@ function maybe_process_checkout_submission(): string
         exit;
     }
 
-    $defaultGuestCount = \max(1, (int) ($selection['guests'] ?? 1));
+    $hasOccupancyBreakdown = isset($selection['adults']) || isset($selection['children']);
+    $adults = \max(1, (int) ($selection['adults'] ?? $selection['guests'] ?? 1));
+    $children = \max(0, (int) ($selection['children'] ?? 0));
+    $defaultGuestCount = $adults + $children;
     $postedGuestCounts = isset($_POST['room_guest_count']) && \is_array($_POST['room_guest_count'])
         ? \wp_unslash($_POST['room_guest_count'])
         : [];
@@ -27,7 +30,9 @@ function maybe_process_checkout_submission(): string
     if ($postedGuestCount !== null && (!\is_scalar($postedGuestCount) || !\ctype_digit((string) $postedGuestCount) || (int) $postedGuestCount < 1)) {
         return \__('Please enter a valid number of guests.', 'must-hotel-booking');
     }
-    $guestCount = $postedGuestCount === null ? $defaultGuestCount : (int) $postedGuestCount;
+    $guestCount = $postedGuestCount === null || $hasOccupancyBreakdown
+        ? $defaultGuestCount
+        : (int) $postedGuestCount;
 
     $firstName = isset($_POST['first_name']) ? \sanitize_text_field((string) \wp_unslash($_POST['first_name'])) : '';
     $lastName = isset($_POST['last_name']) ? \sanitize_text_field((string) \wp_unslash($_POST['last_name'])) : '';
@@ -43,7 +48,8 @@ function maybe_process_checkout_submission(): string
     $selection['guestInfo'] = [
         'firstName' => $firstName, 'lastName' => $lastName, 'email' => $email,
         'phoneCountryCode' => $phoneCountryCode, 'phoneNumber' => $phoneNumber, 'country' => $country,
-        'specialRequests' => $specialRequests, 'guestCount' => $guestCount,
+        'specialRequests' => $specialRequests,
+        'adults' => $adults, 'children' => $children, 'guestCount' => $guestCount,
     ];
     set_current_booking_selection($selection);
     \wp_safe_redirect(ManagedPages::getBookingConfirmationPageUrl());
@@ -62,7 +68,9 @@ function get_checkout_page_view_data(): array
     $summary = [];
     if ($isValid) {
         $guestInfo = \is_array($selection['guestInfo'] ?? null) ? $selection['guestInfo'] : [];
-        $guestCount = \max(1, (int) ($guestInfo['guestCount'] ?? $selection['guests'] ?? 1));
+        $adults = \max(1, (int) ($selection['adults'] ?? $guestInfo['adults'] ?? $selection['guests'] ?? 1));
+        $children = \max(0, (int) ($selection['children'] ?? $guestInfo['children'] ?? 0));
+        $guestCount = $adults + $children;
         $quote = $selection['quote'];
         $start = new \DateTimeImmutable((string) $selection['checkin']);
         $end = new \DateTimeImmutable((string) $selection['checkout']);
@@ -98,7 +106,9 @@ function get_checkout_page_view_data(): array
         'checkout_url' => get_checkout_page_url(), 'booking_url' => get_booking_page_url(), 'accommodation_url' => get_booking_accommodation_page_url(),
         'fixed_room_mode' => false, 'selected_room_count' => $isValid ? 1 : 0,
         'checkin' => $isValid ? (string) $selection['checkin'] : '', 'checkout' => $isValid ? (string) $selection['checkout'] : '',
-        'guests' => $isValid ? $guestCount : 1, 'room_count' => 1,
+        'guests' => $isValid ? $guestCount : 1,
+        'adults' => $isValid ? $adults : 1, 'children' => $isValid ? $children : 0,
+        'room_count' => 1,
         'country_options' => get_checkout_country_options(), 'phone_country_code_options' => get_checkout_phone_code_options(),
     ];
 }

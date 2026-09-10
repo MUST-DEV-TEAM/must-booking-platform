@@ -5,6 +5,7 @@ import type { Money, NightlyRate } from '@must/domain-contracts';
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
 import { ClockAvailabilityService } from '../integrations/clock/clock-availability.service';
+import { resolveBookingOccupancy, validBookingOccupancy } from './booking-occupancy';
 
 export type QuoteInput = {
   roomTypeId: string;
@@ -15,6 +16,8 @@ export type QuoteInput = {
   ratePlanId?: string;
   startsOn: string;
   endsOn: string;
+  adults?: number;
+  children?: number;
   guestCount?: number;
 };
 
@@ -52,13 +55,14 @@ export class QuoteService {
     if (!Number.isInteger(ttlSeconds) || ttlSeconds < 1)
       throw new BadRequestException('Quote expiry must be a positive number of seconds.');
 
-    const quote = await this.priceWithNightlyRates(tenantId, propertyId, input);
+    const normalizedInput = this.normalizeOccupancy(input);
+    const quote = await this.priceWithNightlyRates(tenantId, propertyId, normalizedInput);
 
     const payload: QuotePayload = {
       version: 1,
       tenantId,
       propertyId,
-      ...input,
+      ...normalizedInput,
       total: quote.total,
       nightlyRates: quote.nightlyRates,
       expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
@@ -68,19 +72,22 @@ export class QuoteService {
   }
 
   async price(tenantId: string, propertyId: string, input: QuoteInput): Promise<Money> {
-    this.validStayInput(input);
-    await this.enforceBookingRules(tenantId, propertyId, input);
+    const normalizedInput = this.normalizeOccupancy(input);
+    this.validStayInput(normalizedInput);
+    await this.enforceBookingRules(tenantId, propertyId, normalizedInput);
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (connection?.provider === 'CLOCK_PMS') {
       const quote = await this.clockAvailability.getQuote(tenantId, propertyId, {
-        roomTypeId: input.roomTypeId,
-        startsOn: input.startsOn,
-        endsOn: input.endsOn,
+        roomTypeId: normalizedInput.roomTypeId,
+        startsOn: normalizedInput.startsOn,
+        endsOn: normalizedInput.endsOn,
+        adultCount: normalizedInput.adults,
+        childrenCount: normalizedInput.children,
       });
       if (!quote.ok) throw new BadRequestException(quote.error.message);
       return quote.value;
     }
-    return (await this.priceWithNightlyRates(tenantId, propertyId, input)).total;
+    return (await this.priceWithNightlyRates(tenantId, propertyId, normalizedInput)).total;
   }
 
   async priceWithNightlyRates(
@@ -88,8 +95,9 @@ export class QuoteService {
     propertyId: string,
     input: QuoteInput,
   ): Promise<PricedQuote> {
-    this.validStayInput(input);
-    await this.enforceBookingRules(tenantId, propertyId, input);
+    const normalizedInput = this.normalizeOccupancy(input);
+    this.validStayInput(normalizedInput);
+    await this.enforceBookingRules(tenantId, propertyId, normalizedInput);
 
     // Clock-connected properties are always quoted live against Clock's own
     // /products endpoint (owner's call — no local rate_plan mirror). Rate is
@@ -98,18 +106,26 @@ export class QuoteService {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (connection?.provider === 'CLOCK_PMS') {
       const quote = await this.clockAvailability.getQuoteWithNightlyRates(tenantId, propertyId, {
-        roomTypeId: input.roomTypeId,
-        startsOn: input.startsOn,
-        endsOn: input.endsOn,
+        roomTypeId: normalizedInput.roomTypeId,
+        startsOn: normalizedInput.startsOn,
+        endsOn: normalizedInput.endsOn,
+        adultCount: normalizedInput.adults,
+        childrenCount: normalizedInput.children,
       });
       if (!quote.ok) throw new BadRequestException(quote.error.message);
       return quote.value;
     }
 
-    if (!input.ratePlanId) throw new BadRequestException('ratePlanId is required.');
+    if (!normalizedInput.ratePlanId) throw new BadRequestException('ratePlanId is required.');
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      if (input.roomId)
-        await this.requireRoomForType(tx, tenantId, propertyId, input.roomId, input.roomTypeId);
+      if (normalizedInput.roomId)
+        await this.requireRoomForType(
+          tx,
+          tenantId,
+          propertyId,
+          normalizedInput.roomId,
+          normalizedInput.roomTypeId,
+        );
       const rows = await tx.$queryRaw<
         Array<{ currency: string; amount: string; pricedNights: bigint; nightlyRates: unknown }>
       >`
@@ -126,8 +142,8 @@ export class QuoteService {
           ) AS "nightlyRates"
         FROM rate_plans rp
         CROSS JOIN generate_series(
-          ${input.startsOn}::date,
-          (${input.endsOn}::date - INTERVAL '1 day'),
+          ${normalizedInput.startsOn}::date,
+          (${normalizedInput.endsOn}::date - INTERVAL '1 day'),
           INTERVAL '1 day'
         ) AS stay(stays_on)
         LEFT JOIN LATERAL (
@@ -136,7 +152,7 @@ export class QuoteService {
           WHERE rr.tenant_id = ${tenantId}::uuid
             AND rr.property_id = ${propertyId}::uuid
             AND rr.rate_plan_id = rp.id
-            AND rr.room_type_id = ${input.roomTypeId}::uuid
+            AND rr.room_type_id = ${normalizedInput.roomTypeId}::uuid
             AND EXTRACT(DOW FROM stay.stays_on)::smallint = ANY(rr.weekdays)
             AND (
               (rr.starts_on IS NOT NULL AND rr.starts_on <= stay.stays_on::date AND rr.ends_on >= stay.stays_on::date)
@@ -149,8 +165,8 @@ export class QuoteService {
           ON room_override.tenant_id = ${tenantId}::uuid
           AND room_override.property_id = ${propertyId}::uuid
           AND room_override.rate_plan_id = rp.id
-          AND room_override.room_id = ${input.roomId ?? null}::uuid
-        WHERE rp.id = ${input.ratePlanId}::uuid
+          AND room_override.room_id = ${normalizedInput.roomId ?? null}::uuid
+        WHERE rp.id = ${normalizedInput.ratePlanId}::uuid
           AND rp.tenant_id = ${tenantId}::uuid
           AND rp.property_id = ${propertyId}::uuid
           AND rp.is_active = true
@@ -158,12 +174,16 @@ export class QuoteService {
       `;
       const row = rows[0];
       if (!row) throw new NotFoundException('Active rate plan was not found.');
-      const nightCount = this.nightCount(input.startsOn, input.endsOn);
+      const nightCount = this.nightCount(normalizedInput.startsOn, normalizedInput.endsOn);
       if (Number(row.pricedNights) !== nightCount)
         throw new BadRequestException('The requested stay does not have a rate for every night.');
       return {
         total: { amount: row.amount, currency: row.currency },
-        nightlyRates: this.normalizeNightlyRates(row.nightlyRates, input.startsOn, input.endsOn),
+        nightlyRates: this.normalizeNightlyRates(
+          row.nightlyRates,
+          normalizedInput.startsOn,
+          normalizedInput.endsOn,
+        ),
       };
     });
   }
@@ -212,6 +232,8 @@ export class QuoteService {
         code: 'QUOTE_SESSION_INVALID',
         message: 'The quote belongs to a different session.',
       };
+    const expectedOccupancy = resolveBookingOccupancy(expected);
+    const quotedOccupancy = resolveBookingOccupancy(payload);
     if (
       payload.tenantId !== expected.tenantId ||
       payload.propertyId !== expected.propertyId ||
@@ -220,6 +242,8 @@ export class QuoteService {
       payload.ratePlanId !== expected.ratePlanId ||
       payload.startsOn !== expected.startsOn ||
       payload.endsOn !== expected.endsOn ||
+      quotedOccupancy.adults !== expectedOccupancy.adults ||
+      quotedOccupancy.children !== expectedOccupancy.children ||
       payload.total.amount !== expected.total.amount ||
       payload.total.currency !== expected.total.currency
     ) {
@@ -255,6 +279,9 @@ export class QuoteService {
         typeof value.ratePlanId !== 'string' ||
         typeof value.startsOn !== 'string' ||
         typeof value.endsOn !== 'string' ||
+        (value.adults !== undefined && (!Number.isInteger(value.adults) || value.adults < 1)) ||
+        (value.children !== undefined &&
+          (!Number.isInteger(value.children) || value.children < 0)) ||
         (value.guestCount !== undefined &&
           (!Number.isInteger(value.guestCount) || value.guestCount < 1)) ||
         typeof value.expiresAt !== 'string' ||
@@ -290,13 +317,22 @@ export class QuoteService {
     return 'must-booking-local-quote-signing-secret';
   }
 
+  private normalizeOccupancy(input: QuoteInput): QuoteInput {
+    const occupancy = resolveBookingOccupancy(input);
+    return {
+      ...input,
+      adults: occupancy.adults,
+      children: occupancy.children,
+      guestCount: occupancy.guestCount,
+    };
+  }
+
   private validStayInput(input: QuoteInput): void {
     if (!input.roomTypeId) throw new BadRequestException('roomTypeId is required.');
-    if (
-      input.guestCount !== undefined &&
-      (!Number.isInteger(input.guestCount) || input.guestCount < 1)
-    )
-      throw new BadRequestException('guestCount must be a positive integer.');
+    if (!validBookingOccupancy(input))
+      throw new BadRequestException(
+        'adults must be a positive integer and children must be a non-negative integer.',
+      );
     if (!this.date(input.startsOn) || !this.date(input.endsOn) || input.endsOn <= input.startsOn)
       throw new BadRequestException(
         'startsOn and endsOn must be a valid, non-empty ISO date range.',

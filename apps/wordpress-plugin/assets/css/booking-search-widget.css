@@ -104,6 +104,12 @@
     flex-basis: 244px;
 }
 
+.must-hotel-booking-widget-booking-search .must-hotel-booking-field-party-size {
+    width: 150px;
+    max-width: 150px;
+    flex-basis: 150px;
+}
+
 .must-hotel-booking-widget-booking-search .must-hotel-booking-field input {
     width: 100%;
     min-width: 0;

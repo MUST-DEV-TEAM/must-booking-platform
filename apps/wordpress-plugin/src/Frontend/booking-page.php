@@ -201,7 +201,10 @@ function get_booking_page_view_data(): array
     $raw = \is_array($_GET) ? $_GET : [];
     $checkin = isset($raw['checkin']) && \preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $raw['checkin']) === 1 ? (string) $raw['checkin'] : '';
     $checkout = isset($raw['checkout']) && \preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $raw['checkout']) === 1 ? (string) $raw['checkout'] : '';
-    $guests = isset($raw['guests']) ? \max(1, (int) $raw['guests']) : 1;
+    $legacyGuests = isset($raw['guests']) ? \max(1, (int) $raw['guests']) : 1;
+    $adults = isset($raw['adults']) ? \max(1, (int) $raw['adults']) : $legacyGuests;
+    $children = isset($raw['children']) ? \max(0, (int) $raw['children']) : 0;
+    $guests = $adults + $children;
     $roomCount = isset($raw['room_count']) ? \max(0, (int) $raw['room_count']) : 0;
     $accommodationType = isset($raw['accommodation_type']) ? \sanitize_key((string) $raw['accommodation_type']) : '';
     $urlRoomId = isset($raw['room_id']) ? \sanitize_text_field((string) $raw['room_id']) : '';
@@ -238,7 +241,8 @@ function get_booking_page_view_data(): array
     return [
         'messages' => [], 'rooms' => [],
         'checkin' => $checkin, 'checkout' => $checkout,
-        'guests' => $guests, 'room_count' => $roomCount, 'resolved_room_count' => \max(1, $roomCount),
+        'guests' => $guests, 'adults' => $adults, 'children' => $children,
+        'room_count' => $roomCount, 'resolved_room_count' => \max(1, $roomCount),
         'max_booking_guests' => get_max_booking_guests_limit(), 'max_booking_rooms' => get_max_booking_rooms_limit(),
         'accommodation_type' => $accommodationType, 'booking_categories' => $categories,
         'has_search' => $checkin !== '' && $checkout !== '', 'is_valid' => true,

@@ -92,6 +92,8 @@ describe('ClockBookingService Clock guest search', () => {
       startsOn: '2026-10-01',
       endsOn: '2026-10-03',
       externalReference: 'MUST-1',
+      adults: 2,
+      children: 1,
       roomGuestFirstName: null,
       roomGuestLastName: null,
     };
@@ -133,6 +135,8 @@ describe('ClockBookingService Clock guest search', () => {
           arrival: '2026-10-01',
           departure: '2026-10-03',
           reference_number: 'MUST-1',
+          adults: 2,
+          children: 1,
         },
       },
     });
@@ -156,6 +160,8 @@ describe('ClockBookingService Clock guest search', () => {
       startsOn: '2026-10-01',
       endsOn: '2026-10-03',
       externalReference: 'MUST-2',
+      adults: 1,
+      children: 0,
       roomGuestFirstName: null,
       roomGuestLastName: null,
     };
@@ -190,6 +196,8 @@ describe('ClockBookingService Clock guest search', () => {
         guest_e_mail: 'new@example.test',
         guest_first_name: 'New',
         guest_last_name: 'Guest',
+        adults: 1,
+        children: 0,
       },
     });
     expect(post?.body).not.toHaveProperty('main_booking_guest');
@@ -240,7 +248,9 @@ describe('ClockBookingService Clock guest search', () => {
         phone: '+355 69 123 4567',
       },
       total: { amount: '100.00', currency: 'EUR' },
-      guestCount: 1,
+      adults: 2,
+      children: 1,
+      guestCount: 99,
       paymentMethod: 'pay_at_hotel',
     } as CreateBookingCommand;
 
@@ -256,6 +266,8 @@ describe('ClockBookingService Clock guest search', () => {
         arrival: '2026-10-01',
         departure: '2026-10-03',
         reference_number: 'MUST-3',
+        adults: 2,
+        children: 1,
       },
     });
     expect((post?.body as { booking: Record<string, unknown> }).booking).not.toHaveProperty(

@@ -178,6 +178,8 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                 <input type="hidden" name="checkin" value="<?php echo \esc_attr($checkin); ?>" />
                 <input type="hidden" name="checkout" value="<?php echo \esc_attr($checkout); ?>" />
                 <input type="hidden" name="guests" value="<?php echo \esc_attr((string) $guests); ?>" />
+                <input type="hidden" name="adults" value="<?php echo \esc_attr((string) ($view['adults'] ?? $guests)); ?>" />
+                <input type="hidden" name="children" value="<?php echo \esc_attr((string) ($view['children'] ?? 0)); ?>" />
                 <input type="hidden" name="room_count" value="<?php echo \esc_attr((string) $room_count); ?>" />
                 <input type="hidden" name="applied_coupon_code" value="<?php echo \esc_attr($applied_coupon_code); ?>" />
 

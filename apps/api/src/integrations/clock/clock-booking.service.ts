@@ -277,6 +277,8 @@ export class ClockBookingService {
             arrival_room_id: externalRoomId ? Number(externalRoomId) : null,
             rate_id: Number(rate.value),
             reference_number: externalReference,
+            adults: occupancy.adults,
+            children: occupancy.children,
           };
           const body = existingClockGuest.value
             ? { main_booking_guest: existingClockGuest.value, booking }
@@ -462,6 +464,8 @@ export class ClockBookingService {
       arrival_room_id: externalRoomId ? Number(externalRoomId) : null,
       rate_id: Number(rate.value),
       reference_number: row.externalReference,
+      adults: row.adults,
+      children: row.children,
     };
     const body = existingClockGuest.value
       ? { main_booking_guest: existingClockGuest.value, booking }

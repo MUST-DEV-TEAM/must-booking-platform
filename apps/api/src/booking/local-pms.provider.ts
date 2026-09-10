@@ -366,6 +366,9 @@ export class LocalPmsProvider implements PmsProvider {
                     ratePlanId: command.ratePlanId,
                     startsOn: command.startsOn,
                     endsOn: command.endsOn,
+                    adults: occupancy.adults,
+                    children: occupancy.children,
+                    guestCount: occupancy.guestCount,
                     total: command.total,
                   },
                 );
@@ -1408,6 +1411,7 @@ export class LocalPmsProvider implements PmsProvider {
     context: PmsProviderContext,
     command: CreateBookingCommand,
   ): Promise<string | null> {
+    const occupancy = resolveBookingOccupancy(command);
     const rooms = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id
       FROM rooms
@@ -1423,6 +1427,9 @@ export class LocalPmsProvider implements PmsProvider {
         ratePlanId: command.ratePlanId,
         startsOn: command.startsOn,
         endsOn: command.endsOn,
+        adults: occupancy.adults,
+        children: occupancy.children,
+        guestCount: occupancy.guestCount,
       });
       if (price.amount !== command.total.amount || price.currency !== command.total.currency)
         continue;

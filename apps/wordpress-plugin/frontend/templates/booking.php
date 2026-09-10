@@ -11,6 +11,8 @@ $rooms = isset($view['rooms']) && \is_array($view['rooms']) ? $view['rooms'] : [
 $checkin = isset($view['checkin']) ? (string) $view['checkin'] : '';
 $checkout = isset($view['checkout']) ? (string) $view['checkout'] : '';
 $guests = isset($view['guests']) ? (int) $view['guests'] : 1;
+$adults = isset($view['adults']) ? (int) $view['adults'] : $guests;
+$children = isset($view['children']) ? (int) $view['children'] : 0;
 $room_count = isset($view['room_count']) ? (int) $view['room_count'] : 0;
 $resolved_room_count = isset($view['resolved_room_count']) ? (int) $view['resolved_room_count'] : 1;
 $max_booking_guests = isset($view['max_booking_guests']) ? (int) $view['max_booking_guests'] : 12;
@@ -121,6 +123,8 @@ if ($checkout !== '') {
             <input id="must-booking-checkin" class="must-hotel-booking-checkin" type="hidden" name="checkin" value="<?php echo \esc_attr($checkin); ?>" />
             <input id="must-booking-checkout" class="must-hotel-booking-checkout" type="hidden" name="checkout" value="<?php echo \esc_attr($checkout); ?>" />
             <input id="must-booking-guests" class="must-hotel-booking-guests" type="hidden" name="guests" value="<?php echo \esc_attr((string) $guests); ?>" />
+            <input id="must-booking-adults" class="must-hotel-booking-adults" type="hidden" name="adults" value="<?php echo \esc_attr((string) $adults); ?>" />
+            <input id="must-booking-children" class="must-hotel-booking-children" type="hidden" name="children" value="<?php echo \esc_attr((string) $children); ?>" />
             <input id="must-booking-room-count" class="must-booking-room-count" type="hidden" name="room_count" value="<?php echo \esc_attr((string) ($fixed_room_mode ? 1 : $room_count)); ?>" />
             <?php if ($fixed_room_mode) : ?>
                 <?php \wp_nonce_field('must_accommodation_select_room', 'must_accommodation_nonce'); ?>
@@ -263,11 +267,21 @@ if ($checkout !== '') {
                     <?php endif; ?>
 
                     <?php if (!$fixed_room_mode) : ?>
-                        <label class="must-booking-step-select-row" for="must-booking-guests-select">
-                            <span><?php echo \esc_html__('Guests', 'must-hotel-booking'); ?></span>
-                            <select id="must-booking-guests-select">
+                        <label class="must-booking-step-select-row" for="must-booking-adults-select">
+                            <span><?php echo \esc_html__('Adults', 'must-hotel-booking'); ?></span>
+                            <select id="must-booking-adults-select" name="adults">
                                 <?php for ($i = 1; $i <= $max_booking_guests; $i++) : ?>
-                                    <option value="<?php echo \esc_attr((string) $i); ?>" <?php selected($guests, $i); ?>>
+                                    <option value="<?php echo \esc_attr((string) $i); ?>" <?php selected($adults, $i); ?>>
+                                        <?php echo \esc_html((string) $i); ?>
+                                    </option>
+                                <?php endfor; ?>
+                            </select>
+                        </label>
+                        <label class="must-booking-step-select-row" for="must-booking-children-select">
+                            <span><?php echo \esc_html__('Children', 'must-hotel-booking'); ?></span>
+                            <select id="must-booking-children-select" name="children">
+                                <?php for ($i = 0; $i <= $max_booking_guests; $i++) : ?>
+                                    <option value="<?php echo \esc_attr((string) $i); ?>" <?php selected($children, $i); ?>>
                                         <?php echo \esc_html((string) $i); ?>
                                     </option>
                                 <?php endfor; ?>
@@ -514,6 +528,8 @@ if ($checkout !== '') {
                                                         <input class="must-booking-hidden-checkin" type="hidden" name="checkin" value="<?php echo \esc_attr($checkin); ?>" />
                                                         <input class="must-booking-hidden-checkout" type="hidden" name="checkout" value="<?php echo \esc_attr($checkout); ?>" />
                                                         <input class="must-booking-hidden-guests" type="hidden" name="guests" value="<?php echo \esc_attr((string) $guests); ?>" />
+                                                        <input class="must-booking-hidden-adults" type="hidden" name="adults" value="<?php echo \esc_attr((string) $adults); ?>" />
+                                                        <input class="must-booking-hidden-children" type="hidden" name="children" value="<?php echo \esc_attr((string) $children); ?>" />
                                                         <input class="must-booking-hidden-accommodation-type" type="hidden" name="accommodation_type" value="<?php echo \esc_attr($accommodation_type); ?>" />
                                                         <button type="submit" class="must-booking-room-book-button">
                                                             <span><?php echo \esc_html__('Book Now', 'must-hotel-booking'); ?></span>

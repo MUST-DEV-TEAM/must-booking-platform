@@ -17,6 +17,8 @@ type StayInput = {
   ratePlanId?: string;
   startsOn: string;
   endsOn: string;
+  adults: number;
+  children: number;
 };
 type Guest = { firstName: string; lastName: string; email: string; phone: string };
 // How the booking's own payment gets taken — filtered to whatever the
@@ -51,6 +53,8 @@ export function WalkInBooking({
   const [month, setMonth] = useState(() => new Date());
   const [quote, setQuote] = useState<Quote | null>(null);
   const [guest, setGuest] = useState<Guest>({ firstName: '', lastName: '', email: '', phone: '' });
+  const [adults, setAdults] = useState(1);
+  const [children, setChildren] = useState(0);
   const [gatewayMethod, setGatewayMethod] = useState<GatewayPaymentMethod>('');
   const [settleMethod, setSettleMethod] = useState<SettleMethod>('');
 
@@ -199,11 +203,20 @@ export function WalkInBooking({
   const startsOn = range?.from ? dateToIsoDay(range.from) : '';
   const endsOn = range?.to ? addDays(dateToIsoDay(range.to), 1) : '';
   const needsIndividualRoom = roomTypeSelection === ALL_ROOM_TYPES || showIndividualRoom;
+  // INDIVIDUAL_ROOM_ONLY never allows auto-assign-any-room — unlike MIXED,
+  // a specific room is required even when a single room type is selected
+  // (not just under the "All" picker), matching the property's own rule.
+  const requiresSpecificRoom = bookingMode === 'INDIVIDUAL_ROOM_ONLY';
   const canSearch =
     !!effectiveRoomTypeId &&
     (roomTypeSelection !== ALL_ROOM_TYPES || !!roomId) &&
+    (!requiresSpecificRoom || !!roomId) &&
     !!startsOn &&
     !!endsOn &&
+    Number.isInteger(adults) &&
+    adults >= 1 &&
+    Number.isInteger(children) &&
+    children >= 0 &&
     (isClockConnected || !!ratePlanId);
   const input: StayInput = {
     roomTypeId: effectiveRoomTypeId,
@@ -211,6 +224,8 @@ export function WalkInBooking({
     ratePlanId: isClockConnected ? undefined : ratePlanId,
     startsOn,
     endsOn,
+    adults,
+    children,
   };
 
   return (
@@ -258,7 +273,9 @@ export function WalkInBooking({
                 }}
               >
                 <option value="">
-                  {roomTypeSelection === ALL_ROOM_TYPES ? 'Select a room' : 'Any room of this type'}
+                  {roomTypeSelection === ALL_ROOM_TYPES || requiresSpecificRoom
+                    ? 'Select a room'
+                    : 'Any room of this type'}
                 </option>
                 {roomOptions.map((room) => (
                   <option key={room.id} value={room.id}>
@@ -268,6 +285,34 @@ export function WalkInBooking({
               </select>
             </label>
           ) : null}
+          <label>
+            Adults
+            <input
+              className="must-input"
+              type="number"
+              min={1}
+              step={1}
+              value={adults}
+              onChange={(event) => {
+                setAdults(Number(event.target.value));
+                setQuote(null);
+              }}
+            />
+          </label>
+          <label>
+            Children
+            <input
+              className="must-input"
+              type="number"
+              min={0}
+              step={1}
+              value={children}
+              onChange={(event) => {
+                setChildren(Number(event.target.value));
+                setQuote(null);
+              }}
+            />
+          </label>
           {!isClockConnected ? (
             <label>
               Rate plan
@@ -319,7 +364,13 @@ export function WalkInBooking({
           disabled={busy || !canSearch}
           onClick={() => availabilityMutation.mutate(input)}
         >
-          Search availability
+          {availabilityMutation.isPending ? (
+            <>
+              <Loader2 aria-hidden="true" size={16} /> Searching…
+            </>
+          ) : (
+            'Search availability'
+          )}
         </button>
 
         {quote ? (

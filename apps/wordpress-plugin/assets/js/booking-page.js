@@ -200,6 +200,8 @@
         }
         url.searchParams.set('checkin', String(context.checkin || ''));
         url.searchParams.set('checkout', String(context.checkout || ''));
+        url.searchParams.set('adults', String(context.adults || 1));
+        url.searchParams.set('children', String(context.children || 0));
         url.searchParams.set('guests', String(context.guests || 1));
         url.searchParams.set('room_count', String(context.roomCount || 0));
         url.searchParams.set('accommodation_type', String(context.accommodationType || getAccommodationTypeValue()));
@@ -406,23 +408,35 @@
             selectionSummaryEl.textContent = getResultsSelectionSummary(context, accommodationTypeSelect);
         }
     }
-    function getContext(checkinInput, checkoutInput, guestsInput, accommodationTypeSelect, roomCountInput) {
+    function getContext(checkinInput, checkoutInput, adultsInput, childrenInput, guestsInput, accommodationTypeSelect, roomCountInput) {
         var checkin = String(checkinInput.value || '').trim();
         var checkout = String(checkoutInput.value || '').trim();
         var accommodationType = getAccommodationTypeValue(accommodationTypeSelect);
         var roomCount = getRoomCountValue(roomCountInput);
-        var guests = parseInt(String(guestsInput.value || '1'), 10);
+        var adults = parseInt(String(adultsInput.value || '1'), 10);
+        var children = parseInt(String(childrenInput.value || '0'), 10);
         var maxGuests = getMaxGuestsLimit(accommodationType, roomCount);
-        if (!Number.isFinite(guests) || guests < 1) {
-            guests = 1;
+        if (!Number.isFinite(adults) || adults < 1) {
+            adults = 1;
         }
-        if (guests > maxGuests) {
-            guests = maxGuests;
+        if (!Number.isFinite(children) || children < 0) {
+            children = 0;
         }
+        if (adults > maxGuests) {
+            adults = maxGuests;
+        }
+        if (adults + children > maxGuests) {
+            children = Math.max(0, maxGuests - adults);
+        }
+        adultsInput.value = String(adults);
+        childrenInput.value = String(children);
+        guestsInput.value = String(adults + children);
         return {
             checkin: checkin,
             checkout: checkout,
-            guests: guests,
+            adults: adults,
+            children: children,
+            guests: adults + children,
             roomCount: roomCount,
             accommodationType: accommodationType,
             roomId: isFixedRoomMode() ? getFixedRoomId() : 0,
@@ -464,6 +478,8 @@
     function syncHiddenSelectionFields(context) {
         var checkinFields = document.querySelectorAll('.must-booking-hidden-checkin');
         var checkoutFields = document.querySelectorAll('.must-booking-hidden-checkout');
+        var adultsFields = document.querySelectorAll('.must-booking-hidden-adults');
+        var childrenFields = document.querySelectorAll('.must-booking-hidden-children');
         var guestsFields = document.querySelectorAll('.must-booking-hidden-guests');
         var roomCountFields = document.querySelectorAll('.must-booking-room-count');
         var accommodationTypeFields = document.querySelectorAll('.must-booking-hidden-accommodation-type');
@@ -474,6 +490,12 @@
         });
         checkoutFields.forEach(function (field) {
             field.value = context.checkout;
+        });
+        adultsFields.forEach(function (field) {
+            field.value = String(context.adults);
+        });
+        childrenFields.forEach(function (field) {
+            field.value = String(context.children);
         });
         guestsFields.forEach(function (field) {
             field.value = String(context.guests);
@@ -490,30 +512,6 @@
         inventoryRoomIdFields.forEach(function (field) {
             field.value = String(context.availabilityRoomId || 0);
         });
-    }
-    function rebuildGuestsSelectOptions(guestsSelect, guestsInput, accommodationTypeSelect, roomCountSelect) {
-        if (!guestsSelect || !guestsInput) {
-            return;
-        }
-        var accommodationType = getAccommodationTypeValue(accommodationTypeSelect);
-        var roomCount = getRoomCountValue(roomCountSelect);
-        var maxGuests = getMaxGuestsLimit(accommodationType, roomCount);
-        var currentGuests = parseInt(String(guestsInput.value || guestsSelect.value || '1'), 10);
-        var options = [];
-        if (!Number.isFinite(currentGuests) || currentGuests < 1) {
-            currentGuests = 1;
-        }
-        if (currentGuests > maxGuests) {
-            currentGuests = maxGuests;
-        }
-        for (var guestIndex = 1; guestIndex <= maxGuests; guestIndex++) {
-            options.push({
-                value: String(guestIndex),
-                label: String(guestIndex)
-            });
-        }
-        populateSelectOptions(guestsSelect, options, String(currentGuests));
-        guestsInput.value = String(currentGuests);
     }
     function renderRooms(roomListEl, noRoomsEl, resultsEl, rooms, context) {
         if (!roomListEl || !noRoomsEl || !resultsEl) {
@@ -637,6 +635,8 @@
                     '<input type="hidden" name="rate_plan_id" value="' + escapeHtml(ratePlanId) + '" />' +
                     '<input class="must-booking-hidden-checkin" type="hidden" name="checkin" value="' + escapeHtml(context.checkin) + '" />' +
                     '<input class="must-booking-hidden-checkout" type="hidden" name="checkout" value="' + escapeHtml(context.checkout) + '" />' +
+                    '<input class="must-booking-hidden-adults" type="hidden" name="adults" value="' + escapeHtml(context.adults) + '" />' +
+                    '<input class="must-booking-hidden-children" type="hidden" name="children" value="' + escapeHtml(context.children) + '" />' +
                     '<input class="must-booking-hidden-guests" type="hidden" name="guests" value="' + escapeHtml(context.guests) + '" />' +
                     '<input class="must-booking-room-count" type="hidden" name="room_count" value="' + escapeHtml(context.roomCount || 0) + '" />' +
                     '<input class="must-booking-hidden-accommodation-type" type="hidden" name="accommodation_type" value="' + escapeHtml(context.accommodationType || '') + '" />' +
@@ -1061,6 +1061,8 @@
         var params = new URLSearchParams();
         params.append('action', String(config.disabledDatesAction));
         params.append('nonce', String(config.availabilityNonce || ''));
+        params.append('adults', String(context.adults));
+        params.append('children', String(context.children));
         params.append('guests', String(context.guests));
         params.append('room_count', String(context.roomCount || 0));
         params.append('accommodation_type', String(context.accommodationType || getAccommodationTypeValue()));
@@ -1117,15 +1119,20 @@
                 return;
             }
             applyDisabledDatesToPickers(disabledCheckinDates, disabledCheckoutDates, checkinInput, checkoutInput, data);
+            var adultsInput = document.getElementById('must-booking-adults');
+            var childrenInput = document.getElementById('must-booking-children');
             var guestsInput = document.getElementById('must-booking-guests');
             var roomCountInput = document.getElementById('must-booking-room-count-select') || document.getElementById('must-booking-room-count');
-            if (guestsInput) {
-                updateSummary(getContext(checkinInput, checkoutInput, guestsInput, document.getElementById('must-booking-accommodation-type'), roomCountInput));
-                updateResultsSummary(getContext(checkinInput, checkoutInput, guestsInput, document.getElementById('must-booking-accommodation-type'), roomCountInput), document.getElementById('must-booking-accommodation-type'));
+            if (adultsInput && childrenInput && guestsInput) {
+                var context = getContext(checkinInput, checkoutInput, adultsInput, childrenInput, guestsInput, document.getElementById('must-booking-accommodation-type'), roomCountInput);
+                updateSummary(context);
+                updateResultsSummary(context, document.getElementById('must-booking-accommodation-type'));
             } else {
                 var fallbackContext = {
                     checkin: checkinInput.value || '',
                     checkout: checkoutInput.value || '',
+                    adults: 1,
+                    children: 0,
                     guests: 1,
                     roomCount: 0,
                     accommodationType: getAccommodationTypeValue()
@@ -1169,6 +1176,8 @@
         params.append('nonce', String(config.availabilityNonce || ''));
         params.append('checkin', context.checkin);
         params.append('checkout', context.checkout);
+        params.append('adults', String(context.adults));
+        params.append('children', String(context.children));
         params.append('guests', String(context.guests));
         params.append('room_count', String(context.roomCount || 0));
         params.append('accommodation_type', String(context.accommodationType || getAccommodationTypeValue()));
@@ -1649,8 +1658,11 @@
         var form = document.getElementById('must-booking-search-form');
         var checkinInput = document.getElementById('must-booking-checkin');
         var checkoutInput = document.getElementById('must-booking-checkout');
+        var adultsInput = document.getElementById('must-booking-adults');
+        var childrenInput = document.getElementById('must-booking-children');
         var guestsInput = document.getElementById('must-booking-guests');
-        var guestsSelect = document.getElementById('must-booking-guests-select');
+        var adultsSelect = document.getElementById('must-booking-adults-select');
+        var childrenSelect = document.getElementById('must-booking-children-select');
         var roomCountInput = document.getElementById('must-booking-room-count');
         var roomCountSelect = document.getElementById('must-booking-room-count-select');
         var accommodationTypeSelect = document.getElementById('must-booking-accommodation-type');
@@ -1663,7 +1675,7 @@
         var messagesEl = document.getElementById('must-booking-live-messages');
         var editDatesButton = document.getElementById('must-booking-results-edit-dates');
         var editSummaryButton = document.getElementById('must-booking-results-edit-summary');
-        if (!form || !checkinInput || !checkoutInput || !guestsInput || !roomListEl || !noRoomsEl || !resultsEl) {
+        if (!form || !checkinInput || !checkoutInput || !adultsInput || !childrenInput || !guestsInput || !roomListEl || !noRoomsEl || !resultsEl) {
             return;
         }
         function setFixedRoomContinueState(nextState) {
@@ -1697,6 +1709,12 @@
             if (!checkoutInput.value && isValidDateString(config.initial.checkout || '')) {
                 checkoutInput.value = String(config.initial.checkout);
             }
+            if (!adultsInput.value) {
+                adultsInput.value = String(config.initial.adults || config.initial.guests || 1);
+            }
+            if (!childrenInput.value) {
+                childrenInput.value = String(config.initial.children || 0);
+            }
             if (!guestsInput.value) {
                 guestsInput.value = String(config.initial.guests || 1);
             }
@@ -1711,21 +1729,17 @@
             roomCountSelect.value = String(getRoomCountValue(roomCountSelect));
             roomCountInput.value = String(getRoomCountValue(roomCountSelect));
         }
-        if (guestsSelect) {
-            rebuildGuestsSelectOptions(guestsSelect, guestsInput, accommodationTypeSelect, roomCountSelect);
-            guestsInput.value = String(getContext(checkinInput, checkoutInput, guestsInput, accommodationTypeSelect, roomCountSelect).guests || 1);
-        }
         function refreshCalendarState(source) {
-            var context = getContext(checkinInput, checkoutInput, guestsInput, accommodationTypeSelect, roomCountSelect);
+            var context = getContext(checkinInput, checkoutInput, adultsInput, childrenInput, guestsInput, accommodationTypeSelect, roomCountSelect);
             syncHiddenSelectionFields(context);
             updateSummary(context);
             updateResultsSummary(context, accommodationTypeSelect);
             updateRangeHighlights(context.checkin, context.checkout, state.previewCheckout);
             setCurrentStep(1, resultsEl);
             setFixedRoomContinueState('ready');
-            if (source === 'checkin' || source === 'guests' || source === 'accommodation_type' || source === 'room_count') {
+            if (source === 'checkin' || source === 'adults' || source === 'children' || source === 'accommodation_type' || source === 'room_count') {
                 fetchDisabledDates(context).finally(function () {
-                    var updatedContext = getContext(checkinInput, checkoutInput, guestsInput, accommodationTypeSelect, roomCountSelect);
+                    var updatedContext = getContext(checkinInput, checkoutInput, adultsInput, childrenInput, guestsInput, accommodationTypeSelect, roomCountSelect);
                     syncHiddenSelectionFields(updatedContext);
                     updateSummary(updatedContext);
                     updateResultsSummary(updatedContext, accommodationTypeSelect);
@@ -1742,7 +1756,7 @@
             }
         }
         function runAvailabilityCheck() {
-            var context = getContext(checkinInput, checkoutInput, guestsInput, accommodationTypeSelect, roomCountSelect);
+            var context = getContext(checkinInput, checkoutInput, adultsInput, childrenInput, guestsInput, accommodationTypeSelect, roomCountSelect);
             syncHiddenSelectionFields(context);
             updateSummary(context);
             updateResultsSummary(context, accommodationTypeSelect);
@@ -1798,48 +1812,29 @@
         }
         applyInitialDisabledDatesBeforePickers(checkinInput, checkoutInput);
         initializeDatePickers(checkinInput, checkoutInput, scheduleRefresh);
-        var initialContext = getContext(checkinInput, checkoutInput, guestsInput, accommodationTypeSelect, roomCountSelect);
+        var initialContext = getContext(checkinInput, checkoutInput, adultsInput, childrenInput, guestsInput, accommodationTypeSelect, roomCountSelect);
         var initialStep = isCalendarPageMode() ? 1 : parseInt(String(config.initialStep || '1'), 10);
         syncHiddenSelectionFields(initialContext);
         updateSummary(initialContext);
         updateResultsSummary(initialContext, accommodationTypeSelect);
         updateRangeHighlights(initialContext.checkin, initialContext.checkout, state.previewCheckout);
         setCurrentStep(initialStep > 1 && isValidRange(initialContext) ? 2 : 1, resultsEl);
-        if (guestsSelect) {
-            guestsSelect.addEventListener('change', function () {
-                var guestsValue = parseInt(String(guestsSelect.value || '1'), 10);
-                var maxGuests = getMaxGuestsLimit(getAccommodationTypeValue(accommodationTypeSelect), getRoomCountValue(roomCountSelect));
-                if (!Number.isFinite(guestsValue) || guestsValue < 1) {
-                    guestsValue = 1;
-                }
-                if (guestsValue > maxGuests) {
-                    guestsValue = maxGuests;
-                }
-                guestsInput.value = String(guestsValue);
-                scheduleRefresh('guests');
+        [adultsSelect, childrenSelect].forEach(function (select, index) {
+            if (!select) {
+                return;
+            }
+            select.addEventListener('change', function () {
+                scheduleRefresh(index === 0 ? 'adults' : 'children');
             });
-        } else {
-            guestsInput.addEventListener('change', function () {
-                scheduleRefresh('guests');
-            });
-            guestsInput.addEventListener('input', function () {
-                scheduleRefresh('guests');
-            });
-        }
+        });
         if (accommodationTypeSelect) {
             accommodationTypeSelect.addEventListener('change', function () {
-                if (guestsSelect) {
-                    rebuildGuestsSelectOptions(guestsSelect, guestsInput, accommodationTypeSelect, roomCountSelect);
-                }
                 scheduleRefresh('accommodation_type');
             });
         }
         if (roomCountSelect && roomCountInput) {
             roomCountSelect.addEventListener('change', function () {
                 roomCountInput.value = String(getRoomCountValue(roomCountSelect));
-                if (guestsSelect) {
-                    rebuildGuestsSelectOptions(guestsSelect, guestsInput, accommodationTypeSelect, roomCountSelect);
-                }
                 scheduleRefresh('room_count');
             });
         }
@@ -1870,10 +1865,7 @@
                 if (state.currentStep > 1) {
                     return;
                 }
-                if (guestsSelect) {
-                    guestsInput.value = String(guestsSelect.value || guestsInput.value || '1');
-                }
-                var context = getContext(checkinInput, checkoutInput, guestsInput, accommodationTypeSelect, roomCountSelect);
+                var context = getContext(checkinInput, checkoutInput, adultsInput, childrenInput, guestsInput, accommodationTypeSelect, roomCountSelect);
                 if (!isValidRange(context)) {
                     setMessage(
                         messagesEl,
@@ -1888,13 +1880,10 @@
         }
         form.addEventListener('submit', function (event) {
             event.preventDefault();
-            if (guestsSelect) {
-                guestsInput.value = String(guestsSelect.value || guestsInput.value || '1');
-            }
             runAvailabilityCheck();
         });
         fetchDisabledDates(initialContext).finally(function () {
-            var contextAfterLoad = getContext(checkinInput, checkoutInput, guestsInput, accommodationTypeSelect, roomCountSelect);
+            var contextAfterLoad = getContext(checkinInput, checkoutInput, adultsInput, childrenInput, guestsInput, accommodationTypeSelect, roomCountSelect);
             syncHiddenSelectionFields(contextAfterLoad);
             updateSummary(contextAfterLoad);
             updateResultsSummary(contextAfterLoad, accommodationTypeSelect);

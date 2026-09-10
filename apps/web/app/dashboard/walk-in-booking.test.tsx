@@ -60,6 +60,9 @@ describe('WalkInBooking', () => {
       Array.from(select.options).some((option) => option.value === 'rate-1'),
     )!;
     await setValue(ratePlanSelect, 'rate-1');
+    const occupancyInputs = container.querySelectorAll<HTMLInputElement>('input[type="number"]');
+    await setValue(occupancyInputs[0]!, '2');
+    await setValue(occupancyInputs[1]!, '1');
     await clickDay(container, DAY_1);
     await clickDay(container, DAY_2);
     await click(container, 'Search availability');
@@ -72,12 +75,14 @@ describe('WalkInBooking', () => {
           ratePlanId: 'rate-1',
           startsOn: DAY_1,
           endsOn: DAY_3,
+          adults: 2,
+          children: 1,
         }),
       }),
     );
 
     const [firstName, lastName] = Array.from(
-      container.querySelectorAll('input:not([type="email"])'),
+      container.querySelectorAll('input:not([type="email"]):not([type="number"])'),
     );
     await setValue(firstName!, 'Ada');
     await setValue(lastName!, 'Lovelace');
@@ -93,7 +98,11 @@ describe('WalkInBooking', () => {
     await click(container, 'Create booking');
 
     const bookingCall = fetchMock.mock.calls.find(([url]) => url === `${base}/staff-bookings`)!;
-    expect(JSON.parse(bookingCall[1].body).paymentMethod).toBe('pay_at_hotel');
+    expect(JSON.parse(bookingCall[1].body)).toMatchObject({
+      adults: 2,
+      children: 1,
+      paymentMethod: 'pay_at_hotel',
+    });
     const paymentCall = fetchMock.mock.calls.find(
       ([url]) => url === `${base}/bookings/booking-1/manual-payment`,
     )!;
@@ -144,12 +153,14 @@ describe('WalkInBooking', () => {
           ratePlanId: undefined,
           startsOn: DAY_1,
           endsOn: DAY_3,
+          adults: 1,
+          children: 0,
         }),
       }),
     );
 
     const [firstName, lastName] = Array.from(
-      container.querySelectorAll('input:not([type="email"])'),
+      container.querySelectorAll('input:not([type="email"]):not([type="number"])'),
     );
     await setValue(firstName!, 'Ada');
     await setValue(lastName!, 'Lovelace');
@@ -214,7 +225,7 @@ describe('WalkInBooking', () => {
     await click(container, 'Search availability');
 
     const [firstName, lastName] = Array.from(
-      container.querySelectorAll('input:not([type="email"])'),
+      container.querySelectorAll('input:not([type="email"]):not([type="number"])'),
     );
     await setValue(firstName!, 'Ada');
     await setValue(lastName!, 'Lovelace');
