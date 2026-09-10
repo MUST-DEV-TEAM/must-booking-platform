@@ -18,7 +18,7 @@ Sentry.init({
 
   enableLogs: true,
 
-  tracePropagationTargets: ['localhost', 'must.dejvis.dev', new URL(apiUrl).host, /^\//],
+  tracePropagationTargets: ['localhost', new URL(apiUrl).host, /^\//],
 
   integrations: [Sentry.replayIntegration()],
 });

@@ -108,10 +108,10 @@ export class WordpressPairingService implements OnModuleDestroy {
   }
 
   // The public web app is the only publicly routable hostname (confirmed
-  // against the real deployment, 2026-08-06) — must.dejvis.dev proxies
-  // /api/:path* to the API container via a Next.js rewrite; there is no
-  // separate API subdomain. WordPress's own base URL must include that
-  // /api prefix to actually reach the backend.
+  // against the real deployment, 2026-08-06, originally on the now-retired
+  // homelab) — the web app proxies /api/:path* to the API container via a
+  // Next.js rewrite; there is no separate API subdomain. WordPress's own
+  // base URL must include that /api prefix to actually reach the backend.
   private apiBaseUrl(): string {
     const webAppUrl = process.env.WEB_APP_URL;
     if (!webAppUrl) throw new Error('WEB_APP_URL must be configured.');

@@ -1,6 +1,6 @@
 # Milestone 14: Environment Rebuild & Security Audit
 
-Status: Kicked off 2026-08-21, 15 tasks defined below
+Status: Kicked off 2026-08-21, 15 tasks defined below. **Reality-check note (2026-09-10): DenisZoi already moved production off the homelab to `booking.must.al` (139.162.153.25) ad hoc, outside this task list — the homelab is retired, and booking.must.al is live with a real (sandbox) tenant. None of this milestone's actual acceptance criteria (fresh untouched-from-homelab secrets, DB credential sourced from `.env` not hardcoded, a real CI/CD deploy pipeline replacing the old webhook+systemd mechanism, the systematic security pass, go-live sign-off) have been verified against it — every task below still reads "Not started". Do not mark tasks Done here without confirming each one against the real host; the environment existing and being in production is not the same as this milestone's work being done.**
 Depends on: Milestone 12 (Integration & Initial Release Readiness); Milestone 13 (Application UI/UX & Feature Enhancements — this milestone does not start until Milestone 13 is fully closed out, per ADR-0028's "no parallel milestones" decision)
 Owner: DenisZoi (GitHub: zoidenis)
 
