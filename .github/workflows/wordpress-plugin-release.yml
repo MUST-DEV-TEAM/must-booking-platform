@@ -68,6 +68,10 @@ jobs:
           (
             cd dist
             zip -qr "../${{ steps.version.outputs.asset }}" must-hotel-booking
+            # Add the bootstrap helper explicitly after the recursive archive step and
+            # replace any same-path entry. This keeps the required file present even if
+            # the runner's recursive ZIP traversal skips it unexpectedly.
+            zip -q "../${{ steps.version.outputs.asset }}" must-hotel-booking/includes/asset-url.php
           )
 
       - name: Validate plugin ZIP
