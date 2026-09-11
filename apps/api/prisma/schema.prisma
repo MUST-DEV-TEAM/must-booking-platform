@@ -162,6 +162,7 @@ model Property {
   roomTypeAmenities                 RoomTypeAmenity[]
   roomAmenities                     RoomAmenity[]
   cancellationPolicies              CancellationPolicy[]
+  clockGuestMappings                ClockGuestMapping[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, slug])
@@ -668,12 +669,33 @@ model Guest {
   postcode                    String?  @db.VarChar(30)
   createdAt                   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  clockGuestMappings          ClockGuestMapping[]
 
   @@unique([tenantId, id])
   @@index([tenantId, createdAt])
   @@index([tenantId, suspectedDuplicateOfGuestId])
   @@index([tenantId, mergedIntoGuestId])
   @@map("guests")
+}
+
+// Milestone 21 Task 15: a Clock guest identity is stable within a property's
+// Clock guest pool, so keep the resolved external id instead of searching
+// Clock again for every booking.
+model ClockGuestMapping {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  propertyId      String   @map("property_id") @db.Uuid
+  guestId         String   @map("guest_id") @db.Uuid
+  externalGuestId String   @map("external_guest_id")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  property        Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Cascade)
+  guest           Guest    @relation(fields: [tenantId, guestId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([tenantId, propertyId, guestId])
+  @@unique([tenantId, propertyId, externalGuestId])
+  @@index([tenantId, propertyId])
+  @@map("clock_guest_mappings")
 }
 
 model IntegrationOperation {

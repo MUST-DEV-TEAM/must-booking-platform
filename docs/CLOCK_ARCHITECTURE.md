@@ -92,7 +92,7 @@ Two consumers have real business logic: `clock.webhooks` hydrates supported book
 ## Security posture actually built
 
 - Credentials: AES-256-GCM at rest (`CredentialCipherService`), never logged, decrypted only transiently inside a request (`IntegrationConnectionsService.activePmsConnectionCredentials`).
-- Tenant isolation: every Clock table (`clock_catalog_mappings`, `provider_events`, `manual_review_items`) has Postgres RLS enabled+forced, scoped by `app.tenant_id`/`app.property_id`. The webhook gateway's pre-tenant-context lookup uses a dedicated read-only RLS carve-out (`app.role = 'webhook_gateway'`), not a bypass-RLS connection.
+- Tenant isolation: every Clock table (`clock_catalog_mappings`, `clock_guest_mappings`, `provider_events`, `manual_review_items`) has Postgres RLS enabled+forced, scoped by `app.tenant_id`/`app.property_id`. The webhook gateway's pre-tenant-context lookup uses a dedicated read-only RLS carve-out (`app.role = 'webhook_gateway'`), not a bypass-RLS connection.
 - Webhook signature verification: real AWS SNS RSA-SHA1/SHA256 verification (see `CLOCK_WEBHOOK_FLOW.md`), SSRF-protected cert/subscribe-URL host checks, replay protection (5-minute window).
 - WAF/403-suspicion circuit breaker (source brief section 12): **not built**. The generic circuit breaker (above) trips on any repeated failure including 403s, but there's no dedicated "suspicious behavior" detector or alert — explicitly deferred (see the milestone's "Explicitly not included" section).
 
@@ -115,8 +115,10 @@ ClockBookingService.createBooking
   │     d. INSERT bookings row (status DRAFT)
   │     e. drive BookingStateMachine: DRAFT → QUOTED → INVENTORY_REVALIDATING
   │        → PAYMENT_NOT_REQUIRED → PMS_CREATION_PENDING
-  │     f. GET /guests/search by email (one call; exact match filtered
-  │        client-side; email match is sufficient for attachment)
+  │     f. read clock_guest_mappings by tenant/property/local guest;
+  │        on a miss, GET /guests/search by email (exact match filtered
+  │        client-side; email match is sufficient for attachment), then
+  │        persist the resolved family_id
   │     g. POST to Clock /bookings/  (circuit breaker → rate limiter → HTTP client)
   │     h. on success: validate response shape (schema_mismatch guard) → CONFIRMED
   │        on clean rejection: → PMS_REJECTED
@@ -142,4 +144,4 @@ After a deposit `credit_item` is posted successfully, `ClockBookingService.postD
 
 ### Why the custom transaction timeout
 
-`TenantDatabaseService.withTenantTransaction` defaults to Prisma's 5000ms interactive-transaction timeout. `ClockBookingService` makes real outbound HTTP calls to Clock *inside* that transaction (steps 3f-h above) — under real network latency this can exceed 5s, which would abort an otherwise-successful local write. An optional `timeoutMs` override was added (Task 10, caught by the real sandbox e2e test failing under real latency) — 45s for create (up to 4 sequential Clock calls: rates, email search, booking create, reconciliation lookup), 30s for update/cancel (GET current state + PUT).
+`TenantDatabaseService.withTenantTransaction` defaults to Prisma's 5000ms interactive-transaction timeout. `ClockBookingService` makes real outbound HTTP calls to Clock *inside* that transaction (steps 3f-h above) — under real network latency this can exceed 5s, which would abort an otherwise-successful local write. An optional `timeoutMs` override was added (Task 10, caught by the real sandbox e2e test failing under real latency) — 45s for create (up to 5 sequential Clock calls on a first-use mapping miss: rates, guest search, booking create, reconciliation lookup, plus the shared rate-selection request; mapped guests skip guest search), 30s for update/cancel (GET current state + PUT).

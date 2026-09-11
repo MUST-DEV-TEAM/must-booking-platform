@@ -274,4 +274,233 @@ describe('ClockBookingService Clock guest search', () => {
       'guest_e_mail',
     );
   });
+
+  it('skips Clock guest search when a property-scoped mapping already exists', async () => {
+    const { service, fetch } = serviceWithClockResponses({
+      ok: true,
+      value: { id: 1234, lock_version: 0, status: 'expected' },
+    });
+    const bookingId = 'booking-mapped';
+    const row = {
+      id: bookingId,
+      externalBookingId: null,
+      guestId: 'guest-1',
+      roomTypeId: 'room-type-1',
+      roomId: null,
+      startsOn: '2026-10-01',
+      endsOn: '2026-10-03',
+      externalReference: 'MUST-MAPPED',
+      adults: 2,
+      children: 0,
+      roomGuestFirstName: null,
+      roomGuestLastName: null,
+    };
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([
+        { email: 'guest@example.test', firstName: 'Test', lastName: 'Guest' },
+      ]),
+      $executeRaw: vi.fn().mockResolvedValue(1),
+    };
+    const internals = service as unknown as Record<string, unknown>;
+    internals.credentials = vi.fn().mockResolvedValue({ ok: true, value: credentials });
+    internals.bookingById = vi.fn().mockResolvedValue(row);
+    internals.mappedExternalId = vi.fn().mockResolvedValue('101');
+    internals.rateIdForRoomType = vi.fn().mockResolvedValue({ ok: true, value: '202' });
+    internals.mappedClockGuest = vi.fn().mockResolvedValue('42');
+    internals.rememberClockGuest = vi.fn();
+    internals.transition = vi.fn().mockResolvedValue('PMS_CONFIRMATION_PENDING');
+    internals.toBooking = vi.fn().mockReturnValue({ id: bookingId });
+    internals.audit = { recordInTransaction: vi.fn().mockResolvedValue(undefined) };
+
+    await expect(
+      service.attachRealReservation(
+        tx as never,
+        { tenantId: 'tenant-1', propertyId: 'property-1' },
+        bookingId,
+      ),
+    ).resolves.toMatchObject({ ok: true, value: { id: bookingId } });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0]?.[1]).toMatchObject({
+      method: 'POST',
+      path: '/bookings/',
+      body: { main_booking_guest: '42' },
+    });
+    expect(internals.rememberClockGuest).not.toHaveBeenCalled();
+  });
+
+  it('also skips Clock guest search in the direct create path when mapped', async () => {
+    const { service, fetch } = serviceWithClockResponses({
+      ok: true,
+      value: { id: 1234, lock_version: 0, status: 'expected' },
+    });
+    const bookingId = 'booking-create-mapped';
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: bookingId }]),
+      $executeRaw: vi.fn().mockResolvedValue(1),
+    };
+    const internals = service as unknown as Record<string, unknown>;
+    internals.credentials = vi.fn().mockResolvedValue({ ok: true, value: credentials });
+    internals.database = {
+      withTenantTransaction: vi.fn(async (...args: unknown[]) => {
+        const callback = args[1] as (transaction: unknown) => Promise<unknown>;
+        return callback(tx);
+      }),
+    };
+    internals.withIdempotency = vi.fn(async (...args: unknown[]) => {
+      const execute = args[5] as () => Promise<unknown>;
+      return execute();
+    });
+    internals.mappedExternalId = vi.fn().mockResolvedValue('101');
+    internals.rateIdForRoomType = vi.fn().mockResolvedValue({ ok: true, value: '202' });
+    internals.resolveGuest = vi.fn().mockResolvedValue('guest-1');
+    internals.mappedClockGuest = vi.fn().mockResolvedValue('42');
+    internals.rememberClockGuest = vi.fn();
+    internals.audit = { recordInTransaction: vi.fn().mockResolvedValue(undefined) };
+    internals.transition = vi.fn().mockResolvedValue('PMS_CONFIRMATION_PENDING');
+    internals.bookingById = vi.fn().mockResolvedValue({ id: bookingId });
+    internals.toBooking = vi.fn().mockReturnValue({ id: bookingId });
+
+    const command = {
+      idempotencyKey: 'create-mapped-key',
+      externalReference: 'MUST-CREATE-MAPPED',
+      roomTypeId: 'room-type-1',
+      ratePlanId: 'rate-plan-1',
+      startsOn: '2026-10-01',
+      endsOn: '2026-10-03',
+      guest: {
+        email: 'guest@example.test',
+        firstName: 'Test',
+        lastName: 'Guest',
+        phone: null,
+      },
+      total: { amount: '100.00', currency: 'EUR' },
+      adults: 1,
+      children: 0,
+      paymentMethod: 'pay_at_hotel',
+    } as CreateBookingCommand;
+
+    await expect(
+      service.createBooking({ tenantId: 'tenant-1', propertyId: 'property-1' }, command),
+    ).resolves.toMatchObject({ ok: true, value: { id: bookingId } });
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0]?.[1]).toMatchObject({
+      path: '/bookings/',
+      body: { main_booking_guest: '42' },
+    });
+  });
+
+  it('searches once for a new guest and persists the id returned by Clock', async () => {
+    const { service, fetch } = serviceWithClockResponses(
+      { ok: true, value: [] },
+      {
+        ok: true,
+        value: {
+          id: 1234,
+          lock_version: 0,
+          status: 'expected',
+          main_booking_guest: { guest_id: 77 },
+        },
+      },
+    );
+    const bookingId = 'booking-new-guest';
+    const row = {
+      id: bookingId,
+      externalBookingId: null,
+      guestId: 'guest-2',
+      roomTypeId: 'room-type-2',
+      roomId: null,
+      startsOn: '2026-10-01',
+      endsOn: '2026-10-03',
+      externalReference: 'MUST-NEW-GUEST',
+      adults: 1,
+      children: 0,
+      roomGuestFirstName: null,
+      roomGuestLastName: null,
+    };
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([
+        { email: 'new@example.test', firstName: 'New', lastName: 'Guest' },
+      ]),
+      $executeRaw: vi.fn().mockResolvedValue(1),
+    };
+    const internals = service as unknown as Record<string, unknown>;
+    internals.credentials = vi.fn().mockResolvedValue({ ok: true, value: credentials });
+    internals.bookingById = vi.fn().mockResolvedValue(row);
+    internals.mappedExternalId = vi.fn().mockResolvedValue('101');
+    internals.rateIdForRoomType = vi.fn().mockResolvedValue({ ok: true, value: '202' });
+    internals.mappedClockGuest = vi.fn().mockResolvedValue(null);
+    internals.rememberClockGuest = vi.fn().mockResolvedValue(undefined);
+    internals.transition = vi.fn().mockResolvedValue('PMS_CONFIRMATION_PENDING');
+    internals.toBooking = vi.fn().mockReturnValue({ id: bookingId });
+    internals.audit = { recordInTransaction: vi.fn().mockResolvedValue(undefined) };
+
+    await expect(
+      service.attachRealReservation(
+        tx as never,
+        { tenantId: 'tenant-1', propertyId: 'property-1' },
+        bookingId,
+      ),
+    ).resolves.toMatchObject({ ok: true, value: { id: bookingId } });
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[0]?.[1]).toMatchObject({ path: '/guests/search' });
+    expect(internals.rememberClockGuest).toHaveBeenCalledWith(
+      tx,
+      { tenantId: 'tenant-1', propertyId: 'property-1' },
+      'guest-2',
+      '77',
+    );
+  });
+
+  it('does not reuse a mapping learned at another property', async () => {
+    const { service, fetch } = serviceWithClockResponses(
+      { ok: true, value: [{ family_id: 88, e_mail: 'guest@example.test' }] },
+      { ok: true, value: { id: 1234, lock_version: 0, status: 'expected' } },
+    );
+    const internals = service as unknown as Record<string, unknown>;
+    internals.credentials = vi.fn().mockResolvedValue({ ok: true, value: credentials });
+    internals.bookingById = vi.fn().mockResolvedValue({
+      id: 'booking-other-property',
+      externalBookingId: null,
+      guestId: 'guest-1',
+      roomTypeId: 'room-type-1',
+      roomId: null,
+      startsOn: '2026-10-01',
+      endsOn: '2026-10-03',
+      externalReference: 'MUST-OTHER-PROPERTY',
+      adults: 1,
+      children: 0,
+      roomGuestFirstName: null,
+      roomGuestLastName: null,
+    });
+    internals.mappedExternalId = vi.fn().mockResolvedValue('101');
+    internals.rateIdForRoomType = vi.fn().mockResolvedValue({ ok: true, value: '202' });
+    internals.mappedClockGuest = vi.fn().mockImplementation(
+      async (_tx: unknown, context: { propertyId: string }) =>
+        context.propertyId === 'property-1' ? '42' : null,
+    );
+    internals.rememberClockGuest = vi.fn().mockResolvedValue(undefined);
+    internals.transition = vi.fn().mockResolvedValue('PMS_CONFIRMATION_PENDING');
+    internals.toBooking = vi.fn().mockReturnValue({ id: 'booking-other-property' });
+    internals.audit = { recordInTransaction: vi.fn().mockResolvedValue(undefined) };
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([
+        { email: 'guest@example.test', firstName: 'Test', lastName: 'Guest' },
+      ]),
+      $executeRaw: vi.fn().mockResolvedValue(1),
+    };
+
+    await service.attachRealReservation(
+      tx as never,
+      { tenantId: 'tenant-1', propertyId: 'property-2' },
+      'booking-other-property',
+    );
+
+    expect(fetch.mock.calls[0]?.[1]).toMatchObject({ path: '/guests/search' });
+    expect(fetch.mock.calls[1]?.[1]).toMatchObject({
+      body: { main_booking_guest: '88' },
+    });
+  });
 });

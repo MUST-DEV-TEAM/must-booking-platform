@@ -49,6 +49,9 @@ interface ClockBookingResource {
   id: number;
   lock_version: number;
   status: string;
+  main_booking_guest?: {
+    guest_id?: number | string;
+  } | null;
 }
 
 interface ClockGuestSearchResource {
@@ -78,6 +81,16 @@ export function isClockBookingResource(value: unknown): value is ClockBookingRes
     typeof (value as ClockBookingResource).lock_version === 'number' &&
     typeof (value as ClockBookingResource).status === 'string'
   );
+}
+
+function clockGuestIdFromBooking(value: ClockBookingResource): string | null {
+  const guestId = value.main_booking_guest?.guest_id;
+  if (
+    (typeof guestId !== 'string' && typeof guestId !== 'number') ||
+    !String(guestId).trim()
+  )
+    return null;
+  return String(guestId);
 }
 
 // Folio/credit_item deposit accounting (reverted from the note-based
@@ -298,12 +311,14 @@ export class ClockBookingService {
             return rate;
           }
 
+          const mappedClockGuest = await this.mappedClockGuest(tx, context, guestId);
           // Clock's free_text_search is fuzzy, so filter the one rate-limited
-          // email search client-side before deciding whether to attach.
-          const existingClockGuest = await this.clockGuestForBooking(
-            connection.value,
-            command.guest.email,
-          );
+          // email search client-side before deciding whether to attach. A
+          // property's persisted mapping makes that search a genuine first-use
+          // operation rather than part of every booking.
+          const existingClockGuest = mappedClockGuest
+            ? { ok: true as const, value: mappedClockGuest }
+            : await this.clockGuestForBooking(connection.value, command.guest.email);
           if (!existingClockGuest.ok) {
             await this.transition(
               tx,
@@ -323,6 +338,9 @@ export class ClockBookingService {
               existingClockGuest.error.message,
               existingClockGuest.error.retryable,
             );
+          }
+          if (!mappedClockGuest && existingClockGuest.value) {
+            await this.rememberClockGuest(tx, context, guestId, existingClockGuest.value);
           }
 
           const booking = {
@@ -421,6 +439,13 @@ export class ClockBookingService {
               'Clock returned an unrecognized booking response shape.',
               false,
             );
+          }
+
+          if (!mappedClockGuest && !existingClockGuest.value) {
+            const responseGuestId = clockGuestIdFromBooking(response.value);
+            if (responseGuestId) {
+              await this.rememberClockGuest(tx, context, guestId, responseGuestId);
+            }
           }
 
           await tx.$executeRaw`
@@ -564,9 +589,15 @@ export class ClockBookingService {
       return rate;
     }
 
+    const mappedClockGuest = row.guestId
+      ? await this.mappedClockGuest(tx, context, row.guestId)
+      : null;
     // Clock's free_text_search is fuzzy, so filter the one rate-limited email
-    // search client-side before deciding whether to attach.
-    const existingClockGuest = await this.clockGuestForBooking(connection.value, guest.email);
+    // search client-side before deciding whether to attach. A property's
+    // persisted mapping makes that search a genuine first-use operation.
+    const existingClockGuest = mappedClockGuest
+      ? { ok: true as const, value: mappedClockGuest }
+      : await this.clockGuestForBooking(connection.value, guest.email);
     if (!existingClockGuest.ok) {
       await this.recordPostCommitFailure(tx, context, bookingId, {
         category: 'UNKNOWN_RESULT',
@@ -578,6 +609,9 @@ export class ClockBookingService {
         existingClockGuest.error.message,
         existingClockGuest.error.retryable,
       );
+    }
+    if (!mappedClockGuest && existingClockGuest.value && row.guestId) {
+      await this.rememberClockGuest(tx, context, row.guestId, existingClockGuest.value);
     }
 
     const booking = {
@@ -661,6 +695,13 @@ export class ClockBookingService {
         'Clock returned an unrecognized booking response shape.',
         false,
       );
+    }
+
+    if (!mappedClockGuest && !existingClockGuest.value && row.guestId) {
+      const responseGuestId = clockGuestIdFromBooking(response.value);
+      if (responseGuestId) {
+        await this.rememberClockGuest(tx, context, row.guestId, responseGuestId);
+      }
     }
 
     await tx.$executeRaw`
@@ -1636,6 +1677,38 @@ export class ClockBookingService {
     });
 
     return { ok: true, value: match ? String(match.family_id) : null };
+  }
+
+  private async mappedClockGuest(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    guestId: string,
+  ): Promise<string | null> {
+    const rows = await tx.$queryRaw<Array<{ externalGuestId: string }>>`
+      SELECT external_guest_id AS "externalGuestId"
+      FROM clock_guest_mappings
+      WHERE tenant_id = ${context.tenantId}::uuid
+        AND property_id = ${context.propertyId}::uuid
+        AND guest_id = ${guestId}::uuid
+    `;
+    return rows[0]?.externalGuestId ?? null;
+  }
+
+  private async rememberClockGuest(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    guestId: string,
+    externalGuestId: string,
+  ): Promise<void> {
+    await tx.$executeRaw`
+      INSERT INTO clock_guest_mappings (
+        tenant_id, property_id, guest_id, external_guest_id
+      ) VALUES (
+        ${context.tenantId}::uuid, ${context.propertyId}::uuid,
+        ${guestId}::uuid, ${externalGuestId}
+      )
+      ON CONFLICT DO NOTHING
+    `;
   }
 
   private async credentials(
