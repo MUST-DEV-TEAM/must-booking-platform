@@ -206,7 +206,7 @@ The workflow deliberately releases only when the `Version:` header changes. It d
 
 The distribution repository's legacy `release-package.yml` workflow must remain disabled. It was disabled during the `0.4.97` release repair because its `release: published` handler rebuilt obsolete distribution source and overwrote the validated monorepo ZIP. Verify the actual downloadable asset after publishing, not only the monorepo job result: check raw ZIP paths, required bootstrap files (especially `includes/asset-url.php`), version metadata, and PHP lint on Linux.
 
-Deploy API dependencies before the plugin that consumes them. Room display prices require `POST /quotes/display-prices`; both API and plugin accept up to 250 room cards, with provider work deduplicated by room type. A missing endpoint or mismatched batch limit must not be mistaken for a hotel with no prices.
+Deploy API dependencies before the plugin that consumes them. Room display prices require `POST /quotes/display-prices`; both API and plugin accept up to 250 room cards, with provider work deduplicated by room type. On a cold cache, the batch shares one Clock `/rates/` catalogue request and one `/products` request rather than spending the rate allowance fetching the same catalogue for each type. A missing endpoint or mismatched batch limit must not be mistaken for a hotel with no prices. An unmapped room type still cannot be priced: confirm its correct Clock mapping rather than copying another room's rate.
 
 ### Update installed sites
 
