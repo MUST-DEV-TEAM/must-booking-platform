@@ -683,16 +683,15 @@ describe('ClockAvailabilityService.getQuote', () => {
 });
 
 describe('ClockAvailabilityService.getQuotesForStay', () => {
-  it('uses one products request for multiple visible room types', async () => {
+  it('uses one catalogue and one products request for multiple cold-cache room types', async () => {
     const request = vi
       .fn()
       .mockResolvedValueOnce({
         status: 200,
-        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
-      })
-      .mockResolvedValueOnce({
-        status: 200,
-        body: [{ id: 69243, bookable_id: 42024, bookable_type: 'Pms::RoomType', wbe: true }],
+        body: [
+          { id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true },
+          { id: 69243, bookable_id: 42024, bookable_type: 'Pms::RoomType', wbe: true },
+        ],
       })
       .mockResolvedValueOnce({
         status: 200,
@@ -723,7 +722,7 @@ describe('ClockAvailabilityService.getQuotesForStay', () => {
       'local-rt-1': { ok: true, value: { amount: '110.00', currency: 'EUR' } },
       'local-rt-2': { ok: true, value: { amount: '125.00', currency: 'EUR' } },
     });
-    expect(request).toHaveBeenCalledTimes(3);
+    expect(request).toHaveBeenCalledTimes(2);
     expect(request).toHaveBeenLastCalledWith(
       credentials,
       expect.objectContaining({
@@ -734,7 +733,7 @@ describe('ClockAvailabilityService.getQuotesForStay', () => {
 
     const cached = await service.getQuotesForStay('t1', 'p1', stay);
     expect(cached).toEqual(result);
-    expect(request).toHaveBeenCalledTimes(3);
+    expect(request).toHaveBeenCalledTimes(2);
   });
 
   it('does not share display prices across tenants', async () => {

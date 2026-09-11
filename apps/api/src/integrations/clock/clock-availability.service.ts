@@ -133,6 +133,8 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
+type ClockRateRow = { id: number | string; bookable_id: number | string; bookable_type: string; wbe: boolean };
+
 @Injectable()
 export class ClockAvailabilityService {
   private readonly availabilityCache = new Map<string, CacheEntry<AvailabilityResult>>();
@@ -287,6 +289,10 @@ export class ClockAvailabilityService {
       return results;
     }
 
+    // /rates/ returns the entire catalogue. Share one cold-cache fetch within
+    // this tenant/property request, leaving allowance for the products query.
+    let batchRates: Promise<ClockOutcome<ClockRateRow[]>> | undefined;
+    const loadBatchRates = () => batchRates ??= this.fetch<ClockRateRow[]>(parsed.value, undefined, '/rates/');
     const resolved = await Promise.all(uniqueQueries.map(async (query) => {
       const externalRoomTypeId = query.externalRoomTypeId
         ?? await this.mappedExternalRoomTypeId(tenantId, propertyId, query.roomTypeId);
@@ -302,7 +308,7 @@ export class ClockAvailabilityService {
       return {
         query,
         externalRoomTypeId,
-        rates: await this.ratesForRoomType(parsed.value, externalRoomTypeId),
+        rates: await this.ratesForRoomType(parsed.value, externalRoomTypeId, loadBatchRates),
       };
     }));
 
@@ -725,14 +731,15 @@ export class ClockAvailabilityService {
   private async ratesForRoomType(
     credentials: ClockConnectionCredentials,
     externalRoomTypeId: string,
+    loadRates?: () => Promise<ClockOutcome<ClockRateRow[]>>,
   ): Promise<ClockOutcome<RoomTypeRates>> {
     const cacheKey = `${credentials.apiUser}:${externalRoomTypeId}`;
     const cached = this.ratesCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) return { ok: true, value: cached.value };
 
-    const response = await this.fetch<
-      Array<{ id: number | string; bookable_id: number | string; bookable_type: string; wbe: boolean }>
-    >(credentials, undefined, '/rates/');
+    const response = await (loadRates
+      ? loadRates()
+      : this.fetch<ClockRateRow[]>(credentials, undefined, '/rates/'));
     if (!response.ok) return response;
     const forRoomType = response.value.filter(
       (rate) => rate.bookable_type === 'Pms::RoomType' && String(rate.bookable_id) === externalRoomTypeId,
