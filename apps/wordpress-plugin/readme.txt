@@ -4,7 +4,7 @@ Tags: hotel, booking, reservation, accommodation
 Requires at least: 5.0
 Tested up to: 6.0
 Requires PHP: 7.4
-Stable tag: 0.4.97
+Stable tag: 0.4.98
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,9 @@ Main features include:
 5. When updating, upload the new release ZIP or use the configured updater, then review **Diagnostics & Maintenance** after the update completes.
 
 == Changelog ==
+
+= 0.4.98 =
+* Fit the complete long-date filter heading in the desktop panel without changing the date picker.
 
 = 0.4.97 =
 * Compact accommodation filter titles and buttons, align the guest summary with the confirmation fields, and remove the checkout Special Requests outline/glow.

@@ -2,6 +2,10 @@
 
 Notable product, architecture, integration, operational, compatibility, and security changes are recorded here. Exact implementation history remains in Git.
 
+## 0.4.98 - 2026-09-11
+
+- Reduce desktop filter headings further so long dates fit in one line without truncation at the verified desktop width; preserve the date picker and mobile styling.
+
 ## 0.4.97 - 2026-09-11
 
 ### Fixed

@@ -5915,7 +5915,7 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
 
 /* Compact accommodation headings and actions without changing form behavior. */
 .must-hotel-booking-page-accommodation .must-booking-results-filter-panel-title {
-    font-size: 18px;
+    font-size: 14px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
