@@ -49,6 +49,13 @@ describe('IntegrationsManagement', () => {
     const { container, root } = await mount();
 
     expect(container.textContent).toContain('Main Stripe');
+    expect(container.textContent).toContain('pending');
+    const assignments = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Assigned properties'),
+    )!;
+    expect(assignments.getAttribute('aria-expanded')).toBe('false');
+    await act(async () => assignments.click());
+    expect(assignments.getAttribute('aria-expanded')).toBe('true');
     const checkbox = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
     expect(checkbox.checked).toBe(true);
     await act(async () => root.unmount());
@@ -68,6 +75,12 @@ describe('IntegrationsManagement', () => {
     });
     vi.stubGlobal('fetch', fetch);
     const { container, root } = await mount();
+
+    await act(async () => {
+      Array.from(container.querySelectorAll('button'))
+        .find((button) => button.textContent?.includes('Add a connection'))!
+        .click();
+    });
 
     const nameInput = container.querySelector('input[placeholder="e.g. Main Stripe account"]')!;
     const secretKeyInput = fieldInput(container, 'Secret key');
@@ -108,7 +121,12 @@ describe('IntegrationsManagement', () => {
     const { container, root } = await mount();
 
     await act(async () => {
-      Array.from(container.querySelectorAll('button'))
+      (
+        container.querySelector('[aria-label="Actions for Main Stripe"]') as HTMLButtonElement
+      ).click();
+    });
+    await act(async () => {
+      Array.from(container.querySelectorAll('[role="menuitem"]'))
         .find((button) => button.textContent === 'Test connection')!
         .click();
     });
