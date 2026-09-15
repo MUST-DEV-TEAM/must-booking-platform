@@ -1223,6 +1223,8 @@ describe('LocalPmsProvider', () => {
       ratePlanId,
       startsOn: '2027-09-01',
       endsOn: '2027-09-03',
+      adults: 1,
+      children: 1,
     });
     const failedRefundBooking = await provider.createBooking(context, {
       ...bookingRequest,
@@ -1475,6 +1477,8 @@ describe('LocalPmsProvider', () => {
       ratePlanId,
       startsOn: '2027-09-01',
       endsOn: '2027-09-03',
+      adults: 1,
+      children: 1,
     });
     const updatedGuestBooking = await provider.createBooking(context, {
       ...bookingRequest,
