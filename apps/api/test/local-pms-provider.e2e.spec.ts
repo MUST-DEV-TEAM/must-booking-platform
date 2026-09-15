@@ -1852,7 +1852,8 @@ describe('LocalPmsProvider', () => {
       total: quote.body.total,
       quoteToken: quote.body.quoteToken,
       quoteSessionId,
-      guestCount: 2,
+      adults: 1,
+      children: 1,
       paymentMethod: 'stripe',
     });
     expect(firstBooking).toMatchObject({ ok: true, value: { status: 'PAYMENT_PENDING' } });
