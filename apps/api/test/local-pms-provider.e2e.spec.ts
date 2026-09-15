@@ -636,6 +636,7 @@ describe('LocalPmsProvider', () => {
       .send(bookingRequest)
       .expect(201);
     const created = createdResponse.body;
+    if (!created.ok) console.error('DIAGNOSTIC created.body', JSON.stringify(created));
     expect(created).toMatchObject({
       ok: true,
       value: {
