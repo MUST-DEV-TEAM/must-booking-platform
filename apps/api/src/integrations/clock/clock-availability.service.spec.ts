@@ -85,6 +85,20 @@ describe('ClockAvailabilityService.isAvailableForBooking', () => {
     expect(bookingConsistency.hasActiveRoomConflict).toHaveBeenCalledOnce();
   });
 
+  it('uses the short search cache only when explicitly requested', async () => {
+    const { service, bookingConsistency } = makeService({ hasActiveRoomConflict: false });
+    const physicalRoomQuery = { ...query, roomId: 'local-room-101' };
+
+    await expect(
+      service.isAvailableForBooking('t1', 'p1', physicalRoomQuery, { cache: true }),
+    ).resolves.toEqual({ ok: true, value: true });
+    await expect(
+      service.isAvailableForBooking('t1', 'p1', physicalRoomQuery, { cache: true }),
+    ).resolves.toEqual({ ok: true, value: true });
+
+    expect(bookingConsistency.hasActiveRoomConflict).toHaveBeenCalledOnce();
+  });
+
   it('rejects a room type when Clock reports no free rooms for an occupied night', async () => {
     const request = vi
       .fn()

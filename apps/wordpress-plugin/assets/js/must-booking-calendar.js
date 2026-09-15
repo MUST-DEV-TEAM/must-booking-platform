@@ -7,6 +7,10 @@
     }
     var checkinField = document.querySelector('#must-booking-checkin');
     var checkoutField = document.querySelector('#must-booking-checkout');
+    var selectedRoomAvailabilityState = 'idle';
+    function selectedRoomAvailabilityBlocksSubmit() {
+        return selectedRoomAvailabilityState === 'checking' || selectedRoomAvailabilityState === 'unavailable';
+    }
     function parsePartyValue(input, fallback, minimum) {
         var parsed = parseInt(String(input && input.value ? input.value : fallback), 10);
         if (!Number.isFinite(parsed) || parsed < minimum) {
@@ -55,8 +59,9 @@
             capacityMessage.hidden = error === '';
         }
         if (submitButton) {
-            submitButton.disabled = error !== '';
-            submitButton.setAttribute('aria-disabled', error !== '' ? 'true' : 'false');
+            var blockedByRoomAvailability = selectedRoomAvailabilityBlocksSubmit();
+            submitButton.disabled = error !== '' || blockedByRoomAvailability;
+            submitButton.setAttribute('aria-disabled', error !== '' || blockedByRoomAvailability ? 'true' : 'false');
         }
         return { adults: adults, children: children, guests: guests, error: error };
     }
@@ -91,7 +96,10 @@
             );
         };
         [adultsSelect, childrenSelect, roomCountSelect].forEach(function (control) {
-            if (control) control.addEventListener('change', sync);
+            if (control) control.addEventListener('change', function () {
+                sync();
+                scheduleSelectedRoomAvailabilityCheck();
+            });
         });
         form.addEventListener('submit', function (event) {
             if (sync().error !== '') event.preventDefault();
@@ -168,6 +176,87 @@
     var unavailableDates = {};
     var roomAvailability = c.roomAvailability || null;
     var loadedMonths = {};
+    var availabilityCheckTimer = null;
+    var availabilityCheckSequence = 0;
+    var selectedRoomAvailabilityInitialized = false;
+    function setSelectedRoomAvailabilityState(state, message) {
+        selectedRoomAvailabilityState = state;
+        var messagesNode = document.querySelector('#must-booking-live-messages');
+        if (messagesNode) {
+            var previousMessage = messagesNode.querySelector('[data-must-clock-availability]');
+            if (previousMessage) previousMessage.remove();
+            if (message) {
+                var paragraph = document.createElement('p');
+                paragraph.setAttribute('data-must-clock-availability', 'true');
+                paragraph.textContent = message;
+                messagesNode.appendChild(paragraph);
+            }
+            messagesNode.hidden = messagesNode.children.length === 0;
+        }
+        var form = document.querySelector('#must-booking-search-form');
+        var submitButton = form && form.querySelector('.must-booking-check-availability');
+        if (submitButton) {
+            var partyError = form.querySelector('[aria-invalid="true"]');
+            submitButton.disabled = selectedRoomAvailabilityBlocksSubmit() || !!partyError;
+            submitButton.setAttribute('aria-disabled', submitButton.disabled ? 'true' : 'false');
+        }
+    }
+    function isCompleteSelectedRoomDateRange(checkin, checkout) {
+        return /^\d{4}-\d{2}-\d{2}$/.test(checkin) &&
+            /^\d{4}-\d{2}-\d{2}$/.test(checkout) && checkout > checkin;
+    }
+    function initializeSelectedRoomAvailability() {
+        if (selectedRoomAvailabilityInitialized || !roomAvailability || !roomAvailability.availabilityAction) return;
+        var form = document.querySelector('#must-booking-search-form');
+        if (!form) return;
+        selectedRoomAvailabilityInitialized = true;
+        form.addEventListener('submit', function (event) {
+            if (selectedRoomAvailabilityBlocksSubmit()) event.preventDefault();
+        });
+    }
+    function scheduleSelectedRoomAvailabilityCheck() {
+        if (!roomAvailability || !roomAvailability.availabilityAction) return;
+        if (availabilityCheckTimer !== null) window.clearTimeout(availabilityCheckTimer);
+        var sequence = ++availabilityCheckSequence;
+        var checkin = checkinField && checkinField.value ? checkinField.value : '';
+        var checkout = checkoutField && checkoutField.value ? checkoutField.value : '';
+        if (!isCompleteSelectedRoomDateRange(checkin, checkout)) {
+            setSelectedRoomAvailabilityState('idle', '');
+            return;
+        }
+        setSelectedRoomAvailabilityState('checking', 'Checking selected room availability…');
+        var requestBody = new URLSearchParams({
+            action: roomAvailability.availabilityAction,
+            nonce: roomAvailability.nonce,
+            checkin: checkin,
+            checkout: checkout,
+            adults: document.querySelector('#must-booking-adults') ? document.querySelector('#must-booking-adults').value : '1',
+            children: document.querySelector('#must-booking-children') ? document.querySelector('#must-booking-children').value : '0'
+        });
+        availabilityCheckTimer = window.setTimeout(function () {
+            window.fetch(roomAvailability.ajaxUrl, {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                body: requestBody.toString()
+            }).then(function (response) {
+                if (!response.ok) throw new Error('Unable to confirm room availability.');
+                return response.json();
+            }).then(function (response) {
+                if (sequence !== availabilityCheckSequence) return;
+                var data = response && response.success && response.data ? response.data : null;
+                if (data && data.availability_status === 'ok' && data.is_available === false) {
+                    setSelectedRoomAvailabilityState('unavailable', 'The selected room is no longer available for these dates. Please choose another.');
+                    return;
+                }
+                setSelectedRoomAvailabilityState('available', data && data.availability_status === 'provider_unconfirmed'
+                    ? 'Availability could not be confirmed. We’ll check again before payment.'
+                    : '');
+            }).catch(function () {
+                if (sequence !== availabilityCheckSequence) return;
+                setSelectedRoomAvailabilityState('available', 'Availability could not be confirmed. We’ll check again before payment.');
+            });
+        }, 500);
+    }
     function dateKey(date) {
         var year = date.getFullYear();
         var month = String(date.getMonth() + 1).padStart(2, '0');
@@ -222,7 +311,7 @@
                 inline: true, dateFormat: 'Y-m-d', minDate: todayStr,
                 disable: roomAvailability ? [roomDateIsUnavailable] : [],
                 defaultDate: checkoutField && checkoutField.value ? checkoutField.value : undefined,
-                onChange: function (selectedDates, dateStr) { if (checkoutField) checkoutField.value = dateStr; updateArrivalDeparture(checkinField ? checkinField.value : '', dateStr); },
+                onChange: function (selectedDates, dateStr) { if (checkoutField) checkoutField.value = dateStr; updateArrivalDeparture(checkinField ? checkinField.value : '', dateStr); scheduleSelectedRoomAvailabilityCheck(); },
                 onMonthChange: function (a, b, instance) { syncMonthYear(checkoutMonth, checkoutYear, instance); refreshAvailability(instance); },
                 onYearChange: function (a, b, instance) { syncMonthYear(checkoutMonth, checkoutYear, instance); refreshAvailability(instance); }
             });
@@ -243,6 +332,7 @@
                         var minCheckout = new Date(selectedDates[0].getTime() + 86400000);
                         checkoutPicker.set('minDate', minCheckout);
                     }
+                    scheduleSelectedRoomAvailabilityCheck();
                 },
                 onMonthChange: function (a, b, instance) { syncMonthYear(checkinMonth, checkinYear, instance); updatePrevVisibility(instance, prevButton); refreshAvailability(instance); },
                 onYearChange: function (a, b, instance) { syncMonthYear(checkinMonth, checkinYear, instance); updatePrevVisibility(instance, prevButton); refreshAvailability(instance); }
@@ -272,12 +362,16 @@
                 disable: roomAvailability ? [roomDateIsUnavailable] : [],
                 defaultDate: (checkinField && checkinField.value && checkoutField && checkoutField.value) ? [checkinField.value, checkoutField.value] : undefined,
                 onChange: function (selectedDates, dateStr, instance) {
-                    if (selectedDates.length < 2) return;
+                    if (selectedDates.length < 2) {
+                        scheduleSelectedRoomAvailabilityCheck();
+                        return;
+                    }
                     var fmt = function (d) { return instance.formatDate(d, 'Y-m-d'); };
                     var start = fmt(selectedDates[0]), end = fmt(selectedDates[1]);
                     if (checkinField) checkinField.value = start;
                     if (checkoutField) checkoutField.value = end;
                     updateArrivalDeparture(start, end);
+                    scheduleSelectedRoomAvailabilityCheck();
                 },
                 onMonthChange: function (a, b, instance) { syncMonthYear(monthSelect, yearSelect, instance); updatePrevVisibility(instance, singlePrev); refreshAvailability(instance); },
                 onYearChange: function (a, b, instance) { syncMonthYear(monthSelect, yearSelect, instance); updatePrevVisibility(instance, singlePrev); refreshAvailability(instance); }
@@ -293,6 +387,8 @@
             if (singleNext) singleNext.onclick = function () { picker.changeMonth(1); };
         }
     }
+    initializeSelectedRoomAvailability();
+    scheduleSelectedRoomAvailabilityCheck();
     }
     initializePartyComposer();
     loadAvailabilityMonth(todayDate).then(initializeCalendars, initializeCalendars);

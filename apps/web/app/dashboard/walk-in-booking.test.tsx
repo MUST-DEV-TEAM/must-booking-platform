@@ -122,6 +122,8 @@ describe('WalkInBooking', () => {
       if (url === `${base}/rate-plans`) return Promise.resolve(response([]));
       if (url.startsWith(`${base}/availability-calendar?`))
         return Promise.resolve(response({ days: [] }));
+      if (url.startsWith(`${base}/availability-check?`))
+        return Promise.resolve(response({ isAvailable: true, checked: true }));
       if (url === `${base}/quotes`)
         return Promise.resolve(response({ total: { amount: '250.00', currency: 'EUR' } }));
       if (url === `${base}/staff-bookings`)
@@ -143,6 +145,7 @@ describe('WalkInBooking', () => {
 
     await clickDay(container, DAY_1);
     await clickDay(container, DAY_2);
+    await settle(60);
     await click(container, 'Search availability');
     expect(fetchMock).toHaveBeenCalledWith(
       `${base}/quotes`,
@@ -182,6 +185,97 @@ describe('WalkInBooking', () => {
     expect(body.ratePlanId).toBeUndefined();
     expect(body.paymentMethod).toBe('pay_at_hotel');
     expect(toast.success).toHaveBeenCalledWith('Booking created as pay at hotel.');
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it('Clock conflict blocks Quick Booking before quote details are shown', async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url === `${base}/pms-connection-status`)
+        return Promise.resolve(response({ provider: 'CLOCK_PMS' }));
+      if (url === `${base}/room-types`)
+        return Promise.resolve(response([{ id: 'room-type-1', name: 'DBL', roomCount: 5 }]));
+      if (url === `${base}/rooms`) return Promise.resolve(response([]));
+      if (url === `${base}/rate-plans`) return Promise.resolve(response([]));
+      if (url.startsWith(`${base}/availability-calendar?`))
+        return Promise.resolve(response({ days: [] }));
+      if (url.startsWith(`${base}/availability-check?`))
+        return Promise.resolve(response({ isAvailable: false, checked: true }));
+      if (url === `${base}/quotes`)
+        return Promise.resolve(response({ total: { amount: '250.00', currency: 'EUR' } }));
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { container, root } = await mount({
+      paymentGateways: { stripe: false, pokpay: false, payAtHotel: true },
+    });
+
+    await setValue(container.querySelector('select')!, 'room-type-1');
+    await clickDay(container, DAY_1);
+    await clickDay(container, DAY_2);
+    await settle(60);
+
+    const searchButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Search availability',
+    );
+    expect(searchButton?.disabled).toBe(true);
+    expect(container.textContent).toContain('selected room is no longer available');
+    expect(fetchMock.mock.calls.some(([url]) => url === `${base}/quotes`)).toBe(false);
+    expect(
+      fetchMock.mock.calls.filter(([url]) => url.startsWith(`${base}/availability-check?`)),
+    ).toHaveLength(1);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it('Clock search-check failure fails open and lets Quick Booking continue to quote', async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url === `${base}/pms-connection-status`)
+        return Promise.resolve(response({ provider: 'CLOCK_PMS' }));
+      if (url === `${base}/room-types`)
+        return Promise.resolve(response([{ id: 'room-type-1', name: 'DBL', roomCount: 5 }]));
+      if (url === `${base}/rooms`) return Promise.resolve(response([]));
+      if (url === `${base}/rate-plans`) return Promise.resolve(response([]));
+      if (url.startsWith(`${base}/availability-calendar?`))
+        return Promise.resolve(response({ days: [] }));
+      if (url.startsWith(`${base}/availability-check?`))
+        return Promise.reject(new Error('Clock network failure'));
+      if (url === `${base}/quotes`)
+        return Promise.resolve(response({ total: { amount: '250.00', currency: 'EUR' } }));
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { container, root } = await mount({
+      paymentGateways: { stripe: false, pokpay: false, payAtHotel: true },
+    });
+
+    await setValue(container.querySelector('select')!, 'room-type-1');
+    await clickDay(container, DAY_1);
+    await clickDay(container, DAY_2);
+    await settle(60);
+
+    const searchButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Search availability',
+    );
+    expect(searchButton?.disabled).toBe(false);
+    expect(container.textContent).toContain('could not be confirmed yet');
+    await click(container, 'Search availability');
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${base}/quotes`,
+      expect.objectContaining({
+        body: JSON.stringify({
+          roomTypeId: 'room-type-1',
+          roomId: undefined,
+          ratePlanId: undefined,
+          startsOn: DAY_1,
+          endsOn: DAY_3,
+          adults: 1,
+          children: 0,
+        }),
+      }),
+    );
+
     await act(async () => root.unmount());
     container.remove();
   });
@@ -316,13 +410,13 @@ async function mount(options?: {
   await settle();
   return { container, root };
 }
-async function settle() {
-  await act(async () => {
-    for (let iteration = 0; iteration < 6; iteration += 1) {
+async function settle(iterations = 6) {
+  for (let iteration = 0; iteration < iterations; iteration += 1) {
+    await act(async () => {
       await new Promise((resolve) => window.setTimeout(resolve, 20));
       await Promise.resolve();
-    }
-  });
+    });
+  }
 }
 async function setValue(element: HTMLInputElement | HTMLSelectElement, value: string) {
   await act(async () => {

@@ -10,6 +10,7 @@ import {
 import type { AvailabilityQuery } from '@must/domain-contracts';
 
 import { PmsProviderRegistry } from '../booking/pms-provider-registry';
+import { ClockAvailabilityService } from '../integrations/clock/clock-availability.service';
 import { AvailabilityService } from './availability.service';
 import { PublicTenantScoped } from './tenant-context.decorator';
 import { PublicRateLimitGuard } from './public-rate-limit.guard';
@@ -22,6 +23,8 @@ export class PublicAvailabilityController {
   constructor(
     @Inject(PmsProviderRegistry) private readonly providers: PmsProviderRegistry,
     @Inject(AvailabilityService) private readonly availability: AvailabilityService,
+    @Inject(ClockAvailabilityService)
+    private readonly clockAvailability: ClockAvailabilityService,
   ) {}
 
   // Milestone 11.5 (post-Task-9 scoping): dispatched through the registry so
@@ -45,6 +48,30 @@ export class PublicAvailabilityController {
     );
     if (!result.ok) throw new BadRequestException(result.error.message);
     return result.value;
+  }
+
+  /**
+   * Advisory, search-time check. It deliberately fails open: the final
+   * uncached availability guard still runs before payment/booking creation.
+   */
+  @Get('availability-check')
+  @PublicTenantScoped({ propertyParam: 'propertyId' })
+  @UseGuards(PublicRateLimitGuard)
+  @PublicRateLimit(PUBLIC_READ_RATE_LIMIT)
+  async checkAvailability(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
+    const parsed = parseBookingAvailabilityQuery(query);
+    try {
+      const result = await this.clockAvailability.isAvailableForBooking(
+        request.tenantContext.tenantId,
+        request.tenantContext.propertyId,
+        parsed,
+        { cache: true },
+      );
+      if (!result.ok) return { isAvailable: true, checked: false };
+      return { isAvailable: result.value, checked: true };
+    } catch {
+      return { isAvailable: true, checked: false };
+    }
   }
 
   /** A guest who has already selected a physical room needs month-level
@@ -98,4 +125,39 @@ function parseAvailabilityCalendarQuery(query: unknown): {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))
     throw new BadRequestException('month must be YYYY-MM.');
   return { roomTypeId, roomId, month };
+}
+
+function parseBookingAvailabilityQuery(query: unknown): {
+  roomTypeId: string;
+  roomId?: string;
+  startsOn: string;
+  endsOn: string;
+  adultCount?: number;
+  childrenCount?: number;
+} {
+  const value = (query ?? {}) as Record<string, unknown>;
+  const roomTypeId = typeof value.roomTypeId === 'string' ? value.roomTypeId : '';
+  if (!roomTypeId) throw new BadRequestException('roomTypeId is required.');
+  const startsOn = isoDate(value.startsOn, 'startsOn');
+  const endsOn = isoDate(value.endsOn, 'endsOn');
+  if (endsOn <= startsOn) throw new BadRequestException('endsOn must be after startsOn.');
+  const roomId = typeof value.roomId === 'string' && value.roomId ? value.roomId : undefined;
+  return {
+    roomTypeId,
+    roomId,
+    startsOn,
+    endsOn,
+    adultCount: optionalInteger(value.adults, 'adults', 1),
+    childrenCount: optionalInteger(value.children, 'children', 0),
+  };
+}
+
+function optionalInteger(value: unknown, field: string, minimum: number): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || !/^\d+$/.test(value))
+    throw new BadRequestException(`${field} must be a whole number.`);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum)
+    throw new BadRequestException(`${field} must be at least ${minimum}.`);
+  return parsed;
 }

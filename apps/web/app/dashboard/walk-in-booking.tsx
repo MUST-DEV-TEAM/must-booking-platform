@@ -1,5 +1,5 @@
 'use client';
-import { Card, Heading, Stack, Text } from '@must/ui';
+import { Alert, Card, Heading, Stack, Text } from '@must/ui';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { DayPicker, type DateRange } from 'react-day-picker';
 import { Loader2 } from 'lucide-react';
@@ -11,6 +11,7 @@ type RoomType = { id: string; name: string; roomCount: number };
 type Room = { id: string; name: string; roomTypeId: string; roomTypeName: string };
 type RatePlan = { id: string; name: string; currency: string };
 type Quote = { total: { amount: string; currency: string } };
+type BookingAvailabilityCheck = { isAvailable: boolean; checked: boolean };
 type StayInput = {
   roomTypeId: string;
   roomId?: string;
@@ -227,6 +228,74 @@ export function WalkInBooking({
     adults,
     children,
   };
+  const [debouncedAvailabilityInput, setDebouncedAvailabilityInput] = useState<StayInput | null>(
+    null,
+  );
+
+  useEffect(() => {
+    if (!isClockConnected || !canSearch) {
+      setDebouncedAvailabilityInput(null);
+      return;
+    }
+    const nextInput = { ...input };
+    const timer = window.setTimeout(() => setDebouncedAvailabilityInput(nextInput), 500);
+    return () => window.clearTimeout(timer);
+  }, [
+    adults,
+    canSearch,
+    children,
+    endsOn,
+    effectiveRoomTypeId,
+    isClockConnected,
+    ratePlanId,
+    roomId,
+    showIndividualRoom,
+    startsOn,
+  ]);
+
+  const bookingAvailabilityQuery = useQuery<BookingAvailabilityCheck>({
+    queryKey: [
+      'dashboard',
+      'walk-in-booking-clock-availability',
+      tenantId,
+      propertyId,
+      debouncedAvailabilityInput?.roomTypeId ?? '',
+      debouncedAvailabilityInput?.roomId ?? '',
+      debouncedAvailabilityInput?.startsOn ?? '',
+      debouncedAvailabilityInput?.endsOn ?? '',
+      debouncedAvailabilityInput?.adults ?? 1,
+      debouncedAvailabilityInput?.children ?? 0,
+    ],
+    queryFn: async () => {
+      const checkInput = debouncedAvailabilityInput;
+      if (!checkInput) throw new Error('Availability check is not ready.');
+      const params = new URLSearchParams({
+        roomTypeId: checkInput.roomTypeId,
+        startsOn: checkInput.startsOn,
+        endsOn: checkInput.endsOn,
+        adults: String(checkInput.adults),
+        children: String(checkInput.children),
+      });
+      if (checkInput.roomId) params.set('roomId', checkInput.roomId);
+      const response = await fetch(`${base}/availability-check?${params}`, {
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Unable to confirm Clock availability.');
+      return (await response.json()) as BookingAvailabilityCheck;
+    },
+    enabled: !!debouncedAvailabilityInput && isClockConnected,
+    staleTime: 45_000,
+    gcTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const advisoryAvailabilityPending =
+    isClockConnected &&
+    canSearch &&
+    (!debouncedAvailabilityInput || bookingAvailabilityQuery.isPending);
+  const advisoryAvailabilityBlocked =
+    isClockConnected &&
+    bookingAvailabilityQuery.data?.checked === true &&
+    bookingAvailabilityQuery.data.isAvailable === false;
 
   return (
     <Stack className={styles.page} gap="lg">
@@ -361,7 +430,9 @@ export function WalkInBooking({
         <button
           type="button"
           className="must-button must-button--primary"
-          disabled={busy || !canSearch}
+          disabled={
+            busy || !canSearch || advisoryAvailabilityPending || advisoryAvailabilityBlocked
+          }
           onClick={() => availabilityMutation.mutate(input)}
         >
           {availabilityMutation.isPending ? (
@@ -372,6 +443,17 @@ export function WalkInBooking({
             'Search availability'
           )}
         </button>
+        {advisoryAvailabilityBlocked ? (
+          <Alert role="alert" tone="danger">
+            The selected room is no longer available for these dates. Please choose another room or
+            date range.
+          </Alert>
+        ) : null}
+        {bookingAvailabilityQuery.isError ? (
+          <Text tone="secondary">
+            Clock availability could not be confirmed yet; it will be checked again before booking.
+          </Text>
+        ) : null}
 
         {quote ? (
           <>

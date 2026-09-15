@@ -132,6 +132,28 @@ function maybe_process_accommodation_selection(): string
         $ratePlanName = \__('Best available rate', 'must-hotel-booking');
     }
 
+    // Clock-connected catalog entries are priced without a local rate plan.
+    // Ask the same advisory endpoint used by the calendar before moving the
+    // guest to details; failures remain fail-open because the quote/payment
+    // path performs the authoritative final check.
+    if (!$requiresRatePlanSelection) {
+        $availabilityQuery = [
+            'roomTypeId' => $roomTypeId,
+            'startsOn' => $checkin, 'endsOn' => $checkout,
+            'adults' => $adults, 'children' => $children,
+        ];
+        if ($roomId !== '') $availabilityQuery['roomId'] = $roomId;
+        $availability = MustApiClient::get('/public/availability-check', $availabilityQuery);
+        $availabilityBody = $availability['body'] ?? null;
+        if (
+            $availability['ok'] && \is_array($availabilityBody) &&
+            ($availabilityBody['checked'] ?? false) === true &&
+            ($availabilityBody['isAvailable'] ?? true) === false
+        ) {
+            return \__('That room is no longer available for these dates. Please choose another.', 'must-hotel-booking');
+        }
+    }
+
     $quoteInput = [
         'roomTypeId' => $roomTypeId, 'ratePlanId' => $ratePlanId,
         'startsOn' => $checkin, 'endsOn' => $checkout,

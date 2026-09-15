@@ -405,6 +405,7 @@ function enqueue_booking_page_assets(): void
         'roomAvailability' => $roomId !== '' && $roomTypeId !== '' ? [
             'ajaxUrl' => \admin_url('admin-ajax.php'),
             'nonce' => \wp_create_nonce('must_booking_room_calendar'),
+            'availabilityAction' => 'must_booking_room_availability_check',
         ] : null,
     ]);
 }
@@ -432,5 +433,46 @@ function get_selected_room_calendar(): void
 }
 \add_action('wp_ajax_must_booking_room_calendar', __NAMESPACE__ . '\\get_selected_room_calendar');
 \add_action('wp_ajax_nopriv_must_booking_room_calendar', __NAMESPACE__ . '\\get_selected_room_calendar');
+
+function get_selected_room_availability_check(): void
+{
+    $nonce = isset($_POST['nonce']) ? (string) \wp_unslash($_POST['nonce']) : '';
+    if ($nonce === '' || !\wp_verify_nonce($nonce, 'must_booking_room_calendar')) {
+        \wp_send_json_error(['message' => __('Your request could not be verified. Please refresh and try again.', 'must-hotel-booking')], 403);
+    }
+    $selection = get_current_booking_selection();
+    $roomId = $selection !== null && isset($selection['roomId']) ? \sanitize_text_field((string) $selection['roomId']) : '';
+    $roomTypeId = $selection !== null && isset($selection['roomTypeId']) ? \sanitize_text_field((string) $selection['roomTypeId']) : '';
+    $checkin = isset($_POST['checkin']) ? \sanitize_text_field((string) \wp_unslash($_POST['checkin'])) : '';
+    $checkout = isset($_POST['checkout']) ? \sanitize_text_field((string) \wp_unslash($_POST['checkout'])) : '';
+    $adults = isset($_POST['adults']) ? \max(1, (int) $_POST['adults']) : 1;
+    $children = isset($_POST['children']) ? \max(0, (int) $_POST['children']) : 0;
+    $checkinDate = \DateTimeImmutable::createFromFormat('!Y-m-d', $checkin);
+    $checkoutDate = \DateTimeImmutable::createFromFormat('!Y-m-d', $checkout);
+    if (
+        $roomId === '' || $roomTypeId === '' ||
+        !$checkinDate || $checkinDate->format('Y-m-d') !== $checkin ||
+        !$checkoutDate || $checkoutDate->format('Y-m-d') !== $checkout ||
+        $checkout <= $checkin
+    ) {
+        \wp_send_json_error(['message' => __('Selected room availability is unavailable. Please choose the room again.', 'must-hotel-booking')], 400);
+    }
+
+    $response = MustApiClient::get('/public/availability-check', [
+        'roomTypeId' => $roomTypeId, 'roomId' => $roomId,
+        'startsOn' => $checkin, 'endsOn' => $checkout,
+        'adults' => $adults, 'children' => $children,
+    ]);
+    $body = $response['body'] ?? null;
+    if (!$response['ok'] || !\is_array($body) || ($body['checked'] ?? false) !== true) {
+        \wp_send_json_success(['is_available' => true, 'availability_status' => 'provider_unconfirmed']);
+    }
+    \wp_send_json_success([
+        'is_available' => (bool) ($body['isAvailable'] ?? true),
+        'availability_status' => 'ok',
+    ]);
+}
+\add_action('wp_ajax_must_booking_room_availability_check', __NAMESPACE__ . '\\get_selected_room_availability_check');
+\add_action('wp_ajax_nopriv_must_booking_room_availability_check', __NAMESPACE__ . '\\get_selected_room_availability_check');
 \add_action('wp_enqueue_scripts', __NAMESPACE__ . '\\enqueue_booking_page_assets');
 \add_filter('template_include', __NAMESPACE__ . '\\maybe_load_frontend_template', 99);

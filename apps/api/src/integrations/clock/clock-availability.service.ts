@@ -131,6 +131,10 @@ const CACHE_TTL_MS = 1_200_000;
 // Display prices are informational only, so keep them short-lived while
 // avoiding one provider request per accommodation card on every page load.
 const DISPLAY_PRICE_CACHE_TTL_MS = 300_000;
+// Search-time checks are advisory, so a short cache prevents repeated date
+// changes and parallel tabs from hammering Clock. The pre-payment guard keeps
+// the default uncached and remains the authoritative final check.
+const BOOKING_AVAILABILITY_CACHE_TTL_MS = 45_000;
 
 interface CacheEntry<T> {
   value: T;
@@ -149,6 +153,7 @@ export class ClockAvailabilityService {
   private readonly availabilityCache = new Map<string, CacheEntry<AvailabilityResult>>();
   private readonly ratesCache = new Map<string, CacheEntry<RoomTypeRates>>();
   private readonly displayPriceCache = new Map<string, CacheEntry<Money>>();
+  private readonly bookingAvailabilityCache = new Map<string, CacheEntry<boolean>>();
 
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
@@ -163,9 +168,12 @@ export class ClockAvailabilityService {
   ) {}
 
   /**
-   * Uncached pre-payment availability check. Room-type selections use
+   * Availability check used by both search-time advisory checks and the
+   * uncached pre-payment guard. Room-type selections use
    * `/rates_availability`, while physical-room selections use the verified
    * booking-overlap/detail pattern in ClockBookingConsistencyService.
+   * Search-time callers may opt into a short-lived cache; the default remains
+   * uncached so a cached answer can never gate booking creation.
    */
   async isAvailableForBooking(
     tenantId: string,
@@ -178,6 +186,7 @@ export class ClockAvailabilityService {
       adultCount?: number;
       childrenCount?: number;
     },
+    options: { cache?: boolean } = {},
   ): Promise<Result<boolean>> {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (!connection || connection.provider !== 'CLOCK_PMS')
@@ -186,6 +195,23 @@ export class ClockAvailabilityService {
       );
     const parsed = parseClockCredentials(connection.credentials);
     if (!parsed.ok) return failure(classifyConfigurationError(parsed.message));
+
+    const cacheKey = JSON.stringify([
+      'clock-booking-availability-v1',
+      tenantId,
+      propertyId,
+      connection.connectionId,
+      query.roomTypeId,
+      query.roomId ?? '',
+      query.startsOn,
+      query.endsOn,
+      query.adultCount ?? 1,
+      query.childrenCount ?? 0,
+    ]);
+    if (options.cache) {
+      const cached = this.bookingAvailabilityCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) return { ok: true, value: cached.value };
+    }
 
     if (query.roomId) {
       const externalRoomId = await this.mappedExternalRoomId(tenantId, propertyId, query.roomId);
@@ -201,7 +227,13 @@ export class ClockAvailabilityService {
           { startsOn: query.startsOn, endsOn: query.endsOn },
           externalRoomId,
         );
-        return { ok: true, value: !hasConflict };
+        const value = !hasConflict;
+        if (options.cache)
+          this.bookingAvailabilityCache.set(cacheKey, {
+            value,
+            expiresAt: Date.now() + BOOKING_AVAILABILITY_CACHE_TTL_MS,
+          });
+        return { ok: true, value };
       } catch (error) {
         if (error instanceof ClockBookingReadError) return failure(error.classified);
         throw error;
@@ -236,9 +268,20 @@ export class ClockAvailabilityService {
       children: String(query.childrenCount ?? 0),
     });
     if (!response.ok) return failure(response.error);
+    const value = summarizeAvailability(
+      query,
+      nights,
+      response.value,
+      externalRoomTypeId,
+    ).isAvailable;
+    if (options.cache)
+      this.bookingAvailabilityCache.set(cacheKey, {
+        value,
+        expiresAt: Date.now() + BOOKING_AVAILABILITY_CACHE_TTL_MS,
+      });
     return {
       ok: true,
-      value: summarizeAvailability(query, nights, response.value, externalRoomTypeId).isAvailable,
+      value,
     };
   }
 
