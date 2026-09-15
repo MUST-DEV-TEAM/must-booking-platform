@@ -1,4 +1,13 @@
-import { BadRequestException, Body, Controller, Get, Inject, Param, Put, Req } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Inject,
+  Param,
+  Put,
+  Req,
+} from '@nestjs/common';
 
 import { RequiresVerifiedEmail } from '../../auth/requires-verified-email.decorator';
 import { RequiresCapability } from '../../tenancy/capabilities.decorator';
@@ -102,7 +111,10 @@ export class ClockRateRankingController {
 
   private parseRankedIds(body: unknown): string[] {
     const value = (body ?? {}) as { externalRateIds?: unknown };
-    if (!Array.isArray(value.externalRateIds) || value.externalRateIds.some((id) => typeof id !== 'string'))
+    if (
+      !Array.isArray(value.externalRateIds) ||
+      value.externalRateIds.some((id) => typeof id !== 'string')
+    )
       throw new BadRequestException('externalRateIds must be an array of strings.');
     const externalRateIds = value.externalRateIds as string[];
     if (new Set(externalRateIds).size !== externalRateIds.length)

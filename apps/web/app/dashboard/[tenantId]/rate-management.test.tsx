@@ -59,7 +59,10 @@ describe('RateManagement — Clock-connected property (Task 13)', () => {
       if (url === `${base}/rate-plans`) return Promise.resolve(response([]));
       if (url === `${base}/pms-connection-status`)
         return Promise.resolve(response({ provider: 'CLOCK_PMS' }));
-      if (url === `${base}/room-types/room-type-1/clock-rate-ranking` && (!init || init.method === undefined))
+      if (
+        url === `${base}/room-types/room-type-1/clock-rate-ranking` &&
+        (!init || init.method === undefined)
+      )
         return Promise.resolve(response(ranking));
       if (url === `${base}/room-types/room-type-1/clock-rate-ranking` && init?.method === 'PUT')
         return Promise.resolve(response(savedRanking));

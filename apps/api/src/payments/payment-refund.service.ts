@@ -243,9 +243,7 @@ export class PaymentRefundService {
     return {
       result: { ok: true, value: { ...refunded.value, bookingId } },
       confirmation,
-      clockRefund: inserted[0]
-        ? { amount: command.amount, refundId: refunded.value.id }
-        : null,
+      clockRefund: inserted[0] ? { amount: command.amount, refundId: refunded.value.id } : null,
     };
   }
 
@@ -313,12 +311,7 @@ export class PaymentRefundService {
         });
         confirmation = outcome.confirmation;
         if (outcome.result.ok && outcome.clockRefund) {
-          await this.syncManualRefundToClock(
-            tx,
-            context,
-            command.bookingId,
-            outcome.clockRefund,
-          );
+          await this.syncManualRefundToClock(tx, context, command.bookingId, outcome.clockRefund);
         }
         return outcome.result;
       }),
@@ -403,9 +396,7 @@ export class PaymentRefundService {
         },
       },
       confirmation,
-      clockRefund: inserted[0]
-        ? { amount: command.amount, refundId: externalPaymentId }
-        : null,
+      clockRefund: inserted[0] ? { amount: command.amount, refundId: externalPaymentId } : null,
     };
   }
 

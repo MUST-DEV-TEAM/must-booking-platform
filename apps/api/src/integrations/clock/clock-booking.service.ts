@@ -85,10 +85,7 @@ export function isClockBookingResource(value: unknown): value is ClockBookingRes
 
 function clockGuestIdFromBooking(value: ClockBookingResource): string | null {
   const guestId = value.main_booking_guest?.guest_id;
-  if (
-    (typeof guestId !== 'string' && typeof guestId !== 'number') ||
-    !String(guestId).trim()
-  )
+  if ((typeof guestId !== 'string' && typeof guestId !== 'number') || !String(guestId).trim())
     return null;
   return String(guestId);
 }
@@ -295,13 +292,7 @@ export class ClockBookingService {
             occupancy.children,
           );
           if (!rate.ok) {
-            await this.transition(
-              tx,
-              context,
-              bookingId,
-              status,
-              BookingStatus.PMS_UNKNOWN_RESULT,
-            );
+            await this.transition(tx, context, bookingId, status, BookingStatus.PMS_UNKNOWN_RESULT);
             await this.recordPostCommitFailure(tx, context, bookingId, {
               category: 'UNKNOWN_RESULT',
               message: `The local booking was committed, but Clock rate selection failed: ${rate.error.message}`,
@@ -320,13 +311,7 @@ export class ClockBookingService {
             ? { ok: true as const, value: mappedClockGuest }
             : await this.clockGuestForBooking(connection.value, command.guest.email);
           if (!existingClockGuest.ok) {
-            await this.transition(
-              tx,
-              context,
-              bookingId,
-              status,
-              BookingStatus.PMS_UNKNOWN_RESULT,
-            );
+            await this.transition(tx, context, bookingId, status, BookingStatus.PMS_UNKNOWN_RESULT);
             await this.recordPostCommitFailure(tx, context, bookingId, {
               category: 'UNKNOWN_RESULT',
               message: `The local booking was committed, but Clock guest lookup failed: ${existingClockGuest.error.message}`,
@@ -510,7 +495,8 @@ export class ClockBookingService {
     if (!row) {
       await this.recordPostCommitFailure(tx, context, bookingId, {
         category: 'UNKNOWN_RESULT',
-        message: 'Payment was confirmed, but the local booking could not be loaded for Clock attachment.',
+        message:
+          'Payment was confirmed, but the local booking could not be loaded for Clock attachment.',
       });
       return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
     }
@@ -548,8 +534,7 @@ export class ClockBookingService {
     if (!externalRoomTypeId) {
       await this.recordPostCommitFailure(tx, context, bookingId, {
         category: 'MISSING_MAPPING',
-        message:
-          'Payment was confirmed, but the room type has no confirmed Clock catalog mapping.',
+        message: 'Payment was confirmed, but the room type has no confirmed Clock catalog mapping.',
         context: { roomTypeId: row.roomTypeId },
       });
     }
@@ -602,7 +587,10 @@ export class ClockBookingService {
       await this.recordPostCommitFailure(tx, context, bookingId, {
         category: 'UNKNOWN_RESULT',
         message: `Payment was confirmed, but Clock guest lookup failed: ${existingClockGuest.error.message}`,
-        context: { externalReference: row.externalReference, errorCode: existingClockGuest.error.code },
+        context: {
+          externalReference: row.externalReference,
+          errorCode: existingClockGuest.error.code,
+        },
       });
       return this.failure(
         existingClockGuest.error.code,
@@ -1220,7 +1208,7 @@ export class ClockBookingService {
     return this.failureError({
       category: 'not_found',
       code: 'clock_original_deposit_missing',
-      message: 'Clock has no deposit folio containing MUST\'s original payment reference.',
+      message: "Clock has no deposit folio containing MUST's original payment reference.",
       retryable: false,
     });
   }

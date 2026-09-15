@@ -296,9 +296,9 @@ describe('ClockBookingService Clock guest search', () => {
       roomGuestLastName: null,
     };
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([
-        { email: 'guest@example.test', firstName: 'Test', lastName: 'Guest' },
-      ]),
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValue([{ email: 'guest@example.test', firstName: 'Test', lastName: 'Guest' }]),
       $executeRaw: vi.fn().mockResolvedValue(1),
     };
     const internals = service as unknown as Record<string, unknown>;
@@ -420,9 +420,9 @@ describe('ClockBookingService Clock guest search', () => {
       roomGuestLastName: null,
     };
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([
-        { email: 'new@example.test', firstName: 'New', lastName: 'Guest' },
-      ]),
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValue([{ email: 'new@example.test', firstName: 'New', lastName: 'Guest' }]),
       $executeRaw: vi.fn().mockResolvedValue(1),
     };
     const internals = service as unknown as Record<string, unknown>;
@@ -477,18 +477,19 @@ describe('ClockBookingService Clock guest search', () => {
     });
     internals.mappedExternalId = vi.fn().mockResolvedValue('101');
     internals.rateIdForRoomType = vi.fn().mockResolvedValue({ ok: true, value: '202' });
-    internals.mappedClockGuest = vi.fn().mockImplementation(
-      async (_tx: unknown, context: { propertyId: string }) =>
+    internals.mappedClockGuest = vi
+      .fn()
+      .mockImplementation(async (_tx: unknown, context: { propertyId: string }) =>
         context.propertyId === 'property-1' ? '42' : null,
-    );
+      );
     internals.rememberClockGuest = vi.fn().mockResolvedValue(undefined);
     internals.transition = vi.fn().mockResolvedValue('PMS_CONFIRMATION_PENDING');
     internals.toBooking = vi.fn().mockReturnValue({ id: 'booking-other-property' });
     internals.audit = { recordInTransaction: vi.fn().mockResolvedValue(undefined) };
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([
-        { email: 'guest@example.test', firstName: 'Test', lastName: 'Guest' },
-      ]),
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValue([{ email: 'guest@example.test', firstName: 'Test', lastName: 'Guest' }]),
       $executeRaw: vi.fn().mockResolvedValue(1),
     };
 

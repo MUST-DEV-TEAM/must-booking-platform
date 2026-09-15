@@ -417,9 +417,9 @@ export function RateManagement({
           <Stack gap="lg">
             <Card>
               <Text tone="secondary">
-                This property is connected to Clock PMS — rates themselves are managed in Clock,
-                not here. When more than one of Clock&rsquo;s rates could apply to the same
-                booking, set which one should win below.
+                This property is connected to Clock PMS — rates themselves are managed in Clock, not
+                here. When more than one of Clock&rsquo;s rates could apply to the same booking, set
+                which one should win below.
               </Text>
             </Card>
             {roomTypes.map((roomType) => (
@@ -714,7 +714,8 @@ function ClockRatePriority({
     queryKey,
     queryFn: async (): Promise<{ rates: ClockRateRankingItem[] }> => {
       const response = await fetch(url, { credentials: 'include' });
-      if (!response.ok) throw new Error(await errorMessage(response, 'Unable to load Clock rates.'));
+      if (!response.ok)
+        throw new Error(await errorMessage(response, 'Unable to load Clock rates.'));
       return (await response.json()) as { rates: ClockRateRankingItem[] };
     },
   });
@@ -773,8 +774,8 @@ function ClockRatePriority({
         <p>{rankingQuery.error.message}</p>
       ) : orderedRates.length === 0 ? (
         <p>
-          Clock has no rate published to the booking engine for this room type yet — nothing to
-          rank until one exists.
+          Clock has no rate published to the booking engine for this room type yet — nothing to rank
+          until one exists.
         </p>
       ) : (
         <Stack gap="sm">

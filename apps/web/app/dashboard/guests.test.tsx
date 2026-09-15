@@ -152,7 +152,10 @@ describe('Dashboard guests', () => {
       return new Response(JSON.stringify(bookings));
     });
     vi.stubGlobal('fetch', fetch);
-    vi.stubGlobal('confirm', vi.fn(() => true));
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true),
+    );
     const { container, root } = await mount();
 
     expect(container.textContent).toContain('Suspected duplicates');
@@ -207,7 +210,10 @@ describe('Dashboard guests', () => {
       return new Response(JSON.stringify(bookings));
     });
     vi.stubGlobal('fetch', fetch);
-    vi.stubGlobal('confirm', vi.fn(() => true));
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true),
+    );
     const { container, root } = await mount();
 
     expect(container.textContent).toContain(

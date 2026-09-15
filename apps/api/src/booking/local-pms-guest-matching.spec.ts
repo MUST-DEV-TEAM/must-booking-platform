@@ -11,9 +11,8 @@ type Guest = {
 
 type GuestResolver = (tx: unknown, tenantId: string, guest: Guest) => Promise<unknown>;
 
-const resolveGuest = (
-  LocalPmsProvider.prototype as unknown as { resolveGuest: GuestResolver }
-).resolveGuest;
+const resolveGuest = (LocalPmsProvider.prototype as unknown as { resolveGuest: GuestResolver })
+  .resolveGuest;
 
 function transactionWith(...queryResults: unknown[]) {
   return {

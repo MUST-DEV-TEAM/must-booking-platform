@@ -273,8 +273,8 @@ export function DashboardGuests({
                   {canonicalProfile && otherProfile ? (
                     <Text className={reviewStyles.preview} tone="secondary">
                       Keeping <strong>{guestName(canonicalProfile)}</strong> — the{' '}
-                      {otherProfile.bookingCount} booking{otherProfile.bookingCount === 1 ? '' : 's'}{' '}
-                      on the other profile move here.{' '}
+                      {otherProfile.bookingCount} booking
+                      {otherProfile.bookingCount === 1 ? '' : 's'} on the other profile move here.{' '}
                       {mergePreviewNote(canonicalProfile, otherProfile)}
                     </Text>
                   ) : null}
@@ -411,10 +411,11 @@ function differingFields(
  * profiles with no context for why they were flagged together. */
 function matchReason(a: GuestReviewProfile, b: GuestReviewProfile): string {
   const emailMatches = a.email.trim().toLowerCase() === b.email.trim().toLowerCase();
-  const phoneMatches =
-    a.phone && b.phone && a.phone.trim() === b.phone.trim() ? true : false;
-  if (phoneMatches && !emailMatches) return 'Flagged because the phone number matches, but the email addresses differ.';
-  if (emailMatches && !phoneMatches) return 'Flagged because the email matches, but the phone numbers differ.';
+  const phoneMatches = a.phone && b.phone && a.phone.trim() === b.phone.trim() ? true : false;
+  if (phoneMatches && !emailMatches)
+    return 'Flagged because the phone number matches, but the email addresses differ.';
+  if (emailMatches && !phoneMatches)
+    return 'Flagged because the email matches, but the phone numbers differ.';
   return 'Flagged as a possible duplicate.';
 }
 
@@ -425,7 +426,11 @@ function matchReason(a: GuestReviewProfile, b: GuestReviewProfile): string {
 function mergePreviewNote(canonical: GuestReviewProfile, other: GuestReviewProfile): string {
   const fills: string[] = [];
   if (!canonical.phone?.trim() && other.phone?.trim()) fills.push(`phone ${other.phone}`);
-  if (!canonical.firstName?.trim() && !canonical.lastName?.trim() && guestName(other) !== other.email)
+  if (
+    !canonical.firstName?.trim() &&
+    !canonical.lastName?.trim() &&
+    guestName(other) !== other.email
+  )
     fills.push(`name ${guestName(other)}`);
   return fills.length ? `It will also pick up the other profile's ${fills.join(' and ')}.` : '';
 }

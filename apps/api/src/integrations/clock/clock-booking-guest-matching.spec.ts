@@ -11,9 +11,8 @@ type Guest = {
 
 type GuestResolver = (tx: unknown, tenantId: string, guest: Guest) => Promise<string>;
 
-const resolveGuest = (
-  ClockBookingService.prototype as unknown as { resolveGuest: GuestResolver }
-).resolveGuest;
+const resolveGuest = (ClockBookingService.prototype as unknown as { resolveGuest: GuestResolver })
+  .resolveGuest;
 
 function transactionWith(...queryResults: unknown[]) {
   return {

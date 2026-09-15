@@ -224,9 +224,10 @@ export class QuoteService {
   ): Promise<DisplayPrice[]> {
     if (items.length === 0) return [];
     const { roomCount: requestedRoomCount, ...quoteInput } = input;
-    const roomCount = Number.isInteger(requestedRoomCount) && (requestedRoomCount ?? 0) > 0
-      ? requestedRoomCount!
-      : 1;
+    const roomCount =
+      Number.isInteger(requestedRoomCount) && (requestedRoomCount ?? 0) > 0
+        ? requestedRoomCount!
+        : 1;
     const normalized = this.normalizeOccupancy({ roomTypeId: 'display', ...quoteInput });
     this.validStayInput(normalized);
     await this.enforceBookingRules(tenantId, propertyId, normalized);
@@ -254,23 +255,30 @@ export class QuoteService {
       });
     }
 
-    const prices = await Promise.all(items.map(async (item) => {
-      try {
-        const quote = await this.priceWithNightlyRates(tenantId, propertyId, {
-          roomTypeId: item.roomTypeId,
-          roomId: item.roomId,
-          ratePlanId: item.ratePlanId,
-          startsOn: normalized.startsOn,
-          endsOn: normalized.endsOn,
-          adults: normalized.adults,
-          children: normalized.children,
-          guestCount: normalized.guestCount,
-        });
-        return { key: item.key, roomTypeId: item.roomTypeId, available: true, total: quote.total };
-      } catch {
-        return { key: item.key, roomTypeId: item.roomTypeId, available: false };
-      }
-    }));
+    const prices = await Promise.all(
+      items.map(async (item) => {
+        try {
+          const quote = await this.priceWithNightlyRates(tenantId, propertyId, {
+            roomTypeId: item.roomTypeId,
+            roomId: item.roomId,
+            ratePlanId: item.ratePlanId,
+            startsOn: normalized.startsOn,
+            endsOn: normalized.endsOn,
+            adults: normalized.adults,
+            children: normalized.children,
+            guestCount: normalized.guestCount,
+          });
+          return {
+            key: item.key,
+            roomTypeId: item.roomTypeId,
+            available: true,
+            total: quote.total,
+          };
+        } catch {
+          return { key: item.key, roomTypeId: item.roomTypeId, available: false };
+        }
+      }),
+    );
     return prices;
   }
 

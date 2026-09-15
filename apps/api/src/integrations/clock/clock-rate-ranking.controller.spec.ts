@@ -5,17 +5,26 @@ import { ClockRateRankingController } from './clock-rate-ranking.controller';
 
 const request = { tenantContext: { tenantId: 't1' } };
 
-function makeController(overrides: {
-  rates?: Array<{ externalRateId: string; name: string; maxAdults: number | null; maxChildren: number | null }>;
-  ratesFailure?: string;
-  ranking?: Array<{ externalRateId: string; rank: number }>;
-} = {}) {
+function makeController(
+  overrides: {
+    rates?: Array<{
+      externalRateId: string;
+      name: string;
+      maxAdults: number | null;
+      maxChildren: number | null;
+    }>;
+    ratesFailure?: string;
+    ranking?: Array<{ externalRateId: string; rank: number }>;
+  } = {},
+) {
   const availability = {
-    ratesForRoomTypeDetailed: vi.fn().mockResolvedValue(
-      overrides.ratesFailure
-        ? { ok: false, error: { message: overrides.ratesFailure } }
-        : { ok: true, value: overrides.rates ?? [] },
-    ),
+    ratesForRoomTypeDetailed: vi
+      .fn()
+      .mockResolvedValue(
+        overrides.ratesFailure
+          ? { ok: false, error: { message: overrides.ratesFailure } }
+          : { ok: true, value: overrides.rates ?? [] },
+      ),
   };
   const rankings = {
     getRanking: vi.fn().mockResolvedValue(overrides.ranking ?? []),
@@ -59,7 +68,9 @@ describe('ClockRateRankingController.get', () => {
   });
 
   it('throws when Clock reports a configuration error (e.g. no confirmed catalog mapping)', async () => {
-    const { controller } = makeController({ ratesFailure: 'This room type has no confirmed Clock catalog mapping.' });
+    const { controller } = makeController({
+      ratesFailure: 'This room type has no confirmed Clock catalog mapping.',
+    });
 
     await expect(controller.get('p1', 'rt1', request)).rejects.toBeInstanceOf(BadRequestException);
   });
@@ -91,9 +102,9 @@ describe('ClockRateRankingController.set', () => {
   it('rejects a malformed body', async () => {
     const { controller, rankings } = makeController();
 
-    await expect(controller.set('p1', 'rt1', { externalRateIds: 'not-an-array' }, request)).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(
+      controller.set('p1', 'rt1', { externalRateIds: 'not-an-array' }, request),
+    ).rejects.toBeInstanceOf(BadRequestException);
     expect(rankings.setRanking).not.toHaveBeenCalled();
   });
 

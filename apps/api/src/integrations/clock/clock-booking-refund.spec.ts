@@ -34,16 +34,23 @@ type CreditItemByReference = (
   reference: string,
 ) => Promise<unknown>;
 
-const postRefund = (ClockBookingService.prototype as unknown as { postRefund: PostRefund }).postRefund;
-const postCreditItem = (ClockBookingService.prototype as unknown as {
-  postCreditItem: PostCreditItem;
-}).postCreditItem;
-const depositFolioWithPaymentReference = (ClockBookingService.prototype as unknown as {
-  depositFolioWithPaymentReference: DepositFolioWithPaymentReference;
-}).depositFolioWithPaymentReference;
-const creditItemByReference = (ClockBookingService.prototype as unknown as {
-  creditItemByReference: CreditItemByReference;
-}).creditItemByReference;
+const postRefund = (ClockBookingService.prototype as unknown as { postRefund: PostRefund })
+  .postRefund;
+const postCreditItem = (
+  ClockBookingService.prototype as unknown as {
+    postCreditItem: PostCreditItem;
+  }
+).postCreditItem;
+const depositFolioWithPaymentReference = (
+  ClockBookingService.prototype as unknown as {
+    depositFolioWithPaymentReference: DepositFolioWithPaymentReference;
+  }
+).depositFolioWithPaymentReference;
+const creditItemByReference = (
+  ClockBookingService.prototype as unknown as {
+    creditItemByReference: CreditItemByReference;
+  }
+).creditItemByReference;
 
 const credentials: ClockConnectionCredentials = {
   host: 'clock.example.test',
@@ -66,7 +73,10 @@ function serviceForRefund() {
   internals.credentials = vi.fn().mockResolvedValue({ ok: true, value: credentials });
   internals.depositFolioWithPaymentReference = vi.fn().mockResolvedValue({
     ok: true,
-    value: { folio: { id: 77, deposit: true, closed_at: '2026-09-10T00:00:00Z' }, creditItem: { id: 11, payment_sub_type: 'PokPay' } },
+    value: {
+      folio: { id: 77, deposit: true, closed_at: '2026-09-10T00:00:00Z' },
+      creditItem: { id: 11, payment_sub_type: 'PokPay' },
+    },
   });
   internals.creditItemByReference = vi.fn().mockResolvedValue({ ok: true, value: null });
   internals.postCreditItem = vi.fn().mockResolvedValue({ ok: true, value: { id: 88 } });
@@ -76,7 +86,9 @@ function serviceForRefund() {
   internals.audit = { recordInTransaction: vi.fn().mockResolvedValue(undefined) };
   return {
     service,
-    depositFolioWithPaymentReference: internals.depositFolioWithPaymentReference as ReturnType<typeof vi.fn>,
+    depositFolioWithPaymentReference: internals.depositFolioWithPaymentReference as ReturnType<
+      typeof vi.fn
+    >,
     creditItemByReference: internals.creditItemByReference as ReturnType<typeof vi.fn>,
     postCreditItem: internals.postCreditItem as ReturnType<typeof vi.fn>,
     manualReview: internals.manualReview as { recordInTransaction: ReturnType<typeof vi.fn> },
@@ -87,11 +99,24 @@ function serviceForRefund() {
 
 describe('ClockBookingService.postRefund', () => {
   it('posts the documented negative payment on the original deposit folio and flags the Deposit Adjustment', async () => {
-    const { service, depositFolioWithPaymentReference, postCreditItem, manualReview, notifications, audit } =
-      serviceForRefund();
+    const {
+      service,
+      depositFolioWithPaymentReference,
+      postCreditItem,
+      manualReview,
+      notifications,
+      audit,
+    } = serviceForRefund();
 
     await expect(
-      postRefund.call(service, {}, context, 'booking-1', { amount: '25.50', currency: 'EUR' }, 'must-refund:re_1'),
+      postRefund.call(
+        service,
+        {},
+        context,
+        'booking-1',
+        { amount: '25.50', currency: 'EUR' },
+        'must-refund:re_1',
+      ),
     ).resolves.toEqual({ ok: true, value: undefined });
 
     expect(depositFolioWithPaymentReference).toHaveBeenCalledWith(
@@ -129,11 +154,19 @@ describe('ClockBookingService.postRefund', () => {
   });
 
   it('does not create a second Clock payment when the refund reference already exists', async () => {
-    const { service, creditItemByReference, postCreditItem, manualReview, audit } = serviceForRefund();
+    const { service, creditItemByReference, postCreditItem, manualReview, audit } =
+      serviceForRefund();
     creditItemByReference.mockResolvedValue({ ok: true, value: { id: 99 } });
 
     await expect(
-      postRefund.call(service, {}, context, 'booking-1', { amount: '25.50', currency: 'EUR' }, 'must-refund:re_1'),
+      postRefund.call(
+        service,
+        {},
+        context,
+        'booking-1',
+        { amount: '25.50', currency: 'EUR' },
+        'must-refund:re_1',
+      ),
     ).resolves.toEqual({ ok: true, value: undefined });
 
     expect(postCreditItem).not.toHaveBeenCalled();
@@ -148,24 +181,34 @@ describe('ClockBookingService.postRefund', () => {
   });
 
   it('flags a missing original deposit folio without claiming the gateway refund failed', async () => {
-    const { service, depositFolioWithPaymentReference, manualReview, notifications } = serviceForRefund();
+    const { service, depositFolioWithPaymentReference, manualReview, notifications } =
+      serviceForRefund();
     depositFolioWithPaymentReference.mockResolvedValue({
       ok: false,
       error: {
         code: 'clock_original_deposit_missing',
-        message: 'Clock has no deposit folio containing MUST\'s original payment reference.',
+        message: "Clock has no deposit folio containing MUST's original payment reference.",
         retryable: false,
       },
     });
 
     await expect(
-      postRefund.call(service, {}, context, 'booking-1', { amount: '25.50', currency: 'EUR' }, 'must-refund:re_1'),
+      postRefund.call(
+        service,
+        {},
+        context,
+        'booking-1',
+        { amount: '25.50', currency: 'EUR' },
+        'must-refund:re_1',
+      ),
     ).resolves.toMatchObject({ ok: false, error: { code: 'clock_original_deposit_missing' } });
 
     expect(manualReview.recordInTransaction).toHaveBeenCalledWith(
       {},
       expect.objectContaining({
-        message: expect.stringContaining("MUST refunded the guest, but Clock's original deposit folio could not be found"),
+        message: expect.stringContaining(
+          "MUST refunded the guest, but Clock's original deposit folio could not be found",
+        ),
       }),
     );
     expect(notifications.recordInTransaction).toHaveBeenCalledWith(
@@ -201,24 +244,21 @@ describe('ClockBookingService credit-item refund payload', () => {
       ),
     ).resolves.toEqual({ ok: true, value: { id: 88 } });
 
-    expect(fetch).toHaveBeenCalledWith(
-      credentials,
-      {
-        method: 'POST',
-        path: '/folios/77/credit_items',
-        api: 'base_api',
-        body: {
-          credit_item: {
-            payment_type: 'on-line',
-            payment_sub_type: 'PokPay',
-            text: 'Website booking refund via PokPay',
-            value: '-25.50',
-            currency: 'EUR',
-            reference: 'must-refund:re_1',
-          },
+    expect(fetch).toHaveBeenCalledWith(credentials, {
+      method: 'POST',
+      path: '/folios/77/credit_items',
+      api: 'base_api',
+      body: {
+        credit_item: {
+          payment_type: 'on-line',
+          payment_sub_type: 'PokPay',
+          text: 'Website booking refund via PokPay',
+          value: '-25.50',
+          currency: 'EUR',
+          reference: 'must-refund:re_1',
         },
       },
-    );
+    });
   });
 });
 
