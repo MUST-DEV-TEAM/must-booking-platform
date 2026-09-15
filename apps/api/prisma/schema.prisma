@@ -646,8 +646,7 @@ model PaymentProviderSession {
   booking           Booking  @relation(fields: [tenantId, propertyId, bookingId], references: [tenantId, propertyId, id], onDelete: Restrict)
 
   @@unique([tenantId, provider, externalPaymentId])
-  @@unique([tenantId, propertyId, bookingId, provider])
-  @@index([tenantId, propertyId, bookingId])
+  @@index([tenantId, propertyId, bookingId, provider])
   @@map("payment_provider_sessions")
 }
 

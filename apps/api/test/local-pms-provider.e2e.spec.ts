@@ -62,6 +62,7 @@ describe('LocalPmsProvider', () => {
   const refundCommands: Parameters<PaymentProvider['refund']>[1][] = [];
   const pokpayOrders = new Map<string, { amount: string; currency: string; status: string }>();
   let pokpayAmountOverride: string | undefined;
+  let pokpayInitialStatus = 'COMPLETED';
   let failAutomaticRefund = false;
   // Only used below for verifyWebhookEvent's signature parsing, which stays
   // environment-based (not tenant-owned) — the injected service is never
@@ -136,7 +137,7 @@ describe('LocalPmsProvider', () => {
       pokpayOrders.set(id, {
         amount: command.amount.amount,
         currency: command.amount.currency,
-        status: 'COMPLETED',
+        status: pokpayInitialStatus,
       });
       return { ok: true, value: { id, url: `https://pay.pokpay.test/${id}` } };
     },
@@ -2687,6 +2688,150 @@ describe('LocalPmsProvider', () => {
     expect(
       paymentConfirmationEmails.filter((email) => email.bookingId === polledPokpayBooking.id),
     ).toHaveLength(1);
+
+    // Milestone 21, Task 20: an abandoned PokPay checkout is a local inventory
+    // hold only. The staff Quick Booking calendar and the WordPress room-type
+    // listing use different API routes, so cover each before and after the
+    // expiry worker releases the held nights.
+    const abandonedPokpayStartsOn = '2026-12-10';
+    const abandonedPokpayEndsOn = '2026-12-12';
+    await request(app!.getHttpServer())
+      .put(`${propertyUrl}/inventory-units`)
+      .set('Cookie', cookie)
+      .send({
+        roomTypeId,
+        startsOn: abandonedPokpayStartsOn,
+        endsOn: abandonedPokpayEndsOn,
+        availableUnits: 1,
+      })
+      .expect(204);
+    pokpayInitialStatus = 'PENDING';
+    const abandonedPokpayQuickBooking = await request(app!.getHttpServer())
+      .post(`${propertyUrl}/staff-bookings`)
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', `abandoned-pokpay-${randomUUID()}`)
+      .send({
+        roomTypeId,
+        ratePlanId,
+        startsOn: abandonedPokpayStartsOn,
+        endsOn: abandonedPokpayEndsOn,
+        paymentMethod: 'pokpay',
+        guest: {
+          email: `abandoned-pokpay-${randomUUID()}@example.test`,
+          firstName: 'Abandoned',
+          lastName: 'PokPay',
+        },
+      })
+      .expect(201);
+    pokpayInitialStatus = 'COMPLETED';
+    expect(abandonedPokpayQuickBooking.body).toMatchObject({
+      ok: true,
+      value: { checkoutUrl: expect.stringMatching(/^https:\/\/pay\.pokpay\.test\//) },
+    });
+    const abandonedPokpayBooking = abandonedPokpayQuickBooking.body.value as { id: string };
+    const abandonedPokpayOrderId = `pok_test_${abandonedPokpayBooking.id}`;
+    const abandonedPokpayOrder = pokpayOrders.get(abandonedPokpayOrderId);
+    if (!abandonedPokpayOrder) throw new Error('Expected the PokPay checkout order to exist.');
+    expect(abandonedPokpayOrder.status).toBe('PENDING');
+
+    const pendingHold = await admin.$queryRaw<
+      Array<{
+        status: string;
+        externalBookingId: string | null;
+        clockFolioCount: bigint;
+        paymentCount: bigint;
+      }>
+    >`
+      SELECT b.status, b.external_booking_id AS "externalBookingId",
+        (SELECT COUNT(*)::bigint FROM clock_folios cf
+          WHERE cf.tenant_id = b.tenant_id AND cf.property_id = b.property_id AND cf.booking_id = b.id
+        ) AS "clockFolioCount",
+        (SELECT COUNT(*)::bigint FROM payments p
+          WHERE p.tenant_id = b.tenant_id AND p.property_id = b.property_id AND p.booking_id = b.id
+        ) AS "paymentCount"
+      FROM bookings b
+      WHERE b.tenant_id = ${tenantId}::uuid AND b.property_id = ${propertyId}::uuid
+        AND b.id = ${abandonedPokpayBooking.id}::uuid
+    `;
+    expect(pendingHold).toEqual([
+      {
+        status: 'PAYMENT_PENDING',
+        externalBookingId: null,
+        clockFolioCount: 0n,
+        paymentCount: 0n,
+      },
+    ]);
+
+    const quickBookingWhileHeld = await request(app!.getHttpServer())
+      .get(`${propertyUrl}/availability-calendar?roomTypeId=${roomTypeId}&month=2026-12`)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(
+      quickBookingWhileHeld.body.days.filter(
+        (day: { date: string }) =>
+          day.date === abandonedPokpayStartsOn || day.date === '2026-12-11',
+      ),
+    ).toEqual([
+      { date: abandonedPokpayStartsOn, isAvailable: false },
+      { date: '2026-12-11', isAvailable: false },
+    ]);
+    const wordpressWhileHeld = await request(app!.getHttpServer())
+      .get(
+        `${propertyUrl}/public/availability?roomTypeId=${roomTypeId}&startsOn=${abandonedPokpayStartsOn}&endsOn=${abandonedPokpayEndsOn}`,
+      )
+      .expect(200);
+    expect(wordpressWhileHeld.body).toMatchObject({ isAvailable: false, availableUnits: 0 });
+
+    // Payment arriving after the 30-minute threshold but before this sweep is
+    // intentionally honored: polling happens before expiry, so a provider's
+    // authoritative completed state wins over a stale local hold.
+    pokpayInitialStatus = 'PENDING';
+    const completedBeforeSweep = await createPokpayBooking('2026-12-13', '2026-12-15');
+    pokpayInitialStatus = 'COMPLETED';
+    await admin.$executeRaw`
+      UPDATE bookings
+      SET created_at = CURRENT_TIMESTAMP - INTERVAL '31 minutes'
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND id = ${abandonedPokpayBooking.id}::uuid
+    `;
+    await admin.$executeRaw`
+      UPDATE bookings
+      SET created_at = CURRENT_TIMESTAMP - INTERVAL '31 minutes'
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND id = ${completedBeforeSweep.id}::uuid
+    `;
+    const completedBeforeSweepOrder = pokpayOrders.get(`pok_test_${completedBeforeSweep.id}`);
+    if (!completedBeforeSweepOrder) throw new Error('Expected the PokPay checkout order to exist.');
+    completedBeforeSweepOrder.status = 'COMPLETED';
+
+    await expect(app!.get(PaymentExpiryService).sweep()).resolves.toEqual({ expired: 1 });
+    await expect(provider.getBooking(context, abandonedPokpayBooking.id)).resolves.toMatchObject({
+      status: 'EXPIRED',
+      externalBookingId: null,
+    });
+    await expect(provider.getBooking(context, completedBeforeSweep.id)).resolves.toMatchObject({
+      status: 'CONFIRMED',
+    });
+
+    const quickBookingAfterExpiry = await request(app!.getHttpServer())
+      .get(`${propertyUrl}/availability-calendar?roomTypeId=${roomTypeId}&month=2026-12`)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(
+      quickBookingAfterExpiry.body.days.filter(
+        (day: { date: string }) =>
+          day.date === abandonedPokpayStartsOn || day.date === '2026-12-11',
+      ),
+    ).toEqual([
+      { date: abandonedPokpayStartsOn, isAvailable: true },
+      { date: '2026-12-11', isAvailable: true },
+    ]);
+    const wordpressAfterExpiry = await request(app!.getHttpServer())
+      .get(
+        `${propertyUrl}/public/availability?roomTypeId=${roomTypeId}&startsOn=${abandonedPokpayStartsOn}&endsOn=${abandonedPokpayEndsOn}`,
+      )
+      .expect(200);
+    expect(wordpressAfterExpiry.body).toMatchObject({ isAvailable: true, availableUnits: 1 });
 
     const unavailableReference = `must-${randomUUID()}`;
     const unavailableQuote = await request(app!.getHttpServer())

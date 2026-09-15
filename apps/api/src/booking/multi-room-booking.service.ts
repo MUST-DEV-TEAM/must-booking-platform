@@ -213,7 +213,7 @@ export class MultiRoomBookingService {
                     ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${bookings[0]!.id}::uuid,
                     'pokpay', ${checkout.value.id}
                   )
-                  ON CONFLICT (tenant_id, property_id, booking_id, provider) DO NOTHING
+                  ON CONFLICT (tenant_id, provider, external_payment_id) DO NOTHING
                 `;
               return {
                 ok: true,

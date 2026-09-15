@@ -783,6 +783,7 @@ export class ClockBookingService {
     amount: { amount: string; currency: string },
     paymentSubType: string,
     reference: string,
+    paymentType: 'cash' | 'card' | 'bank' | 'on-line' = 'on-line',
   ): Promise<Result<void>> {
     const connection = await this.credentials(context);
     if (!connection.ok) return connection;
@@ -842,6 +843,7 @@ export class ClockBookingService {
           creditItemId: folio.value.creditItem.id,
           amount,
           paymentSubType,
+          paymentType,
           reference,
           folioClosed: true,
           idempotentReplay: true,
@@ -857,6 +859,8 @@ export class ClockBookingService {
         amount,
         paymentSubType,
         reference,
+        'payment',
+        paymentType,
       ),
     );
     if (!creditItem.ok) {
@@ -952,6 +956,7 @@ export class ClockBookingService {
         creditItemId: creditItem.value.id,
         amount,
         paymentSubType,
+        paymentType,
         reference,
         documentTypeId,
         folioClosed: closed.ok,
@@ -1328,6 +1333,7 @@ export class ClockBookingService {
     paymentSubType: string,
     reference: string,
     kind: 'payment' | 'refund' = 'payment',
+    paymentType: 'cash' | 'card' | 'bank' | 'on-line' = 'on-line',
   ): Promise<ClockOutcome<ClockCreditItemResource>> {
     const existing = await this.creditItemByReference(credentials, folioId, reference);
     if (existing.ok && existing.value) return { ok: true, value: existing.value };
@@ -1338,7 +1344,7 @@ export class ClockBookingService {
       api: 'base_api',
       body: {
         credit_item: {
-          payment_type: 'on-line',
+          payment_type: paymentType,
           payment_sub_type: paymentSubType,
           text: `Website booking ${kind} via ${paymentSubType}`,
           value: amount.amount,

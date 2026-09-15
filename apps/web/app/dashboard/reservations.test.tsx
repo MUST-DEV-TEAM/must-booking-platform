@@ -3,7 +3,7 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DashboardReservations, filterReservations, type Reservation } from './reservations';
 import { DashboardQueryProvider } from './query-provider';
@@ -99,6 +99,16 @@ const bookingWithNoGuest: Reservation = {
   guestEmail: null,
   guestPhone: null,
 };
+
+const pendingPokpayBooking: Reservation = {
+  ...bookings[0]!,
+  id: 'booking-pending-pokpay',
+  externalReference: 'MUST-PENDING-POKPAY',
+  status: 'PAYMENT_PENDING',
+  paymentMethod: 'POKPAY',
+};
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe('Dashboard reservations', () => {
   it('renders booking guest, room, rate, status, and payment data from the bookings projection', () => {
@@ -223,6 +233,89 @@ describe('Dashboard reservations', () => {
     )!;
     await act(async () => closeButton.click());
     expect(container.querySelector('[aria-label="Reservation details"]')).toBeNull();
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it('lets staff create a fresh PokPay link or record a manual payment for a pending reservation', async () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith('/resend-pokpay-checkout'))
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ ok: true, value: { checkoutUrl: 'https://pay.test/fresh' } }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
+        );
+      if (url.endsWith('/manual-payment')) {
+        expect(JSON.parse(String(init?.body))).toEqual({ method: 'card_in_person' });
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, value: { id: 'payment-1' } }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(DashboardReservations, {
+            tenantId: 'tenant-1',
+            propertyId: 'property-1',
+            initialBookings: [pendingPokpayBooking],
+          }),
+        ),
+      );
+    });
+
+    await act(async () => {
+      Array.from(container.querySelectorAll('button'))
+        .find((button) => button.textContent === 'View details')!
+        .click();
+    });
+    expect(container.textContent).toContain('Settle payment');
+    await act(async () => {
+      Array.from(container.querySelectorAll('button'))
+        .find((button) => button.textContent === 'Create fresh PokPay link')!
+        .click();
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/tenants/tenant-1/properties/property-1/bookings/booking-pending-pokpay/resend-pokpay-checkout',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(
+      container.querySelector<HTMLAnchorElement>('a[href="https://pay.test/fresh"]'),
+    ).not.toBeNull();
+
+    const method = container.querySelector<HTMLSelectElement>(
+      '#manual-payment-method-booking-pending-pokpay',
+    )!;
+    await act(async () => {
+      method.value = 'card_in_person';
+      method.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => {
+      Array.from(container.querySelectorAll('button'))
+        .find((button) => button.textContent === 'Record manual payment')!
+        .click();
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/tenants/tenant-1/properties/property-1/bookings/booking-pending-pokpay/manual-payment',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(container.querySelector('[aria-label="Reservation details"]')).toBeNull();
+
     await act(async () => root.unmount());
     container.remove();
   });

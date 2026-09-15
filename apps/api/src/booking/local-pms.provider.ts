@@ -48,6 +48,12 @@ export type LocalCreateBookingCommand = CreateBookingCommand & {
   returnUrl?: string;
 };
 
+export type ResendPokPayCheckoutCommand = {
+  bookingId: string;
+  idempotencyKey: string;
+  actorUserId: string;
+};
+
 type BookingRow = {
   id: string;
   tenantId: string;
@@ -56,6 +62,7 @@ type BookingRow = {
   roomId: string | null;
   guestId: string | null;
   guestSessionId: string | null;
+  guestReturnUrl: string | null;
   ratePlanId: string;
   startsOn: string;
   endsOn: string;
@@ -80,6 +87,12 @@ type IntegrationOperationRow = {
 };
 
 type BookingWithCheckout = Booking & { checkoutUrl?: string };
+
+type ConfirmedPaymentDetails = {
+  reference: string;
+  paymentSubType: string;
+  paymentType?: 'cash' | 'card' | 'bank' | 'on-line';
+};
 
 class CheckoutSessionCreationError extends Error {
   constructor(readonly result: Result<never>) {
@@ -548,7 +561,7 @@ export class LocalPmsProvider implements PmsProvider {
                     ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${bookingId}::uuid,
                     'pokpay', ${checkout.value.id}
                   )
-                  ON CONFLICT (tenant_id, property_id, booking_id, provider) DO NOTHING
+                  ON CONFLICT (tenant_id, provider, external_payment_id) DO NOTHING
                 `;
                 }
                 const row = await this.bookingById(tx, context, bookingId);
@@ -701,14 +714,89 @@ export class LocalPmsProvider implements PmsProvider {
     );
   }
 
+  async resendPokPayCheckout(
+    context: PmsProviderContext,
+    command: ResendPokPayCheckoutCommand,
+  ): Promise<Result<BookingWithCheckout>> {
+    return this.database.withTenantTransaction(
+      context,
+      (tx) =>
+        this.withIdempotency(
+          tx,
+          context,
+          command.idempotencyKey,
+          command,
+          command.bookingId,
+          null,
+          async () => {
+            const booking = await this.bookingById(tx, context, command.bookingId);
+            if (!booking) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
+            if (booking.status !== BookingStatus.PAYMENT_PENDING)
+              return this.failure(
+                'INVALID_BOOKING_STATE',
+                `A PokPay checkout link cannot be resent from ${booking.status}.`,
+              );
+            if (booking.paymentMethod !== BookingPaymentMethod.POKPAY)
+              return this.failure(
+                'POKPAY_CHECKOUT_NOT_AVAILABLE',
+                'This reservation was not started with PokPay.',
+              );
+            const provider = this.paymentProviders.forBookingMethod(BookingPaymentMethod.POKPAY);
+            if (!provider)
+              return this.failure(
+                'PAYMENT_PROVIDER_NOT_AVAILABLE',
+                'PokPay is unavailable for this reservation.',
+              );
+            const checkoutAmount = await this.checkoutAmount(tx, context, booking);
+            const checkout = await provider.createCheckoutSession(context, {
+              idempotencyKey: command.idempotencyKey,
+              bookingId: booking.id,
+              amount: { amount: checkoutAmount, currency: booking.currency },
+              successUrl: this.checkoutReturnUrl(booking.id, 'success', booking.guestReturnUrl),
+              cancelUrl: this.checkoutReturnUrl(booking.id, 'cancel', booking.guestReturnUrl),
+            });
+            if (!checkout.ok) return checkout;
+            // Keep every gateway order binding. A guest may still complete an
+            // earlier link after staff sends a new one; payment-ledger and
+            // booking-state idempotency decide which verified completion wins.
+            await tx.$executeRaw`
+              INSERT INTO payment_provider_sessions (
+                tenant_id, property_id, booking_id, provider, external_payment_id
+              ) VALUES (
+                ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${booking.id}::uuid,
+                'pokpay', ${checkout.value.id}
+              )
+              ON CONFLICT (tenant_id, provider, external_payment_id) DO NOTHING
+            `;
+            await this.audit.recordInTransaction(tx, {
+              tenantId: context.tenantId,
+              propertyId: context.propertyId,
+              actorUserId: command.actorUserId,
+              action: 'payment.pokpay_checkout_resent',
+              targetType: 'booking',
+              targetId: booking.id,
+              details: { externalPaymentId: checkout.value.id },
+            });
+            const value = this.toBooking(booking);
+            return value
+              ? { ok: true, value: { ...value, checkoutUrl: checkout.value.url } }
+              : this.failure('BOOKING_NOT_FOUND', 'Booking could not be reloaded.');
+          },
+        ),
+      { timeoutMs: 30_000 },
+    );
+  }
+
   async continueAfterPayment(
     tx: TenantTransaction,
     context: PmsProviderContext,
     bookingId: string,
+    payment?: ConfirmedPaymentDetails,
   ): Promise<Result<Booking>> {
     const row = await this.bookingById(tx, context, bookingId);
     if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
-    if (row.orderReference) return this.continueMultiRoomOrderAfterPayment(tx, context, row);
+    if (row.orderReference)
+      return this.continueMultiRoomOrderAfterPayment(tx, context, row, payment);
     if (
       row.status !== BookingStatus.PAYMENT_PENDING &&
       row.status !== BookingStatus.PMS_CREATION_PENDING
@@ -756,8 +844,10 @@ export class LocalPmsProvider implements PmsProvider {
           context,
           bookingId,
           { amount: row.totalAmount, currency: row.currency },
-          row.paymentMethod === BookingPaymentMethod.STRIPE_CHECKOUT ? 'Stripe' : 'PokPay',
-          row.externalReference,
+          payment?.paymentSubType ??
+            (row.paymentMethod === BookingPaymentMethod.STRIPE_CHECKOUT ? 'Stripe' : 'PokPay'),
+          payment?.reference ?? row.externalReference,
+          payment?.paymentType,
         );
       }
       return attached;
@@ -785,6 +875,7 @@ export class LocalPmsProvider implements PmsProvider {
     tx: TenantTransaction,
     context: PmsProviderContext,
     anchor: BookingRow,
+    payment?: ConfirmedPaymentDetails,
   ): Promise<Result<Booking>> {
     if (anchor.status !== BookingStatus.PAYMENT_PENDING)
       return this.failure(
@@ -817,8 +908,10 @@ export class LocalPmsProvider implements PmsProvider {
           context,
           row.id,
           { amount: row.totalAmount, currency: row.currency },
-          row.paymentMethod === BookingPaymentMethod.STRIPE_CHECKOUT ? 'Stripe' : 'PokPay',
-          row.externalReference,
+          payment?.paymentSubType ??
+            (row.paymentMethod === BookingPaymentMethod.STRIPE_CHECKOUT ? 'Stripe' : 'PokPay'),
+          payment?.reference ?? row.externalReference,
+          payment?.paymentType,
         );
         continue;
       }
@@ -1623,7 +1716,7 @@ export class LocalPmsProvider implements PmsProvider {
     const rows = await tx.$queryRaw<BookingRow[]>`
       SELECT b.id, b.tenant_id AS "tenantId", b.property_id AS "propertyId",
         b.room_type_id AS "roomTypeId", b.room_id AS "roomId", b.guest_id AS "guestId",
-        b.guest_session_id AS "guestSessionId", b.rate_plan_id AS "ratePlanId",
+        b.guest_session_id AS "guestSessionId", b.guest_return_url AS "guestReturnUrl", b.rate_plan_id AS "ratePlanId",
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
         b.payment_method AS "paymentMethod",
         b.total_amount::text AS "totalAmount", b.adults, b.children, b.nightly_rates AS "nightlyRates",
@@ -1646,7 +1739,8 @@ export class LocalPmsProvider implements PmsProvider {
   ): Promise<BookingRow | null> {
     const rows = await tx.$queryRaw<BookingRow[]>`
       SELECT b.id, b.tenant_id AS "tenantId", b.property_id AS "propertyId",
-        b.room_type_id AS "roomTypeId", b.room_id AS "roomId", b.guest_id AS "guestId", b.rate_plan_id AS "ratePlanId",
+        b.room_type_id AS "roomTypeId", b.room_id AS "roomId", b.guest_id AS "guestId",
+        b.guest_return_url AS "guestReturnUrl", b.rate_plan_id AS "ratePlanId",
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
         b.payment_method AS "paymentMethod",
         b.total_amount::text AS "totalAmount", b.adults, b.children, b.nightly_rates AS "nightlyRates",
@@ -1658,6 +1752,21 @@ export class LocalPmsProvider implements PmsProvider {
         AND b.property_id = ${context.propertyId}::uuid
     `;
     return rows[0] ?? null;
+  }
+
+  private async checkoutAmount(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    booking: BookingRow,
+  ): Promise<string> {
+    if (!booking.orderReference) return booking.totalAmount;
+    const rows = await tx.$queryRaw<Array<{ totalAmount: string }>>`
+      SELECT COALESCE(SUM(total_amount), 0)::text AS "totalAmount"
+      FROM bookings
+      WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+        AND order_reference = ${booking.orderReference}
+    `;
+    return rows[0]?.totalAmount ?? booking.totalAmount;
   }
 
   private toBooking(row: BookingRow): Booking | null {

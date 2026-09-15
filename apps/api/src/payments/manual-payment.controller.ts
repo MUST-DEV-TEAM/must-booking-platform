@@ -13,6 +13,7 @@ import {
 import type { Money } from '@must/domain-contracts';
 
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
+import { LocalPmsProvider } from '../booking/local-pms.provider';
 import { RequiresCapability } from '../tenancy/capabilities.decorator';
 import { Role, Roles } from '../tenancy/roles.decorator';
 import { TenantScoped } from '../tenancy/tenant-context.decorator';
@@ -20,7 +21,33 @@ import { ManualPaymentService } from './manual-payment.service';
 
 @Controller('tenants/:tenantId/properties/:propertyId/bookings')
 export class ManualPaymentController {
-  constructor(@Inject(ManualPaymentService) private readonly payments: ManualPaymentService) {}
+  constructor(
+    @Inject(ManualPaymentService) private readonly payments: ManualPaymentService,
+    @Inject(LocalPmsProvider) private readonly bookings: LocalPmsProvider,
+  ) {}
+
+  @Post(':bookingId/resend-pokpay-checkout')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.manage')
+  @RequiresVerifiedEmail()
+  async resendPokPayCheckout(
+    @Param('bookingId') bookingId: string,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
+  ) {
+    const result = await this.bookings.resendPokPayCheckout(request.tenantContext, {
+      bookingId,
+      idempotencyKey: this.idempotencyKey(idempotencyKey),
+      actorUserId: request.tenantContext.userId,
+    });
+    if (!result.ok && result.error.code === 'IDEMPOTENCY_KEY_CONFLICT')
+      throw new ConflictException(
+        'This idempotency key was already used with a different request.',
+      );
+    return result;
+  }
 
   @Post(':bookingId/manual-payment')
   @HttpCode(200)

@@ -264,7 +264,7 @@ export function DashboardReservations({
         <ReservationDetails
           booking={selectedBooking}
           onClose={() => setSelectedId(null)}
-          onCancelled={() =>
+          onChanged={() =>
             void queryClient.invalidateQueries({
               queryKey: ['dashboard', 'reservations', tenantId, propertyId],
             })
@@ -309,21 +309,27 @@ export function filterReservations(
 function ReservationDetails({
   booking,
   onClose,
-  onCancelled,
+  onChanged,
   tenantId,
   propertyId,
 }: {
   booking: Reservation;
   onClose: () => void;
-  onCancelled: () => void;
+  onChanged: () => void;
   tenantId: string;
   propertyId: string;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [settling, setSettling] = useState<'manual' | 'pokpay' | null>(null);
+  const [manualMethod, setManualMethod] = useState<'cash' | 'card_in_person' | 'bank_transfer'>(
+    'cash',
+  );
+  const [pokpayCheckoutUrl, setPokpayCheckoutUrl] = useState<string | null>(null);
   const canCancel = ['PAYMENT_PENDING', 'PMS_CONFIRMATION_PENDING', 'CONFIRMED'].includes(
     booking.status,
   );
+  const canSettlePendingPayment = booking.status === 'PAYMENT_PENDING';
 
   async function cancel() {
     if (!window.confirm(`Cancel reservation ${booking.externalReference}?`)) return;
@@ -345,12 +351,50 @@ function ReservationDetails({
       if (!response.ok) throw new Error('Unable to cancel reservation.');
       const result = (await response.json()) as { ok: boolean; error?: { message: string } };
       if (!result.ok) throw new Error(result.error?.message ?? 'Unable to cancel reservation.');
-      onCancelled();
+      onChanged();
       onClose();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to cancel reservation.');
     } finally {
       setCancelling(false);
+    }
+  }
+
+  async function settlePendingPayment(kind: 'manual' | 'pokpay') {
+    setSettling(kind);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/tenants/${tenantId}/properties/${propertyId}/bookings/${booking.id}/${
+          kind === 'manual' ? 'manual-payment' : 'resend-pokpay-checkout'
+        }`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+          ...(kind === 'manual' ? { body: JSON.stringify({ method: manualMethod }) } : {}),
+        },
+      );
+      if (!response.ok) throw new Error('Unable to settle the pending payment.');
+      const result = (await response.json()) as {
+        ok: boolean;
+        value?: { checkoutUrl?: string };
+        error?: { message: string };
+      };
+      if (!result.ok)
+        throw new Error(result.error?.message ?? 'Unable to settle the pending payment.');
+      if (kind === 'pokpay') {
+        const checkoutUrl = result.value?.checkoutUrl;
+        if (!checkoutUrl) throw new Error('PokPay did not return a checkout link.');
+        setPokpayCheckoutUrl(checkoutUrl);
+        return;
+      }
+      onChanged();
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to settle the pending payment.');
+    } finally {
+      setSettling(null);
     }
   }
 
@@ -423,6 +467,49 @@ function ReservationDetails({
             </div>
           ) : null}
         </dl>
+        {canSettlePendingPayment ? (
+          <section aria-label="Settle pending reservation">
+            <Heading level={3}>Settle payment</Heading>
+            {booking.paymentMethod === 'POKPAY' ? (
+              <div>
+                <button
+                  type="button"
+                  disabled={settling !== null}
+                  onClick={() => void settlePendingPayment('pokpay')}
+                >
+                  {settling === 'pokpay' ? 'Creating PokPay link…' : 'Create fresh PokPay link'}
+                </button>
+                {pokpayCheckoutUrl ? (
+                  <a href={pokpayCheckoutUrl} target="_blank" rel="noreferrer">
+                    Open fresh PokPay checkout
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
+            <div>
+              <label htmlFor={`manual-payment-method-${booking.id}`}>Manual payment method</label>
+              <select
+                id={`manual-payment-method-${booking.id}`}
+                value={manualMethod}
+                disabled={settling !== null}
+                onChange={(event) =>
+                  setManualMethod(event.target.value as 'cash' | 'card_in_person' | 'bank_transfer')
+                }
+              >
+                <option value="cash">Cash</option>
+                <option value="card_in_person">Card / POS</option>
+                <option value="bank_transfer">Bank transfer</option>
+              </select>
+              <button
+                type="button"
+                disabled={settling !== null}
+                onClick={() => void settlePendingPayment('manual')}
+              >
+                {settling === 'manual' ? 'Recording payment…' : 'Record manual payment'}
+              </button>
+            </div>
+          </section>
+        ) : null}
         {canCancel ? (
           <div>
             <button type="button" disabled={cancelling} onClick={() => void cancel()}>
