@@ -41,7 +41,6 @@ type ClockRateAvailabilityResponse = Array<{
       {
         free: boolean;
         room_type_free_rooms: number;
-        resource_id?: number | string;
         price?: { cents: number; currency: string };
         errors?: Record<string, unknown>;
       }
@@ -153,9 +152,9 @@ export class ClockAvailabilityService {
   ) {}
 
   /**
-   * `skipCache` is for callers that need a fresh availability result. The
-   * online pre-payment guard uses `isAvailableForBooking()` instead, which
-   * always makes its own uncached Clock request.
+   * `skipCache` exists for Task 10's final pre-booking availability check
+   * (source brief section 16: a cached answer must never gate booking
+   * creation), not used yet since booking creation isn't implemented here.
    */
   async getAvailability(
     tenantId: string,
@@ -208,89 +207,6 @@ export class ClockAvailabilityService {
     const value = summarizeAvailability(query, nights, response.value, externalRoomTypeId);
     this.availabilityCache.set(cacheKey, { value, expiresAt: Date.now() + CACHE_TTL_MS });
     return { ok: true, value };
-  }
-
-  /**
-   * The last availability gate before MUST creates an online checkout session.
-   * This deliberately bypasses the calendar cache: an online payment must
-   * never be authorized by stale availability. A physical-room selection uses
-   * Clock's mapped `rooms` filter; a room-type selection requires at least one
-   * free unit for every occupied night.
-   */
-  async isAvailableForBooking(
-    tenantId: string,
-    propertyId: string,
-    query: {
-      roomTypeId: string;
-      roomId?: string;
-      startsOn: string;
-      endsOn: string;
-      adultCount?: number;
-      childrenCount?: number;
-    },
-  ): Promise<Result<boolean>> {
-    const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
-    if (!connection || connection.provider !== 'CLOCK_PMS')
-      return failure(
-        classifyConfigurationError('This property has no active Clock PMS connection.'),
-      );
-    const parsed = parseClockCredentials(connection.credentials);
-    if (!parsed.ok) return failure(classifyConfigurationError(parsed.message));
-
-    const externalRoomTypeId = await this.mappedExternalRoomTypeId(
-      tenantId,
-      propertyId,
-      query.roomTypeId,
-    );
-    if (!externalRoomTypeId)
-      return failure(
-        classifyConfigurationError(
-          'This room type has no confirmed Clock catalog mapping — sync and confirm it first.',
-        ),
-      );
-
-    const externalRoomId = query.roomId
-      ? await this.mappedExternalRoomId(tenantId, propertyId, query.roomId)
-      : null;
-    if (query.roomId && !externalRoomId)
-      return failure(
-        classifyConfigurationError(
-          'This room has no confirmed Clock catalog mapping — sync and confirm it first.',
-        ),
-      );
-
-    const rateIds = await this.ratesForRoomType(parsed.value, externalRoomTypeId);
-    if (!rateIds.ok) return failure(rateIds.error);
-    if (rateIds.value.ids.length === 0) return failure(noRatesError(rateIds.value));
-
-    const nights = nightsBetween(query.startsOn, query.endsOn);
-    if (nights.length === 0)
-      return failure(classifyConfigurationError('startsOn must be before endsOn.'));
-
-    const response = await this.fetch<ClockRateAvailabilityResponse>(parsed.value, {
-      from: query.startsOn,
-      to: nights[nights.length - 1]!,
-      rates: rateIds.value.ids,
-      ...(externalRoomId ? { rooms: externalRoomId } : { room_types: externalRoomTypeId }),
-      adults: String(query.adultCount ?? 1),
-      children: String(query.childrenCount ?? 0),
-    });
-    if (!response.ok) return failure(response.error);
-
-    const roomType = response.value.find((item) => String(item.id) === externalRoomTypeId);
-    const rateEntries = roomType ? Object.values(roomType.rates) : [];
-    const isAvailable = nights.every((night) =>
-      rateEntries.some((dates) => {
-        const entry = dates[night];
-        return (
-          entry?.free === true &&
-          Object.keys(entry.errors ?? {}).length === 0 &&
-          (externalRoomId === null || String(entry.resource_id) === externalRoomId) &&
-          (externalRoomId !== null || entry.room_type_free_rooms > 0)
-        );
-      }),
-    );
-    return { ok: true, value: isAvailable };
   }
 
   /**
@@ -797,24 +713,6 @@ export class ClockAvailabilityService {
         tenantId,
         propertyId,
         localRoomTypeId,
-      ),
-    );
-    return rows[0]?.externalEntityId ?? null;
-  }
-
-  private async mappedExternalRoomId(
-    tenantId: string,
-    propertyId: string,
-    localRoomId: string,
-  ): Promise<string | null> {
-    const rows = await this.database.withTenantTransaction({ tenantId, propertyId }, (tx) =>
-      tx.$queryRawUnsafe<Array<{ externalEntityId: string }>>(
-        `SELECT external_entity_id AS "externalEntityId" FROM clock_catalog_mappings
-         WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND entity_type = 'ROOM'
-           AND local_entity_id = $3::uuid AND sync_status = 'CONFIRMED'`,
-        tenantId,
-        propertyId,
-        localRoomId,
       ),
     );
     return rows[0]?.externalEntityId ?? null;

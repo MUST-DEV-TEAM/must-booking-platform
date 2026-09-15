@@ -33,7 +33,6 @@ import { resolveBookingOccupancy, validBookingOccupancy } from './booking-occupa
 import { NotificationsService } from '../tenancy/notifications.service';
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
 import { ManualReviewService } from '../integrations/manual-review.service';
-import { ClockAvailabilityService } from '../integrations/clock/clock-availability.service';
 import { ClockBookingService } from '../integrations/clock/clock-booking.service';
 import { generateBookingReference } from './booking-reference';
 import { resolveGuestWithPhoneSignal } from './guest-matching';
@@ -87,13 +86,6 @@ class CheckoutSessionCreationError extends Error {
   }
 }
 
-/** Rolls back local inventory/booking writes while retaining a safe public result. */
-class PrePaymentClockAvailabilityError extends Error {
-  constructor(readonly result: Result<never>) {
-    super(result.ok ? 'Clock availability check failed.' : result.error.message);
-  }
-}
-
 type CancellationPolicy = {
   freeCancellationUntilHours: number | null;
   cutoffAt: Date | null;
@@ -127,8 +119,6 @@ export class LocalPmsProvider implements PmsProvider {
     @Inject(IntegrationConnectionsService)
     private readonly connections: IntegrationConnectionsService,
     @Inject(ManualReviewService) private readonly manualReview: ManualReviewService,
-    @Inject(ClockAvailabilityService)
-    private readonly clockAvailability: ClockAvailabilityService,
     @Inject(ClockBookingService) private readonly clockBooking: ClockBookingService,
   ) {}
 
@@ -143,44 +133,6 @@ export class LocalPmsProvider implements PmsProvider {
       context.propertyId,
     );
     return connection?.provider === 'CLOCK_PMS';
-  }
-
-  /**
-   * Local locks protect MUST's own bookings only. Before starting an online
-   * checkout, a Clock-connected property must also pass an uncached Clock
-   * check so reservations created directly in Clock cannot be charged here.
-   * If Clock cannot answer, fail closed rather than charging on stale data.
-   */
-  private async prePaymentClockAvailabilityFailure(
-    context: PmsProviderContext,
-    command: LocalCreateBookingCommand,
-    occupancy: { adults: number; children: number },
-  ): Promise<Result<never> | null> {
-    if (!(await this.isClockConnected(context))) return null;
-
-    const result = await this.clockAvailability.isAvailableForBooking(
-      context.tenantId,
-      context.propertyId,
-      {
-        roomTypeId: command.roomTypeId,
-        roomId: command.roomId,
-        startsOn: command.startsOn,
-        endsOn: command.endsOn,
-        adultCount: occupancy.adults,
-        childrenCount: occupancy.children,
-      },
-    );
-    if (result.ok && result.value) return null;
-
-    return this.failure(
-      'AVAILABILITY_FAILED',
-      result.ok
-        ? command.roomId
-          ? 'The selected room is no longer available for the requested stay.'
-          : 'Inventory is no longer available for the requested stay.'
-        : 'Live availability could not be confirmed for the requested stay. Please try again.',
-      !result.ok && result.error.retryable,
-    );
   }
 
   async testConnection(context: PmsProviderContext): Promise<Result<void>> {
@@ -514,16 +466,6 @@ export class LocalPmsProvider implements PmsProvider {
                 paymentMethod.value === BookingPaymentMethod.STRIPE_CHECKOUT ||
                 paymentMethod.value === BookingPaymentMethod.POKPAY
               ) {
-                const clockAvailabilityFailure = await this.prePaymentClockAvailabilityFailure(
-                  context,
-                  command,
-                  occupancy,
-                );
-                // The local reservation above is part of this transaction.
-                // Returning here would commit that reservation for a terminal
-                // AVAILABILITY_FAILED booking; throw so it rolls back first.
-                if (clockAvailabilityFailure)
-                  throw new PrePaymentClockAvailabilityError(clockAvailabilityFailure);
                 status = await this.transition(
                   tx,
                   context,
@@ -624,11 +566,7 @@ export class LocalPmsProvider implements PmsProvider {
         );
       return result;
     } catch (error) {
-      if (
-        error instanceof CheckoutSessionCreationError ||
-        error instanceof PrePaymentClockAvailabilityError
-      )
-        return error.result;
+      if (error instanceof CheckoutSessionCreationError) return error.result;
       throw error;
     }
   }
