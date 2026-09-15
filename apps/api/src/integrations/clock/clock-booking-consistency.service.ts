@@ -10,6 +10,7 @@ import {
   classifyClockClientFailure,
   classifyClockHttpResponse,
   classifyConfigurationError,
+  type ClockClassifiedError,
 } from './clock-error-classification';
 import {
   ClockHttpClient,
@@ -32,6 +33,7 @@ type ClockBookingResource = {
   id: string | number;
   status: ClockBookingStatus;
   reference_number?: string | null;
+  arrival_room_id?: string | number | null;
 };
 
 export type ClockBookingConsistencyFinding =
@@ -60,6 +62,19 @@ export type ClockBookingConsistencyResult = {
   clockBookingCount: number;
   findings: ClockBookingConsistencyFinding[];
 };
+
+/**
+ * The same date-overlap/list-detail reads used by consistency checks also
+ * provide the only verified physical-room availability signal in Clock.
+ * Keeping this here ensures those reads share Task 3's circuit-breaker and
+ * rate-limit behaviour instead of creating a third subtly different client.
+ */
+export class ClockBookingReadError extends Error {
+  constructor(readonly classified: ClockClassifiedError) {
+    super(classified.message);
+    this.name = 'ClockBookingReadError';
+  }
+}
 
 /**
  * Read-only reconciliation for a single property and date range. It never
@@ -98,6 +113,24 @@ export class ClockBookingConsistencyService {
       });
       throw error;
     }
+  }
+
+  /**
+   * Returns whether a non-cancelled Clock reservation occupies one physical
+   * room during the half-open date range [startsOn, endsOn). Clock's
+   * `/rates_availability?rooms=` is deliberately not used: it was proven to
+   * return room-type data even when a physical room id was supplied.
+   */
+  async hasActiveRoomConflict(
+    credentials: ClockConnectionCredentials,
+    range: { startsOn: string; endsOn: string },
+    externalRoomId: string,
+  ): Promise<boolean> {
+    const bookings = await this.fetchBookings(credentials, range);
+    return bookings.some(
+      (booking) =>
+        booking.status !== 'canceled' && String(booking.arrival_room_id) === externalRoomId,
+    );
   }
 
   private async checkInternal(
@@ -283,7 +316,12 @@ export class ClockBookingConsistencyService {
       this.circuitBreaker.assertClosed(breakerKey);
     } catch (error) {
       if (error instanceof CircuitOpenError)
-        throw new Error(`Clock booking consistency check unavailable: ${error.message}`);
+        throw new ClockBookingReadError({
+          category: 'provider_unavailable',
+          code: 'clock_provider_unavailable',
+          message: error.message,
+          retryable: true,
+        });
       throw error;
     }
     for (;;) {
@@ -302,16 +340,16 @@ export class ClockBookingConsistencyService {
       });
       if (response.status < 200 || response.status >= 300) {
         this.circuitBreaker.recordFailure(breakerKey);
-        throw new Error(classifyClockHttpResponse(response.status, response.body).message);
+        throw new ClockBookingReadError(classifyClockHttpResponse(response.status, response.body));
       }
       this.circuitBreaker.recordSuccess(breakerKey);
       return response.body;
     } catch (error) {
+      if (error instanceof ClockBookingReadError) throw error;
       if (error instanceof ClockHttpError) {
         this.circuitBreaker.recordFailure(breakerKey);
-        throw new Error(
-          classifyClockClientFailure(error.isTimeout ? 'timeout' : 'network', error.message)
-            .message,
+        throw new ClockBookingReadError(
+          classifyClockClientFailure(error.isTimeout ? 'timeout' : 'network', error.message),
         );
       }
       throw error;
@@ -347,7 +385,11 @@ function isClockBookingResource(value: unknown): value is ClockBookingResource {
     ['expected', 'checked_in', 'checked_out', 'no_show', 'canceled'].includes(booking.status) &&
     (booking.reference_number === undefined ||
       booking.reference_number === null ||
-      typeof booking.reference_number === 'string')
+      typeof booking.reference_number === 'string') &&
+    (booking.arrival_room_id === undefined ||
+      booking.arrival_room_id === null ||
+      typeof booking.arrival_room_id === 'string' ||
+      typeof booking.arrival_room_id === 'number')
   );
 }
 

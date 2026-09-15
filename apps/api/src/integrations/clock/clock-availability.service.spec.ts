@@ -9,21 +9,24 @@ function makeService(
   overrides: {
     client?: { request: ReturnType<typeof vi.fn> };
     mappedExternalId?: string | null;
+    mappedExternalRoomId?: string | null;
     rankOrder?: string[];
+    hasActiveRoomConflict?: boolean;
   } = {},
 ) {
   const database = {
     withTenantTransaction: vi.fn((_ctx, callback) =>
       callback({
-        $queryRawUnsafe: vi
-          .fn()
-          .mockResolvedValue(
-            overrides.mappedExternalId === undefined
-              ? [{ externalEntityId: '42023' }]
-              : overrides.mappedExternalId === null
-                ? []
-                : [{ externalEntityId: overrides.mappedExternalId }],
-          ),
+        $queryRawUnsafe: vi.fn().mockImplementation((sql: string) => {
+          const mapped = sql.includes("entity_type = 'ROOM'")
+            ? overrides.mappedExternalRoomId === undefined
+              ? '606113'
+              : overrides.mappedExternalRoomId
+            : overrides.mappedExternalId === undefined
+              ? '42023'
+              : overrides.mappedExternalId;
+          return Promise.resolve(mapped === null ? [] : [{ externalEntityId: mapped }]);
+        }),
       }),
     ),
   };
@@ -40,6 +43,9 @@ function makeService(
     recordFailure: vi.fn(),
   };
   const rateRankings = { rankOrder: vi.fn().mockResolvedValue(overrides.rankOrder ?? []) };
+  const bookingConsistency = {
+    hasActiveRoomConflict: vi.fn().mockResolvedValue(overrides.hasActiveRoomConflict ?? false),
+  };
   const service = new ClockAvailabilityService(
     database as never,
     connections as never,
@@ -47,9 +53,105 @@ function makeService(
     rateLimiter as never,
     circuitBreaker as never,
     rateRankings as never,
+    bookingConsistency as never,
   );
-  return { service, client, connections, rateRankings };
+  return { service, client, connections, rateRankings, bookingConsistency };
 }
+
+describe('ClockAvailabilityService.isAvailableForBooking', () => {
+  it('rejects a specific room when the verified booking overlap check finds an active conflict', async () => {
+    const { service, client, bookingConsistency } = makeService({ hasActiveRoomConflict: true });
+
+    await expect(
+      service.isAvailableForBooking('t1', 'p1', {
+        ...query,
+        roomId: 'local-room-101',
+      }),
+    ).resolves.toEqual({ ok: true, value: false });
+    expect(bookingConsistency.hasActiveRoomConflict).toHaveBeenCalledWith(
+      credentials,
+      { startsOn: '2026-08-10', endsOn: '2026-08-12' },
+      '606113',
+    );
+    expect(client.request).not.toHaveBeenCalled();
+  });
+
+  it('accepts a genuinely available specific room', async () => {
+    const { service, bookingConsistency } = makeService({ hasActiveRoomConflict: false });
+
+    await expect(
+      service.isAvailableForBooking('t1', 'p1', { ...query, roomId: 'local-room-101' }),
+    ).resolves.toEqual({ ok: true, value: true });
+    expect(bookingConsistency.hasActiveRoomConflict).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a room type when Clock reports no free rooms for an occupied night', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '69242': {
+                '2026-08-10': { free: true, room_type_free_rooms: 1 },
+                '2026-08-11': { free: false, room_type_free_rooms: 0 },
+              },
+            },
+          },
+        ],
+      });
+    const { service, bookingConsistency } = makeService({ client: { request } });
+
+    await expect(service.isAvailableForBooking('t1', 'p1', query)).resolves.toEqual({
+      ok: true,
+      value: false,
+    });
+    expect(bookingConsistency.hasActiveRoomConflict).not.toHaveBeenCalled();
+    expect(request).toHaveBeenLastCalledWith(
+      credentials,
+      expect.objectContaining({
+        path: '/rates_availability',
+        query: expect.objectContaining({ room_types: '42023' }),
+      }),
+    );
+  });
+
+  it('accepts a room type when Clock reports free inventory for every night', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '69242': {
+                '2026-08-10': { free: true, room_type_free_rooms: 1 },
+                '2026-08-11': { free: true, room_type_free_rooms: 1 },
+              },
+            },
+          },
+        ],
+      });
+    const { service, bookingConsistency } = makeService({ client: { request } });
+
+    await expect(service.isAvailableForBooking('t1', 'p1', query)).resolves.toEqual({
+      ok: true,
+      value: true,
+    });
+    expect(bookingConsistency.hasActiveRoomConflict).not.toHaveBeenCalled();
+  });
+});
 
 describe('ClockAvailabilityService.getAvailability', () => {
   it('reports a configuration error when the room type has no confirmed Clock mapping', async () => {
@@ -281,8 +383,18 @@ describe('ClockAvailabilityService.getQuote', () => {
             id: 42023,
             rates: {
               '69242': {
-                '2026-08-10': { free: true, room_type_free_rooms: 3, price: { cents: 11000, currency: 'EUR' }, errors: {} },
-                '2026-08-11': { free: true, room_type_free_rooms: 3, price: { cents: 12000, currency: 'EUR' }, errors: {} },
+                '2026-08-10': {
+                  free: true,
+                  room_type_free_rooms: 3,
+                  price: { cents: 11000, currency: 'EUR' },
+                  errors: {},
+                },
+                '2026-08-11': {
+                  free: true,
+                  room_type_free_rooms: 3,
+                  price: { cents: 12000, currency: 'EUR' },
+                  errors: {},
+                },
               },
             },
           },
@@ -331,7 +443,12 @@ describe('ClockAvailabilityService.getQuote', () => {
             id: 42023,
             rates: {
               '69242': [
-                { available: true, room_type_free_rooms: 3, price: { cents: 10001, currency: 'EUR' }, errors: {} },
+                {
+                  available: true,
+                  room_type_free_rooms: 3,
+                  price: { cents: 10001, currency: 'EUR' },
+                  errors: {},
+                },
               ],
             },
           },
@@ -345,8 +462,18 @@ describe('ClockAvailabilityService.getQuote', () => {
             rates: {
               '69242': {
                 // Equal weights — an even 3-way split of 10001 cents isn't a whole number.
-                '2026-08-10': { free: true, room_type_free_rooms: 3, price: { cents: 100, currency: 'EUR' }, errors: {} },
-                '2026-08-11': { free: true, room_type_free_rooms: 3, price: { cents: 100, currency: 'EUR' }, errors: {} },
+                '2026-08-10': {
+                  free: true,
+                  room_type_free_rooms: 3,
+                  price: { cents: 100, currency: 'EUR' },
+                  errors: {},
+                },
+                '2026-08-11': {
+                  free: true,
+                  room_type_free_rooms: 3,
+                  price: { cents: 100, currency: 'EUR' },
+                  errors: {},
+                },
               },
             },
           },
@@ -397,7 +524,12 @@ describe('ClockAvailabilityService.getQuote', () => {
             id: 42023,
             rates: {
               '69242': {
-                '2026-08-10': { free: true, room_type_free_rooms: 3, price: { cents: 11000, currency: 'EUR' }, errors: {} },
+                '2026-08-10': {
+                  free: true,
+                  room_type_free_rooms: 3,
+                  price: { cents: 11000, currency: 'EUR' },
+                  errors: {},
+                },
                 // 2026-08-11 missing — shape is incomplete, must fall back
               },
             },
@@ -444,7 +576,12 @@ describe('ClockAvailabilityService.getQuote', () => {
             id: 42023,
             rates: {
               '69242': [
-                { available: true, room_type_free_rooms: 3, price: { cents: 20000, currency: 'EUR' }, errors: {} },
+                {
+                  available: true,
+                  room_type_free_rooms: 3,
+                  price: { cents: 20000, currency: 'EUR' },
+                  errors: {},
+                },
               ],
             },
           },
@@ -457,8 +594,18 @@ describe('ClockAvailabilityService.getQuote', () => {
             id: 42023,
             rates: {
               '69242': {
-                '2026-08-10': { free: true, room_type_free_rooms: 3, price: { cents: 0, currency: 'EUR' }, errors: {} },
-                '2026-08-11': { free: true, room_type_free_rooms: 3, price: { cents: 0, currency: 'EUR' }, errors: {} },
+                '2026-08-10': {
+                  free: true,
+                  room_type_free_rooms: 3,
+                  price: { cents: 0, currency: 'EUR' },
+                  errors: {},
+                },
+                '2026-08-11': {
+                  free: true,
+                  room_type_free_rooms: 3,
+                  price: { cents: 0, currency: 'EUR' },
+                  errors: {},
+                },
               },
             },
           },
@@ -537,7 +684,12 @@ describe('ClockAvailabilityService.getQuote', () => {
               // Only rate 69243 (wbe: true) should ever be requested from Clock — the
               // wbe:false rate 69242 must never even appear in the `rates` query param.
               '69243': [
-                { available: true, room_type_free_rooms: 3, price: { cents: 15000, currency: 'EUR' }, errors: {} },
+                {
+                  available: true,
+                  room_type_free_rooms: 3,
+                  price: { cents: 15000, currency: 'EUR' },
+                  errors: {},
+                },
               ],
             },
           },
@@ -550,7 +702,10 @@ describe('ClockAvailabilityService.getQuote', () => {
     expect(result).toEqual({ ok: true, value: { amount: '150.00', currency: 'EUR' } });
     expect(request).toHaveBeenLastCalledWith(
       credentials,
-      expect.objectContaining({ path: '/products', query: expect.objectContaining({ rates: ['69243'] }) }),
+      expect.objectContaining({
+        path: '/products',
+        query: expect.objectContaining({ rates: ['69243'] }),
+      }),
     );
   });
 
@@ -595,10 +750,20 @@ describe('ClockAvailabilityService.getQuote', () => {
               // selection would have picked it regardless of price. It must lose here
               // because rate "99999" is cheaper.
               '5': [
-                { available: true, room_type_free_rooms: 3, price: { cents: 32500, currency: 'EUR' }, errors: {} },
+                {
+                  available: true,
+                  room_type_free_rooms: 3,
+                  price: { cents: 32500, currency: 'EUR' },
+                  errors: {},
+                },
               ],
               '99999': [
-                { available: true, room_type_free_rooms: 3, price: { cents: 11000, currency: 'EUR' }, errors: {} },
+                {
+                  available: true,
+                  room_type_free_rooms: 3,
+                  price: { cents: 11000, currency: 'EUR' },
+                  errors: {},
+                },
               ],
             },
           },
@@ -625,7 +790,12 @@ describe('ClockAvailabilityService.getQuote', () => {
             id: 42023,
             rates: {
               '69242': [
-                { available: true, room_type_free_rooms: 3, price: { cents: 10000, currency: 'EUR' }, errors: {} },
+                {
+                  available: true,
+                  room_type_free_rooms: 3,
+                  price: { cents: 10000, currency: 'EUR' },
+                  errors: {},
+                },
               ],
             },
           },
@@ -665,10 +835,20 @@ describe('ClockAvailabilityService.getQuote', () => {
             rates: {
               // 803404 is cheaper, but 803405 is ranked #1 by staff — it must win.
               '803404': [
-                { available: true, room_type_free_rooms: 3, price: { cents: 11000, currency: 'EUR' }, errors: {} },
+                {
+                  available: true,
+                  room_type_free_rooms: 3,
+                  price: { cents: 11000, currency: 'EUR' },
+                  errors: {},
+                },
               ],
               '803405': [
-                { available: true, room_type_free_rooms: 3, price: { cents: 25000, currency: 'EUR' }, errors: {} },
+                {
+                  available: true,
+                  room_type_free_rooms: 3,
+                  price: { cents: 25000, currency: 'EUR' },
+                  errors: {},
+                },
               ],
             },
           },
@@ -699,13 +879,27 @@ describe('ClockAvailabilityService.getQuotesForStay', () => {
           {
             id: 42023,
             rates: {
-              '69242': [{ available: true, room_type_free_rooms: 2, price: { cents: 11000, currency: 'EUR' }, errors: {} }],
+              '69242': [
+                {
+                  available: true,
+                  room_type_free_rooms: 2,
+                  price: { cents: 11000, currency: 'EUR' },
+                  errors: {},
+                },
+              ],
             },
           },
           {
             id: 42024,
             rates: {
-              '69243': [{ available: true, room_type_free_rooms: 2, price: { cents: 12500, currency: 'EUR' }, errors: {} }],
+              '69243': [
+                {
+                  available: true,
+                  room_type_free_rooms: 2,
+                  price: { cents: 12500, currency: 'EUR' },
+                  errors: {},
+                },
+              ],
             },
           },
         ],
@@ -713,8 +907,24 @@ describe('ClockAvailabilityService.getQuotesForStay', () => {
     const { service } = makeService({ client: { request } });
 
     const stay = [
-      { roomTypeId: 'local-rt-1', externalRoomTypeId: '42023', startsOn: '2026-08-10', endsOn: '2026-08-12', adultCount: 2, childrenCount: 0, currency: 'EUR' },
-      { roomTypeId: 'local-rt-2', externalRoomTypeId: '42024', startsOn: '2026-08-10', endsOn: '2026-08-12', adultCount: 2, childrenCount: 0, currency: 'EUR' },
+      {
+        roomTypeId: 'local-rt-1',
+        externalRoomTypeId: '42023',
+        startsOn: '2026-08-10',
+        endsOn: '2026-08-12',
+        adultCount: 2,
+        childrenCount: 0,
+        currency: 'EUR',
+      },
+      {
+        roomTypeId: 'local-rt-2',
+        externalRoomTypeId: '42024',
+        startsOn: '2026-08-10',
+        endsOn: '2026-08-12',
+        adultCount: 2,
+        childrenCount: 0,
+        currency: 'EUR',
+      },
     ];
     const result = await service.getQuotesForStay('t1', 'p1', stay);
 
@@ -746,16 +956,35 @@ describe('ClockAvailabilityService.getQuotesForStay', () => {
       }
       return Promise.resolve({
         status: 200,
-        body: [{
-          id: 42023,
-          rates: {
-            '69242': [{ available: true, room_type_free_rooms: 2, price: { cents: 11000, currency: 'EUR' }, errors: {} }],
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '69242': [
+                {
+                  available: true,
+                  room_type_free_rooms: 2,
+                  price: { cents: 11000, currency: 'EUR' },
+                  errors: {},
+                },
+              ],
+            },
           },
-        }],
+        ],
       });
     });
     const { service } = makeService({ client: { request } });
-    const stay = [{ roomTypeId: 'local-rt-1', externalRoomTypeId: '42023', startsOn: '2026-08-10', endsOn: '2026-08-12', adultCount: 2, childrenCount: 0, currency: 'EUR' }];
+    const stay = [
+      {
+        roomTypeId: 'local-rt-1',
+        externalRoomTypeId: '42023',
+        startsOn: '2026-08-10',
+        endsOn: '2026-08-12',
+        adultCount: 2,
+        childrenCount: 0,
+        currency: 'EUR',
+      },
+    ];
 
     await service.getQuotesForStay('tenant-a', 'p1', stay);
     await service.getQuotesForStay('tenant-a', 'p1', stay);
@@ -802,9 +1031,7 @@ describe('ClockAvailabilityService.ratesForRoomTypeDetailed', () => {
 
     expect(result).toEqual({
       ok: true,
-      value: [
-        { externalRateId: '803404', name: 'DBL - Summer', maxAdults: 6, maxChildren: 6 },
-      ],
+      value: [{ externalRateId: '803404', name: 'DBL - Summer', maxAdults: 6, maxChildren: 6 }],
     });
   });
 

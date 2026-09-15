@@ -53,6 +53,46 @@ function makeService(
 }
 
 describe('ClockBookingConsistencyService', () => {
+  it('finds a physical-room conflict from overlap IDs and their detail records', async () => {
+    const { service, client, rateLimiter, circuitBreaker } = makeService(
+      [],
+      [],
+      [
+        [361, 362],
+        { id: 361, status: 'expected', arrival_room_id: 606113 },
+        { id: 362, status: 'canceled', arrival_room_id: 606113 },
+      ],
+    );
+
+    await expect(
+      service.hasActiveRoomConflict(
+        credentials,
+        { startsOn: '2026-09-25', endsOn: '2026-09-27' },
+        '606113',
+      ),
+    ).resolves.toBe(true);
+    expect(client.request).toHaveBeenNthCalledWith(
+      1,
+      credentials,
+      expect.objectContaining({
+        path: '/bookings/',
+        query: { 'arrival.lt': '2026-09-27', 'departure.gt': '2026-09-25' },
+      }),
+    );
+    expect(client.request).toHaveBeenNthCalledWith(
+      2,
+      credentials,
+      expect.objectContaining({ path: '/bookings/361' }),
+    );
+    expect(client.request).toHaveBeenNthCalledWith(
+      3,
+      credentials,
+      expect.objectContaining({ path: '/bookings/362' }),
+    );
+    expect(rateLimiter.consume).toHaveBeenCalledTimes(3);
+    expect(circuitBreaker.assertClosed).toHaveBeenCalledTimes(3);
+  });
+
   it('accepts Clock expected/no-show for local CONFIRMED and a missing Clock row for local CANCELLED', async () => {
     const { service, client, audit, rateLimiter, circuitBreaker } = makeService(
       [

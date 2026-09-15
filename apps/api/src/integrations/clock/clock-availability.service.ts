@@ -24,6 +24,10 @@ import {
 } from './clock-http-client';
 import { ClockRateLimiterService } from './clock-rate-limiter';
 import { ClockRateRankingService } from './clock-rate-ranking.service';
+import {
+  ClockBookingConsistencyService,
+  ClockBookingReadError,
+} from './clock-booking-consistency.service';
 
 // Confirmed against the real sandbox (2026-08-04) and Clock's own public
 // Postman docs: GET /rates_availability requires `from`, `to`, `rates`
@@ -133,7 +137,12 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
-type ClockRateRow = { id: number | string; bookable_id: number | string; bookable_type: string; wbe: boolean };
+type ClockRateRow = {
+  id: number | string;
+  bookable_id: number | string;
+  bookable_type: string;
+  wbe: boolean;
+};
 
 @Injectable()
 export class ClockAvailabilityService {
@@ -149,7 +158,89 @@ export class ClockAvailabilityService {
     @Inject(ClockRateLimiterService) private readonly rateLimiter: ClockRateLimiterService,
     @Inject(ClockCircuitBreakerService) private readonly circuitBreaker: ClockCircuitBreakerService,
     @Inject(ClockRateRankingService) private readonly rateRankings: ClockRateRankingService,
+    @Inject(ClockBookingConsistencyService)
+    private readonly bookingConsistency: ClockBookingConsistencyService,
   ) {}
+
+  /**
+   * Uncached pre-payment availability check. Room-type selections use
+   * `/rates_availability`, while physical-room selections use the verified
+   * booking-overlap/detail pattern in ClockBookingConsistencyService.
+   */
+  async isAvailableForBooking(
+    tenantId: string,
+    propertyId: string,
+    query: {
+      roomTypeId: string;
+      roomId?: string;
+      startsOn: string;
+      endsOn: string;
+      adultCount?: number;
+      childrenCount?: number;
+    },
+  ): Promise<Result<boolean>> {
+    const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
+    if (!connection || connection.provider !== 'CLOCK_PMS')
+      return failure(
+        classifyConfigurationError('This property has no active Clock PMS connection.'),
+      );
+    const parsed = parseClockCredentials(connection.credentials);
+    if (!parsed.ok) return failure(classifyConfigurationError(parsed.message));
+
+    if (query.roomId) {
+      const externalRoomId = await this.mappedExternalRoomId(tenantId, propertyId, query.roomId);
+      if (!externalRoomId)
+        return failure(
+          classifyConfigurationError(
+            'This room has no confirmed Clock catalog mapping — sync and confirm it first.',
+          ),
+        );
+      try {
+        const hasConflict = await this.bookingConsistency.hasActiveRoomConflict(
+          parsed.value,
+          { startsOn: query.startsOn, endsOn: query.endsOn },
+          externalRoomId,
+        );
+        return { ok: true, value: !hasConflict };
+      } catch (error) {
+        if (error instanceof ClockBookingReadError) return failure(error.classified);
+        throw error;
+      }
+    }
+
+    const externalRoomTypeId = await this.mappedExternalRoomTypeId(
+      tenantId,
+      propertyId,
+      query.roomTypeId,
+    );
+    if (!externalRoomTypeId)
+      return failure(
+        classifyConfigurationError(
+          'This room type has no confirmed Clock catalog mapping — sync and confirm it first.',
+        ),
+      );
+
+    const rateIds = await this.ratesForRoomType(parsed.value, externalRoomTypeId);
+    if (!rateIds.ok) return failure(rateIds.error);
+    if (rateIds.value.ids.length === 0) return failure(noRatesError(rateIds.value));
+    const nights = nightsBetween(query.startsOn, query.endsOn);
+    if (nights.length === 0)
+      return failure(classifyConfigurationError('startsOn must be before endsOn.'));
+
+    const response = await this.fetch<ClockRateAvailabilityResponse>(parsed.value, {
+      from: query.startsOn,
+      to: nights[nights.length - 1]!,
+      rates: rateIds.value.ids,
+      room_types: externalRoomTypeId,
+      adults: String(query.adultCount ?? 1),
+      children: String(query.childrenCount ?? 0),
+    });
+    if (!response.ok) return failure(response.error);
+    return {
+      ok: true,
+      value: summarizeAvailability(query, nights, response.value, externalRoomTypeId).isAvailable,
+    };
+  }
 
   /**
    * `skipCache` exists for Task 10's final pre-booking availability check
@@ -280,37 +371,47 @@ export class ClockAvailabilityService {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (!connection || connection.provider !== 'CLOCK_PMS') {
       const error = classifyConfigurationError('This property has no active Clock PMS connection.');
-      uniqueQueries.forEach((query) => { results[query.roomTypeId] = failure(error); });
+      uniqueQueries.forEach((query) => {
+        results[query.roomTypeId] = failure(error);
+      });
       return results;
     }
     const parsed = parseClockCredentials(connection.credentials);
     if (!parsed.ok) {
-      uniqueQueries.forEach((query) => { results[query.roomTypeId] = failure(classifyConfigurationError(parsed.message)); });
+      uniqueQueries.forEach((query) => {
+        results[query.roomTypeId] = failure(classifyConfigurationError(parsed.message));
+      });
       return results;
     }
 
     // /rates/ returns the entire catalogue. Share one cold-cache fetch within
     // this tenant/property request, leaving allowance for the products query.
     let batchRates: Promise<ClockOutcome<ClockRateRow[]>> | undefined;
-    const loadBatchRates = () => batchRates ??= this.fetch<ClockRateRow[]>(parsed.value, undefined, '/rates/');
-    const resolved = await Promise.all(uniqueQueries.map(async (query) => {
-      const externalRoomTypeId = query.externalRoomTypeId
-        ?? await this.mappedExternalRoomTypeId(tenantId, propertyId, query.roomTypeId);
-      if (!externalRoomTypeId) {
+    const loadBatchRates = () =>
+      (batchRates ??= this.fetch<ClockRateRow[]>(parsed.value, undefined, '/rates/'));
+    const resolved = await Promise.all(
+      uniqueQueries.map(async (query) => {
+        const externalRoomTypeId =
+          query.externalRoomTypeId ??
+          (await this.mappedExternalRoomTypeId(tenantId, propertyId, query.roomTypeId));
+        if (!externalRoomTypeId) {
+          return {
+            query,
+            externalRoomTypeId: null,
+            rates: failure(
+              classifyConfigurationError(
+                'This room type has no confirmed Clock catalog mapping — sync and confirm it first.',
+              ),
+            ),
+          };
+        }
         return {
           query,
-          externalRoomTypeId: null,
-          rates: failure(classifyConfigurationError(
-            'This room type has no confirmed Clock catalog mapping — sync and confirm it first.',
-          )),
+          externalRoomTypeId,
+          rates: await this.ratesForRoomType(parsed.value, externalRoomTypeId, loadBatchRates),
         };
-      }
-      return {
-        query,
-        externalRoomTypeId,
-        rates: await this.ratesForRoomType(parsed.value, externalRoomTypeId, loadBatchRates),
-      };
-    }));
+      }),
+    );
 
     const usable = resolved.filter((entry) => {
       if (!entry.rates.ok) {
@@ -353,9 +454,9 @@ export class ClockAvailabilityService {
     if (misses.length === 0) return results;
 
     const first = misses[0]!.entry.query;
-    const rateIds = Array.from(new Set(misses.flatMap(({ entry }) => (
-      entry.rates.ok ? entry.rates.value.ids : []
-    ))));
+    const rateIds = Array.from(
+      new Set(misses.flatMap(({ entry }) => (entry.rates.ok ? entry.rates.value.ids : []))),
+    );
     const response = await this.fetch<ClockProductsResponse>(
       parsed.value,
       {
@@ -368,7 +469,9 @@ export class ClockAvailabilityService {
       '/products',
     );
     if (!response.ok) {
-      misses.forEach(({ entry }) => { results[entry.query.roomTypeId] = failure(response.error); });
+      misses.forEach(({ entry }) => {
+        results[entry.query.roomTypeId] = failure(response.error);
+      });
       return results;
     }
 
@@ -376,10 +479,15 @@ export class ClockAvailabilityService {
       const roomType = response.value.find((item) => String(item.id) === entry.externalRoomTypeId);
       const winner = roomType ? selectBestOffer(roomType.rates, rankOrder) : undefined;
       if (!winner) {
-        results[entry.query.roomTypeId] = failure(classifyConfigurationError('Clock has no available price for the requested stay.'));
+        results[entry.query.roomTypeId] = failure(
+          classifyConfigurationError('Clock has no available price for the requested stay.'),
+        );
         return;
       }
-      const value = { amount: (winner.offer.price.cents / 100).toFixed(2), currency: winner.offer.price.currency };
+      const value = {
+        amount: (winner.offer.price.cents / 100).toFixed(2),
+        currency: winner.offer.price.currency,
+      };
       const cacheKey = this.displayPriceCacheKey(
         tenantId,
         propertyId,
@@ -389,7 +497,10 @@ export class ClockAvailabilityService {
         entry.rates.ok ? entry.rates.value.ids : [],
         rankOrder,
       );
-      this.displayPriceCache.set(cacheKey, { value, expiresAt: Date.now() + DISPLAY_PRICE_CACHE_TTL_MS });
+      this.displayPriceCache.set(cacheKey, {
+        value,
+        expiresAt: Date.now() + DISPLAY_PRICE_CACHE_TTL_MS,
+      });
       results[entry.query.roomTypeId] = { ok: true, value };
     });
     return results;
@@ -629,7 +740,8 @@ export class ClockAvailabilityService {
         const entry = dates[night];
         if (!entry?.free || entry.price === undefined) continue;
         if (Object.keys(entry.errors ?? {}).length > 0) continue;
-        if (cheapestCents === null || entry.price.cents < cheapestCents) cheapestCents = entry.price.cents;
+        if (cheapestCents === null || entry.price.cents < cheapestCents)
+          cheapestCents = entry.price.cents;
       }
       if (cheapestCents === null) return null;
       shape[night] = cheapestCents;
@@ -718,6 +830,24 @@ export class ClockAvailabilityService {
     return rows[0]?.externalEntityId ?? null;
   }
 
+  private async mappedExternalRoomId(
+    tenantId: string,
+    propertyId: string,
+    localRoomId: string,
+  ): Promise<string | null> {
+    const rows = await this.database.withTenantTransaction({ tenantId, propertyId }, (tx) =>
+      tx.$queryRawUnsafe<Array<{ externalEntityId: string }>>(
+        `SELECT external_entity_id AS "externalEntityId" FROM clock_catalog_mappings
+         WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND entity_type = 'ROOM'
+           AND local_entity_id = $3::uuid AND sync_status = 'CONFIRMED'`,
+        tenantId,
+        propertyId,
+        localRoomId,
+      ),
+    );
+    return rows[0]?.externalEntityId ?? null;
+  }
+
   /** A Clock "Rate Plan" (`/rate_plans`, e.g. id 69242) is a parent grouping
    * only — it carries no room-type/price/availability data. `/bookings/`,
    * `/rates_availability` and `/products` all require the child "Rate" id
@@ -742,7 +872,8 @@ export class ClockAvailabilityService {
       : this.fetch<ClockRateRow[]>(credentials, undefined, '/rates/'));
     if (!response.ok) return response;
     const forRoomType = response.value.filter(
-      (rate) => rate.bookable_type === 'Pms::RoomType' && String(rate.bookable_id) === externalRoomTypeId,
+      (rate) =>
+        rate.bookable_type === 'Pms::RoomType' && String(rate.bookable_id) === externalRoomTypeId,
     );
     const published = forRoomType.filter((rate) => rate.wbe);
     const value: RoomTypeRates = {
@@ -771,7 +902,11 @@ export class ClockAvailabilityService {
     const parsed = parseClockCredentials(connection.credentials);
     if (!parsed.ok) return failure(classifyConfigurationError(parsed.message));
 
-    const externalRoomTypeId = await this.mappedExternalRoomTypeId(tenantId, propertyId, roomTypeId);
+    const externalRoomTypeId = await this.mappedExternalRoomTypeId(
+      tenantId,
+      propertyId,
+      roomTypeId,
+    );
     if (!externalRoomTypeId)
       return failure(
         classifyConfigurationError(
@@ -896,7 +1031,8 @@ function selectBestOffer(
   const valid: Array<{ rateId: string; offer: ClockProductOffer }> = [];
   for (const [rateId, offers] of Object.entries(rateOffers)) {
     for (const offer of offers) {
-      if (offer.available && Object.keys(offer.errors ?? {}).length === 0) valid.push({ rateId, offer });
+      if (offer.available && Object.keys(offer.errors ?? {}).length === 0)
+        valid.push({ rateId, offer });
     }
   }
   if (valid.length === 0) return undefined;
@@ -908,7 +1044,9 @@ function selectBestOffer(
     }
   }
 
-  return valid.reduce((best, entry) => (entry.offer.price.cents < best.offer.price.cents ? entry : best));
+  return valid.reduce((best, entry) =>
+    entry.offer.price.cents < best.offer.price.cents ? entry : best,
+  );
 }
 
 /** Every calendar date the guest actually occupies the room: [startsOn, endsOn). */

@@ -34,6 +34,7 @@ import { NotificationsService } from '../tenancy/notifications.service';
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
 import { ManualReviewService } from '../integrations/manual-review.service';
 import { ClockBookingService } from '../integrations/clock/clock-booking.service';
+import { ClockAvailabilityService } from '../integrations/clock/clock-availability.service';
 import { generateBookingReference } from './booking-reference';
 import { resolveGuestWithPhoneSignal } from './guest-matching';
 
@@ -86,6 +87,18 @@ class CheckoutSessionCreationError extends Error {
   }
 }
 
+/**
+ * This must escape the tenant transaction after a local reservation succeeds:
+ * AVAILABILITY_FAILED has no outgoing transition, so returning it directly
+ * would commit a stranded room/inventory hold. The outer createBooking catch
+ * converts it back to the safe public Result after rollback.
+ */
+class PrePaymentClockAvailabilityError extends Error {
+  constructor(readonly result: Result<never>) {
+    super(result.ok ? 'Clock availability check failed.' : result.error.message);
+  }
+}
+
 type CancellationPolicy = {
   freeCancellationUntilHours: number | null;
   cutoffAt: Date | null;
@@ -120,6 +133,7 @@ export class LocalPmsProvider implements PmsProvider {
     private readonly connections: IntegrationConnectionsService,
     @Inject(ManualReviewService) private readonly manualReview: ManualReviewService,
     @Inject(ClockBookingService) private readonly clockBooking: ClockBookingService,
+    @Inject(ClockAvailabilityService) private readonly clockAvailability: ClockAvailabilityService,
   ) {}
 
   /** Milestone 11.5 Task 4/2: whether this property should get a real Clock
@@ -133,6 +147,38 @@ export class LocalPmsProvider implements PmsProvider {
       context.propertyId,
     );
     return connection?.provider === 'CLOCK_PMS';
+  }
+
+  private async prePaymentClockAvailabilityFailure(
+    context: PmsProviderContext,
+    command: LocalCreateBookingCommand,
+    occupancy: { adults: number; children: number },
+  ): Promise<Result<never> | null> {
+    if (!(await this.isClockConnected(context))) return null;
+
+    const result = await this.clockAvailability.isAvailableForBooking(
+      context.tenantId,
+      context.propertyId,
+      {
+        roomTypeId: command.roomTypeId,
+        roomId: command.roomId,
+        startsOn: command.startsOn,
+        endsOn: command.endsOn,
+        adultCount: occupancy.adults,
+        childrenCount: occupancy.children,
+      },
+    );
+    if (result.ok && result.value) return null;
+
+    return this.failure(
+      'AVAILABILITY_FAILED',
+      command.roomId
+        ? 'The selected room is no longer available for the requested stay.'
+        : result.ok
+          ? 'Inventory is no longer available for the requested stay.'
+          : 'Live Clock availability could not be confirmed. Please try again.',
+      !result.ok && result.error.retryable,
+    );
   }
 
   async testConnection(context: PmsProviderContext): Promise<Result<void>> {
@@ -466,6 +512,13 @@ export class LocalPmsProvider implements PmsProvider {
                 paymentMethod.value === BookingPaymentMethod.STRIPE_CHECKOUT ||
                 paymentMethod.value === BookingPaymentMethod.POKPAY
               ) {
+                const clockAvailabilityFailure = await this.prePaymentClockAvailabilityFailure(
+                  context,
+                  command,
+                  occupancy,
+                );
+                if (clockAvailabilityFailure)
+                  throw new PrePaymentClockAvailabilityError(clockAvailabilityFailure);
                 status = await this.transition(
                   tx,
                   context,
@@ -567,6 +620,7 @@ export class LocalPmsProvider implements PmsProvider {
       return result;
     } catch (error) {
       if (error instanceof CheckoutSessionCreationError) return error.result;
+      if (error instanceof PrePaymentClockAvailabilityError) return error.result;
       throw error;
     }
   }
