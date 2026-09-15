@@ -818,6 +818,8 @@ describe('LocalPmsProvider', () => {
       quoteSessionId,
       skipQuoteValidation: true,
     });
+    if (!partialMatchBooking.ok)
+      console.error('DIAGNOSTIC partialMatchBooking', JSON.stringify(partialMatchBooking));
     expect(partialMatchBooking).toMatchObject({ ok: true });
     if (!partialMatchBooking.ok) throw new Error('Expected partial-match booking to succeed.');
     const partialMatchGuest = await admin.$queryRaw<
