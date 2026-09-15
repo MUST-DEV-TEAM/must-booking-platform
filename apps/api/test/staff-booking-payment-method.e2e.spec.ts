@@ -201,7 +201,7 @@ describe('staff-bookings: payment method selection', () => {
     expect(row[0]).toMatchObject({ status: 'PAYMENT_PENDING', paymentMethod: 'STRIPE_CHECKOUT' });
     // No client-supplied externalReference: the server must generate one from the
     // property's own name ("Main Property" -> "MP"), not a fixed "MUST"/hash string.
-    expect(row[0]?.externalReference).toMatch(/^MP-\d{6}-\d{4}-[A-Z0-9]{2}$/);
+    expect(row[0]?.externalReference).toMatch(/^MP-\d{6}-\d{4}-[A-Z0-9]{4}$/);
   });
 
   it('rejects a payment method the property has not enabled', async () => {

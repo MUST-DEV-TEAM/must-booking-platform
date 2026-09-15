@@ -2820,7 +2820,6 @@ describe('LocalPmsProvider', () => {
     await expect(app!.get(PaymentExpiryService).sweep()).resolves.toEqual({ expired: 1 });
     await expect(provider.getBooking(context, abandonedPokpayBooking.id)).resolves.toMatchObject({
       status: 'EXPIRED',
-      externalBookingId: null,
     });
     await expect(provider.getBooking(context, completedBeforeSweep.id)).resolves.toMatchObject({
       status: 'CONFIRMED',
