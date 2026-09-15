@@ -9,21 +9,28 @@ function makeService(
   overrides: {
     client?: { request: ReturnType<typeof vi.fn> };
     mappedExternalId?: string | null;
+    mappedExternalIds?: Array<string | null>;
     rankOrder?: string[];
   } = {},
 ) {
+  const mappedExternalIds = overrides.mappedExternalIds?.slice();
   const database = {
     withTenantTransaction: vi.fn((_ctx, callback) =>
       callback({
         $queryRawUnsafe: vi
           .fn()
-          .mockResolvedValue(
-            overrides.mappedExternalId === undefined
-              ? [{ externalEntityId: '42023' }]
-              : overrides.mappedExternalId === null
-                ? []
-                : [{ externalEntityId: overrides.mappedExternalId }],
-          ),
+          .mockImplementation(() => {
+            const mappedExternalId = mappedExternalIds
+              ? mappedExternalIds.shift()
+              : overrides.mappedExternalId;
+            return Promise.resolve(
+              mappedExternalId === undefined
+                ? [{ externalEntityId: '42023' }]
+                : mappedExternalId === null
+                  ? []
+                  : [{ externalEntityId: mappedExternalId }],
+            );
+          }),
       }),
     ),
   };
@@ -183,6 +190,136 @@ describe('ClockAvailabilityService.getAvailability', () => {
     await service.getAvailability('t1', 'p1', query);
 
     expect(request.mock.calls.length).toBe(callsAfterFirst);
+  });
+});
+
+describe('ClockAvailabilityService.isAvailableForBooking', () => {
+  it('uses correctly encoded mapping errors for a room type and physical room', async () => {
+    const noRoomType = makeService({ mappedExternalId: null }).service;
+    await expect(noRoomType.isAvailableForBooking('t1', 'p1', query)).resolves.toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        message: 'This room type has no confirmed Clock catalog mapping — sync and confirm it first.',
+      }),
+    });
+
+    const noRoom = makeService({ mappedExternalIds: ['42023', null] }).service;
+    await expect(
+      noRoom.isAvailableForBooking('t1', 'p1', { ...query, roomId: 'local-room-101' }),
+    ).resolves.toEqual({
+      ok: false,
+      error: expect.objectContaining({
+        message: 'This room has no confirmed Clock catalog mapping — sync and confirm it first.',
+      }),
+    });
+  });
+
+  it('uses the mapped physical room and rejects a stay when any Clock night is unavailable', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '69242': {
+                '2026-08-10': { free: true, resource_id: 101, room_type_free_rooms: 1, errors: {} },
+                '2026-08-11': { free: false, resource_id: 101, room_type_free_rooms: 0, errors: {} },
+              },
+            },
+          },
+        ],
+      });
+    const { service } = makeService({
+      client: { request },
+      mappedExternalIds: ['42023', '101'],
+    });
+
+    await expect(
+      service.isAvailableForBooking('t1', 'p1', { ...query, roomId: 'local-room-101' }),
+    ).resolves.toEqual({ ok: true, value: false });
+    expect(request).toHaveBeenLastCalledWith(
+      credentials,
+      expect.objectContaining({
+        path: '/rates_availability',
+        query: {
+          from: '2026-08-10',
+          to: '2026-08-11',
+          rates: ['69242'],
+          rooms: '101',
+          adults: '1',
+          children: '0',
+        },
+      }),
+    );
+  });
+
+  it('rejects a room-type stay when Clock reports zero free units', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '69242': {
+                '2026-08-10': { free: false, room_type_free_rooms: 0, errors: {} },
+                '2026-08-11': { free: false, room_type_free_rooms: 0, errors: {} },
+              },
+            },
+          },
+        ],
+      });
+    const { service } = makeService({ client: { request } });
+
+    await expect(service.isAvailableForBooking('t1', 'p1', query)).resolves.toEqual({
+      ok: true,
+      value: false,
+    });
+    expect(request).toHaveBeenLastCalledWith(
+      credentials,
+      expect.objectContaining({ query: expect.objectContaining({ room_types: '42023' }) }),
+    );
+  });
+
+  it('passes a genuinely available room-type stay without using the cached calendar result', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '69242': {
+                '2026-08-10': { free: true, room_type_free_rooms: 2, errors: {} },
+                '2026-08-11': { free: true, room_type_free_rooms: 1, errors: {} },
+              },
+            },
+          },
+        ],
+      });
+    const { service } = makeService({ client: { request } });
+
+    await expect(service.isAvailableForBooking('t1', 'p1', query)).resolves.toEqual({
+      ok: true,
+      value: true,
+    });
+    expect(request).toHaveBeenCalledTimes(2);
   });
 });
 
