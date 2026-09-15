@@ -505,7 +505,14 @@ describe('LocalPmsProvider', () => {
 
     const quote = await request(app!.getHttpServer())
       .post(`${propertyUrl}/quotes`)
-      .send({ roomTypeId, ratePlanId, startsOn: '2027-09-01', endsOn: '2027-09-03', guestCount: 2 })
+      .send({
+        roomTypeId,
+        ratePlanId,
+        startsOn: '2027-09-01',
+        endsOn: '2027-09-03',
+        adults: 1,
+        children: 1,
+      })
       .expect(201);
     const guestCookie = quote.headers['set-cookie'][0] as string;
     expect(guestCookie).toContain('must_guest_session=');
@@ -636,7 +643,6 @@ describe('LocalPmsProvider', () => {
       .send(bookingRequest)
       .expect(201);
     const created = createdResponse.body;
-    if (!created.ok) console.error('DIAGNOSTIC created.body', JSON.stringify(created));
     expect(created).toMatchObject({
       ok: true,
       value: {
