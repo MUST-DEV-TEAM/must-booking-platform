@@ -293,6 +293,18 @@
         return loadedMonths[month];
     }
     function roomDateIsUnavailable(date) { return unavailableDates[dateKey(date)] === true; }
+    /*
+     * flatpickr's own 'flatpickr-disabled' class means the date itself has no
+     * availability. In range mode it also adds 'notAllowed' to dates that are
+     * only unreachable because an unavailable night sits between them and the
+     * current selection - those dates are still open, so they must not get
+     * the "really unavailable" slash.
+     */
+    function markReallyUnavailableDay(dayElement) {
+        if (!dayElement) return;
+        var isReallyUnavailable = dayElement.classList.contains('flatpickr-disabled');
+        dayElement.classList.toggle('must-booking-day-unavailable', isReallyUnavailable);
+    }
     function refreshAvailability(picker) {
         if (!roomAvailability || !picker) return;
         loadAvailabilityMonth(new Date(picker.currentYear, picker.currentMonth, 1)).then(function () { picker.redraw(); });
@@ -313,7 +325,8 @@
                 defaultDate: checkoutField && checkoutField.value ? checkoutField.value : undefined,
                 onChange: function (selectedDates, dateStr) { if (checkoutField) checkoutField.value = dateStr; updateArrivalDeparture(checkinField ? checkinField.value : '', dateStr); scheduleSelectedRoomAvailabilityCheck(); },
                 onMonthChange: function (a, b, instance) { syncMonthYear(checkoutMonth, checkoutYear, instance); refreshAvailability(instance); },
-                onYearChange: function (a, b, instance) { syncMonthYear(checkoutMonth, checkoutYear, instance); refreshAvailability(instance); }
+                onYearChange: function (a, b, instance) { syncMonthYear(checkoutMonth, checkoutYear, instance); refreshAvailability(instance); },
+                onDayCreate: function (selectedDates, dateStr, instance, dayElement) { markReallyUnavailableDay(dayElement); }
             });
             checkoutPicker.calendarContainer.classList.add('must-booking-flatpickr-instance');
             syncMonthYear(checkoutMonth, checkoutYear, checkoutPicker);
@@ -335,7 +348,8 @@
                     scheduleSelectedRoomAvailabilityCheck();
                 },
                 onMonthChange: function (a, b, instance) { syncMonthYear(checkinMonth, checkinYear, instance); updatePrevVisibility(instance, prevButton); refreshAvailability(instance); },
-                onYearChange: function (a, b, instance) { syncMonthYear(checkinMonth, checkinYear, instance); updatePrevVisibility(instance, prevButton); refreshAvailability(instance); }
+                onYearChange: function (a, b, instance) { syncMonthYear(checkinMonth, checkinYear, instance); updatePrevVisibility(instance, prevButton); refreshAvailability(instance); },
+                onDayCreate: function (selectedDates, dateStr, instance, dayElement) { markReallyUnavailableDay(dayElement); }
             });
             checkinPicker.calendarContainer.classList.add('must-booking-flatpickr-instance');
             syncMonthYear(checkinMonth, checkinYear, checkinPicker);
@@ -374,7 +388,8 @@
                     scheduleSelectedRoomAvailabilityCheck();
                 },
                 onMonthChange: function (a, b, instance) { syncMonthYear(monthSelect, yearSelect, instance); updatePrevVisibility(instance, singlePrev); refreshAvailability(instance); },
-                onYearChange: function (a, b, instance) { syncMonthYear(monthSelect, yearSelect, instance); updatePrevVisibility(instance, singlePrev); refreshAvailability(instance); }
+                onYearChange: function (a, b, instance) { syncMonthYear(monthSelect, yearSelect, instance); updatePrevVisibility(instance, singlePrev); refreshAvailability(instance); },
+                onDayCreate: function (selectedDates, dateStr, instance, dayElement) { markReallyUnavailableDay(dayElement); }
             });
             picker.calendarContainer.classList.add('must-booking-flatpickr-instance');
             syncMonthYear(monthSelect, yearSelect, picker);

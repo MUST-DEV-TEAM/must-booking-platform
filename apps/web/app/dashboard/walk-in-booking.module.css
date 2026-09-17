@@ -39,6 +39,22 @@
   font-weight: 600;
   margin-bottom: var(--must-space-8);
 }
+/* react-day-picker marks a truly unavailable day with data-disabled="true"
+ * on the day cell; a diagonal slash makes that unambiguous at a glance. */
+.calendar :global(.rdp-day[data-disabled='true']) {
+  position: relative;
+}
+.calendar :global(.rdp-day[data-disabled='true'])::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 50%;
+  border-top: 1px solid currentColor;
+  transform: rotate(-35deg);
+  transform-origin: center;
+  pointer-events: none;
+}
 .total {
   font-size: 1.25rem;
   font-weight: 700;

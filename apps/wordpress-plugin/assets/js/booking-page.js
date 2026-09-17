@@ -774,23 +774,32 @@
             dayElement.classList.contains('notAllowed');
     }
 
+    /*
+     * 'flatpickr-disabled' means the date itself has no availability (a real
+     * PMS block). 'notAllowed' only means this date isn't reachable from the
+     * currently selected check-in/checkout because an unavailable night sits
+     * in between - the date itself is still open, so it must not get the
+     * "really unavailable" slash treatment.
+     */
+    function isReallyUnavailableDay(dayElement) {
+        return dayElement.classList.contains('flatpickr-disabled');
+    }
+
     function markUnavailableDayElement(dayElement, unavailableDates) {
         if (!dayElement || !dayElement.dateObj) {
             return;
         }
         var dates = normalizeDateList(unavailableDates);
         var dateString = formatDate(dayElement.dateObj);
-        var isUnavailable = isInCurrentCalendarMonth(dayElement) && (
-            dates.indexOf(dateString) !== -1 || isFlatpickrDisabledDay(dayElement)
+        var isReallyUnavailable = isInCurrentCalendarMonth(dayElement) && (
+            dates.indexOf(dateString) !== -1 || isReallyUnavailableDay(dayElement)
         );
-        dayElement.classList.toggle('must-booking-day-unavailable', isUnavailable);
-        if (isUnavailable) {
+        dayElement.classList.toggle('must-booking-day-unavailable', isReallyUnavailable);
+        if (isReallyUnavailable || isFlatpickrDisabledDay(dayElement)) {
             dayElement.setAttribute('aria-disabled', 'true');
             return;
         }
-        if (!isFlatpickrDisabledDay(dayElement)) {
-            dayElement.removeAttribute('aria-disabled');
-        }
+        dayElement.removeAttribute('aria-disabled');
     } function syncUnavailableDayClasses(picker, unavailableDates) {
         if (!picker || !picker.calendarContainer) {
             return;
