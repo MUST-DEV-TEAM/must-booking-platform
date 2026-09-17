@@ -4,7 +4,7 @@ Tags: hotel, booking, reservation, accommodation
 Requires at least: 5.0
 Tested up to: 6.0
 Requires PHP: 7.4
-Stable tag: 0.4.98
+Stable tag: 0.4.99
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,9 @@ Main features include:
 5. When updating, upload the new release ZIP or use the configured updater, then review **Diagnostics & Maintenance** after the update completes.
 
 == Changelog ==
+
+= 0.4.99 =
+* Only show the diagonal "unavailable" slash on booking calendar dates that are truly closed in Clock, not on dates that are merely unreachable from the current check-in selection.
 
 = 0.4.98 =
 * Fit the complete long-date filter heading in the desktop panel without changing the date picker.
