@@ -5922,30 +5922,92 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
 }
 
 .must-hotel-booking-page-accommodation .must-booking-results-filter-panel-actions {
-    align-items: center;
+    align-items: flex-end;
 }
 
 .must-hotel-booking-page-accommodation .must-booking-results-filter-apply {
-    align-self: center;
-    min-height: 44px;
+    align-self: auto;
+    min-height: 58px;
     min-width: 0;
-    height: auto;
+    height: 58px;
     width: auto;
-    padding: 10px 16px;
+    margin: 0;
+    padding: 0 20px;
+    border-radius: 10px;
     font-size: 14px;
     line-height: 22px;
     box-sizing: border-box;
     box-shadow: none;
+    transition: background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
-.must-hotel-booking-page-accommodation .must-booking-results-filter-apply:is(:hover, :focus, :focus-visible, :active) {
-    box-shadow: none;
+.must-hotel-booking-page-accommodation .must-booking-results-filter-apply:hover {
+    background: #2b2b2b;
+    box-shadow: 0 8px 18px rgba(20, 20, 20, 0.16);
     transform: none;
+}
+
+.must-hotel-booking-page-accommodation .must-booking-results-filter-apply:active {
+    background: #0c0c0c;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.28);
+    transform: none;
+}
+
+.must-hotel-booking-page-accommodation .must-booking-results-filter-apply:focus {
+    background: #141414;
+    box-shadow: none;
+    outline: none;
+    transform: none;
+}
+
+.must-hotel-booking-page-accommodation .must-booking-results-filter-apply:disabled,
+.must-hotel-booking-page-accommodation .must-booking-results-filter-apply[aria-disabled='true'] {
+    border-color: #cfc6b3;
+    background: #cfc6b3;
+    color: #141414;
+    box-shadow: none;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.must-hotel-booking-page-accommodation .must-booking-results-filter-panel-party .must-booking-results-filter-field select {
+    min-height: 58px;
+    height: 58px;
+    padding: 0 44px 0 16px;
+    border-radius: 10px;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg width='14' height='8' viewBox='0 0 14 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='m1 1 6 6 6-6' stroke='%23141414' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-position: right 16px center;
+    background-repeat: no-repeat;
+    background-size: 14px 8px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: border-color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.must-hotel-booking-page-accommodation .must-booking-results-filter-panel-party .must-booking-results-filter-field select:hover {
+    border-color: rgba(20, 20, 20, 0.68);
+    background-color: #fff;
+    box-shadow: 0 3px 10px rgba(20, 20, 20, 0.08);
+}
+
+.must-hotel-booking-page-accommodation .must-booking-results-filter-panel-party .must-booking-results-filter-field select:focus {
+    border-color: #141414;
+    background-color: #fff;
+    box-shadow: none;
+    outline: none;
 }
 
 @media (max-width: 767px) {
     .must-hotel-booking-page-accommodation .must-booking-results-filter-panel-title {
         font-size: 16px;
+    }
+
+    .must-hotel-booking-page-accommodation .must-booking-results-filter-apply,
+    .must-hotel-booking-page-accommodation .must-booking-results-filter-panel-party .must-booking-results-filter-field select {
+        min-height: 48px;
+        height: 48px;
     }
 }
 
@@ -5997,4 +6059,18 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
 .must-hotel-booking-page-booking-confirmation :where(.must-button--danger, [data-danger], .is-danger):focus-visible,
 .must-booking-process-page :where(.must-button--danger, [data-danger], .is-danger):focus-visible {
     box-shadow: var(--must-focus-ring-danger) !important;
+}
+
+/* The party composer keeps one focused-control treatment instead of stacking
+ * the generic outline over its own control states. */
+.must-hotel-booking-page-accommodation .must-booking-results-filter-panel-party .must-booking-results-filter-field select:focus-visible {
+    outline: none !important;
+    outline-offset: 0;
+    box-shadow: var(--must-focus-ring-secondary) !important;
+}
+
+.must-hotel-booking-page-accommodation .must-booking-results-filter-apply:focus-visible {
+    outline: none !important;
+    outline-offset: 0;
+    box-shadow: var(--must-focus-ring-primary) !important;
 }
