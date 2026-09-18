@@ -128,9 +128,9 @@ ClockBookingService.createBooking
   │  4. COMMIT (idempotency result stored in integration_operations)
 ```
 
-### Special requests forwarded as active_notes
+### Special requests forwarded as client_requests
 
-`ClockBookingService.createBooking()` and `attachRealReservation()` both send the guest's special-requests text to Clock as `active_notes: [text]` on the `POST /bookings/` body (empty array when there is none) — per Clock's guidance (2026-09-18 email), an array field on the booking-create payload. This rides in the same request as the reservation itself; no separate call is made.
+`ClockBookingService.createBooking()` and `attachRealReservation()` both send the guest's special-requests text to Clock as `client_requests: text` (`null` when there is none) on the `POST /bookings/` body. Clock's team originally pointed us at `active_notes` (2026-09-18 email), but a real live booking (same day) proved that field rejects plain strings — Clock's backend expects each entry to be a `Subscriptions::CustomNote` object, not a string, and the create call failed with a real guest already charged. Clock's own official bookings-table field documentation (`developers.clock-software.com`) lists `client_requests` as a plain `STRING` field described as "Guest requests and special needs" — an exact match for this use case and free of the object-shape ambiguity, so that's what's actually sent. This rides in the same request as the reservation itself; no separate call is made.
 
 ### Real booking rate selection and post-commit failure handling
 

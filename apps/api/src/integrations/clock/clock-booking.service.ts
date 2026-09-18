@@ -325,9 +325,7 @@ export class ClockBookingService {
             reference_number: externalReference,
             adults: occupancy.adults,
             children: occupancy.children,
-            active_notes: command.guest.specialRequests?.trim()
-              ? [command.guest.specialRequests.trim()]
-              : [],
+            client_requests: command.guest.specialRequests?.trim() || null,
           };
           const body = existingClockGuest.value
             ? { main_booking_guest: existingClockGuest.value, booking }
@@ -605,7 +603,7 @@ export class ClockBookingService {
       reference_number: row.externalReference,
       adults: row.adults,
       children: row.children,
-      active_notes: guest.specialRequests?.trim() ? [guest.specialRequests.trim()] : [],
+      client_requests: guest.specialRequests?.trim() || null,
     };
     const body = existingClockGuest.value
       ? { main_booking_guest: existingClockGuest.value, booking }

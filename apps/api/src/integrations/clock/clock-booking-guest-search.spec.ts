@@ -138,7 +138,7 @@ describe('ClockBookingService Clock guest search', () => {
           reference_number: 'MUST-1',
           adults: 2,
           children: 1,
-          active_notes: ['Late arrival after 22:00.'],
+          client_requests: 'Late arrival after 22:00.',
         },
       },
     });
@@ -200,7 +200,7 @@ describe('ClockBookingService Clock guest search', () => {
         guest_last_name: 'Guest',
         adults: 1,
         children: 0,
-        active_notes: [],
+        client_requests: null,
       },
     });
     expect(post?.body).not.toHaveProperty('main_booking_guest');
@@ -272,7 +272,7 @@ describe('ClockBookingService Clock guest search', () => {
         reference_number: 'MUST-3',
         adults: 2,
         children: 1,
-        active_notes: ['Late arrival after 22:00.'],
+        client_requests: 'Late arrival after 22:00.',
       },
     });
     expect((post?.body as { booking: Record<string, unknown> }).booking).not.toHaveProperty(
