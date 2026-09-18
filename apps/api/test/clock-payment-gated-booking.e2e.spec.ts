@@ -488,11 +488,11 @@ describe.skipIf(!hasSandboxCredentials)(
 
       // GET .../folios/ returns bare numeric folio IDs, not objects
       // (confirmed for real) — each folio's own fields need GET /folios/{id}.
-      // Milestone 21 Task 1: postDeposit now closes the deposit folio right
-      // after posting the credit item (Clock certification requirement), so
-      // this can no longer find "the" deposit folio by `!closed_at` — it has
-      // to find the one carrying our own credit_item reference instead, then
-      // assert that one IS closed.
+      // Clock's guidance (2026-09-18 email, superseding the 2026-09-10 call):
+      // postDeposit must NOT close the deposit folio — their back-office
+      // processing of this folio type requires it to remain open. Find the
+      // one carrying our own credit_item reference and assert it is still
+      // open.
       const folioIds = await clockClient.request<number[]>(clockCredentials, {
         api: 'pms_api',
         method: 'GET',
@@ -500,7 +500,7 @@ describe.skipIf(!hasSandboxCredentials)(
       });
       expect(folioIds.status).toBe(200);
       let depositFolioId: number | undefined;
-      let depositFolioClosedAt: string | null | undefined;
+      let depositFolioOpen: boolean | undefined;
       let ourCreditItem:
         | { reference?: string; value_cents?: number; currency?: string; payment_sub_type?: string }
         | undefined;
@@ -525,13 +525,13 @@ describe.skipIf(!hasSandboxCredentials)(
         const match = creditItems.body.find((item) => item.reference === externalReference);
         if (match) {
           depositFolioId = folioId;
-          depositFolioClosedAt = folio.body.closed_at;
+          depositFolioOpen = !folio.body.closed_at;
           ourCreditItem = match;
           break;
         }
       }
       expect(depositFolioId).toBeDefined();
-      expect(depositFolioClosedAt).toBeTruthy();
+      expect(depositFolioOpen).toBe(true);
       expect(ourCreditItem).toBeDefined();
       expect(ourCreditItem?.value_cents).toBe(50000);
       expect(ourCreditItem?.currency).toBe('EUR');

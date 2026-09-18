@@ -59,19 +59,6 @@ interface ClockGuestSearchResource {
   e_mail?: string | null;
 }
 
-interface ClockDocumentTypeResource {
-  id: number;
-}
-
-export function isClockDocumentTypeResource(value: unknown): value is ClockDocumentTypeResource {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    Number.isInteger((value as ClockDocumentTypeResource).id) &&
-    (value as ClockDocumentTypeResource).id > 0
-  );
-}
-
 /** Exported for unit testing (Task 12: schema_mismatch must have real, tested detection). */
 export function isClockBookingResource(value: unknown): value is ClockBookingResource {
   return (
@@ -338,6 +325,9 @@ export class ClockBookingService {
             reference_number: externalReference,
             adults: occupancy.adults,
             children: occupancy.children,
+            active_notes: command.guest.specialRequests?.trim()
+              ? [command.guest.specialRequests.trim()]
+              : [],
           };
           const body = existingClockGuest.value
             ? { main_booking_guest: existingClockGuest.value, booking }
@@ -507,13 +497,16 @@ export class ClockBookingService {
         email: string;
         firstName: string | null;
         lastName: string | null;
+        specialRequests: string | null;
       }>
     >`
-      SELECT email,
-        COALESCE(${row.roomGuestFirstName}, first_name) AS "firstName",
-        COALESCE(${row.roomGuestLastName}, last_name) AS "lastName"
-      FROM guests
-      WHERE id = ${row.guestId}::uuid AND tenant_id = ${context.tenantId}::uuid
+      SELECT g.email,
+        COALESCE(${row.roomGuestFirstName}, g.first_name) AS "firstName",
+        COALESCE(${row.roomGuestLastName}, g.last_name) AS "lastName",
+        b.special_requests AS "specialRequests"
+      FROM guests g
+      JOIN bookings b ON b.id = ${bookingId}::uuid
+      WHERE g.id = ${row.guestId}::uuid AND g.tenant_id = ${context.tenantId}::uuid
     `;
     const guest = guestRows[0];
     if (!guest) {
@@ -612,6 +605,7 @@ export class ClockBookingService {
       reference_number: row.externalReference,
       adults: row.adults,
       children: row.children,
+      active_notes: guest.specialRequests?.trim() ? [guest.specialRequests.trim()] : [],
     };
     const body = existingClockGuest.value
       ? { main_booking_guest: existingClockGuest.value, booking }
@@ -739,11 +733,10 @@ export class ClockBookingService {
    * confirmed at Clock); it records a ManualReviewItem instead so a human
    * posts the payment manually.
    *
-   * Also closes the deposit folio immediately after the credit item posts
-   * (Clock certification requirement, 2026-09-10 call) — `POST
-   * folios/{id}/close`. A close failure does not undo the payment or fail
-   * this call (the money has genuinely moved); it records a ManualReviewItem
-   * instead so a human closes the folio manually.
+   * Does NOT close the deposit folio. An earlier version of this method did
+   * (2026-09-10 call), but Clock corrected that guidance on 2026-09-18: their
+   * back-office processing of this folio type requires it to remain open, so
+   * a `folio_close` request must never be sent here.
    *
    * Idempotent across retries (e.g. a redelivered payment webhook hitting an
    * already-attached booking — attachRealReservation short-circuits `ok` on
@@ -751,11 +744,12 @@ export class ClockBookingService {
    * reuses an existing open deposit folio rather than creating a new one
    * every time, and looks up an existing credit_item by our own `reference`
    * before posting, the same "never blind-retry" principle already used for
-   * booking creation (see linkIfClockHasIt). Because folios are now closed
-   * as part of this flow, a *closed* deposit folio is also checked for a
-   * credit_item matching this `reference` — if a prior run already posted
-   * and closed it, this is a full no-op (no Clock writes at all), instead of
-   * opening a second folio and double-posting the deposit.
+   * booking creation (see linkIfClockHasIt). A *closed* deposit folio (e.g.
+   * closed by the hotel at checkout, or a leftover from before this method
+   * stopped closing folios itself) is also checked for a credit_item
+   * matching this `reference` — if one is found, this is a full no-op (no
+   * Clock writes at all), instead of opening a second folio and
+   * double-posting the deposit.
    *
    * Both outbound steps below are wrapped in withRetry: the most common
    * real-world failure here is our own Clock rate limiter (4 req/s) tripping
@@ -813,11 +807,13 @@ export class ClockBookingService {
     }
 
     if (folio.value.status === 'already_completed') {
-      // Redelivered webhook (or any other repeat call) landing after a
-      // prior run already posted the credit item AND closed the folio — the
-      // deposit folio search above found both by `reference`. Nothing left
-      // to do at Clock; still record the audit entry so this call's outcome
-      // is traceable the same way a fresh success is.
+      // Redelivered webhook (or any other repeat call) landing after the
+      // deposit folio was already closed (by the hotel at checkout, or from a
+      // prior run before Clock told us to stop auto-closing these) — the
+      // deposit folio search above found the credit item on it by
+      // `reference`. Nothing left to do at Clock; still record the audit
+      // entry so this call's outcome is traceable the same way a fresh
+      // success is.
       await this.audit.recordInTransaction(tx, {
         tenantId: context.tenantId,
         propertyId: context.propertyId,
@@ -833,7 +829,6 @@ export class ClockBookingService {
           paymentSubType,
           paymentType,
           reference,
-          folioClosed: true,
           idempotentReplay: true,
         },
       });
@@ -882,55 +877,10 @@ export class ClockBookingService {
       );
     }
 
-    const documentTypes = await this.documentTypesForFolioClose(connection.value);
-    let documentTypeId: number | undefined;
-    if (!documentTypes.ok) {
-      this.logger.warn(
-        `Clock document type lookup failed for property ${context.propertyId}; closing deposit folio ${folio.value.folio.id} without document_type_id: ${documentTypes.error.message}`,
-      );
-    } else if (documentTypes.value.length === 1) {
-      documentTypeId = documentTypes.value[0]!.id;
-    } else {
-      this.logger.warn(
-        documentTypes.value.length === 0
-          ? `Clock has no configured fiscal document types for property ${context.propertyId}; closing deposit folio ${folio.value.folio.id} without document_type_id.`
-          : `Clock has ${documentTypes.value.length} configured fiscal document types for property ${context.propertyId} (${documentTypes.value.map((type) => type.id).join(', ')}); closing deposit folio ${folio.value.folio.id} without document_type_id rather than guessing.`,
-      );
-    }
-
-    const closed = await this.withRetry(() =>
-      this.closeFolio(connection.value, folio.value.folio.id, documentTypeId),
-    );
-    if (!closed.ok) {
-      // Money has already moved (the credit item is posted) — a close
-      // failure must not fail this call or roll back the payment. Surface it
-      // for a human to close the folio manually or for a later retry.
-      await this.manualReview.recordInTransaction(tx, {
-        tenantId: context.tenantId,
-        propertyId: context.propertyId,
-        category: 'PAYMENT_BOOKING_MISMATCH',
-        referenceType: 'booking',
-        referenceId: bookingId,
-        message: `Deposit was posted to Clock but the folio could not be closed: ${closed.error.message}`,
-        context: {
-          externalBookingId: row.externalBookingId,
-          folioId: folio.value.folio.id,
-          creditItemId: creditItem.value.id,
-          errorCode: closed.error.code,
-        },
-      });
-      await this.notifications.recordInTransaction(tx, {
-        tenantId: context.tenantId,
-        propertyId: context.propertyId,
-        type: 'BOOKING_NEEDS_ATTENTION',
-        payload: {
-          bookingId,
-          reason: 'clock_deposit_folio_close_failed',
-          errorCode: closed.error.code,
-        },
-      });
-    }
-
+    // Clock's own guidance (2026-09-18 email, superseding the 2026-09-10
+    // call): do NOT close the deposit folio. Their back-office processing of
+    // this folio type requires it to stay open; a folio_close request here
+    // was actively wrong, not just unnecessary.
     await this.audit.recordInTransaction(tx, {
       tenantId: context.tenantId,
       propertyId: context.propertyId,
@@ -946,8 +896,6 @@ export class ClockBookingService {
         paymentSubType,
         paymentType,
         reference,
-        documentTypeId,
-        folioClosed: closed.ok,
       },
     });
     return { ok: true, value: undefined };
@@ -1257,58 +1205,6 @@ export class ClockBookingService {
         ...(details.errorCode ? { errorCode: details.errorCode } : {}),
       },
     });
-  }
-
-  /** Reads the account's configured fiscal document types once per folio
-   * close flow. The Clock endpoint returns a bare array; the complete shape
-   * is validated before a sole document type is selected. */
-  private async documentTypesForFolioClose(
-    credentials: ClockConnectionCredentials,
-  ): Promise<ClockOutcome<ClockDocumentTypeResource[]>> {
-    const response = await this.fetch<unknown>(credentials, {
-      method: 'GET',
-      path: '/document_types',
-      api: 'base_api',
-    });
-    if (!response.ok) return response;
-    if (!Array.isArray(response.value))
-      return this.failureError({
-        category: 'schema_mismatch',
-        code: 'clock_schema_mismatch',
-        message: 'Clock returned an invalid document type list.',
-        retryable: false,
-      });
-
-    const documentTypes = response.value.filter(isClockDocumentTypeResource);
-    if (documentTypes.length !== response.value.length)
-      return this.failureError({
-        category: 'schema_mismatch',
-        code: 'clock_schema_mismatch',
-        message: 'Clock returned an invalid document type list.',
-        retryable: false,
-      });
-    return { ok: true, value: documentTypes };
-  }
-
-  /** Closes a folio in Clock — required after posting a deposit's
-   * credit_item (Clock certification requirement, 2026-09-10 call); a
-   * deposit folio must not be left open indefinitely. When the account has
-   * exactly one configured fiscal document type, its id is sent explicitly;
-   * ambiguous or unavailable configuration leaves the body blank so Clock's
-   * existing default behavior is preserved. */
-  private async closeFolio(
-    credentials: ClockConnectionCredentials,
-    folioId: number,
-    documentTypeId?: number,
-  ): Promise<ClockOutcome<void>> {
-    const response = await this.fetch<unknown>(credentials, {
-      method: 'POST',
-      path: `/folios/${folioId}/close`,
-      api: 'base_api',
-      ...(documentTypeId === undefined ? {} : { body: { document_type_id: documentTypeId } }),
-    });
-    if (!response.ok) return response;
-    return { ok: true, value: undefined };
   }
 
   /** Posts the credit item, or reconciles against an existing one by our own

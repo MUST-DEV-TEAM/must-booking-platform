@@ -103,6 +103,7 @@ describe('ClockBookingService Clock guest search', () => {
           email: 'guest@example.test',
           firstName: 'Test',
           lastName: 'Guest',
+          specialRequests: 'Late arrival after 22:00.',
         },
       ]),
       $executeRaw: vi.fn().mockResolvedValue(1),
@@ -137,6 +138,7 @@ describe('ClockBookingService Clock guest search', () => {
           reference_number: 'MUST-1',
           adults: 2,
           children: 1,
+          active_notes: ['Late arrival after 22:00.'],
         },
       },
     });
@@ -198,6 +200,7 @@ describe('ClockBookingService Clock guest search', () => {
         guest_last_name: 'Guest',
         adults: 1,
         children: 0,
+        active_notes: [],
       },
     });
     expect(post?.body).not.toHaveProperty('main_booking_guest');
@@ -246,6 +249,7 @@ describe('ClockBookingService Clock guest search', () => {
         firstName: 'Test',
         lastName: 'Guest',
         phone: '+355 69 123 4567',
+        specialRequests: 'Late arrival after 22:00.',
       },
       total: { amount: '100.00', currency: 'EUR' },
       adults: 2,
@@ -268,6 +272,7 @@ describe('ClockBookingService Clock guest search', () => {
         reference_number: 'MUST-3',
         adults: 2,
         children: 1,
+        active_notes: ['Late arrival after 22:00.'],
       },
     });
     expect((post?.body as { booking: Record<string, unknown> }).booking).not.toHaveProperty(

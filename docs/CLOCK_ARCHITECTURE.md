@@ -128,6 +128,10 @@ ClockBookingService.createBooking
   │  4. COMMIT (idempotency result stored in integration_operations)
 ```
 
+### Special requests forwarded as active_notes
+
+`ClockBookingService.createBooking()` and `attachRealReservation()` both send the guest's special-requests text to Clock as `active_notes: [text]` on the `POST /bookings/` body (empty array when there is none) — per Clock's guidance (2026-09-18 email), an array field on the booking-create payload. This rides in the same request as the reservation itself; no separate call is made.
+
 ### Real booking rate selection and post-commit failure handling
 
 `ClockBookingService.createBooking` and `attachRealReservation` delegate rate selection to `ClockAvailabilityService.selectRateForStay`. The shared path queries the room type's live `wbe: true` rates, sends the real stay dates and normalized occupancy to `/products`, applies the Task 13 ranking, and returns the selected child rate id plus quote total. This keeps the rate sent to `POST /bookings/` consistent with the guest quote instead of rejecting multi-rate room types.
@@ -136,9 +140,9 @@ After a local booking/payment has been committed, every booking-creation failure
 
 For a `PAYMENT_PENDING` booking, authorized property staff can either create a fresh PokPay checkout session or record a full cash, card/POS, or bank-transfer payment. Each PokPay session remains bound to the booking so a guest's completion of an earlier link is still traceable and resolved by the payment/booking idempotency paths. A manual settlement writes the real tenant/property-scoped payment and staff audit record before reusing `continueAfterPayment`; Clock attachment therefore follows the same state-machine and manual-review behavior as a verified gateway payment, with the manual payment method sent to the deposit folio.
 
-### Deposit folio close and fiscal document types
+### Deposit folio stays open
 
-After a deposit `credit_item` is posted successfully, `ClockBookingService.postDeposit()` makes one `GET /document_types` call through the normal Clock HTTP stack. When the account returns exactly one valid configured fiscal document type, its integer `id` is sent as `document_type_id` in the following `POST /folios/{id}/close`. Zero or multiple configured types, an invalid response, or a failed lookup leaves the close body blank and logs a warning; MUST never guesses between multiple fiscal document types. A close failure still follows Task 1's existing policy: the posted payment remains successful locally, while the failure is recorded for manual attention.
+`ClockBookingService.postDeposit()` posts the deposit `credit_item` and stops there — it never closes the deposit folio. An earlier version (Milestone 21 Task 1, 2026-09-10 call) closed the folio right after posting and looked up `GET /document_types` to pick a `document_type_id` for the close. Clock corrected that guidance by email on 2026-09-18: their back-office processing of this folio type requires it to remain open, and closing it was actively wrong, not just unnecessary. The close call and the document-type lookup were removed. `depositFolio()` still treats a *closed* deposit folio carrying a matching `reference` credit_item as `already_completed` (a no-op) — that now only happens if the hotel closes it manually (e.g. at checkout), not as a result of anything MUST does.
 
 ### Manual-refund synchronization
 
