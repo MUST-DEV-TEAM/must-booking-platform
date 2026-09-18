@@ -128,9 +128,14 @@ ClockBookingService.createBooking
   │  4. COMMIT (idempotency result stored in integration_operations)
 ```
 
-### Special requests forwarded as client_requests
+### Special requests forwarded as client_request
 
-`ClockBookingService.createBooking()` and `attachRealReservation()` both send the guest's special-requests text to Clock as `client_requests: text` (`null` when there is none) on the `POST /bookings/` body. Clock's team originally pointed us at `active_notes` (2026-09-18 email), but a real live booking (same day) proved that field rejects plain strings — Clock's backend expects each entry to be a `Subscriptions::CustomNote` object, not a string, and the create call failed with a real guest already charged. Clock's own official bookings-table field documentation (`developers.clock-software.com`) lists `client_requests` as a plain `STRING` field described as "Guest requests and special needs" — an exact match for this use case and free of the object-shape ambiguity, so that's what's actually sent. This rides in the same request as the reservation itself; no separate call is made.
+`ClockBookingService.createBooking()` and `attachRealReservation()` both send the guest's special-requests text to Clock as `client_request: text` (`null` when there is none) on the `POST /bookings/` body. This took three attempts to get right, each corrected by testing against Clock's real API rather than trusting a single source:
+1. Clock's team pointed us at `active_notes` (2026-09-18 email) — rejected with a real paid test booking already charged: Clock's backend expects each entry to be a `Subscriptions::CustomNote` object, not a plain string.
+2. Clock's own official bookings-table field docs (`developers.clock-software.com`) list `client_requests` (plural) as a `STRING` field — also rejected (`undefined method 'each' for an instance of String`): that's the *read* shape of a computed/aggregate field, not the write parameter.
+3. Clock's Postman collection docs for `booking - CREATE`/`UPDATE` state explicitly: *"In order to add a note to the booking use the following parameters in POST/PUT methods: `booking[note]`, `booking[housekeeping_note]`, `booking[meals_note]`, `booking[client_request]`"* — singular `client_request`, a plain string. Verified directly against the real sandbox via a disposable probe booking (created, confirmed `active_client_requests: [{text: "..."}]` in the response, then cancelled) before touching the real code path.
+
+This rides in the same request as the reservation itself; no separate call is made.
 
 ### Real booking rate selection and post-commit failure handling
 
