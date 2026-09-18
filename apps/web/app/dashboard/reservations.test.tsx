@@ -237,6 +237,70 @@ describe('Dashboard reservations', () => {
     container.remove();
   });
 
+  it('sorts by guest name, stay date, and payment amount on header click, toggling direction', async () => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(DashboardReservations, {
+            tenantId: 'tenant-1',
+            propertyId: 'property-1',
+            initialBookings: bookings,
+          }),
+        ),
+      );
+    });
+
+    function firstColumnTexts() {
+      return Array.from(container.querySelectorAll('tbody tr')).map(
+        (row) => row.querySelector('td')?.textContent,
+      );
+    }
+    function sortButton(label: string) {
+      return Array.from(container.querySelectorAll('th button')).find(
+        (button) => button.textContent === label,
+      )!;
+    }
+
+    // Default (unsorted) order matches insertion order: Ada, then Grace.
+    expect(firstColumnTexts()[0]).toContain('Ada Lovelace');
+
+    // Sortable columns are configured ascending-first (sortDescFirst: false).
+    await act(async () => sortButton('Guest').click());
+    expect(firstColumnTexts()[0]).toContain('Ada Lovelace'); // A→Z
+
+    await act(async () => sortButton('Guest').click());
+    expect(firstColumnTexts()[0]).toContain('Grace Hopper'); // Z→A
+
+    await act(async () => sortButton('Payment').click());
+    const rowsAfterPaymentAsc = Array.from(container.querySelectorAll('tbody tr'));
+    expect(rowsAfterPaymentAsc[0]?.textContent).toContain('€180.00'); // cheapest first
+
+    await act(async () => sortButton('Payment').click());
+    const rowsAfterPaymentDesc = Array.from(container.querySelectorAll('tbody tr'));
+    expect(rowsAfterPaymentDesc[0]?.textContent).toContain('€360.00'); // priciest first
+
+    await act(async () => sortButton('Stay').click());
+    expect(firstColumnTexts()[0]).toContain('Ada Lovelace'); // earliest stay (Aug 10) first
+
+    await act(async () => sortButton('Stay').click());
+    expect(firstColumnTexts()[0]).toContain('Grace Hopper'); // latest stay (Aug 20) first
+
+    // Room & rate and Status are not sortable — no button wraps their header text.
+    const roomHeader = Array.from(container.querySelectorAll('th')).find(
+      (th) => th.textContent === 'Room & rate',
+    )!;
+    expect(roomHeader.querySelector('button')).toBeNull();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it('lets staff create a fresh PokPay link or record a manual payment for a pending reservation', async () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {

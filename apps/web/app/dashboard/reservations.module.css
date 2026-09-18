@@ -49,6 +49,22 @@
   text-align: left;
   text-transform: uppercase;
 }
+.sortButton {
+  align-items: center;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  gap: var(--must-space-4);
+  letter-spacing: inherit;
+  padding: 0;
+  text-transform: inherit;
+}
+.sortButton:hover {
+  color: var(--must-color-ink);
+}
 .table td,
 .table th {
   border-top: 1px solid var(--must-color-border);

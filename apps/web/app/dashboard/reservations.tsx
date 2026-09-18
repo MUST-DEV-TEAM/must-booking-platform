@@ -2,8 +2,15 @@
 
 import { Card, Heading, Stack, StatePanel, StatusBadge, Text } from '@must/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
-import { LoaderCircle } from 'lucide-react';
+import {
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type ColumnDef,
+  type SortingState,
+} from '@tanstack/react-table';
+import { ArrowDown, ArrowUp, ArrowUpDown, LoaderCircle } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import styles from './reservations.module.css';
@@ -65,6 +72,7 @@ export function DashboardReservations({
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [sorting, setSorting] = useState<SortingState>([]);
   const queryClient = useQueryClient();
 
   const bookingsQuery = useQuery({
@@ -85,6 +93,8 @@ export function DashboardReservations({
       {
         id: 'guest',
         header: 'Guest',
+        accessorFn: (booking) => guestName(booking),
+        sortDescFirst: false,
         cell: ({ row }) => (
           <>
             <strong>{guestName(row.original)}</strong>
@@ -95,6 +105,8 @@ export function DashboardReservations({
       {
         id: 'stay',
         header: 'Stay',
+        accessorKey: 'startsOn',
+        sortDescFirst: false,
         cell: ({ row }) => (
           <>
             {row.original.startsOn} – {row.original.endsOn}
@@ -104,6 +116,7 @@ export function DashboardReservations({
       {
         id: 'roomRate',
         header: 'Room & rate',
+        enableSorting: false,
         cell: ({ row }) => (
           <>
             <strong>{row.original.roomTypeName}</strong>
@@ -114,11 +127,14 @@ export function DashboardReservations({
       {
         accessorKey: 'status',
         header: 'Status',
+        enableSorting: false,
         cell: ({ row }) => <StatusBadge {...reservationStatusBadge(row.original.status)} />,
       },
       {
         id: 'payment',
         header: 'Payment',
+        accessorFn: (booking) => Number(booking.total.amount),
+        sortDescFirst: false,
         cell: ({ row }) => (
           <>
             <strong>{formatMoney(row.original.total)}</strong>
@@ -129,6 +145,7 @@ export function DashboardReservations({
       {
         id: 'actions',
         header: '',
+        enableSorting: false,
         cell: ({ row }) => (
           <button type="button" onClick={() => setSelectedId(row.original.id)}>
             View details
@@ -141,7 +158,10 @@ export function DashboardReservations({
   const table = useReactTable({
     data: filteredBookings,
     columns,
+    state: { sorting },
+    onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
     getRowId: (booking) => booking.id,
   });
 
@@ -236,9 +256,18 @@ export function DashboardReservations({
                   <tr key={headerGroup.id}>
                     {headerGroup.headers.map((header) => (
                       <th key={header.id} colSpan={header.colSpan}>
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(header.column.columnDef.header, header.getContext())}
+                        {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                          <button
+                            className={styles.sortButton}
+                            onClick={header.column.getToggleSortingHandler()}
+                            type="button"
+                          >
+                            {flexRender(header.column.columnDef.header, header.getContext())}
+                            <SortIcon direction={header.column.getIsSorted()} />
+                          </button>
+                        ) : (
+                          flexRender(header.column.columnDef.header, header.getContext())
+                        )}
                       </th>
                     ))}
                   </tr>
@@ -525,6 +554,12 @@ function ReservationDetails({
       </Card>
     </section>
   );
+}
+
+function SortIcon({ direction }: { direction: 'asc' | 'desc' | false }) {
+  if (direction === 'asc') return <ArrowUp aria-hidden="true" size={14} />;
+  if (direction === 'desc') return <ArrowDown aria-hidden="true" size={14} />;
+  return <ArrowUpDown aria-hidden="true" size={14} />;
 }
 
 function guestName(booking: Pick<Reservation, 'guestFirstName' | 'guestLastName' | 'guestEmail'>) {
