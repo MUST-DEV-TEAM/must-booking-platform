@@ -518,6 +518,7 @@ body.must-hotel-booking-flow-page {
     --must-button-color: #fff;
     background: #141414;
     color: #fff;
+    border: 1px solid #141414;
     border-radius: 6px !important;
 }
 
@@ -532,6 +533,7 @@ body.must-hotel-booking-flow-page {
     --must-button-color: #fff;
     background: #141414;
     color: #fff;
+    border: 1px solid #141414;
     border-radius: 6px;
     box-shadow: none;
     text-shadow: none;
@@ -553,12 +555,17 @@ body.must-hotel-booking-flow-page {
 .must-hotel-booking-page-booking .must-booking-flatpickr-instance .flatpickr-day.flatpickr-disabled.must-booking-day-start,
 .must-hotel-booking-page-booking .must-booking-flatpickr-instance .flatpickr-day.notAllowed.must-booking-day-start,
 .must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day.flatpickr-disabled.must-booking-day-start,
-.must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day.notAllowed.must-booking-day-start {
+.must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day.notAllowed.must-booking-day-start,
+.must-hotel-booking-page-booking .must-booking-flatpickr-instance .flatpickr-day.flatpickr-disabled.must-booking-day-end,
+.must-hotel-booking-page-booking .must-booking-flatpickr-instance .flatpickr-day.notAllowed.must-booking-day-end,
+.must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day.flatpickr-disabled.must-booking-day-end,
+.must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day.notAllowed.must-booking-day-end {
     --must-button-bg: #141414;
     --must-button-border: #141414;
     --must-button-color: #fff;
     background: #141414;
     color: #fff;
+    border: 1px solid #141414;
     border-radius: 6px !important;
 }
 
