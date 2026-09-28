@@ -422,14 +422,11 @@ export function RateManagement({
                 which one should win below.
               </Text>
             </Card>
-            {roomTypes.map((roomType) => (
-              <ClockRatePriority
-                key={roomType.id}
-                tenantId={tenantId}
-                propertyId={propertyId}
-                roomType={roomType}
-              />
-            ))}
+            <ClockRatePriorityList
+              propertyId={propertyId}
+              roomTypes={roomTypes}
+              tenantId={tenantId}
+            />
           </Stack>
         ) : (
           <Stack gap="lg">
@@ -697,33 +694,79 @@ export function RateManagement({
  * (`ClockAvailabilityService.selectBestOffer`, Task 12, consults this
  * ranking before falling back to cheapest-wins).
  */
+/**
+ * Fetches every room type's Clock rate-priority data in one call (Clock's
+ * /rates/ returns the whole property's rates regardless of which room type
+ * is asked about, so calling it once per room type — the previous
+ * per-ClockRatePriority approach — just re-fetched and discarded the same
+ * response over and over, tripping Clock's shared rate limiter on
+ * properties with many room types).
+ */
+function ClockRatePriorityList({
+  tenantId,
+  propertyId,
+  roomTypes,
+}: {
+  tenantId: string;
+  propertyId: string;
+  roomTypes: RoomType[];
+}) {
+  const url = `/api/tenants/${tenantId}/properties/${propertyId}/clock-rate-ranking`;
+  const queryKey = ['dashboard', 'clock-rate-ranking', tenantId, propertyId] as const;
+
+  const rankingQuery = useQuery({
+    queryKey,
+    queryFn: async (): Promise<{ roomTypes: Record<string, ClockRateRankingItem[]> }> => {
+      const response = await fetch(url, { credentials: 'include' });
+      if (!response.ok)
+        throw new Error(await errorMessage(response, 'Unable to load Clock rates.'));
+      return (await response.json()) as { roomTypes: Record<string, ClockRateRankingItem[]> };
+    },
+  });
+
+  if (rankingQuery.isPending) return <Card><p>Loading Clock rates…</p></Card>;
+  if (rankingQuery.isError) return <Card><p>{rankingQuery.error.message}</p></Card>;
+
+  return (
+    <>
+      {roomTypes.map((roomType) => (
+        <ClockRatePriority
+          key={roomType.id}
+          initialRates={rankingQuery.data.roomTypes[roomType.id] ?? []}
+          propertyId={propertyId}
+          queryKey={queryKey}
+          roomType={roomType}
+          tenantId={tenantId}
+        />
+      ))}
+    </>
+  );
+}
+
 function ClockRatePriority({
   tenantId,
   propertyId,
   roomType,
+  initialRates,
+  queryKey,
 }: {
   tenantId: string;
   propertyId: string;
   roomType: RoomType;
+  initialRates: ClockRateRankingItem[];
+  queryKey: readonly unknown[];
 }) {
   const queryClient = useQueryClient();
   const url = `/api/tenants/${tenantId}/properties/${propertyId}/room-types/${roomType.id}/clock-rate-ranking`;
-  const queryKey = ['dashboard', 'clock-rate-ranking', tenantId, propertyId, roomType.id] as const;
-
-  const rankingQuery = useQuery({
-    queryKey,
-    queryFn: async (): Promise<{ rates: ClockRateRankingItem[] }> => {
-      const response = await fetch(url, { credentials: 'include' });
-      if (!response.ok)
-        throw new Error(await errorMessage(response, 'Unable to load Clock rates.'));
-      return (await response.json()) as { rates: ClockRateRankingItem[] };
-    },
-  });
 
   const [order, setOrder] = useState<string[] | null>(null);
   useEffect(() => {
-    if (rankingQuery.data) setOrder(rankingQuery.data.rates.map((rate) => rate.externalRateId));
-  }, [rankingQuery.data]);
+    setOrder(initialRates.map((rate) => rate.externalRateId));
+    // Only re-derive when this room type's own rates actually change, not
+    // on every render of the list (initialRates is a fresh array each time
+    // otherwise, from the parent's Record lookup).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(initialRates)]);
 
   const saveMutation = useMutation({
     mutationFn: async (externalRateIds: string[]) => {
@@ -738,7 +781,13 @@ function ClockRatePriority({
       return (await response.json()) as { rates: ClockRateRankingItem[] };
     },
     onSuccess: (result) => {
-      queryClient.setQueryData(queryKey, result);
+      queryClient.setQueryData(
+        queryKey,
+        (current: { roomTypes: Record<string, ClockRateRankingItem[]> } | undefined) =>
+          current && {
+            roomTypes: { ...current.roomTypes, [roomType.id]: result.rates },
+          },
+      );
       toast.success(`${roomType.name}: rate priority saved.`);
     },
     onError: (error) =>
@@ -757,22 +806,18 @@ function ClockRatePriority({
     });
   }
 
-  const rates = rankingQuery.data?.rates ?? [];
-  const byId = new Map(rates.map((rate) => [rate.externalRateId, rate]));
-  const orderedRates = (order ?? rates.map((rate) => rate.externalRateId))
+  const byId = new Map(initialRates.map((rate) => [rate.externalRateId, rate]));
+  const orderedRates = (order ?? initialRates.map((rate) => rate.externalRateId))
     .map((id) => byId.get(id))
     .filter((rate): rate is ClockRateRankingItem => !!rate);
   const hasUnranked = orderedRates.some((rate) => rate.rank === null);
-  const isDirty = !!order && order.join(',') !== rates.map((rate) => rate.externalRateId).join(',');
+  const isDirty =
+    !!order && order.join(',') !== initialRates.map((rate) => rate.externalRateId).join(',');
 
   return (
     <Card>
       <Heading level={2}>{roomType.name}</Heading>
-      {rankingQuery.isPending ? (
-        <p>Loading Clock rates…</p>
-      ) : rankingQuery.isError ? (
-        <p>{rankingQuery.error.message}</p>
-      ) : orderedRates.length === 0 ? (
+      {orderedRates.length === 0 ? (
         <p>
           Clock has no rate published to the booking engine for this room type yet — nothing to rank
           until one exists.

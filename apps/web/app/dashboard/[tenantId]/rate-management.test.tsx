@@ -42,10 +42,12 @@ describe('RateManagement — Clock-connected property (Task 13)', () => {
 
   it('shows the local rate-plan CRUD read+map priority list instead, and saves a reordered priority', async () => {
     const ranking = {
-      rates: [
-        { externalRateId: 'r0', name: 'DBL - Summer', maxAdults: 6, maxChildren: 6, rank: 0 },
-        { externalRateId: 'r1', name: 'DBL - Summer 2', maxAdults: 7, maxChildren: 7, rank: null },
-      ],
+      roomTypes: {
+        'room-type-1': [
+          { externalRateId: 'r0', name: 'DBL - Summer', maxAdults: 6, maxChildren: 6, rank: 0 },
+          { externalRateId: 'r1', name: 'DBL - Summer 2', maxAdults: 7, maxChildren: 7, rank: null },
+        ],
+      },
     };
     const savedRanking = {
       rates: [
@@ -59,10 +61,7 @@ describe('RateManagement — Clock-connected property (Task 13)', () => {
       if (url === `${base}/rate-plans`) return Promise.resolve(response([]));
       if (url === `${base}/pms-connection-status`)
         return Promise.resolve(response({ provider: 'CLOCK_PMS' }));
-      if (
-        url === `${base}/room-types/room-type-1/clock-rate-ranking` &&
-        (!init || init.method === undefined)
-      )
+      if (url === `${base}/clock-rate-ranking` && (!init || init.method === undefined))
         return Promise.resolve(response(ranking));
       if (url === `${base}/room-types/room-type-1/clock-rate-ranking` && init?.method === 'PUT')
         return Promise.resolve(response(savedRanking));

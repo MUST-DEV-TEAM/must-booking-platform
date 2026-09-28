@@ -122,3 +122,50 @@ export class ClockRateRankingController {
     return externalRateIds;
   }
 }
+
+/**
+ * Batched sibling of ClockRateRankingController's GET: the rate-priority UI
+ * shows every room type on one page, and calling the per-room-type route
+ * once per room type meant re-fetching Clock's full property-wide /rates/
+ * response over and over — tripping the shared 4 req/s Clock rate limiter
+ * on properties with many room types. This fetches it once for the whole
+ * property and returns each room type's slice keyed by local room type id.
+ */
+@Controller('tenants/:tenantId/properties/:propertyId/clock-rate-ranking')
+export class ClockRateRankingBatchController {
+  constructor(
+    @Inject(ClockAvailabilityService) private readonly availability: ClockAvailabilityService,
+    @Inject(ClockRateRankingService) private readonly rankings: ClockRateRankingService,
+  ) {}
+
+  @Get()
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('settings.manage')
+  async get(
+    @Param('propertyId') propertyId: string,
+    @Req() request: TenantPropertyRequest,
+  ): Promise<{ roomTypes: Record<string, ClockRateRankingItem[]> }> {
+    const tenantId = request.tenantContext.tenantId;
+    const ratesResult = await this.availability.ratesForAllRoomTypesDetailed(tenantId, propertyId);
+    if (!ratesResult.ok) throw new BadRequestException(ratesResult.error.message);
+
+    const roomTypes: Record<string, ClockRateRankingItem[]> = {};
+    for (const [roomTypeId, rates] of ratesResult.value) {
+      const ranking = await this.rankings.getRanking(tenantId, propertyId, roomTypeId);
+      const rankByRateId = new Map(ranking.map((row) => [row.externalRateId, row.rank]));
+      const items: ClockRateRankingItem[] = rates.map((rate) => ({
+        ...rate,
+        rank: rankByRateId.get(rate.externalRateId) ?? null,
+      }));
+      items.sort((a, b) => {
+        if (a.rank !== null && b.rank !== null) return a.rank - b.rank;
+        if (a.rank !== null) return -1;
+        if (b.rank !== null) return 1;
+        return a.name.localeCompare(b.name);
+      });
+      roomTypes[roomTypeId] = items;
+    }
+    return { roomTypes };
+  }
+}

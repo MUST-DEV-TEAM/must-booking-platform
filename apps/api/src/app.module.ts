@@ -111,7 +111,10 @@ import { ClockCatalogSyncService } from './integrations/clock/clock-catalog-sync
 import { ClockCatalogSyncController } from './integrations/clock/clock-catalog-sync.controller';
 import { ClockAvailabilityService } from './integrations/clock/clock-availability.service';
 import { ClockRateRankingService } from './integrations/clock/clock-rate-ranking.service';
-import { ClockRateRankingController } from './integrations/clock/clock-rate-ranking.controller';
+import {
+  ClockRateRankingBatchController,
+  ClockRateRankingController,
+} from './integrations/clock/clock-rate-ranking.controller';
 import { ClockBookingService } from './integrations/clock/clock-booking.service';
 import { ClockBookingConsistencyService } from './integrations/clock/clock-booking-consistency.service';
 import { ClockBookingHydrationService } from './integrations/clock/clock-booking-hydration.service';
@@ -193,6 +196,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     IntegrationConnectionsController,
     ClockCatalogSyncController,
     ClockRateRankingController,
+    ClockRateRankingBatchController,
     ClockWebhookController,
   ],
   providers: [
