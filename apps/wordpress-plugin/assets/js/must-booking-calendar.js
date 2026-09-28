@@ -376,16 +376,22 @@
         return !checkinCanStartValidStay(dateKey(date), minimumNights);
     }
     /*
-     * flatpickr's own 'flatpickr-disabled' class means the date itself has no
-     * availability. In range mode it also adds 'notAllowed' to dates that are
-     * only unreachable because an unavailable night sits between them and the
-     * current selection - those dates are still open, so they must not get
-     * the "really unavailable" slash.
+     * flatpickr's own 'flatpickr-disabled' class fires for several reasons
+     * that must not all look the same to the guest: a genuinely unavailable
+     * night, an adjacent-month padding day, a date unreachable only because
+     * an unavailable night sits between it and the current selection, AND
+     * (since minimum-stay/gap-aware minDate/maxDate are set right after a
+     * checkin click) a date that is merely temporarily out of the current
+     * selection's range - e.g. checkin itself, once checkout's minDate moves
+     * past it. Only genuinely unavailable data earns the "really unavailable"
+     * slash; everything else must render as an ordinary, if currently
+     * unselectable, day.
      */
     function markReallyUnavailableDay(dayElement) {
         if (!dayElement) return;
-        var isReallyUnavailable = dayElement.classList.contains('flatpickr-disabled');
-        dayElement.classList.toggle('must-booking-day-unavailable', isReallyUnavailable);
+        var isPadding = dayElement.classList.contains('prevMonthDay') || dayElement.classList.contains('nextMonthDay');
+        var isReallyUnavailable = !isPadding && dayElement.dateObj && roomDateIsUnavailable(dayElement.dateObj);
+        dayElement.classList.toggle('must-booking-day-unavailable', !!isReallyUnavailable);
     }
     function refreshAvailability(picker) {
         if (!picker || !resolveCalendarAvailabilitySource()) return;
