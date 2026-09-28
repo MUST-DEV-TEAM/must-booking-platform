@@ -10,6 +10,7 @@ import {
   bookingsForDay,
   DashboardCalendar,
   type CalendarAvailability,
+  type CalendarRow,
 } from './calendar';
 import { DashboardQueryProvider } from './query-provider';
 import type { Reservation } from './reservations';
@@ -118,6 +119,14 @@ describe('Dashboard calendar', () => {
           bookingMode: 'MIXED' as const,
           canManageAvailability: true,
           initialRooms: [{ id: 'deluxe-101', name: '101', roomTypeId: 'deluxe' }],
+          initialRows: [
+            {
+              id: 'deluxe-101',
+              label: '101',
+              totalUnits: 1,
+              availableByDate: { '2026-08-10': 1, '2026-08-11': 0 },
+            },
+          ] satisfies CalendarRow[],
         }),
       ),
     );

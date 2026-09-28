@@ -3,7 +3,7 @@
 import { Card, Heading, Stack, StatePanel, Text } from '@must/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
-import { type FormEvent, useMemo, useState } from 'react';
+import { Fragment, type CSSProperties, type FormEvent, useMemo, useState } from 'react';
 import { DayPicker, type DateRange } from 'react-day-picker';
 import { toast } from 'sonner';
 
@@ -28,11 +28,27 @@ export type AvailabilityBlock = {
   roomTypeIds: string[];
   roomIds: string[];
 };
+// A single grid row: one physical room when the property tracks individual
+// rooms (INDIVIDUAL_ROOM_ONLY/MIXED), or one room type when it doesn't
+// (ROOM_TYPE_ONLY has no rooms to show a row for) — same tape-chart layout
+// either way, just a different unit of "what's the row."
+export type CalendarRow = {
+  id: string;
+  label: string;
+  // A room row has exactly 1 unit (itself); a room-type row has as many
+  // units as that type has rooms/inventory. Needed so a fully-available
+  // single room reads as "available", not "limited" (1 out of 1, not 1
+  // out of many).
+  totalUnits: number;
+  // date (YYYY-MM-DD) -> remaining units for that night.
+  availableByDate: Record<string, number>;
+};
 
 type CalendarData = {
   roomTypes: RoomType[];
   rooms: Room[];
   availability: CalendarAvailability[];
+  rows: CalendarRow[];
 };
 
 export function DashboardCalendar({
@@ -44,6 +60,7 @@ export function DashboardCalendar({
   initialRoomTypes,
   initialRooms,
   initialAvailability,
+  initialRows,
   initialBookings,
   initialBlocks,
 }: {
@@ -55,6 +72,11 @@ export function DashboardCalendar({
   initialRoomTypes?: RoomType[];
   initialRooms?: Room[];
   initialAvailability?: CalendarAvailability[];
+  // Grid rows for the initial render. Only needed when initialRooms is
+  // non-empty — initialRooms alone (id/name only) can't build per-room
+  // month availability without a fetch, so without this the room-level
+  // grid always does one real fetch before it can render.
+  initialRows?: CalendarRow[];
   initialBookings?: Reservation[];
   initialBlocks?: AvailabilityBlock[];
 }) {
@@ -65,7 +87,10 @@ export function DashboardCalendar({
   const [blockRoomTypeIds, setBlockRoomTypeIds] = useState<string[]>([]);
   const [blockRoomIds, setBlockRoomIds] = useState<string[]>([]);
   const canTargetRooms = bookingMode === 'INDIVIDUAL_ROOM_ONLY' || bookingMode === 'MIXED';
-  const includeRooms = canManageAvailability && canTargetRooms;
+  // Rooms drive the main grid's rows for everyone with calendar.view, not
+  // just staff who can also manage blocks — that's a separate permission
+  // checked further down for the Block availability section itself.
+  const includeRooms = canTargetRooms;
   const availabilityQueryKey = [
     'dashboard',
     'calendar-availability',
@@ -74,16 +99,30 @@ export function DashboardCalendar({
     month,
     includeRooms,
   ] as const;
+  // initialRooms (when provided) only carries id/name, not per-room month
+  // availability, so building rows needs either initialRows explicitly, or
+  // no rooms at all (ROOM_TYPE_ONLY, where rows come from room-type counts).
   const hasInitialCalendarData =
     initialRoomTypes &&
     initialAvailability &&
     initialMonth === month &&
-    (!includeRooms || initialRooms !== undefined);
+    (!includeRooms || initialRows !== undefined || (initialRooms?.length ?? 0) === 0);
   const initialCalendarData = hasInitialCalendarData
     ? {
         roomTypes: initialRoomTypes,
         rooms: initialRooms ?? [],
         availability: initialAvailability,
+        rows: initialRows ?? initialRoomTypes.map((roomType) => {
+          const forType = initialAvailability.filter((item) => item.roomTypeId === roomType.id);
+          return {
+            id: roomType.id,
+            label: roomType.name,
+            totalUnits: forType.reduce((max, item) => Math.max(max, item.availableUnits), 0),
+            availableByDate: Object.fromEntries(
+              forType.map((item) => [item.startsOn, item.availableUnits]),
+            ),
+          };
+        }),
       }
     : undefined;
   const availabilityQuery = useQuery({
@@ -157,6 +196,7 @@ export function DashboardCalendar({
   });
 
   const days = useMemo(() => calendarDays(month), [month]);
+  const monthDays = useMemo(() => days.filter((day): day is string => day !== null), [days]);
   const calendarData = availabilityQuery.data;
   const bookings = bookingsQuery.data;
   const savingBlock = blockMutation.isPending;
@@ -205,7 +245,11 @@ export function DashboardCalendar({
             PROPERTY OPERATIONS
           </Text>
           <Heading>Calendar</Heading>
-          <Text tone="secondary">Nightly room-type availability from local inventory.</Text>
+          <Text tone="secondary">
+            {includeRooms
+              ? 'Nightly availability by room.'
+              : 'Nightly availability by room type.'}
+          </Text>
         </div>
         <div className={styles.monthControls} aria-label="Calendar month">
           <button
@@ -238,43 +282,45 @@ export function DashboardCalendar({
             <i className={styles.unavailable} /> Sold out
           </span>
         </div>
-        <div className={styles.grid}>
-          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
-            <strong key={day} className={styles.weekday}>
-              {day}
-            </strong>
-          ))}
-          {days.map((day, index) =>
-            day ? (
+        <div className={styles.tapeChartScroll}>
+          <div
+            className={styles.tapeChart}
+            style={{ '--must-tape-chart-days': monthDays.length } as CSSPropertiesWithVars}
+          >
+            <div className={styles.tapeChartCorner} />
+            {monthDays.map((day) => (
               <button
                 key={day}
                 type="button"
-                className={styles.day}
+                className={styles.tapeChartDayHeader}
                 aria-label={`Open ${day}`}
                 onClick={() => setSelectedDay(day)}
               >
-                <time dateTime={day}>{Number(day.slice(-2))}</time>
-                <div>
-                  {calendarData.roomTypes.map((roomType) => {
-                    const availability = calendarData.availability.find(
-                      (item) => item.roomTypeId === roomType.id && item.startsOn === day,
-                    );
-                    return (
-                      <span
-                        key={roomType.id}
-                        className={availabilityClass(availability?.availableUnits ?? 0)}
-                        title={`${roomType.name}: ${availability?.availableUnits ?? 0} remaining`}
-                      >
-                        <b>{roomType.name}</b> {availability?.availableUnits ?? 0}
-                      </span>
-                    );
-                  })}
-                </div>
+                <span className={styles.tapeChartWeekday}>{formatWeekdayShort(day)}</span>
+                <span className={styles.tapeChartDayNumber}>{Number(day.slice(-2))}</span>
               </button>
-            ) : (
-              <div key={`empty-${index}`} className={styles.emptyDay} aria-hidden="true" />
-            ),
-          )}
+            ))}
+            {calendarData.rows.map((row) => (
+              <Fragment key={row.id}>
+                <div className={styles.tapeChartRowLabel}>{row.label}</div>
+                {monthDays.map((day) => {
+                  const remaining = row.availableByDate[day] ?? 0;
+                  return (
+                    <button
+                      key={`${row.id}-${day}`}
+                      type="button"
+                      className={`${styles.tapeChartCell} ${availabilityClass(remaining, row.totalUnits)}`}
+                      aria-label={`${row.label}, ${formatDay(day)}: ${remaining > 0 ? `${remaining} available` : 'sold out'}`}
+                      title={`${row.label}: ${remaining > 0 ? `${remaining} available` : 'Sold out'}`}
+                      onClick={() => setSelectedDay(day)}
+                    >
+                      {remaining > 1 ? remaining : ''}
+                    </button>
+                  );
+                })}
+              </Fragment>
+            ))}
+          </div>
         </div>
       </Card>
 
@@ -314,49 +360,55 @@ export function DashboardCalendar({
                 Block all room types
               </label>
 
-              <label>
-                Room types to block
-                <select
-                  aria-label="Room types to block"
-                  multiple
-                  value={blockRoomTypeIds}
-                  onChange={(event) =>
-                    setBlockRoomTypeIds(
-                      Array.from(event.currentTarget.selectedOptions, (option) => option.value),
-                    )
-                  }
-                >
+              <fieldset className={styles.chipField}>
+                <legend>Room types to block</legend>
+                <div className={styles.chipGroup} role="group" aria-label="Room types to block">
                   {calendarData.roomTypes.map((roomType) => (
-                    <option key={roomType.id} value={roomType.id}>
+                    <label key={roomType.id} className={styles.chip}>
+                      <input
+                        type="checkbox"
+                        checked={blockRoomTypeIds.includes(roomType.id)}
+                        onChange={(event) =>
+                          setBlockRoomTypeIds((current) =>
+                            event.target.checked
+                              ? [...current, roomType.id]
+                              : current.filter((id) => id !== roomType.id),
+                          )
+                        }
+                      />
                       {roomType.name}
-                    </option>
+                    </label>
                   ))}
-                </select>
-              </label>
+                </div>
+              </fieldset>
 
               {canTargetRooms ? (
-                <label>
-                  Specific rooms to block
-                  <select
-                    aria-label="Specific rooms to block"
-                    multiple
-                    value={blockRoomIds}
-                    onChange={(event) =>
-                      setBlockRoomIds(
-                        Array.from(event.currentTarget.selectedOptions, (option) => option.value),
-                      )
-                    }
-                  >
-                    {calendarData.rooms.map((room) => (
-                      <option key={room.id} value={room.id}>
-                        {calendarData.roomTypes.find((roomType) => roomType.id === room.roomTypeId)
-                          ?.name ?? 'Room type'}
-                        {' — '}
-                        {room.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <fieldset className={styles.chipField}>
+                  <legend>Specific rooms to block</legend>
+                  <div className={styles.chipGroup} role="group" aria-label="Specific rooms to block">
+                    {calendarData.rooms.map((room) => {
+                      const roomTypeName =
+                        calendarData.roomTypes.find((roomType) => roomType.id === room.roomTypeId)
+                          ?.name ?? 'Room type';
+                      return (
+                        <label key={room.id} className={styles.chip}>
+                          <input
+                            type="checkbox"
+                            checked={blockRoomIds.includes(room.id)}
+                            onChange={(event) =>
+                              setBlockRoomIds((current) =>
+                                event.target.checked
+                                  ? [...current, room.id]
+                                  : current.filter((id) => id !== room.id),
+                              )
+                            }
+                          />
+                          {roomTypeName} — {room.name}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </fieldset>
               ) : (
                 <Text tone="secondary">
                   Specific-room targets are available for Individual-Room-Only and Mixed properties.
@@ -475,7 +527,46 @@ export async function fetchCalendarAvailability(
         ).then((groups) => groups.flat())
       : Promise.resolve([]),
   ]);
-  return { roomTypes, rooms, availability };
+
+  const rows = rooms.length
+    ? await Promise.all(
+        rooms.map(async (room): Promise<CalendarRow> => {
+          const response = await fetch(
+            `/api/tenants/${tenantId}/properties/${propertyId}/availability-calendar?${new URLSearchParams(
+              { roomTypeId: room.roomTypeId, roomId: room.id, month },
+            )}`,
+            { credentials: 'include' },
+          );
+          if (!response.ok) throw new Error('Unable to load room calendar.');
+          const { days: monthDays } = (await response.json()) as {
+            days: Array<{ date: string; isAvailable: boolean }>;
+          };
+          return {
+            id: room.id,
+            label: room.name,
+            totalUnits: 1,
+            availableByDate: Object.fromEntries(
+              monthDays.map(({ date, isAvailable }) => [date, isAvailable ? 1 : 0]),
+            ),
+          };
+        }),
+      )
+    : roomTypes.map((roomType): CalendarRow => {
+        const forType = availability.filter((item) => item.roomTypeId === roomType.id);
+        return {
+          id: roomType.id,
+          label: roomType.name,
+          // No room-level data exists for ROOM_TYPE_ONLY properties, so the
+          // best available proxy for total capacity is the most units ever
+          // seen free in the month — availableUnits can't exceed it.
+          totalUnits: forType.reduce((max, item) => Math.max(max, item.availableUnits), 0),
+          availableByDate: Object.fromEntries(
+            forType.map((item) => [item.startsOn, item.availableUnits]),
+          ),
+        };
+      });
+
+  return { roomTypes, rooms, availability, rows };
 }
 
 export function bookingsForDay(bookings: Reservation[], day: string) {
@@ -585,12 +676,19 @@ function formatDay(day: string) {
     timeZone: 'UTC',
   }).format(new Date(`${day}T00:00:00Z`));
 }
-function availabilityClass(availableUnits: number) {
-  return availableUnits <= 0
-    ? styles.unavailable
-    : availableUnits === 1
-      ? styles.limited
-      : styles.available;
+function formatWeekdayShort(day: string) {
+  return new Intl.DateTimeFormat(undefined, { weekday: 'short', timeZone: 'UTC' }).format(
+    new Date(`${day}T00:00:00Z`),
+  );
+}
+type CSSPropertiesWithVars = CSSProperties & { '--must-tape-chart-days'?: number };
+function availabilityClass(remainingUnits: number, totalUnits: number) {
+  if (remainingUnits <= 0) return styles.unavailable;
+  // "Limited" means down to the last unit or two of a multi-unit row (a
+  // room-type row with several rooms left). A single-unit room row is
+  // either fully available (1 of 1) or sold out (0 of 1) — never limited.
+  if (totalUnits > 1 && remainingUnits <= Math.min(2, totalUnits - 1)) return styles.limited;
+  return styles.available;
 }
 
 async function errorMessage(response: Response, fallback: string) {

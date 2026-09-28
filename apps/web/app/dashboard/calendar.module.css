@@ -43,60 +43,84 @@
   height: 0.625rem;
   width: 0.625rem;
 }
-.grid {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(8rem, 1fr));
+.tapeChartScroll {
   overflow-x: auto;
 }
-.weekday {
-  color: var(--must-color-text-secondary);
-  font-size: 0.75rem;
-  padding: var(--must-space-8);
-  text-transform: uppercase;
+.tapeChart {
+  display: grid;
+  /* First column (room/room-type label) is sticky and wider; every day
+     after it is a fixed narrow cell so a month fits without the label
+     column shrinking to nothing. */
+  grid-template-columns: 9rem repeat(var(--must-tape-chart-days), minmax(2.25rem, 1fr));
+  width: max-content;
 }
-.day,
-.emptyDay {
+.tapeChartCorner {
   background: var(--must-color-surface);
-  border: 1px solid var(--must-color-border);
-  min-height: 8.5rem;
-  padding: var(--must-space-8);
-  text-align: left;
+  bottom: 0;
+  left: 0;
+  position: sticky;
+  z-index: 2;
 }
-.day {
+.tapeChartDayHeader {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--must-color-border);
   cursor: pointer;
   display: grid;
-  gap: var(--must-space-8);
+  gap: 0.125rem;
+  justify-items: center;
+  padding: var(--must-space-4) 0;
 }
-.day time {
+.tapeChartWeekday {
+  color: var(--must-color-text-secondary);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+}
+.tapeChartDayNumber {
+  font-size: 0.8125rem;
   font-weight: 700;
 }
-.day div {
-  display: grid;
-  gap: 0.2rem;
-}
-.day span {
-  border-left: 3px solid;
-  display: block;
-  font-size: 0.75rem;
+.tapeChartRowLabel {
+  align-items: center;
+  background: var(--must-color-surface);
+  border-bottom: 1px solid var(--must-color-border);
+  display: flex;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  left: 0;
   overflow: hidden;
-  padding-left: var(--must-space-4);
+  padding: var(--must-space-4) var(--must-space-8);
+  position: sticky;
   text-overflow: ellipsis;
   white-space: nowrap;
+  z-index: 1;
 }
-.day span b {
-  font-weight: 600;
+.tapeChartCell {
+  align-items: center;
+  background: var(--must-tape-chart-cell-bg);
+  border: 0;
+  border-bottom: 1px solid var(--must-color-surface);
+  border-left: 1px solid var(--must-color-surface);
+  color: var(--must-tape-chart-cell-fg);
+  cursor: pointer;
+  display: flex;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  height: 2rem;
+  justify-content: center;
+  padding: 0;
 }
 .available {
-  border-color: #31825f;
-  color: #1e6045;
+  --must-tape-chart-cell-bg: #e4f3ea;
+  --must-tape-chart-cell-fg: #1e6045;
 }
 .limited {
-  border-color: #c58918;
-  color: #8a5d00;
+  --must-tape-chart-cell-bg: #fbedcf;
+  --must-tape-chart-cell-fg: #8a5d00;
 }
 .unavailable {
-  border-color: #bd3d3d;
-  color: #9a2626;
+  --must-tape-chart-cell-bg: #f7dede;
+  --must-tape-chart-cell-fg: #9a2626;
 }
 .drillIn {
   display: grid;
@@ -131,6 +155,35 @@
   align-items: center;
   display: flex !important;
   gap: var(--must-space-8) !important;
+}
+.chipField {
+  border: 0;
+  display: grid;
+  gap: var(--must-space-8);
+  margin: 0;
+  padding: 0;
+}
+.chipField legend {
+  font-weight: 700;
+}
+.chipGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--must-space-8);
+}
+.chip {
+  align-items: center;
+  border: 1px solid var(--must-color-border);
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.8125rem;
+  gap: var(--must-space-4);
+  padding: var(--must-space-4) var(--must-space-12);
+}
+.chip:has(input:checked) {
+  background: var(--must-color-info-surface);
+  border-color: var(--must-color-accent-brass);
 }
 .blockingForm button {
   align-items: center;
