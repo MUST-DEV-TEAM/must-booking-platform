@@ -81,4 +81,18 @@ function run() {
     assert.equal(day.hasClass('must-booking-day-unavailable'), false, 'padding days must never be painted');
 }
 
+// A date before today is always really unavailable to the guest (it's in
+// the past, regardless of what Clock/local data says) and must get the same
+// crossed-out treatment as any other unavailable date, not just a plain
+// disabled look.
+{
+    const helpers = run();
+    helpers.markUnavailable([]); // no genuinely-unavailable data at all
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const day = createDay(yesterday, ['flatpickr-disabled']);
+    helpers.markReallyUnavailableDay(day);
+    assert.equal(day.hasClass('must-booking-day-unavailable'), true, 'a past date must be painted as unavailable even with no unavailable-date data');
+}
+
 console.log('Really-unavailable day marker tests passed.');

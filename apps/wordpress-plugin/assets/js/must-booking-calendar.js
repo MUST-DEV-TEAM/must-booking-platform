@@ -179,7 +179,11 @@
             parts.departureMonth.textContent = monthNames[departure.getMonth()];
         }
     }
-    var todayStr = new Date().toISOString().slice(0, 10);
+    // Local calendar date, not UTC: toISOString() shifts to UTC and is a day
+    // behind local "today" for timezones ahead of UTC (e.g. the property's
+    // own Europe/Tirane) during those hours, which would wrongly let guests
+    // pick, or wrongly block, "today" as a stay date.
+    var todayStr = dateKey(new Date());
     var unavailableDates = {};
     var roomAvailability = c.roomAvailability || null;
     var roomTypeAvailability = c.roomTypeAvailability || null;
@@ -383,19 +387,44 @@
      * (since minimum-stay/gap-aware minDate/maxDate are set right after a
      * checkin click) a date that is merely temporarily out of the current
      * selection's range - e.g. checkin itself, once checkout's minDate moves
-     * past it. Only genuinely unavailable data earns the "really unavailable"
-     * slash; everything else must render as an ordinary, if currently
-     * unselectable, day.
+     * past it. A past date is always really unavailable to the guest (it can
+     * never be booked, independent of any Clock/local data) and gets the
+     * same treatment as genuinely unavailable data. Everything else renders
+     * as an ordinary, if currently unselectable, day.
      */
     function markReallyUnavailableDay(dayElement) {
         if (!dayElement) return;
         var isPadding = dayElement.classList.contains('prevMonthDay') || dayElement.classList.contains('nextMonthDay');
-        var isReallyUnavailable = !isPadding && dayElement.dateObj && roomDateIsUnavailable(dayElement.dateObj);
+        var isPast = dayElement.dateObj && dateKey(dayElement.dateObj) < todayStr;
+        var isReallyUnavailable = !isPadding && dayElement.dateObj && (isPast || roomDateIsUnavailable(dayElement.dateObj));
         dayElement.classList.toggle('must-booking-day-unavailable', !!isReallyUnavailable);
     }
     function refreshAvailability(picker) {
         if (!picker || !resolveCalendarAvailabilitySource()) return;
         loadAvailabilityMonth(new Date(picker.currentYear, picker.currentMonth, 1)).then(function () { picker.redraw(); });
+    }
+    /*
+     * Marks the picked checkin/checkout days so their CSS (already defined
+     * for 'flatpickr-disabled.must-booking-day-start'/'-end') gives them a
+     * distinct selected look instead of the plain disabled look they also
+     * carry once picked (checkin becomes unselectable once chosen; checkout
+     * likewise once the range completes). Mirrors booking-page.js's
+     * updateRangeHighlights for the accommodation-page calendar.
+     */
+    function updateCalendarSelectionMarkers(picker, checkinStr, checkoutStr) {
+        if (!picker || !picker.calendarContainer) return;
+        var days = picker.calendarContainer.querySelectorAll('.flatpickr-day');
+        Array.prototype.forEach.call(days, function (dayElement) {
+            dayElement.classList.toggle('must-booking-day-start', false);
+            dayElement.classList.toggle('must-booking-day-end', false);
+            dayElement.classList.toggle('must-booking-day-in-range', false);
+            if (!dayElement.dateObj) return;
+            var current = dateKey(dayElement.dateObj);
+            if (checkinStr && current === checkinStr) dayElement.classList.toggle('must-booking-day-start', true);
+            if (checkoutStr && current === checkoutStr) dayElement.classList.toggle('must-booking-day-end', true);
+            if (checkinStr && checkoutStr && current > checkinStr && current < checkoutStr)
+                dayElement.classList.toggle('must-booking-day-in-range', true);
+        });
     }
     var activePickers = [];
     /*
@@ -424,9 +453,9 @@
                 inline: true, dateFormat: 'Y-m-d', minDate: todayStr,
                 disable: [roomDateIsUnavailable],
                 defaultDate: checkoutField && checkoutField.value ? checkoutField.value : undefined,
-                onChange: function (selectedDates, dateStr) { if (checkoutField) checkoutField.value = dateStr; updateArrivalDeparture(checkinField ? checkinField.value : '', dateStr); scheduleSelectedRoomAvailabilityCheck(); },
-                onMonthChange: function (a, b, instance) { syncMonthYear(checkoutMonth, checkoutYear, instance); refreshAvailability(instance); },
-                onYearChange: function (a, b, instance) { syncMonthYear(checkoutMonth, checkoutYear, instance); refreshAvailability(instance); },
+                onChange: function (selectedDates, dateStr, instance) { if (checkoutField) checkoutField.value = dateStr; updateArrivalDeparture(checkinField ? checkinField.value : '', dateStr); updateCalendarSelectionMarkers(instance, '', dateStr); scheduleSelectedRoomAvailabilityCheck(); },
+                onMonthChange: function (a, b, instance) { syncMonthYear(checkoutMonth, checkoutYear, instance); refreshAvailability(instance); updateCalendarSelectionMarkers(instance, '', checkoutField ? checkoutField.value : ''); },
+                onYearChange: function (a, b, instance) { syncMonthYear(checkoutMonth, checkoutYear, instance); refreshAvailability(instance); updateCalendarSelectionMarkers(instance, '', checkoutField ? checkoutField.value : ''); },
                 onDayCreate: function (selectedDates, dateStr, instance, dayElement) { markReallyUnavailableDay(dayElement); }
             });
             checkoutPicker.calendarContainer.classList.add('must-booking-flatpickr-instance');
@@ -440,9 +469,10 @@
                 inline: true, dateFormat: 'Y-m-d', minDate: todayStr,
                 disable: [roomDateIsUnavailable, checkinDateBlockedByMinimumStay],
                 defaultDate: checkinField && checkinField.value ? checkinField.value : undefined,
-                onChange: function (selectedDates, dateStr) {
+                onChange: function (selectedDates, dateStr, instance) {
                     if (checkinField) checkinField.value = dateStr;
                     updateArrivalDeparture(dateStr, checkoutField ? checkoutField.value : '');
+                    updateCalendarSelectionMarkers(instance, dateStr, '');
                     if (checkoutPicker && selectedDates[0]) {
                         checkoutPicker.set('minDate', addDaysToDateStr(dateStr, minimumNights));
                         var latestCheckout = latestValidCheckoutDate(dateStr, minimumNights);
@@ -450,8 +480,8 @@
                     }
                     scheduleSelectedRoomAvailabilityCheck();
                 },
-                onMonthChange: function (a, b, instance) { syncMonthYear(checkinMonth, checkinYear, instance); updatePrevVisibility(instance, prevButton); refreshAvailability(instance); },
-                onYearChange: function (a, b, instance) { syncMonthYear(checkinMonth, checkinYear, instance); updatePrevVisibility(instance, prevButton); refreshAvailability(instance); },
+                onMonthChange: function (a, b, instance) { syncMonthYear(checkinMonth, checkinYear, instance); updatePrevVisibility(instance, prevButton); refreshAvailability(instance); updateCalendarSelectionMarkers(instance, checkinField ? checkinField.value : '', ''); },
+                onYearChange: function (a, b, instance) { syncMonthYear(checkinMonth, checkinYear, instance); updatePrevVisibility(instance, prevButton); refreshAvailability(instance); updateCalendarSelectionMarkers(instance, checkinField ? checkinField.value : '', ''); },
                 onDayCreate: function (selectedDates, dateStr, instance, dayElement) { markReallyUnavailableDay(dayElement); }
             });
             checkinPicker.calendarContainer.classList.add('must-booking-flatpickr-instance');
@@ -490,9 +520,11 @@
                             var checkinStr = instance.formatDate(selectedDates[0], 'Y-m-d');
                             instance.set('minDate', addDaysToDateStr(checkinStr, minimumNights));
                             instance.set('maxDate', latestValidCheckoutDate(checkinStr, minimumNights) || undefined);
+                            updateCalendarSelectionMarkers(instance, checkinStr, '');
                         } else {
                             instance.set('minDate', todayStr);
                             instance.set('maxDate', null);
+                            updateCalendarSelectionMarkers(instance, '', '');
                         }
                         scheduleSelectedRoomAvailabilityCheck();
                         return;
@@ -502,6 +534,7 @@
                     if (checkinField) checkinField.value = start;
                     if (checkoutField) checkoutField.value = end;
                     updateArrivalDeparture(start, end);
+                    updateCalendarSelectionMarkers(instance, start, end);
                     // Range complete — lift the checkout-only constraint so a
                     // fresh check-in click (starting a new range) is not still
                     // bounded by the just-completed stay's window.
@@ -509,8 +542,8 @@
                     instance.set('maxDate', null);
                     scheduleSelectedRoomAvailabilityCheck();
                 },
-                onMonthChange: function (a, b, instance) { syncMonthYear(monthSelect, yearSelect, instance); updatePrevVisibility(instance, singlePrev); refreshAvailability(instance); },
-                onYearChange: function (a, b, instance) { syncMonthYear(monthSelect, yearSelect, instance); updatePrevVisibility(instance, singlePrev); refreshAvailability(instance); },
+                onMonthChange: function (a, b, instance) { syncMonthYear(monthSelect, yearSelect, instance); updatePrevVisibility(instance, singlePrev); refreshAvailability(instance); updateCalendarSelectionMarkers(instance, checkinField ? checkinField.value : '', checkoutField ? checkoutField.value : ''); },
+                onYearChange: function (a, b, instance) { syncMonthYear(monthSelect, yearSelect, instance); updatePrevVisibility(instance, singlePrev); refreshAvailability(instance); updateCalendarSelectionMarkers(instance, checkinField ? checkinField.value : '', checkoutField ? checkoutField.value : ''); },
                 onDayCreate: function (selectedDates, dateStr, instance, dayElement) { markReallyUnavailableDay(dayElement); }
             });
             picker.calendarContainer.classList.add('must-booking-flatpickr-instance');
