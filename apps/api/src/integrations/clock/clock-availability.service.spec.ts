@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ClockAvailabilityService } from './clock-availability.service';
@@ -306,6 +307,110 @@ describe('ClockAvailabilityService.getAvailability', () => {
     });
   });
 
+  it('is unavailable when the only rate showing free rooms is stopped from sale (real Clock shape: free:true alongside rate_restriction.stop_from_sale:true)', async () => {
+    // Reproduces a real incident: Clock's /rates_availability marked a rate
+    // `free: true` with `room_type_free_rooms: 1` even though staff had
+    // turned it off for sale (`rate_restriction.stop_from_sale: true`) — the
+    // listing showed "1 available" while /products correctly refused to
+    // quote it. `errors` also carries this ("rate_restriction_stop_from_sale?").
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '69242': {
+                '2026-08-10': {
+                  free: true,
+                  room_type_free_rooms: 1,
+                  errors: { rate_restriction_stop_from_sale: ['Rate restriction stop from sale?'] },
+                  rate_restriction: { stop_from_sale: true },
+                },
+                '2026-08-11': {
+                  free: true,
+                  room_type_free_rooms: 1,
+                  errors: { rate_restriction_stop_from_sale: ['Rate restriction stop from sale?'] },
+                  rate_restriction: { stop_from_sale: true },
+                },
+              },
+            },
+          },
+        ],
+      });
+    const { service } = makeService({ client: { request } });
+
+    const result = await service.getAvailability('t1', 'p1', query);
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        roomTypeId: 'local-rt-1',
+        startsOn: '2026-08-10',
+        endsOn: '2026-08-12',
+        isAvailable: false,
+        availableUnits: 0,
+      },
+    });
+  });
+
+  it('remains available when a different, non-stopped rate still shows free rooms on a night where one rate is stopped from sale', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          { id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true },
+          { id: 69999, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true },
+        ],
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '69242': {
+                '2026-08-10': {
+                  free: true,
+                  room_type_free_rooms: 1,
+                  rate_restriction: { stop_from_sale: true },
+                },
+                '2026-08-11': {
+                  free: true,
+                  room_type_free_rooms: 1,
+                  rate_restriction: { stop_from_sale: true },
+                },
+              },
+              '69999': {
+                '2026-08-10': { free: true, room_type_free_rooms: 2, rate_restriction: { stop_from_sale: false } },
+                '2026-08-11': { free: true, room_type_free_rooms: 2, rate_restriction: { stop_from_sale: false } },
+              },
+            },
+          },
+        ],
+      });
+    const { service } = makeService({ client: { request } });
+
+    const result = await service.getAvailability('t1', 'p1', query);
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        roomTypeId: 'local-rt-1',
+        startsOn: '2026-08-10',
+        endsOn: '2026-08-12',
+        isAvailable: true,
+        availableUnits: 2,
+      },
+    });
+  });
+
   it('caches a result for the same room type and date range', async () => {
     const request = vi
       .fn()
@@ -449,6 +554,43 @@ describe('ClockAvailabilityService.getAvailabilityCalendar', () => {
         query: expect.objectContaining({ adults: '1', children: '0' }),
       }),
     );
+  });
+
+  it('marks a day unavailable when the only rate showing free rooms is stopped from sale', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '69242': {
+                '2026-08-10': {
+                  free: true,
+                  room_type_free_rooms: 1,
+                  rate_restriction: { stop_from_sale: true },
+                },
+              },
+            },
+          },
+        ],
+      });
+    const { service } = makeService({ client: { request } });
+
+    const result = await service.getAvailabilityCalendar('t1', 'p1', {
+      roomTypeId: 'local-rt-1',
+      month: '2026-08',
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      value: expect.arrayContaining([{ date: '2026-08-10', isAvailable: false }]),
+    });
   });
 });
 
@@ -827,6 +969,45 @@ describe('ClockAvailabilityService.getQuote', () => {
         retryable: false,
       },
     });
+  });
+
+  it('logs the real Clock rejection reason when no offer is available, so an operator does not need a one-off script to find it', async () => {
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '69242': [
+                {
+                  available: false,
+                  room_type_free_rooms: 1,
+                  price: { cents: 23000, currency: 'EUR' },
+                  errors: { base: ['Rate restriction stop from sale?'] },
+                },
+              ],
+            },
+          },
+        ],
+      });
+    const { service } = makeService({ client: { request } });
+
+    await service.getQuote('t1', 'p1', query);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('local-rt-1'),
+      expect.objectContaining({
+        '69242': [{ base: ['Rate restriction stop from sale?'] }],
+      }),
+    );
+    warnSpy.mockRestore();
   });
 
   it('never quotes a rate not published to the booking engine (wbe: false), even when it is the only one available', async () => {

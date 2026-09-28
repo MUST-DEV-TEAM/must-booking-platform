@@ -328,6 +328,53 @@
         return loadedMonths[cacheKey];
     }
     function roomDateIsUnavailable(date) { return unavailableDates[dateKey(date)] === true; }
+    var minimumNights = Math.max(1, parseInt(c.minimumNights, 10) || 1);
+    function addDaysToDateStr(dateStr, days) {
+        var date = new Date(dateStr + 'T00:00:00');
+        date.setDate(date.getDate() + days);
+        return dateKey(date);
+    }
+    /*
+     * The furthest checkout reachable from `checkinStr` without ever sleeping
+     * an unavailable night: walks forward night by night from check-in,
+     * stopping at (and returning) the night before the first unavailable
+     * date, or at `horizonStr` if every night up to it is free. A checkout on
+     * the unavailable date itself is still valid — the guest never occupies
+     * that night, only arrives to leave. Returns null when not even the
+     * minimum-night stay fits before hitting a gap.
+     */
+    function latestValidCheckoutDate(checkinStr, nightsMinimum, horizonStr) {
+        var minimum = Math.max(1, nightsMinimum || 1);
+        var horizon = horizonStr || addDaysToDateStr(checkinStr, 365);
+        var cursor = checkinStr;
+        var nightsCounted = 0;
+        while (cursor < horizon) {
+            if (unavailableDates[cursor] === true) {
+                return nightsCounted >= minimum ? cursor : null;
+            }
+            cursor = addDaysToDateStr(cursor, 1);
+            nightsCounted++;
+        }
+        return nightsCounted >= minimum ? horizon : null;
+    }
+    /*
+     * Whether picking `checkinStr` as check-in can ever satisfy the minimum
+     * stay — i.e. whether `nightsMinimum` consecutive available nights follow
+     * it. A check-in date that can never reach the minimum must be disabled
+     * outright, not merely left to fail after the guest already picked it.
+     */
+    function checkinCanStartValidStay(checkinStr, nightsMinimum) {
+        var minimum = Math.max(1, nightsMinimum || 1);
+        var cursor = checkinStr;
+        for (var i = 0; i < minimum; i++) {
+            if (unavailableDates[cursor] === true) return false;
+            cursor = addDaysToDateStr(cursor, 1);
+        }
+        return true;
+    }
+    function checkinDateBlockedByMinimumStay(date) {
+        return !checkinCanStartValidStay(dateKey(date), minimumNights);
+    }
     /*
      * flatpickr's own 'flatpickr-disabled' class means the date itself has no
      * availability. In range mode it also adds 'notAllowed' to dates that are
@@ -385,14 +432,15 @@
         if (checkinHost) {
             var checkinPicker = window.flatpickr(checkinHost, {
                 inline: true, dateFormat: 'Y-m-d', minDate: todayStr,
-                disable: [roomDateIsUnavailable],
+                disable: [roomDateIsUnavailable, checkinDateBlockedByMinimumStay],
                 defaultDate: checkinField && checkinField.value ? checkinField.value : undefined,
                 onChange: function (selectedDates, dateStr) {
                     if (checkinField) checkinField.value = dateStr;
                     updateArrivalDeparture(dateStr, checkoutField ? checkoutField.value : '');
                     if (checkoutPicker && selectedDates[0]) {
-                        var minCheckout = new Date(selectedDates[0].getTime() + 86400000);
-                        checkoutPicker.set('minDate', minCheckout);
+                        checkoutPicker.set('minDate', addDaysToDateStr(dateStr, minimumNights));
+                        var latestCheckout = latestValidCheckoutDate(dateStr, minimumNights);
+                        checkoutPicker.set('maxDate', latestCheckout || undefined);
                     }
                     scheduleSelectedRoomAvailabilityCheck();
                 },
@@ -423,10 +471,23 @@
                 mode: 'range',
                 dateFormat: 'Y-m-d',
                 minDate: todayStr,
-                disable: [roomDateIsUnavailable],
+                disable: [roomDateIsUnavailable, checkinDateBlockedByMinimumStay],
                 defaultDate: (checkinField && checkinField.value && checkoutField && checkoutField.value) ? [checkinField.value, checkoutField.value] : undefined,
                 onChange: function (selectedDates, dateStr, instance) {
                     if (selectedDates.length < 2) {
+                        // Exactly one date picked so far (check-in): constrain
+                        // the *next* click to a real stay — at least the
+                        // minimum nights, and never past the first gap in
+                        // availability, so the guest cannot complete a
+                        // same-day or unavailable-night selection at all.
+                        if (selectedDates.length === 1) {
+                            var checkinStr = instance.formatDate(selectedDates[0], 'Y-m-d');
+                            instance.set('minDate', addDaysToDateStr(checkinStr, minimumNights));
+                            instance.set('maxDate', latestValidCheckoutDate(checkinStr, minimumNights) || undefined);
+                        } else {
+                            instance.set('minDate', todayStr);
+                            instance.set('maxDate', null);
+                        }
                         scheduleSelectedRoomAvailabilityCheck();
                         return;
                     }
@@ -435,6 +496,11 @@
                     if (checkinField) checkinField.value = start;
                     if (checkoutField) checkoutField.value = end;
                     updateArrivalDeparture(start, end);
+                    // Range complete — lift the checkout-only constraint so a
+                    // fresh check-in click (starting a new range) is not still
+                    // bounded by the just-completed stay's window.
+                    instance.set('minDate', todayStr);
+                    instance.set('maxDate', null);
                     scheduleSelectedRoomAvailabilityCheck();
                 },
                 onMonthChange: function (a, b, instance) { syncMonthYear(monthSelect, yearSelect, instance); updatePrevVisibility(instance, singlePrev); refreshAvailability(instance); },

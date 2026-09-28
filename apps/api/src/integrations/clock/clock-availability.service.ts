@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type {
   AvailabilityQuery,
   AvailabilityResult,
@@ -47,6 +47,14 @@ type ClockRateAvailabilityResponse = Array<{
         room_type_free_rooms: number;
         price?: { cents: number; currency: string };
         errors?: Record<string, unknown>;
+        // Confirmed against a real sandbox incident (2026-09-28): Clock can
+        // report `free: true` with real `room_type_free_rooms` on a night a
+        // staff member has explicitly stopped from sale — `errors` carries a
+        // "rate_restriction_stop_from_sale?" key, but `rate_restriction.
+        // stop_from_sale` is the reliable structured field. /products (the
+        // real quote endpoint) always refuses such a night; summarizeAvailability
+        // must therefore also refuse it, not just check `free`.
+        rate_restriction?: { stop_from_sale?: boolean };
       }
     >
   >;
@@ -150,6 +158,7 @@ type ClockRateRow = {
 
 @Injectable()
 export class ClockAvailabilityService {
+  private readonly logger = new Logger(ClockAvailabilityService.name);
   private readonly availabilityCache = new Map<string, CacheEntry<AvailabilityResult>>();
   private readonly ratesCache = new Map<string, CacheEntry<RoomTypeRates>>();
   private readonly displayPriceCache = new Map<string, CacheEntry<Money>>();
@@ -530,6 +539,10 @@ export class ClockAvailabilityService {
       const roomType = response.value.find((item) => String(item.id) === entry.externalRoomTypeId);
       const winner = roomType ? selectBestOffer(roomType.rates, rankOrder) : undefined;
       if (!winner) {
+        this.logger.warn(
+          `No available Clock offer for room type ${entry.query.roomTypeId} (${entry.query.startsOn} to ${entry.query.endsOn}): ${JSON.stringify(rejectionReasons(roomType?.rates))}`,
+          rejectionReasons(roomType?.rates),
+        );
         results[entry.query.roomTypeId] = failure(
           classifyConfigurationError('Clock has no available price for the requested stay.'),
         );
@@ -635,10 +648,21 @@ export class ClockAvailabilityService {
     );
     const roomType = response.value.find((item) => String(item.id) === query.externalRoomTypeId);
     const winner = roomType ? selectBestOffer(roomType.rates, rankOrder) : undefined;
-    if (!winner)
+    if (!winner) {
+      // The real rejection reason (Clock's per-offer `errors`, e.g. a
+      // staff-set stop-from-sale or a min-stay restriction) was previously
+      // discarded here, leaving only a generic message — undiagnosable
+      // without reproducing the exact /products call by hand. Logging it
+      // costs nothing (this only runs on the failure path already being
+      // returned) and turns a one-off investigation into a log lookup.
+      this.logger.warn(
+        `No available Clock offer for room type ${query.roomTypeId} (${query.startsOn} to ${query.endsOn}): ${JSON.stringify(rejectionReasons(roomType?.rates))}`,
+        rejectionReasons(roomType?.rates),
+      );
       return failure(
         classifyConfigurationError('Clock has no available price for the requested stay.'),
       );
+    }
 
     return {
       ok: true,
@@ -737,8 +761,13 @@ export class ClockAvailabilityService {
       if (!response.ok) return failure(response.error);
       const roomType = response.value.find((item) => String(item.id) === externalRoomTypeId);
       const winner = roomType ? selectBestOffer(roomType.rates, rankOrder) : undefined;
-      if (!winner)
+      if (!winner) {
+        this.logger.warn(
+          `No available Clock offer for room type ${query.roomTypeId} on ${date}: ${JSON.stringify(rejectionReasons(roomType?.rates))}`,
+          rejectionReasons(roomType?.rates),
+        );
         return failure(classifyConfigurationError(`Clock has no available price for ${date}.`));
+      }
       if (winner.offer.price.currency !== total.value.currency)
         return failure(classifyConfigurationError('Clock returned inconsistent quote currencies.'));
       nightlyRates.push({ date, amount: (winner.offer.price.cents / 100).toFixed(2) });
@@ -861,7 +890,7 @@ export class ClockAvailabilityService {
     const days = nights.map((date) => {
       const isAvailable = rateEntries.some((entry) => {
         const cell = entry[date];
-        return cell?.free && cell.room_type_free_rooms > 0;
+        return cell?.free && !cell.rate_restriction?.stop_from_sale && cell.room_type_free_rooms > 0;
       });
       return { date, isAvailable };
     });
@@ -1178,6 +1207,22 @@ function selectBestOffer(
   );
 }
 
+/** Every non-empty `errors` object Clock returned, keyed by rate id, for the
+ * diagnostic log when no offer wins — the same shape `selectBestOffer` reads
+ * to reject an offer, surfaced instead of discarded. */
+function rejectionReasons(
+  rateOffers: Record<string, ClockProductOffer[]> | undefined,
+): Record<string, Array<Record<string, unknown>>> {
+  const reasons: Record<string, Array<Record<string, unknown>>> = {};
+  for (const [rateId, offers] of Object.entries(rateOffers ?? {})) {
+    const errors = offers
+      .map((offer) => offer.errors)
+      .filter((errors): errors is Record<string, unknown> => !!errors && Object.keys(errors).length > 0);
+    if (errors.length > 0) reasons[rateId] = errors;
+  }
+  return reasons;
+}
+
 /** Every calendar date the guest actually occupies the room: [startsOn, endsOn). */
 function nightsBetween(startsOn: string, endsOn: string): string[] {
   const nights: string[] = [];
@@ -1247,7 +1292,11 @@ function summarizeAvailability(
     let bestForNight = 0;
     for (const dates of rateEntries) {
       const entry = dates[night];
-      if (entry?.free && entry.room_type_free_rooms > bestForNight)
+      if (
+        entry?.free &&
+        !entry.rate_restriction?.stop_from_sale &&
+        entry.room_type_free_rooms > bestForNight
+      )
         bestForNight = entry.room_type_free_rooms;
     }
     if (bestForNight <= 0) {

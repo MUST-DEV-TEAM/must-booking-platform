@@ -175,6 +175,14 @@ class MustBookingConfig
     {
         return self::int((string) self::get_setting('max_booking_rooms', 3), 1, 25, 3);
     }
+    public static function get_minimum_nights(): int
+    {
+        return self::int((string) self::get_setting('minimum_nights', 1), 1, 365, 1);
+    }
+    public static function get_maximum_nights(): int
+    {
+        return self::int((string) self::get_setting('maximum_nights', 30), 1, 365, 30);
+    }
     public static function get_checkin_time(): string
     {
         return self::time((string) self::get_setting('checkin_time', '14:00'), '14:00');

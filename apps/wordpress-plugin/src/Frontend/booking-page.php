@@ -397,6 +397,7 @@ function enqueue_booking_page_assets(): void
     $roomTypeId = $selection !== null && isset($selection['roomTypeId']) ? \sanitize_text_field((string) $selection['roomTypeId']) : '';
     \wp_localize_script('must-hotel-booking-calendar', 'mustHotelBookingCalendar', [
         'calendarLayout' => get_calendar_layout(),
+        'minimumNights' => MustBookingConfig::get_minimum_nights(),
         'partyStrings' => [
             'propertyCapacity' => __('This property accepts up to %d guests in one booking.', 'must-hotel-booking'),
             'singleRoomOnly' => __('This booking flow can confirm one room at a time. Please choose 1 room.', 'must-hotel-booking'),
