@@ -380,17 +380,38 @@
         return !checkinCanStartValidStay(dateKey(date), minimumNights);
     }
     /*
+     * The single-calendar range picker's own currently-picked checkin, while
+     * the guest is choosing checkout — tracked here instead of via flatpickr's
+     * minDate/maxDate. Moving minDate/maxDate past the just-picked checkin
+     * would work for constraining the calendar's *display*, but flatpickr's
+     * own minDate/maxDate setters immediately drop any already-selected date
+     * that no longer satisfies the new bounds (confirmed against flatpickr's
+     * source: the option setter re-filters selectedDates through the same
+     * validity check disable/minDate/maxDate use) - so checkin itself would
+     * be silently unselected the moment its own minimum-stay window was
+     * applied, and the range could never complete. Tracking it separately and
+     * enforcing the constraint only through `disable` avoids that entirely.
+     */
+    var pendingRangeCheckin = '';
+    function rangeDateIsDisabled(date) {
+        if (!pendingRangeCheckin) return false;
+        var current = dateKey(date);
+        var earliestCheckout = addDaysToDateStr(pendingRangeCheckin, minimumNights);
+        if (current < earliestCheckout) return true;
+        var latestCheckout = latestValidCheckoutDate(pendingRangeCheckin, minimumNights);
+        if (!latestCheckout) return true;
+        return current > latestCheckout;
+    }
+    /*
      * flatpickr's own 'flatpickr-disabled' class fires for several reasons
      * that must not all look the same to the guest: a genuinely unavailable
      * night, an adjacent-month padding day, a date unreachable only because
      * an unavailable night sits between it and the current selection, AND
-     * (since minimum-stay/gap-aware minDate/maxDate are set right after a
-     * checkin click) a date that is merely temporarily out of the current
-     * selection's range - e.g. checkin itself, once checkout's minDate moves
-     * past it. A past date is always really unavailable to the guest (it can
-     * never be booked, independent of any Clock/local data) and gets the
-     * same treatment as genuinely unavailable data. Everything else renders
-     * as an ordinary, if currently unselectable, day.
+     * a date that fails the pending-checkin checkout window above. A past
+     * date is always really unavailable to the guest (it can never be
+     * booked, independent of any Clock/local data) and gets the same
+     * treatment as genuinely unavailable data. Everything else renders as an
+     * ordinary, if currently unselectable, day.
      */
     function markReallyUnavailableDay(dayElement) {
         if (!dayElement) return;
@@ -507,7 +528,7 @@
                 mode: 'range',
                 dateFormat: 'Y-m-d',
                 minDate: todayStr,
-                disable: [roomDateIsUnavailable, checkinDateBlockedByMinimumStay],
+                disable: [roomDateIsUnavailable, checkinDateBlockedByMinimumStay, rangeDateIsDisabled],
                 defaultDate: (checkinField && checkinField.value && checkoutField && checkoutField.value) ? [checkinField.value, checkoutField.value] : undefined,
                 onChange: function (selectedDates, dateStr, instance) {
                     if (selectedDates.length < 2) {
@@ -516,16 +537,13 @@
                         // minimum nights, and never past the first gap in
                         // availability, so the guest cannot complete a
                         // same-day or unavailable-night selection at all.
-                        if (selectedDates.length === 1) {
-                            var checkinStr = instance.formatDate(selectedDates[0], 'Y-m-d');
-                            instance.set('minDate', addDaysToDateStr(checkinStr, minimumNights));
-                            instance.set('maxDate', latestValidCheckoutDate(checkinStr, minimumNights) || undefined);
-                            updateCalendarSelectionMarkers(instance, checkinStr, '');
-                        } else {
-                            instance.set('minDate', todayStr);
-                            instance.set('maxDate', null);
-                            updateCalendarSelectionMarkers(instance, '', '');
-                        }
+                        // Tracked separately from flatpickr's own minDate/
+                        // maxDate (see pendingRangeCheckin) rather than moved
+                        // there, since flatpickr drops the just-picked checkin
+                        // itself the instant minDate/maxDate excludes it.
+                        pendingRangeCheckin = selectedDates.length === 1 ? instance.formatDate(selectedDates[0], 'Y-m-d') : '';
+                        updateCalendarSelectionMarkers(instance, pendingRangeCheckin, '');
+                        instance.redraw();
                         scheduleSelectedRoomAvailabilityCheck();
                         return;
                     }
@@ -535,11 +553,11 @@
                     if (checkoutField) checkoutField.value = end;
                     updateArrivalDeparture(start, end);
                     updateCalendarSelectionMarkers(instance, start, end);
-                    // Range complete — lift the checkout-only constraint so a
-                    // fresh check-in click (starting a new range) is not still
-                    // bounded by the just-completed stay's window.
-                    instance.set('minDate', todayStr);
-                    instance.set('maxDate', null);
+                    // Range complete — clear the pending-checkin constraint so
+                    // a fresh check-in click (starting a new range) is not
+                    // still bounded by the just-completed stay's window.
+                    pendingRangeCheckin = '';
+                    instance.redraw();
                     scheduleSelectedRoomAvailabilityCheck();
                 },
                 onMonthChange: function (a, b, instance) { syncMonthYear(monthSelect, yearSelect, instance); updatePrevVisibility(instance, singlePrev); refreshAvailability(instance); updateCalendarSelectionMarkers(instance, checkinField ? checkinField.value : '', checkoutField ? checkoutField.value : ''); },
