@@ -278,6 +278,26 @@ export class ClockBookingConsistencyService {
     credentials: ClockConnectionCredentials,
     range: { startsOn: string; endsOn: string },
   ): Promise<ClockBookingResource[]> {
+    const listed = await this.listBookingIds(credentials, range);
+    const bookings: ClockBookingResource[] = [];
+    for (const id of listed) {
+      const booking = await this.fetchClock<unknown>(credentials, `/bookings/${id}`);
+      if (!isClockBookingResource(booking))
+        throw new Error(`Clock returned an unexpected booking detail for ${id}.`);
+      bookings.push(booking);
+    }
+    return bookings;
+  }
+
+  /**
+   * Just the id-list step of fetchBookings, exposed for callers (a one-time
+   * backfill script) that only need Clock's booking ids for a range and will
+   * hydrate each one themselves rather than reading ClockBookingResource.
+   */
+  async listBookingIds(
+    credentials: ClockConnectionCredentials,
+    range: { startsOn: string; endsOn: string },
+  ): Promise<string[]> {
     const listed = await this.fetchClock<unknown>(credentials, '/bookings/', {
       // Clock documents comparison filters for booking date fields. These
       // two filters return reservations that overlap [startsOn, endsOn).
@@ -289,15 +309,7 @@ export class ClockBookingConsistencyService {
     // reads are therefore mandatory before comparing Clock status/reference.
     if (!Array.isArray(listed) || !listed.every(isClockBookingId))
       throw new Error('Clock returned an unexpected booking-list response.');
-
-    const bookings: ClockBookingResource[] = [];
-    for (const id of listed) {
-      const booking = await this.fetchClock<unknown>(credentials, `/bookings/${id}`);
-      if (!isClockBookingResource(booking))
-        throw new Error(`Clock returned an unexpected booking detail for ${id}.`);
-      bookings.push(booking);
-    }
-    return bookings;
+    return listed.map(String);
   }
 
   /**
