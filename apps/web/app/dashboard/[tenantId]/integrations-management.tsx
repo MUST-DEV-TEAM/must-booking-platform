@@ -419,10 +419,16 @@ type ClockPolicyCatalog = {
   ratePlans: Array<{ id: string; name: string; cancellationPolicyId: string | null }>;
 };
 
+type ClockConfirmAllResult = {
+  confirmed: number;
+  skipped: Array<{ mappingId: string; entityType: 'ROOM_TYPE' | 'ROOM'; externalName: string; reason: string }>;
+};
+
 function ClockCatalogSync({ tenantId, property }: { tenantId: string; property: Property }) {
   const queryClient = useQueryClient();
   const base = `/api/tenants/${tenantId}/properties/${property.id}/clock-catalog`;
   const mappingsQueryKey = ['dashboard', 'clock-catalog-mappings', tenantId, property.id] as const;
+  const [lastSkipped, setLastSkipped] = useState<ClockConfirmAllResult['skipped']>([]);
 
   const mappingsQuery = useQuery({
     queryKey: mappingsQueryKey,
@@ -433,6 +439,31 @@ function ClockCatalogSync({ tenantId, property }: { tenantId: string; property: 
     },
   });
 
+  const confirmAllMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`${base}/confirm-all`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!response.ok)
+        throw new Error(await errorMessage(response, 'Unable to confirm the Clock catalog.'));
+      return (await response.json()) as ClockConfirmAllResult;
+    },
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: mappingsQueryKey });
+      setLastSkipped(result.skipped);
+      if (result.skipped.length === 0) {
+        toast.success(`Applied ${result.confirmed} item${result.confirmed === 1 ? '' : 's'} to your catalog.`);
+      } else {
+        toast.warning(
+          `Applied ${result.confirmed}, skipped ${result.skipped.length} (see below to resolve).`,
+        );
+      }
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Unable to confirm the Clock catalog.'),
+  });
+
   const syncMutation = useMutation({
     mutationFn: async () => {
       const response = await fetch(`${base}/sync`, { method: 'POST', credentials: 'include' });
@@ -440,9 +471,13 @@ function ClockCatalogSync({ tenantId, property }: { tenantId: string; property: 
         throw new Error(await errorMessage(response, 'Unable to sync the Clock catalog.'));
       return (await response.json()) as { proposed: number; updated: number };
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       void queryClient.invalidateQueries({ queryKey: mappingsQueryKey });
       toast.success(`Synced: ${result.proposed} new, ${result.updated} updated.`);
+      // Applying room types/rooms to the local catalog is a real, visible
+      // change (new rooms, shadow rate plans) — auto-run it right after sync
+      // instead of a silent side effect the owner didn't ask for per click.
+      await confirmAllMutation.mutateAsync();
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : 'Unable to sync the Clock catalog.'),
@@ -479,18 +514,38 @@ function ClockCatalogSync({ tenantId, property }: { tenantId: string; property: 
     <Card>
       <Heading level={3}>Clock catalog sync — {property.name}</Heading>
       <Text tone="secondary">
-        Pulls room types and rooms from Clock. Nothing is applied to your local catalog until you
-        confirm each one below.
+        Pulls room types and rooms from Clock and applies them to your local catalog
+        automatically. Anything that can&apos;t be applied (e.g. a name that&apos;s already in
+        use) is listed below for you to resolve by hand.
       </Text>
       <button
         className="must-button must-button--primary"
         type="button"
-        disabled={syncMutation.isPending}
+        disabled={syncMutation.isPending || confirmAllMutation.isPending}
         onClick={() => syncMutation.mutate()}
       >
-        {syncMutation.isPending ? 'Syncing…' : 'Sync catalog from Clock'}
+        {syncMutation.isPending
+          ? 'Syncing…'
+          : confirmAllMutation.isPending
+            ? 'Applying to catalog…'
+            : 'Sync catalog from Clock'}
       </button>
       {mappingsQuery.isPending ? <Text>Loading mappings…</Text> : null}
+      {lastSkipped.length > 0 ? (
+        <Card>
+          <Text>
+            <strong>
+              {lastSkipped.length} item{lastSkipped.length === 1 ? '' : 's'} need your attention
+            </strong>
+          </Text>
+          {lastSkipped.map((skip) => (
+            <Text key={skip.mappingId} tone="secondary">
+              {skip.entityType === 'ROOM_TYPE' ? 'Room type' : 'Room'} &quot;{skip.externalName}
+              &quot;: {skip.reason}
+            </Text>
+          ))}
+        </Card>
+      ) : null}
       {proposed.length === 0 && !mappingsQuery.isPending ? (
         <Text tone="secondary">No pending proposals.</Text>
       ) : null}

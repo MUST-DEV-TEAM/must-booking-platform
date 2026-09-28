@@ -136,95 +136,161 @@ export class ClockCatalogSyncService {
       const mapping = rows[0];
       if (!mapping) throw new BadRequestException('Mapping not found.');
       if (mapping.syncStatus === 'CONFIRMED') return;
+      await this.confirmMapping(tx, tenantId, propertyId, actorUserId, mapping);
+    });
+  }
 
-      const localId = randomUUID();
-      if (mapping.entityType === 'ROOM_TYPE') {
-        try {
-          await tx.$executeRawUnsafe(
-            `INSERT INTO room_types (id, tenant_id, property_id, name, max_occupancy)
-             VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 2)`,
-            localId,
-            tenantId,
-            propertyId,
-            mapping.externalName,
-          );
-        } catch (error: unknown) {
-          if (this.isUniqueViolation(error))
-            throw new ConflictException(
-              `A room type named "${mapping.externalName}" already exists for this property. Rename or remove it before confirming this Clock mapping.`,
-            );
-          throw error;
-        }
-        // Walk-in booking redesign: a Clock-priced booking still needs a
-        // valid local rate_plan_id (NOT NULL FK, also the cancellation-policy
-        // carrier) even though staff never picks one — auto-create a
-        // shadow rate plan for this room type, never surfaced in the
-        // Rate Plan UI (filtered out by clockShadowRoomTypeId elsewhere).
-        // Currency defaults to EUR — a real gap for non-EUR properties,
-        // revisit if/when this needs to be configurable.
-        try {
-          await tx.$executeRawUnsafe(
-            `INSERT INTO rate_plans (id, tenant_id, property_id, name, currency, is_active, clock_shadow_room_type_id)
-             VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'EUR', true, $5::uuid)`,
-            randomUUID(),
-            tenantId,
-            propertyId,
-            `Clock: ${mapping.externalName}`,
-            localId,
-          );
-        } catch (error: unknown) {
-          if (this.isUniqueViolation(error))
-            throw new ConflictException(
-              `A rate plan named "Clock: ${mapping.externalName}" already exists for this property.`,
-            );
-          throw error;
-        }
-      } else {
-        const parentRows = await tx.$queryRawUnsafe<Array<{ localEntityId: string | null }>>(
-          `SELECT local_entity_id AS "localEntityId" FROM clock_catalog_mappings
-           WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND entity_type = 'ROOM_TYPE'
-             AND external_entity_id = $3 AND sync_status = 'CONFIRMED'`,
-          tenantId,
-          propertyId,
-          mapping.externalParentId,
-        );
-        const parentLocalId = parentRows[0]?.localEntityId;
-        if (!parentLocalId)
-          throw new BadRequestException('Confirm this room’s parent room type first.');
-        try {
-          await tx.$executeRawUnsafe(
-            `INSERT INTO rooms (id, tenant_id, property_id, room_type_id, name)
-             VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5)`,
-            localId,
-            tenantId,
-            propertyId,
-            parentLocalId,
-            mapping.externalName,
-          );
-        } catch (error: unknown) {
-          if (this.isUniqueViolation(error))
-            throw new ConflictException(
-              `A room named "${mapping.externalName}" already exists for this property. Rename or remove it before confirming this Clock mapping.`,
-            );
-          throw error;
-        }
-      }
-
-      await tx.$executeRawUnsafe(
-        `UPDATE clock_catalog_mappings SET sync_status = 'CONFIRMED', local_entity_id = $2::uuid, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $1::uuid`,
-        mappingId,
-        localId,
-      );
-      await this.audit.recordInTransaction(tx, {
+  /**
+   * Confirms every PROPOSED mapping it can, in dependency order (room types
+   * before the rooms that reference them — confirmMapping requires a room's
+   * parent room type to already be CONFIRMED). Anything that fails — a name
+   * collision with an existing local room/room-type, or an unconfirmed
+   * parent — is left PROPOSED and reported back instead of aborting the
+   * whole batch, so one bad name doesn't block everything else.
+   */
+  async confirmAll(
+    tenantId: string,
+    propertyId: string,
+    actorUserId: string,
+  ): Promise<{
+    confirmed: number;
+    skipped: Array<{ mappingId: string; entityType: EntityType; externalName: string; reason: string }>;
+  }> {
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const rows = await tx.$queryRawUnsafe<ClockCatalogMappingRow[]>(
+        `SELECT id, entity_type AS "entityType", external_entity_id AS "externalEntityId",
+           external_parent_id AS "externalParentId", external_name AS "externalName",
+           sync_status AS "syncStatus", local_entity_id AS "localEntityId"
+         FROM clock_catalog_mappings
+         WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND sync_status = 'PROPOSED'
+         ORDER BY entity_type = 'ROOM_TYPE' DESC, external_name`,
         tenantId,
         propertyId,
-        actorUserId,
-        action: 'clock_catalog_mapping.confirmed',
-        targetType: 'clock_catalog_mapping',
-        targetId: mappingId,
-        details: { entityType: mapping.entityType, localEntityId: localId },
-      });
+      );
+      let confirmed = 0;
+      const skipped: Array<{
+        mappingId: string;
+        entityType: EntityType;
+        externalName: string;
+        reason: string;
+      }> = [];
+      for (const mapping of rows) {
+        try {
+          await this.confirmMapping(tx, tenantId, propertyId, actorUserId, mapping);
+          confirmed += 1;
+        } catch (error: unknown) {
+          const reason =
+            error instanceof ConflictException || error instanceof BadRequestException
+              ? (error.getResponse() as { message?: string }).message ?? error.message
+              : (() => {
+                  throw error;
+                })();
+          skipped.push({
+            mappingId: mapping.id,
+            entityType: mapping.entityType,
+            externalName: mapping.externalName,
+            reason,
+          });
+        }
+      }
+      return { confirmed, skipped };
+    });
+  }
+
+  private async confirmMapping(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    actorUserId: string,
+    mapping: ClockCatalogMappingRow,
+  ): Promise<void> {
+    const localId = randomUUID();
+    if (mapping.entityType === 'ROOM_TYPE') {
+      try {
+        await tx.$executeRawUnsafe(
+          `INSERT INTO room_types (id, tenant_id, property_id, name, max_occupancy)
+           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 2)`,
+          localId,
+          tenantId,
+          propertyId,
+          mapping.externalName,
+        );
+      } catch (error: unknown) {
+        if (this.isUniqueViolation(error))
+          throw new ConflictException(
+            `A room type named "${mapping.externalName}" already exists for this property. Rename or remove it before confirming this Clock mapping.`,
+          );
+        throw error;
+      }
+      // Walk-in booking redesign: a Clock-priced booking still needs a
+      // valid local rate_plan_id (NOT NULL FK, also the cancellation-policy
+      // carrier) even though staff never picks one — auto-create a
+      // shadow rate plan for this room type, never surfaced in the
+      // Rate Plan UI (filtered out by clockShadowRoomTypeId elsewhere).
+      // Currency defaults to EUR — a real gap for non-EUR properties,
+      // revisit if/when this needs to be configurable.
+      try {
+        await tx.$executeRawUnsafe(
+          `INSERT INTO rate_plans (id, tenant_id, property_id, name, currency, is_active, clock_shadow_room_type_id)
+           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'EUR', true, $5::uuid)`,
+          randomUUID(),
+          tenantId,
+          propertyId,
+          `Clock: ${mapping.externalName}`,
+          localId,
+        );
+      } catch (error: unknown) {
+        if (this.isUniqueViolation(error))
+          throw new ConflictException(
+            `A rate plan named "Clock: ${mapping.externalName}" already exists for this property.`,
+          );
+        throw error;
+      }
+    } else {
+      const parentRows = await tx.$queryRawUnsafe<Array<{ localEntityId: string | null }>>(
+        `SELECT local_entity_id AS "localEntityId" FROM clock_catalog_mappings
+         WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND entity_type = 'ROOM_TYPE'
+           AND external_entity_id = $3 AND sync_status = 'CONFIRMED'`,
+        tenantId,
+        propertyId,
+        mapping.externalParentId,
+      );
+      const parentLocalId = parentRows[0]?.localEntityId;
+      if (!parentLocalId)
+        throw new BadRequestException('Confirm this room’s parent room type first.');
+      try {
+        await tx.$executeRawUnsafe(
+          `INSERT INTO rooms (id, tenant_id, property_id, room_type_id, name)
+           VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5)`,
+          localId,
+          tenantId,
+          propertyId,
+          parentLocalId,
+          mapping.externalName,
+        );
+      } catch (error: unknown) {
+        if (this.isUniqueViolation(error))
+          throw new ConflictException(
+            `A room named "${mapping.externalName}" already exists for this property. Rename or remove it before confirming this Clock mapping.`,
+          );
+        throw error;
+      }
+    }
+
+    await tx.$executeRawUnsafe(
+      `UPDATE clock_catalog_mappings SET sync_status = 'CONFIRMED', local_entity_id = $2::uuid, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1::uuid`,
+      mapping.id,
+      localId,
+    );
+    await this.audit.recordInTransaction(tx, {
+      tenantId,
+      propertyId,
+      actorUserId,
+      action: 'clock_catalog_mapping.confirmed',
+      targetType: 'clock_catalog_mapping',
+      targetId: mapping.id,
+      details: { entityType: mapping.entityType, localEntityId: localId },
     });
   }
 

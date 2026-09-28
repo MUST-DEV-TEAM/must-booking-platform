@@ -27,6 +27,19 @@ export class ClockCatalogSyncController {
     );
   }
 
+  @Post('confirm-all')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('settings.manage')
+  @RequiresVerifiedEmail()
+  confirmAll(@Param('propertyId') propertyId: string, @Req() request: TenantRequest) {
+    return this.catalogSync.confirmAll(
+      request.tenantContext.tenantId,
+      propertyId,
+      request.tenantContext.userId,
+    );
+  }
+
   @Get('mappings')
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin)
