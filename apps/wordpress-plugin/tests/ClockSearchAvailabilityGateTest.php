@@ -70,6 +70,11 @@ namespace MustHotelBooking\Core {
         /** @var array<int, array{path: string, query: array<string, mixed>}> */
         public static array $getCalls = [];
         public static int $quoteCalls = 0;
+        /** @var array<string, mixed> */
+        public static array $calendarResponse = [
+            'ok' => true,
+            'body' => ['days' => [['date' => '2030-01-10', 'isAvailable' => true]]],
+        ];
 
         public static function guestSessionId(): ?string { return 'clock-gate-test-guest'; }
 
@@ -94,6 +99,7 @@ namespace MustHotelBooking\Core {
                 ];
             }
             if ($path === '/public/availability-check') return self::$availabilityResponse;
+            if ($path === '/public/availability-calendar') return self::$calendarResponse;
             return ['ok' => true, 'body' => []];
         }
 
@@ -187,6 +193,55 @@ namespace MustHotelBooking\Frontend {
     $failureSelection = maybe_process_accommodation_selection();
     assert_test($failureSelection === '', 'Accommodation availability failures must fail open.');
     assert_test(\MustHotelBooking\Core\MustApiClient::$quoteCalls === 1, 'Fail-open accommodation selection must continue to quote creation.');
+
+    function run_calendar_ajax(array $post): \TestAjaxResponse
+    {
+        $_POST = $post;
+        try {
+            get_selected_room_calendar();
+        } catch (\TestAjaxResponse $response) {
+            return $response;
+        }
+        throw new \RuntimeException('The calendar AJAX handler did not return JSON.');
+    }
+
+    // A guest who has only picked a room type + party on the initial /booking/
+    // form (no physical room fixed yet, and nothing saved to the selection
+    // transient) must still get a live, occupancy-aware calendar for that
+    // room type so unavailable dates grey out before Select is ever clicked.
+    unset($GLOBALS['clock_gate_transients']['must_booking_selection_clock-gate-test-guest']);
+    \MustHotelBooking\Core\MustApiClient::$getCalls = [];
+    \MustHotelBooking\Core\MustApiClient::$calendarResponse = [
+        'ok' => true,
+        'body' => ['days' => [['date' => '2030-01-10', 'isAvailable' => false]]],
+    ];
+    $roomTypeCalendar = run_calendar_ajax([
+        'nonce' => 'valid',
+        'room_type_id' => 'clock-type-1',
+        'month' => '2030-01',
+        'adults' => '2',
+        'children' => '1',
+    ]);
+    assert_test($roomTypeCalendar->payload['success'] === true, 'Room-type-only calendar request must succeed without a stored physical room.');
+    assert_test(
+        ($roomTypeCalendar->payload['data']['days'][0]['isAvailable'] ?? null) === false,
+        'Room-type-only calendar must return the days from the API response.'
+    );
+    $calendarCall = null;
+    foreach (\MustHotelBooking\Core\MustApiClient::$getCalls as $call) {
+        if ($call['path'] === '/public/availability-calendar') $calendarCall = $call;
+    }
+    assert_test($calendarCall !== null, 'Room-type-only calendar request must call /public/availability-calendar.');
+    assert_test(($calendarCall['query']['roomTypeId'] ?? null) === 'clock-type-1', 'Calendar query must carry the requested room type.');
+    assert_test(!array_key_exists('roomId', $calendarCall['query']) || $calendarCall['query']['roomId'] === '', 'Calendar query must not require a physical room.');
+    assert_test(($calendarCall['query']['adults'] ?? null) === 2, 'Calendar query must carry the guest-selected adult count.');
+    assert_test(($calendarCall['query']['children'] ?? null) === 1, 'Calendar query must carry the guest-selected children count.');
+
+    $missingRoomType = run_calendar_ajax([
+        'nonce' => 'valid',
+        'month' => '2030-01',
+    ]);
+    assert_test($missingRoomType->payload['success'] === false, 'Calendar request with neither a room type nor a stored selection must fail.');
 
     echo "Clock search availability gate tests passed.\n";
 }

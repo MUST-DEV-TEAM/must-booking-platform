@@ -316,7 +316,9 @@ export class ClockAvailabilityService {
         ),
       );
 
-    const cacheKey = `${connection.connectionId}:${externalRoomTypeId}:${query.startsOn}:${query.endsOn}`;
+    const adultCount = query.adultCount ?? 1;
+    const childrenCount = query.childrenCount ?? 0;
+    const cacheKey = `${connection.connectionId}:${externalRoomTypeId}:${query.startsOn}:${query.endsOn}:${adultCount}:${childrenCount}`;
     if (!options.skipCache) {
       const cached = this.availabilityCache.get(cacheKey);
       if (cached && cached.expiresAt > Date.now()) return { ok: true, value: cached.value };
@@ -330,11 +332,17 @@ export class ClockAvailabilityService {
     if (nights.length === 0)
       return failure(classifyConfigurationError('startsOn must be before endsOn.'));
 
+    // Always send occupancy to Clock, matching isAvailableForBooking, so a
+    // rate's occupancy restrictions apply consistently everywhere this room
+    // type's availability is asked about (search listing, calendar, and the
+    // final pre-booking check) — see docs/archive .../ADR-0005.
     const response = await this.fetch<ClockRateAvailabilityResponse>(parsed.value, {
       from: query.startsOn,
       to: nights[nights.length - 1],
       rates: rateIds.value.ids,
       room_types: externalRoomTypeId,
+      adults: String(adultCount),
+      children: String(childrenCount),
     });
     if (!response.ok) return failure(response.error);
 
@@ -802,7 +810,7 @@ export class ClockAvailabilityService {
   async getAvailabilityCalendar(
     tenantId: string,
     propertyId: string,
-    query: { roomTypeId: string; month: string },
+    query: { roomTypeId: string; month: string; adultCount?: number; childrenCount?: number },
   ): Promise<Result<Array<{ date: string; isAvailable: boolean }>>> {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (!connection || connection.provider !== 'CLOCK_PMS')
@@ -835,11 +843,16 @@ export class ClockAvailabilityService {
     const monthEnd = new Date(Date.UTC(year!, monthNumber!, 1)).toISOString().slice(0, 10);
     const nights = nightsBetween(monthStart, monthEnd);
 
+    // Same occupancy Clock uses for getAvailability/isAvailableForBooking, so
+    // a day this calendar shows as open never disagrees with the listing or
+    // the final Select-step check for the same guest count.
     const response = await this.fetch<ClockRateAvailabilityResponse>(parsed.value, {
       from: monthStart,
       to: nights[nights.length - 1]!,
       rates: rateIds.value.ids,
       room_types: externalRoomTypeId,
+      adults: String(query.adultCount ?? 1),
+      children: String(query.childrenCount ?? 0),
     });
     if (!response.ok) return failure(response.error);
 
@@ -983,6 +996,79 @@ export class ClockAvailabilityService {
         maxChildren: rate.rate_restriction?.max_children ?? null,
       }));
     return { ok: true, value: rates };
+  }
+
+  /**
+   * Same data as ratesForRoomTypeDetailed, for every confirmed room type on
+   * the property at once. Clock's /rates/ already returns every rate for
+   * the whole property regardless of which room type is asked about — the
+   * per-room-type method was calling it once per room type and discarding
+   * everything except that type's few rows each time, which is what was
+   * tripping the shared 4 req/s rate limiter on a page showing many room
+   * types (the rate-priority UI, Task 13). This fetches it exactly once and
+   * groups the same filtered/mapped rows by room type locally.
+   */
+  async ratesForAllRoomTypesDetailed(
+    tenantId: string,
+    propertyId: string,
+  ): Promise<Result<Map<string, ClockRateSummary[]>>> {
+    const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
+    if (!connection || connection.provider !== 'CLOCK_PMS')
+      return failure(
+        classifyConfigurationError('This property has no active Clock PMS connection.'),
+      );
+    const parsed = parseClockCredentials(connection.credentials);
+    if (!parsed.ok) return failure(classifyConfigurationError(parsed.message));
+
+    const mappings = await this.database.withTenantTransaction(
+      { tenantId, propertyId },
+      (tx) =>
+        tx.$queryRawUnsafe<Array<{ localRoomTypeId: string; externalRoomTypeId: string }>>(
+          `SELECT local_entity_id AS "localRoomTypeId", external_entity_id AS "externalRoomTypeId"
+           FROM clock_catalog_mappings
+           WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND entity_type = 'ROOM_TYPE'
+             AND sync_status = 'CONFIRMED'`,
+          tenantId,
+          propertyId,
+        ),
+    );
+    if (mappings.length === 0) return { ok: true, value: new Map() };
+
+    const response = await this.fetch<
+      Array<{
+        id: number | string;
+        bookable_id: number | string;
+        bookable_type: string;
+        wbe: boolean;
+        name?: string;
+        rate_restriction?: { max_adults?: number | null; max_children?: number | null };
+      }>
+    >(parsed.value, undefined, '/rates/');
+    if (!response.ok) return failure(response.error);
+
+    const byExternalRoomTypeId = new Map<string, ClockRateSummary[]>();
+    for (const rate of response.value) {
+      if (rate.bookable_type !== 'Pms::RoomType' || !rate.wbe) continue;
+      const externalRoomTypeId = String(rate.bookable_id);
+      const summary: ClockRateSummary = {
+        externalRateId: String(rate.id),
+        name: rate.name?.trim() || `Rate ${rate.id}`,
+        maxAdults: rate.rate_restriction?.max_adults ?? null,
+        maxChildren: rate.rate_restriction?.max_children ?? null,
+      };
+      const existing = byExternalRoomTypeId.get(externalRoomTypeId);
+      if (existing) existing.push(summary);
+      else byExternalRoomTypeId.set(externalRoomTypeId, [summary]);
+    }
+
+    const byLocalRoomTypeId = new Map<string, ClockRateSummary[]>();
+    for (const mapping of mappings) {
+      byLocalRoomTypeId.set(
+        mapping.localRoomTypeId,
+        byExternalRoomTypeId.get(mapping.externalRoomTypeId) ?? [],
+      );
+    }
+    return { ok: true, value: byLocalRoomTypeId };
   }
 
   private async fetch<T>(

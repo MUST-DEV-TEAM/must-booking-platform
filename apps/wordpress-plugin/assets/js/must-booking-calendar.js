@@ -76,6 +76,7 @@
         var totalOutput = document.querySelector('#must-booking-guests-total');
         var capacityMessage = document.querySelector('#must-booking-party-capacity-message');
         var roomCountSelect = document.querySelector('#must-booking-room-count-select');
+        var accommodationTypeSelect = document.querySelector('#must-booking-accommodation-type');
         var submitButton = form.querySelector('.must-booking-check-availability');
         if (!adultsSelect || !childrenSelect) return;
         var maxGuests = parsePartyValue({ value: form.getAttribute('data-max-guests') }, 1, 1);
@@ -99,8 +100,14 @@
             if (control) control.addEventListener('change', function () {
                 sync();
                 scheduleSelectedRoomAvailabilityCheck();
+                refreshRoomTypeAvailability();
             });
         });
+        if (accommodationTypeSelect) {
+            accommodationTypeSelect.addEventListener('change', function () {
+                refreshRoomTypeAvailability();
+            });
+        }
         form.addEventListener('submit', function (event) {
             if (sync().error !== '') event.preventDefault();
         });
@@ -175,6 +182,30 @@
     var todayStr = new Date().toISOString().slice(0, 10);
     var unavailableDates = {};
     var roomAvailability = c.roomAvailability || null;
+    var roomTypeAvailability = c.roomTypeAvailability || null;
+    /*
+     * A fixed physical room (set once a specific room is already chosen)
+     * always wins: it keeps checking that exact room's own availability.
+     * Otherwise, once the guest has picked a room type from the initial
+     * form's dropdown, the calendar checks that room type's live occupancy-
+     * aware Clock availability instead, using the same AJAX credentials.
+     */
+    function resolveCalendarAvailabilitySource() {
+        if (roomAvailability) return roomAvailability;
+        if (!roomTypeAvailability) return null;
+        var roomTypeSelect = document.querySelector('#must-booking-accommodation-type');
+        var roomTypeId = roomTypeSelect && roomTypeSelect.value ? roomTypeSelect.value : '';
+        if (!roomTypeId) return null;
+        var adultsInput = document.querySelector('#must-booking-adults');
+        var childrenInput = document.querySelector('#must-booking-children');
+        return {
+            ajaxUrl: roomTypeAvailability.ajaxUrl,
+            nonce: roomTypeAvailability.nonce,
+            roomTypeId: roomTypeId,
+            adults: adultsInput && adultsInput.value ? adultsInput.value : '1',
+            children: childrenInput && childrenInput.value ? childrenInput.value : '0'
+        };
+    }
     var loadedMonths = {};
     var availabilityCheckTimer = null;
     var availabilityCheckSequence = 0;
@@ -267,15 +298,19 @@
         return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
     }
     function loadAvailabilityMonth(date) {
-        if (!roomAvailability) return Promise.resolve();
+        var source = resolveCalendarAvailabilitySource();
+        if (!source) return Promise.resolve();
         var month = monthKey(date);
-        if (loadedMonths[month]) return loadedMonths[month];
-        var requestBody = new URLSearchParams({
-            action: 'must_booking_room_calendar',
-            nonce: roomAvailability.nonce,
-            month: month
-        });
-        loadedMonths[month] = window.fetch(roomAvailability.ajaxUrl, {
+        var cacheKey = (source.roomTypeId ? source.roomTypeId + ':' + source.adults + ':' + source.children : '') + ':' + month;
+        if (loadedMonths[cacheKey]) return loadedMonths[cacheKey];
+        var requestFields = { action: 'must_booking_room_calendar', nonce: source.nonce, month: month };
+        if (source.roomTypeId) {
+            requestFields.room_type_id = source.roomTypeId;
+            requestFields.adults = source.adults;
+            requestFields.children = source.children;
+        }
+        var requestBody = new URLSearchParams(requestFields);
+        loadedMonths[cacheKey] = window.fetch(source.ajaxUrl, {
             method: 'POST', credentials: 'same-origin',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
             body: requestBody.toString()
@@ -288,9 +323,9 @@
                 if (day && day.date && day.isAvailable === false) unavailableDates[day.date] = true;
             });
         }).catch(function () {
-            delete loadedMonths[month];
+            delete loadedMonths[cacheKey];
         });
-        return loadedMonths[month];
+        return loadedMonths[cacheKey];
     }
     function roomDateIsUnavailable(date) { return unavailableDates[dateKey(date)] === true; }
     /*
@@ -306,8 +341,21 @@
         dayElement.classList.toggle('must-booking-day-unavailable', isReallyUnavailable);
     }
     function refreshAvailability(picker) {
-        if (!roomAvailability || !picker) return;
+        if (!picker || !resolveCalendarAvailabilitySource()) return;
         loadAvailabilityMonth(new Date(picker.currentYear, picker.currentMonth, 1)).then(function () { picker.redraw(); });
+    }
+    var activePickers = [];
+    /*
+     * Changing the accommodation type, adults, or children while no fixed
+     * physical room is set means the guest is now asking a different
+     * occupancy-aware Clock question — previously loaded months belong to
+     * the old answer and must not linger as stale greyed-out dates.
+     */
+    function refreshRoomTypeAvailability() {
+        if (roomAvailability) return;
+        unavailableDates = {};
+        loadedMonths = {};
+        activePickers.forEach(function (picker) { refreshAvailability(picker); });
     }
     function initializeCalendars() {
     if (c.calendarLayout === 'two_calendars') {
@@ -321,7 +369,7 @@
         if (checkoutHost) {
             checkoutPicker = window.flatpickr(checkoutHost, {
                 inline: true, dateFormat: 'Y-m-d', minDate: todayStr,
-                disable: roomAvailability ? [roomDateIsUnavailable] : [],
+                disable: [roomDateIsUnavailable],
                 defaultDate: checkoutField && checkoutField.value ? checkoutField.value : undefined,
                 onChange: function (selectedDates, dateStr) { if (checkoutField) checkoutField.value = dateStr; updateArrivalDeparture(checkinField ? checkinField.value : '', dateStr); scheduleSelectedRoomAvailabilityCheck(); },
                 onMonthChange: function (a, b, instance) { syncMonthYear(checkoutMonth, checkoutYear, instance); refreshAvailability(instance); },
@@ -331,12 +379,13 @@
             checkoutPicker.calendarContainer.classList.add('must-booking-flatpickr-instance');
             syncMonthYear(checkoutMonth, checkoutYear, checkoutPicker);
             wireMonthYear(checkoutMonth, checkoutYear, checkoutPicker);
+            activePickers.push(checkoutPicker);
             refreshAvailability(checkoutPicker);
         }
         if (checkinHost) {
             var checkinPicker = window.flatpickr(checkinHost, {
                 inline: true, dateFormat: 'Y-m-d', minDate: todayStr,
-                disable: roomAvailability ? [roomDateIsUnavailable] : [],
+                disable: [roomDateIsUnavailable],
                 defaultDate: checkinField && checkinField.value ? checkinField.value : undefined,
                 onChange: function (selectedDates, dateStr) {
                     if (checkinField) checkinField.value = dateStr;
@@ -354,6 +403,7 @@
             checkinPicker.calendarContainer.classList.add('must-booking-flatpickr-instance');
             syncMonthYear(checkinMonth, checkinYear, checkinPicker);
             wireMonthYear(checkinMonth, checkinYear, checkinPicker);
+            activePickers.push(checkinPicker);
             refreshAvailability(checkinPicker);
             var prevButton = document.querySelector('#must-booking-cal-prev');
             var nextInlineButton = document.querySelector('#must-booking-cal-next-inline');
@@ -373,7 +423,7 @@
                 mode: 'range',
                 dateFormat: 'Y-m-d',
                 minDate: todayStr,
-                disable: roomAvailability ? [roomDateIsUnavailable] : [],
+                disable: [roomDateIsUnavailable],
                 defaultDate: (checkinField && checkinField.value && checkoutField && checkoutField.value) ? [checkinField.value, checkoutField.value] : undefined,
                 onChange: function (selectedDates, dateStr, instance) {
                     if (selectedDates.length < 2) {
@@ -394,6 +444,7 @@
             picker.calendarContainer.classList.add('must-booking-flatpickr-instance');
             syncMonthYear(monthSelect, yearSelect, picker);
             wireMonthYear(monthSelect, yearSelect, picker);
+            activePickers.push(picker);
             refreshAvailability(picker);
             var singlePrev = document.querySelector('#must-booking-cal-prev');
             var singleNext = document.querySelector('#must-booking-cal-next-inline') || document.querySelector('#must-booking-cal-next');

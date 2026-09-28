@@ -229,7 +229,42 @@ describe('ClockAvailabilityService.getAvailability', () => {
           to: '2026-08-11',
           rates: ['69242'],
           room_types: '42023',
+          adults: '1',
+          children: '0',
         },
+      }),
+    );
+  });
+
+  it('always sends adult/children counts to Clock, matching what the booking-time check sends, so the listing and Select steps agree on occupancy restrictions', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '69242': {
+                '2026-08-10': { free: true, room_type_free_rooms: 3 },
+                '2026-08-11': { free: true, room_type_free_rooms: 3 },
+              },
+            },
+          },
+        ],
+      });
+    const { service } = makeService({ client: { request } });
+
+    await service.getAvailability('t1', 'p1', { ...query, adultCount: 2, childrenCount: 1 });
+
+    expect(request).toHaveBeenLastCalledWith(
+      credentials,
+      expect.objectContaining({
+        query: expect.objectContaining({ adults: '2', children: '1' }),
       }),
     );
   });
@@ -299,6 +334,121 @@ describe('ClockAvailabilityService.getAvailability', () => {
     await service.getAvailability('t1', 'p1', query);
 
     expect(request.mock.calls.length).toBe(callsAfterFirst);
+  });
+
+  it('does not share a cached result between different occupancy counts', async () => {
+    const request = vi.fn().mockResolvedValue({
+      status: 200,
+      body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+    });
+    request.mockResolvedValueOnce({
+      status: 200,
+      body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+    });
+    request.mockResolvedValueOnce({
+      status: 200,
+      body: [
+        {
+          id: 42023,
+          rates: {
+            '69242': {
+              '2026-08-10': { free: true, room_type_free_rooms: 2 },
+              '2026-08-11': { free: true, room_type_free_rooms: 2 },
+            },
+          },
+        },
+      ],
+    });
+    request.mockResolvedValueOnce({
+      status: 200,
+      body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+    });
+    request.mockResolvedValueOnce({
+      status: 200,
+      body: [
+        {
+          id: 42023,
+          rates: {
+            '69242': {
+              '2026-08-10': { free: false, room_type_free_rooms: 0 },
+              '2026-08-11': { free: false, room_type_free_rooms: 0 },
+            },
+          },
+        },
+      ],
+    });
+    const { service } = makeService({ client: { request } });
+
+    const oneAdult = await service.getAvailability('t1', 'p1', { ...query, adultCount: 1 });
+    const twoAdults = await service.getAvailability('t1', 'p1', { ...query, adultCount: 2 });
+
+    // /rates/ is cached per room type (occupancy-independent), so only the
+    // /rates_availability call repeats for the second, differently-occupied query.
+    expect(request.mock.calls.length).toBe(3);
+    expect(oneAdult).toMatchObject({ ok: true, value: { isAvailable: true } });
+    expect(twoAdults).toMatchObject({ ok: true, value: { isAvailable: false } });
+  });
+});
+
+describe('ClockAvailabilityService.getAvailabilityCalendar', () => {
+  it('sends the requested occupancy to Clock, matching getAvailability and isAvailableForBooking', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '69242': {
+                '2026-08-10': { free: true, room_type_free_rooms: 2 },
+              },
+            },
+          },
+        ],
+      });
+    const { service } = makeService({ client: { request } });
+
+    await service.getAvailabilityCalendar('t1', 'p1', {
+      roomTypeId: 'local-rt-1',
+      month: '2026-08',
+      adultCount: 2,
+      childrenCount: 1,
+    });
+
+    expect(request).toHaveBeenLastCalledWith(
+      credentials,
+      expect.objectContaining({
+        query: expect.objectContaining({ adults: '2', children: '1' }),
+      }),
+    );
+  });
+
+  it('defaults occupancy to 1 adult, 0 children when the caller omits it', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 42023, rates: { '69242': { '2026-08-10': { free: true, room_type_free_rooms: 2 } } } }],
+      });
+    const { service } = makeService({ client: { request } });
+
+    await service.getAvailabilityCalendar('t1', 'p1', { roomTypeId: 'local-rt-1', month: '2026-08' });
+
+    expect(request).toHaveBeenLastCalledWith(
+      credentials,
+      expect.objectContaining({
+        query: expect.objectContaining({ adults: '1', children: '0' }),
+      }),
+    );
   });
 });
 

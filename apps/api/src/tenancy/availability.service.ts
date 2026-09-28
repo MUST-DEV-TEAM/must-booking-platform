@@ -129,7 +129,13 @@ export class AvailabilityService {
   async getCalendar(
     tenantId: string,
     propertyId: string,
-    query: { roomTypeId: string; roomId?: string; month: string },
+    query: {
+      roomTypeId: string;
+      roomId?: string;
+      month: string;
+      adultCount?: number;
+      childrenCount?: number;
+    },
   ): Promise<{ days: Array<{ date: string; isAvailable: boolean }> }> {
     const { start, end } = this.monthRange(query.month);
     // Individual-room availability is always a local concept (room_availability/
@@ -144,7 +150,12 @@ export class AvailabilityService {
         const calendar = await this.clockAvailability.getAvailabilityCalendar(
           tenantId,
           propertyId,
-          { roomTypeId: query.roomTypeId, month: query.month },
+          {
+            roomTypeId: query.roomTypeId,
+            month: query.month,
+            adultCount: query.adultCount,
+            childrenCount: query.childrenCount,
+          },
         );
         if (!calendar.ok) throw new BadRequestException(calendar.error.message);
         return { days: calendar.value };

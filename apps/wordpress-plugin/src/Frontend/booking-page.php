@@ -402,11 +402,19 @@ function enqueue_booking_page_assets(): void
             'singleRoomOnly' => __('This booking flow can confirm one room at a time. Please choose 1 room.', 'must-hotel-booking'),
             'totalGuests' => __('Total guests: %d', 'must-hotel-booking'),
         ],
+        // A fixed physical room (roomId set) keeps checking that exact room.
+        // Otherwise, once the guest has picked a room type from the dropdown,
+        // the calendar checks that room type's live Clock availability instead
+        // — both share the same AJAX credentials below.
         'roomAvailability' => $roomId !== '' && $roomTypeId !== '' ? [
             'ajaxUrl' => \admin_url('admin-ajax.php'),
             'nonce' => \wp_create_nonce('must_booking_room_calendar'),
             'availabilityAction' => 'must_booking_room_availability_check',
         ] : null,
+        'roomTypeAvailability' => [
+            'ajaxUrl' => \admin_url('admin-ajax.php'),
+            'nonce' => \wp_create_nonce('must_booking_room_calendar'),
+        ],
     ]);
 }
 
@@ -419,13 +427,25 @@ function get_selected_room_calendar(): void
     $selection = get_current_booking_selection();
     $roomId = $selection !== null && isset($selection['roomId']) ? \sanitize_text_field((string) $selection['roomId']) : '';
     $roomTypeId = $selection !== null && isset($selection['roomTypeId']) ? \sanitize_text_field((string) $selection['roomTypeId']) : '';
+    // The initial /booking/ form's room-type dropdown has no fixed physical
+    // room yet (and nothing saved to the selection transient) — its own
+    // request carries the room type and party directly, so that step gets a
+    // live, occupancy-aware calendar too instead of only the pre-existing
+    // per-physical-room one.
+    if (isset($_POST['room_type_id'])) {
+        $roomTypeId = \sanitize_text_field((string) \wp_unslash($_POST['room_type_id']));
+    }
+    $adults = isset($_POST['adults']) ? \max(1, (int) $_POST['adults']) : 1;
+    $children = isset($_POST['children']) ? \max(0, (int) $_POST['children']) : 0;
     $month = isset($_POST['month']) ? \sanitize_text_field((string) \wp_unslash($_POST['month'])) : '';
-    if ($roomId === '' || $roomTypeId === '' || \preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month) !== 1) {
+    if ($roomTypeId === '' || \preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month) !== 1) {
         \wp_send_json_error(['message' => \__('Selected room availability is unavailable. Please choose the room again.', 'must-hotel-booking')], 400);
     }
-    $response = MustApiClient::get('/public/availability-calendar', [
-        'roomTypeId' => $roomTypeId, 'roomId' => $roomId, 'month' => $month,
-    ]);
+    $query = ['roomTypeId' => $roomTypeId, 'month' => $month, 'adults' => $adults, 'children' => $children];
+    if ($roomId !== '') {
+        $query['roomId'] = $roomId;
+    }
+    $response = MustApiClient::get('/public/availability-calendar', $query);
     if (!$response['ok'] || !\is_array($response['body']) || !\is_array($response['body']['days'] ?? null)) {
         \wp_send_json_error(['message' => \__('Room availability could not be loaded. Please try again.', 'must-hotel-booking')], 502);
     }

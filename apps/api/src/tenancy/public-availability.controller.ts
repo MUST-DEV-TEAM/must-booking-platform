@@ -84,11 +84,14 @@ export class PublicAvailabilityController {
   @UseGuards(PublicRateLimitGuard)
   @PublicRateLimit(PUBLIC_READ_RATE_LIMIT)
   getCalendar(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
-    return this.availability.getCalendar(
-      request.tenantContext.tenantId,
-      request.tenantContext.propertyId,
-      parseAvailabilityCalendarQuery(query),
-    );
+    const parsed = parseAvailabilityCalendarQuery(query);
+    return this.availability.getCalendar(request.tenantContext.tenantId, request.tenantContext.propertyId, {
+      roomTypeId: parsed.roomTypeId,
+      roomId: parsed.roomId,
+      month: parsed.month,
+      adultCount: parsed.adultCount,
+      childrenCount: parsed.childrenCount,
+    });
   }
 }
 
@@ -99,7 +102,13 @@ function parseAvailabilityQuery(query: unknown): AvailabilityQuery {
   const startsOn = isoDate(value.startsOn, 'startsOn');
   const endsOn = isoDate(value.endsOn, 'endsOn');
   if (endsOn <= startsOn) throw new BadRequestException('endsOn must be after startsOn.');
-  return { roomTypeId, startsOn, endsOn };
+  return {
+    roomTypeId,
+    startsOn,
+    endsOn,
+    adultCount: optionalInteger(value.adults, 'adults', 1),
+    childrenCount: optionalInteger(value.children, 'children', 0),
+  };
 }
 
 function isoDate(value: unknown, field: string): string {
@@ -115,16 +124,23 @@ function parseAvailabilityCalendarQuery(query: unknown): {
   roomTypeId: string;
   roomId: string;
   month: string;
+  adultCount?: number;
+  childrenCount?: number;
 } {
   const value = (query ?? {}) as Record<string, unknown>;
   const roomTypeId = typeof value.roomTypeId === 'string' ? value.roomTypeId : '';
   const roomId = typeof value.roomId === 'string' ? value.roomId : '';
   const month = typeof value.month === 'string' ? value.month : '';
   if (!roomTypeId) throw new BadRequestException('roomTypeId is required.');
-  if (!roomId) throw new BadRequestException('roomId is required.');
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month))
     throw new BadRequestException('month must be YYYY-MM.');
-  return { roomTypeId, roomId, month };
+  return {
+    roomTypeId,
+    roomId,
+    month,
+    adultCount: optionalInteger(value.adults, 'adults', 1),
+    childrenCount: optionalInteger(value.children, 'children', 0),
+  };
 }
 
 function parseBookingAvailabilityQuery(query: unknown): {

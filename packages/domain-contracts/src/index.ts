@@ -211,6 +211,8 @@ export interface AvailabilityQuery {
   roomTypeId: string;
   startsOn: string;
   endsOn: string;
+  adultCount?: number;
+  childrenCount?: number;
 }
 
 export interface AvailabilityResult {
