@@ -16,6 +16,11 @@
   letter-spacing: 0.08em;
   margin-bottom: var(--must-space-8);
 }
+.headingActions {
+  align-items: center;
+  display: flex;
+  gap: var(--must-space-12);
+}
 .monthControls {
   justify-content: flex-end;
 }
@@ -126,90 +131,84 @@
   display: grid;
   gap: var(--must-space-12);
 }
-.blocking,
-.blockingForm {
-  display: grid;
-  gap: var(--must-space-16);
+.dialogBackdrop {
+  align-items: center;
+  background: color-mix(in srgb, var(--must-color-text-primary) 45%, transparent);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: var(--must-space-16);
+  position: fixed;
+  z-index: 20;
 }
-.blockingForm fieldset,
-.blockingForm label {
+.dialog {
+  background: var(--must-color-surface);
+  border: 1px solid var(--must-color-border-strong);
+  border-radius: var(--must-radius-card);
+  box-shadow: var(--must-shadow-modal);
+  max-width: 32rem;
+  max-height: calc(100vh - 2 * var(--must-space-16));
+  overflow-y: auto;
+  padding: var(--must-space-24);
+  width: 100%;
+}
+.dialogHeader {
+  margin-bottom: var(--must-space-20);
+}
+.dialogFields {
+  display: grid;
+  gap: var(--must-space-12);
+}
+.dialogFields fieldset {
+  border: 0;
   display: grid;
   gap: var(--must-space-8);
-}
-.blockingForm fieldset {
-  border: 0;
   margin: 0;
   padding: 0;
 }
-.blockingForm legend {
-  font-weight: 700;
-  margin-bottom: var(--must-space-8);
+.dialogFields label {
+  color: var(--must-color-text-primary);
+  display: grid;
+  font-weight: 650;
+  gap: var(--must-space-4);
 }
-.blockingForm select {
+.dialogFields select {
   border: 1px solid var(--must-color-border);
   border-radius: var(--must-radius-control);
-  min-height: 7rem;
+  font: inherit;
   padding: var(--must-space-8);
 }
-.checkbox {
-  align-items: center;
-  display: flex !important;
-  gap: var(--must-space-8) !important;
-}
-.chipField {
-  border: 0;
-  display: grid;
-  gap: var(--must-space-8);
-  margin: 0;
-  padding: 0;
-}
-.chipField legend {
+.dialogFields legend {
   font-weight: 700;
 }
-.chipGroup {
+.dialogActions {
   display: flex;
-  flex-wrap: wrap;
   gap: var(--must-space-8);
+  justify-content: flex-end;
+  margin-top: var(--must-space-24);
 }
-.chip {
-  align-items: center;
-  border: 1px solid var(--must-color-border);
-  border-radius: 999px;
-  cursor: pointer;
-  display: inline-flex;
-  font-size: 0.8125rem;
-  gap: var(--must-space-4);
-  padding: var(--must-space-4) var(--must-space-12);
+.existingBlocksNotice {
+  background: var(--must-color-danger-surface);
+  border-radius: var(--must-radius-control);
+  padding: var(--must-space-8) var(--must-space-12);
 }
-.chip:has(input:checked) {
-  background: var(--must-color-info-surface);
-  border-color: var(--must-color-accent-brass);
-}
-.blockingForm button {
-  align-items: center;
-  display: inline-flex;
-  gap: var(--must-space-8);
-  justify-content: center;
-  width: fit-content;
-}
-.blocks {
-  display: grid;
-  gap: var(--must-space-8);
-}
-.blocks ul {
+.existingBlocksNotice ul {
   display: grid;
   gap: var(--must-space-8);
   list-style: none;
-  margin: 0;
+  margin: var(--must-space-4) 0 0;
   padding: 0;
 }
-.blocks li {
+.existingBlocksNotice li {
   align-items: center;
-  border: 1px solid var(--must-color-border);
   display: flex;
   gap: var(--must-space-12);
   justify-content: space-between;
-  padding: var(--must-space-8);
+}
+.smallButton {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  padding: var(--must-space-4) var(--must-space-8);
 }
 .bookingColumns {
   display: grid;

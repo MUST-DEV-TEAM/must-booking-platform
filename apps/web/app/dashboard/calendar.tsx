@@ -82,6 +82,8 @@ export function DashboardCalendar({
 }) {
   const [month, setMonth] = useState(initialMonth ?? monthStart(new Date()));
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [blockDialogOpen, setBlockDialogOpen] = useState(false);
+  const [blockStep, setBlockStep] = useState<'room-type' | 'room' | 'dates'>('room-type');
   const [blockRange, setBlockRange] = useState<DateRange | undefined>();
   const [blockAll, setBlockAll] = useState(false);
   const [blockRoomTypeIds, setBlockRoomTypeIds] = useState<string[]>([]);
@@ -141,7 +143,8 @@ export function DashboardCalendar({
     queryKey: ['dashboard', 'availability-blocks', tenantId, propertyId],
     queryFn: () => fetchAvailabilityBlocks(tenantId, propertyId),
     enabled: canManageAvailability,
-    initialData: initialBlocks ?? [],
+    initialData: initialBlocks,
+    staleTime: initialBlocks ? Infinity : 0,
   });
   const queryClient = useQueryClient();
   const blockMutation = useMutation({
@@ -165,10 +168,7 @@ export function DashboardCalendar({
         throw new Error(await errorMessage(response, 'Unable to create availability block.'));
     },
     onSuccess: () => {
-      setBlockRange(undefined);
-      setBlockAll(false);
-      setBlockRoomTypeIds([]);
-      setBlockRoomIds([]);
+      closeBlockDialog();
       void queryClient.invalidateQueries({ queryKey: availabilityQueryKey });
       toast.success('Availability block created.');
     },
@@ -212,9 +212,27 @@ export function DashboardCalendar({
       startsOn: dateToIsoDay(blockRange.from),
       endsOn: addDays(dateToIsoDay(blockRange.to), 1),
       all: blockAll,
-      roomTypeIds: blockRoomTypeIds,
+      // roomTypeIds picked in step 1 is only ever used to narrow which rooms
+      // show up in step 2 — a room-type block independently blocks every
+      // room of that type (availability_block_room_types), so sending it
+      // alongside specific roomIds would block the whole type, not just the
+      // chosen rooms. Only send it when no specific room was chosen.
+      roomTypeIds: blockRoomIds.length > 0 ? [] : blockRoomTypeIds,
       roomIds: blockRoomIds,
     });
+  }
+
+  function openBlockDialog() {
+    setBlockStep('room-type');
+    setBlockRange(undefined);
+    setBlockAll(false);
+    setBlockRoomTypeIds([]);
+    setBlockRoomIds([]);
+    setBlockDialogOpen(true);
+  }
+
+  function closeBlockDialog() {
+    setBlockDialogOpen(false);
   }
 
   if (
@@ -251,22 +269,29 @@ export function DashboardCalendar({
               : 'Nightly availability by room type.'}
           </Text>
         </div>
-        <div className={styles.monthControls} aria-label="Calendar month">
-          <button
-            type="button"
-            aria-label="Previous month"
-            onClick={() => setMonth(addMonths(month, -1))}
-          >
-            <ChevronLeft aria-hidden="true" size={18} />
-          </button>
-          <strong>{formatMonth(month)}</strong>
-          <button
-            type="button"
-            aria-label="Next month"
-            onClick={() => setMonth(addMonths(month, 1))}
-          >
-            <ChevronRight aria-hidden="true" size={18} />
-          </button>
+        <div className={styles.headingActions}>
+          {canManageAvailability ? (
+            <button className="must-button must-button--secondary" onClick={openBlockDialog} type="button">
+              Block availability
+            </button>
+          ) : null}
+          <div className={styles.monthControls} aria-label="Calendar month">
+            <button
+              type="button"
+              aria-label="Previous month"
+              onClick={() => setMonth(addMonths(month, -1))}
+            >
+              <ChevronLeft aria-hidden="true" size={18} />
+            </button>
+            <strong>{formatMonth(month)}</strong>
+            <button
+              type="button"
+              aria-label="Next month"
+              onClick={() => setMonth(addMonths(month, 1))}
+            >
+              <ChevronRight aria-hidden="true" size={18} />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -324,98 +349,271 @@ export function DashboardCalendar({
         </div>
       </Card>
 
-      {canManageAvailability ? (
-        <Card>
-          <section aria-labelledby="availability-block-heading" className={styles.blocking}>
-            <Heading level={2} id="availability-block-heading">
-              Block availability
-            </Heading>
+      {selectedDay && selectedBookings ? (
+        <DayBookings day={selectedDay} bookings={selectedBookings} />
+      ) : null}
+
+      {blockDialogOpen ? (
+        <BlockAvailabilityDialog
+          blockAll={blockAll}
+          blockRange={blockRange}
+          blockRoomIds={blockRoomIds}
+          blockRoomTypeIds={blockRoomTypeIds}
+          blockStep={blockStep}
+          calendarData={calendarData}
+          canTargetRooms={canTargetRooms}
+          existingBlocks={blocksQuery.data ?? []}
+          month={month}
+          onClose={closeBlockDialog}
+          onRemoveBlock={(blockId) => removeBlockMutation.mutate(blockId)}
+          onSubmit={createAvailabilityBlock}
+          removingBlockId={removeBlockMutation.isPending ? removeBlockMutation.variables : null}
+          savingBlock={savingBlock}
+          setBlockAll={setBlockAll}
+          setBlockRange={setBlockRange}
+          setBlockRoomIds={setBlockRoomIds}
+          setBlockRoomTypeIds={setBlockRoomTypeIds}
+          setBlockStep={setBlockStep}
+        />
+      ) : null}
+    </Stack>
+  );
+}
+
+type BlockStep = 'room-type' | 'room' | 'dates';
+// Synthetic option value for the room-types <select multiple> — selecting
+// it is equivalent to the old "Block all room types" checkbox, but lives
+// as a normal option instead of a separate control.
+const ALL_ROOM_TYPES_VALUE = '__all_room_types__';
+
+/**
+ * Step-by-step popup for creating an availability block: room type(s) first,
+ * then specific rooms of those types (skipped for ROOM_TYPE_ONLY properties
+ * or when "all room types" is chosen), then the date range. Replaces the
+ * old single long form — same underlying state/submit as before, just
+ * walked through one decision at a time instead of all at once.
+ */
+function BlockAvailabilityDialog({
+  blockAll,
+  blockRange,
+  blockRoomIds,
+  blockRoomTypeIds,
+  blockStep,
+  calendarData,
+  canTargetRooms,
+  existingBlocks,
+  month,
+  onClose,
+  onRemoveBlock,
+  onSubmit,
+  removingBlockId,
+  savingBlock,
+  setBlockAll,
+  setBlockRange,
+  setBlockRoomIds,
+  setBlockRoomTypeIds,
+  setBlockStep,
+}: {
+  blockAll: boolean;
+  blockRange: DateRange | undefined;
+  blockRoomIds: string[];
+  blockRoomTypeIds: string[];
+  blockStep: BlockStep;
+  calendarData: CalendarData;
+  canTargetRooms: boolean;
+  existingBlocks: AvailabilityBlock[];
+  month: string;
+  onClose: () => void;
+  onRemoveBlock: (blockId: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  removingBlockId: string | null | undefined;
+  savingBlock: boolean;
+  setBlockAll: (value: boolean) => void;
+  setBlockRange: (value: DateRange | undefined) => void;
+  setBlockRoomIds: (updater: (current: string[]) => string[]) => void;
+  setBlockRoomTypeIds: (updater: (current: string[]) => string[]) => void;
+  setBlockStep: (step: BlockStep) => void;
+}) {
+  const roomsForSelectedTypes = calendarData.rooms.filter((room) =>
+    blockRoomTypeIds.includes(room.roomTypeId),
+  );
+  const showRoomStep = canTargetRooms && !blockAll && roomsForSelectedTypes.length > 0;
+
+  // Blocks that already cover any room/room-type this dialog is about to
+  // target, so staff can see an overlap before creating a duplicate block
+  // rather than only finding out from the grid afterward.
+  const targetRoomTypeIds = blockRoomIds.length
+    ? new Set(
+        blockRoomIds
+          .map((roomId) => calendarData.rooms.find((room) => room.id === roomId)?.roomTypeId)
+          .filter((id): id is string => !!id),
+      )
+    : new Set(blockRoomTypeIds);
+  const relevantExistingBlocks = blockAll
+    ? existingBlocks
+    : existingBlocks.filter(
+        (block) =>
+          block.all ||
+          block.roomTypeIds.some((id) => targetRoomTypeIds.has(id)) ||
+          block.roomIds.some((id) => blockRoomIds.includes(id)),
+      );
+  // Nights already covered by a relevant block can't be picked as the start
+  // or end of a new one — endsOn is exclusive, matching how blocks are
+  // stored/applied everywhere else in this file.
+  const disabledNights = relevantExistingBlocks.map((block) => ({
+    from: new Date(`${block.startsOn}T00:00:00`),
+    to: new Date(`${addDays(block.endsOn, -1)}T00:00:00`),
+  }));
+
+  function goToRoomOrDatesStep() {
+    if (!blockAll && blockRoomTypeIds.length === 0) {
+      toast.error('Choose at least one room type, or block all room types.');
+      return;
+    }
+    setBlockStep(showRoomStep ? 'room' : 'dates');
+  }
+
+  return (
+    <div className={styles.dialogBackdrop} role="presentation">
+      <section
+        aria-labelledby="availability-block-dialog-title"
+        aria-modal="true"
+        className={styles.dialog}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') onClose();
+        }}
+        role="dialog"
+        tabIndex={-1}
+      >
+        <header className={styles.dialogHeader}>
+          <Heading id="availability-block-dialog-title">Block availability</Heading>
+          <Text tone="secondary">
+            {blockStep === 'room-type'
+              ? 'Step 1 of 3 — which room types?'
+              : blockStep === 'room'
+                ? 'Step 2 of 3 — which rooms?'
+                : `Step ${showRoomStep ? 3 : 2} of ${showRoomStep ? 3 : 2} — which nights?`}
+          </Text>
+        </header>
+
+        {blockStep === 'room-type' ? (
+          <div className={styles.dialogFields}>
+            <label htmlFor="block-room-types">
+              Room types to block
+              <select
+                id="block-room-types"
+                multiple
+                size={Math.min(6, calendarData.roomTypes.length + 1)}
+                value={blockAll ? [ALL_ROOM_TYPES_VALUE] : blockRoomTypeIds}
+                onChange={(event) => {
+                  const values = Array.from(event.target.selectedOptions, (option) => option.value);
+                  if (values.includes(ALL_ROOM_TYPES_VALUE)) {
+                    setBlockAll(true);
+                    setBlockRoomTypeIds(() => []);
+                  } else {
+                    setBlockAll(false);
+                    setBlockRoomTypeIds(() => values);
+                  }
+                }}
+              >
+                <option value={ALL_ROOM_TYPES_VALUE}>All room types</option>
+                {calendarData.roomTypes.map((roomType) => (
+                  <option key={roomType.id} value={roomType.id}>
+                    {roomType.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Text tone="secondary">Hold Ctrl (Cmd on Mac) to select more than one.</Text>
+          </div>
+        ) : null}
+
+        {blockStep === 'room' ? (
+          <div className={styles.dialogFields}>
+            <label htmlFor="block-rooms">
+              Specific rooms to block
+              <select
+                id="block-rooms"
+                multiple
+                size={Math.min(8, roomsForSelectedTypes.length + 1)}
+                value={blockRoomIds}
+                onChange={(event) =>
+                  setBlockRoomIds(() =>
+                    Array.from(event.target.selectedOptions, (option) => option.value),
+                  )
+                }
+              >
+                {roomsForSelectedTypes.map((room) => {
+                  const roomTypeName =
+                    calendarData.roomTypes.find((roomType) => roomType.id === room.roomTypeId)
+                      ?.name ?? 'Room type';
+                  return (
+                    <option key={room.id} value={room.id}>
+                      {roomTypeName} — {room.name}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
             <Text tone="secondary">
-              Create a block for all rooms, selected room types, and specific rooms in one action.
-              Calendar availability refreshes after saving.
+              Leave every room unselected to block all rooms of the selected type(s). Hold Ctrl
+              (Cmd on Mac) to select more than one.
             </Text>
-            <form className={styles.blockingForm} onSubmit={createAvailabilityBlock}>
-              <fieldset>
-                <legend>Unavailable nights</legend>
-                <DayPicker
-                  mode="range"
-                  min={1}
-                  selected={blockRange}
-                  onSelect={setBlockRange}
-                  defaultMonth={new Date(`${month}-01T00:00:00`)}
-                />
-                <Text aria-live="polite" tone="secondary">
-                  {blockRange?.from && blockRange.to
-                    ? `${formatDay(dateToIsoDay(blockRange.from))} through ${formatDay(dateToIsoDay(blockRange.to))}`
-                    : 'Choose the first and last unavailable night.'}
+          </div>
+        ) : null}
+
+        {blockStep === 'dates' ? (
+          <form className={styles.dialogFields} onSubmit={onSubmit}>
+            {relevantExistingBlocks.length > 0 ? (
+              <div className={styles.existingBlocksNotice} role="note">
+                <Text>
+                  <strong>Already blocked</strong>
                 </Text>
-              </fieldset>
-
-              <label className={styles.checkbox}>
-                <input
-                  type="checkbox"
-                  checked={blockAll}
-                  onChange={(event) => setBlockAll(event.target.checked)}
-                />
-                Block all room types
-              </label>
-
-              <fieldset className={styles.chipField}>
-                <legend>Room types to block</legend>
-                <div className={styles.chipGroup} role="group" aria-label="Room types to block">
-                  {calendarData.roomTypes.map((roomType) => (
-                    <label key={roomType.id} className={styles.chip}>
-                      <input
-                        type="checkbox"
-                        checked={blockRoomTypeIds.includes(roomType.id)}
-                        onChange={(event) =>
-                          setBlockRoomTypeIds((current) =>
-                            event.target.checked
-                              ? [...current, roomType.id]
-                              : current.filter((id) => id !== roomType.id),
-                          )
-                        }
-                      />
-                      {roomType.name}
-                    </label>
+                <ul>
+                  {relevantExistingBlocks.map((block) => (
+                    <li key={block.id}>
+                      <Text tone="secondary">
+                        {availabilityBlockDescription(block, calendarData)}
+                      </Text>
+                      <button
+                        className={`must-button must-button--secondary ${styles.smallButton}`}
+                        disabled={removingBlockId === block.id}
+                        onClick={() => onRemoveBlock(block.id)}
+                        type="button"
+                      >
+                        {removingBlockId === block.id ? 'Removing…' : 'Remove'}
+                      </button>
+                    </li>
                   ))}
-                </div>
-              </fieldset>
-
-              {canTargetRooms ? (
-                <fieldset className={styles.chipField}>
-                  <legend>Specific rooms to block</legend>
-                  <div className={styles.chipGroup} role="group" aria-label="Specific rooms to block">
-                    {calendarData.rooms.map((room) => {
-                      const roomTypeName =
-                        calendarData.roomTypes.find((roomType) => roomType.id === room.roomTypeId)
-                          ?.name ?? 'Room type';
-                      return (
-                        <label key={room.id} className={styles.chip}>
-                          <input
-                            type="checkbox"
-                            checked={blockRoomIds.includes(room.id)}
-                            onChange={(event) =>
-                              setBlockRoomIds((current) =>
-                                event.target.checked
-                                  ? [...current, room.id]
-                                  : current.filter((id) => id !== room.id),
-                              )
-                            }
-                          />
-                          {roomTypeName} — {room.name}
-                        </label>
-                      );
-                    })}
-                  </div>
-                </fieldset>
-              ) : (
-                <Text tone="secondary">
-                  Specific-room targets are available for Individual-Room-Only and Mixed properties.
-                </Text>
-              )}
-
-              <button type="submit" disabled={savingBlock}>
+                </ul>
+              </div>
+            ) : null}
+            <fieldset>
+              <legend>Unavailable nights</legend>
+              <DayPicker
+                mode="range"
+                min={1}
+                selected={blockRange}
+                onSelect={setBlockRange}
+                defaultMonth={new Date(`${month}-01T00:00:00`)}
+                disabled={disabledNights}
+              />
+              <Text aria-live="polite" tone="secondary">
+                {blockRange?.from && blockRange.to
+                  ? `${formatDay(dateToIsoDay(blockRange.from))} through ${formatDay(dateToIsoDay(blockRange.to))}`
+                  : 'Choose the first and last unavailable night.'}
+              </Text>
+            </fieldset>
+            <footer className={styles.dialogActions}>
+              <button
+                className="must-button must-button--secondary"
+                disabled={savingBlock}
+                onClick={() => setBlockStep(showRoomStep ? 'room' : 'room-type')}
+                type="button"
+              >
+                Back
+              </button>
+              <button className="must-button must-button--primary" disabled={savingBlock} type="submit">
                 {savingBlock ? (
                   <>
                     <Loader2 aria-hidden="true" size={16} /> Creating…
@@ -424,36 +622,24 @@ export function DashboardCalendar({
                   'Create availability block'
                 )}
               </button>
-            </form>
-            <div className={styles.blocks} aria-label="Existing availability blocks">
-              <Heading level={3}>Existing blocks</Heading>
-              {blocksQuery.data?.length ? (
-                <ul>
-                  {blocksQuery.data.map((block) => (
-                    <li key={block.id}>
-                      <Text>{availabilityBlockDescription(block, calendarData)}</Text>
-                      <button
-                        type="button"
-                        disabled={removeBlockMutation.isPending}
-                        onClick={() => removeBlockMutation.mutate(block.id)}
-                      >
-                        {removeBlockMutation.isPending ? 'Removing…' : 'Remove block'}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <Text tone="secondary">No active availability blocks.</Text>
-              )}
-            </div>
-          </section>
-        </Card>
-      ) : null}
-
-      {selectedDay && selectedBookings ? (
-        <DayBookings day={selectedDay} bookings={selectedBookings} />
-      ) : null}
-    </Stack>
+            </footer>
+          </form>
+        ) : (
+          <footer className={styles.dialogActions}>
+            <button className="must-button must-button--secondary" onClick={onClose} type="button">
+              Cancel
+            </button>
+            <button
+              className="must-button must-button--primary"
+              onClick={blockStep === 'room-type' ? goToRoomOrDatesStep : () => setBlockStep('dates')}
+              type="button"
+            >
+              Next
+            </button>
+          </footer>
+        )}
+      </section>
+    </div>
   );
 }
 
