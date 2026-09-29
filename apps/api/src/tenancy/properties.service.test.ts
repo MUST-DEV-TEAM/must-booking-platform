@@ -35,7 +35,7 @@ function service() {
     ) => callback({ $queryRaw: queryRaw }),
   };
   const audit = { recordInTransaction: vi.fn().mockResolvedValue(undefined) };
-  return new PropertiesService(database as never, audit as never, {} as never, {} as never);
+  return new PropertiesService(database as never, audit as never, {} as never);
 }
 
 describe('PropertiesService room rules', () => {

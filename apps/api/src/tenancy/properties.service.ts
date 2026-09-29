@@ -9,7 +9,6 @@ import { randomUUID } from 'node:crypto';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 import { AuditLogService } from './audit-log.service';
 import { PropertyRoleTemplatesService } from './property-role-templates.service';
-import { StaffInviteService, type ProvisionedStaffAccount } from './staff-invite.service';
 
 type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
 type Property = {
@@ -32,7 +31,6 @@ type Property = {
   paymentGateways: { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
   wordpressConnectedAt: Date | null;
 };
-type CreatedProperty = Property & { provisionedStaff: ProvisionedStaffAccount[] };
 type PropertyDeleteBlocker = { resource: string; count: number };
 @Injectable()
 export class PropertiesService {
@@ -40,7 +38,6 @@ export class PropertiesService {
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(AuditLogService) private readonly audit: AuditLogService,
     @Inject(PropertyRoleTemplatesService) private readonly templates: PropertyRoleTemplatesService,
-    @Inject(StaffInviteService) private readonly staffInvites: StaffInviteService,
   ) {}
   list(tenantId: string, userId: string): Promise<Property[]> {
     return this.database.withTenantTransaction(
@@ -77,7 +74,7 @@ export class PropertiesService {
           ORDER BY p.created_at`,
     );
   }
-  async create(tenantId: string, actorUserId: string, body: unknown): Promise<CreatedProperty> {
+  async create(tenantId: string, actorUserId: string, body: unknown): Promise<Property> {
     const input = this.input(body);
     const id = randomUUID();
     return this.database.withTenantTransaction({ tenantId }, async (tx) => {
@@ -107,11 +104,6 @@ export class PropertiesService {
         advance_booking_days AS "advanceBookingDays", public_website_origin AS "publicWebsiteOrigin",
         json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"`;
       await this.templates.ensureBuiltInTemplatesInTransaction(tx, tenantId, id);
-      const provisionedStaff = await this.staffInvites.provisionForPropertyInTransaction(
-        tx,
-        tenantId,
-        id,
-      );
       await this.audit.recordInTransaction(tx, {
         tenantId,
         propertyId: id,
@@ -120,7 +112,7 @@ export class PropertiesService {
         targetType: 'property',
         targetId: id,
       });
-      return { ...rows[0], provisionedStaff };
+      return rows[0];
     });
   }
   async update(

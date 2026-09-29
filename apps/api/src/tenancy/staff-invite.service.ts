@@ -21,13 +21,6 @@ export interface StaffInvite {
   assignments: Array<{ propertyId: string; roleTemplateId: string; capabilityKeys?: string[] }>;
 }
 
-export type ProvisionedStaffAccount = {
-  userId: string;
-  email: string;
-  password: string;
-  roleTemplateName: 'Front Desk' | 'Property Manager' | 'Finance';
-};
-
 @Injectable()
 export class StaffInviteService implements OnModuleDestroy {
   private readonly logger = new Logger(StaffInviteService.name);
@@ -111,41 +104,6 @@ export class StaffInviteService implements OnModuleDestroy {
 
   async onModuleDestroy(): Promise<void> {
     if (this.redis.isOpen) await this.redis.quit();
-  }
-
-  async provisionForPropertyInTransaction(
-    tx: TenantTransaction,
-    tenantId: string,
-    propertyId: string,
-  ): Promise<ProvisionedStaffAccount[]> {
-    const templates = await tx.$queryRaw<
-      Array<{ id: string; name: ProvisionedStaffAccount['roleTemplateName'] }>
-    >`
-      SELECT "id", "name"
-      FROM "property_role_templates"
-      WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid
-        AND "name" IN ('Front Desk', 'Property Manager', 'Finance')
-    `;
-    const templateIds = new Map(templates.map((template) => [template.name, template.id]));
-    const accounts: ProvisionedStaffAccount[] = [];
-    for (const roleTemplateName of ['Front Desk', 'Property Manager', 'Finance'] as const) {
-      const roleTemplateId = templateIds.get(roleTemplateName);
-      if (!roleTemplateId)
-        throw new BadRequestException(`Missing ${roleTemplateName} role template.`);
-      const userId = randomUUID();
-      const password = randomBytes(24).toString('base64url');
-      const email = `${roleTemplateName.toLowerCase().replace(' ', '-')}+${propertyId}@staff.must.test`;
-      await this.createActiveStaffInTransaction(tx, userId, email, password, true);
-      await this.assignStaffInTransaction(
-        tx,
-        tenantId,
-        userId,
-        [{ propertyId, roleTemplateId }],
-        true,
-      );
-      accounts.push({ userId, email, password, roleTemplateName });
-    }
-    return accounts;
   }
 
   private async client(): Promise<RedisClientType> {

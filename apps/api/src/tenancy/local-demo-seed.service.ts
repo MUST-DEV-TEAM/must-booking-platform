@@ -10,7 +10,6 @@ import { PropertiesService } from './properties.service';
 import { RatePlansService } from './rate-plans.service';
 import { RoomTypesService } from './room-types.service';
 import { RoomsService } from './rooms.service';
-import { TenantDatabaseService } from './tenant-database.service';
 
 const demoPropertyName = 'MUST Local Demo Hotel';
 const demoStartOffset = -62;
@@ -18,12 +17,6 @@ const demoEndOffset = 63;
 
 export type LocalDemoSeedResult = {
   property: { id: string; name: string; created: boolean };
-  provisionedStaff: Array<{
-    userId: string;
-    email: string;
-    password: string | null;
-    roleTemplateName: string;
-  }>;
   createdBookings: number;
   reusedBookings: number;
 };
@@ -41,7 +34,6 @@ export class LocalDemoSeedService {
     @Inject(LocalPmsProvider) private readonly bookings: LocalPmsProvider,
     @Inject(ManualPaymentService) private readonly payments: ManualPaymentService,
     @Inject(PaymentRefundService) private readonly refunds: PaymentRefundService,
-    @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
   ) {}
 
   async seed(tenantId: string, actorUserId: string): Promise<LocalDemoSeedResult> {
@@ -181,7 +173,6 @@ export class LocalDemoSeedService {
     if (properties.length === 2)
       return {
         property: { id: properties[1].id, name: properties[1].name, created: false },
-        provisionedStaff: await this.provisionedStaff(tenantId, properties[1].id),
       };
     const created = await this.properties.create(tenantId, actorUserId, {
       name: demoPropertyName,
@@ -190,26 +181,7 @@ export class LocalDemoSeedService {
     });
     return {
       property: { id: created.id, name: created.name, created: true },
-      provisionedStaff: created.provisionedStaff,
     };
-  }
-
-  private async provisionedStaff(tenantId: string, propertyId: string) {
-    return this.database.withTenantTransaction(
-      { tenantId, propertyId },
-      (tx) =>
-        tx.$queryRaw<LocalDemoSeedResult['provisionedStaff']>`
-        SELECT u.id AS "userId", u.email, NULL::text AS password, prt.name AS "roleTemplateName"
-        FROM property_staff_assignments psa
-        JOIN users u ON u.id = psa.user_id
-        JOIN property_role_templates prt
-          ON prt.tenant_id = psa.tenant_id AND prt.property_id = psa.property_id
-          AND prt.id = psa.role_template_id
-        WHERE psa.tenant_id = ${tenantId}::uuid AND psa.property_id = ${propertyId}::uuid
-          AND prt.name IN ('Front Desk', 'Property Manager', 'Finance')
-        ORDER BY prt.name
-      `,
-    );
   }
 
   private async roomType(

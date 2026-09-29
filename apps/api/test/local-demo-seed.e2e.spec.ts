@@ -91,8 +91,6 @@ describe('local demo seed', () => {
     const seed = app.get(LocalDemoSeedService);
     const first = await seed.seed(tenantId, ownerUserId);
     expect(first.property.created).toBe(true);
-    expect(first.provisionedStaff).toHaveLength(3);
-    expect(first.provisionedStaff.every((account) => account.password)).toBe(true);
     expect(first.createdBookings).toBeGreaterThan(12);
     await expect(paymentKinds(tenantId, first.property.id)).resolves.toEqual(
       expect.arrayContaining([

@@ -40,7 +40,6 @@ export class AuthController {
       user: result.user,
       organization: result.organization,
       property: result.property,
-      provisionedStaff: result.provisionedStaff,
     };
   }
   @Post('login') async login(

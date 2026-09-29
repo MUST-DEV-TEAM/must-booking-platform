@@ -126,25 +126,7 @@ describe('authentication endpoints', () => {
         timezone: 'UTC',
         bookingMode: 'ROOM_TYPE_ONLY',
       },
-      provisionedStaff: expect.arrayContaining([
-        expect.objectContaining({ roleTemplateName: 'Front Desk' }),
-        expect.objectContaining({ roleTemplateName: 'Property Manager' }),
-        expect.objectContaining({ roleTemplateName: 'Finance' }),
-      ]),
     });
-    expect(signup.body.provisionedStaff).toHaveLength(3);
-    for (const account of signup.body.provisionedStaff as Array<{
-      email: string;
-      password: string;
-      roleTemplateName: string;
-    }>) {
-      expect(account.email).toContain(`${propertyId}@staff.must.test`);
-      expect(account.password).toHaveLength(32);
-      await request(app.getHttpServer())
-        .post('/auth/login')
-        .send({ email: account.email, password: account.password })
-        .expect(201);
-    }
 
     const planUsage = await request(app.getHttpServer())
       .get(`/tenants/${organizationId}/plan-usage`)
