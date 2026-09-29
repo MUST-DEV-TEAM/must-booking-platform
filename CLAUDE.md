@@ -1,31 +1,23 @@
-# CLAUDE.md
+# Claude implementation guidance
 
-This repository is worked on jointly by Claude (planning, architecture, review, small fixes) and Codex (implementation). Shared engineering conventions — scope discipline, tenancy/billing rules, PMS integration rules, database rules, verification, documentation ownership — live in `AGENTS.md`. Read `AGENTS.md` in full; it applies to you too, not only to Codex.
+Read [AGENTS.md](AGENTS.md) and [docs/README.md](docs/README.md) first. Shared engineering constraints apply to every agent.
 
-## Division of labor on this project
+## Division of work
 
-- **Claude (this assistant)**: architecture and ADRs, milestone kickoff/task breakdown, reviewing Codex's PRs, small/targeted code edits, keeping `docs/` current, marking tasks/milestones Done, archiving finished milestones.
-- **Codex**: implementation of the tasks Claude specifies, as small focused PRs/commits, most of the actual coding work.
+The owner's current workflow is **Astra: understand, architect, plan, review; Claude: implement, test, report**. This supersedes the previous Claude-planner/Codex-implementer assignment. Follow the [working agreement](docs/maintenance.md) for prompt/report contents and focused corrective reviews.
 
-## Milestone workflow — my specific responsibilities
+Implement one authorized task at a time, inspecting referenced source before editing. Preserve existing architecture and conventions unless the task explicitly changes them. Do not rewrite unrelated code, hide failing tests, change business rules silently, invent requirements or expose secrets.
 
-The roadmap is 16 milestones, numbered 0 to 15 (`docs/roadmap/README.md`, index in `docs/ROADMAP.md`). **Task count per milestone is not fixed** — a milestone gets however many tasks its real objective needs. Ten is a rough default, not a target: in practice Milestone 6 ran to 51, Milestone 9 to 30, Milestone 12 to 25, and Milestone 13 was scoped at 32. Prefer more, smaller tasks over fewer large ones (point 5 below). Never pad a milestone to reach a number, and never merge unrelated work into one task to stay under one. My job at each stage:
+## Task and acceptance responsibilities
 
-1. **Kickoff**: when a milestone becomes active, work out the real task list with the user, using that milestone's "draft task areas" as a starting point, not a final list — let the scope determine the count. Write them into the milestone file as a task table (id, description, acceptance criteria, status). If the milestone's goal depends on a detail an ADR left open (e.g. Milestone 8's plan-catalog/trial-expiry decisions), resolve that with the user as part of kickoff, before writing tasks that assume an answer.
-2. **Dispatch**: hand Codex one task at a time (or a small batch if independent), each with scope, acceptance criteria, and non-goals — never a whole milestone at once.
-3. **Review**: check tenant scoping, tenancy/billing separation, idempotency claims against actual code, and that stated verification was actually run (see checklist below). Only I mark a task **Done** in the milestone file — Codex reports completion, it does not self-mark.
-4. **Close-out**: when every task in the milestone is Done, mark the milestone Done, move its file from `docs/roadmap/milestones/` to `docs/roadmap/completed/`, update the "Active milestone" pointer in `docs/roadmap/README.md`, and start kickoff (step 1) for the next milestone with the user. Do not start the next milestone's kickoff before the current one is fully closed out, unless the user explicitly says to work ahead.
-5. Prefer several small tasks over one large one — this repo's predecessor accumulated hard-to-review complexity from large, loosely-scoped changes; keep PRs reviewable.
+Use the [current roadmap](docs/roadmap/README.md), not a remembered milestone/task count. Task counts vary. Some historical status labels conflict with code; reconcile evidence before dispatching or marking work complete.
 
-## When reviewing Codex's work
+Claude records task status after review, including exact verification and unresolved conditions. Do not mark a task Done solely because code exists or a build passes. Keep deferred, parked, superseded and unverified work visible. Close and archive a milestone only when its completion/deferral is explicitly accounted for.
 
-- Check tenant scoping on every new table/query (see `AGENTS.md` tenancy section) — this is the single highest-cost mistake to ship in a multi-tenant system.
-- Check that guest-payment and platform-billing code paths were not mixed.
-- Check idempotency claims against actual code, not just the PR description, for anything touching booking creation/update/cancellation or webhook handling.
-- Confirm the stated verification steps were actually run, not just described.
-- Small, obviously-correct fixes (typos, missed null checks, doc updates) can be made directly rather than round-tripped back to Codex; anything touching domain logic, schema, or provider integration goes back as a follow-up task instead.
+## Review and report
 
-## General
+Check tenant/property scoping, payment/subscription separation, actual idempotency/concurrency behavior, provider assumptions and affected client contracts. A source-text assertion is not behavioral proof. Run checks appropriate to the changed code and report failures honestly.
 
-- Match the user's language (Albanian or English) in conversation; keep code, comments, commits, and docs in English.
-- Do not create scratch planning/analysis files in the repo; use the conversation or, for durable decisions, an ADR.
+Report implementation summary, changed files, database migrations, API contracts, tests added/changed, tests run and results, assumptions, concerns, remaining TODOs and documentation updates. If Astra supplies a corrective prompt, fix its scoped issues without redoing working parts.
+
+Keep implementation history in Git and durable facts in their canonical document. Keep code/docs in English; match the user's language in conversation.

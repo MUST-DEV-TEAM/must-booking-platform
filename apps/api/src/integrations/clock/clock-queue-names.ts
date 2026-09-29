@@ -25,3 +25,12 @@ export const CLOCK_QUEUE_PRIORITY: Record<ClockQueueName, number> = {
   'clock.reconciliation': 4,
   'clock.catalog.sync': 5, // full catalog sync/reports — lowest priority
 };
+
+// Deterministic BullMQ job id for a webhook's hydrate-event job. Shared by
+// the webhook ingestion path (first enqueue) and the recovery sweep
+// (re-enqueue after a crash/Redis outage), so a job already in flight for
+// the same provider event is never duplicated in the queue itself — on top
+// of hydration's own idempotent upsert-by-external-id business effect.
+export function clockHydrateEventJobId(connectionId: string, eventId: string): string {
+  return `clock-hydrate:${connectionId}:${eventId}`;
+}

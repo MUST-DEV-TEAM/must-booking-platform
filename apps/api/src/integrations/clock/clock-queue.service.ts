@@ -24,6 +24,17 @@ export interface DeadLetterJobData {
 }
 
 /**
+ * Ground truth about a specific job id, reconciled against BullMQ's actual
+ * job states rather than assumed from `Queue.add()`'s return value alone —
+ * `add()` with a jobId that already exists in Redis (waiting/active/delayed/
+ * completed/failed, since this queue's default options never auto-remove a
+ * failed job and only age out a completed one) does not create a new
+ * attempt and does not restart a failed/completed one. Callers must branch
+ * on this before deciding whether to (re)enqueue, retry, or leave alone.
+ */
+export type JobReconciliationState = 'missing' | 'in-flight' | 'completed' | 'failed';
+
+/**
  * Owns the BullMQ Queue instances themselves (Task 9 — enqueue-only). Real
  * job processing is wired by ClockWorkerService and lands with the tasks
  * that actually need it (10: clock.critical.commands, 11: clock.webhooks).
@@ -80,6 +91,28 @@ export class ClockQueueService implements OnModuleInit, OnModuleDestroy {
         ...options,
       },
     });
+  }
+
+  /**
+   * Reconciles a deterministic job id against BullMQ's actual state instead
+   * of assuming `add()` succeeded or would restart anything. `missing` means
+   * no job exists in Redis at all (never created, or aged out of retention)
+   * — the only state where creating a fresh job is meaningful. `completed`/
+   * `failed` mean a real attempt already ran to a terminal BullMQ outcome;
+   * the caller must reconcile provider_events against that fact rather than
+   * silently re-adding (a no-op) or blindly trusting a stale DB status.
+   */
+  async reconcileJob(queueName: ClockQueueName, jobId: string): Promise<JobReconciliationState> {
+    const queue = this.requireQueue(queueName);
+    const job = await queue.getJob(jobId);
+    if (!job) return 'missing';
+    const state = await job.getState();
+    if (state === 'completed') return 'completed';
+    if (state === 'failed') return 'failed';
+    // waiting, active, delayed, waiting-children, prioritized, unknown —
+    // all mean "something is already in flight for this job id," so no
+    // action should duplicate it.
+    return 'in-flight';
   }
 
   async deadLetter(

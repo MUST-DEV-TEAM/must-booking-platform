@@ -1,6 +1,6 @@
 # ADR-0015: Guest matching rule for Milestone 4
 
-Status: Accepted
+Status: Superseded by ADR-0030
 Date: 2026-07-30
 
 ## Context

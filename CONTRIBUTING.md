@@ -1,5 +1,7 @@
 # Contributing to MUST Booking
 
+Read [the documentation entry point](docs/README.md) and [operations/testing](docs/operations/README.md) before selecting checks. Full API tests can use real database/Redis services; sandbox/provider tests require separate authorization.
+
 ## Prerequisites
 
 - Node.js 22 or newer
@@ -47,7 +49,7 @@ pnpm --filter api start:dev
 pnpm --filter web dev
 ```
 
-The API is available at `http://localhost:3000/health` and the web placeholder is available at `http://localhost:3001`.
+The API is available at `http://localhost:3000/health` and the web app is available at `http://localhost:3001`.
 
 To stop local services, run `docker compose down`.
 

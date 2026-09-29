@@ -9,7 +9,7 @@ Milestone 4's `createBooking` runs synchronously start-to-finish in a single cal
 
 ## Decision
 
-Reserve inventory immediately when the booking enters `PAYMENT_PENDING` (the same `reserveBookedUnits` call Milestone 4 already built, at the same point in the flow), before the guest has actually paid. A scheduled sweep (BullMQ job, per `docs/ARCHITECTURE.md`'s existing queue infrastructure) transitions any booking still in `PAYMENT_PENDING` past a short window (e.g. 30 minutes — exact value confirmed at task implementation, not fixed by this ADR) to `EXPIRED`, releasing its reservation via the existing `releaseBookedUnits` path — both `EXPIRED` and the release-on-cancel mechanism already exist in Milestone 4's state machine and `LocalPmsProvider`; this reuses them rather than inventing new ones.
+Reserve inventory immediately when the booking enters `PAYMENT_PENDING` (the same `reserveBookedUnits` call Milestone 4 already built, at the same point in the flow), before the guest has actually paid. A scheduled sweep (BullMQ job, per `docs/architecture/overview.md`'s existing queue infrastructure) transitions any booking still in `PAYMENT_PENDING` past a short window (e.g. 30 minutes — exact value confirmed at task implementation, not fixed by this ADR) to `EXPIRED`, releasing its reservation via the existing `releaseBookedUnits` path — both `EXPIRED` and the release-on-cancel mechanism already exist in Milestone 4's state machine and `LocalPmsProvider`; this reuses them rather than inventing new ones.
 
 ## Consequences
 

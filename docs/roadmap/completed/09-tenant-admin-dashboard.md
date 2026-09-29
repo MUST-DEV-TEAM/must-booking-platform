@@ -1,5 +1,7 @@
 # Milestone 9: Tenant Admin Dashboard
 
+> **Historical delivery record.** Statuses and test/deployment claims below belong to their recorded dates, not a fresh certification. Current behavior is owned by the [documentation router](../../README.md); current deferrals/reopened work are summarized in the [roadmap](../README.md).
+
 Status: Done (2026-08-03) — kickoff complete (2026-08-02), 30 tasks defined (expanded from 23 on 2026-08-02 — tasks 24-27 added after confirming two real gaps: nav/route visibility must follow per-staff capabilities, not a binary Staff/Owner split, and property access must be assignment-scoped for Staff with an explicit picker for multi-property Owner/Admin; a post-milestone reliability/demo-data follow-up was authorized directly by the owner on 2026-08-03 and split into tasks 28-30 — see task 28's row for why), all 30 tasks Done. A live bug surfaced during this follow-up (pre-existing tenants missing capability-seed data, causing 403s on every capability-gated route for real Owner/Admin sessions) was fixed and deployed ahead of the rest: `20260803090000_backfill_capabilities_and_role_templates` migration, pushed 2026-08-03, CI green.
 Depends on: Milestone 7 (Auth Pages — shared login + component library); Milestone 5 (guest payments ledger)
 
@@ -9,18 +11,18 @@ Depends on: Milestone 7 (Auth Pages — shared login + component library); Miles
 
 ## Goal
 
-The staff-facing `apps/web` Next.js dashboard covers day-to-day hotel operations: reservations, payments, guests, staff, and settings — RBAC-gated per `docs/TENANCY.md`. Done means: a hotel's staff can run their day (see bookings, create a walk-in reservation, handle a refund, add a staff member, adjust settings) without touching the database directly.
+The staff-facing `apps/web` Next.js dashboard covers day-to-day hotel operations: reservations, payments, guests, staff, and settings — RBAC-gated per `docs/architecture/data-and-access.md`. Done means: a hotel's staff can run their day (see bookings, create a walk-in reservation, handle a refund, add a staff member, adjust settings) without touching the database directly.
 
 ## Draft task areas (superseded by "Tasks" below — kept for history)
 
-1. Dashboard shell/navigation, RBAC-gated per role (`docs/TENANCY.md`) — consumes the component library/design tokens Milestone 7 already built; no ad hoc styling here.
+1. Dashboard shell/navigation, RBAC-gated per role (`docs/architecture/data-and-access.md`) — consumes the component library/design tokens Milestone 7 already built; no ad hoc styling here.
 2. Reservations list + detail view (status, guest, dates, payment status).
 3. Staff-initiated booking creation — **new (2026-07-31), the reception walk-in case.** A distinct `@TenantScoped` booking-creation endpoint (not the guest-facing `@PublicTenantScoped` one) — same `LocalPmsProvider` domain logic, but authenticated via the staff's real session, no guest-session cookie, and no Stripe redirect (settled at the desk — reuses the `PAY_AT_HOTEL`/manual-settlement path already established in Milestone 5). Plus the UI screen for it: search availability, pick room/rate, enter guest details, create.
 4. Calendar view of bookings/availability. Deferred follow-up once Milestone 10 lands: add its manual-blocking controls (target All / a room type / specific individual room(s), combinable).
 5. Payments/refunds view (surfacing Milestone 5's ledger, refund action from the UI).
 6. Guests view (guest records, booking history per guest).
 7. Staff management UI (invite, role change, remove — surfacing Milestone 1's APIs).
-8. Settings UI: hotel identity, booking rules, managed-page-style configuration (mirroring the predecessor plugin's settings scope, per `docs/PROJECT_CONTEXT.md`, but for the new backend). Deferred follow-up once Milestone 10 lands: add its per-property booking-mode setting (A/B/C).
+8. Settings UI: hotel identity, booking rules, managed-page-style configuration (mirroring the predecessor plugin's settings scope, per `docs/product-overview.md`, but for the new backend). Deferred follow-up once Milestone 10 lands: add its per-property booking-mode setting (A/B/C).
 9. Basic reports (occupancy/bookings-over-time — simple, not the full observability suite from Milestone 12).
 10. In-app notifications/activity log surface (trial countdown from Milestone 2, payment events, etc.).
 11. E2E test covering the core staff workflows above, including the new staff-booking-creation path.
@@ -288,7 +290,7 @@ Independently reran, final state: full API suite 36 files/78 tests (only the pre
 
 The two new migrations introduce database triggers — the first time this codebase has used them anywhere (everything else lives in TypeScript service code) — to clean up an auto-provisioned account's orphaned `users` row when their last `property_staff_assignments`/`tenant_memberships` row is removed. The existing test suite's coverage of this (`properties.e2e.spec.ts`) only verifies the `property_staff_assignments` row count changes after a real `DELETE /tenants/:id/memberships/:userId` call — behavior the *pre-existing, unmodified* `removeMembership()` code already fully guarantees on its own, without any help from the new triggers. Nothing in the test suite actually checks whether the `users` row itself gets deleted, which is the one thing unique to the new mechanism. Verified the triggers work correctly myself directly against the local database (both the membership-delete path and the assignment-delete-cascades-to-membership path, plus confirmed a non-auto-provisioned account's user row is correctly left alone) — the logic is right, but this needs to be an actual regression test, not something only I checked by hand once.
 
-Committed the reviewed-correct implementation (13 files: services, both migrations, updated tests, `docs/TENANCY.md`) separately from unrelated parallel work found in the same working tree (an in-progress ECharts experiment on the Reports page, and the owner's own roadmap-renumbering/ADR-0025 work) — left both untouched.
+Committed the reviewed-correct implementation (13 files: services, both migrations, updated tests, `docs/architecture/data-and-access.md`) separately from unrelated parallel work found in the same working tree (an in-progress ECharts experiment on the Reports page, and the owner's own roadmap-renumbering/ADR-0025 work) — left both untouched.
 
 Independently reran: full API suite 36 files/78 tests (only the known, pre-existing `platform-audit.e2e.spec.ts` local-environment flake), `pnpm -w build`/`lint`/`format:check` all clean on the files actually committed.
 

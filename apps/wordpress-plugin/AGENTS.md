@@ -2,12 +2,12 @@
 
 ## Repository purpose
 
-This repository is the MUST Hotel Booking WordPress plugin. Work only inside this plugin unless the user explicitly expands scope.
+This subtree is the MUST Booking Platform guest-facing WordPress plugin. Root `AGENTS.md` applies too. The platform backend owns current booking/payment/PMS authority; retained legacy tables and classes require usage analysis, not assumptions about active behavior.
 
 ## Start every task
 
 1. Read this file.
-2. Read `docs/INDEX.md`.
+2. Read the repository-root `docs/README.md`, then `docs/architecture/frontends-and-api.md`. The plugin-local `docs/INDEX.md` is a compatibility pointer; predecessor docs are archived under root `docs/archive/wordpress-plugin-pre-retrofit/`.
 3. Read only the canonical documents routed for the task. Do not load all documentation by default.
 4. Run `git status --short` before editing and preserve unrelated changes.
 5. Use the documentation as navigation; verify behavior in current executable code before changing it.
@@ -67,19 +67,9 @@ This repository is the MUST Hotel Booking WordPress plugin. Work only inside thi
 
 ## Canonical documentation ownership
 
-| Change type | Canonical document |
-| --- | --- |
-| Product scope, status, capabilities, limitations, priorities | `docs/PROJECT_CONTEXT.md` |
-| Bootstrap, modules, data model, routes, hooks, jobs, configuration architecture | `docs/ARCHITECTURE.md` |
-| Booking, availability, pricing, payment, cancellation, refund, amendment, reconciliation | `docs/DOMAIN_LIFECYCLES.md` |
-| Provider authentication, endpoints, callbacks, retry, idempotency, safety | `docs/INTEGRATIONS.md` |
-| Setup, deployment, diagnostics, tests, incidents, recovery | `docs/OPERATIONS.md` |
-| Public/admin/staff interfaces and interaction contracts | `docs/UI_UX.md` |
-| Major milestones/incidents | `docs/PROJECT_TIMELINE.md` |
-| Durable decisions | `docs/DECISIONS.md` and a selective ADR under `docs/decisions/` |
-| Notable user-facing, integration, operational, compatibility, or security changes | `CHANGELOG.md` |
+Use repository-root `docs/README.md` and its task router. WordPress transport/bootstrap/legacy boundaries live in `docs/architecture/frontends-and-api.md`; domain behavior in `docs/architecture/booking-and-payments.md`; provider contracts in `docs/integrations/clock/`; checks/deployment in `docs/operations/README.md`. Do not recreate the predecessor's missing plugin-local documentation system.
 
-Significant, cross-cutting, high-risk, or difficult-to-reverse decisions require an ADR. Do not create ADRs for routine implementation detail. Update docs only when the task changes or clarifies durable knowledge.
+Astra plans/reviews by default; Claude implements/tests/reports, per `docs/maintenance.md`. Significant decisions require an ADR; routine details do not.
 
 ## Final response
 

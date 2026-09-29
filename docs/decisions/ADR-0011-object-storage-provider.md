@@ -5,7 +5,7 @@ Date: 2026-07-28
 
 ## Context
 
-`docs/ARCHITECTURE.md` lists "object storage" as an infrastructure line item alongside managed Postgres/Redis, but never named a provider, an interface, a bucket/key convention, a credential model, an upload size/type policy, or a retrieval/signing model. Milestone 3's Task 3 (room-type image upload) is the first feature that actually needs it; Codex correctly stopped rather than inventing durable storage behavior and security boundaries unprompted.
+`docs/architecture/overview.md` lists "object storage" as an infrastructure line item alongside managed Postgres/Redis, but never named a provider, an interface, a bucket/key convention, a credential model, an upload size/type policy, or a retrieval/signing model. Milestone 3's Task 3 (room-type image upload) is the first feature that actually needs it; Codex correctly stopped rather than inventing durable storage behavior and security boundaries unprompted.
 
 ## Options — provider
 

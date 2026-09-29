@@ -1,6 +1,6 @@
 # ADR-0001: Monorepo with NestJS backend + Next.js frontend
 
-Status: Accepted
+Status: Accepted; guest-widget choice superseded by ADR-0016
 Date: 2026-07-27
 
 ## Context
@@ -22,5 +22,5 @@ The predecessor WordPress plugin entangled domain logic, payment integrity, and 
 
 ## Alternatives considered
 
-- Continuing to extend the WordPress plugin: rejected — it is the root cause being fixed (see `PROJECT_CONTEXT.md`).
+- Continuing to extend the WordPress plugin: rejected — it is the root cause being fixed (see `docs/product-overview.md`).
 - Microservices from day one: rejected as premature for current team size and unproven load; the modular-monolith-with-workers structure keeps service boundaries internal and revisitable.

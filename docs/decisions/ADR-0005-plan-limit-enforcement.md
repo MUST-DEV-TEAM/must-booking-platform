@@ -5,7 +5,7 @@ Date: 2026-07-27
 
 ## Context
 
-Plans (see `docs/BILLING.md`) impose limits such as number of properties, staff seats, and bookings/month. Enforcement style (block the action vs. only warn) needed to be decided before the API layer implements limit checks.
+Plans (see `docs/architecture/platform-billing.md`) impose limits such as number of properties, staff seats, and bookings/month. Enforcement style (block the action vs. only warn) needed to be decided before the API layer implements limit checks.
 
 ## Decision
 
@@ -19,7 +19,7 @@ Hybrid, chosen by the owner:
 - The plan-limit schema needs a `limit_type: hard | soft` flag per limit, not a single enforcement rule for all limits.
 - Hard-limit checks must be synchronous in the request path for the constrained action (e.g., create-property endpoint checks before creating).
 - Soft-limit checks can run asynchronously/on a schedule (e.g., nightly usage rollup) and only need to trigger a notification, not block a request.
-- **Confirmed hard limits (2026-07-27, see ADR-0007's plan table)**: number of properties per tenant and number of staff seats per tenant, both tied to the tenant's plan. PMS-connection availability is also enforced hard (as a feature gate, not a count) — see ADR-0007. Any further limit (e.g. a future bookings/month cap) is classified hard or soft individually when it is added to `BILLING.md`'s plan table.
+- **Confirmed hard limits (2026-07-27, see ADR-0007's plan table)**: number of properties per tenant and number of staff seats per tenant, both tied to the tenant's plan. PMS-connection availability is also enforced hard (as a feature gate, not a count) — see ADR-0007. Any further limit (e.g. a future bookings/month cap) is classified hard or soft individually when it is added to `docs/architecture/platform-billing.md`'s plan table.
 
 ## Alternatives considered
 

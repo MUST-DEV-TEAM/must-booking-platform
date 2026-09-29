@@ -28,12 +28,12 @@ The owner confirmed both should be real, numbered milestones — not backlog ite
 
 - `docs/roadmap/milestones/13-platform-billing.md` renamed to `15-platform-billing.md`; its header, "Depends on" line, and resequencing note updated to reflect the new position.
 - Two new milestone files created: `docs/roadmap/milestones/13-app-ui-ux-and-features.md`, `docs/roadmap/milestones/14-security-and-architecture-audit.md`.
-- `docs/ROADMAP.md` and `docs/roadmap/README.md` updated: milestone table/count, "Up next" pointer.
+- `docs/roadmap/README.md` and `docs/roadmap/README.md` updated: milestone table/count, "Up next" pointer.
 - Already-completed milestone files are not retroactively rewritten, per ADR-0023/ADR-0025's own precedent.
 - Milestone 12 itself is unaffected — its own task table (including Tasks 21-23, the WordPress guest-journey findings that prompted this ADR) is unchanged; those stay in Milestone 12, they are not moved into the new milestones.
 
 ## Alternatives considered
 
-- **Fold this into the existing backlog** (`docs/ROADMAP.md`'s "after Milestone 13, not scheduled" list) instead of numbered milestones: rejected — the owner explicitly wants a scheduled, dedicated pass, not an open-ended deferred item with no commitment to when it happens.
+- **Fold this into the existing backlog** (`docs/roadmap/README.md`'s "after Milestone 13, not scheduled" list) instead of numbered milestones: rejected — the owner explicitly wants a scheduled, dedicated pass, not an open-ended deferred item with no commitment to when it happens.
 - **Start Milestone 13/14 now, in parallel with Milestone 12's remaining tasks**: rejected — breaks the established "worked in order, without skipping or parallelizing" rule for no stated benefit; Milestone 12 is close to done and the owner confirmed waiting for its close-out.
 - **Put Security & Architecture Audit before Application Enhancement**: rejected — the owner explicitly wants Application Enhancement first.

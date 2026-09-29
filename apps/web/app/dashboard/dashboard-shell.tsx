@@ -354,7 +354,7 @@ export function DashboardShell({
       userRole={role ? roleLabels[role] : undefined}
       headerActions={
         <>
-          {properties && properties.length > 0 && role !== 'STAFF' ? (
+          {properties && properties.length > 1 && role !== 'STAFF' ? (
             <label className={styles.propertySwitcher}>
               <Layers aria-hidden="true" size={16} />
               <select

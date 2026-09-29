@@ -86,6 +86,18 @@ export class NotificationsService {
     });
   }
 
+  async markAllRead(tenantId: string, propertyId: string): Promise<{ updated: number }> {
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const updated = await tx.$executeRaw`
+        UPDATE notifications
+        SET read_at = CURRENT_TIMESTAMP
+        WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+          AND read_at IS NULL
+      `;
+      return { updated };
+    });
+  }
+
   private page(query: unknown): { page: number; pageSize: number } {
     const value = (query ?? {}) as Record<string, unknown>;
     const page = value.page === undefined ? 1 : Number(value.page);

@@ -25,6 +25,7 @@ export type NotificationPage = {
 };
 
 const NOTIFICATION_PAGE_SIZE = 20;
+const NOTIFICATION_DROPDOWN_LIMIT = 10;
 
 const notificationLabels: Record<Notification['type'], string> = {
   BOOKING_CREATED: 'Booking created',
@@ -89,8 +90,30 @@ function useNotificationPage(tenantId: string, propertyId: string, page: number)
       );
     },
   });
+  const markAllReadMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`${base}/mark-all-read`, {
+        method: 'PATCH',
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Unable to mark all notifications as read.');
+    },
+    onSuccess: () => {
+      const now = new Date().toISOString();
+      queryClient.setQueriesData<NotificationPage>({ queryKey: rootQueryKey }, (current) =>
+        current
+          ? {
+              ...current,
+              items: current.items.map((notification) =>
+                notification.readAt === null ? { ...notification, readAt: now } : notification,
+              ),
+            }
+          : current,
+      );
+    },
+  });
 
-  return { notificationsQuery, markReadMutation };
+  return { notificationsQuery, markReadMutation, markAllReadMutation };
 }
 
 export function DashboardNotifications({
@@ -101,11 +124,16 @@ export function DashboardNotifications({
   propertyId: string;
 }) {
   const [open, setOpen] = useState(false);
-  const { notificationsQuery, markReadMutation } = useNotificationPage(tenantId, propertyId, 1);
+  const { notificationsQuery, markReadMutation, markAllReadMutation } = useNotificationPage(
+    tenantId,
+    propertyId,
+    1,
+  );
   const notificationPage = notificationsQuery.data;
-  const notifications = notificationPage?.items;
-  const error = notificationsQuery.error ?? markReadMutation.error;
-  const unread = notifications?.filter((notification) => notification.readAt === null).length ?? 0;
+  const notifications = notificationPage?.items.slice(0, NOTIFICATION_DROPDOWN_LIMIT);
+  const error = notificationsQuery.error ?? markReadMutation.error ?? markAllReadMutation.error;
+  const unread =
+    notificationPage?.items.filter((notification) => notification.readAt === null).length ?? 0;
   const unreadBadge =
     notificationPage && notificationPage.total > NOTIFICATION_PAGE_SIZE
       ? '20+'
@@ -127,7 +155,19 @@ export function DashboardNotifications({
       </button>
       {open ? (
         <section aria-label="Notifications" className={shellStyles.notificationPanel}>
-          <h2>Notifications</h2>
+          <div className={shellStyles.notificationPanelHeader}>
+            <h2>Notifications</h2>
+            {unread > 0 ? (
+              <button
+                className={shellStyles.markAllReadLink}
+                disabled={markAllReadMutation.isPending}
+                onClick={() => markAllReadMutation.mutate()}
+                type="button"
+              >
+                {markAllReadMutation.isPending ? 'Marking…' : 'Mark all as read'}
+              </button>
+            ) : null}
+          </div>
           {error ? (
             <div role="alert">
               <p>{error.message}</p>

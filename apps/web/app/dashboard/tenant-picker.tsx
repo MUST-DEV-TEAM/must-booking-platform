@@ -2,12 +2,14 @@
 
 import { Card, Heading, Stack, Text } from '@must/ui';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 import styles from './selection.module.css';
 
 type Membership = { tenantId: string; organizationName: string; role: string };
 
 export function TenantPicker() {
+  const router = useRouter();
   const [items, setItems] = useState<Membership[] | null>(null);
   useEffect(() => {
     void fetch('/api/auth/memberships', { credentials: 'include' })
@@ -15,6 +17,10 @@ export function TenantPicker() {
       .then((value) => setItems(value.memberships))
       .catch(() => setItems([]));
   }, []);
+  useEffect(() => {
+    if (items?.length === 1) router.replace(`/dashboard/${items[0].tenantId}`);
+  }, [items, router]);
+  if (items?.length === 1) return null;
   return (
     <main className={styles.page}>
       <Card className={styles.card}>

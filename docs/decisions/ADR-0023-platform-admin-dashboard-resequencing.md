@@ -1,6 +1,6 @@
 # ADR-0023: Platform Admin Dashboard split out and moved earlier; Auth Pages inserted ahead of it
 
-Status: Accepted
+Status: Accepted; sequencing subsequently amended by ADR-0025 and ADR-0028
 Date: 2026-07-31
 
 ## Context
@@ -25,7 +25,7 @@ Separately, `apps/web` was found to have no real designed UI at all yet — insp
 
 - ADR-0020's point 5 is superseded by this decision. Points 1-4 (one login/session, role-derived routing to `/platform` vs. `/dashboard`, one app not two, single `PLATFORM_ADMIN` role for now) are unaffected and still stand as originally decided.
 - ADR-0021's mechanism is unaffected; its references to "Milestone 9" now resolve to the new Milestone 8 — no change to what it built, only which milestone number implements it.
-- Milestone files old-7 through old-11 were renumbered (old 7→10, 8→9, 9→11, 10→12, 11→13) and two new files created (7, 8); cross-references in ADR-0020, ADR-0021, ADR-0022, and the roadmap index files (`docs/roadmap/README.md`, `docs/ROADMAP.md`) were updated to match.
+- Milestone files old-7 through old-11 were renumbered (old 7→10, 8→9, 9→11, 10→12, 11→13) and two new files created (7, 8); cross-references in ADR-0020, ADR-0021, ADR-0022, and the roadmap index files (`docs/roadmap/README.md`, `docs/roadmap/README.md`) were updated to match.
 - Milestone 9 (Tenant Dashboard)'s draft tasks referencing Milestone 10 (Individual Room Booking) features (manual-blocking calendar controls, per-property booking-mode setting) become explicit deferred follow-up tasks rather than "coming soon" placeholders, since the build order flipped.
 - The roadmap's "12 milestones, numbered 0-11" framing needed updating to the new total (14 milestones, 0-13) in both index docs — done as part of this change, not left stale.
 

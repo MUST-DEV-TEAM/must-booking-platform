@@ -1,5 +1,7 @@
 # Changelog
 
+> Historical inception record. Claims such as "no application code" and old file/milestone names below belong to their original dates. Use [current documentation](docs/README.md) and the [filename catalog](docs/catalog.md) for today's system.
+
 ## Unreleased
 
 - Project inception: established documentation baseline (`PROJECT_CONTEXT.md`, `ARCHITECTURE.md`, `TENANCY.md`, `BILLING.md`, `ROADMAP.md`), agent collaboration conventions (`AGENTS.md`, `CLAUDE.md`), and initial ADRs (ADR-0001 accepted). No application code yet.

@@ -5,7 +5,7 @@ Date: 2026-07-27
 
 ## Context
 
-Options presented were: flat tiered plans with fixed limits, per-property metered pricing, or usage-based pricing (e.g. per booking/month). This shapes the billing schema and plan-limit design in `BILLING.md` and interacts with ADR-0003 (billing provider, accepted) and ADR-0005 (limit enforcement, accepted).
+Options presented were: flat tiered plans with fixed limits, per-property metered pricing, or usage-based pricing (e.g. per booking/month). This shapes the billing schema and plan-limit design in `docs/architecture/platform-billing.md` and interacts with ADR-0003 (billing provider, accepted) and ADR-0005 (limit enforcement, accepted).
 
 ## Decision
 

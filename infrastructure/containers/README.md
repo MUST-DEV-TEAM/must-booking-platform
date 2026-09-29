@@ -1,8 +1,7 @@
 # Production Deployment (Docker)
 
 This directory holds the Docker Compose stack and supporting scripts for running MUST Booking
-(Postgres, Redis, API, Web) as containers. It's what currently runs the homelab deployment at
-must.dejvis.dev, but nothing here is homelab-specific except where noted below.
+(Postgres, Redis, API, Web) as containers. These are checked-in deployment artifacts, not proof of the live topology. The homelab was recorded retired on 2026-09-10; see [current operations context](../../docs/operations/README.md). Verify applicability to the actual target before use.
 
 ## What's in this directory
 
@@ -12,7 +11,7 @@ Core stack — needed for any deployment:
 - `api.Dockerfile`, `web.Dockerfile` — multi-stage builds for each app.
 - `homelab.env.example` — template for the `.env` file `compose.homelab.yaml` reads.
 
-Optional automation — only used by the current homelab host, safe to ignore elsewhere:
+Optional automation — historically used by the retired homelab host, safe to ignore elsewhere:
 
 - `deploy-webhook.mjs`, `deploy-webhook.Dockerfile`, `compose.deploy-webhook.yaml` — a webhook
   service that triggers `deploy.sh` on push to `main`.
@@ -30,7 +29,7 @@ optional automation needs to exist for a manual deployment.
 
 - Docker Engine with the Compose plugin (`docker compose`, not the standalone `docker-compose`).
 - Something to terminate TLS and route a public domain to the `web` service — this repo doesn't
-  include one. The homelab uses nginx-proxy-manager plus a Cloudflare Tunnel; any reverse proxy or
+  include one. The retired homelab used nginx-proxy-manager plus a Cloudflare Tunnel; any reverse proxy or
   load balancer works.
 - `compose.homelab.yaml` declares `proxy` as an `external: true` Docker network so a reverse-proxy
   container can reach `web`. Either create it (`docker network create proxy`) before `up`, or

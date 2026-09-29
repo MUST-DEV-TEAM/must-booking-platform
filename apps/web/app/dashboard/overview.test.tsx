@@ -18,6 +18,65 @@ const overview = {
     availableRoomNights: 7,
     occupancyRate: 71,
   },
+  revenue: { today: { amount: '350.00', currency: 'EUR' } },
+  balanceDueAtDesk: { amount: '120.00', currency: 'EUR' },
+  newBookingsSinceYesterday: 3,
+  needsAttentionCount: 1,
+  todaysArrivals: [
+    {
+      id: 'arrival-1',
+      externalReference: 'MB-1001',
+      guestName: 'Ana Arrival',
+      guestEmail: 'ana@example.test',
+      roomTypeName: 'Double room',
+      adults: 2,
+      children: 0,
+      hasSpecialRequests: true,
+      paymentMethod: 'PAY_AT_HOTEL',
+      totalAmount: '120.00',
+      currency: 'EUR',
+    },
+  ],
+  todaysDepartures: [],
+  upcomingArrivals: [
+    {
+      id: 'upcoming-1',
+      externalReference: 'MB-1002',
+      guestName: 'Uma Upcoming',
+      guestEmail: 'uma@example.test',
+      roomTypeName: 'Suite',
+      adults: 1,
+      children: 1,
+      hasSpecialRequests: false,
+      paymentMethod: 'PAY_AT_HOTEL',
+      totalAmount: '200.00',
+      currency: 'EUR',
+      startsOn: '2026-08-05',
+    },
+  ],
+  soldOutRooms: [
+    { roomId: 'room-1', roomName: '102', roomTypeName: 'Double room', reason: 'blocked' as const },
+  ],
+  recentCancellations: [
+    {
+      id: 'cancelled-1',
+      externalReference: 'MB-1003',
+      guestName: 'Cara Cancelme',
+      guestEmail: 'cara@example.test',
+      roomTypeName: 'Double room',
+      startsOn: '2026-08-06',
+      endsOn: '2026-08-07',
+      cancelledAt: '2026-08-02T09:00:00.000Z',
+    },
+  ],
+  recentActivity: [
+    {
+      id: 'audit-1',
+      action: 'booking.created',
+      createdAt: '2026-08-02T10:00:00.000Z',
+      summary: 'Ana Arrival booked — Double room, 2026-08-02 to 2026-08-04',
+    },
+  ],
   needsAttention: [
     {
       id: 'booking-1',
@@ -27,15 +86,6 @@ const overview = {
       guestName: 'Ada Guest',
       guestEmail: 'ada@example.test',
       roomTypeName: 'Double room',
-    },
-  ],
-  recentActivity: [
-    {
-      id: 'audit-1',
-      action: 'booking.created',
-      targetType: 'booking',
-      targetId: 'booking-1',
-      createdAt: '2026-08-02T10:00:00.000Z',
     },
   ],
 };
@@ -95,16 +145,37 @@ describe('DashboardOverview', () => {
     const { container, root } = await mount({ initialOverview: overview });
 
     expect(container.textContent).not.toContain('Ada Guest');
-    expect(container.textContent).toContain('booking created');
+    expect(container.textContent).toContain('Ana Arrival booked');
     expect(container.textContent).toContain('New booking');
     expect(container.textContent).toContain('Add staff');
-    expect(container.textContent).not.toContain('Needs attention');
     expect(container.querySelector('a[href*="section=walk-in"]')).toBeNull();
     expect(
       container.querySelector(
         'a[href="/dashboard/tenant-1?propertyId=property-1&section=overview&tab=quick-booking"]',
       ),
     ).not.toBeNull();
+
+    // New sections: today's arrivals/departures, upcoming arrivals, revenue,
+    // balance due, sold-out rooms, and recent cancellations.
+    expect(container.textContent).toContain('Today’s arrivals (1)');
+    expect(container.textContent).toContain('Ana Arrival');
+    expect(container.textContent).toContain('2 adults');
+    expect(container.textContent).toContain('Special request');
+    expect(container.textContent).toContain('MB-1001');
+    expect(container.textContent).toContain('350.00 EUR');
+    expect(container.textContent).toContain('120.00 EUR');
+    expect(container.textContent).toContain('Uma Upcoming');
+    expect(container.textContent).toContain('1 adult, 1 child');
+    expect(container.textContent).toContain('Sold out tonight (1)');
+    expect(container.textContent).toContain('Double room — 102');
+    expect(container.textContent).toContain('Cara Cancelme');
+
+    const attentionLink = container.querySelector(
+      'a[href="/dashboard/tenant-1?propertyId=property-1&section=overview&tab=needs-attention"]',
+    );
+    expect(attentionLink?.textContent).toContain('Needs attention');
+    expect(attentionLink?.textContent).toContain('1');
+
     expect(fetch).not.toHaveBeenCalled();
     await act(async () => root.unmount());
   });

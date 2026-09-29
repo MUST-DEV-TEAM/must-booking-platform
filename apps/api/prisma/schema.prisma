@@ -888,6 +888,14 @@ enum ProviderEventStatus {
   HYDRATED
   IGNORED
   FAILED
+  // Durable, actionable parking state for a BullMQ job that reached real
+  // completion whose own status write never landed on this row — see
+  // ADR-0031 and docs/integrations/clock/webhooks-and-reconciliation.md.
+  // Excluded from the recovery sweep's RECEIVED/QUEUED candidate set so
+  // completed-job retention expiring the underlying BullMQ job can never
+  // silently flip a parked manual-reconciliation case back into automatic
+  // reprocessing.
+  NEEDS_RECONCILIATION
 }
 
 // Milestone 11 Task 11 (source brief section 20/21): every inbound webhook
@@ -909,6 +917,16 @@ model ProviderEvent {
   rawPayload   Json                @map("raw_payload")
   status       ProviderEventStatus @default(RECEIVED)
   attempts     Int                 @default(0)
+  // Fencing token for the currently-owning processing attempt (see
+  // ADR-0031) — set on claim, required to match on every effect-applying
+  // or terminal write, cleared once terminal. NULL when no attempt is in
+  // flight (RECEIVED, or any terminal status).
+  processingToken String?          @map("processing_token")
+  // BullMQ `job.attemptsMade` of the current claimant — a claim-ordering
+  // guard (ADR-0031) so a delayed/obsolete claim can never steal ownership
+  // back from a fresher one purely because its UPDATE reached Postgres
+  // late. Cleared alongside processingToken once terminal.
+  processingAttempt Int?           @map("processing_attempt")
   createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 

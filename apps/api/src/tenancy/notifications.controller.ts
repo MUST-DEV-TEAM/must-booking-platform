@@ -22,6 +22,16 @@ export class NotificationsController {
     );
   }
 
+  @Patch('mark-all-read')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  markAllRead(@Req() request: { tenantContext: { tenantId: string; propertyId: string } }) {
+    return this.notifications.markAllRead(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+    );
+  }
+
   @Patch(':notificationId')
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)

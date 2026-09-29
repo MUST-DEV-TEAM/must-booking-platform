@@ -1,6 +1,6 @@
 # ADR-0025: Platform Billing moved to the final milestone
 
-Status: Accepted
+Status: Accepted; final milestone number superseded by ADR-0028 (billing is Milestone 15)
 Date: 2026-08-03
 
 ## Context
@@ -23,8 +23,8 @@ There is no technical blocker to this, mirroring ADR-0023's finding about Platfo
 ## Consequences
 
 - Milestone files renumbered: `11-platform-billing.md` → `13-platform-billing.md`, `12-clock-pms-adapter-basic.md` → `11-clock-pms-adapter-basic.md`, `13-integration-and-initial-release.md` → `12-integration-and-initial-release.md`. Each file's header, "Depends on" line, and internal Milestone-number references were updated to match.
-- `docs/ROADMAP.md` and `docs/roadmap/README.md` updated: the "initial usable version" framing now points at Milestone 12, not 13. The roadmap is still 14 milestones numbered 0-13 — only the assignment of the last two slots changed.
-- Active cross-references updated: `docs/BILLING.md`, `docs/roadmap/milestones/09-tenant-admin-dashboard.md` (in progress), `docs/roadmap/milestones/06-public-booking-widget.md` (paused), and `ADR-0024`.
+- `docs/roadmap/README.md` and `docs/roadmap/README.md` updated: the "initial usable version" framing now points at Milestone 12, not 13. The roadmap is still 14 milestones numbered 0-13 — only the assignment of the last two slots changed.
+- Active cross-references updated: `docs/architecture/platform-billing.md`, `docs/roadmap/milestones/09-tenant-admin-dashboard.md` (in progress), `docs/roadmap/milestones/06-public-booking-widget.md` (paused), and `ADR-0024`.
 - Per ADR-0023's own precedent, already-completed milestone files (`completed/00`, `completed/01`, `completed/05`, `completed/08`) and older ADRs (0013, 0014, 0015) that mention milestone numbers in passing are **not** retroactively rewritten — they're historical snapshots as of when they were written, same as ADR-0023 left them after the prior resequencing.
 - Milestone 9's "Explicitly not included" and "Settings → Billing Account" notes now point to Milestone 13 instead of 11; no scope change to Milestone 9 itself.
 

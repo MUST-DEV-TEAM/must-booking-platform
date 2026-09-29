@@ -7,6 +7,7 @@ import {
 } from '../../tenancy/tenant-database.service';
 import { IntegrationConnectionsService } from '../integration-connections.service';
 import { ManualReviewService } from '../manual-review.service';
+import { guardedTransitionSql, ownershipLockSql, ownsRow, type OwnershipRow } from './clock-provider-event-status';
 import { ClockCircuitBreakerService, CircuitOpenError } from './clock-circuit-breaker';
 import { parseClockCredentials } from './clock-credentials';
 import {
@@ -63,7 +64,21 @@ const CANCELLED_CLOCK_STATUSES = new Set(['canceled']);
 export type HydrationOutcome =
   | { outcome: 'created' | 'updated'; bookingId: string }
   | { outcome: 'missing_room_type_mapping' }
-  | { outcome: 'no_active_connection' };
+  | { outcome: 'no_active_connection' }
+  | { outcome: 'ownership_lost' };
+
+/** Identifies the provider_events row and fencing token (ADR-0031) a caller
+ * currently holds. When supplied, hydrateBooking validates ownership under
+ * a real row lock as the first statement inside its own effect-applying
+ * transaction (not a preceding, separately-committed check), and — only if
+ * ownership still holds — writes the event's terminal status in that same
+ * transaction, so the local effect and the event outcome commit together
+ * or not at all. Omit it to hydrate without any event-ownership fencing
+ * (e.g. a direct call from reconciliation tooling, not the webhook path). */
+export interface EventOwnership {
+  eventRowId: string;
+  token: string;
+}
 
 /**
  * Mirrors a single Clock booking into MUST's local `bookings` table
@@ -98,6 +113,7 @@ export class ClockBookingHydrationService {
     propertyId: string,
     connectionId: string,
     clockBookingId: string,
+    ownership?: EventOwnership,
   ): Promise<HydrationOutcome> {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (!connection || connection.provider !== 'CLOCK_PMS') {
@@ -112,12 +128,25 @@ export class ClockBookingHydrationService {
       return { outcome: 'no_active_connection' };
     }
 
+    // Outbound HTTP stays outside the locked transaction below (ADR-0031) —
+    // holding a Postgres row lock across a real network round-trip to Clock
+    // would tie up a connection for however long that call takes.
     const detail = await this.fetchClock<ClockBookingDetail>(
       parsed.value,
       `/bookings/${clockBookingId}`,
     );
 
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      if (ownership) {
+        // Real fencing, not a preceding check: this row lock is held for
+        // the rest of this transaction, so no concurrent claim/finalize
+        // from another attempt can interleave between this validation and
+        // the effect + status write committing together below.
+        const [lockSql, lockParams] = ownershipLockSql(tenantId, ownership.eventRowId);
+        const ownershipRows = await tx.$queryRawUnsafe<OwnershipRow[]>(lockSql, ...lockParams);
+        if (!ownsRow(ownershipRows[0], ownership.token)) return { outcome: 'ownership_lost' };
+      }
+
       const roomTypeId = await this.mappedEntityId(
         tx,
         tenantId,
@@ -135,6 +164,7 @@ export class ClockBookingHydrationService {
           referenceId: String(detail.id),
           message: `Clock booking ${detail.number ?? detail.id} references room type ${detail.arrival_room_type_id}, which has no confirmed local mapping. Confirm the mapping in Catalog Sync, then re-send the event.`,
         });
+        if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'FAILED');
         return { outcome: 'missing_room_type_mapping' };
       }
 
@@ -217,8 +247,31 @@ export class ClockBookingHydrationService {
       );
 
       const row = rows[0]!;
+      if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'HYDRATED');
       return { outcome: row.inserted ? 'created' : 'updated', bookingId: row.id };
     });
+  }
+
+  /** Writes the event's terminal status inside the caller's own
+   * transaction (ADR-0031) — the local effect and the event outcome commit
+   * atomically together or not at all. Guarded defense-in-depth by status
+   * and token even though the row lock already held throughout this
+   * transaction makes a concurrent override impossible. */
+  private async finalizeOwnedEvent(
+    tx: TenantTransaction,
+    tenantId: string,
+    ownership: EventOwnership,
+    status: 'HYDRATED' | 'FAILED',
+  ): Promise<void> {
+    const [sql, params] = guardedTransitionSql({
+      tenantId,
+      eventRowId: ownership.eventRowId,
+      status,
+      allowedFrom: ['QUEUED'],
+      requireToken: ownership.token,
+      clearToken: true,
+    });
+    await tx.$executeRawUnsafe(sql, ...params);
   }
 
   private async mappedEntityId(

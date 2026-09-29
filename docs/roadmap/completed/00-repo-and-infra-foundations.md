@@ -1,5 +1,7 @@
 # Milestone 0: Repository & Infrastructure Foundations
 
+> **Historical delivery record.** Statuses and test/deployment claims below belong to their recorded dates, not a fresh certification. Current behavior is owned by the [documentation router](../../README.md); current deferrals/reopened work are summarized in the [roadmap](../README.md).
+
 Status: Done
 Depends on: ADR-0001 (monorepo/stack, accepted)
 
@@ -18,7 +20,7 @@ A working monorepo skeleton with no business logic yet: apps build, lint, and te
 1. npm/pnpm workspace setup (`apps/*`, `packages/*`), root tooling config (TypeScript, ESLint, Prettier).
 2. `apps/api` — NestJS app skeleton, boots, health-check endpoint.
 3. `apps/web` — Next.js app skeleton, boots, single placeholder page.
-4. `packages/shared-types` and `packages/domain-contracts` — empty packages wired into both apps' builds (contracts, e.g. `PmsProvider`/`BillingProvider` interface stubs from `ARCHITECTURE.md`, live here).
+4. `packages/shared-types` and `packages/domain-contracts` — empty packages wired into both apps' builds (contracts, e.g. `PmsProvider`/`BillingProvider` interface stubs from `docs/architecture/overview.md`, live here).
 5. Docker Compose for local PostgreSQL + Redis, with a documented one-command dev startup.
 6. Database migration tooling wired up (choose and configure a migration tool compatible with NestJS/TypeORM or Prisma — decide as part of this task, not a separate ADR).
 7. CI pipeline (GitHub Actions): install, build, lint, test on every PR for all apps/packages.
@@ -38,7 +40,7 @@ A working monorepo skeleton with no business logic yet: apps build, lint, and te
 | 1 | pnpm workspace setup: root `package.json`, `pnpm-workspace.yaml` (`apps/*`, `packages/*`), shared root TypeScript config, ESLint (flat config) + Prettier applied consistently across the workspace. | `pnpm install` at root resolves all workspaces; `pnpm -w lint` and a format-check script run cleanly across all packages/apps as scaffolded so far. | Done | (uncommitted locally) |
 | 2 | `apps/api` — NestJS app skeleton with a `/health` endpoint. | `pnpm --filter api start:dev` boots without error; `GET /health` returns 200 with a JSON status payload; `pnpm --filter api build` succeeds. | Done | (uncommitted locally) |
 | 3 | `apps/web` — Next.js (TypeScript) app skeleton with a single placeholder page. | `pnpm --filter web dev` boots; placeholder page renders at `/`; `pnpm --filter web build` succeeds. | Done | (uncommitted locally) |
-| 4 | `packages/shared-types` and `packages/domain-contracts` — empty-but-wired packages containing initial `PmsProvider` / `BillingProvider` interface stubs per `docs/ARCHITECTURE.md`, consumed by `apps/api`. | Both packages build via the workspace build; `apps/api` imports at least one type from each with no type errors. | Done | (uncommitted locally) |
+| 4 | `packages/shared-types` and `packages/domain-contracts` — empty-but-wired packages containing initial `PmsProvider` / `BillingProvider` interface stubs per `docs/architecture/overview.md`, consumed by `apps/api`. | Both packages build via the workspace build; `apps/api` imports at least one type from each with no type errors. | Done | (uncommitted locally) |
 | 5 | Docker Compose for local PostgreSQL + Redis, one documented startup command. | `docker compose up -d` starts both containers, both healthy; connection string documented in `README.md` (actual `apps/api` connection proven in Task 6, `.env.example` added in Task 8). | Done | (uncommitted locally) |
 | 6 | Prisma wired into `apps/api`: schema file, initial migration, migration scripts in `package.json`. | `pnpm --filter api prisma migrate dev` runs successfully against the Docker-Compose Postgres and applies a generated migration. | Done | (uncommitted locally) |
 | 7 | CI pipeline (GitHub Actions): install (pnpm) → build → lint → test, on every PR, for all apps/packages scaffolded so far. | Workflow file exists under `.github/workflows/`; runs green on this task's own PR. | Done | (uncommitted locally — will run green once pushed/opened as a PR) |

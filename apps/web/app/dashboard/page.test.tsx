@@ -124,7 +124,7 @@ describe('Tenant dashboard shell', () => {
       expect(markup).not.toContain(`>${label}</a>`);
   });
 
-  it('renders the property switcher for every non-staff property scope', () => {
+  it('only renders the property switcher when a non-staff user has more than one property', () => {
     const singleProperty = renderToStaticMarkup(
       createElement(
         DashboardQueryProvider,
@@ -175,7 +175,7 @@ describe('Tenant dashboard shell', () => {
       ),
     );
 
-    expect(singleProperty).toContain('Switch property');
+    expect(singleProperty).not.toContain('Switch property');
     expect(singleProperty).toContain('Grand Hotel');
     expect(multipleProperties).toContain('Switch property');
     expect(multipleProperties).toContain('Coast Hotel');

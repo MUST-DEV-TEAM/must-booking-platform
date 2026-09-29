@@ -99,6 +99,40 @@ describe('DashboardNotifications', () => {
     await act(async () => root.unmount());
   });
 
+  it('caps the dropdown at 10 items and offers Mark all as read for the rest', async () => {
+    const eighteenUnread = Array.from({ length: 18 }, (_, index) => ({
+      ...notifications[0],
+      id: `booking-${index}`,
+    }));
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PATCH' && url.endsWith('/mark-all-read')) {
+        return new Response(null, { status: 200 });
+      }
+      expect(url).toBe('/api/tenants/t/properties/p/notifications?page=1&pageSize=20');
+      return new Response(JSON.stringify({ items: eighteenUnread, total: 18 }));
+    });
+    vi.stubGlobal('fetch', fetch);
+    const { container, root } = await mount();
+
+    await click(container.querySelector('[aria-label="Notifications (18 unread)"]')!);
+    const rows = container.querySelectorAll('ul li');
+    expect(rows).toHaveLength(10);
+
+    await click(
+      Array.from(container.querySelectorAll('button')).find(
+        (button) => button.textContent === 'Mark all as read',
+      )!,
+    );
+    expect(fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')?.[0]).toBe(
+      '/api/tenants/t/properties/p/notifications/mark-all-read',
+    );
+    expect(container.querySelector('[aria-label="Notifications"]')?.textContent).not.toContain(
+      'unread',
+    );
+
+    await act(async () => root.unmount());
+  });
+
   it('uses an explicit 20+ badge when the first page is truncated', async () => {
     const firstPage = Array.from({ length: 20 }, (_, index) => ({
       ...notifications[0],

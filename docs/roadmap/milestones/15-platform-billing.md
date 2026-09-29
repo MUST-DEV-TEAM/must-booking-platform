@@ -16,7 +16,7 @@ Tenants can be on a real subscription: start an optional paid-plan trial or upgr
 ## Draft task areas (not final — define the real 10 tasks at kickoff)
 
 1. **Kickoff decision with the owner**: finalize the real plan tier table including PMS connection caps + add-on pricing (replacing ADR-0007's illustrative numbers) and which tier(s) offer a paid-plan trial + trial length (replacing ADR-0008's open detail). Update those ADRs in place once decided.
-2. `BillingProvider` interface implementation: `StripeBillingProvider` (`docs/ARCHITECTURE.md`).
+2. `BillingProvider` interface implementation: `StripeBillingProvider` (`docs/architecture/overview.md`).
 3. Subscription/plan schema: tenant ↔ plan ↔ Stripe customer/subscription mapping (external IDs as references, not primary keys — per ADR-0003's consequence).
 4. Upgrade flow: self-serve in-app action, Stripe Checkout/Billing session, webhook-driven activation.
 5. Stripe Customer Portal (or custom) for invoices/payment method management.

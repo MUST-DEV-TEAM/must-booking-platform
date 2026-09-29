@@ -1,5 +1,7 @@
 # Milestone 10: Individual Room Booking
 
+> **Historical delivery record.** Statuses and test/deployment claims below belong to their recorded dates, not a fresh certification. Current behavior is owned by the [documentation router](../../README.md); current deferrals/reopened work are summarized in the [roadmap](../README.md).
+
 Status: Done (2026-08-03) — kickoff complete (2026-08-03), all 10 tasks Done. Task 5 required one send-back; every other task landed clean on first review.
 Depends on: Milestone 4 (booking domain/inventory model); Milestone 9 (Tenant Admin Dashboard, for the staff-facing manual-blocking/booking-mode UI's follow-up tasks); Milestone 6 (guest widget, gets follow-up work here); ADR-0022 (booking-mode model)
 

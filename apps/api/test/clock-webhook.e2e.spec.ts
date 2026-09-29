@@ -40,6 +40,15 @@ const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 20
 const certPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
 const privatePem = privateKey.export({ type: 'pkcs1', format: 'pem' }).toString();
 
+async function waitFor(check: () => Promise<boolean> | boolean, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error('Timed out waiting for condition.');
+}
+
 function signedNotification(overrides: Partial<SnsEnvelope> = {}): SnsEnvelope {
   const envelope: SnsEnvelope = {
     Type: 'Notification',
@@ -173,17 +182,28 @@ describe('Clock webhook gateway', () => {
       .send(envelope)
       .expect(200);
 
-    const stored = await admin.$queryRaw<
-      Array<{ eventType: string; objectId: string; status: string }>
-    >`
-      SELECT event_type AS "eventType", object_id AS "objectId", status FROM provider_events
-      WHERE connection_id = ${connectionId}::uuid AND event_id = ${envelope.MessageId}
-    `;
-    expect(stored).toHaveLength(1);
+    // Milestone 21 Task 22: the worker now actively processes and marks
+    // provider_events through its real lifecycle (previously a no-op bug —
+    // status sat unused at its RECEIVED default forever). 'booking.updated'
+    // isn't a recognized booking/folio event type, so a real worker
+    // classifies it IGNORED — which can genuinely happen before this
+    // assertion runs, since a real BullMQ worker is processing concurrently
+    // with this request. Wait for it to settle instead of asserting on a
+    // status value that's a race by construction.
+    let stored: Array<{ eventType: string; objectId: string; status: string }> = [];
+    await waitFor(async () => {
+      stored = await admin.$queryRaw<
+        Array<{ eventType: string; objectId: string; status: string }>
+      >`
+        SELECT event_type AS "eventType", object_id AS "objectId", status FROM provider_events
+        WHERE connection_id = ${connectionId}::uuid AND event_id = ${envelope.MessageId}
+      `;
+      return stored.length === 1 && stored[0]!.status === 'IGNORED';
+    });
     expect(stored[0]).toEqual({
       eventType: 'booking.updated',
       objectId: '987654',
-      status: 'RECEIVED',
+      status: 'IGNORED',
     });
 
     const redis = new IORedis(process.env.REDIS_URL!, { maxRetriesPerRequest: null });

@@ -1,0 +1,35 @@
+# MBA-AUDIT-043 — Catalog and booking-history dispatch plan
+
+**Objective:** Plan individually bounded reads for the documentation catalog and completed booking-history milestones. This is dispatch planning only; it does not verify historical claims against implementation or establish a product finding.
+
+**Routing and prior coverage:** `docs/README.md` routes document classifications to `docs/catalog.md` and historical delivery claims to completed milestone records. `docs/audit/COVERAGE_LEDGER.md` says prior reports name relevant paths and areas but are not a complete file-by-file manifest; its row 043 calls for one dispatch per catalog/M3/M4/M5/M10 document, with a separate completed-index dispatch if still unread. `AUDIT_STATUS.md` reports prior booking/money path coverage, but does not establish that these four milestone records or the catalog were fully read. Preserve that coverage as uncertain rather than wholly unread. The roadmap index identifies these milestones as historically recorded completed; it also warns that historical status is not a fresh acceptance-test certification.
+
+**Boundary inventory:** Heading positions and total line counts only were used to set ranges.
+
+| Document | Lines | Heading boundaries observed |
+| --- | ---: | --- |
+| `docs/catalog.md` | 82 | 1 Documentation catalog; 5 Relocated and consolidated documents; 32 Current owners and new coverage; 49 Milestone files; 74 Intent/code discrepancies; 80 Imported WordPress documentation |
+| `docs/roadmap/completed/03-property-room-rate-management.md` | 49 | 1 Milestone 3 title; 8 Goal; 12 Draft task areas; 25 Kickoff decisions; 31 Explicitly not included; 36 Tasks |
+| `docs/roadmap/completed/04-local-booking-domain.md` | 53 | 1 Milestone 4 title; 8 Goal; 12 Draft task areas; 25 Explicitly not included; 30 Kickoff decisions; 39 Tasks |
+| `docs/roadmap/completed/05-guest-payments.md` | 55 | 1 Milestone 5 title; 8 Goal; 12 Draft task areas; 25 Explicitly not included; 30 Kickoff decisions; 39 Tasks |
+| `docs/roadmap/completed/10-individual-room-booking.md` | 127 | 1 Milestone 10 title; 8 Goal; 12 Draft task areas; 25 Explicitly not included; 32 Sequencing note; 38 Tasks; 125 Done close-out |
+| `docs/roadmap/completed/README.md` | 7 | 1 Completed milestone history |
+
+## Proposed leaf units
+
+| ID | Bounded file/range | One concrete question | Model | Dependencies | Expected audit evidence |
+| --- | --- | --- | --- | --- | --- |
+| MBA-AUDIT-054 | `docs/catalog.md`, lines 1–82 (82 lines; whole document) | How does the catalog classify relocated, current-owner, milestone, and discrepancy documents, and which historical references or ownership claims need reconciliation against the routed sources? | LUNA high | MBA-AUDIT-043 | Exact catalog path:line evidence and corresponding link targets; distinguish catalog classification from current behavior; report broken/mismatched references and unresolved ownership without inferring product defects. |
+| MBA-AUDIT-055 | `docs/roadmap/completed/03-property-room-rate-management.md`, lines 1–49 (49 lines; whole document) | What scope, kickoff constraints, exclusions, and close-out evidence does the historical Milestone 3 record actually preserve? | LUNA high | MBA-AUDIT-043 | Exact path:line citations for recorded scope/status, explicit limits on test or implementation claims, and links to current canonical owners for any durable behavior claim; no code re-audit. |
+| MBA-AUDIT-056 | `docs/roadmap/completed/04-local-booking-domain.md`, lines 1–53 (53 lines; whole document) | What booking-domain scope, kickoff decisions, exclusions, and recorded acceptance does the historical Milestone 4 record preserve, and which claims remain historical evidence only? | LUNA high | MBA-AUDIT-043 | Exact path:line citations, provenance/status qualifiers, and links to current canonical owners; separate the milestone's record from current behavior and avoid implementation conclusions. |
+| MBA-AUDIT-057 | `docs/roadmap/completed/05-guest-payments.md`, lines 1–55 (55 lines; whole document) | What guest-payment scope, kickoff decisions, deferred work, and recorded acceptance does the historical Milestone 5 record specify? | LUNA high | MBA-AUDIT-043 | Exact path:line citations for scope/status/deferments and evidence actually claimed; preserve the distinction between guest payments and platform billing and link to current owners without re-auditing code. |
+| MBA-AUDIT-058 | `docs/roadmap/completed/10-individual-room-booking.md`, lines 1–127 (127 lines; whole document) | What individual-room booking scope, sequencing changes, deferrals, and close-out evidence does the historical Milestone 10 record preserve? | LUNA high | MBA-AUDIT-043 | Exact path:line citations across the full document, dated provenance and status qualifiers, current canonical links, and explicit missing evidence; no assumption that historical Done text independently proves current behavior. |
+| MBA-AUDIT-059 | `docs/roadmap/completed/README.md`, lines 1–7 (7 lines; whole document) | What navigation and historical-status qualification does the completed-milestone index provide, and do its links resolve to the records listed? | LUNA high | MBA-AUDIT-043 | Exact link/path citations and resolution results; record whether the index adds context beyond `docs/roadmap/README.md` without treating it as behavioral evidence. |
+
+These proposed IDs follow the queue's next free ID, 054, and are additions for the queue owner to register. Each dispatch covers one named document and writes its own bounded investigation note. The completed index is a separate small dispatch because its body had not been specifically recorded as read in the available coverage summaries. The requested historical reads remain open; this plan does not make them complete.
+
+**Limits and checks:** No product code or provider/database behavior was examined. No tests or external calls were run. One discovery command unintentionally requested the full Milestone 10 document; the tool response was truncated, so some historical text was exposed. No systematic review or claim extraction was performed from that output; the planned range is based on the observed heading boundaries and line count. Only this investigation note is intended to change; the root agent owns queue/status/handoff updates.
+
+## Astra disposition, 2026-09-27
+
+COMPLETE for dispatch planning. Registered 054–058 for the five requested documents. Did not register proposed 059: Astra read the completed-milestone index's seven lines as routing context; its two targets (current roadmap and architecture overview) already exist and are known canonical owners. The index states historical completion is neither current architecture nor authorization for old operational commands, and specifically preserves M12 reopened/deferred work. A separate investigation would repeat navigation already consumed here. Number 059 remains free for the next planning unit. All five registered content reads remain NOT STARTED; no implementation conclusion was accepted.

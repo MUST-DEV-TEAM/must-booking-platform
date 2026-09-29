@@ -1,0 +1,98 @@
+-- Milestone 21 Task 22, corrective reviews 2 and 3 (2026-09-19): additive
+-- changes to provider_events, documented in ADR-0031. Every statement is
+-- written to be safely rerunnable against a database that already has some
+-- or all of it applied (verified directly, not just asserted — see the
+-- corresponding entries in test/clock-webhook-recovery.e2e.spec.ts and the
+-- Task 22 evidence in docs/roadmap/milestones/21-clock-certification-fixes.md).
+--
+-- 1. processing_token: a per-attempt fencing token. Every claim (worker
+--    starting an attempt) writes its own token; every effect-applying or
+--    terminal write is guarded by "this token is still the current owner",
+--    validated under a real row lock held for the lifetime of the
+--    transaction that applies the local effect — not a preceding,
+--    separately-committed check. Protects against BullMQ's documented
+--    stalled-job caveat (the same job id can genuinely be processed by two
+--    overlapping attempts) — a stale attempt that finishes after a
+--    replacement has taken over can never finalize over the newer
+--    attempt's outcome, nor apply its own effect after losing ownership.
+--    NULL once terminal.
+--
+-- 2. processing_attempt: records the dispatch generation of the current
+--    claimant — BullMQ `job.attemptsStarted`, not `job.attemptsMade`
+--    (verified against the installed bullmq@6 source: `attemptsStarted`
+--    increments on every activation, including a stalled job's genuine
+--    reassignment, whereas `attemptsMade` only increments on genuine
+--    failure and can be shared by two overlapping attempts — see
+--    clock-provider-event-status.ts's `claimEventSql` doc comment). A claim
+--    only succeeds if no attempt has claimed yet, the claiming generation
+--    is strictly newer, or it is the same generation AND the same token
+--    (an idempotent re-claim by the same attempt) — otherwise a delayed
+--    claim from an obsolete generation, or a different attempt colliding on
+--    the same generation, could silently steal ownership back. Reset to
+--    NULL alongside processing_token whenever ingestion or the sweep starts
+--    a genuinely new BullMQ job for a row whose previous job's lineage is
+--    gone, so a fresh job's low first generation is never permanently
+--    blocked by a stale high-water mark left by a job that no longer
+--    exists.
+--
+-- 3. ProviderEventStatus gains NEEDS_RECONCILIATION: a durable, actionable
+--    parking state for the one gap the token mechanism cannot close on its
+--    own — a BullMQ job that ran to real completion whose own status write
+--    never landed (see ADR-0031 for why this is now legacy-only under
+--    correct operation, not a live design gap). Excluded from the recovery
+--    sweep's RECEIVED/QUEUED target set, so BullMQ's own completed-job
+--    retention expiring the underlying job can never silently flip a
+--    parked manual-reconciliation case back into automatic reprocessing —
+--    the row simply isn't a sweep candidate once parked here. A
+--    ManualReviewItem is recorded atomically with every transition into
+--    this status; resolving it is a deliberate, documented operator action
+--    (see docs/integrations/clock/webhooks-and-reconciliation.md), not
+--    this task's scope to automate further.
+--
+-- Rollback (corrective review 4, 2026-09-19): dropping processing_token /
+-- processing_attempt is NOT safe "at any time" — every code path that
+-- claims, fences or clears ownership (claimEventSql, guardedTransitionSql,
+-- ownershipLockSql/ownsRow) reads and writes these columns as part of its
+-- normal, non-error control flow, not as an optional extra. Dropping them
+-- while compatible application code is still running would make every
+-- claim attempt fail with an undefined-column error, not degrade
+-- gracefully to NULL.
+--
+-- Safe rollback ordering:
+--   1. Stop the ClockWorkerService worker process(es) and the recovery
+--      sweep first (or deploy a version of the code that no longer
+--      references these columns) — there must be no code path still
+--      claiming/fencing/clearing ownership before the columns disappear.
+--   2. Let any in-flight hydration attempt either finish or genuinely stall
+--      out (its BullMQ lock expires) with the old code/columns still
+--      present; do not drop columns while a claimed row's attempt is still
+--      running.
+--   3. Any row parked NEEDS_RECONCILIATION keeps its processing_token /
+--      processing_attempt values as historical claim metadata — they are
+--      not required to resolve the parked ManualReviewItem (resolution is
+--      the documented operator procedure, keyed off the row's status and
+--      the ManualReviewItem, not its processing_* columns), but dropping
+--      the columns first would erase that forensic trail. Resolve or
+--      export any rows of interest before dropping, if that history
+--      matters.
+--   4. Only once no running code references these columns is
+--      DROP COLUMN IF EXISTS safe to run.
+-- Prefer retaining these additive columns during an application rollback
+-- (roll the application code back to a version compatible with their
+-- presence; do not drop them) unless reclaiming the columns is itself the
+-- goal — that avoids this ordering entirely and is the lower-risk default.
+--
+-- There is no supported way to DROP an enum VALUE in PostgreSQL;
+-- NEEDS_RECONCILIATION is not removable by a rollback migration. If this
+-- code path is ever retired, stop writing the value in application code
+-- and resolve any existing NEEDS_RECONCILIATION rows via the documented
+-- operator procedure first — the unused enum value is permanently harmless
+-- to leave in place afterward.
+
+ALTER TABLE "provider_events" ADD COLUMN IF NOT EXISTS "processing_token" TEXT;
+ALTER TABLE "provider_events" ADD COLUMN IF NOT EXISTS "processing_attempt" INTEGER;
+
+-- PostgreSQL 9.6+ supports IF NOT EXISTS here; PostgreSQL 12+ additionally
+-- allows this inside a transaction as long as the new value isn't used by
+-- a statement in the same transaction, which this migration does not do.
+ALTER TYPE "ProviderEventStatus" ADD VALUE IF NOT EXISTS 'NEEDS_RECONCILIATION';

@@ -5,7 +5,7 @@ Date: 2026-07-27
 
 ## Context
 
-Every domain table needs a tenant isolation approach decided before schema work starts, because migrating between approaches later is expensive and risky (see `TENANCY.md`). Options and tradeoffs:
+Every domain table needs a tenant isolation approach decided before schema work starts, because migrating between approaches later is expensive and risky (see `docs/architecture/data-and-access.md`). Options and tradeoffs:
 
 1. **Shared schema + `tenant_id` + Postgres row-level security (RLS)** — one database, RLS policies enforce isolation at the database layer as a backstop even if application code has a bug. Simplest operationally; easiest for cross-tenant admin/support tooling and analytics.
 2. **Schema-per-tenant** — strongest blast-radius isolation and simplest per-tenant export/delete, but heavier migration fan-out (every migration runs N times) and connection-pool complexity as tenant count grows.

@@ -16,6 +16,16 @@ export type Overview = {
     availableRoomNights: number;
     occupancyRate: number | null;
   };
+  revenue: { today: { amount: string; currency: string } | null };
+  balanceDueAtDesk: { amount: string; currency: string } | null;
+  newBookingsSinceYesterday: number;
+  needsAttentionCount: number;
+  todaysArrivals: ArrivalDeparture[];
+  todaysDepartures: ArrivalDeparture[];
+  upcomingArrivals: UpcomingArrival[];
+  soldOutRooms: SoldOutRoom[];
+  recentCancellations: RecentCancellation[];
+  recentActivity: ActivityItem[];
   needsAttention: Array<{
     id: string;
     status: string;
@@ -25,13 +35,47 @@ export type Overview = {
     guestEmail: string;
     roomTypeName: string;
   }>;
-  recentActivity: Array<{
-    id: string;
-    action: string;
-    targetType: string;
-    targetId: string;
-    createdAt: string;
-  }>;
+};
+
+type ArrivalDeparture = {
+  id: string;
+  externalReference: string;
+  guestName: string | null;
+  guestEmail: string;
+  roomTypeName: string;
+  adults: number;
+  children: number;
+  hasSpecialRequests: boolean;
+  paymentMethod: string;
+  totalAmount: string;
+  currency: string;
+};
+
+type UpcomingArrival = ArrivalDeparture & { startsOn: string };
+
+type SoldOutRoom = {
+  roomId: string;
+  roomName: string;
+  roomTypeName: string;
+  reason: 'booked' | 'blocked';
+};
+
+type RecentCancellation = {
+  id: string;
+  externalReference: string;
+  guestName: string | null;
+  guestEmail: string;
+  roomTypeName: string;
+  startsOn: string;
+  endsOn: string;
+  cancelledAt: string;
+};
+
+type ActivityItem = {
+  id: string;
+  action: string;
+  createdAt: string;
+  summary: string;
 };
 
 type AttentionStatusBadge =
@@ -127,30 +171,139 @@ export function DashboardOverview({
           value={overview.kpis.occupancyRate === null ? '—' : `${overview.kpis.occupancyRate}%`}
           detail={`${overview.kpis.bookedRoomNights} of ${overview.kpis.availableRoomNights} room-nights`}
         />
+        <Stat
+          label="Today’s revenue"
+          value={overview.revenue.today ? formatMoney(overview.revenue.today) : '—'}
+        />
+        {overview.balanceDueAtDesk ? (
+          <Stat label="Due at the desk" value={formatMoney(overview.balanceDueAtDesk)} />
+        ) : null}
+        <Stat label="New bookings" value={overview.newBookingsSinceYesterday} detail="Since yesterday" />
+        <a
+          className={styles.attentionStat}
+          href={dashboardHref(tenantId, propertyId, 'overview', 'needs-attention')}
+        >
+          <Stat label="Needs attention" value={overview.needsAttentionCount} />
+        </a>
       </section>
 
-      <section className={styles.panels}>
-        <Card>
-          <Heading level={2}>Recent activity</Heading>
-          {overview.recentActivity.length === 0 ? (
-            <Text tone="secondary">No recent property activity.</Text>
-          ) : (
-            <ul className={styles.list}>
-              {overview.recentActivity.map((activity) => (
-                <li key={activity.id}>
-                  <div>
-                    <strong>{formatAction(activity.action)}</strong>
-                    <Text tone="secondary">{activity.targetType}</Text>
-                  </div>
-                  <time dateTime={activity.createdAt}>{formatTime(activity.createdAt)}</time>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      </section>
+      <div className={styles.columns}>
+        <Stack gap="lg">
+          <Card>
+            <Heading level={2}>Today’s arrivals ({overview.todaysArrivals.length})</Heading>
+            <GuestList empty="No arrivals expected today." items={overview.todaysArrivals} />
+          </Card>
+          <Card>
+            <Heading level={2}>Today’s departures ({overview.todaysDepartures.length})</Heading>
+            <GuestList empty="No departures expected today." items={overview.todaysDepartures} />
+          </Card>
+          <Card>
+            <Heading level={2}>Recent activity</Heading>
+            {overview.recentActivity.length === 0 ? (
+              <Text tone="secondary">No recent bookings or cancellations.</Text>
+            ) : (
+              <ul className={styles.list}>
+                {overview.recentActivity.map((activity) => (
+                  <li key={activity.id}>
+                    <Text>{activity.summary}</Text>
+                    <time dateTime={activity.createdAt}>{formatTime(activity.createdAt)}</time>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </Stack>
+
+        <Stack gap="lg">
+          <Card>
+            <Heading level={2}>Upcoming arrivals (next 7 days)</Heading>
+            {overview.upcomingArrivals.length === 0 ? (
+              <Text tone="secondary">No arrivals in the next 7 days.</Text>
+            ) : (
+              <ul className={styles.list}>
+                {overview.upcomingArrivals.map((arrival) => (
+                  <li key={arrival.id}>
+                    <div>
+                      <strong>{arrival.guestName ?? arrival.guestEmail}</strong>
+                      <Text tone="secondary">
+                        {arrival.roomTypeName} · {partySize(arrival)}
+                        {arrival.hasSpecialRequests ? ' · Special request' : ''}
+                      </Text>
+                    </div>
+                    <time dateTime={arrival.startsOn}>{formatDay(arrival.startsOn)}</time>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+          {overview.soldOutRooms.length > 0 ? (
+            <Card>
+              <Heading level={2}>Sold out tonight ({overview.soldOutRooms.length})</Heading>
+              <ul className={styles.list}>
+                {overview.soldOutRooms.map((room) => (
+                  <li key={room.roomId}>
+                    <div>
+                      <strong>{room.roomTypeName} — {room.roomName}</strong>
+                    </div>
+                    <StatusBadge
+                      domain="booking"
+                      label={room.reason === 'blocked' ? 'Blocked' : 'Booked'}
+                      state={room.reason === 'blocked' ? 'pending' : 'confirmed'}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
+          {overview.recentCancellations.length > 0 ? (
+            <Card>
+              <Heading level={2}>Cancelled in the last 24h</Heading>
+              <ul className={styles.list}>
+                {overview.recentCancellations.map((cancellation) => (
+                  <li key={cancellation.id}>
+                    <div>
+                      <strong>{cancellation.guestName ?? cancellation.guestEmail}</strong>
+                      <Text tone="secondary">
+                        {cancellation.roomTypeName} · {cancellation.startsOn} – {cancellation.endsOn}
+                      </Text>
+                    </div>
+                    <time dateTime={cancellation.cancelledAt}>
+                      {formatTime(cancellation.cancelledAt)}
+                    </time>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
+        </Stack>
+      </div>
     </Stack>
   );
+}
+
+function GuestList({ items, empty }: { items: ArrivalDeparture[]; empty: string }) {
+  if (items.length === 0) return <Text tone="secondary">{empty}</Text>;
+  return (
+    <ul className={styles.list}>
+      {items.map((item) => (
+        <li key={item.id}>
+          <div>
+            <strong>{item.guestName ?? item.guestEmail}</strong>
+            <Text tone="secondary">
+              {item.roomTypeName} · {partySize(item)}
+              {item.hasSpecialRequests ? ' · Special request' : ''}
+            </Text>
+          </div>
+          <Text tone="secondary">{item.externalReference}</Text>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function partySize(item: ArrivalDeparture): string {
+  const children = item.children > 0 ? `, ${item.children} child${item.children === 1 ? '' : 'ren'}` : '';
+  return `${item.adults} adult${item.adults === 1 ? '' : 's'}${children}`;
 }
 
 export function NeedsAttentionTab({
@@ -263,12 +416,18 @@ function attentionStatusBadge(status: string): AttentionStatusBadge {
   return { domain: 'booking', state: 'pending', label: formatStatus(status) };
 }
 
-function formatAction(action: string) {
-  return action.replaceAll('.', ' ');
+function formatMoney(value: { amount: string; currency: string }): string {
+  return `${value.amount} ${value.currency}`;
 }
 
 function formatTime(value: string) {
   return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(
     new Date(value),
+  );
+}
+
+function formatDay(value: string) {
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(
+    new Date(`${value}T00:00:00`),
   );
 }

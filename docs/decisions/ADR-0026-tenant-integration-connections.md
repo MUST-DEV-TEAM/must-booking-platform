@@ -30,7 +30,7 @@ Storing real, later-decryptable third-party API credentials is also new ground f
 ## Consequences
 
 - Milestone 11's task table (kickoff not yet started) must include the Integration Connection foundation as its own early tasks, before the Clock-specific catalog-sync/booking tasks that depend on it.
-- Milestone 5 will be reopened a second time (first reopening: 2026-07-31, for the existing gateway toggle and PokPay support) for the tenant-owned-credentials migration. `docs/ROADMAP.md`'s Milestone 5 entry will need another line noting this.
+- Milestone 5 will be reopened a second time (first reopening: 2026-07-31, for the existing gateway toggle and PokPay support) for the tenant-owned-credentials migration. `docs/roadmap/README.md`'s Milestone 5 entry will need another line noting this.
 - `Property.stripeEnabled` / `Property.pokpayEnabled` / `Property.payAtHotelEnabled` are **not removed or restructured** — they keep meaning "guests can pay this way at this property," just resolved against a tenant's own connection instead of a platform-shared account once the Milestone 5 follow-up lands.
 - `PmsProvider` selection moves from a single global DI binding to a per-property lookup keyed by the property's active PMS connection — a real change to `apps/api/src/booking/local-pms.provider.ts`'s wiring, scoped to Milestone 11.
 - The existing `IntegrationOperation` table (tenant/property-scoped, provider-agnostic idempotency/outbox) is reused as-is for Clock PMS operations; it is not part of the new Integration Connection concept (one tracks *what a connection is*, the other tracks *what happened using it*).

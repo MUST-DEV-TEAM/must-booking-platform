@@ -1,15 +1,17 @@
 # Milestone 4: Local Booking Domain & State Machine
 
+> **Historical delivery record.** Statuses and test/deployment claims below belong to their recorded dates, not a fresh certification. Current behavior is owned by the [documentation router](../../README.md); current deferrals/reopened work are summarized in the [roadmap](../README.md).
+
 Status: Done (reopened and re-closed 2026-07-31 for task 11)
 Depends on: Milestone 3
 
 ## Goal
 
-The provider-agnostic booking domain exists: the `PmsProvider` interface (`docs/ARCHITECTURE.md`), a `LocalPmsProvider` implementation, the booking state machine, and idempotent booking creation/update/cancellation — proven against local inventory before any PMS complexity is introduced. Done means: a booking can be created, updated, and cancelled idempotently, with double-booking provably prevented under concurrency.
+The provider-agnostic booking domain exists: the `PmsProvider` interface (`docs/architecture/overview.md`), a `LocalPmsProvider` implementation, the booking state machine, and idempotent booking creation/update/cancellation — proven against local inventory before any PMS complexity is introduced. Done means: a booking can be created, updated, and cancelled idempotently, with double-booking provably prevented under concurrency.
 
 ## Draft task areas (not final — define the real 10 tasks at kickoff)
 
-1. `PmsProvider` interface finalized in `packages/domain-contracts` per `docs/ARCHITECTURE.md`'s signature.
+1. `PmsProvider` interface finalized in `packages/domain-contracts` per `docs/architecture/overview.md`'s signature.
 2. `LocalPmsProvider` implementation over Milestone 3's inventory model.
 3. Booking state machine (adapted from `docs/source/clock-pms-integration.pdf` section 17 for the local-only path: DRAFT → QUOTED → INVENTORY_REVALIDATING → ... → CONFIRMED, plus failure states).
 4. Quote snapshot mechanism (signed/session-bound, tamper/staleness detection per the source brief section 16).
@@ -38,7 +40,7 @@ Resolved at kickoff on 2026-07-30, before writing the task table below:
 
 | # | Task | Acceptance criteria | Status | PR |
 | --- | --- | --- | --- | --- |
-| 1 | Finalize `PmsProvider` interface and shared booking domain types in `packages/domain-contracts` | `unknown` placeholders in `PmsProvider` (`packages/domain-contracts/src/index.ts`) replaced with real types: `Booking`, `BookingStatus` (ADR-0014's full enum), `Result<T>`, `Page<T>`, `AvailabilityQuery`/`AvailabilityResult`, `CreateBookingCommand`/`UpdateBookingCommand`/`CancelBookingCommand`. No behavior change — types only, matching the signature already documented in `docs/ARCHITECTURE.md`. | Done | (uncommitted locally) |
+| 1 | Finalize `PmsProvider` interface and shared booking domain types in `packages/domain-contracts` | `unknown` placeholders in `PmsProvider` (`packages/domain-contracts/src/index.ts`) replaced with real types: `Booking`, `BookingStatus` (ADR-0014's full enum), `Result<T>`, `Page<T>`, `AvailabilityQuery`/`AvailabilityResult`, `CreateBookingCommand`/`UpdateBookingCommand`/`CancelBookingCommand`. No behavior change — types only, matching the signature already documented in `docs/architecture/overview.md`. | Done | (uncommitted locally) |
 | 2 | `bookings` table + state machine transition guard | New `bookings` table: `tenant_id`, `property_id`, `room_type_id`, `guest_id`, `status` (ADR-0014's enum), `starts_on`/`ends_on`, `rate_plan_id`, `total_amount` (NUMERIC), `created_at`/`updated_at`, optimistic `version` column. A `BookingStateMachine` (or equivalent service method) holds the full transition table from ADR-0014 and rejects any transition not in it — covered by a unit test enumerating every valid and several invalid transitions. Required follow-up (recovery transitions for `MANUAL_REVIEW`/`PMS_UNKNOWN_RESULT`/`PMS_REJECTED`, found in review) landed and verified. | Done | (uncommitted locally) |
 | 3 | Inventory consumption (ADR-0013) | Migration adds `booked_units INTEGER NOT NULL DEFAULT 0` + `CHECK (booked_units >= 0)` + `CHECK (booked_units <= available_units)` to `inventory_units`. `AvailabilityService.getAvailability` aggregate changes to `available_units - booked_units`. A new internal method reserves/releases `booked_units` across a date range inside a caller-supplied transaction (used by tasks 4 and 9), taking a `pg_advisory_xact_lock` scoped to `(tenant_id, property_id, room_type_id)` before checking/updating the range. | Done | (uncommitted locally) |
 | 4 | `LocalPmsProvider` implementation | Implements all 8 `PmsProvider` methods over Milestone 3's catalog + task 3's inventory: `testConnection` is a trivial success, `syncCatalog` returns local room types/rates as a `Page`, `getAvailability` delegates to `AvailabilityService`, `createBooking`/`updateBooking`/`cancelBooking` drive the state machine (task 2) through `PMS_CREATION_PENDING`/`PMS_CONFIRMATION_PENDING` synchronously in the same transaction. Registered as the only `PmsProvider` implementation for now (no admin-facing provider selection yet — that's Milestone 10). Required follow-up (pre-reservation cancellation crash; missing `booking.created`/`booking.cancelled` audit entries) landed and verified — both reproduced independently before the fix, and re-verified after. Open design note carried to a standalone follow-up (see below): the audit entries use `guestId` as `actorUserId`, which is a real value but a semantic mismatch — `PmsProviderContext` (my own Task 1 design) has no actor-identity field at all, so there was no correct value available; `AuditLogService`'s `actor_user_id` is `NOT NULL` and every other caller in the codebase populates it with a real `users.id`. | Done | (uncommitted locally) |

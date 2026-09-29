@@ -1,11 +1,13 @@
 # Milestone 2: Self-Serve Signup & Free Plan Onboarding
 
+> **Historical delivery record.** Statuses and test/deployment claims below belong to their recorded dates, not a fresh certification. Current behavior is owned by the [documentation router](../../README.md); current deferrals/reopened work are summarized in the [roadmap](../README.md).
+
 Status: Done
 Depends on: Milestone 1; ADR-0007 (illustrative plan shape, PMS connections capped not unlimited), ADR-0008 (self-serve, permanent Free plan — separate from any paid-plan trial)
 
 ## Goal
 
-A new hotel can sign up self-serve, without a payment card, and land directly on the **permanent** Free plan (illustrative limits from `docs/BILLING.md` — real numbers confirmed at Milestone 9). Free has no expiry clock — signup does not start a trial. Done means: a stranger can complete signup end-to-end and reach an empty tenant dashboard on Free. The separate, optional paid-plan-trial start/expiry mechanism (ADR-0008) is built in Milestone 9 alongside the upgrade flow, not here.
+A new hotel can sign up self-serve, without a payment card, and land directly on the **permanent** Free plan (illustrative limits from `docs/architecture/platform-billing.md` — real numbers confirmed at Milestone 9). Free has no expiry clock — signup does not start a trial. Done means: a stranger can complete signup end-to-end and reach an empty tenant dashboard on Free. The separate, optional paid-plan-trial start/expiry mechanism (ADR-0008) is built in Milestone 9 alongside the upgrade flow, not here.
 
 ## Draft task areas (not final — define the real 10 tasks at kickoff)
 
@@ -23,7 +25,7 @@ A new hotel can sign up self-serve, without a payment card, and land directly on
 ## Kickoff decisions (2026-07-28)
 
 - Plan schema: a real `plans` table from day one (not hardcoded constants on `organizations`), per ADR-0007's "extensible for future tiers" intent — seeded with a single Free row now; Milestone 9 adds further rows (and Stripe wiring) rather than reworking the schema.
-- Email provider: **Resend**, wired behind a `MailProvider` interface mirroring `PmsProvider`'s pattern (`docs/ARCHITECTURE.md`) — chosen for its usable free tier and no sandbox/production-access approval step, unlike SES; Postmark's free tier is a one-time 100 emails and not workable ongoing.
+- Email provider: **Resend**, wired behind a `MailProvider` interface mirroring `PmsProvider`'s pattern (`docs/architecture/overview.md`) — chosen for its usable free tier and no sandbox/production-access approval step, unlike SES; Postmark's free tier is a one-time 100 emails and not workable ongoing.
 - Email verification gating: **dashboard access is granted immediately after signup**, before verification — unverified accounts see a persistent banner and lose access to sensitive actions (e.g. staff invite) until verified. This also requires signup to auto-issue a session (Milestone 1's `signup` endpoint does not set a session cookie today — Task 2 adds that).
 - Signup-abuse guardrails: **rate limiting only** (Redis-backed, per-IP and per-email) — no CAPTCHA for v1; add one later only if abuse is actually observed.
 - First property fields at signup: **name, address, timezone** — enough for Milestone 3 to build on without a schema patch; currency and other property detail remain Milestone 3's job.
@@ -32,7 +34,7 @@ A new hotel can sign up self-serve, without a payment card, and land directly on
 
 | # | Task | Acceptance criteria | Status | PR |
 | --- | --- | --- | --- | --- |
-| 1 | `plans` table: `max_properties`, `max_staff_seats`, `pms_enabled`, `max_pms_connections_per_property`; seed one Free row (illustrative numbers per `docs/BILLING.md`, labeled as such). Add `organizations.plan_id` FK, defaulting new rows to Free. | Migration applies cleanly; a fresh `organizations` row without an explicit `plan_id` resolves to the seeded Free plan. | Done | `20260728010000_plans` |
+| 1 | `plans` table: `max_properties`, `max_staff_seats`, `pms_enabled`, `max_pms_connections_per_property`; seed one Free row (illustrative numbers per `docs/architecture/platform-billing.md`, labeled as such). Add `organizations.plan_id` FK, defaulting new rows to Free. | Migration applies cleanly; a fresh `organizations` row without an explicit `plan_id` resolves to the seeded Free plan. | Done | `20260728010000_plans` |
 | 2 | Signup API: single transaction creating `organization` (Free plan) + first `property` (name/address/timezone) + first admin `user` + `tenant_membership` (Owner) + email-verification token issuance (reusing Milestone 1's `issueToken`), plus auto-login (issues a session/cookie same as `login`, since today's `signup` does not). | One request leaves the caller with a valid session and a fully-formed tenant/property/Owner membership, all four rows created atomically (no partial state on failure). | Done | `20260728020000_signup_property_details` |
 | 3 | `MailProvider` interface (mirrors `PmsProvider`) + Resend implementation. Wire real sending of the verification email (token from Task 2) and a welcome email triggered on successful verification. **Two follow-ups found in review, both landed:** (1) `signup()`/`verifyEmail()` catch-and-log mail-send failures instead of unwinding an already-committed core action; (2) `WEB_APP_URL` is now boot-time required in `environment.ts` (matching `DATABASE_URL`/`REDIS_URL`), and verification-URL construction moved inside the same try/catch boundary as the mail send, so no future construction step can bypass it either. Both proven by dedicated tests, including one that deletes `process.env.WEB_APP_URL` mid-run and asserts signup still returns 201 with a session. | Signing up sends a real verification email via Resend; verifying triggers a welcome email; provider access is only through the interface, never a direct Resend call from domain code; a mail-provider failure — or a misconfigured mail-related env var — does not fail signup or verification once the underlying DB state has committed. | Done | (uncommitted locally) |
 | 4 | Signup UI (Next.js): organization name, first property basics (name/address/timezone), admin account fields; submits to Task 2's API and redirects straight to the dashboard shell. | A stranger can complete the form and land on the dashboard in one flow, no separate login step. | Done | (uncommitted locally) |

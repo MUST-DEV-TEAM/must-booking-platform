@@ -9,6 +9,7 @@ import type { ClockBookingHydrationService } from './clock-booking-hydration.ser
 import type { ClockFolioHydrationService } from './clock-folio-hydration.service';
 import type { ClockBookingConsistencyService } from './clock-booking-consistency.service';
 import type { ClockPaymentReconciliationService } from './clock-payment-reconciliation.service';
+import type { ManualReviewService } from '../manual-review.service';
 import { ClockQueueService } from './clock-queue.service';
 import { ClockWorkerService } from './clock-worker.service';
 
@@ -35,6 +36,7 @@ describe('ClockQueueService + ClockWorkerService (real Redis)', () => {
     { activeClockPmsProperties: async () => [] } as never,
     {} as ClockBookingConsistencyService,
     {} as ClockPaymentReconciliationService,
+    {} as ManualReviewService,
   );
   const inspectionConnection = new IORedis(process.env.REDIS_URL!, { maxRetriesPerRequest: null });
 
@@ -93,5 +95,75 @@ describe('ClockQueueService + ClockWorkerService (real Redis)', () => {
 
     const dlq = new Queue(CLOCK_DEAD_LETTER_QUEUE_NAME, { connection: inspectionConnection });
     await waitFor(async () => (await dlq.getJobCounts()).waiting >= 1);
+  });
+
+  describe('reconcileJob — real BullMQ job-state reconciliation', () => {
+    it('reports "missing" for a job id that was never added', async () => {
+      const state = await queues.reconcileJob('clock.webhooks', `never-added:${randomUUID()}`);
+      expect(state).toBe('missing');
+    });
+
+    it('reports "in-flight" for a job still waiting (not yet picked up)', async () => {
+      // clock.webhooks has a real worker running in this suite (started by
+      // workers.onModuleInit() above) that would race this test by picking
+      // the job up immediately, so use a queue this suite's worker doesn't
+      // drain quickly: clock.catalog.sync's skeleton processor resolves
+      // instantly too, so instead pause it briefly via an artificial delay.
+      const jobId = randomUUID();
+      await queues.enqueue('clock.catalog.sync', 'full-sync', { jobId }, { jobId, delay: 2_000 });
+      const state = await queues.reconcileJob('clock.catalog.sync', jobId);
+      expect(state).toBe('in-flight'); // BullMQ's 'delayed' state, folded into in-flight
+    });
+
+    it('reports "completed" for a job that ran to completion, and confirms add() with the same id does not restart it', async () => {
+      const jobId = randomUUID();
+      await queues.enqueue('clock.catalog.sync', 'full-sync', { jobId }, { jobId, attempts: 1 });
+      const inspection = new Queue('clock.catalog.sync', { connection: inspectionConnection });
+      await waitFor(async () => (await (await inspection.getJob(jobId))?.isCompleted()) ?? false);
+
+      expect(await queues.reconcileJob('clock.catalog.sync', jobId)).toBe('completed');
+
+      // The literal behavior the corrective review asked to be proven: a
+      // second add() with the same job id does not create a fresh attempt.
+      await queues.enqueue('clock.catalog.sync', 'full-sync', { jobId }, { jobId, attempts: 1 });
+      const job = await inspection.getJob(jobId);
+      // Still the original completed job — no new attempt was scheduled.
+      expect(await job?.isCompleted()).toBe(true);
+      expect(job?.attemptsMade).toBeLessThanOrEqual(1);
+    });
+
+    it('reports "failed" for a job that exhausted every attempt, and confirms add() with the same id does not restart it', async () => {
+      // Force a real failure: a job name this worker's process() dispatch
+      // has no branch for still resolves (the skeleton no-op path), so use
+      // clock.critical.commands with a job name that also hits the no-op
+      // path — to get a real *failure* instead, remove the job first so a
+      // second add() can be observed as a no-op against a job Redis still
+      // remembers as failed. Simpler and just as real: enqueue with 0
+      // remaining attempts is not supported by BullMQ, so instead add a job
+      // whose processor throws by using clock.webhooks/hydrate-event with
+      // malformed data (isHydrateEventJobData rejects it synchronously,
+      // matching real worker behavior exercised in clock-worker.service.spec.ts).
+      const jobId = randomUUID();
+      await queues.enqueue(
+        'clock.webhooks',
+        'hydrate-event',
+        { bogus: true },
+        { jobId, attempts: 1, backoff: { type: 'fixed', delay: 1 } },
+      );
+      const inspection = new Queue('clock.webhooks', { connection: inspectionConnection });
+      await waitFor(async () => (await (await inspection.getJob(jobId))?.isFailed()) ?? false);
+
+      expect(await queues.reconcileJob('clock.webhooks', jobId)).toBe('failed');
+
+      await queues.enqueue(
+        'clock.webhooks',
+        'hydrate-event',
+        { bogus: true },
+        { jobId, attempts: 1 },
+      );
+      const job = await inspection.getJob(jobId);
+      expect(await job?.isFailed()).toBe(true);
+      expect(job?.attemptsMade).toBeLessThanOrEqual(1);
+    });
   });
 });

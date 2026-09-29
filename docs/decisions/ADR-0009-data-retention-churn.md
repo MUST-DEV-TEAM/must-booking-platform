@@ -5,7 +5,7 @@ Date: 2026-07-27
 
 ## Context
 
-Options presented were: retain for a grace period (e.g. 30-90 days) then hard delete, retain indefinitely until an explicit deletion request, or delete/anonymize immediately on cancellation. This is distinct from guest-data GDPR retention (`docs/PROJECT_CONTEXT.md`, `docs/source/clock-pms-integration.pdf` section 24), which covers guest PII within an active tenant, not what happens to a whole tenant's data after it churns.
+Options presented were: retain for a grace period (e.g. 30-90 days) then hard delete, retain indefinitely until an explicit deletion request, or delete/anonymize immediately on cancellation. This is distinct from guest-data GDPR retention (`docs/product-overview.md`, `docs/source/clock-pms-integration.pdf` section 24), which covers guest PII within an active tenant, not what happens to a whole tenant's data after it churns.
 
 ## Options
 
@@ -22,8 +22,8 @@ Accepted by the owner on 2026-07-27.
 ## Consequences
 
 - On cancellation, the tenant's account moves to a `cancelled` state with data intact but access gated (per ADR-0005/0008's Free-plan boundary — a cancelled paid tenant likely reverts to Free-plan-level access, or no access; confirm exact reactivation-window UX during Phase 3 implementation, not blocking this ADR).
-- A scheduled job (BullMQ, per `ARCHITECTURE.md`) hard-deletes a tenant's data 30 days after cancellation if the subscription has not been reactivated. This must be idempotent and auditable (log what was deleted and when).
-- **Scope confirmed by the owner (2026-07-27): tenant data only.** Deletion covers the organization/tenant record, properties, staff/user accounts, and operational subscription state (plan assignment, tenant-side billing settings). It explicitly does **not** cover guest/booking/payment history — that data follows its own retention rule (unaffected by this ADR), per `PROJECT_CONTEXT.md`'s domain separation between platform billing and guest payments. If guest/booking data must eventually be deleted for a churned tenant (e.g. a GDPR erasure request), that is governed separately, not by this ADR.
+- A scheduled job (BullMQ, per `docs/architecture/overview.md`) hard-deletes a tenant's data 30 days after cancellation if the subscription has not been reactivated. This must be idempotent and auditable (log what was deleted and when).
+- **Scope confirmed by the owner (2026-07-27): tenant data only.** Deletion covers the organization/tenant record, properties, staff/user accounts, and operational subscription state (plan assignment, tenant-side billing settings). It explicitly does **not** cover guest/booking/payment history — that data follows its own retention rule (unaffected by this ADR), per `docs/product-overview.md`'s domain separation between platform billing and guest payments. If guest/booking data must eventually be deleted for a churned tenant (e.g. a GDPR erasure request), that is governed separately, not by this ADR.
 - **Refined by the owner (2026-07-27, second review pass): billing/legal records are explicitly carved out of the 30-day hard delete**, correcting the earlier version of this ADR which listed "invoices, payment method" as deleted with tenant data. The 30-day job must not delete:
   - **Invoices, tax records, and payment-transaction records** — retained per applicable legal/tax retention policy (typically several years), independent of the tenant-data deletion job.
   - **Security/fraud/audit logs** — retained per the security retention policy, not the 30-day tenant-data window.

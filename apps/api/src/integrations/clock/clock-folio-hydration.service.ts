@@ -1,7 +1,8 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 
-import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
+import { TenantDatabaseService, type TenantTransaction } from '../../tenancy/tenant-database.service';
 import { IntegrationConnectionsService } from '../integration-connections.service';
+import { guardedTransitionSql, ownershipLockSql, ownsRow, type OwnershipRow } from './clock-provider-event-status';
 import { ClockCircuitBreakerService, CircuitOpenError } from './clock-circuit-breaker';
 import { parseClockCredentials } from './clock-credentials';
 import {
@@ -43,7 +44,16 @@ export type FolioHydrationOutcome =
   | { outcome: 'applied'; bookingId: string }
   | { outcome: 'not_a_booking_folio' }
   | { outcome: 'booking_not_found' }
-  | { outcome: 'no_active_connection' };
+  | { outcome: 'no_active_connection' }
+  | { outcome: 'ownership_lost' };
+
+/** See ClockBookingHydrationService's EventOwnership doc — identical
+ * contract, kept as a separate type only because the two services don't
+ * share a base class. */
+export interface EventOwnership {
+  eventRowId: string;
+  token: string;
+}
 
 /**
  * Visibility-only Clock folio sync — originally Clock certification gap
@@ -76,6 +86,7 @@ export class ClockFolioHydrationService {
     tenantId: string,
     propertyId: string,
     folioId: string,
+    ownership?: EventOwnership,
   ): Promise<FolioHydrationOutcome> {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (!connection || connection.provider !== 'CLOCK_PMS') {
@@ -90,15 +101,24 @@ export class ClockFolioHydrationService {
       return { outcome: 'no_active_connection' };
     }
 
+    // Outbound HTTP stays outside the locked transaction below (ADR-0031).
     const detail = await this.fetchClock<ClockFolioDetail>(parsed.value, `/folios/${folioId}`);
-    if (detail.payer_type !== 'Booking' || detail.payer_id == null) {
-      this.logger.debug(
-        `Folio ${folioId} payer_type is "${detail.payer_type}", not a single booking — skipped (visibility-only scope).`,
-      );
-      return { outcome: 'not_a_booking_folio' };
-    }
 
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      if (ownership) {
+        const [lockSql, lockParams] = ownershipLockSql(tenantId, ownership.eventRowId);
+        const ownershipRows = await tx.$queryRawUnsafe<OwnershipRow[]>(lockSql, ...lockParams);
+        if (!ownsRow(ownershipRows[0], ownership.token)) return { outcome: 'ownership_lost' };
+      }
+
+      if (detail.payer_type !== 'Booking' || detail.payer_id == null) {
+        this.logger.debug(
+          `Folio ${folioId} payer_type is "${detail.payer_type}", not a single booking — skipped (visibility-only scope).`,
+        );
+        if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'IGNORED');
+        return { outcome: 'not_a_booking_folio' };
+      }
+
       const bookingRows = await tx.$queryRawUnsafe<Array<{ id: string }>>(
         `SELECT id FROM bookings WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND external_booking_id = $3`,
         tenantId,
@@ -110,6 +130,9 @@ export class ClockFolioHydrationService {
         this.logger.warn(
           `Folio ${folioId} belongs to Clock booking ${detail.payer_id}, which has no local shadow booking yet.`,
         );
+        // No status write here: the caller (worker) throws to let BullMQ
+        // retry — the folio-before-booking race — leaving the row QUEUED
+        // for a later attempt, same as before ownership fencing existed.
         return { outcome: 'booking_not_found' };
       }
 
@@ -140,8 +163,28 @@ export class ClockFolioHydrationService {
         closedAt,
       );
 
+      if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'HYDRATED');
       return { outcome: 'applied', bookingId };
     });
+  }
+
+  /** See ClockBookingHydrationService.finalizeOwnedEvent — identical
+   * contract. */
+  private async finalizeOwnedEvent(
+    tx: TenantTransaction,
+    tenantId: string,
+    ownership: EventOwnership,
+    status: 'HYDRATED' | 'IGNORED',
+  ): Promise<void> {
+    const [sql, params] = guardedTransitionSql({
+      tenantId,
+      eventRowId: ownership.eventRowId,
+      status,
+      allowedFrom: ['QUEUED'],
+      requireToken: ownership.token,
+      clearToken: true,
+    });
+    await tx.$executeRawUnsafe(sql, ...params);
   }
 
   /** Same rate-limit/circuit-breaker-wrapped GET pattern as
