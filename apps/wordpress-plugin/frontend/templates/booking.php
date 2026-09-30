@@ -329,6 +329,10 @@ if ($checkout !== '') {
                     <span class="must-booking-calendar-legend-box is-unavailable" aria-hidden="true"></span>
                     <span><?php echo \esc_html__('No Availability', 'must-hotel-booking'); ?></span>
                 </span>
+                <span class="must-booking-calendar-legend-item">
+                    <span class="must-booking-calendar-legend-box is-closed" aria-hidden="true"></span>
+                    <span><?php echo \esc_html__('Closed', 'must-hotel-booking'); ?></span>
+                </span>
             </div>
         </form>
 

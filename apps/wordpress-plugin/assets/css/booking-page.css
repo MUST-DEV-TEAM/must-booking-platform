@@ -603,6 +603,20 @@ body.must-hotel-booking-flow-page {
     box-shadow: 0 1px 1px rgba(0, 14, 51, 0.05);
 }
 
+/* Closed = rooms exist but sales were switched off (e.g. a staff vacation block); a calmer, separate look from sold out. */
+.must-hotel-booking-page-booking .must-booking-flatpickr-instance .flatpickr-day.must-booking-day-closed,
+.must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day.must-booking-day-closed {
+    --must-button-bg: #e3e9f1;
+    --must-button-border: #c4cfdd;
+    --must-button-color: #44526b;
+    color: #44526b;
+    background: #e3e9f1;
+    border: 1px solid #c4cfdd;
+    border-radius: 6px !important;
+    opacity: 1;
+    box-shadow: none;
+}
+
 .must-hotel-booking-page-booking .must-booking-flatpickr-instance .flatpickr-day.must-booking-day-unavailable::after,
 .must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day.must-booking-day-unavailable::after {
     content: '';
@@ -666,6 +680,11 @@ body.must-hotel-booking-flow-page {
 
 .must-hotel-booking-page-booking .must-booking-calendar-legend-box.is-unavailable {
     background: #f8fafb;
+}
+
+.must-hotel-booking-page-booking .must-booking-calendar-legend-box.is-closed {
+    background: #e3e9f1;
+    border-color: #c4cfdd;
 }
 
 .must-hotel-booking-page-booking .must-booking-calendar-legend-box.is-unavailable::after {

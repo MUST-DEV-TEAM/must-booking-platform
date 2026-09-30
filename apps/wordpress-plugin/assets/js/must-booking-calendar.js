@@ -216,6 +216,8 @@
     var sameDayClosed = c.sameDayAllowed === false || (!!cutoffMatch && hotelClock.minutes >= parseInt(cutoffMatch[1], 10) * 60 + parseInt(cutoffMatch[2], 10));
     var earliestStr = sameDayClosed ? addDaysToDateStr(todayStr, 1) : todayStr;
     var unavailableDates = {};
+    // date -> the API's day record (status, closedToArrival, closedToDeparture, minStay).
+    var dayInfo = {};
     var roomAvailability = c.roomAvailability || null;
     var roomTypeAvailability = c.roomTypeAvailability || null;
     /*
@@ -233,12 +235,16 @@
         if (!roomTypeId) return null;
         var adultsInput = document.querySelector('#must-booking-adults');
         var childrenInput = document.querySelector('#must-booking-children');
+        var roomCountInput = document.querySelector('#must-booking-room-count-select');
+        var roomCount = roomCountInput ? parseInt(roomCountInput.value, 10) : 0;
         return {
             ajaxUrl: roomTypeAvailability.ajaxUrl,
             nonce: roomTypeAvailability.nonce,
             roomTypeId: roomTypeId,
             adults: adultsInput && adultsInput.value ? adultsInput.value : '1',
-            children: childrenInput && childrenInput.value ? childrenInput.value : '0'
+            children: childrenInput && childrenInput.value ? childrenInput.value : '0',
+            // "Auto" (0) and 1 both mean a single room; only 2+ changes the answer.
+            rooms: roomCount > 1 ? String(roomCount) : ''
         };
     }
     var loadedMonths = {};
@@ -357,13 +363,14 @@
         var source = resolveCalendarAvailabilitySource();
         if (!source) return Promise.resolve();
         var month = monthKey(date);
-        var cacheKey = (source.roomTypeId ? source.roomTypeId + ':' + source.adults + ':' + source.children : '') + ':' + month;
+        var cacheKey = (source.roomTypeId ? source.roomTypeId + ':' + source.adults + ':' + source.children + ':' + (source.rooms || '1') : '') + ':' + month;
         if (loadedMonths[cacheKey]) return loadedMonths[cacheKey];
         var requestFields = { action: 'must_booking_room_calendar', nonce: source.nonce, month: month };
         if (source.roomTypeId) {
             requestFields.room_type_id = source.roomTypeId;
             requestFields.adults = source.adults;
             requestFields.children = source.children;
+            if (source.rooms) requestFields.rooms = source.rooms;
         }
         var requestBody = new URLSearchParams(requestFields);
         loadedMonths[cacheKey] = window.fetch(source.ajaxUrl, {
@@ -382,6 +389,7 @@
         }).then(function (response) {
             if (!response || !response.success || !response.data || !Array.isArray(response.data.days)) throw new Error('Invalid availability response.');
             response.data.days.forEach(function (day) {
+                if (day && day.date) dayInfo[day.date] = day;
                 if (day && day.date && day.isAvailable === false) unavailableDates[day.date] = true;
             });
             monthStatus[month] = 'ok';
@@ -403,6 +411,15 @@
         return roomDateIsUnavailable(date) || !monthIsVerified(dateKey(date));
     }
     var minimumNights = Math.max(1, parseInt(c.minimumNights, 10) || 1);
+    // The minimum stay for a given arrival date: the property-wide minimum, raised
+    // by any stricter per-date minimum stay Clock reports for that arrival.
+    function minNightsFor(checkinStr) {
+        var info = dayInfo[checkinStr];
+        return Math.max(minimumNights, info && info.minStay ? info.minStay : 0);
+    }
+    function dateIsClosedToDeparture(dateStr) {
+        return !!(dayInfo[dateStr] && dayInfo[dateStr].closedToDeparture === true);
+    }
     function addDaysToDateStr(dateStr, days) {
         var date = new Date(dateStr + 'T00:00:00');
         date.setDate(date.getDate() + days);
@@ -450,7 +467,12 @@
         return true;
     }
     function checkinDateBlockedByMinimumStay(date) {
-        return !checkinCanStartValidStay(dateKey(date), minimumNights);
+        // While a check-in is pending the same date list also decides check-outs,
+        // and arrival rules do not apply to those.
+        if (pendingRangeCheckin) return false;
+        var key = dateKey(date);
+        if (dayInfo[key] && dayInfo[key].closedToArrival === true) return true;
+        return !checkinCanStartValidStay(key, minNightsFor(key));
     }
     /*
      * The single-calendar range picker's own currently-picked checkin, while
@@ -469,11 +491,34 @@
     function rangeDateIsDisabled(date) {
         if (!pendingRangeCheckin) return false;
         var current = dateKey(date);
-        var earliestCheckout = addDaysToDateStr(pendingRangeCheckin, minimumNights);
+        var stayMinimum = minNightsFor(pendingRangeCheckin);
+        var earliestCheckout = addDaysToDateStr(pendingRangeCheckin, stayMinimum);
         if (current < earliestCheckout) return true;
-        var latestCheckout = latestValidCheckoutDate(pendingRangeCheckin, minimumNights);
+        var latestCheckout = latestValidCheckoutDate(pendingRangeCheckin, stayMinimum);
         if (!latestCheckout) return true;
-        return current > latestCheckout;
+        if (current > latestCheckout) return true;
+        return dateIsClosedToDeparture(current);
+    }
+    /*
+     * One rule for the single-calendar range picker. Choosing the check-in: the
+     * date must itself be open and able to start a valid stay. Choosing the
+     * check-out: only the stay window matters, which deliberately includes the
+     * first unavailable date after the last free night - a guest may leave on a
+     * day that is closed or sold out, since they never sleep that night.
+     */
+    function rangeModeDateIsDisabled(date) {
+        if (pendingRangeCheckin) return rangeDateIsDisabled(date);
+        return roomDateIsBlocked(date) || checkinDateBlockedByMinimumStay(date);
+    }
+    // Two-calendar layout: the check-out calendar, same "leave on the closed day" rule.
+    function checkoutCalendarDateIsDisabled(date) {
+        var key = dateKey(date);
+        var checkin = checkinField ? checkinField.value : '';
+        if (roomDateIsBlocked(date)) {
+            if (!checkin || unavailableDates[key] !== true) return true;
+            return latestValidCheckoutDate(checkin, minNightsFor(checkin)) !== key;
+        }
+        return dateIsClosedToDeparture(key);
     }
     /*
      * flatpickr's own 'flatpickr-disabled' class fires for several reasons
@@ -491,8 +536,14 @@
         var isPadding = dayElement.classList.contains('prevMonthDay') || dayElement.classList.contains('nextMonthDay');
         var isPast = dayElement.dateObj && dateKey(dayElement.dateObj) < earliestStr;
         // Past dates stay plainly faded; only genuinely sold-out dates get the slash.
-        var isReallyUnavailable = !isPadding && dayElement.dateObj && !isPast && roomDateIsUnavailable(dayElement.dateObj);
-        dayElement.classList.toggle('must-booking-day-unavailable', !!isReallyUnavailable);
+        // A day the guest can still pick as check-out (the day a closed stretch starts)
+        // is not shown as blocked.
+        var isSelectable = !dayElement.classList.contains('flatpickr-disabled');
+        var isReallyUnavailable = !isPadding && !isSelectable && dayElement.dateObj && !isPast && roomDateIsUnavailable(dayElement.dateObj);
+        var info = dayElement.dateObj ? dayInfo[dateKey(dayElement.dateObj)] : null;
+        var isClosed = !!isReallyUnavailable && !!info && info.status === 'closed';
+        dayElement.classList.toggle('must-booking-day-unavailable', !!isReallyUnavailable && !isClosed);
+        dayElement.classList.toggle('must-booking-day-closed', isClosed);
     }
     function refreshAvailability(picker) {
         if (!picker || !resolveCalendarAvailabilitySource()) return;
@@ -554,6 +605,7 @@
     function refreshRoomTypeAvailability() {
         if (roomAvailability) return;
         unavailableDates = {};
+        dayInfo = {};
         loadedMonths = {};
         monthStatus = {};
         calendarLoadMessage = '';
@@ -572,7 +624,7 @@
         if (checkoutHost) {
             checkoutPicker = window.flatpickr(checkoutHost, {
                 inline: true, dateFormat: 'Y-m-d', minDate: earliestStr, maxDate: maxDateStr,
-                disable: [roomDateIsBlocked],
+                disable: [checkoutCalendarDateIsDisabled],
                 defaultDate: checkoutField && checkoutField.value ? checkoutField.value : undefined,
                 onChange: function (selectedDates, dateStr, instance) { if (checkoutField) checkoutField.value = dateStr; updateArrivalDeparture(checkinField ? checkinField.value : '', dateStr); updateCalendarSelectionMarkers(instance, '', dateStr); scheduleSelectedRoomAvailabilityCheck(); },
                 onMonthChange: function (a, b, instance) { syncMonthYear(checkoutMonth, checkoutYear, instance); refreshAvailability(instance); updateCalendarSelectionMarkers(instance, '', checkoutField ? checkoutField.value : ''); },
@@ -600,18 +652,18 @@
                         checkoutPicker.set('maxDate', maxDateStr);
                     }
                     if (checkoutPicker && selectedDates[0]) {
-                        checkoutPicker.set('minDate', addDaysToDateStr(dateStr, minimumNights));
-                        var latestCheckout = latestValidCheckoutDate(dateStr, minimumNights);
+                        checkoutPicker.set('minDate', addDaysToDateStr(dateStr, minNightsFor(dateStr)));
+                        var latestCheckout = latestValidCheckoutDate(dateStr, minNightsFor(dateStr));
                         checkoutPicker.set('maxDate', latestCheckout || maxDateStr);
                         ensureStayMonthsLoaded(dateStr).then(function () {
-                            var verifiedLatest = latestValidCheckoutDate(dateStr, minimumNights);
+                            var verifiedLatest = latestValidCheckoutDate(dateStr, minNightsFor(dateStr));
                             checkoutPicker.set('maxDate', verifiedLatest || maxDateStr);
                             checkoutPicker.redraw();
                         });
                         // A previously chosen check-out that no longer fits the new check-in is dropped.
                         var keptCheckout = checkoutField ? checkoutField.value : '';
                         var latestAllowed = latestCheckout || maxDateStr;
-                        if (keptCheckout && (keptCheckout < addDaysToDateStr(dateStr, minimumNights) || keptCheckout > latestAllowed)) {
+                        if (keptCheckout && (keptCheckout < addDaysToDateStr(dateStr, minNightsFor(dateStr)) || keptCheckout > latestAllowed)) {
                             checkoutPicker.clear(false);
                             if (checkoutField) checkoutField.value = '';
                             updateArrivalDeparture(dateStr, '');
@@ -657,7 +709,7 @@
                 mode: 'range',
                 dateFormat: 'Y-m-d',
                 minDate: earliestStr, maxDate: maxDateStr,
-                disable: [roomDateIsBlocked, checkinDateBlockedByMinimumStay, rangeDateIsDisabled],
+                disable: [rangeModeDateIsDisabled],
                 defaultDate: (checkinField && checkinField.value && checkoutField && checkoutField.value) ? [checkinField.value, checkoutField.value] : undefined,
                 onChange: function (selectedDates, dateStr, instance) {
                     if (selectedDates.length < 2) {

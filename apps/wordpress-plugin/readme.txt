@@ -4,7 +4,7 @@ Tags: hotel, booking, reservation, accommodation
 Requires at least: 5.0
 Tested up to: 6.0
 Requires PHP: 7.4
-Stable tag: 0.4.107
+Stable tag: 0.4.108
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,9 @@ Main features include:
 5. When updating, upload the new release ZIP or use the configured updater, then review **Diagnostics & Maintenance** after the update completes.
 
 == Changelog ==
+
+= 0.4.108 =
+* Booking calendar: closed (stop-sale) dates get their own colour and legend entry, separate from fully booked; guests can check out on the first closed day; Clock arrival/departure closures and per-date minimum stay are honoured; multi-room searches only show dates with enough free rooms.
 
 = 0.4.107 =
 * Server-side enforcement of minimum/maximum nights, booking window and the same-day cutoff (hotel timezone) when a room is selected and when the booking is created, not only in the calendar; a room type that cannot be sold online now shows a clear message instead of a generic error.

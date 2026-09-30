@@ -452,6 +452,11 @@ function get_selected_room_calendar(): void
     if ($roomId !== '') {
         $query['roomId'] = $roomId;
     }
+    // A multi-room search needs that many rooms free on a night, not just one.
+    $rooms = isset($_POST['rooms']) ? (int) $_POST['rooms'] : 0;
+    if ($rooms > 1 && $rooms <= MustBookingConfig::get_max_booking_rooms()) {
+        $query['rooms'] = $rooms;
+    }
     $response = MustApiClient::get('/public/availability-calendar', $query);
     $responseStatus = (int) ($response['status'] ?? 0);
     if (!$response['ok'] && $responseStatus >= 400 && $responseStatus < 500) {
