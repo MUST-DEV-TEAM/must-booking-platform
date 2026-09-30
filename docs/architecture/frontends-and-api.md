@@ -8,6 +8,16 @@ Status: **IMPLEMENTED**, with named placeholders and legacy residue. Code inspec
 
 `dashboard/dashboard-shell.tsx` owns role/capability-filtered navigation and the shared shell. Hotels and property selection are present; integrations are reachable under Settings, and Quick Booking hosts walk-in creation. Settings is a hub/subview structure; notifications include an inbox. Inventory, Approvals and System Health still render explicit unavailable states. The old separate `main-dashboard.tsx` is absent.
 
+## Dashboard payments and guest pages (2026-10-01)
+
+The Payments section is a list plus two linkable detail views, all driven by URL parameters on the same shell (`?section=payments&payment=<bookingId>` and `?section=guests&guest=<guestId>`), so a booking or a guest can be opened, bookmarked and shared.
+
+- **List** ([payments.tsx](../../apps/web/app/dashboard/payments.tsx)): one row per booking with reference, guest, stay, separate Booking and Payment badges, and Total/Paid/Refunded/Outstanding columns; newest first; filter tabs with counts (All, Needs action, Outstanding, Paid, Refunded, Cancelled); search by reference, guest or email; per-currency totals; CSV export of the current view (spreadsheet formulas defused). Drafts that never reached payment are hidden.
+- **Status rules** ([payment-status.ts](../../apps/web/app/dashboard/payment-status.ts)): the payment state is read together with the booking status. A cancelled (or failed/rejected) booking is "Refund due", "Partially refunded", "Refunded" or "Nothing paid", never "Paid" or "Due at hotel"; only a live booking owes money (outstanding is total minus paid, unchanged by refunds); "needs action" is money held against a booking that will not happen, or a stuck booking.
+- **Payment page** ([payment-detail.tsx](../../apps/web/app/dashboard/payment-detail.tsx)): summary, every charge and refund from the ledger endpoint (provider reference, staff member, note), Clock folios, audit activity and the shared refund dialog ([payment-refund-dialog.tsx](../../apps/web/app/dashboard/payment-refund-dialog.tsx)). The ledger endpoint returns only whitelisted audit detail fields, never provider payloads.
+- **Guest page** ([guest-detail.tsx](../../apps/web/app/dashboard/guest-detail.tsx)): profile from the newest booking, lifetime paid/refunded/net/outstanding, every booking linked to its payment page, and possible duplicate profiles (same email ignoring case, or same name). It is built from the property bookings list; there is no single-guest endpoint.
+- **Not built yet:** guest notes and tags, a refund preview that shows the amount before confirming, an in-page view of Clock refund mirroring, and server-side paging for very large properties (the list loads all bookings).
+
 TanStack Query handles dashboard fetch/cache state and TanStack Table handles tables. `packages/ui/src` exports primitives, StatePanel, StatusBadge, shell/navigation and design tokens. ECharts is installed and registered in `dashboard/echart.tsx`; there is no unresolved ECharts-versus-Recharts implementation choice. Source presence does not certify Figma fidelity or accessibility. [Design documentation](../design/design-system.md) separates intended screens from built components.
 
 [next.config.ts](../../apps/web/next.config.ts) proxies `/api/:path*` to `API_URL/:path*` and `/clock-webhooks/:path*` to the API root route. It also configures Sentry and standalone output. This is a reverse-proxy boundary, not a second booking domain.
@@ -47,6 +57,7 @@ Routes below are relative to the Nest API. Browser requests through Next normall
 | Quotes | Same scope + `/quotes`, `/quotes/display-prices` |
 | Guest booking/order | Same scope + `/bookings`, `/bookings/orders`; public projection under `/public/bookings/:bookingId` |
 | Staff booking/payment actions | `staff-booking.controller.ts`, `manual-payment.controller.ts`, `payment-refund.controller.ts` |
+| Staff payment ledger (read-only) | `GET /tenants/:tenantId/properties/:propertyId/payments/bookings/:bookingId`, `payment-ledger.controller.ts`; needs the `payments.refund` capability |
 | Gateway callbacks | `stripe-webhook.controller.ts`, `pokpay-webhook.controller.ts`; provider-specific verification |
 | Clock SNS | `/clock-webhooks/:webhookPublicId`; no staff session; pinned topic and signature checks |
 | Pairing | `/wordpress-pairing/redeem`; staff code-generation controller is tenant/property scoped |
