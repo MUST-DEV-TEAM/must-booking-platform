@@ -94,6 +94,8 @@ import { StripeWebhookService } from './payments/stripe-webhook.service';
 import { PaymentExpiryService } from './payments/payment-expiry.service';
 import { PaymentRefundController } from './payments/payment-refund.controller';
 import { PaymentRefundService } from './payments/payment-refund.service';
+import { PaymentLedgerController } from './payments/payment-ledger.controller';
+import { PaymentLedgerService } from './payments/payment-ledger.service';
 import { ManualPaymentController } from './payments/manual-payment.controller';
 import { ManualPaymentService } from './payments/manual-payment.service';
 import { PlatformAdminController } from './platform/platform-admin.controller';
@@ -197,6 +199,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PokPayWebhookController,
     ResendWebhookController,
     PaymentRefundController,
+    PaymentLedgerController,
     ManualPaymentController,
     PlatformAdminController,
     IntegrationConnectionsController,
@@ -252,6 +255,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     StripeWebhookService,
     PaymentExpiryService,
     PaymentRefundService,
+    PaymentLedgerService,
     ManualPaymentService,
     PlatformAdminService,
     ProviderHealthService,
