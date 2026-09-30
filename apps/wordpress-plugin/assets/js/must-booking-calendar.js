@@ -576,7 +576,10 @@
                 if (dateKey(dayTarget.dateObj) !== pendingRangeCheckin) return;
                 event.stopPropagation();
                 event.preventDefault();
+                // clear() jumps the view back to the current month; keep the guest where they are.
+                var viewedYear = picker.currentYear, viewedMonth = picker.currentMonth;
                 picker.clear();
+                if (picker.currentYear !== viewedYear || picker.currentMonth !== viewedMonth) picker.jumpToDate(new Date(viewedYear, viewedMonth, 1), true);
             }, true);
             picker.calendarContainer.classList.add('must-booking-flatpickr-instance');
             syncMonthYear(monthSelect, yearSelect, picker);

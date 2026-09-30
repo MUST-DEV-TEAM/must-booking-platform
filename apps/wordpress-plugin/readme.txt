@@ -4,7 +4,7 @@ Tags: hotel, booking, reservation, accommodation
 Requires at least: 5.0
 Tested up to: 6.0
 Requires PHP: 7.4
-Stable tag: 0.4.101
+Stable tag: 0.4.102
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,9 @@ Main features include:
 5. When updating, upload the new release ZIP or use the configured updater, then review **Diagnostics & Maintenance** after the update completes.
 
 == Changelog ==
+
+= 0.4.102 =
+* Booking calendar: unselecting the check-in keeps the calendar on the month being viewed.
 
 = 0.4.101 =
 * Booking calendar: clicking the selected check-in again now unselects it (fix applied to the calendar script the booking page actually loads).
