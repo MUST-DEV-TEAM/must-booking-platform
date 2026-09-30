@@ -14,6 +14,7 @@
         previewCheckout: '',
         lastAvailabilityMessage: '',
         lastAvailabilityStatus: '',
+        checkinCleared: false,
         disabledCheckinDates: [],
         disabledCheckoutDates: []
     };
@@ -1028,6 +1029,7 @@
         state.disabledCheckoutDates = checkoutDates.slice();
         if (
             firstAvailableCheckin &&
+            !state.checkinCleared &&
             (
                 !isValidDateString(nextCheckin) ||
                 nextCheckin < today ||
@@ -1281,6 +1283,7 @@
                 return;
             }
             if (!isValidDateString(currentCheckin) || isValidDateString(currentCheckout) || selectedDate <= currentCheckin) {
+                state.checkinCleared = false;
                 checkinInput.value = selectedDate;
                 checkoutInput.value = '';
                 state.previewCheckout = '';
@@ -1358,6 +1361,37 @@
             });
             if (state.checkinPicker && state.checkinPicker.calendarContainer) {
                 state.checkinPicker.calendarContainer.classList.add('must-booking-flatpickr-instance');
+            }
+            /*
+             * Clicking the selected check-in again (before a check-out is
+             * chosen) only unselects it. Capture phase, so Flatpickr's own
+             * day click handler never re-selects the same date.
+             */
+            if (state.checkinPicker && state.checkinPicker.calendarContainer) {
+                state.checkinPicker.calendarContainer.addEventListener('click', function (event) {
+                    var dayTarget = event.target && event.target.closest ? event.target.closest('.flatpickr-day') : null;
+                    if (!dayTarget || !dayTarget.dateObj) {
+                        return;
+                    }
+                    var currentCheckin = String(checkinInput.value || '').trim();
+                    if (
+                        !isValidDateString(currentCheckin) ||
+                        isValidDateString(String(checkoutInput.value || '').trim()) ||
+                        formatDate(dayTarget.dateObj) !== currentCheckin
+                    ) {
+                        return;
+                    }
+                    event.stopPropagation();
+                    event.preventDefault();
+                    state.checkinCleared = true;
+                    checkinInput.value = '';
+                    state.previewCheckout = '';
+                    state.checkinPicker.clear(false);
+                    state.checkinPicker.set('disable', getSingleCalendarDisabledDates('', ''));
+                    refreshUnavailableDayClasses();
+                    updateRangeHighlights('', '', '');
+                    onFieldChange('checkin');
+                }, true);
             }
             updateCalendarMeta(state.checkinPicker, 'must-booking-checkin-month', 'must-booking-checkin-year');
             updateCalendarShiftState();

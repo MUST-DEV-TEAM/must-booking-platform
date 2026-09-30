@@ -467,10 +467,20 @@ body.must-hotel-booking-flow-page {
     padding: 0;
 }
 
-.must-hotel-booking-page-booking .must-booking-flatpickr-instance .flatpickr-day:hover,
-.must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day:hover {
-    background: transparent;
-    color: #141414;
+.must-hotel-booking-page-booking .must-booking-flatpickr-instance .flatpickr-day:hover:not(.flatpickr-disabled):not(.notAllowed):not(.must-booking-day-unavailable):not(.prevMonthDay):not(.nextMonthDay),
+.must-hotel-booking-page-booking .must-booking-flatpickr-instance .flatpickr-day:focus:not(.flatpickr-disabled):not(.notAllowed):not(.must-booking-day-unavailable):not(.prevMonthDay):not(.nextMonthDay),
+.must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day:hover:not(.flatpickr-disabled):not(.notAllowed):not(.must-booking-day-unavailable):not(.prevMonthDay):not(.nextMonthDay),
+.must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day:focus:not(.flatpickr-disabled):not(.notAllowed):not(.must-booking-day-unavailable):not(.prevMonthDay):not(.nextMonthDay) {
+    --must-button-bg: #e0e0e0;
+    --must-button-border: #e0e0e0;
+    --must-button-color: #141414;
+    background: #e0e0e0 !important;
+    color: #141414 !important;
+    border-color: #e0e0e0 !important;
+    border-left-color: #e0e0e0 !important;
+    box-shadow: none !important;
+    outline: none;
+    text-shadow: none;
 }
 
 .must-hotel-booking-page-booking .must-booking-flatpickr-instance .flatpickr-day,
@@ -513,11 +523,11 @@ body.must-hotel-booking-flow-page {
 .must-hotel-booking-page-booking .must-booking-flatpickr-instance .flatpickr-day.must-booking-day-end,
 .must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day.must-booking-day-start,
 .must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day.must-booking-day-end {
-    --must-button-bg: #141414;
+    --must-button-bg: #e0e0e0;
     --must-button-border: #141414;
-    --must-button-color: #fff;
-    background: #141414;
-    color: #fff;
+    --must-button-color: #141414;
+    background: #e0e0e0;
+    color: #141414;
     border: 1px solid #141414;
     border-radius: 6px !important;
 }
@@ -528,11 +538,11 @@ body.must-hotel-booking-flow-page {
 .must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day.selected,
 .must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day.startRange,
 .must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day.endRange {
-    --must-button-bg: #141414;
+    --must-button-bg: #e0e0e0;
     --must-button-border: #141414;
-    --must-button-color: #fff;
-    background: #141414;
-    color: #fff;
+    --must-button-color: #141414;
+    background: #e0e0e0;
+    color: #141414;
     border: 1px solid #141414;
     border-radius: 6px;
     box-shadow: none;
@@ -560,11 +570,11 @@ body.must-hotel-booking-flow-page {
 .must-hotel-booking-page-booking .must-booking-flatpickr-instance .flatpickr-day.notAllowed.must-booking-day-end,
 .must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day.flatpickr-disabled.must-booking-day-end,
 .must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day.notAllowed.must-booking-day-end {
-    --must-button-bg: #141414;
+    --must-button-bg: #e0e0e0;
     --must-button-border: #141414;
-    --must-button-color: #fff;
-    background: #141414;
-    color: #fff;
+    --must-button-color: #141414;
+    background: #e0e0e0;
+    color: #141414;
     border: 1px solid #141414;
     border-radius: 6px !important;
 }

@@ -4,7 +4,7 @@ Tags: hotel, booking, reservation, accommodation
 Requires at least: 5.0
 Tested up to: 6.0
 Requires PHP: 7.4
-Stable tag: 0.4.99
+Stable tag: 0.4.100
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,9 @@ Main features include:
 5. When updating, upload the new release ZIP or use the configured updater, then review **Diagnostics & Maintenance** after the update completes.
 
 == Changelog ==
+
+= 0.4.100 =
+* Booking calendar: selected dates and hovered dates use the light grey "Selected Dates" style instead of solid black; clicking the selected check-in again unselects it.
 
 = 0.4.99 =
 * Only show the diagonal "unavailable" slash on booking calendar dates that are truly closed in Clock, not on dates that are merely unreachable from the current check-in selection.
