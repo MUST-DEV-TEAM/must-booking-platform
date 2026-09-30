@@ -248,6 +248,8 @@
     function monthIsVerified(dateStr) {
         return !resolveCalendarAvailabilitySource() || monthStatus[dateStr.slice(0, 7)] === 'ok';
     }
+    // A specific reason from the server (e.g. the room type cannot be sold online) replaces the generic text.
+    var calendarLoadMessage = '';
     function setCalendarLoadError(show) {
         var messagesNode = document.querySelector('#must-booking-live-messages');
         if (!messagesNode) return;
@@ -256,7 +258,7 @@
         if (show && c.availabilityLoadError) {
             var paragraph = document.createElement('p');
             paragraph.setAttribute('data-must-calendar-load-error', 'true');
-            paragraph.textContent = c.availabilityLoadError;
+            paragraph.textContent = calendarLoadMessage || c.availabilityLoadError;
             messagesNode.appendChild(paragraph);
         }
         messagesNode.hidden = messagesNode.children.length === 0;
@@ -369,6 +371,12 @@
             headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
             body: requestBody.toString()
         }).then(function (response) {
+            if (response.status === 409) {
+                return response.json().then(function (body) {
+                    calendarLoadMessage = (body && body.data && body.data.message) || '';
+                    throw new Error('Room type is not bookable online.');
+                });
+            }
             if (!response.ok) throw new Error('Unable to load room availability.');
             return response.json();
         }).then(function (response) {
@@ -377,6 +385,7 @@
                 if (day && day.date && day.isAvailable === false) unavailableDates[day.date] = true;
             });
             monthStatus[month] = 'ok';
+            calendarLoadMessage = '';
             var anyFailed = Object.keys(monthStatus).some(function (key) { return monthStatus[key] === 'failed'; });
             setCalendarLoadError(anyFailed);
         }).catch(function () {
@@ -547,6 +556,7 @@
         unavailableDates = {};
         loadedMonths = {};
         monthStatus = {};
+        calendarLoadMessage = '';
         setCalendarLoadError(false);
         activePickers.forEach(function (picker) { refreshAvailability(picker); });
     }

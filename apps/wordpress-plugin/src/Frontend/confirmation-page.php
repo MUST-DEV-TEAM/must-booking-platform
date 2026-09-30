@@ -3,6 +3,7 @@ namespace MustHotelBooking\Frontend;
 
 use MustHotelBooking\Core\ManagedPages;
 use MustHotelBooking\Core\MustApiClient;
+use MustHotelBooking\Core\MustBookingConfig;
 
 /** @param array<string, mixed> $request */
 function get_confirmation_cancellation_form_url(string $confirmationUrl, array $request): string
@@ -240,6 +241,10 @@ function maybe_process_confirm_booking_submission(): string
         return \__('Please choose a payment method to continue.', 'must-hotel-booking');
     }
 
+    $stayError = MustBookingConfig::validate_stay_dates((string) ($selection['checkin'] ?? ''), (string) ($selection['checkout'] ?? ''));
+    if ($stayError !== '') {
+        return $stayError;
+    }
     $quote = $selection['quote'];
     $adults = \max(1, (int) ($selection['adults'] ?? $selection['guestInfo']['adults'] ?? $selection['guests'] ?? 1));
     $children = \max(0, (int) ($selection['children'] ?? $selection['guestInfo']['children'] ?? 0));

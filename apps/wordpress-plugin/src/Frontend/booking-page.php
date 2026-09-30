@@ -453,6 +453,13 @@ function get_selected_room_calendar(): void
         $query['roomId'] = $roomId;
     }
     $response = MustApiClient::get('/public/availability-calendar', $query);
+    $responseStatus = (int) ($response['status'] ?? 0);
+    if (!$response['ok'] && $responseStatus >= 400 && $responseStatus < 500) {
+        // The property cannot sell this room type online (for example no rate is
+        // configured in Clock). A 4xx stays a readable answer instead of a 5xx
+        // that the CDN replaces with its own error page.
+        \wp_send_json_error(['code' => 'room_type_not_bookable', 'message' => \__('This room type is not available for online booking right now.', 'must-hotel-booking')], 409);
+    }
     if (!$response['ok'] || !\is_array($response['body']) || !\is_array($response['body']['days'] ?? null)) {
         \wp_send_json_error(['message' => \__('Room availability could not be loaded. Please try again.', 'must-hotel-booking')], 502);
     }

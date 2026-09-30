@@ -3,6 +3,7 @@ namespace MustHotelBooking\Frontend;
 
 use MustHotelBooking\Core\ManagedPages;
 use MustHotelBooking\Core\MustApiClient;
+use MustHotelBooking\Core\MustBookingConfig;
 
 function is_frontend_booking_accommodation_page(): bool { return ManagedPages::isCurrentPage('page_booking_accommodation_id', 'booking-accommodation'); }
 
@@ -79,6 +80,10 @@ function maybe_process_accommodation_selection(): string
     $roomCount = isset($_POST['room_count']) ? \min(get_max_booking_rooms_limit(), \max(0, (int) $_POST['room_count'])) : 0;
     if ($roomTypeId === '' || $checkin === '' || $checkout === '') {
         return \__('That room could not be selected. Please try again.', 'must-hotel-booking');
+    }
+    $stayError = MustBookingConfig::validate_stay_dates($checkin, $checkout);
+    if ($stayError !== '') {
+        return $stayError;
     }
     if ($guests > get_max_booking_guests_limit()) {
         return \sprintf(

@@ -183,6 +183,64 @@ class MustBookingConfig
     {
         return self::int((string) self::get_setting('maximum_nights', 30), 1, 365, 30);
     }
+    /**
+     * Server-side enforcement of the stay rules the booking calendar shows
+     * (minimum/maximum nights, booking window, same-day booking and its
+     * cutoff), evaluated on the hotel's own clock. The calendar is only a
+     * convenience; a request that skips it must hit the same limits.
+     *
+     * @return string Guest-facing error message, or '' when the stay is allowed.
+     */
+    public static function validate_stay_dates(string $checkin, string $checkout): string
+    {
+        try {
+            $zone = new \DateTimeZone(self::get_timezone());
+        } catch (\Exception $exception) {
+            $zone = new \DateTimeZone('UTC');
+        }
+        $start = \DateTimeImmutable::createFromFormat('!Y-m-d', $checkin, $zone);
+        $end = \DateTimeImmutable::createFromFormat('!Y-m-d', $checkout, $zone);
+        if (!$start || !$end || $start->format('Y-m-d') !== $checkin || $end->format('Y-m-d') !== $checkout || $end <= $start) {
+            return \__('Please select valid dates.', 'must-hotel-booking');
+        }
+        $now = new \DateTimeImmutable('now', $zone);
+        $today = $now->setTime(0, 0);
+        $sameDayClosed = !self::bool(self::get_setting('same_day_booking_allowed', true));
+        $cutoff = (string) self::get_setting('same_day_booking_cutoff_time', '');
+        if (!$sameDayClosed && \preg_match('/^(\d{1,2}):(\d{2})/', $cutoff, $match) === 1) {
+            $sameDayClosed = ((int) $now->format('G') * 60 + (int) $now->format('i')) >= ((int) $match[1] * 60 + (int) $match[2]);
+        }
+        $earliest = $sameDayClosed ? $today->modify('+1 day') : $today;
+        if ($start < $earliest) {
+            return $start < $today
+                ? \__('That check-in date has already passed. Please choose a later date.', 'must-hotel-booking')
+                : \__('Same-day bookings are closed for today. Please choose a later check-in date.', 'must-hotel-booking');
+        }
+        $latest = $today->modify('+' . self::get_booking_window() . ' day');
+        if ($start > $latest || $end > $latest) {
+            return \sprintf(
+                /* translators: %d is the number of days ahead a stay can be booked. */
+                \__('Bookings can be made up to %d days in advance.', 'must-hotel-booking'),
+                self::get_booking_window()
+            );
+        }
+        $nights = (int) $start->diff($end)->days;
+        if ($nights < self::get_minimum_nights()) {
+            return \sprintf(
+                /* translators: %d is the minimum number of nights. */
+                \__('A minimum stay of %d nights is required.', 'must-hotel-booking'),
+                self::get_minimum_nights()
+            );
+        }
+        if ($nights > self::get_maximum_nights()) {
+            return \sprintf(
+                /* translators: %d is the maximum number of nights. */
+                \__('A maximum stay of %d nights is allowed.', 'must-hotel-booking'),
+                self::get_maximum_nights()
+            );
+        }
+        return '';
+    }
     public static function get_checkin_time(): string
     {
         return self::time((string) self::get_setting('checkin_time', '14:00'), '14:00');
