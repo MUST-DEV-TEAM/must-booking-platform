@@ -178,3 +178,89 @@ export function paymentMethodLabel(method: string | undefined): string {
 export function sortNewestFirst<T extends Pick<Reservation, 'createdAt'>>(bookings: T[]): T[] {
   return [...bookings].sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
 }
+
+export type PaymentSummary = {
+  currency: string;
+  collected: string;
+  refunded: string;
+  net: string;
+  outstanding: string;
+};
+
+/** Totals per currency, so two currencies are never added together. */
+export function summarize(
+  bookings: Array<Pick<Reservation, 'status' | 'total' | 'paidAmount' | 'refundedAmount'>>,
+): { byCurrency: PaymentSummary[]; needsAction: number } {
+  const totals = new Map<string, { collected: bigint; refunded: bigint; outstanding: bigint }>();
+  for (const booking of bookings) {
+    const entry = totals.get(booking.total.currency) ?? {
+      collected: 0n,
+      refunded: 0n,
+      outstanding: 0n,
+    };
+    entry.collected += minorUnits(booking.paidAmount);
+    entry.refunded += minorUnits(booking.refundedAmount);
+    entry.outstanding += minorUnits(outstandingAmount(booking));
+    totals.set(booking.total.currency, entry);
+  }
+  return {
+    byCurrency: [...totals.entries()].map(([currency, entry]) => ({
+      currency,
+      collected: money(entry.collected),
+      refunded: money(entry.refunded),
+      net: money(entry.collected - entry.refunded),
+      outstanding: money(entry.outstanding),
+    })),
+    needsAction: bookings.filter((booking) => needsAction(booking)).length,
+  };
+}
+
+// Guest names and references are free text. A cell that starts with one of these
+// would be run as a formula by a spreadsheet, so it is defused with a leading quote.
+function csvCell(value: string | null | undefined): string {
+  const text = value ?? '';
+  const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+  return /[",\n\r]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
+}
+
+export function paymentsCsv(bookings: Reservation[]): string {
+  const header = [
+    'Reference',
+    'Guest',
+    'Email',
+    'Arrival',
+    'Departure',
+    'Room type',
+    'Booking status',
+    'Payment status',
+    'Method',
+    'Currency',
+    'Total',
+    'Paid',
+    'Refunded',
+    'Outstanding',
+    'Created',
+  ];
+  const rows = bookings.map((booking) =>
+    [
+      booking.externalReference,
+      [booking.guestFirstName, booking.guestLastName].filter(Boolean).join(' '),
+      booking.guestEmail,
+      booking.startsOn,
+      booking.endsOn,
+      booking.roomTypeName,
+      booking.status,
+      paymentStatus(booking).label,
+      paymentMethodLabel(booking.paymentMethod),
+      booking.total.currency,
+      booking.total.amount,
+      booking.paidAmount,
+      booking.refundedAmount,
+      outstandingAmount(booking),
+      booking.createdAt,
+    ]
+      .map(csvCell)
+      .join(','),
+  );
+  return [header.map(csvCell).join(','), ...rows].join('\r\n');
+}

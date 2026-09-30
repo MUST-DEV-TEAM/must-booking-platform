@@ -130,3 +130,70 @@ describe('search and sort', () => {
     expect(sortNewestFirst([a, b]).map((x) => x.id)).toEqual(['a', 'b']);
   });
 });
+
+describe('summarize', () => {
+  it('totals per currency and counts bookings that need action', async () => {
+    const { summarize } = await import('./payment-status');
+    const result = summarize([
+      booking({ paidAmount: '250.00' }),
+      booking({ status: 'CANCELLED', paidAmount: '100.00', refundedAmount: '40.00' }),
+      booking({ paymentMethod: 'PAY_AT_HOTEL' }),
+      booking({ total: { amount: '80.00', currency: 'USD' }, paidAmount: '80.00' }),
+    ]);
+    expect(result.byCurrency).toEqual([
+      {
+        currency: 'EUR',
+        collected: '350.00',
+        refunded: '40.00',
+        net: '310.00',
+        outstanding: '250.00',
+      },
+      { currency: 'USD', collected: '80.00', refunded: '0.00', net: '80.00', outstanding: '0.00' },
+    ]);
+    expect(result.needsAction).toBe(1);
+  });
+
+  it('is empty for no bookings', async () => {
+    const { summarize } = await import('./payment-status');
+    expect(summarize([])).toEqual({ byCurrency: [], needsAction: 0 });
+  });
+});
+
+describe('paymentsCsv', () => {
+  it('writes one header row and one row per booking with the payment status', async () => {
+    const { paymentsCsv } = await import('./payment-status');
+    const csv = paymentsCsv([
+      booking({
+        externalReference: 'EBR-1',
+        guestFirstName: 'Ada',
+        guestLastName: 'Lovelace',
+        guestEmail: 'ada@example.test',
+        paidAmount: '250.00',
+      }),
+    ]).split('\r\n');
+    expect(csv).toHaveLength(2);
+    expect(csv[0].startsWith('Reference,Guest,Email')).toBe(true);
+    expect(csv[1]).toContain('EBR-1,Ada Lovelace,ada@example.test');
+    expect(csv[1]).toContain('Paid,PokPay,EUR,250.00,250.00,0.00,0.00');
+  });
+
+  it('quotes commas and quotes inside a cell', async () => {
+    const { paymentsCsv } = await import('./payment-status');
+    const csv = paymentsCsv([booking({ guestFirstName: 'Smith,', guestLastName: '"Bob"' })]);
+    expect(csv).toContain('"Smith, ""Bob"""');
+  });
+
+  it('defuses a cell that a spreadsheet would run as a formula', async () => {
+    const { paymentsCsv } = await import('./payment-status');
+    const csv = paymentsCsv([
+      booking({
+        externalReference: '=1+1',
+        guestFirstName: '',
+        guestLastName: '@SUM(A1)',
+        guestEmail: '+x@evil.test',
+      }),
+    ]);
+    const row = csv.split('\r\n')[1];
+    expect(row.startsWith("'=1+1,'@SUM(A1),'+x@evil.test,")).toBe(true);
+  });
+});

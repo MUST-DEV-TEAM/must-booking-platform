@@ -373,4 +373,51 @@ describe('Payments', () => {
     expect(dialog.textContent).toContain('Remaining refundable balance: 100.00 EUR');
     await unmount();
   });
+
+  it('links each reference to its payment page and each guest to their guest page', async () => {
+    const { c, unmount } = await renderPayments([{ ...live, guestId: 'g1' } as Reservation]);
+    const row = c.querySelector('tbody tr')!;
+    const links = Array.from(row.querySelectorAll('a')).map((a) => [
+      a.textContent,
+      a.getAttribute('href'),
+    ]);
+    expect(links).toEqual([
+      ['EBR-LIVE-0001', '/dashboard/t?propertyId=p&section=payments&payment=b1'],
+      ['Ada Lovelace', '/dashboard/t?propertyId=p&section=guests&guest=g1'],
+    ]);
+    await unmount();
+  });
+
+  it('shows collected, refunded, net, outstanding and the needs-action count above the table', async () => {
+    const { c, unmount } = await renderPayments([
+      live,
+      { ...cancelledHeld, refundedAmount: '40.00' } as Reservation,
+      cancelledPayAtHotel,
+    ]);
+    const totals = c.querySelector('dl[aria-label="Payment totals in EUR"]')!.textContent ?? '';
+    expect(totals).toContain('Collected200.00 EUR');
+    expect(totals).toContain('Refunded40.00 EUR');
+    expect(totals).toContain('Net received160.00 EUR');
+    expect(totals).toContain('Outstanding0.00 EUR');
+    expect(totals).toContain('Needs action1');
+    await unmount();
+  });
+
+  it('disables Export CSV when no payment matches the current search', async () => {
+    const { c, unmount } = await renderPayments([live]);
+    const exportButton = Array.from(c.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Export CSV',
+    )!;
+    expect(exportButton.disabled).toBe(false);
+    const search = c.querySelector<HTMLInputElement>('input[type="search"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(search), 'value')!.set!.call(
+        search,
+        'nobody',
+      );
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(exportButton.disabled).toBe(true);
+    await unmount();
+  });
 });

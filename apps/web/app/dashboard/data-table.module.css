@@ -147,3 +147,50 @@
   text-align: right;
   white-space: nowrap;
 }
+
+.backLink {
+  color: var(--must-color-action-primary);
+  text-decoration: none;
+}
+.detailHeader {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--must-space-16);
+  justify-content: space-between;
+}
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--must-space-8);
+  margin-top: var(--must-space-8);
+}
+.summary {
+  display: grid;
+  gap: var(--must-space-16);
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  margin: var(--must-space-12) 0 0;
+}
+.summary dt {
+  color: var(--must-color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.summary dd {
+  font-size: 1.125rem;
+  font-variant-numeric: tabular-nums;
+  margin: var(--must-space-4) 0 0;
+}
+.plainList {
+  display: grid;
+  gap: var(--must-space-8);
+  list-style: none;
+  margin: var(--must-space-12) 0 0;
+  padding: 0;
+}
+.muted {
+  color: var(--must-color-text-secondary);
+  font-size: 0.8125rem;
+}

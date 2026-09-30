@@ -37,7 +37,9 @@ import { DashboardOverview, NeedsAttentionTab } from './overview';
 import { DashboardCalendar } from './calendar';
 import { WalkInBooking } from './walk-in-booking';
 import { DashboardPayments } from './payments';
+import { PaymentDetail } from './payment-detail';
 import { DashboardGuests } from './guests';
+import { GuestDetail } from './guest-detail';
 import { DashboardStaff } from './staff';
 import { DashboardReservations } from './reservations';
 import { DashboardSettings, isSettingsArea, SettingsHub, type SettingsArea } from './settings';
@@ -268,10 +270,19 @@ export function DashboardShell({
   const [selectedPropertyId, setSelectedPropertyId] = useState(initialData?.properties[0]?.id);
   const [capabilities, setCapabilities] = useState<string[] | undefined>(initialData?.capabilities);
   const [section, setSection] = useState('overview');
+  // A single payment or guest opened by link (?payment=<bookingId> / ?guest=<guestId>).
+  const [paymentId, setPaymentId] = useState<string | null>(null);
+  const [guestId, setGuestId] = useState<string | null>(null);
   const [tab, setTab] = useState<DashboardTab>('overview');
   const [settingsArea, setSettingsArea] = useState<SettingsArea | null>(null);
   const selectedProperty =
     properties?.find((property) => property.id === selectedPropertyId) ?? properties?.[0];
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setPaymentId(params.get('payment'));
+    setGuestId(params.get('guest'));
+  }, []);
 
   useEffect(() => {
     if (initialData) return;
@@ -430,10 +441,22 @@ export function DashboardShell({
         />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'payments' ? (
-        <DashboardPayments tenantId={tenantId} propertyId={selectedProperty.id} />
+        paymentId ? (
+          <PaymentDetail
+            tenantId={tenantId}
+            propertyId={selectedProperty.id}
+            bookingId={paymentId}
+          />
+        ) : (
+          <DashboardPayments tenantId={tenantId} propertyId={selectedProperty.id} />
+        )
       ) : null}
       {selectedProperty && role && canViewSection && section === 'guests' ? (
-        <DashboardGuests tenantId={tenantId} propertyId={selectedProperty.id} />
+        guestId ? (
+          <GuestDetail tenantId={tenantId} propertyId={selectedProperty.id} guestId={guestId} />
+        ) : (
+          <DashboardGuests tenantId={tenantId} propertyId={selectedProperty.id} />
+        )
       ) : null}
       {selectedProperty && role && canViewSection && section === 'notifications' ? (
         <NotificationsInbox tenantId={tenantId} propertyId={selectedProperty.id} />

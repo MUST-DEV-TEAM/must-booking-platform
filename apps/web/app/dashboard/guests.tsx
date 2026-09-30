@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { LoaderCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { guestHref } from './payment-detail';
 import { fetchPropertyBookings } from './reservations';
 import styles from './data-table.module.css';
 import reviewStyles from './guests.module.css';
@@ -328,6 +329,7 @@ export function DashboardGuests({
             {[selected.firstName, selected.lastName].filter(Boolean).join(' ') || selected.email} —
             booking history
           </Heading>
+          <a href={guestHref(tenantId, propertyId, selected.id)}>Open guest page</a>
           {history.length ? (
             <ul>
               {history.map((b) => (

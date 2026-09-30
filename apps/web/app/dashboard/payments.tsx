@@ -20,10 +20,13 @@ import {
   outstandingAmount,
   paymentMethodLabel,
   paymentStatus,
-  remainingRefundable,
+  paymentsCsv,
   sortNewestFirst,
+  summarize,
   type PaymentFilter,
 } from './payment-status';
+import { guestHref, paymentHref } from './payment-detail';
+import { RefundDialog } from './payment-refund-dialog';
 import styles from './data-table.module.css';
 const id = () => crypto.randomUUID();
 type ManualPaymentMethod = 'cash' | 'card_in_person' | 'bank_transfer';
@@ -47,6 +50,19 @@ function formatDay(value: string | undefined, withYear: boolean) {
     ...(withYear ? { year: 'numeric' } : {}),
     timeZone: 'UTC',
   });
+}
+
+// A byte-order mark makes Excel read the file as UTF-8, so accented guest names survive.
+const CSV_BOM = String.fromCharCode(0xfeff);
+
+function downloadCsv(bookings: Reservation[]) {
+  const blob = new Blob([CSV_BOM, paymentsCsv(bookings)], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `payments-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function formatStay(booking: Pick<Reservation, 'startsOn' | 'endsOn'>) {
@@ -84,11 +100,6 @@ export function DashboardPayments({
   });
   const [manualMethods, setManualMethods] = useState<Record<string, ManualPaymentMethod>>({});
   const [refundBooking, setRefundBooking] = useState<Reservation | null>(null);
-  const [refundMode, setRefundMode] = useState<'fixed' | 'percentage'>('fixed');
-  const [refundAmount, setRefundAmount] = useState('');
-  const [refundPercentage, setRefundPercentage] = useState('');
-  const [refundNote, setRefundNote] = useState('');
-  const [refundFormError, setRefundFormError] = useState<string | null>(null);
   const actionMutation = useMutation({
     mutationFn: async ({
       bookingId,
@@ -111,9 +122,8 @@ export function DashboardPayments({
       if (!value.ok) throw new Error(value.error?.message ?? 'Payment action failed.');
       return { bookingId, success };
     },
-    onSuccess: ({ bookingId, success }) => {
+    onSuccess: ({ success }) => {
       void bookingsQuery.refetch();
-      if (refundBooking?.id === bookingId) closeRefundDialog();
       toast.success(success);
     },
     onError: (error) => toast.error(error.message),
@@ -146,68 +156,22 @@ export function DashboardPayments({
       ),
     [allBookings, filter, search],
   );
+  const summary = useMemo(() => summarize(allBookings), [allBookings]);
   const capabilities = capabilitiesQuery.data ?? [];
   const busyBookingId = actionMutation.isPending ? actionMutation.variables?.bookingId : null;
   const canRefund = capabilities.includes('payments.refund');
 
   function openRefundDialog(booking: Reservation) {
     setRefundBooking(booking);
-    setRefundMode('fixed');
-    setRefundAmount('');
-    setRefundPercentage('');
-    setRefundNote('');
-    setRefundFormError(null);
-  }
-
-  function closeRefundDialog() {
-    setRefundBooking(null);
-    setRefundFormError(null);
-  }
-
-  function submitRefund() {
-    if (!refundBooking) return;
-    const amount = refundAmount.trim();
-    const percentage = refundPercentage.trim();
-    if (refundMode === 'fixed' && amount && !/^\d+(?:\.\d{1,2})?$/.test(amount)) {
-      setRefundFormError('Enter a valid amount with no more than two decimal places.');
-      return;
-    }
-    if (refundMode === 'percentage') {
-      const numericPercentage = Number(percentage);
-      if (
-        !percentage ||
-        !Number.isFinite(numericPercentage) ||
-        numericPercentage < 1 ||
-        numericPercentage > 100
-      ) {
-        setRefundFormError('Enter a percentage between 1 and 100.');
-        return;
-      }
-    }
-    if (refundNote.length > 500) {
-      setRefundFormError('The staff note must be 500 characters or fewer.');
-      return;
-    }
-    actionMutation.mutate({
-      bookingId: refundBooking.id,
-      url: `${base}/payments/refunds`,
-      body: {
-        bookingId: refundBooking.id,
-        ...(refundMode === 'fixed' && amount
-          ? { amount: { amount, currency: refundBooking.total.currency } }
-          : {}),
-        ...(refundMode === 'percentage' ? { percentage: Number(percentage) } : {}),
-        ...(refundNote.trim() ? { note: refundNote.trim() } : {}),
-      },
-      success: 'Refund recorded.',
-    });
   }
   const columns: ColumnDef<Reservation>[] = [
     {
       id: 'reference',
       header: 'Reference',
       cell: ({ row }) => (
-        <code className={styles.reference}>{row.original.externalReference ?? '—'}</code>
+        <a href={paymentHref(tenantId, propertyId, row.original.id)}>
+          <code className={styles.reference}>{row.original.externalReference ?? '—'}</code>
+        </a>
       ),
     },
     {
@@ -218,7 +182,11 @@ export function DashboardPayments({
         const email = row.original.guestEmail;
         return (
           <>
-            {name}
+            {row.original.guestId ? (
+              <a href={guestHref(tenantId, propertyId, row.original.guestId)}>{name}</a>
+            ) : (
+              name
+            )}
             {email && email !== name ? <span>{email}</span> : null}
           </>
         );
@@ -393,6 +361,40 @@ export function DashboardPayments({
         <Heading>Payments</Heading>
         <Text tone="secondary">Booking payment activity for this property.</Text>
       </header>
+      {summary.byCurrency.map((totals) => (
+        <Card key={totals.currency}>
+          <dl aria-label={`Payment totals in ${totals.currency}`} className={styles.summary}>
+            <div>
+              <dt>Collected</dt>
+              <dd>
+                {totals.collected} {totals.currency}
+              </dd>
+            </div>
+            <div>
+              <dt>Refunded</dt>
+              <dd>
+                {totals.refunded} {totals.currency}
+              </dd>
+            </div>
+            <div>
+              <dt>Net received</dt>
+              <dd>
+                {totals.net} {totals.currency}
+              </dd>
+            </div>
+            <div>
+              <dt>Outstanding</dt>
+              <dd>
+                {totals.outstanding} {totals.currency}
+              </dd>
+            </div>
+            <div>
+              <dt>Needs action</dt>
+              <dd>{summary.needsAction}</dd>
+            </div>
+          </dl>
+        </Card>
+      ))}
       <Card>
         <div className={styles.toolbar}>
           <div aria-label="Payment filters" className={styles.tabs} role="group">
@@ -416,6 +418,14 @@ export function DashboardPayments({
             type="search"
             value={search}
           />
+          <button
+            className={styles.tab}
+            disabled={bookings.length === 0}
+            onClick={() => downloadCsv(bookings)}
+            type="button"
+          >
+            Export CSV
+          </button>
         </div>
         <div className={styles.tableWrap}>
           <table className={styles.table}>
@@ -456,122 +466,12 @@ export function DashboardPayments({
         </div>
       </Card>
       {refundBooking ? (
-        <div className={styles.dialogBackdrop} role="presentation">
-          <section
-            aria-labelledby="refund-dialog-title"
-            aria-modal="true"
-            className={styles.dialog}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') closeRefundDialog();
-            }}
-            role="dialog"
-            tabIndex={-1}
-          >
-            <header className={styles.dialogHeader}>
-              <Heading id="refund-dialog-title">Refund payment</Heading>
-              <Text>
-                {[refundBooking.externalReference, guestName(refundBooking)]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </Text>
-              <Text tone="secondary">
-                Remaining refundable balance: {remainingRefundable(refundBooking).amount}{' '}
-                {refundBooking.total.currency}
-              </Text>
-            </header>
-            <div className={styles.dialogFields}>
-              <label htmlFor="refund-type">Refund type</label>
-              <select
-                id="refund-type"
-                value={refundMode}
-                onChange={(event) => {
-                  setRefundMode(event.target.value as 'fixed' | 'percentage');
-                  setRefundFormError(null);
-                }}
-              >
-                <option value="fixed">Fixed amount (€)</option>
-                <option value="percentage">Percentage (%)</option>
-              </select>
-              {refundMode === 'fixed' ? (
-                <label htmlFor="refund-amount">
-                  Amount ({refundBooking.total.currency})
-                  <input
-                    id="refund-amount"
-                    inputMode="decimal"
-                    onChange={(event) => setRefundAmount(event.target.value)}
-                    placeholder="Leave blank for the remaining balance"
-                    value={refundAmount}
-                  />
-                </label>
-              ) : (
-                <label htmlFor="refund-percentage">
-                  Percentage
-                  <input
-                    id="refund-percentage"
-                    inputMode="decimal"
-                    max="100"
-                    min="1"
-                    onChange={(event) => setRefundPercentage(event.target.value)}
-                    step="0.01"
-                    type="number"
-                    value={refundPercentage}
-                  />
-                </label>
-              )}
-              <button
-                className="must-button must-button--secondary"
-                onClick={() => {
-                  const maximum = remainingRefundable(refundBooking);
-                  setRefundMode('fixed');
-                  setRefundAmount(maximum.amount);
-                  setRefundPercentage('');
-                  setRefundFormError(null);
-                }}
-                type="button"
-              >
-                Use maximum ({remainingRefundable(refundBooking).amount}{' '}
-                {refundBooking.total.currency})
-              </button>
-              <label htmlFor="refund-note">
-                Staff note (optional)
-                <textarea
-                  id="refund-note"
-                  maxLength={500}
-                  onChange={(event) => setRefundNote(event.target.value)}
-                  rows={3}
-                  value={refundNote}
-                />
-              </label>
-              {refundFormError ? (
-                <div className={styles.dialogError} role="alert">
-                  {refundFormError}
-                </div>
-              ) : null}
-            </div>
-            <footer className={styles.dialogActions}>
-              <button
-                className="must-button must-button--secondary"
-                disabled={actionMutation.isPending}
-                onClick={closeRefundDialog}
-                type="button"
-              >
-                Cancel
-              </button>
-              <button
-                className="must-button must-button--danger"
-                disabled={actionMutation.isPending}
-                onClick={submitRefund}
-                type="button"
-              >
-                {actionMutation.isPending ? (
-                  <Loader2 aria-hidden="true" size={16} />
-                ) : (
-                  'Record refund'
-                )}
-              </button>
-            </footer>
-          </section>
-        </div>
+        <RefundDialog
+          base={base}
+          booking={refundBooking}
+          onClose={() => setRefundBooking(null)}
+          onRefunded={() => void bookingsQuery.refetch()}
+        />
       ) : null}
     </Stack>
   );
