@@ -542,8 +542,9 @@
                         // there, since flatpickr drops the just-picked checkin
                         // itself the instant minDate/maxDate excludes it.
                         pendingRangeCheckin = selectedDates.length === 1 ? instance.formatDate(selectedDates[0], 'Y-m-d') : '';
-                        updateCalendarSelectionMarkers(instance, pendingRangeCheckin, '');
                         instance.redraw();
+                        // redraw() rebuilds the day cells, so mark the pending check-in afterwards.
+                        updateCalendarSelectionMarkers(instance, pendingRangeCheckin, '');
                         scheduleSelectedRoomAvailabilityCheck();
                         return;
                     }
@@ -552,12 +553,12 @@
                     if (checkinField) checkinField.value = start;
                     if (checkoutField) checkoutField.value = end;
                     updateArrivalDeparture(start, end);
-                    updateCalendarSelectionMarkers(instance, start, end);
                     // Range complete — clear the pending-checkin constraint so
                     // a fresh check-in click (starting a new range) is not
                     // still bounded by the just-completed stay's window.
                     pendingRangeCheckin = '';
                     instance.redraw();
+                    updateCalendarSelectionMarkers(instance, start, end);
                     scheduleSelectedRoomAvailabilityCheck();
                 },
                 onMonthChange: function (a, b, instance) { syncMonthYear(monthSelect, yearSelect, instance); updatePrevVisibility(instance, singlePrev); refreshAvailability(instance); updateCalendarSelectionMarkers(instance, checkinField ? checkinField.value : '', checkoutField ? checkoutField.value : ''); },
