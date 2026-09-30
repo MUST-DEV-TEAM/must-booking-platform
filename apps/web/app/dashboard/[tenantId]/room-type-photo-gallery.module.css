@@ -19,7 +19,7 @@
 
 .heading p {
   margin: 0.3rem 0 0;
-  color: #667085;
+  color: var(--must-color-text-secondary);
   font-size: 0.875rem;
 }
 
@@ -27,8 +27,8 @@
   flex: 0 0 auto;
   padding: 0.25rem 0.55rem;
   border-radius: 999px;
-  background: #edf5f2;
-  color: #185747;
+  background: var(--must-color-surface-selected);
+  color: var(--must-color-ink);
   font-size: 0.8125rem;
   font-weight: 650;
 }
@@ -38,10 +38,10 @@
   justify-items: center;
   gap: 0.5rem;
   padding: 1.5rem;
-  border: 1px dashed #9db6ae;
+  border: 1px dashed var(--must-color-border-strong);
   border-radius: 0.75rem;
-  background: #f8fbfa;
-  color: #245d4d;
+  background: var(--must-color-surface);
+  color: var(--must-color-ink);
   text-align: center;
   transition:
     background-color 120ms ease,
@@ -49,12 +49,12 @@
 }
 
 .dropzoneActive {
-  border-color: #14533f;
-  background: #eaf4f0;
+  border-color: var(--must-color-ink);
+  background: var(--must-color-surface-selected);
 }
 
 .dropzone span {
-  color: #667085;
+  color: var(--must-color-text-secondary);
   font-size: 0.8125rem;
 }
 
@@ -67,8 +67,8 @@
   padding: 0.55rem 0.9rem;
   border: 0;
   border-radius: 0.5rem;
-  background: #155441;
-  color: white;
+  background: var(--must-color-ink);
+  color: var(--must-color-surface);
   cursor: pointer;
   font: inherit;
   font-size: 0.875rem;
@@ -89,9 +89,9 @@
   position: relative;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #dbe4e0;
+  border: 1px solid var(--must-color-border);
   border-radius: 0.75rem;
-  background: white;
+  background: var(--must-color-surface);
 }
 
 .photo[draggable='true'] {
@@ -107,7 +107,7 @@
   width: 100%;
   aspect-ratio: 4 / 3;
   object-fit: cover;
-  background: #edf1ef;
+  background: var(--must-color-canvas);
 }
 
 .cover {
@@ -119,8 +119,8 @@
   gap: 0.25rem;
   padding: 0.3rem 0.5rem;
   border-radius: 999px;
-  background: #14533f;
-  color: white;
+  background: var(--must-color-ink);
+  color: var(--must-color-surface);
   font-size: 0.75rem;
   font-weight: 650;
 }
@@ -138,10 +138,10 @@
   width: 2rem;
   height: 2rem;
   place-items: center;
-  border: 1px solid #d6dfdb;
+  border: 1px solid var(--must-color-border);
   border-radius: 0.45rem;
-  background: white;
-  color: #24473d;
+  background: var(--must-color-surface);
+  color: var(--must-color-ink);
   cursor: pointer;
 }
 
@@ -173,7 +173,7 @@
   flex-wrap: wrap;
   gap: 0.4rem;
   padding: 0.4rem 0.55rem 0.55rem;
-  color: #344054;
+  color: var(--must-color-text-primary);
   font-size: 0.8125rem;
 }
 
@@ -182,10 +182,10 @@
 .urlOption button {
   min-height: 2rem;
   padding: 0.35rem 0.6rem;
-  border: 1px solid #d0d9d5;
+  border: 1px solid var(--must-color-border);
   border-radius: 0.45rem;
-  background: white;
-  color: #24473d;
+  background: var(--must-color-surface);
+  color: var(--must-color-ink);
   cursor: pointer;
   font: inherit;
   font-size: 0.8125rem;
@@ -195,8 +195,8 @@
   margin: 0;
   padding: 1rem;
   border-radius: 0.6rem;
-  background: #f7f9f8;
-  color: #667085;
+  background: var(--must-color-canvas);
+  color: var(--must-color-text-secondary);
   font-size: 0.875rem;
 }
 
@@ -204,7 +204,7 @@
   display: grid;
   gap: 0.75rem;
   padding-top: 0.75rem;
-  border-top: 1px solid #e4e9e7;
+  border-top: 1px solid var(--must-color-canvas);
 }
 
 .stagedActions {
@@ -216,7 +216,7 @@
   display: block;
   overflow: hidden;
   padding: 0.35rem 0.5rem 0.5rem;
-  color: #475467;
+  color: var(--must-color-text-secondary);
   font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -224,7 +224,7 @@
 
 .urlOption {
   padding-top: 0.25rem;
-  color: #475467;
+  color: var(--must-color-text-secondary);
   font-size: 0.875rem;
 }
 
@@ -244,7 +244,7 @@
   min-width: 0;
   min-height: 2.5rem;
   padding: 0.5rem 0.65rem;
-  border: 1px solid #cfd8d4;
+  border: 1px solid var(--must-color-border-strong);
   border-radius: 0.5rem;
   font: inherit;
 }
@@ -269,10 +269,10 @@
   align-items: center;
   gap: 0.45rem;
   padding: 0.45rem 0.8rem;
-  border: 1px solid #cddbd4;
+  border: 1px solid var(--must-color-border-strong);
   border-radius: 0.5rem;
-  background: white;
-  color: #245846;
+  background: var(--must-color-surface);
+  color: var(--must-color-ink);
   cursor: pointer;
   font-size: 0.85rem;
   font-weight: 600;

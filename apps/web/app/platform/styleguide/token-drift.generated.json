@@ -1,0 +1,379 @@
+{
+  "totals": {
+    "files": 3,
+    "hardcodedColors": 58,
+    "tokenReferences": 540
+  },
+  "files": [
+    {
+      "file": "dashboard/[tenantId]/room-management.module.css",
+      "uses": [
+        {
+          "line": 12,
+          "hex": "#e9eeeb",
+          "nearestToken": "--must-color-surface-selected",
+          "exact": false
+        },
+        {
+          "line": 18,
+          "hex": "#e1e8e4",
+          "nearestToken": "--must-color-surface-selected",
+          "exact": false
+        },
+        {
+          "line": 43,
+          "hex": "#f0f4f2",
+          "nearestToken": "--must-color-canvas",
+          "exact": false
+        },
+        {
+          "line": 44,
+          "hex": "#86978f",
+          "nearestToken": "--must-color-text-tertiary",
+          "exact": false
+        },
+        {
+          "line": 60,
+          "hex": "#155441",
+          "nearestToken": "--must-color-ink",
+          "exact": false
+        },
+        {
+          "line": 72,
+          "hex": "#1e332b",
+          "nearestToken": "--must-color-text-primary",
+          "exact": false
+        },
+        {
+          "line": 81,
+          "hex": "#66766f",
+          "nearestToken": "--must-color-text-tertiary",
+          "exact": false
+        },
+        {
+          "line": 101,
+          "hex": "#f0f5f2",
+          "nearestToken": "--must-color-canvas",
+          "exact": false
+        },
+        {
+          "line": 102,
+          "hex": "#456257",
+          "nearestToken": "--must-color-text-secondary",
+          "exact": false
+        },
+        {
+          "line": 111,
+          "hex": "#77857f",
+          "nearestToken": "--must-color-text-tertiary",
+          "exact": false
+        },
+        {
+          "line": 126,
+          "hex": "#edf1ef",
+          "nearestToken": "--must-color-canvas",
+          "exact": false
+        },
+        {
+          "line": 131,
+          "hex": "#edf1ef",
+          "nearestToken": "--must-color-canvas",
+          "exact": false
+        },
+        {
+          "line": 145,
+          "hex": "#30483e",
+          "nearestToken": "--must-color-ink",
+          "exact": false
+        },
+        {
+          "line": 159,
+          "hex": "#678075",
+          "nearestToken": "--must-color-text-tertiary",
+          "exact": false
+        },
+        {
+          "line": 160,
+          "hex": "#678075",
+          "nearestToken": "--must-color-text-tertiary",
+          "exact": false
+        },
+        {
+          "line": 194,
+          "hex": "#f0f4f2",
+          "nearestToken": "--must-color-canvas",
+          "exact": false
+        },
+        {
+          "line": 216,
+          "hex": "#f0f4f2",
+          "nearestToken": "--must-color-canvas",
+          "exact": false
+        },
+        {
+          "line": 217,
+          "hex": "#526b60",
+          "nearestToken": "--must-color-text-secondary",
+          "exact": false
+        },
+        {
+          "line": 224,
+          "hex": "#78867f",
+          "nearestToken": "--must-color-text-tertiary",
+          "exact": false
+        },
+        {
+          "line": 237,
+          "hex": "#40564c",
+          "nearestToken": "--must-color-ink",
+          "exact": false
+        },
+        {
+          "line": 245,
+          "hex": "#155441",
+          "nearestToken": "--must-color-ink",
+          "exact": false
+        },
+        {
+          "line": 260,
+          "hex": "#e8eeeb",
+          "nearestToken": "--must-color-surface-selected",
+          "exact": false
+        },
+        {
+          "line": 262,
+          "hex": "#fcfdfc",
+          "nearestToken": "--must-color-surface",
+          "exact": false
+        },
+        {
+          "line": 273,
+          "hex": "#2b4339",
+          "nearestToken": "--must-color-ink",
+          "exact": false
+        },
+        {
+          "line": 278,
+          "hex": "#7a8881",
+          "nearestToken": "--must-color-text-tertiary",
+          "exact": false
+        },
+        {
+          "line": 302,
+          "hex": "#edf1ef",
+          "nearestToken": "--must-color-canvas",
+          "exact": false
+        },
+        {
+          "line": 303,
+          "hex": "#738279",
+          "nearestToken": "--must-color-text-tertiary",
+          "exact": false
+        },
+        {
+          "line": 314,
+          "hex": "#e5ece8",
+          "nearestToken": "--must-color-surface-selected",
+          "exact": false
+        },
+        {
+          "line": 316,
+          "hex": "#f8faf9",
+          "nearestToken": "--must-color-info-surface",
+          "exact": false
+        },
+        {
+          "line": 343,
+          "hex": "#edf1ef",
+          "nearestToken": "--must-color-canvas",
+          "exact": false
+        }
+      ]
+    },
+    {
+      "file": "login/login.module.css",
+      "uses": [
+        {
+          "line": 16,
+          "hex": "#173d33",
+          "nearestToken": "--must-color-ink-hover",
+          "exact": false
+        },
+        {
+          "line": 16,
+          "hex": "#245447",
+          "nearestToken": "--must-color-ink",
+          "exact": false
+        },
+        {
+          "line": 26,
+          "hex": "#ffffff",
+          "nearestToken": "--must-color-surface",
+          "exact": true
+        },
+        {
+          "line": 78,
+          "hex": "#e8f0ec",
+          "nearestToken": "--must-color-surface-selected",
+          "exact": false
+        },
+        {
+          "line": 102,
+          "hex": "#ffffff",
+          "nearestToken": "--must-color-surface",
+          "exact": true
+        },
+        {
+          "line": 110,
+          "hex": "#bcd0c7",
+          "nearestToken": "--must-color-border-strong",
+          "exact": false
+        },
+        {
+          "line": 148,
+          "hex": "#ffffff",
+          "nearestToken": "--must-color-surface",
+          "exact": true
+        },
+        {
+          "line": 155,
+          "hex": "#bcd0c7",
+          "nearestToken": "--must-color-border-strong",
+          "exact": false
+        },
+        {
+          "line": 161,
+          "hex": "#bcd0c7",
+          "nearestToken": "--must-color-border-strong",
+          "exact": false
+        },
+        {
+          "line": 210,
+          "hex": "#ecfaf2",
+          "nearestToken": "--must-color-success-surface",
+          "exact": false
+        },
+        {
+          "line": 211,
+          "hex": "#a6e7c2",
+          "nearestToken": "--must-color-border-strong",
+          "exact": false
+        },
+        {
+          "line": 213,
+          "hex": "#176b4d",
+          "nearestToken": "--must-color-success",
+          "exact": false
+        },
+        {
+          "line": 238,
+          "hex": "#fff1f0",
+          "nearestToken": "--must-color-danger-surface",
+          "exact": false
+        },
+        {
+          "line": 239,
+          "hex": "#f4b8b3",
+          "nearestToken": "--must-color-border",
+          "exact": false
+        },
+        {
+          "line": 242,
+          "hex": "#b9382c",
+          "nearestToken": "--must-color-danger",
+          "exact": false
+        },
+        {
+          "line": 270,
+          "hex": "#b9382c",
+          "nearestToken": "--must-color-danger",
+          "exact": false
+        },
+        {
+          "line": 323,
+          "hex": "#b9382c",
+          "nearestToken": "--must-color-danger",
+          "exact": false
+        },
+        {
+          "line": 373,
+          "hex": "#ffffff",
+          "nearestToken": "--must-color-surface",
+          "exact": true
+        },
+        {
+          "line": 385,
+          "hex": "#ffffff",
+          "nearestToken": "--must-color-surface",
+          "exact": true
+        },
+        {
+          "line": 428,
+          "hex": "#f6f8f6",
+          "nearestToken": "--must-color-canvas",
+          "exact": false
+        }
+      ]
+    },
+    {
+      "file": "dashboard/calendar.module.css",
+      "uses": [
+        {
+          "line": 119,
+          "hex": "#e4f3ea",
+          "nearestToken": "--must-color-surface-selected",
+          "exact": false
+        },
+        {
+          "line": 120,
+          "hex": "#1e6045",
+          "nearestToken": "--must-color-ink",
+          "exact": false
+        },
+        {
+          "line": 123,
+          "hex": "#fbedcf",
+          "nearestToken": "--must-color-warning-surface",
+          "exact": false
+        },
+        {
+          "line": 124,
+          "hex": "#8a5d00",
+          "nearestToken": "--must-color-warning",
+          "exact": false
+        },
+        {
+          "line": 127,
+          "hex": "#f7dede",
+          "nearestToken": "--must-color-surface-selected",
+          "exact": false
+        },
+        {
+          "line": 128,
+          "hex": "#9a2626",
+          "nearestToken": "--must-color-danger",
+          "exact": false
+        },
+        {
+          "line": 131,
+          "hex": "#e3e9f1",
+          "nearestToken": "--must-color-surface-selected",
+          "exact": false
+        },
+        {
+          "line": 132,
+          "hex": "#44526b",
+          "nearestToken": "--must-color-text-secondary",
+          "exact": false
+        }
+      ]
+    }
+  ],
+  "undocumentedTokens": [
+    "--must-color-danger-surface",
+    "--must-color-info-surface",
+    "--must-color-notification-badge",
+    "--must-color-success-surface",
+    "--must-color-warning-surface"
+  ]
+}
