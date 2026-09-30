@@ -34,7 +34,7 @@ describe('Payments', () => {
         ),
       ),
     );
-    expect(c.textContent).not.toContain('Refund');
+    expect(c.querySelector('button.must-button--danger')).toBeNull();
     await act(async () => r.unmount());
   });
   it('settles an unpaid pay-at-hotel booking and updates status', async () => {
@@ -233,5 +233,144 @@ describe('Payments', () => {
     });
     expect(c.querySelector('[role="dialog"]')).toBeNull();
     await act(async () => r.unmount());
+  });
+
+  async function renderPayments(bookings: Reservation[], capabilities = ['payments.refund']) {
+    const c = document.createElement('div');
+    const r = createRoot(c);
+    await act(async () =>
+      r.render(
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(DashboardPayments, {
+            tenantId: 't',
+            propertyId: 'p',
+            initialCapabilities: capabilities,
+            initialBookings: bookings,
+          }),
+        ),
+      ),
+    );
+    return { c, unmount: () => act(async () => r.unmount()) };
+  }
+
+  const live = {
+    ...booking,
+    status: 'CONFIRMED',
+    paymentMethod: 'POKPAY',
+    externalReference: 'EBR-LIVE-0001',
+    guestFirstName: 'Ada',
+    guestLastName: 'Lovelace',
+    guestEmail: 'ada@test',
+    startsOn: '2026-10-03',
+    endsOn: '2026-10-04',
+    roomTypeName: 'Executive Suite Sea View',
+    paidAmount: '100.00',
+    createdAt: '2026-09-30T10:00:00Z',
+  } as Reservation;
+  const cancelledHeld = {
+    ...live,
+    id: 'cancelled-held',
+    status: 'CANCELLED',
+    externalReference: 'EBR-CANCELLED-0002',
+    guestFirstName: 'Grace',
+    guestLastName: 'Hopper',
+    guestEmail: 'grace@test',
+    createdAt: '2026-09-29T10:00:00Z',
+  } as Reservation;
+  const cancelledPayAtHotel = {
+    ...booking,
+    id: 'cancelled-hotel',
+    status: 'CANCELLED',
+    externalReference: 'EBR-CANCELLED-0003',
+    createdAt: '2026-09-28T10:00:00Z',
+  } as Reservation;
+
+  it('shows the reference, guest, stay and both statuses for each booking', async () => {
+    const { c, unmount } = await renderPayments([live]);
+    const row = c.querySelector('tbody tr')!;
+    expect(row.textContent).toContain('EBR-LIVE-0001');
+    expect(row.textContent).toContain('Ada Lovelace');
+    expect(row.textContent).toContain('ada@test');
+    expect(row.textContent).toContain('3 Oct → 4 Oct 2026');
+    expect(row.textContent).toContain('Executive Suite Sea View');
+    expect(row.textContent).toContain('Confirmed');
+    expect(row.textContent).toContain('Paid');
+    await unmount();
+  });
+
+  it('never calls a cancelled booking Paid or Due at hotel, and offers no manual payment for it', async () => {
+    const { c, unmount } = await renderPayments([cancelledHeld, cancelledPayAtHotel]);
+    const [heldRow, hotelRow] = Array.from(c.querySelectorAll('tbody tr'));
+    expect(heldRow.textContent).toContain('Cancelled');
+    expect(heldRow.textContent).toContain('Refund due');
+    expect(heldRow.textContent).not.toContain('Partially paid');
+    expect(hotelRow.textContent).toContain('Nothing paid');
+    expect(hotelRow.textContent).not.toContain('Due at hotel');
+    expect(c.textContent).not.toContain('Mark as Paid');
+    // The held money can still be refunded; the unpaid cancelled booking cannot.
+    expect(heldRow.querySelector('button.must-button--danger')).not.toBeNull();
+    expect(hotelRow.querySelector('button.must-button--danger')).toBeNull();
+    await unmount();
+  });
+
+  it('lists the newest booking first', async () => {
+    const { c, unmount } = await renderPayments([cancelledPayAtHotel, live, cancelledHeld]);
+    const references = Array.from(c.querySelectorAll('tbody tr code')).map((e) => e.textContent);
+    expect(references).toEqual(['EBR-LIVE-0001', 'EBR-CANCELLED-0002', 'EBR-CANCELLED-0003']);
+    await unmount();
+  });
+
+  it('filters by tab and shows a count on each tab', async () => {
+    const { c, unmount } = await renderPayments([live, cancelledHeld, cancelledPayAtHotel]);
+    const tab = (label: string) =>
+      Array.from(c.querySelectorAll<HTMLButtonElement>('[role="group"] button')).find((button) =>
+        button.textContent?.startsWith(label),
+      )!;
+    expect(tab('All').textContent).toContain('3');
+    expect(tab('Needs action').textContent).toContain('1');
+    expect(tab('Cancelled').textContent).toContain('2');
+    await act(async () => tab('Needs action').click());
+    const references = Array.from(c.querySelectorAll('tbody tr code')).map((e) => e.textContent);
+    expect(references).toEqual(['EBR-CANCELLED-0002']);
+    expect(tab('Needs action').getAttribute('aria-pressed')).toBe('true');
+    await unmount();
+  });
+
+  it('searches by reference, guest name or email', async () => {
+    const { c, unmount } = await renderPayments([live, cancelledHeld]);
+    const search = c.querySelector<HTMLInputElement>('input[type="search"]')!;
+    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(search), 'value')!.set!;
+    for (const [query, expected] of [
+      ['cancelled-0002', ['EBR-CANCELLED-0002']],
+      ['lovelace', ['EBR-LIVE-0001']],
+      ['GRACE@TEST', ['EBR-CANCELLED-0002']],
+    ] as const) {
+      await act(async () => {
+        setValue.call(search, query);
+        search.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      expect(Array.from(c.querySelectorAll('tbody tr code')).map((e) => e.textContent)).toEqual(
+        expected,
+      );
+    }
+    await act(async () => {
+      setValue.call(search, 'nobody');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(c.querySelector('tbody')!.textContent).toContain('No payments match');
+    await unmount();
+  });
+
+  it('names the booking in the refund dialog so the right row is refunded', async () => {
+    const { c, unmount } = await renderPayments([live]);
+    await act(async () => {
+      c.querySelector<HTMLButtonElement>('button.must-button--danger')!.click();
+    });
+    const dialog = c.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.textContent).toContain('EBR-LIVE-0001 · Ada Lovelace');
+    expect(dialog.textContent).toContain('Remaining refundable balance: 100.00 EUR');
+    await unmount();
   });
 });

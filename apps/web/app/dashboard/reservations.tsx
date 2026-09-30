@@ -562,7 +562,9 @@ function SortIcon({ direction }: { direction: 'asc' | 'desc' | false }) {
   return <ArrowUpDown aria-hidden="true" size={14} />;
 }
 
-function guestName(booking: Pick<Reservation, 'guestFirstName' | 'guestLastName' | 'guestEmail'>) {
+export function guestName(
+  booking: Pick<Reservation, 'guestFirstName' | 'guestLastName' | 'guestEmail'>,
+) {
   return (
     [booking.guestFirstName, booking.guestLastName].filter(Boolean).join(' ') ||
     booking.guestEmail ||
@@ -574,7 +576,7 @@ function formatStatus(value: string) {
   return value.toLocaleLowerCase().replaceAll('_', ' ');
 }
 
-function reservationStatusBadge(status: string) {
+export function reservationStatusBadge(status: string) {
   const label = formatStatus(status);
   if (status === 'CONFIRMED') {
     return { domain: 'booking' as const, state: 'confirmed' as const, label: 'Confirmed' };

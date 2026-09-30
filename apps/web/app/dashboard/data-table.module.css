@@ -91,3 +91,59 @@
   justify-content: flex-end;
   margin-top: var(--must-space-24);
 }
+
+.toolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--must-space-12);
+  justify-content: space-between;
+}
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--must-space-8);
+}
+.tab {
+  background: transparent;
+  border: 1px solid var(--must-color-border);
+  border-radius: var(--must-radius-control);
+  color: var(--must-color-text-primary);
+  cursor: pointer;
+  font: inherit;
+  padding: var(--must-space-8) var(--must-space-12);
+}
+.tabActive {
+  background: var(--must-color-action-primary);
+  border-color: var(--must-color-action-primary);
+  color: var(--must-color-surface);
+}
+.tabCount {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+.search {
+  border: 1px solid var(--must-color-border);
+  border-radius: var(--must-radius-control);
+  color: var(--must-color-text-primary);
+  font: inherit;
+  min-width: 16rem;
+  padding: var(--must-space-8) var(--must-space-12);
+}
+.table td code.reference {
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+.table th .numHeader {
+  display: block;
+  text-align: right;
+}
+.table td span.num {
+  color: var(--must-color-text-primary);
+  display: block;
+  font-size: inherit;
+  font-variant-numeric: tabular-nums;
+  margin-top: 0;
+  text-align: right;
+  white-space: nowrap;
+}
