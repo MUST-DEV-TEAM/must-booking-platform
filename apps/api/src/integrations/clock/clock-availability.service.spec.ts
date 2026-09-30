@@ -589,8 +589,117 @@ describe('ClockAvailabilityService.getAvailabilityCalendar', () => {
 
     expect(result).toEqual({
       ok: true,
-      value: expect.arrayContaining([{ date: '2026-08-10', isAvailable: false }]),
+      value: expect.arrayContaining([{ date: '2026-08-10', isAvailable: false, status: 'closed' }]),
     });
+  });
+
+  // Runs one calendar month against a single rate whose cells are given by the test.
+  async function calendarFor(
+    cells: Record<string, unknown>,
+    extra: { roomCount?: number } = {},
+  ) {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [{ id: 42023, rates: { '69242': cells } }],
+      });
+    const { service } = makeService({ client: { request } });
+    const result = await service.getAvailabilityCalendar('t1', 'p1', {
+      roomTypeId: 'local-rt-1',
+      month: '2026-08',
+      ...extra,
+    });
+    if (!result.ok) throw new Error('expected an ok calendar');
+    return Object.fromEntries(result.value.map((day) => [day.date, day]));
+  }
+
+  it('tells a stop-sale closure (rooms free) apart from a sold-out night (no rooms free)', async () => {
+    const days = await calendarFor({
+      '2026-08-10': { free: true, room_type_free_rooms: 7, rate_restriction: { stop_from_sale: true } },
+      '2026-08-11': { free: false, room_type_free_rooms: 0 },
+      '2026-08-12': { free: true, room_type_free_rooms: 0, rate_restriction: { stop_from_sale: true } },
+      '2026-08-13': { free: true, room_type_free_rooms: 3 },
+    });
+
+    expect(days['2026-08-10']).toMatchObject({ isAvailable: false, status: 'closed' });
+    expect(days['2026-08-11']).toMatchObject({ isAvailable: false, status: 'sold_out' });
+    // Stopped AND no rooms left is a booked-out night first, not a staff closure.
+    expect(days['2026-08-12']).toMatchObject({ isAvailable: false, status: 'sold_out' });
+    expect(days['2026-08-13']).toMatchObject({ isAvailable: true, status: 'available' });
+  });
+
+  it('requires enough free rooms for a multi-room search', async () => {
+    const cells = { '2026-08-10': { free: true, room_type_free_rooms: 2 } };
+
+    expect((await calendarFor(cells, { roomCount: 2 }))['2026-08-10']).toMatchObject({
+      isAvailable: true,
+    });
+    expect((await calendarFor(cells, { roomCount: 3 }))['2026-08-10']).toMatchObject({
+      isAvailable: false,
+      status: 'sold_out',
+    });
+  });
+
+  it('reports arrival/departure closures and minimum stay only when every open rate has them', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          { id: 1, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true },
+          { id: 2, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true },
+        ],
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        body: [
+          {
+            id: 42023,
+            rates: {
+              '1': {
+                '2026-08-10': {
+                  free: true,
+                  room_type_free_rooms: 2,
+                  rate_restriction: { close_for_arrival: true, close_for_departure: true, min_stay: 3 },
+                },
+                '2026-08-11': {
+                  free: true,
+                  room_type_free_rooms: 2,
+                  rate_restriction: { close_for_arrival: true, min_stay_on_arrival: 2 },
+                },
+              },
+              '2': {
+                '2026-08-10': { free: true, room_type_free_rooms: 2, rate_restriction: { min_stay: 5 } },
+                '2026-08-11': {
+                  free: true,
+                  room_type_free_rooms: 2,
+                  rate_restriction: { close_for_arrival: true, min_stay_on_arrival: 4 },
+                },
+              },
+            },
+          },
+        ],
+      });
+    const { service } = makeService({ client: { request } });
+
+    const result = await service.getAvailabilityCalendar('t1', 'p1', {
+      roomTypeId: 'local-rt-1',
+      month: '2026-08',
+    });
+    if (!result.ok) throw new Error('expected an ok calendar');
+    const days = Object.fromEntries(result.value.map((day) => [day.date, day]));
+
+    // Rate 2 is unrestricted for arrival/departure on the 10th, so the guest can use it.
+    expect(days['2026-08-10']).toMatchObject({ isAvailable: true, minStay: 3 });
+    expect(days['2026-08-10']?.closedToArrival).toBeUndefined();
+    expect(days['2026-08-10']?.closedToDeparture).toBeUndefined();
+    // Both rates close arrival on the 11th; the smaller minimum stay is the one offered.
+    expect(days['2026-08-11']).toMatchObject({ isAvailable: true, closedToArrival: true, minStay: 2 });
   });
 });
 

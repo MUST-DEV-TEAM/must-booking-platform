@@ -159,12 +159,19 @@ export class AvailabilityController {
     );
   }
 
-  private calendarInput(query: unknown): { roomTypeId: string; roomId?: string; month: string } {
+  private calendarInput(query: unknown): {
+    roomTypeId: string;
+    roomId?: string;
+    month: string;
+    roomCount?: number;
+  } {
     const value = (query ?? {}) as Record<string, unknown>;
+    const roomCount = Number(value.rooms);
     return {
       roomTypeId: typeof value.roomTypeId === 'string' ? value.roomTypeId : '',
       roomId: typeof value.roomId === 'string' ? value.roomId : undefined,
       month: typeof value.month === 'string' ? value.month : '',
+      roomCount: Number.isInteger(roomCount) && roomCount >= 1 && roomCount <= 25 ? roomCount : undefined,
     };
   }
 }

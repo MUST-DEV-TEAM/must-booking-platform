@@ -42,6 +42,9 @@ export type CalendarRow = {
   totalUnits: number;
   // date (YYYY-MM-DD) -> remaining units for that night.
   availableByDate: Record<string, number>;
+  // Nights with rooms still free that were switched off for sale in the PMS
+  // (stop-sale, e.g. a staff vacation block) - not the same thing as sold out.
+  closedByDate?: Record<string, boolean>;
 };
 
 type CalendarData = {
@@ -114,7 +117,7 @@ export function DashboardCalendar({
         roomTypes: initialRoomTypes,
         rooms: initialRooms ?? [],
         availability: initialAvailability,
-        rows: initialRows ?? initialRoomTypes.map((roomType) => {
+        rows: initialRows ?? initialRoomTypes.map((roomType): CalendarRow => {
           const forType = initialAvailability.filter((item) => item.roomTypeId === roomType.id);
           return {
             id: roomType.id,
@@ -306,6 +309,9 @@ export function DashboardCalendar({
           <span>
             <i className={styles.unavailable} /> Sold out
           </span>
+          <span>
+            <i className={styles.closed} /> Closed
+          </span>
         </div>
         <div className={styles.tapeChartScroll}>
           <div
@@ -329,14 +335,17 @@ export function DashboardCalendar({
               <Fragment key={row.id}>
                 <div className={styles.tapeChartRowLabel}>{row.label}</div>
                 {monthDays.map((day) => {
-                  const remaining = row.availableByDate[day] ?? 0;
+                  const isClosed = row.closedByDate?.[day] === true;
+                  // A closed night reads as closed even if the day-level count still shows free rooms.
+                  const remaining = isClosed ? 0 : (row.availableByDate[day] ?? 0);
+                  const stateLabel = isClosed ? 'Closed' : remaining > 0 ? `${remaining} available` : 'Sold out';
                   return (
                     <button
                       key={`${row.id}-${day}`}
                       type="button"
-                      className={`${styles.tapeChartCell} ${availabilityClass(remaining, row.totalUnits)}`}
-                      aria-label={`${row.label}, ${formatDay(day)}: ${remaining > 0 ? `${remaining} available` : 'sold out'}`}
-                      title={`${row.label}: ${remaining > 0 ? `${remaining} available` : 'Sold out'}`}
+                      className={`${styles.tapeChartCell} ${isClosed ? styles.closed : availabilityClass(remaining, row.totalUnits)}`}
+                      aria-label={`${row.label}, ${formatDay(day)}: ${stateLabel.toLowerCase()}`}
+                      title={`${row.label}: ${stateLabel}`}
                       onClick={() => setSelectedDay(day)}
                     >
                       {remaining > 1 ? remaining : ''}
@@ -714,6 +723,37 @@ export async function fetchCalendarAvailability(
       : Promise.resolve([]),
   ]);
 
+  // One month-wide request per room type tells "closed" (stop-sale) apart from
+  // "sold out". It only adds detail, so a failed request leaves the grid as before.
+  const closedByType: Record<string, Record<string, boolean>> = rooms.length
+    ? {}
+    : Object.fromEntries(
+        await Promise.all(
+          roomTypes.map(async (roomType) => {
+            try {
+              const response = await fetch(
+                `/api/tenants/${tenantId}/properties/${propertyId}/availability-calendar?${new URLSearchParams({ roomTypeId: roomType.id, month })}`,
+                { credentials: 'include' },
+              );
+              if (!response.ok) return [roomType.id, {}] as const;
+              const body = (await response.json()) as {
+                days?: Array<{ date: string; status?: string }>;
+              };
+              return [
+                roomType.id,
+                Object.fromEntries(
+                  (body.days ?? [])
+                    .filter((entry) => entry.status === 'closed')
+                    .map((entry) => [entry.date, true]),
+                ),
+              ] as const;
+            } catch {
+              return [roomType.id, {}] as const;
+            }
+          }),
+        ),
+      );
+
   const rows = rooms.length
     ? await Promise.all(
         rooms.map(async (room): Promise<CalendarRow> => {
@@ -742,6 +782,7 @@ export async function fetchCalendarAvailability(
         return {
           id: roomType.id,
           label: roomType.name,
+          closedByDate: closedByType[roomType.id],
           // No room-level data exists for ROOM_TYPE_ONLY properties, so the
           // best available proxy for total capacity is the most units ever
           // seen free in the month — availableUnits can't exceed it.

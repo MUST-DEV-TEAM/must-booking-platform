@@ -118,6 +118,33 @@ describe('Dashboard calendar', () => {
     expect(markup).not.toContain('Block availability');
   });
 
+  it('shows a stop-sale night as Closed, separate from Sold out, even when rooms are still free', () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(DashboardCalendar, {
+          ...props,
+          initialRows: [
+            {
+              id: 'deluxe',
+              label: 'Deluxe King',
+              totalUnits: 7,
+              // The Clock day count still shows 7 free rooms; stop-sale must win.
+              availableByDate: { '2026-08-10': 7, '2026-08-11': 0 },
+              closedByDate: { '2026-08-10': true },
+            },
+          ] satisfies CalendarRow[],
+        }),
+      ),
+    );
+
+    expect(markup).toContain('Deluxe King: Closed');
+    expect(markup).toContain('Deluxe King: Sold out');
+    expect(markup).not.toContain('Deluxe King: 7 available');
+    expect(markup).toContain('Closed</span>'); // legend entry
+  });
+
   it('walks an Owner/Admin through the block-availability popup: room type, then room, then dates', async () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     const container = document.createElement('div');

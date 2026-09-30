@@ -76,6 +76,28 @@ describe('PublicAvailabilityController.getCalendar', () => {
     });
   });
 
+  it('passes the requested room count through so multi-room searches need enough free rooms', async () => {
+    const providers = { forProperty: vi.fn() };
+    const availability = { getCalendar: vi.fn().mockResolvedValue({ days: [] }) };
+    const clockAvailability = { isAvailableForBooking: vi.fn() };
+    const controller = new PublicAvailabilityController(
+      providers as never,
+      availability as never,
+      clockAvailability as never,
+    );
+
+    await controller.getCalendar(
+      { roomTypeId: 'room-type-1', month: '2026-09', adults: '2', rooms: '2' },
+      request,
+    );
+
+    expect(availability.getCalendar).toHaveBeenCalledWith(
+      'tenant-1',
+      'property-1',
+      expect.objectContaining({ roomCount: 2 }),
+    );
+  });
+
   it('allows a room-type-only calendar query with no roomId', async () => {
     const providers = { forProperty: vi.fn() };
     const availability = { getCalendar: vi.fn().mockResolvedValue({ days: [] }) };

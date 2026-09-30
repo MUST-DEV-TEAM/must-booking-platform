@@ -127,6 +127,10 @@
   --must-tape-chart-cell-bg: #f7dede;
   --must-tape-chart-cell-fg: #9a2626;
 }
+.closed {
+  --must-tape-chart-cell-bg: #e3e9f1;
+  --must-tape-chart-cell-fg: #44526b;
+}
 .drillIn {
   display: grid;
   gap: var(--must-space-12);

@@ -54,11 +54,35 @@ type ClockRateAvailabilityResponse = Array<{
         // stop_from_sale` is the reliable structured field. /products (the
         // real quote endpoint) always refuses such a night; summarizeAvailability
         // must therefore also refuse it, not just check `free`.
-        rate_restriction?: { stop_from_sale?: boolean };
+        rate_restriction?: {
+          stop_from_sale?: boolean;
+          close_for_arrival?: boolean;
+          close_for_departure?: boolean;
+          min_stay?: number | null;
+          min_stay_on_arrival?: number | null;
+        };
       }
     >
   >;
 }>;
+
+/**
+ * Why a calendar day is (not) bookable. `closed` means rooms exist but sales
+ * were switched off in Clock (stop-sale, e.g. a staff vacation block), which
+ * is different from `sold_out` (no rooms left, or none that fit the party).
+ * `unavailable` is for sources that cannot tell the two apart.
+ */
+export type CalendarDayStatus = 'available' | 'sold_out' | 'closed' | 'unavailable';
+
+export interface CalendarDay {
+  date: string;
+  isAvailable: boolean;
+  status: CalendarDayStatus;
+  /** Only present on an available day, and only when Clock restricts it. */
+  closedToArrival?: boolean;
+  closedToDeparture?: boolean;
+  minStay?: number;
+}
 
 // Confirmed against Clock's own public Postman docs ("products - VIEW"):
 // GET /products with product_search[arrival]/[departure] and rates[] returns,
@@ -839,8 +863,14 @@ export class ClockAvailabilityService {
   async getAvailabilityCalendar(
     tenantId: string,
     propertyId: string,
-    query: { roomTypeId: string; month: string; adultCount?: number; childrenCount?: number },
-  ): Promise<Result<Array<{ date: string; isAvailable: boolean }>>> {
+    query: {
+      roomTypeId: string;
+      month: string;
+      adultCount?: number;
+      childrenCount?: number;
+      roomCount?: number;
+    },
+  ): Promise<Result<CalendarDay[]>> {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (!connection || connection.provider !== 'CLOCK_PMS')
       return failure(
@@ -887,12 +917,34 @@ export class ClockAvailabilityService {
 
     const roomType = response.value.find((item) => String(item.id) === externalRoomTypeId);
     const rateEntries = roomType ? Object.values(roomType.rates) : [];
-    const days = nights.map((date) => {
-      const isAvailable = rateEntries.some((entry) => {
-        const cell = entry[date];
-        return cell?.free && !cell.rate_restriction?.stop_from_sale && cell.room_type_free_rooms > 0;
-      });
-      return { date, isAvailable };
+    const roomsNeeded = Math.max(1, query.roomCount ?? 1);
+    const days = nights.map((date): CalendarDay => {
+      const cells = rateEntries.flatMap((entry) => (entry[date] ? [entry[date]] : []));
+      // Open means at least one rate can be sold for that night to a party of
+      // this size in this many rooms; stop-sale always wins over free rooms.
+      const openCells = cells.filter(
+        (cell) =>
+          cell.free && !cell.rate_restriction?.stop_from_sale && cell.room_type_free_rooms >= roomsNeeded,
+      );
+      if (openCells.length > 0) {
+        const day: CalendarDay = { date, isAvailable: true, status: 'available' };
+        // Restrictions only count when every open rate carries them, since a
+        // guest can pick whichever rate is unrestricted.
+        if (openCells.every((cell) => cell.rate_restriction?.close_for_arrival)) day.closedToArrival = true;
+        if (openCells.every((cell) => cell.rate_restriction?.close_for_departure))
+          day.closedToDeparture = true;
+        const minStays = openCells.map(
+          (cell) => cell.rate_restriction?.min_stay_on_arrival ?? cell.rate_restriction?.min_stay ?? 0,
+        );
+        const minStay = Math.min(...minStays);
+        if (minStay > 1) day.minStay = minStay;
+        return day;
+      }
+      const stoppedWithRooms = cells.some(
+        (cell) =>
+          cell.free && cell.rate_restriction?.stop_from_sale && cell.room_type_free_rooms >= roomsNeeded,
+      );
+      return { date, isAvailable: false, status: stoppedWithRooms ? 'closed' : 'sold_out' };
     });
     return { ok: true, value: days };
   }

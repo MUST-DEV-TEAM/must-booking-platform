@@ -4,7 +4,10 @@ import { randomUUID } from 'node:crypto';
 import { AuditLogService } from './audit-log.service';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
-import { ClockAvailabilityService } from '../integrations/clock/clock-availability.service';
+import {
+  ClockAvailabilityService,
+  type CalendarDay,
+} from '../integrations/clock/clock-availability.service';
 
 type Availability = {
   roomTypeId: string;
@@ -135,8 +138,9 @@ export class AvailabilityService {
       month: string;
       adultCount?: number;
       childrenCount?: number;
+      roomCount?: number;
     },
-  ): Promise<{ days: Array<{ date: string; isAvailable: boolean }> }> {
+  ): Promise<{ days: CalendarDay[] }> {
     const { start, end } = this.monthRange(query.month);
     // Individual-room availability is always a local concept (room_availability/
     // bookings), regardless of PMS connection — only the room-type-level day
@@ -155,6 +159,7 @@ export class AvailabilityService {
             month: query.month,
             adultCount: query.adultCount,
             childrenCount: query.childrenCount,
+            roomCount: query.roomCount,
           },
         );
         if (!calendar.ok) throw new BadRequestException(calendar.error.message);
@@ -213,7 +218,7 @@ export class AvailabilityService {
           FROM month_days
           ORDER BY month_days.stays_on
         `;
-        return { days };
+        return { days: days.map(localCalendarDay) };
       }
 
       const days = await tx.$queryRaw<Array<{ date: string; isAvailable: boolean }>>`
@@ -244,7 +249,7 @@ export class AvailabilityService {
           AND inventory_units.stays_on = month_days.stays_on
         ORDER BY month_days.stays_on
       `;
-      return { days };
+      return { days: days.map(localCalendarDay) };
     });
   }
 
@@ -766,4 +771,9 @@ export class AvailabilityService {
         'Room-level availability is only available for individual-room properties.',
       );
   }
+}
+
+/** Local inventory cannot say why a day is closed, only that it is. */
+function localCalendarDay(day: { date: string; isAvailable: boolean }): CalendarDay {
+  return { ...day, status: day.isAvailable ? 'available' : 'unavailable' };
 }

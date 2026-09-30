@@ -130,16 +130,18 @@ describe('availability calendar (local)', () => {
       .expect(200);
 
     expect(response.body.days).toHaveLength(31);
-    expect(response.body.days[0]).toEqual({ date: '2027-03-01', isAvailable: true });
+    expect(response.body.days[0]).toEqual({ date: '2027-03-01', isAvailable: true, status: 'available' });
     expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-10')).toEqual({
       date: '2027-03-10',
       isAvailable: false,
+      status: 'unavailable',
     });
     expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-15')).toEqual({
       date: '2027-03-15',
       isAvailable: false,
+      status: 'unavailable',
     });
-    expect(response.body.days.at(-1)).toEqual({ date: '2027-03-31', isAvailable: true });
+    expect(response.body.days.at(-1)).toEqual({ date: '2027-03-31', isAvailable: true, status: 'available' });
   });
 
   it('lists every room across every room type via the flat property-wide endpoint', async () => {
@@ -180,10 +182,12 @@ describe('availability calendar (local)', () => {
     expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-09')).toEqual({
       date: '2027-03-09',
       isAvailable: true,
+      status: 'available',
     });
     expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-10')).toEqual({
       date: '2027-03-10',
       isAvailable: false,
+      status: 'unavailable',
     });
   });
 
@@ -208,18 +212,22 @@ describe('availability calendar (local)', () => {
     expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-19')).toEqual({
       date: '2027-03-19',
       isAvailable: true,
+      status: 'available',
     });
     expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-20')).toEqual({
       date: '2027-03-20',
       isAvailable: false,
+      status: 'unavailable',
     });
     expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-21')).toEqual({
       date: '2027-03-21',
       isAvailable: false,
+      status: 'unavailable',
     });
     expect(response.body.days.find((d: { date: string }) => d.date === '2027-03-22')).toEqual({
       date: '2027-03-22',
       isAvailable: true,
+      status: 'available',
     });
   });
 });

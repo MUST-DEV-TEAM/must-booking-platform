@@ -91,6 +91,7 @@ export class PublicAvailabilityController {
       month: parsed.month,
       adultCount: parsed.adultCount,
       childrenCount: parsed.childrenCount,
+      roomCount: parsed.roomCount,
     });
   }
 }
@@ -126,6 +127,7 @@ function parseAvailabilityCalendarQuery(query: unknown): {
   month: string;
   adultCount?: number;
   childrenCount?: number;
+  roomCount?: number;
 } {
   const value = (query ?? {}) as Record<string, unknown>;
   const roomTypeId = typeof value.roomTypeId === 'string' ? value.roomTypeId : '';
@@ -140,6 +142,7 @@ function parseAvailabilityCalendarQuery(query: unknown): {
     month,
     adultCount: optionalInteger(value.adults, 'adults', 1),
     childrenCount: optionalInteger(value.children, 'children', 0),
+    roomCount: optionalInteger(value.rooms, 'rooms', 1),
   };
 }
 
