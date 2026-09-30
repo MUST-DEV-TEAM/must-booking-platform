@@ -4,7 +4,7 @@ Tags: hotel, booking, reservation, accommodation
 Requires at least: 5.0
 Tested up to: 6.0
 Requires PHP: 7.4
-Stable tag: 0.4.105
+Stable tag: 0.4.106
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,9 @@ Main features include:
 5. When updating, upload the new release ZIP or use the configured updater, then review **Diagnostics & Maintenance** after the update completes.
 
 == Changelog ==
+
+= 0.4.106 =
+* Booking calendar: past dates are faded without the sold-out slash; the two-calendar layout can unselect a check-in and drops a check-out that no longer fits a new check-in.
 
 = 0.4.105 =
 * Booking calendar: availability that fails to load now blocks those dates instead of showing them open; stays are checked against every month they cross; the maximum-nights, booking-window and same-day-cutoff settings are applied; "today" follows the hotel timezone.

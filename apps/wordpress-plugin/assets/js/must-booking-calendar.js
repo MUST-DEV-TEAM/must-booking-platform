@@ -481,7 +481,8 @@
         if (!dayElement) return;
         var isPadding = dayElement.classList.contains('prevMonthDay') || dayElement.classList.contains('nextMonthDay');
         var isPast = dayElement.dateObj && dateKey(dayElement.dateObj) < earliestStr;
-        var isReallyUnavailable = !isPadding && dayElement.dateObj && (isPast || roomDateIsUnavailable(dayElement.dateObj));
+        // Past dates stay plainly faded; only genuinely sold-out dates get the slash.
+        var isReallyUnavailable = !isPadding && dayElement.dateObj && !isPast && roomDateIsUnavailable(dayElement.dateObj);
         dayElement.classList.toggle('must-booking-day-unavailable', !!isReallyUnavailable);
     }
     function refreshAvailability(picker) {
@@ -583,6 +584,11 @@
                     if (checkinField) checkinField.value = dateStr;
                     updateArrivalDeparture(dateStr, checkoutField ? checkoutField.value : '');
                     updateCalendarSelectionMarkers(instance, dateStr, '');
+                    if (checkoutPicker && !selectedDates[0]) {
+                        // Check-in cleared: the check-out calendar is no longer bounded by it.
+                        checkoutPicker.set('minDate', earliestStr);
+                        checkoutPicker.set('maxDate', maxDateStr);
+                    }
                     if (checkoutPicker && selectedDates[0]) {
                         checkoutPicker.set('minDate', addDaysToDateStr(dateStr, minimumNights));
                         var latestCheckout = latestValidCheckoutDate(dateStr, minimumNights);
@@ -592,6 +598,14 @@
                             checkoutPicker.set('maxDate', verifiedLatest || maxDateStr);
                             checkoutPicker.redraw();
                         });
+                        // A previously chosen check-out that no longer fits the new check-in is dropped.
+                        var keptCheckout = checkoutField ? checkoutField.value : '';
+                        var latestAllowed = latestCheckout || maxDateStr;
+                        if (keptCheckout && (keptCheckout < addDaysToDateStr(dateStr, minimumNights) || keptCheckout > latestAllowed)) {
+                            checkoutPicker.clear(false);
+                            if (checkoutField) checkoutField.value = '';
+                            updateArrivalDeparture(dateStr, '');
+                        }
                     }
                     scheduleSelectedRoomAvailabilityCheck();
                 },
@@ -600,6 +614,17 @@
                 onDayCreate: function (selectedDates, dateStr, instance, dayElement) { markReallyUnavailableDay(dayElement); }
             });
             checkinPicker.calendarContainer.classList.add('must-booking-flatpickr-instance');
+            // Clicking the selected check-in again only unselects it (same as the one-calendar layout).
+            checkinPicker.calendarContainer.addEventListener('click', function (event) {
+                var dayTarget = event.target && event.target.closest ? event.target.closest('.flatpickr-day') : null;
+                if (!dayTarget || !dayTarget.dateObj || !checkinField || !checkinField.value || dateKey(dayTarget.dateObj) !== checkinField.value) return;
+                event.stopPropagation();
+                event.preventDefault();
+                var viewedYear = checkinPicker.currentYear, viewedMonth = checkinPicker.currentMonth;
+                checkinPicker.clear();
+                if (checkinPicker.currentYear !== viewedYear || checkinPicker.currentMonth !== viewedMonth) checkinPicker.jumpToDate(new Date(viewedYear, viewedMonth, 1), true);
+                updateCalendarSelectionMarkers(checkinPicker, '', '');
+            }, true);
             syncMonthYear(checkinMonth, checkinYear, checkinPicker);
             wireMonthYear(checkinMonth, checkinYear, checkinPicker);
             activePickers.push(checkinPicker);
