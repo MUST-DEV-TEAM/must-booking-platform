@@ -78,6 +78,8 @@ export class QuoteService {
       throw new BadRequestException('Quote expiry must be a positive number of seconds.');
 
     const normalizedInput = this.normalizeOccupancy(input);
+    // Guest-facing quotes only: staff walk-ins price through price(), which skips this.
+    await this.enforceGuestSameDayRule(tenantId, propertyId, normalizedInput.startsOn);
     const quote = await this.priceWithNightlyRates(tenantId, propertyId, normalizedInput);
 
     const payload: QuotePayload = {
@@ -299,10 +301,11 @@ export class QuoteService {
           minStayNights: number | null;
           maxStayNights: number | null;
           advanceBookingDays: number | null;
+          timezone: string | null;
         }>
       >`
         SELECT min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
-          advance_booking_days AS "advanceBookingDays"
+          advance_booking_days AS "advanceBookingDays", timezone
         FROM properties WHERE id = ${propertyId}::uuid
       `;
       if (!properties[0]) throw new NotFoundException('Property was not found.');
@@ -482,12 +485,44 @@ export class QuoteService {
     );
   }
 
+  /**
+   * The website's same-day rule: a stay that starts today is refused when the
+   * property turned same-day booking off, or once its local cutoff time has
+   * passed. Only the guest channel calls this; staff bookings never do.
+   */
+  async enforceGuestSameDayRule(
+    tenantId: string,
+    propertyId: string,
+    startsOn: string,
+  ): Promise<void> {
+    const rule = await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const rows = await tx.$queryRaw<
+        Array<{
+          timezone: string | null;
+          sameDayBookingAllowed: boolean;
+          sameDayCutoffTime: string | null;
+        }>
+      >`
+        SELECT timezone, same_day_booking_allowed AS "sameDayBookingAllowed",
+          same_day_cutoff_time AS "sameDayCutoffTime"
+        FROM properties WHERE id = ${propertyId}::uuid
+      `;
+      return rows[0];
+    });
+    if (!rule) throw new NotFoundException('Property was not found.');
+    if (!isSameDayBookingClosed(startsOn, rule)) return;
+    throw new BadRequestException(
+      'Same-day bookings are closed for today. Please choose a later check-in date.',
+    );
+  }
+
   private validateBookingRules(
     input: QuoteInput,
     rules: {
       minStayNights: number | null;
       maxStayNights: number | null;
       advanceBookingDays: number | null;
+      timezone?: string | null;
     },
   ): void {
     const nights = this.nightCount(input.startsOn, input.endsOn);
@@ -496,7 +531,7 @@ export class QuoteService {
     if (rules.maxStayNights !== null && nights > rules.maxStayNights)
       throw new BadRequestException(`A maximum stay of ${rules.maxStayNights} nights is allowed.`);
     if (rules.advanceBookingDays !== null) {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = propertyClock(rules.timezone).date;
       const daysAhead = this.nightCount(today, input.startsOn);
       if (daysAhead > rules.advanceBookingDays)
         throw new BadRequestException(
@@ -504,4 +539,48 @@ export class QuoteService {
         );
     }
   }
+}
+
+/** Today's date and minutes-since-midnight on the property's own clock (UTC when unset/invalid). */
+export function propertyClock(
+  timezone: string | null | undefined,
+  now: Date = new Date(),
+): { date: string; minutes: number } {
+  try {
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone || 'UTC',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+      })
+        .formatToParts(now)
+        .map((part) => [part.type, part.value]),
+    ) as Record<string, string>;
+    return {
+      date: `${parts.year}-${parts.month}-${parts.day}`,
+      minutes: (Number(parts.hour) % 24) * 60 + Number(parts.minute),
+    };
+  } catch {
+    return propertyClock('UTC', now);
+  }
+}
+
+export function isSameDayBookingClosed(
+  startsOn: string,
+  rule: {
+    timezone: string | null;
+    sameDayBookingAllowed: boolean;
+    sameDayCutoffTime: string | null;
+  },
+  now: Date = new Date(),
+): boolean {
+  const clock = propertyClock(rule.timezone, now);
+  if (startsOn !== clock.date) return false;
+  if (!rule.sameDayBookingAllowed) return true;
+  const cutoff = /^(\d{1,2}):(\d{2})$/.exec(rule.sameDayCutoffTime ?? '');
+  return cutoff !== null && clock.minutes >= Number(cutoff[1]) * 60 + Number(cutoff[2]);
 }
