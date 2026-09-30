@@ -2,9 +2,14 @@
 
 import { Card, Heading, Stack, StatePanel, Text } from '@must/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { LoaderCircle, Plus } from 'lucide-react';
+import { Image as ImageIcon, Images, LoaderCircle, Plus } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+
+import { RoomTypePhotoGallery, type RoomTypeImage } from './room-type-photo-gallery';
+import { PropertyImageLibraryDialog } from './property-image-library';
+import { RoomTypeMainImageSelector } from './room-type-main-image-selector';
+import styles from './room-management.module.css';
 
 type Property = { id: string; name: string };
 const amenityIcons = [
@@ -43,7 +48,6 @@ type RoomType = {
   galleryImageUrls: string[];
   maxOccupancy: number;
 };
-type RoomTypeImage = { id: string; url: string };
 type Amenity = { id: string; name: string; icon: AmenityIcon | null };
 
 type RoomManagementData = {
@@ -59,8 +63,6 @@ type RoomTypeForm = {
   name: string;
   description: string;
   amenitiesIntro: string;
-  mainImageUrl: string;
-  galleryImageUrls: string;
   maxOccupancy: string;
 };
 
@@ -78,8 +80,6 @@ const emptyRoomTypeForm: RoomTypeForm = {
   name: '',
   description: '',
   amenitiesIntro: '',
-  mainImageUrl: '',
-  galleryImageUrls: '',
   maxOccupancy: '2',
 };
 const emptyRoomForm: RoomForm = {
@@ -105,6 +105,7 @@ export function RoomManagement({
   const [amenityIcon, setAmenityIcon] = useState<AmenityIcon>('WIFI');
   const [roomTypeForm, setRoomTypeForm] = useState<RoomTypeForm>(emptyRoomTypeForm);
   const [editingRoomTypeId, setEditingRoomTypeId] = useState<string | null>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [roomForms, setRoomForms] = useState<Record<string, RoomForm>>({});
   const [editingRoom, setEditingRoom] = useState<{ roomTypeId: string; roomId: string } | null>(
     null,
@@ -212,16 +213,12 @@ export function RoomManagement({
       name,
       description,
       amenitiesIntro,
-      mainImageUrl,
-      galleryImageUrls,
       maxOccupancy,
     }: {
       roomTypeId: string | null;
       name: string;
       description: string;
       amenitiesIntro: string;
-      mainImageUrl: string;
-      galleryImageUrls: string;
       maxOccupancy: string;
     }) => {
       const response = await fetch(
@@ -234,11 +231,6 @@ export function RoomManagement({
             name,
             description,
             amenitiesIntro,
-            mainImageUrl: mainImageUrl.trim() || null,
-            galleryImageUrls: galleryImageUrls
-              .split(/\r?\n/)
-              .map((url) => url.trim())
-              .filter(Boolean),
             maxOccupancy: Number(maxOccupancy),
           }),
         },
@@ -343,32 +335,6 @@ export function RoomManagement({
       toast.error(error instanceof Error ? error.message : 'Unable to delete room.'),
   });
 
-  const uploadImageMutation = useMutation({
-    mutationFn: async ({ roomTypeId, file }: { roomTypeId: string; file: File }) => {
-      const authorization = await fetch(`${roomTypesUrl()}/${roomTypeId}/images`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ contentType: file.type, contentLength: file.size }),
-      });
-      if (!authorization.ok)
-        throw new Error(await errorMessage(authorization, 'Unable to authorize image upload.'));
-      const { uploadUrl } = (await authorization.json()) as { uploadUrl: string };
-      const upload = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: { 'content-type': file.type },
-        body: file,
-      });
-      if (!upload.ok) throw new Error('The image could not be uploaded.');
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: roomManagementQueryKey });
-      toast.success('Room photo uploaded.');
-    },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : 'Unable to upload the room photo.'),
-  });
-
   const submitAmenityMutation = useMutation({
     mutationFn: async ({ name, icon }: { name: string; icon: AmenityIcon }) => {
       const response = await fetch(`${propertyUrl()}/amenities`, {
@@ -469,14 +435,28 @@ export function RoomManagement({
       name: roomTypeForm.name,
       description: roomTypeForm.description,
       amenitiesIntro: roomTypeForm.amenitiesIntro,
-      mainImageUrl: roomTypeForm.mainImageUrl,
-      galleryImageUrls: roomTypeForm.galleryImageUrls,
       maxOccupancy: roomTypeForm.maxOccupancy,
     });
   }
 
   function deleteRoomType(roomTypeId: string) {
     deleteRoomTypeMutation.mutate(roomTypeId);
+  }
+
+  function editRoomType(roomType: RoomType) {
+    setEditingRoomTypeId(roomType.id);
+    setRoomTypeForm({
+      name: roomType.name,
+      description: roomType.description || '',
+      amenitiesIntro: roomType.amenitiesIntro || '',
+      maxOccupancy: String(roomType.maxOccupancy),
+    });
+    window.requestAnimationFrame(() =>
+      document.getElementById('room-type-editor')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      }),
+    );
   }
 
   function submitRoom(event: FormEvent<HTMLFormElement>, roomTypeId: string) {
@@ -500,11 +480,6 @@ export function RoomManagement({
 
   function deleteRoom(roomTypeId: string, roomId: string) {
     deleteRoomMutation.mutate({ roomTypeId, roomId });
-  }
-
-  function uploadImage(roomTypeId: string, file: File | undefined) {
-    if (!file) return;
-    uploadImageMutation.mutate({ roomTypeId, file });
   }
 
   function submitAmenity(event: FormEvent<HTMLFormElement>) {
@@ -609,9 +584,13 @@ export function RoomManagement({
       ) : null}
       {propertyId ? (
         <Stack gap="lg">
-          <Card>
+          <Card className={styles.editorCard}>
             <Heading level={2}>{editingRoomTypeId ? 'Edit room type' : 'Add room type'}</Heading>
-            <form className="must-stack must-stack--md" onSubmit={submitRoomType}>
+            <form
+              className="must-stack must-stack--md"
+              id="room-type-editor"
+              onSubmit={submitRoomType}
+            >
               <label className="must-field">
                 Name
                 <input
@@ -640,29 +619,6 @@ export function RoomManagement({
                   value={roomTypeForm.amenitiesIntro}
                   onChange={(event) =>
                     setRoomTypeForm({ ...roomTypeForm, amenitiesIntro: event.target.value })
-                  }
-                />
-              </label>
-              <label className="must-field">
-                Main image URL
-                <input
-                  className="must-input"
-                  type="url"
-                  placeholder="https://example.com/room.jpg"
-                  value={roomTypeForm.mainImageUrl}
-                  onChange={(event) =>
-                    setRoomTypeForm({ ...roomTypeForm, mainImageUrl: event.target.value })
-                  }
-                />
-              </label>
-              <label className="must-field">
-                Gallery image URLs
-                <textarea
-                  className="must-input"
-                  placeholder="One https:// image URL per line"
-                  value={roomTypeForm.galleryImageUrls}
-                  onChange={(event) =>
-                    setRoomTypeForm({ ...roomTypeForm, galleryImageUrls: event.target.value })
                   }
                 />
               </label>
@@ -701,307 +657,445 @@ export function RoomManagement({
                 </button>
               ) : null}
             </form>
+            {editingRoomTypeId ? (
+              <div className={styles.galleryEditor}>
+                <RoomTypeMainImageSelector
+                  tenantId={tenantId}
+                  propertyId={propertyId}
+                  roomTypeId={editingRoomTypeId}
+                  roomTypeName={
+                    roomTypes.find((roomType) => roomType.id === editingRoomTypeId)?.name ?? 'room'
+                  }
+                  images={images[editingRoomTypeId] ?? []}
+                />
+                <RoomTypePhotoGallery
+                  tenantId={tenantId}
+                  propertyId={propertyId}
+                  roomTypeId={editingRoomTypeId}
+                  images={images[editingRoomTypeId] ?? []}
+                />
+              </div>
+            ) : null}
           </Card>
+          <div className={styles.libraryBar}>
+            <div>
+              <Heading level={2}>Photo library</Heading>
+              <Text tone="secondary">
+                Upload property photos once and reuse them across room types.
+              </Text>
+            </div>
+            <button
+              className="must-button must-button--secondary"
+              type="button"
+              onClick={() => setLibraryOpen(true)}
+            >
+              <Images aria-hidden="true" size={16} /> Manage library
+            </button>
+          </div>
+          {libraryOpen ? (
+            <PropertyImageLibraryDialog
+              tenantId={tenantId}
+              propertyId={propertyId}
+              mode="manage"
+              title="Photo library"
+              onClose={() => setLibraryOpen(false)}
+            />
+          ) : null}
           <Heading level={2}>Configured room types</Heading>
           {roomTypes.length === 0 ? <p>No room types yet.</p> : null}
-          {roomTypes.map((roomType) => (
-            <Card key={roomType.id}>
-              <Heading level={3}>{roomType.name}</Heading>
-              <p>
-                {roomType.description || 'No description.'} Maximum occupancy:{' '}
-                {roomType.maxOccupancy}.
-              </p>
-              <p>
-                Amenities:{' '}
-                {roomTypeAmenities[roomType.id]?.map((amenity) => amenity.name).join(', ') ||
-                  'None'}
-              </p>
-              <button
-                className="must-button must-button--secondary"
-                type="button"
-                onClick={() => {
-                  setEditingRoomTypeId(roomType.id);
-                  setRoomTypeForm({
-                    name: roomType.name,
-                    description: roomType.description || '',
-                    amenitiesIntro: roomType.amenitiesIntro || '',
-                    mainImageUrl: roomType.mainImageUrl || '',
-                    galleryImageUrls: roomType.galleryImageUrls.join('\n'),
-                    maxOccupancy: String(roomType.maxOccupancy),
-                  });
-                }}
-              >
-                Edit room type
-              </button>
-              <button
-                className="must-button must-button--danger"
-                type="button"
-                onClick={() => deleteRoomType(roomType.id)}
-              >
-                Delete room type
-              </button>
-              <div>
-                <Heading level={3}>Amenities</Heading>
-                {amenities.map((amenity) => (
-                  <label className="must-field" key={amenity.id}>
-                    <input
-                      className="must-input"
-                      type="checkbox"
-                      checked={roomTypeAmenities[roomType.id]?.some(
-                        (assignedAmenity) => assignedAmenity.id === amenity.id,
+          {roomTypes.map((roomType) => {
+            const roomImages = images[roomType.id] ?? [];
+            const primaryImage = roomImages.find((image) => image.isPrimary) ?? roomImages[0];
+            const assignedAmenities = roomTypeAmenities[roomType.id] ?? [];
+            const physicalRooms = rooms[roomType.id] ?? [];
+            return (
+              <Card className={styles.roomTypeCard} key={roomType.id}>
+                <div className={styles.roomType}>
+                  <div className={styles.summary}>
+                    <div className={styles.cover}>
+                      {primaryImage ? (
+                        <img src={primaryImage.url} alt={`Primary photo of ${roomType.name}`} />
+                      ) : (
+                        <ImageIcon aria-hidden="true" size={28} />
                       )}
-                      onChange={() => toggleRoomTypeAmenity(roomType.id, amenity.id)}
-                    />
-                    {amenity.name} ({amenity.icon ? amenityIconLabel(amenity.icon) : 'No icon'})
-                  </label>
-                ))}
-              </div>
-              <div>
-                <Heading level={3}>Photos</Heading>
-                {images[roomType.id]?.map((image) => (
-                  // Images are public marketing content; the URL is issued by the tenant-scoped API.
-                  <img key={image.id} src={image.url} alt={`${roomType.name} room`} width="160" />
-                ))}
-                <label className="must-field">
-                  Upload photo
-                  <input
-                    className="must-input"
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    onChange={(event) => uploadImage(roomType.id, event.target.files?.[0])}
-                  />
-                </label>
-              </div>
-              <div>
-                <Heading level={3}>Physical rooms</Heading>
-                <ul>
-                  {rooms[roomType.id]?.map((room) => {
-                    const customAmenities = roomAmenities[room.id] ?? [];
-                    const usesCustomAmenities =
-                      customAmenities.length > 0 || customizingRoomAmenities[room.id] === true;
-                    return (
-                      <li key={room.id}>
-                        {room.name} {room.viewType ? ` · ${room.viewType}` : ''}
-                        {room.floor !== null ? ` · Floor ${room.floor}` : ''}{' '}
+                      {primaryImage ? <span>Primary</span> : null}
+                    </div>
+                    <div className={styles.summaryText}>
+                      <Heading level={3}>{roomType.name}</Heading>
+                      <p className={styles.description}>
+                        {roomType.description ||
+                          'Add a description to help guests choose this room.'}
+                      </p>
+                      <div className={styles.metadata}>
+                        <span>{roomType.maxOccupancy} guests</span>
+                        <span>{physicalRooms.length} physical rooms</span>
+                        <span>{roomImages.length} photos</span>
+                      </div>
+                      <p className={styles.amenitySummary}>
+                        {assignedAmenities.length
+                          ? `${assignedAmenities
+                              .slice(0, 3)
+                              .map((amenity) => amenity.name)
+                              .join(
+                                ' · ',
+                              )}${assignedAmenities.length > 3 ? ` +${assignedAmenities.length - 3}` : ''}`
+                          : 'No amenities selected'}
+                      </p>
+                    </div>
+                    <div className={styles.actions}>
+                      <button
+                        className="must-button must-button--secondary"
+                        type="button"
+                        onClick={() => editRoomType(roomType)}
+                      >
+                        Edit details
+                      </button>
+                      <button
+                        className="must-button must-button--danger"
+                        type="button"
+                        onClick={() => deleteRoomType(roomType.id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className={styles.detailSections}>
+                    <details className={styles.detailSection}>
+                      <summary>
+                        <span>Photos</span>
+                        <span className={styles.sectionCount}>{roomImages.length}</span>
+                      </summary>
+                      <div className={styles.sectionContent}>
+                        {roomImages.length ? (
+                          <div className={styles.photoStrip}>
+                            {roomImages.slice(0, 6).map((image) => (
+                              <div className={styles.photoPreview} key={image.id}>
+                                <img src={image.url} alt={`${roomType.name} room`} />
+                                {image.isPrimary ? <span>Primary</span> : null}
+                              </div>
+                            ))}
+                            {roomImages.length > 6 ? (
+                              <span className={styles.morePhotos}>+{roomImages.length - 6}</span>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <p className={styles.emptyDetail}>No photos added yet.</p>
+                        )}
                         <button
                           className="must-button must-button--secondary"
                           type="button"
-                          onClick={() => {
-                            setEditingRoom({ roomTypeId: roomType.id, roomId: room.id });
-                            setRoomForms((current) => ({
-                              ...current,
-                              [roomType.id]: {
-                                name: room.name,
-                                title: room.title || '',
-                                roomSize: room.roomSize || '',
-                                rules: room.rules || '',
-                                description: room.description || '',
-                                floor: room.floor === null ? '' : String(room.floor),
-                                viewType: room.viewType || '',
-                              },
-                            }));
-                          }}
+                          onClick={() => editRoomType(roomType)}
                         >
-                          Edit
-                        </button>{' '}
-                        <button
-                          className="must-button must-button--danger"
-                          type="button"
-                          onClick={() => deleteRoom(roomType.id, room.id)}
-                        >
-                          Delete
+                          Manage photos
                         </button>
-                        <div>
-                          <p>
-                            Amenities:{' '}
-                            {usesCustomAmenities
-                              ? 'Custom for this room.'
-                              : 'Inherited from room type.'}
+                      </div>
+                    </details>
+
+                    <details className={styles.detailSection}>
+                      <summary>
+                        <span>Amenities</span>
+                        <span className={styles.sectionCount}>{assignedAmenities.length}</span>
+                      </summary>
+                      <div className={`${styles.sectionContent} ${styles.amenityGrid}`}>
+                        {amenities.length ? (
+                          amenities.map((amenity) => (
+                            <label className={styles.amenityOption} key={amenity.id}>
+                              <input
+                                type="checkbox"
+                                checked={assignedAmenities.some((item) => item.id === amenity.id)}
+                                onChange={() => toggleRoomTypeAmenity(roomType.id, amenity.id)}
+                              />
+                              <span>{amenity.name}</span>
+                            </label>
+                          ))
+                        ) : (
+                          <p className={styles.emptyDetail}>
+                            Create property amenities below first.
                           </p>
-                          {usesCustomAmenities ? (
-                            <>
+                        )}
+                      </div>
+                    </details>
+
+                    <details className={styles.detailSection}>
+                      <summary>
+                        <span>Physical rooms</span>
+                        <span className={styles.sectionCount}>{physicalRooms.length}</span>
+                      </summary>
+                      <div className={styles.sectionContent}>
+                        {physicalRooms.length ? (
+                          <ul className={styles.roomList}>
+                            {physicalRooms.map((room) => {
+                              const customAmenities = roomAmenities[room.id] ?? [];
+                              const usesCustomAmenities =
+                                customAmenities.length > 0 ||
+                                customizingRoomAmenities[room.id] === true;
+                              return (
+                                <li className={styles.physicalRoom} key={room.id}>
+                                  <div className={styles.physicalRoomHeader}>
+                                    <div>
+                                      <strong>{room.name}</strong>
+                                      <p>
+                                        {[
+                                          room.viewType,
+                                          room.floor !== null ? `Floor ${room.floor}` : null,
+                                        ]
+                                          .filter(Boolean)
+                                          .join(' · ') || 'Room details not set'}
+                                      </p>
+                                    </div>
+                                    <div className={styles.roomActions}>
+                                      <button
+                                        className="must-button must-button--secondary"
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingRoom({
+                                            roomTypeId: roomType.id,
+                                            roomId: room.id,
+                                          });
+                                          setRoomForms((current) => ({
+                                            ...current,
+                                            [roomType.id]: {
+                                              name: room.name,
+                                              title: room.title || '',
+                                              roomSize: room.roomSize || '',
+                                              rules: room.rules || '',
+                                              description: room.description || '',
+                                              floor: room.floor === null ? '' : String(room.floor),
+                                              viewType: room.viewType || '',
+                                            },
+                                          }));
+                                        }}
+                                      >
+                                        Edit
+                                      </button>
+                                      <button
+                                        className="must-button must-button--danger"
+                                        type="button"
+                                        onClick={() => deleteRoom(roomType.id, room.id)}
+                                      >
+                                        Delete
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <div className={styles.roomAmenityRow}>
+                                    <span>
+                                      {usesCustomAmenities
+                                        ? 'Custom amenities'
+                                        : 'Inheriting room type amenities'}
+                                    </span>
+                                    {usesCustomAmenities ? (
+                                      <>
+                                        <button
+                                          className="must-button must-button--secondary"
+                                          type="button"
+                                          onClick={() => inheritRoomAmenities(room.id)}
+                                        >
+                                          Inherit room type amenities
+                                        </button>
+                                        <div className={styles.amenityGrid}>
+                                          {amenities.map((amenity) => (
+                                            <label
+                                              className={styles.amenityOption}
+                                              key={amenity.id}
+                                            >
+                                              <input
+                                                type="checkbox"
+                                                checked={customAmenities.some(
+                                                  (item) => item.id === amenity.id,
+                                                )}
+                                                onChange={() =>
+                                                  toggleRoomAmenity(room.id, amenity.id)
+                                                }
+                                              />
+                                              <span>{amenity.name}</span>
+                                            </label>
+                                          ))}
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <button
+                                        className="must-button must-button--secondary"
+                                        type="button"
+                                        onClick={() =>
+                                          customizeRoomAmenities(room.id, assignedAmenities)
+                                        }
+                                      >
+                                        Customize
+                                      </button>
+                                    )}
+                                  </div>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : (
+                          <p className={styles.emptyDetail}>No physical rooms added yet.</p>
+                        )}
+                        <form
+                          className={`${styles.roomForm} must-stack must-stack--sm`}
+                          onSubmit={(event) => submitRoom(event, roomType.id)}
+                        >
+                          <label className="must-field">
+                            {editingRoom?.roomTypeId === roomType.id
+                              ? 'Room name'
+                              : 'New room name'}
+                            <input
+                              className="must-input"
+                              required
+                              value={(roomForms[roomType.id] ?? emptyRoomForm).name}
+                              onChange={(event) =>
+                                setRoomForms((current) => ({
+                                  ...current,
+                                  [roomType.id]: {
+                                    ...(current[roomType.id] ?? emptyRoomForm),
+                                    name: event.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="must-field">
+                            Display title
+                            <input
+                              className="must-input"
+                              maxLength={200}
+                              placeholder="e.g. Deluxe Sea Suite"
+                              value={(roomForms[roomType.id] ?? emptyRoomForm).title}
+                              onChange={(event) =>
+                                setRoomForms((current) => ({
+                                  ...current,
+                                  [roomType.id]: {
+                                    ...(current[roomType.id] ?? emptyRoomForm),
+                                    title: event.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="must-field">
+                            Room size
+                            <input
+                              className="must-input"
+                              maxLength={50}
+                              placeholder="e.g. 70m²"
+                              value={(roomForms[roomType.id] ?? emptyRoomForm).roomSize}
+                              onChange={(event) =>
+                                setRoomForms((current) => ({
+                                  ...current,
+                                  [roomType.id]: {
+                                    ...(current[roomType.id] ?? emptyRoomForm),
+                                    roomSize: event.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="must-field">
+                            Room rules override
+                            <textarea
+                              className="must-input"
+                              placeholder="Replaces the property room rules for this room only"
+                              value={(roomForms[roomType.id] ?? emptyRoomForm).rules}
+                              onChange={(event) =>
+                                setRoomForms((current) => ({
+                                  ...current,
+                                  [roomType.id]: {
+                                    ...(current[roomType.id] ?? emptyRoomForm),
+                                    rules: event.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="must-field">
+                            Room description override
+                            <textarea
+                              className="must-input"
+                              placeholder="Replaces the room type description for this room only"
+                              value={(roomForms[roomType.id] ?? emptyRoomForm).description}
+                              onChange={(event) =>
+                                setRoomForms((current) => ({
+                                  ...current,
+                                  [roomType.id]: {
+                                    ...(current[roomType.id] ?? emptyRoomForm),
+                                    description: event.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="must-field">
+                            Floor
+                            <input
+                              className="must-input"
+                              type="number"
+                              min="-10"
+                              max="200"
+                              value={(roomForms[roomType.id] ?? emptyRoomForm).floor}
+                              onChange={(event) =>
+                                setRoomForms((current) => ({
+                                  ...current,
+                                  [roomType.id]: {
+                                    ...(current[roomType.id] ?? emptyRoomForm),
+                                    floor: event.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="must-field">
+                            View type
+                            <input
+                              className="must-input"
+                              maxLength={100}
+                              placeholder="e.g. Sea view"
+                              value={(roomForms[roomType.id] ?? emptyRoomForm).viewType}
+                              onChange={(event) =>
+                                setRoomForms((current) => ({
+                                  ...current,
+                                  [roomType.id]: {
+                                    ...(current[roomType.id] ?? emptyRoomForm),
+                                    viewType: event.target.value,
+                                  },
+                                }))
+                              }
+                            />
+                          </label>
+                          <div className={styles.formActions}>
+                            <button className="must-button must-button--primary">
+                              {editingRoom?.roomTypeId === roomType.id ? (
+                                'Save room'
+                              ) : (
+                                <>
+                                  <Plus aria-hidden="true" size={16} /> Add physical room
+                                </>
+                              )}
+                            </button>
+                            {editingRoom?.roomTypeId === roomType.id ? (
                               <button
                                 className="must-button must-button--secondary"
                                 type="button"
-                                onClick={() => inheritRoomAmenities(room.id)}
+                                onClick={() => {
+                                  setEditingRoom(null);
+                                  setRoomForms((current) => ({
+                                    ...current,
+                                    [roomType.id]: emptyRoomForm,
+                                  }));
+                                }}
                               >
-                                Inherit room type amenities
+                                Cancel
                               </button>
-                              {amenities.map((amenity) => (
-                                <label className="must-field" key={amenity.id}>
-                                  <input
-                                    className="must-input"
-                                    type="checkbox"
-                                    checked={customAmenities.some(
-                                      (assignedAmenity) => assignedAmenity.id === amenity.id,
-                                    )}
-                                    onChange={() => toggleRoomAmenity(room.id, amenity.id)}
-                                  />
-                                  {amenity.name} (
-                                  {amenity.icon ? amenityIconLabel(amenity.icon) : 'No icon'})
-                                </label>
-                              ))}
-                            </>
-                          ) : (
-                            <button
-                              className="must-button must-button--secondary"
-                              type="button"
-                              onClick={() =>
-                                customizeRoomAmenities(
-                                  room.id,
-                                  roomTypeAmenities[roomType.id] ?? [],
-                                )
-                              }
-                            >
-                              Customize amenities
-                            </button>
-                          )}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-                <form
-                  className="must-stack must-stack--sm"
-                  onSubmit={(event) => submitRoom(event, roomType.id)}
-                >
-                  <label className="must-field">
-                    {editingRoom?.roomTypeId === roomType.id ? 'Room name' : 'New room name'}
-                    <input
-                      className="must-input"
-                      required
-                      value={(roomForms[roomType.id] ?? emptyRoomForm).name}
-                      onChange={(event) =>
-                        setRoomForms((current) => ({
-                          ...current,
-                          [roomType.id]: {
-                            ...(current[roomType.id] ?? emptyRoomForm),
-                            name: event.target.value,
-                          },
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="must-field">
-                    Display title
-                    <input
-                      className="must-input"
-                      maxLength={200}
-                      placeholder="e.g. Deluxe Sea Suite"
-                      value={(roomForms[roomType.id] ?? emptyRoomForm).title}
-                      onChange={(event) =>
-                        setRoomForms((current) => ({
-                          ...current,
-                          [roomType.id]: {
-                            ...(current[roomType.id] ?? emptyRoomForm),
-                            title: event.target.value,
-                          },
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="must-field">
-                    Room size
-                    <input
-                      className="must-input"
-                      maxLength={50}
-                      placeholder="e.g. 70m²"
-                      value={(roomForms[roomType.id] ?? emptyRoomForm).roomSize}
-                      onChange={(event) =>
-                        setRoomForms((current) => ({
-                          ...current,
-                          [roomType.id]: {
-                            ...(current[roomType.id] ?? emptyRoomForm),
-                            roomSize: event.target.value,
-                          },
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="must-field">
-                    Room rules override
-                    <textarea
-                      className="must-input"
-                      placeholder="Replaces the property room rules for this room only"
-                      value={(roomForms[roomType.id] ?? emptyRoomForm).rules}
-                      onChange={(event) =>
-                        setRoomForms((current) => ({
-                          ...current,
-                          [roomType.id]: {
-                            ...(current[roomType.id] ?? emptyRoomForm),
-                            rules: event.target.value,
-                          },
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="must-field">
-                    Room description override
-                    <textarea
-                      className="must-input"
-                      placeholder="Replaces the room type description for this room only"
-                      value={(roomForms[roomType.id] ?? emptyRoomForm).description}
-                      onChange={(event) =>
-                        setRoomForms((current) => ({
-                          ...current,
-                          [roomType.id]: {
-                            ...(current[roomType.id] ?? emptyRoomForm),
-                            description: event.target.value,
-                          },
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="must-field">
-                    Floor
-                    <input
-                      className="must-input"
-                      type="number"
-                      min="-10"
-                      max="200"
-                      value={(roomForms[roomType.id] ?? emptyRoomForm).floor}
-                      onChange={(event) =>
-                        setRoomForms((current) => ({
-                          ...current,
-                          [roomType.id]: {
-                            ...(current[roomType.id] ?? emptyRoomForm),
-                            floor: event.target.value,
-                          },
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="must-field">
-                    View type
-                    <input
-                      className="must-input"
-                      maxLength={100}
-                      placeholder="e.g. Sea view"
-                      value={(roomForms[roomType.id] ?? emptyRoomForm).viewType}
-                      onChange={(event) =>
-                        setRoomForms((current) => ({
-                          ...current,
-                          [roomType.id]: {
-                            ...(current[roomType.id] ?? emptyRoomForm),
-                            viewType: event.target.value,
-                          },
-                        }))
-                      }
-                    />
-                  </label>
-                  <button className="must-button must-button--primary">
-                    {editingRoom?.roomTypeId === roomType.id ? (
-                      'Save room'
-                    ) : (
-                      <>
-                        <Plus aria-hidden="true" size={16} /> Add room
-                      </>
-                    )}
-                  </button>
-                </form>
-              </div>
-            </Card>
-          ))}
+                            ) : null}
+                          </div>
+                        </form>
+                      </div>
+                    </details>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
           <Card>
             <Heading level={2}>Amenities</Heading>
             <p>Create property amenities, then tag the room types above.</p>

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { StorageProvider } from './storage.provider';
 @Injectable()
@@ -22,6 +22,11 @@ export class R2StorageProvider implements StorageProvider {
         { expiresIn: 300 },
       ),
     };
+  }
+  async deleteObject(key: string) {
+    await this.client().send(
+      new DeleteObjectCommand({ Bucket: this.env('R2_BUCKET_NAME'), Key: key }),
+    );
   }
   publicUrl(key: string) {
     return `${this.env('R2_PUBLIC_BASE_URL').replace(/\/$/, '')}/${key}`;

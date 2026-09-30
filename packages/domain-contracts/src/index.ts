@@ -121,6 +121,7 @@ export interface StorageProvider {
     contentType: string;
     contentLength: number;
   }): Promise<{ uploadUrl: string }>;
+  deleteObject(key: string): Promise<void>;
   publicUrl(key: string): string;
 }
 
@@ -344,6 +345,8 @@ export interface RefundCommand {
   idempotencyKey: string;
   paymentId: string;
   amount: Money;
+  /** Sum of refunds already recorded against this charge, in the charge's currency. */
+  alreadyRefunded?: Money;
 }
 
 export interface Payment {

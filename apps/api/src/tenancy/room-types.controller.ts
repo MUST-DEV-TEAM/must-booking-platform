@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Req,
 } from '@nestjs/common';
 
@@ -104,6 +105,97 @@ export class RoomTypesController {
       roomTypeId,
       request.tenantContext.userId,
       body,
+    );
+  }
+
+  @Post(':roomTypeId/images/from-url')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresVerifiedEmail()
+  createImageFromUrl(
+    @Param('roomTypeId') roomTypeId: string,
+    @Body() body: unknown,
+    @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
+  ) {
+    return this.roomTypes.createImageFromUrl(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      roomTypeId,
+      request.tenantContext.userId,
+      body,
+    );
+  }
+
+  @Post(':roomTypeId/images/from-library')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresVerifiedEmail()
+  attachLibraryImages(
+    @Param('roomTypeId') roomTypeId: string,
+    @Body() body: unknown,
+    @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
+  ) {
+    return this.roomTypes.attachLibraryImages(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      roomTypeId,
+      request.tenantContext.userId,
+      body,
+    );
+  }
+
+  @Put(':roomTypeId/images/order')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresVerifiedEmail()
+  reorderImages(
+    @Param('roomTypeId') roomTypeId: string,
+    @Body() body: unknown,
+    @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
+  ) {
+    return this.roomTypes.reorderImages(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      roomTypeId,
+      request.tenantContext.userId,
+      body,
+    );
+  }
+
+  @Put(':roomTypeId/images/primary')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresVerifiedEmail()
+  setPrimaryImage(
+    @Param('roomTypeId') roomTypeId: string,
+    @Body() body: unknown,
+    @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
+  ) {
+    return this.roomTypes.setPrimaryImage(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      roomTypeId,
+      request.tenantContext.userId,
+      body,
+    );
+  }
+
+  @Delete(':roomTypeId/images/:imageId')
+  @HttpCode(204)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresVerifiedEmail()
+  removeImage(
+    @Param('roomTypeId') roomTypeId: string,
+    @Param('imageId') imageId: string,
+    @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
+  ) {
+    return this.roomTypes.removeImage(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      roomTypeId,
+      imageId,
+      request.tenantContext.userId,
     );
   }
 }

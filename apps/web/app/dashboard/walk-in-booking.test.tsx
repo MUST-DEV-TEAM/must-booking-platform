@@ -2,7 +2,7 @@
 
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('sonner', () => ({ toast }));
@@ -12,23 +12,32 @@ import { DashboardQueryProvider } from './query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
+// Each test drives the real calendar; under a parallel full-suite run they exceed the 5s default.
+vi.setConfig({ testTimeout: 30_000 });
+
 const base = '/api/tenants/tenant-1/properties/property-1';
 const response = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-// The calendar (react-day-picker) only renders the currently-displayed month
-// (defaults to today's), and disables any date before today - so these must
-// be computed relative to "now" rather than hardcoded, or they silently break
-// once real time passes the hardcoded date.
+// The calendar (react-day-picker) only renders the currently-displayed month and disables any
+// date before today. "Now" is pinned to mid-month (Date only - timers stay real) so the days
+// the tests click are always inside the displayed month, whatever day the suite actually runs.
 function isoDay(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
-const today = new Date();
+const today = new Date(2026, 5, 10, 12);
 const DAY_1 = isoDay(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2));
 const DAY_2 = isoDay(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 3));
 const DAY_3 = isoDay(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 4));
 
-afterEach(() => vi.unstubAllGlobals());
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'], now: today });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 describe('WalkInBooking', () => {
   it('local property: shows the Rate Plan field, searches by calendar dates, creates a booking, settles it', async () => {

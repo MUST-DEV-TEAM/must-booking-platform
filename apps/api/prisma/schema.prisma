@@ -337,11 +337,28 @@ model RoomTypeImage {
   tenantId   String   @map("tenant_id") @db.Uuid
   propertyId String   @map("property_id") @db.Uuid
   roomTypeId String   @map("room_type_id") @db.Uuid
-  objectKey  String   @map("object_key")
+  objectKey  String?  @map("object_key")
+  sourceUrl  String?  @map("source_url")
+  sortOrder  Int      @default(0) @map("sort_order")
+  isPrimary  Boolean  @default(false) @map("is_primary")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@unique([tenantId, propertyId, roomTypeId, objectKey])
   @@map("room_type_images")
+}
+
+model PropertyLibraryImage {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  propertyId   String   @map("property_id") @db.Uuid
+  objectKey    String   @map("object_key")
+  originalName String?  @map("original_name") @db.VarChar(255)
+  confirmedAt  DateTime? @map("confirmed_at") @db.Timestamptz(6)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, propertyId, objectKey])
+  @@index([tenantId, propertyId, createdAt(sort: Desc)], map: "property_library_images_property_created_idx")
+  @@map("property_library_images")
 }
 
 model Room {

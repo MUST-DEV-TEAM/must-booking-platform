@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 
 import { TenantDatabaseService } from './tenant-database.service';
+import { STORAGE_PROVIDER, type StorageProvider } from '../storage/storage.provider';
 
 type PublicCatalogRoom = {
   id: string;
@@ -40,6 +41,14 @@ type PublicCatalogRoomType = {
   requiresRatePlanSelection: boolean;
 };
 
+type PublicCatalogRoomTypeRow = PublicCatalogRoomType & {
+  imageRecords?: Array<{
+    sourceUrl: string | null;
+    objectKey: string | null;
+    isPrimary: boolean;
+  }>;
+};
+
 type PublicCatalogIndividualRoomType = PublicCatalogRoomType & {
   rooms: PublicCatalogRoom[];
 };
@@ -52,7 +61,10 @@ export type PublicCatalog = {
 
 @Injectable()
 export class PublicCatalogService {
-  constructor(@Inject(TenantDatabaseService) private readonly database: TenantDatabaseService) {}
+  constructor(
+    @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
+    @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
+  ) {}
 
   async getCatalog(tenantId: string, propertyId: string, query: unknown): Promise<PublicCatalog> {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
@@ -82,7 +94,7 @@ export class PublicCatalogService {
           AND pic.enabled = true
           AND c.status = 'CONNECTED'
       `;
-      const roomTypes = await tx.$queryRaw<PublicCatalogRoomType[]>`
+      const roomTypeRows = await tx.$queryRaw<PublicCatalogRoomTypeRow[]>`
         SELECT
           rt.id,
           rt.name,
@@ -91,6 +103,17 @@ export class PublicCatalogService {
           rt.main_image_url AS "mainImageUrl",
           rt.gallery_image_urls AS "galleryImageUrls",
           rt.max_occupancy AS "maxOccupancy",
+          COALESCE((
+            SELECT json_agg(json_build_object(
+              'sourceUrl', images.source_url,
+              'objectKey', images.object_key,
+              'isPrimary', images.is_primary
+            ) ORDER BY images.sort_order, images.created_at, images.id)
+            FROM room_type_images images
+            WHERE images.tenant_id = ${tenantId}::uuid
+              AND images.property_id = ${propertyId}::uuid
+              AND images.room_type_id = rt.id
+          ), '[]'::json) AS "imageRecords",
           COALESCE((
             SELECT json_agg(json_build_object('id', a.id, 'name', a.name, 'icon', a.icon) ORDER BY a.name)
             FROM room_type_amenities rta
@@ -128,6 +151,22 @@ export class PublicCatalogService {
         WHERE rt.tenant_id = ${tenantId}::uuid AND rt.property_id = ${propertyId}::uuid
         ORDER BY rt.created_at
       `;
+      const roomTypes: PublicCatalogRoomType[] = roomTypeRows.map((roomType) => {
+        const imageRecords = roomType.imageRecords ?? [];
+        const managedUrls = imageRecords.map(
+          (image) => image.sourceUrl ?? this.storage.publicUrl(image.objectKey!),
+        );
+        const primaryIndex = imageRecords.findIndex((image) => image.isPrimary);
+        const coverIndex = primaryIndex >= 0 ? primaryIndex : 0;
+        const mainImageUrl = managedUrls[coverIndex] ?? roomType.mainImageUrl;
+        const galleryImageUrls = [
+          ...managedUrls.filter((_, index) => index !== coverIndex),
+          ...(roomType.galleryImageUrls ?? []),
+        ].filter((url, index, urls) => url !== mainImageUrl && urls.indexOf(url) === index);
+        const publicRoomType = { ...roomType, mainImageUrl, galleryImageUrls };
+        delete publicRoomType.imageRecords;
+        return publicRoomType;
+      });
       const property = properties[0];
       const connectedPaymentProviders = new Set(
         connectedPaymentConnections.map((connection) => connection.provider),

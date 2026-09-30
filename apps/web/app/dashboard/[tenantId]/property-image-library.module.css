@@ -1,0 +1,246 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(18 32 26 / 55%);
+}
+
+.dialog {
+  display: flex;
+  width: min(62rem, 100%);
+  max-height: min(46rem, 100%);
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 0.9rem;
+  background: white;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 25%);
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 1.25rem 0.75rem;
+}
+
+.header h3 {
+  margin: 0;
+  color: #20392f;
+  font-size: 1.1rem;
+}
+
+.header p {
+  margin: 0.3rem 0 0;
+  color: #66766f;
+  font-size: 0.86rem;
+}
+
+.iconButton {
+  display: grid;
+  width: 2.2rem;
+  height: 2.2rem;
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: #4d5f57;
+  cursor: pointer;
+}
+
+.iconButton:hover {
+  background: #eef3f0;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0 1.25rem 0.75rem;
+}
+
+.uploadButton {
+  display: inline-flex;
+  min-height: 2.4rem;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid #cddbd4;
+  border-radius: 0.5rem;
+  background: white;
+  color: #245846;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.uploadButton input {
+  display: none;
+}
+
+.uploadButton:has(input:disabled) {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.count {
+  color: #738279;
+  font-size: 0.82rem;
+}
+
+.body {
+  min-height: 12rem;
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 1.25rem 1rem;
+}
+
+.empty {
+  margin: 2rem 0;
+  color: #66766f;
+  text-align: center;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 0.75rem;
+}
+
+.tile {
+  position: relative;
+  overflow: hidden;
+  border: 2px solid transparent;
+  border-radius: 0.65rem;
+  background: #eef3f0;
+}
+
+.tileSelected {
+  border-color: #245846;
+}
+
+.tileDisabled img {
+  opacity: 0.45;
+}
+
+.tileButton {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.tileButton:disabled {
+  cursor: default;
+}
+
+.tileButton img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+
+.check {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.4rem;
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  place-items: center;
+  border-radius: 999px;
+  background: #245846;
+  color: white;
+}
+
+.badge {
+  position: absolute;
+  bottom: 0.4rem;
+  left: 0.4rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: rgb(18 32 26 / 78%);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.deleteButton {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  display: grid;
+  width: 1.9rem;
+  height: 1.9rem;
+  place-items: center;
+  border: 0;
+  border-radius: 0.45rem;
+  background: rgb(255 255 255 / 92%);
+  color: #8a2b2b;
+  cursor: pointer;
+}
+
+.confirm {
+  position: absolute;
+  inset: auto 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem;
+  background: rgb(255 255 255 / 96%);
+  font-size: 0.78rem;
+}
+
+.confirm button {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid #cddbd4;
+  border-radius: 0.4rem;
+  background: white;
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  padding: 0.85rem 1.25rem;
+  border-top: 1px solid #e3ebe7;
+}
+
+.primary,
+.secondary {
+  min-height: 2.4rem;
+  padding: 0.45rem 1rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.primary {
+  border: 1px solid #245846;
+  background: #245846;
+  color: white;
+}
+
+.primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.secondary {
+  border: 1px solid #cddbd4;
+  background: white;
+  color: #245846;
+}

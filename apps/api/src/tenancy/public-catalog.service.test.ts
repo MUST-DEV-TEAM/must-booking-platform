@@ -27,7 +27,10 @@ function catalogFor(
       callback: (tx: { $queryRaw: typeof queryRaw }) => Promise<unknown>,
     ) => callback({ $queryRaw: queryRaw }),
   };
-  return new PublicCatalogService(database as never).getCatalog(tenantId, propertyId, {});
+  return new PublicCatalogService(
+    database as never,
+    { publicUrl: (key: string) => key } as never,
+  ).getCatalog(tenantId, propertyId, {});
 }
 
 function individualCatalogFor(rooms: unknown[]) {
@@ -62,7 +65,10 @@ function individualCatalogFor(rooms: unknown[]) {
       callback: (tx: { $queryRaw: typeof queryRaw }) => Promise<unknown>,
     ) => callback({ $queryRaw: queryRaw }),
   };
-  return new PublicCatalogService(database as never).getCatalog(tenantId, propertyId, {
+  return new PublicCatalogService(
+    database as never,
+    { publicUrl: (key: string) => key } as never,
+  ).getCatalog(tenantId, propertyId, {
     startsOn: '2026-08-12',
     endsOn: '2026-08-13',
   });
