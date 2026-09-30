@@ -1,67 +1,56 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 
-import { MAIL_PROVIDER, type MailProvider } from './mail.provider';
+import { MailDeliveryService } from './mail-delivery.service';
+import type { QueuedMailCommands } from './mail-descriptors';
 
+/** The tenant/property an email belongs to; used to scope its `email_messages` row. */
+export type NotificationContext = { tenantId: string; propertyId: string };
+
+/**
+ * Booking/payment email entry points. Each call records the email in the email log and
+ * hands it to the durable delivery queue (retries, failure visibility). None of them
+ * throws: a notification problem must never fail the core booking or payment action.
+ */
 @Injectable()
 export class PaymentNotificationService {
-  private readonly logger = new Logger(PaymentNotificationService.name);
+  constructor(@Inject(MailDeliveryService) private readonly delivery: MailDeliveryService) {}
 
-  constructor(@Inject(MAIL_PROVIDER) private readonly mail: MailProvider) {}
-
-  async sendPaymentConfirmationEmailSafely(
-    command: Parameters<MailProvider['sendPaymentConfirmationEmail']>[0],
+  sendPaymentConfirmationEmailSafely(
+    command: QueuedMailCommands['paymentConfirmation'],
+    context: NotificationContext,
   ): Promise<void> {
-    try {
-      await this.mail.sendPaymentConfirmationEmail(command);
-    } catch (error) {
-      this.logMailFailure('payment confirmation', command.bookingId, error);
-    }
+    return this.delivery.dispatch('paymentConfirmation', command, this.scope(context));
   }
 
-  async sendNewBookingStaffNotificationSafely(
-    command: Parameters<MailProvider['sendNewBookingStaffNotification']>[0],
+  sendNewBookingStaffNotificationSafely(
+    command: QueuedMailCommands['newBookingStaff'],
+    context: NotificationContext,
   ): Promise<void> {
-    try {
-      await this.mail.sendNewBookingStaffNotification(command);
-    } catch (error) {
-      this.logMailFailure('new booking staff notification', command.bookingId, error);
-    }
+    return this.delivery.dispatch('newBookingStaff', command, this.scope(context));
   }
 
-  async sendRefundConfirmationEmailSafely(
-    command: Parameters<MailProvider['sendRefundConfirmationEmail']>[0],
+  sendRefundConfirmationEmailSafely(
+    command: QueuedMailCommands['refundConfirmation'],
+    context: NotificationContext,
   ): Promise<void> {
-    try {
-      await this.mail.sendRefundConfirmationEmail(command);
-    } catch (error) {
-      this.logMailFailure('refund confirmation', command.bookingId, error);
-    }
+    return this.delivery.dispatch('refundConfirmation', command, this.scope(context));
   }
 
-  async sendBookingCancelledEmailSafely(
-    command: Parameters<MailProvider['sendBookingCancelledEmail']>[0],
+  sendBookingCancelledEmailSafely(
+    command: QueuedMailCommands['bookingCancelled'],
+    context: NotificationContext,
   ): Promise<void> {
-    try {
-      await this.mail.sendBookingCancelledEmail(command);
-    } catch (error) {
-      this.logMailFailure('booking cancellation', command.bookingId, error);
-    }
+    return this.delivery.dispatch('bookingCancelled', command, this.scope(context));
   }
 
-  async sendBookingCancelledStaffNotificationSafely(
-    command: Parameters<MailProvider['sendBookingCancelledStaffNotification']>[0],
+  sendBookingCancelledStaffNotificationSafely(
+    command: QueuedMailCommands['bookingCancelledStaff'],
+    context: NotificationContext,
   ): Promise<void> {
-    try {
-      await this.mail.sendBookingCancelledStaffNotification(command);
-    } catch (error) {
-      this.logMailFailure('booking cancellation staff notification', command.bookingId, error);
-    }
+    return this.delivery.dispatch('bookingCancelledStaff', command, this.scope(context));
   }
 
-  private logMailFailure(kind: string, bookingId: string, error: unknown): void {
-    this.logger.error(
-      `Unable to send ${kind} email for booking ${bookingId}; continuing core action.`,
-      error instanceof Error ? error.stack : String(error),
-    );
+  private scope(context: NotificationContext): NotificationContext {
+    return { tenantId: context.tenantId, propertyId: context.propertyId };
   }
 }

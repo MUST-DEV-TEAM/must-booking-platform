@@ -76,6 +76,38 @@ export class TenantDatabaseService extends PrismaClient implements OnModuleDestr
     });
   }
 
+  /**
+   * Account-level mail (verification, welcome, password reset) has no hotel account: its
+   * email_messages rows have a NULL tenant and are reachable only under this narrow role.
+   */
+  async withPlatformMailTransaction<T>(
+    operation: (transaction: TenantTransaction) => Promise<T>,
+  ): Promise<T> {
+    return this.$transaction(async (transaction) => {
+      await transaction.$executeRaw`
+        SELECT set_config('app.role', 'platform_mail', true)
+      `;
+
+      return operation(transaction);
+    });
+  }
+
+  /**
+   * The Resend delivery webhook has no tenant: it locates an email_messages row by provider
+   * message id under the narrow 'email_webhook' RLS carve-out (read/update on that table only).
+   */
+  async withEmailWebhookTransaction<T>(
+    operation: (transaction: TenantTransaction) => Promise<T>,
+  ): Promise<T> {
+    return this.$transaction(async (transaction) => {
+      await transaction.$executeRaw`
+        SELECT set_config('app.role', 'email_webhook', true)
+      `;
+
+      return operation(transaction);
+    });
+  }
+
   async onModuleDestroy(): Promise<void> {
     await this.$disconnect();
   }

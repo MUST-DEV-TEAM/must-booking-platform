@@ -13,7 +13,7 @@ import { createClient, type RedisClientType } from 'redis';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 import { AuditLogService } from './audit-log.service';
 import { NotificationsService } from './notifications.service';
-import { MAIL_PROVIDER, type MailProvider } from '../mail/mail.provider';
+import { MailDeliveryService } from '../mail/mail-delivery.service';
 
 export interface StaffInvite {
   tenantId: string;
@@ -30,7 +30,7 @@ export class StaffInviteService implements OnModuleDestroy {
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(AuditLogService) private readonly auditLogs: AuditLogService,
     @Inject(NotificationsService) private readonly notifications: NotificationsService,
-    @Inject(MAIL_PROVIDER) private readonly mail: MailProvider,
+    @Inject(MailDeliveryService) private readonly delivery: MailDeliveryService,
   ) {
     this.redis = createClient({ url: process.env.REDIS_URL });
   }
@@ -152,13 +152,18 @@ export class StaffInviteService implements OnModuleDestroy {
           return { organization: organization[0], assignments: assignments.map((rows) => rows[0]) };
         },
       );
-      await this.mail.sendStaffInvitationEmail({
-        to: command.email,
-        organizationName: details.organization.organizationName,
-        invitedByEmail: details.organization.invitedByEmail,
-        assignments: details.assignments,
-        invitationUrl: invitationUrl.toString(),
-      });
+      await this.delivery.dispatch(
+        'staffInvitation',
+        {
+          to: command.email,
+          organizationName: details.organization.organizationName,
+          invitedByEmail: details.organization.invitedByEmail,
+          assignments: details.assignments,
+          invitationUrl: invitationUrl.toString(),
+        },
+        { tenantId: command.tenantId, propertyId: null },
+        { inlineFirst: true },
+      );
     } catch (error) {
       this.logger.error(
         `Unable to send staff invitation email to ${command.email}; invitation remains valid.`,

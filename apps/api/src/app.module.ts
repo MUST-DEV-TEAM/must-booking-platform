@@ -38,6 +38,9 @@ import { AuditLogController } from './tenancy/audit-log.controller';
 import { AuditLogService } from './tenancy/audit-log.service';
 import { MAIL_PROVIDER } from './mail/mail.provider';
 import { ResendMailProvider } from './mail/resend-mail.provider';
+import { MailDeliveryService } from './mail/mail-delivery.service';
+import { ResendWebhookController } from './mail/resend-webhook.controller';
+import { ResendWebhookService } from './mail/resend-webhook.service';
 import { PaymentNotificationService } from './mail/payment-notification.service';
 import { BookingConfirmationNotificationService } from './mail/booking-confirmation-notification.service';
 import { BookingCancellationNotificationService } from './mail/booking-cancellation-notification.service';
@@ -50,6 +53,7 @@ import { CancellationPoliciesService } from './tenancy/cancellation-policies.ser
 import { STORAGE_PROVIDER } from './storage/storage.provider';
 import { R2StorageProvider } from './storage/r2-storage.provider';
 import { RoomTypesController } from './tenancy/room-types.controller';
+import { PropertyImageLibraryController } from './tenancy/property-image-library.controller';
 import { RoomTypesService } from './tenancy/room-types.service';
 import { RoomsController } from './tenancy/rooms.controller';
 import { PropertyRoomsController } from './tenancy/property-rooms.controller';
@@ -174,6 +178,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PropertiesController,
     CancellationPoliciesController,
     RoomTypesController,
+    PropertyImageLibraryController,
     RoomsController,
     PropertyRoomsController,
     RatePlansController,
@@ -190,6 +195,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PublicBookingController,
     StripeWebhookController,
     PokPayWebhookController,
+    ResendWebhookController,
     PaymentRefundController,
     ManualPaymentController,
     PlatformAdminController,
@@ -281,6 +287,8 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     R2StorageProvider,
     { provide: STORAGE_PROVIDER, useExisting: R2StorageProvider },
     ResendMailProvider,
+    MailDeliveryService,
+    ResendWebhookService,
     PaymentNotificationService,
     BookingConfirmationNotificationService,
     BookingCancellationNotificationService,

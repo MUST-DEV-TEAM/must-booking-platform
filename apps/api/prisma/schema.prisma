@@ -978,3 +978,48 @@ model RoomAmenity {
   @@id([tenantId, propertyId, roomId, amenityId])
   @@map("room_amenities")
 }
+
+// Milestone 22 Task 3: one row per intended email (per recipient) so delivery
+// is observable instead of fire-and-forget. `idempotencyKey` is unique per
+// tenant and is the duplicate guard for transports without provider-side
+// idempotency. `propertyId` is null for tenant-level mail (e.g. staff invites).
+enum EmailMessageStatus {
+  QUEUED
+  SENT
+  FAILED
+  DELIVERED
+  BOUNCED
+  COMPLAINED
+}
+
+enum EmailRecipientKind {
+  TO
+  CC
+  BCC
+}
+
+model EmailMessage {
+  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String?            @map("tenant_id") @db.Uuid
+  propertyId        String?            @map("property_id") @db.Uuid
+  bookingId         String?            @map("booking_id") @db.Uuid
+  eventType         String             @map("event_type") @db.VarChar(80)
+  recipientEmail    String             @map("recipient_email") @db.VarChar(320)
+  recipientKind     EmailRecipientKind @default(TO) @map("recipient_kind")
+  subject           String             @db.VarChar(500)
+  templateVersion   Int?               @map("template_version")
+  status            EmailMessageStatus @default(QUEUED)
+  provider          String?            @db.VarChar(40)
+  providerMessageId String?            @map("provider_message_id") @db.VarChar(200)
+  idempotencyKey    String             @map("idempotency_key") @db.VarChar(300)
+  attemptCount      Int                @default(0) @map("attempt_count")
+  lastError         String?            @map("last_error") @db.VarChar(1000)
+  sentAt            DateTime?          @map("sent_at") @db.Timestamptz(6)
+  deliveredAt       DateTime?          @map("delivered_at") @db.Timestamptz(6)
+  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, idempotencyKey], map: "email_messages_tenant_idempotency_key")
+  @@index([tenantId, propertyId, createdAt(sort: Desc)], map: "email_messages_tenant_property_created_idx")
+  @@map("email_messages")
+}

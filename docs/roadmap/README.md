@@ -36,6 +36,7 @@ The **one-time documentation initialization** was explicitly authorized outside 
 | [14 - Environment/security](milestones/14-security-and-architecture-audit.md) | Kickoff/task list exists; host move recorded but acceptance unverified |
 | [15 - Platform billing](milestones/15-platform-billing.md) | Planned; draft areas are not approved concrete task rows |
 | [21 - Clock fixes](milestones/21-clock-certification-fixes.md) | Authorized parallel track; preserve per-task review and supersession |
+| [22 - Email notifications](milestones/22-email-notifications.md) | Planned 2026-09-30; triggered by a live booking that sent no emails; owner decisions pending, nothing dispatched |
 
 ## How work proceeds
 

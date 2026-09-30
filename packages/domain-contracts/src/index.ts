@@ -4,26 +4,33 @@ export type PmsProviderContext = PropertyContext;
 export type BillingProviderContext = TenantContext;
 export type PaymentProviderContext = PropertyContext;
 
+/** Returned by transports that can report the provider-side message id (used by the email log). */
+export type MailSendReceipt = { providerMessageId?: string };
+
 export interface MailProvider {
   sendVerificationEmail(command: {
     userId: string;
     to: string;
     organizationName: string;
     verificationUrl: string;
-  }): Promise<void>;
+  }): Promise<MailSendReceipt | void>;
   sendWelcomeEmail(command: {
     userId: string;
     to: string;
     organizationName: string;
-  }): Promise<void>;
-  sendPasswordResetEmail(command: { userId: string; to: string; resetUrl: string }): Promise<void>;
+  }): Promise<MailSendReceipt | void>;
+  sendPasswordResetEmail(command: {
+    userId: string;
+    to: string;
+    resetUrl: string;
+  }): Promise<MailSendReceipt | void>;
   sendStaffInvitationEmail(command: {
     to: string;
     organizationName: string;
     invitedByEmail: string;
     assignments: Array<{ propertyName: string; roleTemplateName: string }>;
     invitationUrl: string;
-  }): Promise<void>;
+  }): Promise<MailSendReceipt | void>;
   sendPaymentConfirmationEmail(command: {
     bookingId: string;
     bookingReference: string;
@@ -39,7 +46,7 @@ export interface MailProvider {
     nightlyRates?: NightlyRate[];
     cancellationUrl?: string;
     specialRequests?: string | null;
-  }): Promise<void>;
+  }): Promise<MailSendReceipt | void>;
   sendNewBookingStaffNotification(command: {
     bookingId: string;
     bookingReference: string;
@@ -55,7 +62,7 @@ export interface MailProvider {
     paymentMethod: GuestPaymentMethod;
     nightlyRates?: NightlyRate[];
     specialRequests?: string | null;
-  }): Promise<void>;
+  }): Promise<MailSendReceipt | void>;
   sendRefundConfirmationEmail(command: {
     bookingId: string;
     bookingReference: string;
@@ -68,7 +75,7 @@ export interface MailProvider {
     roomName: string;
     guestCount: number;
     nightlyRates?: NightlyRate[];
-  }): Promise<void>;
+  }): Promise<MailSendReceipt | void>;
   sendBookingCancelledEmail(command: {
     bookingId: string;
     bookingReference: string;
@@ -79,7 +86,7 @@ export interface MailProvider {
     roomName: string;
     guestCount: number;
     nightlyRates?: NightlyRate[];
-  }): Promise<void>;
+  }): Promise<MailSendReceipt | void>;
   sendBookingCancelledStaffNotification(command: {
     bookingId: string;
     bookingReference: string;
@@ -96,7 +103,7 @@ export interface MailProvider {
       amount: Money;
       paymentMethod: string | null;
     };
-  }): Promise<void>;
+  }): Promise<MailSendReceipt | void>;
 }
 
 export type MailBrand = {

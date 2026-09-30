@@ -15,6 +15,24 @@ describe('ResendMailProvider', () => {
     vi.unstubAllGlobals();
   });
 
+  it('gives every Resend request a timeout signal and surfaces a timeout as a failure', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.MAIL_FROM_EMAIL = 'MUST Booking <noreply@example.test>';
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new DOMException('The operation timed out.', 'TimeoutError'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      provider.sendPasswordResetEmail({
+        userId: '8beaf323-2f86-46fd-999a-78a0cf52bb5f',
+        to: 'owner@example.test',
+        resetUrl: 'https://app.example.test/reset?token=t',
+      }),
+    ).rejects.toThrow('timed out');
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it('sends verification messages through Resend with the required request metadata', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
     process.env.MAIL_FROM_EMAIL = 'MUST Booking <noreply@example.test>';
@@ -35,7 +53,10 @@ describe('ResendMailProvider', () => {
         headers: expect.objectContaining({
           Authorization: 'Bearer re_test_key',
           'Content-Type': 'application/json',
-          'Idempotency-Key': 'email-verification/8beaf323-2f86-46fd-999a-78a0cf52bb5f/token-value',
+          // token-scoped, but hashed: the raw secret link token must not appear in stored keys
+          'Idempotency-Key': expect.stringMatching(
+            /^email-verification\/8beaf323-2f86-46fd-999a-78a0cf52bb5f\/[0-9a-f]{24}$/,
+          ),
           'User-Agent': 'must-booking-platform/0.0.0',
         }),
       }),
@@ -225,9 +246,11 @@ describe('ResendMailProvider', () => {
     });
 
     const [, options] = fetchMock.mock.calls[0];
-    expect((options?.headers as Record<string, string>)['Idempotency-Key']).toBe(
-      'password-reset/8beaf323-2f86-46fd-999a-78a0cf52bb5f/reset-value',
+    const idempotencyKey = (options?.headers as Record<string, string>)['Idempotency-Key'];
+    expect(idempotencyKey).toMatch(
+      /^password-reset\/8beaf323-2f86-46fd-999a-78a0cf52bb5f\/[0-9a-f]{24}$/,
     );
+    expect(idempotencyKey).not.toContain('reset-value'); // hashed, never the raw token
     const body = JSON.parse(String(options?.body));
     expect(body.subject).toBe('Reset your MUST Booking password');
     expect(body.html).toContain('reset-password?token=reset-value&amp;redirect=%3Cscript%3E');

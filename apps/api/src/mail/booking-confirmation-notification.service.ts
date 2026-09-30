@@ -88,49 +88,55 @@ export class BookingConfirmationNotificationService {
       address: row.propertyAddress,
     };
     const guestName = [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || row.email;
-    await this.notifications.sendPaymentConfirmationEmailSafely({
-      bookingId,
-      bookingReference: row.externalReference,
-      paymentId,
-      to: row.email,
-      amount: { amount: row.amount, currency: row.currency },
-      brand,
-      paymentMethod: this.guestPaymentMethod(row.paymentMethod),
-      guest: { name: guestName },
-      stay: { startsOn: row.startsOn, endsOn: row.endsOn },
-      roomName: row.roomName,
-      guestCount: row.guestCount,
-      nightlyRates: row.nightlyRates ?? undefined,
-      specialRequests: row.specialRequests,
-      cancellationUrl: row.guestReturnUrl
-        ? this.cancellationUrl(
-            row.guestReturnUrl,
-            bookingId,
-            this.cancellations.create({
-              ...context,
-              bookingId,
-              guestSessionId: row.guestSessionId,
-            }),
-          )
-        : undefined,
-    });
-    for (const recipient of staff) {
-      await this.notifications.sendNewBookingStaffNotificationSafely({
+    await this.notifications.sendPaymentConfirmationEmailSafely(
+      {
         bookingId,
         bookingReference: row.externalReference,
         paymentId,
-        staffUserId: recipient.staffUserId,
-        to: recipient.email,
-        guest: { name: guestName, email: row.email, phone: row.phone },
-        stay: { startsOn: row.startsOn, endsOn: row.endsOn },
-        roomName: row.roomName,
+        to: row.email,
         amount: { amount: row.amount, currency: row.currency },
         brand,
-        guestCount: row.guestCount,
         paymentMethod: this.guestPaymentMethod(row.paymentMethod),
+        guest: { name: guestName },
+        stay: { startsOn: row.startsOn, endsOn: row.endsOn },
+        roomName: row.roomName,
+        guestCount: row.guestCount,
         nightlyRates: row.nightlyRates ?? undefined,
         specialRequests: row.specialRequests,
-      });
+        cancellationUrl: row.guestReturnUrl
+          ? this.cancellationUrl(
+              row.guestReturnUrl,
+              bookingId,
+              this.cancellations.create({
+                ...context,
+                bookingId,
+                guestSessionId: row.guestSessionId,
+              }),
+            )
+          : undefined,
+      },
+      context,
+    );
+    for (const recipient of staff) {
+      await this.notifications.sendNewBookingStaffNotificationSafely(
+        {
+          bookingId,
+          bookingReference: row.externalReference,
+          paymentId,
+          staffUserId: recipient.staffUserId,
+          to: recipient.email,
+          guest: { name: guestName, email: row.email, phone: row.phone },
+          stay: { startsOn: row.startsOn, endsOn: row.endsOn },
+          roomName: row.roomName,
+          amount: { amount: row.amount, currency: row.currency },
+          brand,
+          guestCount: row.guestCount,
+          paymentMethod: this.guestPaymentMethod(row.paymentMethod),
+          nightlyRates: row.nightlyRates ?? undefined,
+          specialRequests: row.specialRequests,
+        },
+        context,
+      );
     }
   }
 

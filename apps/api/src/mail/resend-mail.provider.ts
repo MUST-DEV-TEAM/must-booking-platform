@@ -1,6 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 
-import type { MailBrand, MailProvider, NightlyRate } from '@must/domain-contracts';
+import type { MailBrand, MailProvider, MailSendReceipt, NightlyRate } from '@must/domain-contracts';
+import { MailDeliveryError, isRetryableHttpStatus } from './mail-delivery-error';
+import { describeMail } from './mail-descriptors';
+import { missingMailConfiguration } from '../config/environment';
 import {
   MUST_BOOKING_BRAND,
   escapeHtml,
@@ -15,18 +18,32 @@ function resendEmailsUrl(): string {
     : 'https://api.resend.com/emails';
 }
 
+const RESEND_REQUEST_TIMEOUT_MS = 10_000;
+
 @Injectable()
-export class ResendMailProvider implements MailProvider {
+export class ResendMailProvider implements MailProvider, OnModuleInit {
+  private readonly logger = new Logger(ResendMailProvider.name);
+
+  onModuleInit(): void {
+    if (process.env.NODE_ENV === 'test') return;
+    const missing = missingMailConfiguration();
+    if (missing.length === 0) return;
+    const message = `Email is NOT configured (missing ${missing.join(', ')}): booking, staff, verification and password-reset emails will fail to send.`;
+    if (process.env.NODE_ENV === 'production') this.logger.error(message);
+    else this.logger.warn(message);
+  }
+
   async sendVerificationEmail(command: {
     userId: string;
     to: string;
     organizationName: string;
     verificationUrl: string;
-  }): Promise<void> {
+  }): Promise<MailSendReceipt> {
     const organizationName = escapeHtml(command.organizationName);
-    await this.send({
+    const { subject, idempotencyKey } = describeMail('verification', command);
+    return this.send({
       to: command.to,
-      subject: 'Verify your MUST Booking email address',
+      subject,
       html: renderBrandedEmail({
         subject: 'Verify your MUST Booking email address',
         brand: MUST_BOOKING_BRAND,
@@ -43,7 +60,7 @@ export class ResendMailProvider implements MailProvider {
         platformFooter: 'MUST Booking Platform',
       }),
       text: `Welcome to MUST Booking, ${command.organizationName}. Confirm this email address to activate your account: ${command.verificationUrl}`,
-      idempotencyKey: `email-verification/${command.userId}/${this.tokenFromUrl(command.verificationUrl)}`,
+      idempotencyKey,
     });
   }
 
@@ -51,13 +68,14 @@ export class ResendMailProvider implements MailProvider {
     userId: string;
     to: string;
     organizationName: string;
-  }): Promise<void> {
+  }): Promise<MailSendReceipt> {
     const organizationName = escapeHtml(command.organizationName);
-    await this.send({
+    const { subject, idempotencyKey } = describeMail('welcome', command);
+    return this.send({
       to: command.to,
-      subject: 'Welcome to MUST Booking',
+      subject,
       html: renderBrandedEmail({
-        subject: 'Welcome to MUST Booking',
+        subject,
         brand: MUST_BOOKING_BRAND,
         preheader: "You're verified — your MUST Booking dashboard is ready.",
         eyebrow: 'Welcome',
@@ -73,7 +91,7 @@ export class ResendMailProvider implements MailProvider {
         platformFooter: 'MUST Booking Platform',
       }),
       text: `Your email is verified. Welcome to MUST Booking, ${command.organizationName} — you're all set to add your first property, configure rooms and rates, and start taking bookings online.`,
-      idempotencyKey: `welcome/${command.userId}`,
+      idempotencyKey,
     });
   }
 
@@ -81,12 +99,13 @@ export class ResendMailProvider implements MailProvider {
     userId: string;
     to: string;
     resetUrl: string;
-  }): Promise<void> {
-    await this.send({
+  }): Promise<MailSendReceipt> {
+    const { subject, idempotencyKey } = describeMail('passwordReset', command);
+    return this.send({
       to: command.to,
-      subject: 'Reset your MUST Booking password',
+      subject,
       html: renderBrandedEmail({
-        subject: 'Reset your MUST Booking password',
+        subject,
         brand: MUST_BOOKING_BRAND,
         preheader: 'Use this link to set a new MUST Booking password.',
         eyebrow: 'Account security',
@@ -102,13 +121,13 @@ export class ResendMailProvider implements MailProvider {
         platformFooter: 'MUST Booking Platform',
       }),
       text: `We received a request to reset the password on your MUST Booking account. Create a new password: ${command.resetUrl}\nThis link can only be used once. If you didn't request this, you can ignore this email — your password won't change.`,
-      idempotencyKey: `password-reset/${command.userId}/${this.tokenFromUrl(command.resetUrl)}`,
+      idempotencyKey,
     });
   }
 
   async sendStaffInvitationEmail(
     command: Parameters<MailProvider['sendStaffInvitationEmail']>[0],
-  ): Promise<void> {
+  ): Promise<MailSendReceipt> {
     const organizationName = escapeHtml(command.organizationName);
     const invitedByEmail = escapeHtml(command.invitedByEmail);
     const assignments = command.assignments.map((assignment) => ({
@@ -118,8 +137,8 @@ export class ResendMailProvider implements MailProvider {
     const propertyAccess = assignments
       .map((assignment) => `${assignment.propertyName} — ${assignment.roleTemplateName}`)
       .join('\n');
-    const subject = `You're invited to join ${command.organizationName} on MUST Booking`;
-    await this.send({
+    const { subject, idempotencyKey } = describeMail('staffInvitation', command);
+    return this.send({
       to: command.to,
       subject,
       html: renderBrandedEmail({
@@ -144,17 +163,17 @@ export class ResendMailProvider implements MailProvider {
         platformFooter: 'MUST Booking Platform',
       }),
       text: `${command.invitedByEmail} invited you to join ${command.organizationName} on MUST Booking. Access: ${command.assignments.map((assignment) => `${assignment.propertyName} (${assignment.roleTemplateName})`).join(', ')}. Accept invitation: ${command.invitationUrl}`,
-      idempotencyKey: `staff-invitation/${this.tokenFromUrl(command.invitationUrl)}`,
+      idempotencyKey,
     });
   }
 
   async sendPaymentConfirmationEmail(
     command: Parameters<MailProvider['sendPaymentConfirmationEmail']>[0],
-  ): Promise<void> {
+  ): Promise<MailSendReceipt> {
     const paid = command.paymentMethod === 'stripe' || command.paymentMethod === 'pokpay';
     const hotelName = command.brand.name || 'your hotel';
-    const subject = `${hotelName} booking confirmed — ${command.bookingReference}`;
-    await this.send({
+    const { subject, idempotencyKey } = describeMail('paymentConfirmation', command);
+    return this.send({
       to: command.to,
       subject,
       html: renderBrandedEmail({
@@ -176,16 +195,16 @@ export class ResendMailProvider implements MailProvider {
         footerNote: `You&#39;re receiving this email because you made a reservation at ${escapeHtml(hotelName)}.`,
       }),
       text: `${paid ? `Your payment of ${this.money(command.amount)} was received and your reservation is confirmed.` : 'Your reservation is confirmed. Payment will be collected at the hotel on arrival.'} Booking ${command.bookingReference}: ${command.roomName}, ${command.stay.startsOn} to ${command.stay.endsOn}, ${command.guestCount} guest${command.guestCount === 1 ? '' : 's'}.${command.specialRequests?.trim() ? ` Special requests: ${command.specialRequests.trim()}` : ''}${command.cancellationUrl ? ` Review or cancel: ${command.cancellationUrl}` : ''}`,
-      idempotencyKey: `payment-confirmation/${command.paymentId}`,
+      idempotencyKey,
     });
   }
 
   async sendNewBookingStaffNotification(
     command: Parameters<MailProvider['sendNewBookingStaffNotification']>[0],
-  ): Promise<void> {
+  ): Promise<MailSendReceipt> {
     const guestName = escapeHtml(command.guest.name);
-    const subject = `${command.guest.name} — new booking ${command.bookingReference}`;
-    await this.send({
+    const { subject, idempotencyKey } = describeMail('newBookingStaff', command);
+    return this.send({
       to: command.to,
       subject,
       html: renderBrandedEmail({
@@ -212,16 +231,16 @@ export class ResendMailProvider implements MailProvider {
         platformFooter: 'MUST Booking Platform',
       }),
       text: `New booking received\nBooking reference: ${command.bookingReference}\nGuest: ${command.guest.name}\nEmail: ${command.guest.email}${command.guest.phone ? `\nPhone: ${command.guest.phone}` : ''}\nRoom: ${command.roomName}\nDates: ${command.stay.startsOn} to ${command.stay.endsOn}\nTotal: ${this.money(command.amount)}${command.specialRequests?.trim() ? `\nSpecial requests: ${command.specialRequests.trim()}` : ''}`,
-      idempotencyKey: `new-booking-staff/${command.paymentId}/${command.staffUserId}`,
+      idempotencyKey,
     });
   }
 
   async sendRefundConfirmationEmail(
     command: Parameters<MailProvider['sendRefundConfirmationEmail']>[0],
-  ): Promise<void> {
+  ): Promise<MailSendReceipt> {
     const hotelName = command.brand.name || 'your hotel';
-    const subject = `${hotelName} refund processed — ${command.bookingReference}`;
-    await this.send({
+    const { subject, idempotencyKey } = describeMail('refundConfirmation', command);
+    return this.send({
       to: command.to,
       subject,
       html: renderBrandedEmail({
@@ -237,16 +256,16 @@ export class ResendMailProvider implements MailProvider {
         footerNote: `You&#39;re receiving this email because a refund was issued for a reservation at ${escapeHtml(hotelName)}.`,
       }),
       text: `Your refund of ${this.money(command.amount)} for booking ${command.bookingReference} has been processed. It may take a few business days to appear on your original payment method.`,
-      idempotencyKey: `refund-confirmation/${command.refundId}`,
+      idempotencyKey,
     });
   }
 
   async sendBookingCancelledEmail(
     command: Parameters<MailProvider['sendBookingCancelledEmail']>[0],
-  ): Promise<void> {
+  ): Promise<MailSendReceipt> {
     const hotelName = command.brand.name || 'your hotel';
-    const subject = `Booking ${command.bookingReference} cancelled`;
-    await this.send({
+    const { subject, idempotencyKey } = describeMail('bookingCancelled', command);
+    return this.send({
       to: command.to,
       subject,
       html: renderBrandedEmail({
@@ -265,14 +284,14 @@ export class ResendMailProvider implements MailProvider {
         footerNote: `You&#39;re receiving this email because a reservation at ${escapeHtml(hotelName)} under your name was cancelled.`,
       }),
       text: `Your booking ${command.bookingReference} has been cancelled as requested. ${command.roomName}, ${command.stay.startsOn} to ${command.stay.endsOn}.`,
-      idempotencyKey: `booking-cancelled/guest/${command.bookingId}`,
+      idempotencyKey,
     });
   }
 
   async sendBookingCancelledStaffNotification(
     command: Parameters<MailProvider['sendBookingCancelledStaffNotification']>[0],
-  ): Promise<void> {
-    const subject = `${command.guest.name} — booking cancelled ${command.bookingReference}`;
+  ): Promise<MailSendReceipt> {
+    const { subject, idempotencyKey } = describeMail('bookingCancelledStaff', command);
     const refund = command.refund;
     const refundLabel = refund
       ? refund.status === 'processed'
@@ -284,7 +303,7 @@ export class ResendMailProvider implements MailProvider {
         ? `<p style="margin:16px 0 0 0;"><strong>Automatic refund processed</strong><br>${this.money(refund.amount)}${refund.paymentMethod ? ` via ${escapeHtml(refund.paymentMethod)}` : ''}</p>`
         : `<p style="margin:16px 0 0 0;"><strong>Manual refund required</strong><br>The automatic refund of ${this.money(refund.amount)}${refund.paymentMethod ? ` via ${escapeHtml(refund.paymentMethod)}` : ''} failed. Please refund the guest manually.</p>`
       : '';
-    await this.send({
+    return this.send({
       to: command.to,
       subject,
       html: renderBrandedEmail({
@@ -312,7 +331,7 @@ export class ResendMailProvider implements MailProvider {
         platformFooter: 'MUST Booking Platform',
       }),
       text: `${command.guest.name}'s booking ${command.bookingReference} has been cancelled.${refund ? (refund.status === 'processed' ? ` Automatic refund processed: ${this.money(refund.amount)}${refund.paymentMethod ? ` via ${refund.paymentMethod}` : ''}.` : ` Manual refund required: the automatic refund of ${this.money(refund.amount)}${refund.paymentMethod ? ` via ${refund.paymentMethod}` : ''} failed.`) : ''}`,
-      idempotencyKey: `booking-cancelled/staff/${command.bookingId}/${command.staffUserId}`,
+      idempotencyKey,
     });
   }
 
@@ -440,34 +459,45 @@ export class ResendMailProvider implements MailProvider {
     html: string;
     text: string;
     idempotencyKey: string;
-  }): Promise<void> {
-    const response = await fetch(resendEmailsUrl(), {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.requiredEnvironment('RESEND_API_KEY')}`,
-        'Content-Type': 'application/json',
-        'Idempotency-Key': message.idempotencyKey,
-        'User-Agent': 'must-booking-platform/0.0.0',
-      },
-      body: JSON.stringify({
-        from: this.requiredEnvironment('MAIL_FROM_EMAIL'),
-        to: [message.to],
-        subject: message.subject,
-        html: message.html,
-        text: message.text,
-      }),
-    });
+  }): Promise<MailSendReceipt> {
+    let response: Response;
+    try {
+      response = await fetch(resendEmailsUrl(), {
+        method: 'POST',
+        signal: AbortSignal.timeout(RESEND_REQUEST_TIMEOUT_MS),
+        headers: {
+          Authorization: `Bearer ${this.requiredEnvironment('RESEND_API_KEY')}`,
+          'Content-Type': 'application/json',
+          'Idempotency-Key': message.idempotencyKey,
+          'User-Agent': 'must-booking-platform/0.0.0',
+        },
+        body: JSON.stringify({
+          from: this.requiredEnvironment('MAIL_FROM_EMAIL'),
+          to: [message.to],
+          subject: message.subject,
+          html: message.html,
+          text: message.text,
+        }),
+      });
+    } catch (error) {
+      if (error instanceof MailDeliveryError) throw error;
+      // A missing setting is a plain Error from requiredEnvironment and is treated like a
+      // network failure (retryable) so a fixed configuration lets queued mail through.
+      throw new MailDeliveryError(error instanceof Error ? error.message : String(error), true);
+    }
     if (!response.ok)
-      throw new Error(`Resend email delivery failed with status ${response.status}.`);
+      throw new MailDeliveryError(
+        `Resend email delivery failed with status ${response.status}.`,
+        isRetryableHttpStatus(response.status),
+        response.status,
+      );
+    const body = (await response.json().catch(() => null)) as { id?: unknown } | null;
+    return { providerMessageId: typeof body?.id === 'string' ? body.id : undefined };
   }
 
   private requiredEnvironment(name: 'RESEND_API_KEY' | 'MAIL_FROM_EMAIL'): string {
     const value = process.env[name]?.trim();
     if (!value) throw new Error(`${name} must be configured before sending email.`);
     return value;
-  }
-
-  private tokenFromUrl(url: string): string {
-    return new URL(url).searchParams.get('token') ?? 'missing-token';
   }
 }

@@ -316,7 +316,8 @@ export class PaymentRefundService {
         return outcome.result;
       }),
     );
-    if (confirmation) await this.notifications.sendRefundConfirmationEmailSafely(confirmation);
+    if (confirmation)
+      await this.notifications.sendRefundConfirmationEmailSafely(confirmation, context);
     return result;
   }
 

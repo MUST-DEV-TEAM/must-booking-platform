@@ -78,6 +78,7 @@ describe('BookingConfirmationNotificationService', () => {
         guestCount: 2,
         cancellationUrl: expect.stringContaining('cancellationToken=cancellation-token'),
       }),
+      context,
     );
     expect(notifications.sendNewBookingStaffNotificationSafely).toHaveBeenCalledTimes(2);
     expect(notifications.sendNewBookingStaffNotificationSafely).toHaveBeenCalledWith({
@@ -102,7 +103,7 @@ describe('BookingConfirmationNotificationService', () => {
       paymentMethod: 'stripe',
       nightlyRates: undefined,
       specialRequests: 'Late arrival',
-    });
+    }, context);
   });
 
   it('does not send a staff email when the property has no staff assignments', async () => {

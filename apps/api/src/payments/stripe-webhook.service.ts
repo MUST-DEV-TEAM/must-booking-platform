@@ -160,7 +160,7 @@ export class StripeWebhookService {
         bookingConfirmation.paymentId,
       );
     if (refundConfirmation)
-      await this.notifications.sendRefundConfirmationEmailSafely(refundConfirmation);
+      await this.notifications.sendRefundConfirmationEmailSafely(refundConfirmation, context);
     return result;
   }
 

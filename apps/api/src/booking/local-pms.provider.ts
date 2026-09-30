@@ -1132,7 +1132,7 @@ export class LocalPmsProvider implements PmsProvider {
       { timeoutMs: 30_000 },
     );
     for (const refundConfirmation of refundConfirmations)
-      await this.notifications.sendRefundConfirmationEmailSafely(refundConfirmation);
+      await this.notifications.sendRefundConfirmationEmailSafely(refundConfirmation, context);
     for (const cancelledBookingId of cancelledBookingIds)
       await this.cancellations.sendAfterCancellation(context, cancelledBookingId);
     return result;

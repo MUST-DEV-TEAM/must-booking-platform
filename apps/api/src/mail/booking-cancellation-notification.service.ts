@@ -135,14 +135,20 @@ export class BookingCancellationNotificationService {
             paymentMethod: refund.paymentMethod ?? refund.paymentProvider,
           }
         : undefined;
-    await this.notifications.sendBookingCancelledEmailSafely({ to: row.email, ...details });
+    await this.notifications.sendBookingCancelledEmailSafely(
+      { to: row.email, ...details },
+      context,
+    );
     for (const recipient of staff)
-      await this.notifications.sendBookingCancelledStaffNotificationSafely({
-        ...details,
-        staffUserId: recipient.staffUserId,
-        to: recipient.email,
-        guest: { name: guestName, email: row.email, phone: row.phone },
-        ...(refundDetails ? { refund: refundDetails } : {}),
-      });
+      await this.notifications.sendBookingCancelledStaffNotificationSafely(
+        {
+          ...details,
+          staffUserId: recipient.staffUserId,
+          to: recipient.email,
+          guest: { name: guestName, email: row.email, phone: row.phone },
+          ...(refundDetails ? { refund: refundDetails } : {}),
+        },
+        context,
+      );
   }
 }

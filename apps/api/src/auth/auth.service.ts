@@ -14,7 +14,8 @@ import { createClient, type RedisClientType } from 'redis';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { AuditLogService } from '../tenancy/audit-log.service';
 import { PropertyRoleTemplatesService } from '../tenancy/property-role-templates.service';
-import { MAIL_PROVIDER, type MailProvider } from '../mail/mail.provider';
+import { MailDeliveryService } from '../mail/mail-delivery.service';
+import type { MailProvider } from '../mail/mail.provider';
 
 type AuthUserRecord = {
   id: string;
@@ -56,7 +57,7 @@ export class AuthService implements OnModuleDestroy {
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(AuditLogService) private readonly auditLogs: AuditLogService,
     @Inject(PropertyRoleTemplatesService) private readonly templates: PropertyRoleTemplatesService,
-    @Inject(MAIL_PROVIDER) private readonly mail: MailProvider,
+    @Inject(MailDeliveryService) private readonly delivery: MailDeliveryService,
   ) {
     this.redis = createClient({ url: process.env.REDIS_URL });
   }
@@ -350,29 +351,36 @@ export class AuthService implements OnModuleDestroy {
     return sessionId;
   }
 
+  // Account mail has no hotel account, so its log rows carry no tenant. The first attempt is made
+  // before returning (as direct sending always did); the queue only retries a transient failure.
+  private static readonly ACCOUNT_MAIL_SCOPE = { tenantId: null, propertyId: null } as const;
+
   private async sendVerificationEmailSafely(
     command: Omit<Parameters<MailProvider['sendVerificationEmail']>[0], 'verificationUrl'> & {
       verificationToken: string;
     },
   ) {
     try {
-      await this.mail.sendVerificationEmail({
-        userId: command.userId,
-        to: command.to,
-        organizationName: command.organizationName,
-        verificationUrl: this.verificationUrl(command.verificationToken),
-      });
+      await this.delivery.dispatch(
+        'verification',
+        {
+          userId: command.userId,
+          to: command.to,
+          organizationName: command.organizationName,
+          verificationUrl: this.verificationUrl(command.verificationToken),
+        },
+        AuthService.ACCOUNT_MAIL_SCOPE,
+        { inlineFirst: true },
+      );
     } catch (error) {
       this.logMailFailure('verification', command.userId, error);
     }
   }
 
   private async sendWelcomeEmailSafely(command: Parameters<MailProvider['sendWelcomeEmail']>[0]) {
-    try {
-      await this.mail.sendWelcomeEmail(command);
-    } catch (error) {
-      this.logMailFailure('welcome', command.userId, error);
-    }
+    await this.delivery.dispatch('welcome', command, AuthService.ACCOUNT_MAIL_SCOPE, {
+      inlineFirst: true,
+    });
   }
 
   private async sendPasswordResetEmailSafely(
@@ -381,11 +389,16 @@ export class AuthService implements OnModuleDestroy {
     },
   ) {
     try {
-      await this.mail.sendPasswordResetEmail({
-        userId: command.userId,
-        to: command.to,
-        resetUrl: this.passwordResetUrl(command.resetToken),
-      });
+      await this.delivery.dispatch(
+        'passwordReset',
+        {
+          userId: command.userId,
+          to: command.to,
+          resetUrl: this.passwordResetUrl(command.resetToken),
+        },
+        AuthService.ACCOUNT_MAIL_SCOPE,
+        { inlineFirst: true },
+      );
     } catch (error) {
       this.logMailFailure('password-reset', command.userId, error);
     }
