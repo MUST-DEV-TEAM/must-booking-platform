@@ -549,6 +549,16 @@ body.must-hotel-booking-flow-page {
     text-shadow: none;
 }
 
+.must-hotel-booking-page-booking .must-booking-flatpickr-instance .flatpickr-day.startRange + .endRange:not(:nth-child(7n+1)),
+.must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day.startRange + .endRange:not(:nth-child(7n+1)),
+.must-hotel-booking-page-booking .must-booking-flatpickr-instance .flatpickr-day.selected,
+.must-hotel-booking-page-booking .must-booking-flatpickr-instance .flatpickr-day.inRange,
+.must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day.selected,
+.must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day.inRange {
+    /* Flatpickr paints a blue -10px shadow on a check-out that directly follows the check-in. */
+    box-shadow: none !important;
+}
+
 .must-hotel-booking-page-booking .must-booking-flatpickr-instance .flatpickr-day.flatpickr-disabled,
 .must-hotel-booking-page-booking .must-booking-flatpickr-instance .flatpickr-day.notAllowed,
 .must-hotel-booking-page-booking .must-booking-inline-calendar .flatpickr-day.flatpickr-disabled,
