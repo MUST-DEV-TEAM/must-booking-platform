@@ -40,6 +40,11 @@ function serviceWithClockResponses(...responses: ClockOutcome<unknown>[]) {
   const fetch = vi.fn<ClockFetch>();
   fetch.mockImplementation(async () => responses.shift()!);
   (service as unknown as { fetch: ClockFetch }).fetch = fetch;
+  // These tests are about guest matching and assert the exact Clock call order;
+  // the guarantee-policy follow-up has its own spec (clock-booking-guarantee-policy.spec.ts).
+  (
+    service as unknown as { applyRateGuaranteePolicy: () => Promise<void> }
+  ).applyRateGuaranteePolicy = async () => undefined;
   return { service, fetch };
 }
 

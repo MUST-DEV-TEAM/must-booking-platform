@@ -25,6 +25,38 @@ Pin the **topic ARN**, not the longer subscription ARN, in encrypted credentials
 
 Verify actual confirmed subscription state and a signed notification through ingestion, persistence, enqueue and hydration. A 200 for confirmation alone is insufficient: the current service ignores a failed confirmation callback's boolean result.
 
+### Empire Beach Resort production: webhook re-enable (2026-09-30)
+
+Why: live bookings were reaching Clock but no inbound Clock webhook had arrived (one rejected 400 in 72 h), and `ClockWebhookHealthService` logged "0 connection(s)" on every run, so nothing alerted.
+
+Findings, all read-only:
+
+- Clock granted `base_api_webhook_subscription_show` and `pms_api_booking_folios_create` to the API user. Clock confirmed folios must **stay open** for the hotel to take payment, so the `Folio: Close` and `Folio: Close folio with outstanding balance` rights are deliberately not granted; closing must not be attempted.
+- `GET /webhook_subscription` moved from `403` to `400 webhook_subscription_not_found`: the right works, but **no subscription exists** for this account.
+- The Clock connection (`8849c0b2-…`, webhook ID `ac27a3b1-b272-4bfa-a12a-b8ee6eab667a`) is `CONNECTED` with `host, accountId, subscriptionId, apiUser, apiKey` credentials and **no `snsTopicArn`**, so every signed message would be rejected as a topic mismatch until it is pinned.
+- Public routing is correct: `GET https://booking.must.al/clock-webhooks/<uuid>` returns the API's JSON 404, and an empty POST returns `Malformed SNS envelope` (400).
+
+Procedure (POST, pin, re-POST, then verify):
+
+1. `POST /webhook_subscription` with `{"endpoint": "https://booking.must.al/clock-webhooks/ac27a3b1-b272-4bfa-a12a-b8ee6eab667a"}`.
+2. `GET /webhook_subscription`, strip the trailing subscription ID from `subscription_arn` (keep the first six `:` parts) and store the result as `snsTopicArn` in the connection's encrypted credentials, keeping a backup of the prior encrypted blob.
+3. Re-POST the same endpoint so AWS re-sends the `SubscriptionConfirmation` now that the topic is pinned.
+4. Verify `pending_confirmation: false` on GET, a `provider_events` row for a real event, and its terminal status. Then trigger one harmless Clock action (open a folio) and record the real event name.
+
+Open questions to settle from that capture: Clock's event name for folio create (the worker only applies `folio_update` and `folio_close`, see `FOLIO_EVENT_TYPES` in `clock-worker.service.ts`) and why the health check counts 0 connections for a `CONNECTED` connection.
+
+Status, executed 2026-09-30 with the owner's explicit approval: steps 1-3 done. Clock returned subscription `PUSH_14688_EMPIRE_BEACH_RESORT` (account 14688), the bare topic ARN `arn:aws:sns:eu-west-1:006467213368:PUSH_14688_EMPIRE_BEACH_RESORT` was pinned in the connection's encrypted credentials (prior encrypted blob backed up inside the API container at `/tmp/cred-backup-<connectionId>.txt`, lost on rebuild), the re-POST was sent, and two signed deliveries to the webhook URL returned 200 with no "Rejected Clock webhook" warning. `GET /webhook_subscription` then showed `pending_confirmation: false`. Step 4 (a real folio/booking event reaching `provider_events` and being applied) is still to do. The one-off scripts were not committed, per the 2026-09-03 convention.
+
+## Inspecting a live booking read-only (lessons from 2026-09-30)
+
+Use this to compare a MUST booking with what the hotel sees in Clock. It performs GETs only.
+
+1. **Pick the connection by `subscriptionId`, never "the first PMS connection".** The production database holds more than one enabled `integration_connections` row of kind `PMS`: the old demo account (subscription `16307`, account `172528`) and Empire Beach Resort (subscription `14688`, account `122536`). An unordered `LIMIT 1` returned different rows between runs and produced two false conclusions in one session (a test booking and booking #15688 were reported "deleted" because they were searched in the wrong account). The Clock error text shows `account_id = <n>`: check it matches the intended hotel before drawing conclusions.
+2. A booking's human **number** (for example `#15688`) is the `number` field. Resolve it with `GET /bookings/?number=<n>`, which returns the numeric booking ID. MUST stores Clock-originated bookings locally as `CLOCK-<number>` with the Clock ID in `external_booking_id`.
+3. Read the booking (`balance`, `total_booking_value`, `guarantee_policy_id`, `is_guaranteed`), `GET /bookings/{id}/folios/`, then for each folio `GET /folios/{id}` (`deposit`, `closed_at`, `balance`, `document_type_id`) and `GET /folios/{id}/credit_items`.
+4. Do the work inside the API container with the compiled `ClockHttpClient` and `decryptCredentialPayload`, reading the encrypted blob with `psql`, and print only Clock's responses. Never print decrypted credentials, and delete the temporary script afterwards.
+5. A hotel **cancelling** in Clock reaches MUST within seconds (`booking_update` + `booking_canceled`, verified 2026-09-30 for #15784). What happens when a booking is **deleted** in Clock has not been tested; do not assume either way.
+
 ## Diagnose by layer
 
 | Symptom | Check |

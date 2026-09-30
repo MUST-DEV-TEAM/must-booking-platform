@@ -70,6 +70,18 @@ export function isClockBookingResource(value: unknown): value is ClockBookingRes
   );
 }
 
+/** Clock derives a booking's Required Deposit from its guarantee policy, which
+ * the rate carries in `rate_restriction.guarantee_policy_id`. Exported for unit
+ * testing; returns null when the rate has no policy or the shape is unexpected. */
+export function guaranteePolicyIdFromRate(value: unknown): number | null {
+  const restriction = (value as { rate_restriction?: { guarantee_policy_id?: unknown } } | null)
+    ?.rate_restriction;
+  const policyId = restriction?.guarantee_policy_id;
+  return typeof policyId === 'number' && Number.isInteger(policyId) && policyId > 0
+    ? policyId
+    : null;
+}
+
 function clockGuestIdFromBooking(value: ClockBookingResource): string | null {
   const guestId = value.main_booking_guest?.guest_id;
   if ((typeof guestId !== 'string' && typeof guestId !== 'number') || !String(guestId).trim())
@@ -414,6 +426,8 @@ export class ClockBookingService {
             );
           }
 
+          await this.applyRateGuaranteePolicy(connection.value, Number(rate.value), response.value);
+
           if (!mappedClockGuest && !existingClockGuest.value) {
             const responseGuestId = clockGuestIdFromBooking(response.value);
             if (responseGuestId) {
@@ -676,6 +690,8 @@ export class ClockBookingService {
         false,
       );
     }
+
+    await this.applyRateGuaranteePolicy(connection.value, Number(rate.value), response.value);
 
     if (!mappedClockGuest && !existingClockGuest.value && row.guestId) {
       const responseGuestId = clockGuestIdFromBooking(response.value);
@@ -956,10 +972,10 @@ export class ClockBookingService {
       );
     }
 
-    const existingRefund = await this.creditItemByReference(
-      connection.value,
-      originalDeposit.value.folio.id,
-      refundReference,
+    // Wrapped like the two calls around it: a one-second rate-limit miss here
+    // previously left the guest refunded at the provider with no Clock entry.
+    const existingRefund = await this.withRetry(() =>
+      this.creditItemByReference(connection.value, originalDeposit.value.folio.id, refundReference),
     );
     if (!existingRefund.ok) {
       await this.recordClockRefundReview(tx, context, bookingId, {
@@ -1911,6 +1927,42 @@ export class ClockBookingService {
       .sort()
       .map((key) => `${JSON.stringify(key)}:${this.stableJson(record[key])}`)
       .join(',')}}`;
+  }
+
+  /**
+   * A booking created through `POST /bookings/` gets no guarantee policy even
+   * though its rate has one (observed live on Empire Beach Resort, 2026-09-30),
+   * so Clock shows no Required Deposit. Copy the rate's policy onto the new
+   * booking with the `PUT` that was verified live. Best effort by design: the
+   * reservation already exists at Clock, so a failure here is logged and must
+   * never fail or roll back the booking.
+   */
+  private async applyRateGuaranteePolicy(
+    credentials: ClockConnectionCredentials,
+    rateId: number,
+    created: ClockBookingResource,
+  ): Promise<void> {
+    const rate = await this.fetch<unknown>(credentials, {
+      method: 'GET',
+      path: `/rates/${rateId}`,
+    });
+    if (!rate.ok) {
+      this.logger.warn(
+        `Could not read Clock rate ${rateId} to copy its guarantee policy: ${rate.error.message}`,
+      );
+      return;
+    }
+    const policyId = guaranteePolicyIdFromRate(rate.value);
+    if (policyId === null) return;
+    const applied = await this.fetch<unknown>(credentials, {
+      method: 'PUT',
+      path: `/bookings/${created.id}`,
+      body: { booking: { guarantee_policy_id: policyId, lock_version: created.lock_version } },
+    });
+    if (!applied.ok)
+      this.logger.warn(
+        `Could not apply guarantee policy ${policyId} to Clock booking ${created.id}: ${applied.error.message}`,
+      );
   }
 
   private async fetch<T>(
