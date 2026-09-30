@@ -12,6 +12,7 @@
     "seed:platform-admin": "node --env-file-if-exists=.env --import=tsx scripts/seed-platform-admin.ts",
     "seed:local-demo": "node --env-file-if-exists=.env --import=tsx scripts/seed-local-demo.ts",
     "check:empire-clock-bookings": "node --env-file-if-exists=.env --import=tsx scripts/check-empire-clock-booking-consistency.ts",
+    "agent:booking": "node --env-file-if-exists=.env --import=tsx scripts/agent-booking.ts",
     "import:room-photos": "node --env-file-if-exists=.env --import=tsx scripts/import-room-photos.ts",
     "backfill:clock-bookings": "node --env-file-if-exists=.env --import=tsx scripts/backfill-clock-bookings.ts",
     "check:clock-webhook-subscription": "node --env-file-if-exists=.env --import=tsx scripts/check-clock-webhook-subscription.ts",

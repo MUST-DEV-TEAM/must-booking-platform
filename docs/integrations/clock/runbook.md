@@ -57,6 +57,21 @@ Use this to compare a MUST booking with what the hotel sees in Clock. It perform
 4. Do the work inside the API container with the compiled `ClockHttpClient` and `decryptCredentialPayload`, reading the encrypted blob with `psql`, and print only Clock's responses. Never print decrypted credentials, and delete the temporary script afterwards.
 5. A hotel **cancelling** in Clock reaches MUST within seconds (`booking_update` + `booking_canceled`, verified 2026-09-30 for #15784). What happens when a booking is **deleted** in Clock has not been tested; do not assume either way.
 
+## Quick guest test booking from the command line (2026-10-01)
+
+`apps/api/scripts/agent-booking.ts` (`pnpm agent:booking`) drives the public guest API (catalog, quote, booking with PokPay) with no login and no browser, so a test booking takes a few seconds. It prints the PokPay staging `checkoutUrl`; paying on that page (test card) is the only step outside the script. `status` and `cancel` act on the last booking it made (guest self-cancel is refused near arrival with `CANCELLATION_WINDOW_CLOSED`; staff cancel from the dashboard instead). Usage is in the file header.
+
+**Always name the target explicitly, and check it.** The database has two properties and the script deliberately has no defaults:
+
+| Property | Tenant ID | Property ID | Clock account |
+| --- | --- | --- | --- |
+| **Empire Beach Resort** (real hotel, `EBR-…` references) | `458b66cd-6a04-4c4f-a0e3-1827937d24aa` | `3d680e29-8223-4d37-b0d2-b9f0db9400a9` | subscription `14688` |
+| Must Hotel (old demo property, `MH-…` references) | `fdb9f701-510e-4deb-857b-08a87fcdfbcc` | `9231b946-f244-4a84-af54-0774710f3464` | demo subscription `16307` |
+
+A first test on 2026-10-01 picked the first row of `properties` and booked into the demo Clock account by mistake (booking `MH-260930-2255-WWPC`, Clock `38620328`, PokPay staging, still CONFIRMED because the guest cancel window was closed; cancel it as staff). Confirm the `EBR-` reference and the Clock account after every test.
+
+First live run on Empire (room 237, 3-4 Oct 2026): booking `EBR-260930-2258-9WDC`, Clock #15787, PokPay staging 250.00 EUR paid, `guarantee_policy_id` **17089 set automatically** (Milestone 21 Task 25 verified live), main folio +250.00 and open deposit folio -250.00 with the 250.00 payment, booking balance 0.00 (open deposit folios count in the balance, as documented in the booking lifecycle).
+
 ## Diagnose by layer
 
 | Symptom | Check |
