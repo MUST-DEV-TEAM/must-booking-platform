@@ -124,8 +124,9 @@
             });
         }
         if (yearSelect && !yearSelect.options.length) {
-            var startYear = new Date().getFullYear();
-            for (var y = startYear; y <= startYear + 2; y++) {
+            var startYear = todayYear;
+            var endYear = parseInt(maxDateStr.slice(0, 4), 10);
+            for (var y = startYear; y <= endYear; y++) {
                 var yearOption = document.createElement('option');
                 yearOption.value = String(y);
                 yearOption.textContent = String(y);
@@ -133,12 +134,35 @@
             }
         }
     }
-    var todayDate = new Date(), todayYear = todayDate.getFullYear(), todayMonth = todayDate.getMonth();
+    /*
+     * "Now" in the hotel's own timezone, not the visitor's browser clock: a
+     * guest abroad must see the same "today" and same-day cutoff the hotel
+     * applies. Falls back to the browser clock for an unusable timezone value
+     * (e.g. a "UTC+2" offset string, which Intl does not accept).
+     */
+    function hotelNow() {
+        var local = new Date();
+        var fallback = { date: [local.getFullYear(), String(local.getMonth() + 1).padStart(2, '0'), String(local.getDate()).padStart(2, '0')].join('-'), minutes: local.getHours() * 60 + local.getMinutes() };
+        if (!c.timezone || !window.Intl || !Intl.DateTimeFormat) return fallback;
+        try {
+            var parts = {};
+            new Intl.DateTimeFormat('en-CA', { timeZone: c.timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+                .formatToParts(local).forEach(function (part) { parts[part.type] = part.value; });
+            return { date: parts.year + '-' + parts.month + '-' + parts.day, minutes: (parseInt(parts.hour, 10) % 24) * 60 + parseInt(parts.minute, 10) };
+        } catch (e) {
+            return fallback;
+        }
+    }
+    var hotelClock = hotelNow();
+    var todayDate = new Date(parseInt(hotelClock.date.slice(0, 4), 10), parseInt(hotelClock.date.slice(5, 7), 10) - 1, parseInt(hotelClock.date.slice(8, 10), 10));
+    var todayYear = todayDate.getFullYear(), todayMonth = todayDate.getMonth();
     function refreshMonthOptions(monthSelect, yearSelect) {
         if (!monthSelect || !yearSelect) return;
         var isCurrentYear = Number(yearSelect.value) === todayYear;
+        var isLastYear = Number(yearSelect.value) === parseInt(maxDateStr.slice(0, 4), 10);
+        var lastMonth = parseInt(maxDateStr.slice(5, 7), 10) - 1;
         Array.prototype.forEach.call(monthSelect.options, function (opt) {
-            opt.disabled = isCurrentYear && Number(opt.value) < todayMonth;
+            opt.disabled = (isCurrentYear && Number(opt.value) < todayMonth) || (isLastYear && Number(opt.value) > lastMonth);
         });
     }
     function updatePrevVisibility(picker, prevButton) {
@@ -183,7 +207,14 @@
     // behind local "today" for timezones ahead of UTC (e.g. the property's
     // own Europe/Tirane) during those hours, which would wrongly let guests
     // pick, or wrongly block, "today" as a stay date.
-    var todayStr = dateKey(new Date());
+    var todayStr = hotelClock.date;
+    var maximumNights = Math.max(1, parseInt(c.maximumNights, 10) || 30);
+    var bookingWindowDays = Math.max(1, parseInt(c.bookingWindowDays, 10) || 365);
+    var maxDateStr = addDaysToDateStr(todayStr, bookingWindowDays);
+    // Same-day booking: blocked outright, or once the hotel's cutoff time has passed.
+    var cutoffMatch = /^(\d{1,2}):(\d{2})/.exec(String(c.sameDayCutoff || ''));
+    var sameDayClosed = c.sameDayAllowed === false || (!!cutoffMatch && hotelClock.minutes >= parseInt(cutoffMatch[1], 10) * 60 + parseInt(cutoffMatch[2], 10));
+    var earliestStr = sameDayClosed ? addDaysToDateStr(todayStr, 1) : todayStr;
     var unavailableDates = {};
     var roomAvailability = c.roomAvailability || null;
     var roomTypeAvailability = c.roomTypeAvailability || null;
@@ -211,6 +242,25 @@
         };
     }
     var loadedMonths = {};
+    // Per-month outcome of the availability request: 'ok' or 'failed'. A month
+    // that is not 'ok' is treated as NOT bookable (fail closed) - never as open.
+    var monthStatus = {};
+    function monthIsVerified(dateStr) {
+        return !resolveCalendarAvailabilitySource() || monthStatus[dateStr.slice(0, 7)] === 'ok';
+    }
+    function setCalendarLoadError(show) {
+        var messagesNode = document.querySelector('#must-booking-live-messages');
+        if (!messagesNode) return;
+        var existing = messagesNode.querySelector('[data-must-calendar-load-error]');
+        if (existing) existing.remove();
+        if (show && c.availabilityLoadError) {
+            var paragraph = document.createElement('p');
+            paragraph.setAttribute('data-must-calendar-load-error', 'true');
+            paragraph.textContent = c.availabilityLoadError;
+            messagesNode.appendChild(paragraph);
+        }
+        messagesNode.hidden = messagesNode.children.length === 0;
+    }
     var availabilityCheckTimer = null;
     var availabilityCheckSequence = 0;
     var selectedRoomAvailabilityInitialized = false;
@@ -322,16 +372,27 @@
             if (!response.ok) throw new Error('Unable to load room availability.');
             return response.json();
         }).then(function (response) {
-            if (!response || !response.success || !response.data || !Array.isArray(response.data.days)) return;
+            if (!response || !response.success || !response.data || !Array.isArray(response.data.days)) throw new Error('Invalid availability response.');
             response.data.days.forEach(function (day) {
                 if (day && day.date && day.isAvailable === false) unavailableDates[day.date] = true;
             });
+            monthStatus[month] = 'ok';
+            var anyFailed = Object.keys(monthStatus).some(function (key) { return monthStatus[key] === 'failed'; });
+            setCalendarLoadError(anyFailed);
         }).catch(function () {
+            monthStatus[month] = 'failed';
             delete loadedMonths[cacheKey];
+            setCalendarLoadError(true);
         });
         return loadedMonths[cacheKey];
     }
-    function roomDateIsUnavailable(date) { return unavailableDates[dateKey(date)] === true; }
+    function roomDateIsUnavailable(date) {
+        return unavailableDates[dateKey(date)] === true || (monthStatus[monthKey(date)] === 'failed' && !!resolveCalendarAvailabilitySource());
+    }
+    // Unavailable, or in a month whose availability is not confirmed yet.
+    function roomDateIsBlocked(date) {
+        return roomDateIsUnavailable(date) || !monthIsVerified(dateKey(date));
+    }
     var minimumNights = Math.max(1, parseInt(c.minimumNights, 10) || 1);
     function addDaysToDateStr(dateStr, days) {
         var date = new Date(dateStr + 'T00:00:00');
@@ -349,11 +410,14 @@
      */
     function latestValidCheckoutDate(checkinStr, nightsMinimum, horizonStr) {
         var minimum = Math.max(1, nightsMinimum || 1);
-        var horizon = horizonStr || addDaysToDateStr(checkinStr, 365);
+        var stayLimit = addDaysToDateStr(checkinStr, maximumNights);
+        var horizon = horizonStr || (stayLimit < maxDateStr ? stayLimit : maxDateStr);
         var cursor = checkinStr;
         var nightsCounted = 0;
         while (cursor < horizon) {
-            if (unavailableDates[cursor] === true) {
+            // A month not verified yet ends the reachable stay here: the nights
+            // before this date are confirmed free, nothing beyond is assumed.
+            if (unavailableDates[cursor] === true || !monthIsVerified(cursor)) {
                 return nightsCounted >= minimum ? cursor : null;
             }
             cursor = addDaysToDateStr(cursor, 1);
@@ -371,7 +435,7 @@
         var minimum = Math.max(1, nightsMinimum || 1);
         var cursor = checkinStr;
         for (var i = 0; i < minimum; i++) {
-            if (unavailableDates[cursor] === true) return false;
+            if (unavailableDates[cursor] === true || !monthIsVerified(cursor)) return false;
             cursor = addDaysToDateStr(cursor, 1);
         }
         return true;
@@ -416,13 +480,36 @@
     function markReallyUnavailableDay(dayElement) {
         if (!dayElement) return;
         var isPadding = dayElement.classList.contains('prevMonthDay') || dayElement.classList.contains('nextMonthDay');
-        var isPast = dayElement.dateObj && dateKey(dayElement.dateObj) < todayStr;
+        var isPast = dayElement.dateObj && dateKey(dayElement.dateObj) < earliestStr;
         var isReallyUnavailable = !isPadding && dayElement.dateObj && (isPast || roomDateIsUnavailable(dayElement.dateObj));
         dayElement.classList.toggle('must-booking-day-unavailable', !!isReallyUnavailable);
     }
     function refreshAvailability(picker) {
         if (!picker || !resolveCalendarAvailabilitySource()) return;
-        loadAvailabilityMonth(new Date(picker.currentYear, picker.currentMonth, 1)).then(function () { picker.redraw(); });
+        // The viewed month plus the next one: a stay that starts late in a
+        // month has to be checked against the following month's nights too.
+        Promise.all([
+            loadAvailabilityMonth(new Date(picker.currentYear, picker.currentMonth, 1)),
+            loadAvailabilityMonth(new Date(picker.currentYear, picker.currentMonth + 1, 1))
+        ]).then(function () { picker.redraw(); });
+    }
+    // Loads every month a stay starting at `checkinStr` could reach.
+    function ensureStayMonthsLoaded(checkinStr) {
+        var source = resolveCalendarAvailabilitySource();
+        if (!source) return Promise.resolve();
+        var lastStr = addDaysToDateStr(checkinStr, maximumNights);
+        if (lastStr > maxDateStr) lastStr = maxDateStr;
+        var cursor = new Date(parseInt(checkinStr.slice(0, 4), 10), parseInt(checkinStr.slice(5, 7), 10) - 1, 1);
+        var loads = [];
+        while (dateKey(cursor).slice(0, 7) <= lastStr.slice(0, 7)) {
+            loads.push(loadAvailabilityMonth(cursor));
+            cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+        }
+        return Promise.all(loads);
+    }
+    function canShowMonthAfter(picker) {
+        var next = new Date(picker.currentYear, picker.currentMonth + 1, 1);
+        return dateKey(next) <= maxDateStr;
     }
     /*
      * Marks the picked checkin/checkout days so their CSS (already defined
@@ -458,6 +545,8 @@
         if (roomAvailability) return;
         unavailableDates = {};
         loadedMonths = {};
+        monthStatus = {};
+        setCalendarLoadError(false);
         activePickers.forEach(function (picker) { refreshAvailability(picker); });
     }
     function initializeCalendars() {
@@ -471,8 +560,8 @@
         var checkoutPicker = null;
         if (checkoutHost) {
             checkoutPicker = window.flatpickr(checkoutHost, {
-                inline: true, dateFormat: 'Y-m-d', minDate: todayStr,
-                disable: [roomDateIsUnavailable],
+                inline: true, dateFormat: 'Y-m-d', minDate: earliestStr, maxDate: maxDateStr,
+                disable: [roomDateIsBlocked],
                 defaultDate: checkoutField && checkoutField.value ? checkoutField.value : undefined,
                 onChange: function (selectedDates, dateStr, instance) { if (checkoutField) checkoutField.value = dateStr; updateArrivalDeparture(checkinField ? checkinField.value : '', dateStr); updateCalendarSelectionMarkers(instance, '', dateStr); scheduleSelectedRoomAvailabilityCheck(); },
                 onMonthChange: function (a, b, instance) { syncMonthYear(checkoutMonth, checkoutYear, instance); refreshAvailability(instance); updateCalendarSelectionMarkers(instance, '', checkoutField ? checkoutField.value : ''); },
@@ -487,8 +576,8 @@
         }
         if (checkinHost) {
             var checkinPicker = window.flatpickr(checkinHost, {
-                inline: true, dateFormat: 'Y-m-d', minDate: todayStr,
-                disable: [roomDateIsUnavailable, checkinDateBlockedByMinimumStay],
+                inline: true, dateFormat: 'Y-m-d', minDate: earliestStr, maxDate: maxDateStr,
+                disable: [roomDateIsBlocked, checkinDateBlockedByMinimumStay],
                 defaultDate: checkinField && checkinField.value ? checkinField.value : undefined,
                 onChange: function (selectedDates, dateStr, instance) {
                     if (checkinField) checkinField.value = dateStr;
@@ -497,7 +586,12 @@
                     if (checkoutPicker && selectedDates[0]) {
                         checkoutPicker.set('minDate', addDaysToDateStr(dateStr, minimumNights));
                         var latestCheckout = latestValidCheckoutDate(dateStr, minimumNights);
-                        checkoutPicker.set('maxDate', latestCheckout || undefined);
+                        checkoutPicker.set('maxDate', latestCheckout || maxDateStr);
+                        ensureStayMonthsLoaded(dateStr).then(function () {
+                            var verifiedLatest = latestValidCheckoutDate(dateStr, minimumNights);
+                            checkoutPicker.set('maxDate', verifiedLatest || maxDateStr);
+                            checkoutPicker.redraw();
+                        });
                     }
                     scheduleSelectedRoomAvailabilityCheck();
                 },
@@ -515,8 +609,8 @@
             var nextButton = document.querySelector('#must-booking-cal-next');
             updatePrevVisibility(checkinPicker, prevButton);
             if (prevButton) prevButton.onclick = function () { checkinPicker.changeMonth(-1); };
-            if (nextInlineButton) nextInlineButton.onclick = function () { checkinPicker.changeMonth(1); };
-            if (nextButton) nextButton.onclick = function () { if (checkoutPicker) checkoutPicker.changeMonth(1); };
+            if (nextInlineButton) nextInlineButton.onclick = function () { if (canShowMonthAfter(checkinPicker)) checkinPicker.changeMonth(1); };
+            if (nextButton) nextButton.onclick = function () { if (checkoutPicker && canShowMonthAfter(checkoutPicker)) checkoutPicker.changeMonth(1); };
         }
     } else {
         var calendarHost = document.querySelector('#must-booking-checkin-calendar');
@@ -527,8 +621,8 @@
                 inline: true,
                 mode: 'range',
                 dateFormat: 'Y-m-d',
-                minDate: todayStr,
-                disable: [roomDateIsUnavailable, checkinDateBlockedByMinimumStay, rangeDateIsDisabled],
+                minDate: earliestStr, maxDate: maxDateStr,
+                disable: [roomDateIsBlocked, checkinDateBlockedByMinimumStay, rangeDateIsDisabled],
                 defaultDate: (checkinField && checkinField.value && checkoutField && checkoutField.value) ? [checkinField.value, checkoutField.value] : undefined,
                 onChange: function (selectedDates, dateStr, instance) {
                     if (selectedDates.length < 2) {
@@ -545,6 +639,14 @@
                         instance.redraw();
                         // redraw() rebuilds the day cells, so mark the pending check-in afterwards.
                         updateCalendarSelectionMarkers(instance, pendingRangeCheckin, '');
+                        if (pendingRangeCheckin) {
+                            var pendingAtPick = pendingRangeCheckin;
+                            ensureStayMonthsLoaded(pendingAtPick).then(function () {
+                                if (pendingRangeCheckin !== pendingAtPick) return;
+                                instance.redraw();
+                                updateCalendarSelectionMarkers(instance, pendingRangeCheckin, '');
+                            });
+                        }
                         scheduleSelectedRoomAvailabilityCheck();
                         return;
                     }
@@ -591,7 +693,7 @@
             var singleNext = document.querySelector('#must-booking-cal-next-inline') || document.querySelector('#must-booking-cal-next');
             updatePrevVisibility(picker, singlePrev);
             if (singlePrev) singlePrev.onclick = function () { picker.changeMonth(-1); };
-            if (singleNext) singleNext.onclick = function () { picker.changeMonth(1); };
+            if (singleNext) singleNext.onclick = function () { if (canShowMonthAfter(picker)) picker.changeMonth(1); };
         }
     }
     initializeSelectedRoomAvailability();

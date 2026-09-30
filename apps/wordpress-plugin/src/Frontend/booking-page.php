@@ -398,6 +398,12 @@ function enqueue_booking_page_assets(): void
     \wp_localize_script('must-hotel-booking-calendar', 'mustHotelBookingCalendar', [
         'calendarLayout' => get_calendar_layout(),
         'minimumNights' => MustBookingConfig::get_minimum_nights(),
+        'maximumNights' => MustBookingConfig::get_maximum_nights(),
+        'bookingWindowDays' => MustBookingConfig::get_booking_window(),
+        'timezone' => MustBookingConfig::get_timezone(),
+        'sameDayAllowed' => (bool) MustBookingConfig::get_setting('same_day_booking_allowed', true),
+        'sameDayCutoff' => (string) MustBookingConfig::get_setting('same_day_booking_cutoff_time', ''),
+        'availabilityLoadError' => __('Availability could not be loaded for these dates. Please try again in a moment.', 'must-hotel-booking'),
         'partyStrings' => [
             'propertyCapacity' => __('This property accepts up to %d guests in one booking.', 'must-hotel-booking'),
             'singleRoomOnly' => __('This booking flow can confirm one room at a time. Please choose 1 room.', 'must-hotel-booking'),
