@@ -22,6 +22,7 @@ type PokPayOrder = {
   isCompleted?: boolean;
   isRefunded?: boolean;
   isCanceled?: boolean;
+  refundableAmount?: number | string;
   _self?: { confirmUrl?: string };
 };
 
@@ -101,21 +102,81 @@ export class PokPayPaymentProvider implements PaymentProvider {
     );
   }
 
+  // Confirmed for real against PokPay staging 2026-09-30: the sdk-orders refund
+  // endpoint takes `refundAmount` in the merchant's settlement currency (Lek),
+  // not in the order's currency. Sending 100 for a 250 EUR order refunded
+  // 100 Lek (about 1.10 EUR) and left `refundableAmount` at 22650 (250 EUR =
+  // 22750 Lek). So the guest's money is returned in the currency they paid
+  // by converting at the order's own implied rate: `refundableAmount` (Lek)
+  // over what is still refundable in the order's currency (paid minus refunds
+  // already recorded). An ALL order comes out at a rate of 1. The result is
+  // re-read afterwards and the refund is reported as failed, never silently
+  // recorded as complete, if PokPay moved a different amount than requested.
   async refund(context: PaymentProviderContext, command: RefundCommand): Promise<Result<Payment>> {
     const configuration = await this.configuration(context);
     if (!configuration.ok) return configuration;
+    const orderPath = `/merchants/${encodeURIComponent(configuration.value.merchantId)}/sdk-orders/${encodeURIComponent(command.paymentId)}`;
+
+    const before = await this.authenticatedRequest(configuration.value, {
+      method: 'GET',
+      path: orderPath,
+    });
+    if (!before.ok) return before;
+    const current = before.value.data?.sdkOrder;
+    const paid = Number(current?.finalAmount ?? current?.amount);
+    const refundableLek = Number(current?.refundableAmount);
+    const requested = Number(command.amount.amount);
+    const alreadyRefunded = Number(command.alreadyRefunded?.amount ?? 0);
+    if (!current?.id || !Number.isFinite(paid) || !Number.isFinite(refundableLek))
+      return this.failure(
+        'POKPAY_REFUND_UNVERIFIABLE',
+        'PokPay did not return the order amounts needed to size this refund safely.',
+      );
+    if (current.currencyCode !== command.amount.currency)
+      return this.failure(
+        'POKPAY_REFUND_CURRENCY_MISMATCH',
+        `The order was paid in ${current.currencyCode ?? 'an unknown currency'}; a refund must be in the same currency.`,
+      );
+    const remaining = paid - alreadyRefunded;
+    if (!(requested > 0) || requested > remaining + 0.005)
+      return this.failure(
+        'INVALID_REFUND_AMOUNT',
+        'Refund amount exceeds what is still refundable on the PokPay order.',
+      );
+    const rate = refundableLek / remaining;
+    const refundLek = Math.round(requested * rate * 100) / 100;
+    if (!Number.isFinite(rate) || rate <= 0 || !(refundLek > 0))
+      return this.failure(
+        'POKPAY_REFUND_UNVERIFIABLE',
+        'PokPay refund amount could not be derived from the order.',
+      );
+
     const response = await this.authenticatedRequest(configuration.value, {
       method: 'POST',
-      path: `/merchants/${encodeURIComponent(configuration.value.merchantId)}/sdk-orders/${encodeURIComponent(command.paymentId)}/refund`,
-      body: {
-        refundAmount: this.pokpayAmount(command.amount.amount),
-        refundReason: 'Hotel booking refund',
-      },
+      path: `${orderPath}/refund`,
+      body: { refundAmount: refundLek, refundReason: 'Hotel booking refund' },
     });
     if (!response.ok) return response;
     const order = response.value.data?.sdkOrder;
     if (!order?.id)
       return this.failure('POKPAY_REFUND_INVALID', 'PokPay did not return a refund order.', true);
+
+    const after = await this.authenticatedRequest(configuration.value, {
+      method: 'GET',
+      path: orderPath,
+    });
+    const refundableAfter = after.ok
+      ? Number(after.value.data?.sdkOrder?.refundableAmount)
+      : Number.NaN;
+    if (!Number.isFinite(refundableAfter) || Math.abs(refundableLek - refundLek - refundableAfter) > 0.02) {
+      this.logger.error(
+        `PokPay refund for order ${order.id} sent ${refundLek} but refundableAmount went ${refundableLek} -> ${refundableAfter}; verify in the PokPay dashboard.`,
+      );
+      return this.failure(
+        'POKPAY_REFUND_AMOUNT_MISMATCH',
+        'PokPay accepted the refund but the order does not show the expected amount returned. Verify it in the PokPay dashboard before retrying.',
+      );
+    }
     return {
       ok: true,
       value: {

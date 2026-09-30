@@ -284,7 +284,6 @@ export class ClockPaymentReconciliationService {
       credentials,
       'base_api',
       `/folios/${folioId}/credit_items`,
-      { 'reference.eq': reference },
     );
     const items = Array.isArray(response) ? response.filter(isClockCreditItemResource) : [];
     return items.filter((item) => item.reference === reference);

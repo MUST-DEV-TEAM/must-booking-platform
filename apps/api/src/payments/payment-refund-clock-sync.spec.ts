@@ -26,6 +26,8 @@ describe('PaymentRefundService manual Clock synchronization', () => {
           },
         ])
         .mockResolvedValueOnce([{ amount: '0' }])
+        // refundCharge reads prior refunds again so the provider can size the refund
+        .mockResolvedValueOnce([{ amount: '0' }])
         .mockResolvedValueOnce([{ id: 'refund-row' }])
         .mockResolvedValueOnce([]),
       $executeRaw: vi.fn().mockResolvedValue(1),

@@ -176,6 +176,10 @@ export class PaymentRefundService {
       idempotencyKey: command.idempotencyKey,
       paymentId: charge.externalPaymentId,
       amount: command.amount,
+      alreadyRefunded: {
+        amount: this.money(await this.refundedAmount(tx, context, bookingId)),
+        currency: charge.currency,
+      },
     });
     if (!refunded.ok) return { result: refunded, confirmation: null, clockRefund: null };
 
