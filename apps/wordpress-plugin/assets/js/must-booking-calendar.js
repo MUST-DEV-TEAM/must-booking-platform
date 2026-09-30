@@ -564,6 +564,20 @@
                 onYearChange: function (a, b, instance) { syncMonthYear(monthSelect, yearSelect, instance); updatePrevVisibility(instance, singlePrev); refreshAvailability(instance); updateCalendarSelectionMarkers(instance, checkinField ? checkinField.value : '', checkoutField ? checkoutField.value : ''); },
                 onDayCreate: function (selectedDates, dateStr, instance, dayElement) { markReallyUnavailableDay(dayElement); }
             });
+            /*
+             * Clicking the just-picked check-in again (before a check-out is
+             * chosen) only unselects it. Flatpickr ignores clicks on the
+             * pending check-in because the range rules disable it, so this
+             * listens in the capture phase and clears the selection itself.
+             */
+            picker.calendarContainer.addEventListener('click', function (event) {
+                var dayTarget = event.target && event.target.closest ? event.target.closest('.flatpickr-day') : null;
+                if (!dayTarget || !dayTarget.dateObj || !pendingRangeCheckin || picker.selectedDates.length !== 1) return;
+                if (dateKey(dayTarget.dateObj) !== pendingRangeCheckin) return;
+                event.stopPropagation();
+                event.preventDefault();
+                picker.clear();
+            }, true);
             picker.calendarContainer.classList.add('must-booking-flatpickr-instance');
             syncMonthYear(monthSelect, yearSelect, picker);
             wireMonthYear(monthSelect, yearSelect, picker);
