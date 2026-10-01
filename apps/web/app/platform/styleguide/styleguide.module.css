@@ -59,19 +59,25 @@
   scroll-margin-top: var(--must-space-24);
 }
 
+.sectionHeader {
+  margin-bottom: var(--must-space-40);
+  padding-bottom: var(--must-space-16);
+  border-bottom: 1px solid var(--must-color-border);
+}
+
 .sectionHeader h2 {
   margin: 0;
   font-size: 1.5rem;
 }
 
 .sectionHeader p {
-  margin: var(--must-space-4) 0 var(--must-space-24);
+  margin: var(--must-space-8) 0 0;
   color: var(--must-color-text-secondary);
 }
 
 .specimen {
   display: grid;
-  gap: var(--must-space-12);
+  gap: var(--must-space-16);
   margin-bottom: var(--must-space-24);
   padding: var(--must-space-24);
   border: 1px solid var(--must-color-border);
@@ -393,6 +399,56 @@
 .plannedList span {
   color: var(--must-color-text-secondary);
   font-size: 0.875rem;
+}
+
+.sampleScreen {
+  padding: var(--must-space-16);
+  border: 1px solid var(--must-color-border);
+  border-radius: var(--must-radius-card);
+  background: var(--must-color-canvas);
+  color: var(--must-color-text-primary);
+}
+
+.sampleScreen > section {
+  display: grid;
+  gap: var(--must-space-12);
+}
+
+.selectedRow {
+  padding: var(--must-space-8) var(--must-space-12);
+  border-radius: var(--must-radius-control);
+  background: var(--must-color-surface-selected);
+  color: var(--must-color-ink);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.compareGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: var(--must-space-16);
+}
+
+.themeGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: var(--must-space-24);
+}
+
+.themeLabel {
+  display: grid;
+  gap: var(--must-space-6);
+  margin-bottom: var(--must-space-8);
+}
+
+.gradePass {
+  color: var(--must-color-success);
+  font-weight: 600;
+}
+
+.gradeFail {
+  color: var(--must-color-danger);
+  font-weight: 600;
 }
 
 @media (max-width: 767px) {

@@ -238,7 +238,8 @@ export function Feedback() {
         <div className={styles.stack}>
           {alertTones.map((tone) => (
             <Alert key={tone} tone={tone}>
-              This is a {tone} alert with a short explanation of what happened.
+              This is {tone === 'info' ? 'an' : 'a'} {tone} alert with a short explanation of what
+              happened.
             </Alert>
           ))}
         </div>

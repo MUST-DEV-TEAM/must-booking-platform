@@ -116,20 +116,20 @@
   padding: 0;
 }
 .available {
-  --must-tape-chart-cell-bg: #e4f3ea;
-  --must-tape-chart-cell-fg: #1e6045;
+  --must-tape-chart-cell-bg: var(--must-color-success-surface);
+  --must-tape-chart-cell-fg: var(--must-color-success);
 }
 .limited {
-  --must-tape-chart-cell-bg: #fbedcf;
-  --must-tape-chart-cell-fg: #8a5d00;
+  --must-tape-chart-cell-bg: var(--must-color-warning-surface);
+  --must-tape-chart-cell-fg: var(--must-color-warning);
 }
 .unavailable {
-  --must-tape-chart-cell-bg: #f7dede;
-  --must-tape-chart-cell-fg: #9a2626;
+  --must-tape-chart-cell-bg: var(--must-color-danger-surface);
+  --must-tape-chart-cell-fg: var(--must-color-danger);
 }
 .closed {
-  --must-tape-chart-cell-bg: #e3e9f1;
-  --must-tape-chart-cell-fg: #44526b;
+  --must-tape-chart-cell-bg: var(--must-color-surface-selected);
+  --must-tape-chart-cell-fg: var(--must-color-text-secondary);
 }
 .drillIn {
   display: grid;

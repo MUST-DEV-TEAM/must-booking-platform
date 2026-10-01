@@ -2,6 +2,7 @@
 
 import { Heading, Text } from '@must/ui';
 
+import { ColorProposal } from './color-proposal';
 import { Feedback, FormControls } from './components';
 import { Foundations } from './foundations';
 import { DeprecatedTokens, Planned, TokenDrift } from './reports';
@@ -9,6 +10,7 @@ import { useForcedPseudoStates } from './specimens';
 import styles from './styleguide.module.css';
 
 export const styleguideSections = [
+  { id: 'color-proposal', label: 'Colors: neutral proposal' },
   { id: 'colors', label: 'Colors' },
   { id: 'typography', label: 'Typography' },
   { id: 'spacing', label: 'Spacing' },
@@ -48,6 +50,7 @@ export function StyleGuide() {
             tokens in @must/ui, which are the source of truth.
           </Text>
         </header>
+        <ColorProposal />
         <Foundations />
         <FormControls />
         <Feedback />

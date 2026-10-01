@@ -13,7 +13,7 @@
 .brandPanel {
   background-image:
     url('/auth/decorative-glow.svg'), url('/auth/decorative-contour.svg'),
-    linear-gradient(71.35deg, #173d33 18.69%, #245447 112.15%);
+    linear-gradient(71.35deg, var(--must-color-ink-hover) 18.69%, var(--must-color-ink) 112.15%);
   background-position:
     right -175px top -130px,
     left -120px bottom -100px,
@@ -23,7 +23,7 @@
     420px 420px,
     300px 300px,
     auto;
-  color: #fff;
+  color: var(--must-color-surface);
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -75,7 +75,7 @@
   background: rgb(255 255 255 / 0.08);
   border: 1px solid rgb(255 255 255 / 0.16);
   border-radius: var(--must-radius-control);
-  color: #e8f0ec;
+  color: var(--must-color-surface-selected);
   display: inline-flex;
   flex: 0 0 auto;
   gap: 0.4375rem;
@@ -99,7 +99,7 @@
 }
 
 .brandHeadline {
-  color: #fff;
+  color: var(--must-color-surface);
   font-size: 2.25rem;
   font-weight: 600;
   line-height: 1.35;
@@ -107,7 +107,7 @@
 }
 
 .brandDescription {
-  color: #bcd0c7;
+  color: var(--must-color-border-strong);
   font-size: 0.875rem;
   line-height: 1.45;
   margin: 0.875rem 0 0;
@@ -145,20 +145,20 @@
 }
 
 .benefitTitle {
-  color: #fff;
+  color: var(--must-color-surface);
   font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.2;
 }
 
 .benefitDescription {
-  color: #bcd0c7;
+  color: var(--must-color-border-strong);
   font-size: 0.625rem;
   line-height: 1.5;
 }
 
 .brandFooter {
-  color: #bcd0c7;
+  color: var(--must-color-border-strong);
   font-size: 0.625rem;
   line-height: 1.2;
   margin: auto 0 0;
@@ -207,10 +207,10 @@
 .secureBadge {
   align-items: center;
   align-self: flex-start;
-  background: #ecfaf2;
-  border: 1px solid #a6e7c2;
+  background: var(--must-color-success-surface);
+  border: 1px solid color-mix(in srgb, var(--must-color-success) 30%, var(--must-color-surface));
   border-radius: 0.4375rem;
-  color: #176b4d;
+  color: var(--must-color-success);
   display: inline-flex;
   flex: 0 0 auto;
   gap: 0.4375rem;
@@ -235,11 +235,11 @@
 
 .errorAlert {
   align-items: center;
-  background: #fff1f0;
-  border-color: #f4b8b3;
+  background: var(--must-color-danger-surface);
+  border-color: color-mix(in srgb, var(--must-color-danger) 30%, var(--must-color-surface));
   border-radius: 0.625rem;
   box-sizing: border-box;
-  color: #b9382c;
+  color: var(--must-color-danger);
   display: flex;
   flex: 0 0 auto;
   gap: 0.75rem;
@@ -267,7 +267,7 @@
 }
 
 .errorTitle {
-  color: #b9382c;
+  color: var(--must-color-danger);
   font-size: 0.6875rem;
   font-weight: 600;
   line-height: 0.9375rem;
@@ -320,7 +320,7 @@
 }
 
 .errorInput :global(.must-input) {
-  border-color: #b9382c;
+  border-color: var(--must-color-danger);
   border-width: 1.5px;
 }
 
@@ -370,7 +370,7 @@
 
 .rememberCheckbox {
   appearance: none;
-  background: #fff;
+  background: var(--must-color-surface);
   border: 1px solid var(--must-color-border);
   border-radius: 0.3125rem;
   cursor: pointer;
@@ -382,7 +382,7 @@
 .rememberCheckbox:checked {
   background: var(--must-color-ink);
   border-color: var(--must-color-ink);
-  box-shadow: inset 0 0 0 0.25rem #fff;
+  box-shadow: inset 0 0 0 0.25rem var(--must-color-surface);
 }
 
 .actions {
@@ -425,7 +425,7 @@
 
 .protectedNote {
   align-items: center;
-  background: #f6f8f6;
+  background: var(--must-color-canvas);
   box-sizing: border-box;
   display: flex;
   flex: 0 0 5.5rem;

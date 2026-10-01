@@ -80,7 +80,7 @@ describe('StyleGuide page', () => {
       0,
     );
 
-    expect(container.querySelectorAll('.must-status-badge')).toHaveLength(states);
+    expect(container.querySelectorAll('#feedback .must-status-badge')).toHaveLength(states);
     await act(async () => root.unmount());
   });
 
