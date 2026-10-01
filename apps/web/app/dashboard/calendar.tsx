@@ -600,6 +600,7 @@ function BlockAvailabilityDialog({
             <fieldset>
               <legend>Unavailable nights</legend>
               <DayPicker
+                labels={{ labelNav: () => 'Unavailable nights month navigation' }}
                 mode="range"
                 min={1}
                 selected={blockRange}

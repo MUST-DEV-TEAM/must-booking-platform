@@ -511,6 +511,24 @@
   }
 }
 
+.menuGroup {
+  margin-top: var(--must-space-16);
+}
+
+.menuGroupLabel {
+  display: block;
+  padding: 0 var(--must-space-12);
+  color: var(--must-color-text-tertiary);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.menuGroup ul {
+  margin-top: var(--must-space-4);
+}
+
 @media (max-width: 767px) {
   .page {
     grid-template-columns: minmax(0, 1fr);

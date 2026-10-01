@@ -405,6 +405,7 @@ export function WalkInBooking({
           <fieldset className={styles.calendar}>
             <legend>Stay dates</legend>
             <DayPicker
+              labels={{ labelNav: () => 'Stay dates month navigation' }}
               mode="range"
               min={1}
               selected={range}

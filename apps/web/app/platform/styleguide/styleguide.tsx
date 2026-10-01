@@ -11,26 +11,56 @@ import { DeprecatedTokens, Planned, TokenDrift } from './reports';
 import { useForcedPseudoStates } from './specimens';
 import styles from './styleguide.module.css';
 
-export const styleguideSections = [
-  { id: 'color-themes', label: 'Colors: hotel themes' },
-  { id: 'colors', label: 'Colors' },
-  { id: 'typography', label: 'Typography' },
-  { id: 'spacing', label: 'Spacing' },
-  { id: 'radii', label: 'Radii' },
-  { id: 'shadows', label: 'Shadows and focus rings' },
-  { id: 'motion', label: 'Motion and breakpoints' },
-  { id: 'buttons', label: 'Buttons' },
-  { id: 'text-input', label: 'Text input' },
-  { id: 'search-field', label: 'Search field' },
-  { id: 'select', label: 'Select' },
-  { id: 'choice-controls', label: 'Checkbox and radio' },
-  { id: 'date-picker', label: 'Date picker' },
-  { id: 'tabs-pagination', label: 'Tabs and pagination' },
-  { id: 'feedback', label: 'Feedback' },
-  { id: 'token-drift', label: 'Token drift' },
-  { id: 'deprecated', label: 'Deprecated tokens' },
-  { id: 'planned', label: 'Planned' },
-] as const;
+type StyleguideSection = { id: string; label: string };
+export const styleguideGroups: ReadonlyArray<{
+  label: string;
+  sections: readonly StyleguideSection[];
+}> = [
+  {
+    label: 'Foundations',
+    sections: [
+      { id: 'color-themes', label: 'Hotel themes' },
+      { id: 'colors', label: 'Colors' },
+      { id: 'typography', label: 'Typography' },
+      { id: 'spacing', label: 'Spacing' },
+      { id: 'radii', label: 'Radii' },
+      { id: 'shadows', label: 'Shadows and focus rings' },
+      { id: 'motion', label: 'Motion and breakpoints' },
+    ],
+  },
+  {
+    label: 'Form controls',
+    sections: [
+      { id: 'buttons', label: 'Buttons' },
+      { id: 'text-input', label: 'Text input' },
+      { id: 'search-field', label: 'Search field' },
+      { id: 'select', label: 'Select' },
+      { id: 'choice-controls', label: 'Checkbox and radio' },
+      { id: 'date-picker', label: 'Date picker' },
+      { id: 'tabs-pagination', label: 'Tabs and pagination' },
+    ],
+  },
+  {
+    label: 'Feedback',
+    sections: [
+      { id: 'badges', label: 'Badges' },
+      { id: 'alerts', label: 'Alerts' },
+      { id: 'toasts', label: 'Toasts' },
+      { id: 'state-panels', label: 'State panels' },
+      { id: 'dialogs', label: 'Dialogs' },
+    ],
+  },
+  {
+    label: 'Health',
+    sections: [
+      { id: 'token-drift', label: 'Token drift' },
+      { id: 'deprecated', label: 'Deprecated tokens' },
+      { id: 'planned', label: 'Planned' },
+    ],
+  },
+];
+
+export const styleguideSections = styleguideGroups.flatMap((group) => group.sections);
 
 /** Applies a hotel theme to the whole page so every specimen can be checked under it. */
 function ThemePreview() {
@@ -66,13 +96,18 @@ export function StyleGuide() {
           ← Platform
         </a>
         <ThemePreview />
-        <ul>
-          {styleguideSections.map((section) => (
-            <li key={section.id}>
-              <a href={`#${section.id}`}>{section.label}</a>
-            </li>
-          ))}
-        </ul>
+        {styleguideGroups.map((group) => (
+          <div className={styles.menuGroup} key={group.label}>
+            <span className={styles.menuGroupLabel}>{group.label}</span>
+            <ul>
+              {group.sections.map((section) => (
+                <li key={section.id}>
+                  <a href={`#${section.id}`}>{section.label}</a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
       </nav>
       <main className={styles.content}>
         <header className={styles.pageHeader}>
