@@ -1,5 +1,5 @@
 /** The public token version. Increment for every token addition, change, or deprecation. */
-export const DESIGN_TOKEN_VERSION = '1.5.0';
+export const DESIGN_TOKEN_VERSION = '1.6.0';
 
 export type TokenStatus = 'active' | 'deprecated';
 
@@ -525,3 +525,19 @@ export const breakpoints = {
   laptopMin: 1200,
   xlMin: 1440,
 } as const;
+
+/**
+ * Hotel theme presets. The values live in styles.css as `[data-theme='<id>']` blocks (one source
+ * of truth); this list is the vocabulary for pickers and documentation. Apply a theme with
+ * `<html data-theme="summer">`, or on any container to scope it. A theme only ever changes the
+ * accent trio (--must-color-accent, -hover, -tint).
+ */
+export const themePresets = [
+  { id: 'neutral', label: 'Neutral (default)', note: 'Near-black slate, no brand hue.' },
+  { id: 'summer', label: 'Summer', note: 'Sea teal.' },
+  { id: 'winter', label: 'Winter', note: 'Frost blue.' },
+  { id: 'alpine', label: 'Alpine', note: 'Spruce green.' },
+  { id: 'modern', label: 'Modern', note: 'Indigo.' },
+] as const;
+
+export type ThemeId = (typeof themePresets)[number]['id'];

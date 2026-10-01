@@ -1,6 +1,7 @@
 'use client';
 
-import { Heading, Text } from '@must/ui';
+import { Heading, Text, themePresets } from '@must/ui';
+import { useEffect, useState } from 'react';
 
 import { ColorThemes } from './color-themes';
 import { Feedback, FormControls } from './components';
@@ -10,7 +11,7 @@ import { useForcedPseudoStates } from './specimens';
 import styles from './styleguide.module.css';
 
 export const styleguideSections = [
-  { id: 'color-themes', label: 'Colors: base and themes' },
+  { id: 'color-themes', label: 'Colors: hotel themes' },
   { id: 'colors', label: 'Colors' },
   { id: 'typography', label: 'Typography' },
   { id: 'spacing', label: 'Spacing' },
@@ -24,6 +25,30 @@ export const styleguideSections = [
   { id: 'planned', label: 'Planned' },
 ] as const;
 
+/** Applies a hotel theme to the whole page so every specimen can be checked under it. */
+function ThemePreview() {
+  const [theme, setTheme] = useState('neutral');
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'neutral') root.removeAttribute('data-theme');
+    else root.dataset.theme = theme;
+    return () => root.removeAttribute('data-theme');
+  }, [theme]);
+
+  return (
+    <label className={styles.themePreview}>
+      <span>Preview whole page as</span>
+      <select onChange={(event) => setTheme(event.target.value)} value={theme}>
+        {themePresets.map((preset) => (
+          <option key={preset.id} value={preset.id}>
+            {preset.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function StyleGuide() {
   useForcedPseudoStates();
 
@@ -33,6 +58,7 @@ export function StyleGuide() {
         <a className={styles.back} href="/platform">
           ← Platform
         </a>
+        <ThemePreview />
         <ul>
           {styleguideSections.map((section) => (
             <li key={section.id}>

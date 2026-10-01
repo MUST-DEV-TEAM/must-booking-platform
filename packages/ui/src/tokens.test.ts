@@ -13,7 +13,7 @@ describe('responsive design-system contract', () => {
   });
 
   it('registers every responsive CSS token', () => {
-    expect(DESIGN_TOKEN_VERSION).toBe('1.5.0');
+    expect(DESIGN_TOKEN_VERSION).toBe('1.6.0');
     const tokenNames = new Set(designTokens.map((token) => token.cssVariable));
 
     expect(

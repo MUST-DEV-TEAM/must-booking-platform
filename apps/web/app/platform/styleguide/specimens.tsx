@@ -104,6 +104,33 @@ export function useTokenValues(names: readonly string[]): Record<string, string>
   return values;
 }
 
+export type ThemeAccent = { accent: string; hover: string; tint: string };
+
+/** Reads each preset's accent trio from the stylesheet by resolving a hidden `data-theme` probe. */
+export function useThemeAccents(ids: readonly string[]): Record<string, ThemeAccent> {
+  const [accents, setAccents] = useState<Record<string, ThemeAccent>>({});
+  const key = ids.join('|');
+  useLayoutEffect(() => {
+    const result: Record<string, ThemeAccent> = {};
+    for (const id of ids) {
+      const probe = document.createElement('div');
+      probe.dataset.theme = id;
+      probe.style.display = 'none';
+      document.body.appendChild(probe);
+      const computed = getComputedStyle(probe);
+      result[id] = {
+        accent: computed.getPropertyValue('--must-color-accent').trim(),
+        hover: computed.getPropertyValue('--must-color-accent-hover').trim(),
+        tint: computed.getPropertyValue('--must-color-accent-tint').trim(),
+      };
+      probe.remove();
+    }
+    setAccents(result);
+    // `key` stands in for the (stable) ids list.
+  }, [key]);
+  return accents;
+}
+
 export async function copyText(text: string) {
   try {
     await navigator.clipboard.writeText(text);

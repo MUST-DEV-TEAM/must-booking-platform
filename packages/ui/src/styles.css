@@ -18,9 +18,6 @@
   --must-color-accent: #2b3640;
   --must-color-accent-hover: #1a2128;
   --must-color-accent-tint: #e8ebef;
-  /* Deprecated aliases of the accent (renamed in 1.5.0). */
-  --must-color-ink: var(--must-color-accent);
-  --must-color-ink-hover: var(--must-color-accent-hover);
 
   --must-color-text-primary: var(--must-neutral-900);
   --must-color-text-secondary: var(--must-neutral-600);
@@ -29,7 +26,6 @@
   --must-color-canvas: var(--must-neutral-50);
   /* Hover and selected are deliberately different: hover is a neutral wash, selected carries the accent. */
   --must-color-surface-hover: var(--must-neutral-100);
-  --must-color-surface-selected: var(--must-color-accent-tint);
   --must-color-border: var(--must-neutral-200);
   --must-color-border-strong: var(--must-neutral-300);
   --must-color-danger: #b42318;
@@ -60,16 +56,7 @@
   --must-shadow-float: 0 4px 12px rgb(22 25 29 / 0.12), 0 1px 3px rgb(22 25 29 / 0.08);
   --must-shadow-modal: 0 12px 32px rgb(22 25 29 / 0.22), 0 2px 6px rgb(22 25 29 / 0.12);
   /* Focus follows the accent: a surface-colored gap plus an accent ring keeps >= 3:1 on any surface. */
-  --color-focus-ring: var(--must-color-accent);
-  --shadow-focus-ring: 0 0 0 2px var(--must-color-surface), 0 0 0 4px var(--must-color-accent);
-  --must-color-focus-ring: var(--color-focus-ring);
-  --must-shadow-focus-ring: var(--shadow-focus-ring);
-  --must-focus-ring-primary: var(--must-shadow-focus-ring);
-  --must-focus-ring-secondary: var(--must-shadow-focus-ring);
-  --must-focus-ring-link: 0 0 0 2px var(--must-color-focus-ring);
-  --must-focus-ring-danger: var(--must-shadow-focus-ring);
   /* Kept for existing consumers while the semantic rings are adopted. */
-  --must-focus-ring: var(--must-focus-ring-primary);
   /* Deprecated: brass is gone from the palette; these now resolve to the warning color. */
   --color-accent-brass: var(--must-color-warning);
   --must-color-accent-brass: var(--color-accent-brass);
@@ -80,8 +67,6 @@
   --color-status-booking-confirmed-foreground: var(--must-color-success);
   --color-status-booking-cancelled-background: var(--must-color-danger-surface);
   --color-status-booking-cancelled-foreground: var(--must-color-danger);
-  --color-status-booking-checked-in-background: var(--must-color-surface-selected);
-  --color-status-booking-checked-in-foreground: var(--must-color-accent);
   --color-status-booking-checked-out-background: var(--must-color-canvas);
   --color-status-booking-checked-out-foreground: var(--must-color-text-secondary);
   --color-status-booking-no-show-background: var(--must-color-warning-surface);
@@ -101,8 +86,6 @@
 
   --color-status-room-available-background: var(--must-color-success-surface);
   --color-status-room-available-foreground: var(--must-color-success);
-  --color-status-room-occupied-background: var(--must-color-surface-selected);
-  --color-status-room-occupied-foreground: var(--must-color-accent);
   --color-status-room-cleaning-background: var(--must-color-info-surface);
   --color-status-room-cleaning-foreground: var(--must-color-info);
   --color-status-room-maintenance-background: var(--must-color-warning-surface);
@@ -126,12 +109,6 @@
   --must-color-status-booking-cancelled-foreground: var(
     --color-status-booking-cancelled-foreground
   );
-  --must-color-status-booking-checked-in-background: var(
-    --color-status-booking-checked-in-background
-  );
-  --must-color-status-booking-checked-in-foreground: var(
-    --color-status-booking-checked-in-foreground
-  );
   --must-color-status-booking-checked-out-background: var(
     --color-status-booking-checked-out-background
   );
@@ -152,8 +129,6 @@
   --must-color-status-payment-unpaid-foreground: var(--color-status-payment-unpaid-foreground);
   --must-color-status-room-available-background: var(--color-status-room-available-background);
   --must-color-status-room-available-foreground: var(--color-status-room-available-foreground);
-  --must-color-status-room-occupied-background: var(--color-status-room-occupied-background);
-  --must-color-status-room-occupied-foreground: var(--color-status-room-occupied-foreground);
   --must-color-status-room-cleaning-background: var(--color-status-room-cleaning-background);
   --must-color-status-room-cleaning-foreground: var(--color-status-room-cleaning-foreground);
   --must-color-status-room-maintenance-background: var(--color-status-room-maintenance-background);
@@ -200,6 +175,72 @@
   --must-responsive-body-line-height: 21px;
   --must-responsive-touch-target: 48px;
   --must-responsive-card-radius: 10px;
+}
+
+/* Everything that follows the accent is declared on :root and on any [data-theme] element, so a
+   theme can be applied to the whole page (<html data-theme="summer">) or to a single container. */
+:root,
+[data-theme] {
+  /* Deprecated aliases of the accent (renamed in 1.5.0). */
+  --must-color-ink: var(--must-color-accent);
+  --must-color-ink-hover: var(--must-color-accent-hover);
+  /* Hover and selected are deliberately different: hover is a neutral wash, selected carries the accent. */
+  --must-color-surface-selected: var(--must-color-accent-tint);
+  /* Focus follows the accent: a surface-colored gap plus an accent ring keeps >= 3:1 on any surface. */
+  --color-focus-ring: var(--must-color-accent);
+  --shadow-focus-ring: 0 0 0 2px var(--must-color-surface), 0 0 0 4px var(--must-color-accent);
+  --must-color-focus-ring: var(--color-focus-ring);
+  --must-shadow-focus-ring: var(--shadow-focus-ring);
+  --must-focus-ring-primary: var(--must-shadow-focus-ring);
+  --must-focus-ring-secondary: var(--must-shadow-focus-ring);
+  --must-focus-ring-link: 0 0 0 2px var(--must-color-focus-ring);
+  --must-focus-ring-danger: var(--must-shadow-focus-ring);
+  /* Kept for existing consumers while the semantic rings are adopted. */
+  --must-focus-ring: var(--must-focus-ring-primary);
+  --color-status-booking-checked-in-background: var(--must-color-surface-selected);
+  --color-status-booking-checked-in-foreground: var(--must-color-accent);
+  --color-status-room-occupied-background: var(--must-color-surface-selected);
+  --color-status-room-occupied-foreground: var(--must-color-accent);
+  --must-color-status-booking-checked-in-background: var(
+    --color-status-booking-checked-in-background
+  );
+  --must-color-status-booking-checked-in-foreground: var(
+    --color-status-booking-checked-in-foreground
+  );
+  --must-color-status-room-occupied-background: var(--color-status-room-occupied-background);
+  --must-color-status-room-occupied-foreground: var(--color-status-room-occupied-foreground);
+}
+
+/*
+ * Hotel theme presets. A theme changes ONLY the accent trio below; neutrals, status colors and
+ * chart colors never change. Every accent must keep >= 4.5:1 against white and against the
+ * canvas, white text on the accent, and the accent on its own tint (enforced by
+ * apps/web/app/platform/styleguide/themes.test.ts). Apply with <html data-theme="summer">.
+ */
+[data-theme='neutral'] {
+  --must-color-accent: #2b3640;
+  --must-color-accent-hover: #1a2128;
+  --must-color-accent-tint: #e8ebef;
+}
+[data-theme='summer'] {
+  --must-color-accent: #0f766e;
+  --must-color-accent-hover: #115e59;
+  --must-color-accent-tint: #e3f3f1;
+}
+[data-theme='winter'] {
+  --must-color-accent: #1d4ed8;
+  --must-color-accent-hover: #1e40af;
+  --must-color-accent-tint: #e8eefc;
+}
+[data-theme='alpine'] {
+  --must-color-accent: #166534;
+  --must-color-accent-hover: #14532d;
+  --must-color-accent-tint: #e5f2e9;
+}
+[data-theme='modern'] {
+  --must-color-accent: #4338ca;
+  --must-color-accent-hover: #3730a3;
+  --must-color-accent-tint: #ececfb;
 }
 
 @media (min-width: 768px) {

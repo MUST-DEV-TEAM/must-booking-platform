@@ -459,6 +459,25 @@
   font-weight: 600;
 }
 
+.themePreview {
+  display: grid;
+  gap: var(--must-space-4);
+  margin-top: var(--must-space-16);
+  color: var(--must-color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.themePreview select {
+  padding: var(--must-space-6) var(--must-space-8);
+  border: 1px solid var(--must-color-border-strong);
+  border-radius: var(--must-radius-control);
+  background: var(--must-color-surface);
+  color: var(--must-color-text-primary);
+  font: inherit;
+  font-weight: 500;
+}
+
 @media (max-width: 767px) {
   .page {
     grid-template-columns: minmax(0, 1fr);
