@@ -109,21 +109,34 @@ export function Feedback() {
         </Specimen>
 
         <Specimen
-          title="Alert content"
-          note="Alerts take any content: a title and action, or a long message that wraps."
+          title="Title, description and action"
+          note="A bold title over a smaller description on the left, one action on the right. On narrow screens the action wraps underneath."
         >
           <div className={styles.stack}>
-            <Alert tone="warning">
-              <strong>Payment provider unavailable.</strong> New card payments are paused until it
-              recovers.
-              <div className={styles.inlineRow}>
-                <Button variant="secondary">View status</Button>
-              </div>
+            <Alert
+              action={<Button variant="secondary">View status</Button>}
+              title="Payment provider unavailable"
+              tone="warning"
+            >
+              New card payments are paused until it recovers.
             </Alert>
-            <Alert tone="info">
-              A long message shows how an alert wraps across several lines without losing its icon
-              alignment or padding. Booking confirmations are sent to the guest and to every staff
-              member assigned to the property as soon as payment completes.
+            <Alert
+              action={<Button variant="secondary">Retry</Button>}
+              title="We could not send the confirmation email"
+              tone="danger"
+            >
+              The booking is saved. Check the sender settings, then retry.
+            </Alert>
+            <Alert title="Photo library updated" tone="success">
+              12 photos were added to the Empire Beach Resort library.
+            </Alert>
+            <Alert
+              action={<Button>Review changes</Button>}
+              title="Two room types have no photos yet"
+              tone="info"
+            >
+              Guests see a placeholder for them on the booking page until you add photos, and a long
+              description like this one wraps without pushing the action out of place.
             </Alert>
           </div>
         </Specimen>

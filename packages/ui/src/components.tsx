@@ -119,20 +119,42 @@ export function Alert({
   id,
   tone = 'info',
   role,
+  title,
+  action,
 }: ClassName & {
   children: ReactNode;
   id?: string;
   tone?: 'info' | 'success' | 'warning' | 'danger';
   role?: 'status' | 'alert';
+  /** Optional bold heading; the children become the smaller description under it. */
+  title?: ReactNode;
+  /** Optional action (usually one Button), shown to the right of the message on wide screens. */
+  action?: ReactNode;
 }) {
+  const structured = title !== undefined || action !== undefined;
   return (
     <div
       aria-live={role === 'alert' ? 'assertive' : 'polite'}
-      className={classNames('must-alert', `must-alert--${tone}`, className)}
+      className={classNames(
+        'must-alert',
+        `must-alert--${tone}`,
+        structured && 'must-alert--structured',
+        className,
+      )}
       id={id}
       role={role ?? (tone === 'danger' ? 'alert' : 'status')}
     >
-      {children}
+      {structured ? (
+        <>
+          <div className="must-alert__content">
+            {title !== undefined ? <strong className="must-alert__title">{title}</strong> : null}
+            <div className="must-alert__body">{children}</div>
+          </div>
+          {action !== undefined ? <div className="must-alert__action">{action}</div> : null}
+        </>
+      ) : (
+        children
+      )}
     </div>
   );
 }
