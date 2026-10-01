@@ -53,12 +53,23 @@ export type ActivityItem = {
   summary: string;
 };
 
+export type NeedsAttentionBooking = {
+  id: string;
+  status: string;
+  startsOn: string;
+  endsOn: string;
+  guestName: string | null;
+  guestEmail: string;
+  roomTypeName: string;
+};
+
 export type PropertyOverview = {
   kpis: Kpis & { occupancyRate: number | null };
   revenue: { today: { amount: string; currency: string } | null };
   balanceDueAtDesk: { amount: string; currency: string } | null;
   newBookingsSinceYesterday: number;
   needsAttentionCount: number;
+  needsAttention: NeedsAttentionBooking[];
   todaysArrivals: ArrivalDeparture[];
   todaysDepartures: ArrivalDeparture[];
   upcomingArrivals: UpcomingArrival[];
@@ -99,6 +110,7 @@ export class OverviewService {
       balanceDueAtDesk,
       newBookingsSinceYesterday,
       needsAttentionCount,
+      needsAttention,
       todaysArrivals,
       todaysDepartures,
       upcomingArrivals,
@@ -111,6 +123,7 @@ export class OverviewService {
       this.balanceDueAtDesk(tenantId, propertyId),
       this.newBookingsSinceYesterday(tenantId, propertyId),
       this.needsAttentionCount(tenantId, propertyId),
+      this.needsAttentionBookings(tenantId, propertyId),
       this.arrivalsOrDeparturesOn(tenantId, propertyId, 'starts_on'),
       this.arrivalsOrDeparturesOn(tenantId, propertyId, 'ends_on'),
       this.upcomingArrivals(tenantId, propertyId),
@@ -138,6 +151,7 @@ export class OverviewService {
       balanceDueAtDesk,
       newBookingsSinceYesterday,
       needsAttentionCount,
+      needsAttention,
       todaysArrivals,
       todaysDepartures,
       upcomingArrivals,
@@ -281,6 +295,33 @@ export class OverviewService {
         ),
       )
       .then((rows) => rows[0]?.count ?? 0);
+  }
+
+  /** The bookings behind needsAttentionCount, newest first. Guest and room type are
+   * LEFT-joined so a booking that came from the PMS without a guest still appears. */
+  private needsAttentionBookings(
+    tenantId: string,
+    propertyId: string,
+  ): Promise<NeedsAttentionBooking[]> {
+    return this.database.withTenantTransaction({ tenantId, propertyId }, (tx) =>
+      tx.$queryRawUnsafe<NeedsAttentionBooking[]>(
+        `SELECT b.id, b.status::text AS status, b.starts_on::text AS "startsOn",
+           b.ends_on::text AS "endsOn",
+           NULLIF(CONCAT_WS(' ', g.first_name, g.last_name), '') AS "guestName",
+           COALESCE(g.email, '') AS "guestEmail",
+           COALESCE(rt.name, '') AS "roomTypeName"
+         FROM bookings b
+         LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
+         LEFT JOIN room_types rt ON rt.tenant_id = b.tenant_id AND rt.property_id = b.property_id AND rt.id = b.room_type_id
+         WHERE b.tenant_id = $1::uuid AND b.property_id = $2::uuid
+           AND b.status = ANY($3::"BookingStatus"[])
+         ORDER BY b.created_at DESC
+         LIMIT 50`,
+        tenantId,
+        propertyId,
+        BOOKING_NEEDS_ATTENTION_STATUSES,
+      ),
+    );
   }
 
   /** Today's arrivals or departures (by whichever date column names the

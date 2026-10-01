@@ -173,20 +173,40 @@ export function NavigationSectionTabBar({
   );
 }
 
+/**
+ * A tab that is still a real link (so it can be opened in a new tab), but when `onSelect`
+ * is given a plain click switches the tab in place instead of loading a new page.
+ */
 export function NavigationSectionTabItem({
   href,
   label,
   current = false,
+  onSelect,
 }: {
   href: string;
   label: string;
   current?: boolean;
+  onSelect?: () => void;
 }) {
   return (
     <a
       aria-current={current ? 'page' : undefined}
       className="must-navigation-section-tab"
       href={href}
+      onClick={(event) => {
+        if (
+          !onSelect ||
+          event.defaultPrevented ||
+          event.button !== 0 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.altKey
+        )
+          return;
+        event.preventDefault();
+        onSelect();
+      }}
     >
       {label}
     </a>

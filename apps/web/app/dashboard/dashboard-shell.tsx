@@ -188,11 +188,13 @@ function DashboardSectionTabs({
   propertyId,
   currentTab,
   canAccessQuickBooking,
+  onSelectTab,
 }: {
   tenantId: string;
   propertyId: string;
   currentTab: DashboardTab;
   canAccessQuickBooking: boolean;
+  onSelectTab: (tab: DashboardTab) => void;
 }) {
   return (
     <NavigationSectionTabBar>
@@ -204,6 +206,7 @@ function DashboardSectionTabs({
             href={dashboardTabHref(tenantId, propertyId, tab.key)}
             key={tab.key}
             label={tab.label}
+            onSelect={() => onSelectTab(tab.key)}
           />
         ))}
     </NavigationSectionTabBar>
@@ -277,6 +280,16 @@ export function DashboardShell({
   const [settingsArea, setSettingsArea] = useState<SettingsArea | null>(null);
   const selectedProperty =
     properties?.find((property) => property.id === selectedPropertyId) ?? properties?.[0];
+
+  // Tabs switch in place and push the address; the back/forward buttons must follow.
+  useEffect(() => {
+    const onPopState = () => {
+      const requested = new URLSearchParams(window.location.search).get('tab');
+      setTab(isDashboardTab(requested) ? requested : 'overview');
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -399,6 +412,14 @@ export function DashboardShell({
           <DashboardSectionTabs
             currentTab={visibleDashboardTab}
             canAccessQuickBooking={canAccessQuickBooking}
+            onSelectTab={(next) => {
+              setTab(next);
+              window.history.pushState(
+                null,
+                '',
+                dashboardTabHref(tenantId, selectedProperty.id, next),
+              );
+            }}
             propertyId={selectedProperty.id}
             tenantId={tenantId}
           />

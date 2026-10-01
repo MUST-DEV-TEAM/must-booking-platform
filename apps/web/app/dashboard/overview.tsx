@@ -178,7 +178,11 @@ export function DashboardOverview({
         {overview.balanceDueAtDesk ? (
           <Stat label="Due at the desk" value={formatMoney(overview.balanceDueAtDesk)} />
         ) : null}
-        <Stat label="New bookings" value={overview.newBookingsSinceYesterday} detail="Since yesterday" />
+        <Stat
+          label="New bookings"
+          value={overview.newBookingsSinceYesterday}
+          detail="Since yesterday"
+        />
         <a
           className={styles.attentionStat}
           href={dashboardHref(tenantId, propertyId, 'overview', 'needs-attention')}
@@ -243,7 +247,9 @@ export function DashboardOverview({
                 {overview.soldOutRooms.map((room) => (
                   <li key={room.roomId}>
                     <div>
-                      <strong>{room.roomTypeName} — {room.roomName}</strong>
+                      <strong>
+                        {room.roomTypeName} — {room.roomName}
+                      </strong>
                     </div>
                     <StatusBadge
                       domain="booking"
@@ -264,7 +270,8 @@ export function DashboardOverview({
                     <div>
                       <strong>{cancellation.guestName ?? cancellation.guestEmail}</strong>
                       <Text tone="secondary">
-                        {cancellation.roomTypeName} · {cancellation.startsOn} – {cancellation.endsOn}
+                        {cancellation.roomTypeName} · {cancellation.startsOn} –{' '}
+                        {cancellation.endsOn}
                       </Text>
                     </div>
                     <time dateTime={cancellation.cancelledAt}>
@@ -302,7 +309,8 @@ function GuestList({ items, empty }: { items: ArrivalDeparture[]; empty: string 
 }
 
 function partySize(item: ArrivalDeparture): string {
-  const children = item.children > 0 ? `, ${item.children} child${item.children === 1 ? '' : 'ren'}` : '';
+  const children =
+    item.children > 0 ? `, ${item.children} child${item.children === 1 ? '' : 'ren'}` : '';
   return `${item.adults} adult${item.adults === 1 ? '' : 's'}${children}`;
 }
 
@@ -334,7 +342,8 @@ export function NeedsAttentionTab({
       />
     );
 
-  const bookings = overviewQuery.data.needsAttention;
+  // An older API answers with only the count; treat a missing list as empty, not a crash.
+  const bookings = overviewQuery.data.needsAttention ?? [];
   return (
     <Stack className={styles.page} gap="lg">
       <header className={styles.heading}>

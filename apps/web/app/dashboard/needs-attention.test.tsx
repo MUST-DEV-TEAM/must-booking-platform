@@ -106,3 +106,17 @@ async function mount() {
   });
   return { container, root };
 }
+
+describe('NeedsAttentionTab with an API that sends only the count', () => {
+  it('shows the empty state instead of crashing when the list is missing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ ...baseOverview, needsAttentionCount: 2 }))),
+    );
+
+    const { container, root } = await mount();
+
+    expect(container.textContent).toContain('No bookings need attention');
+    await act(async () => root.unmount());
+  });
+});
