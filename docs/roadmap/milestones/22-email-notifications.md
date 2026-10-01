@@ -1,6 +1,6 @@
 # Milestone 22: Email Notifications (delivery, recipients, templates)
 
-Status: **Planned — scoped 2026-09-30, not started. No task is approved for dispatch until the owner confirms the open decisions below.**
+Status: **Phase A and Phase B (Tasks 1-6) implemented and running in production since 2026-10-01 (verified below); Phases C-G (recipient rules, templates, Email tab, pluggable transport) not started.** One open correctness gap: guest pay-at-hotel bookings produced no email in the 2026-09-30 evidence (see "Verified in production 2026-10-01").
 Runs as an authorized ad hoc track, parallel to the main 13 - 14 - 15 sequence (same pattern as Milestone 21). It does not renumber the main sequence.
 
 ## Goal
@@ -54,6 +54,13 @@ On 2026-09-30 a real booking on the live system produced **no email to the guest
 - Earlier bookings (e.g. `MH-260918-*`) show staff emails **bounced** to auto-provisioned `front-desk+<uuid>@...`, `finance+...`, `property-manager+...` addresses — these were the auto-created staff accounts removed by commit 55e15e7; Empire Beach Resort now has a single real assignment, and Must Hotel has 5 (not inspected).
 - **No booking exists in the database after 2026-09-28 23:04 UTC, no Resend email after 2026-09-29 00:17 UTC, and no booking-related request appears in the API log since the container restarted 2026-09-29 00:14 UTC.** The "live booking with no email" is therefore not visible on this host; it needs the exact booking (time, reference, payment method, guest email) to trace. Possible explanations still open: booking made against a different environment/host, booking abandoned before payment/confirmation, or a Clock-side or import path that never invokes the confirmation code (suspected gap above, still unverified).
 - Observation for Task 2/18: guests currently receive mail from `mail.dejvis.dev`, a personal domain of the owner, not a platform/hotel domain.
+
+**Verified in production 2026-10-01 (read-only checks on `booking.must.al`):**
+- Migrations `20260930100000_email_messages`, `20260930110000_email_messages_delivery_webhook` and `20260930120000_email_messages_platform_mail` are applied. `RESEND_API_KEY`, `MAIL_FROM_EMAIL`, `RESEND_WEBHOOK_SECRET` and `REDIS_URL` are set in the API container, and `POST /webhooks/resend` is mapped.
+- `email_messages` holds 9 rows from 2026-09-30/10-01. Every row stores a provider message id. 6 are `DELIVERED` (so the Resend webhook is configured and verified end to end); the 3 `SENT` rows are staff notifications to `@must.test` addresses of the demo "Must Hotel" account, which never confirm delivery.
+- Empire Beach Resort has exactly 1 assigned staff recipient, so only one person receives "new booking" mail. Owner/manager are not resolvable until Phase C (Task 7).
+- **Gap still open (evidence, not proof):** every PokPay booking has email rows (3 and 6), but the PAY_AT_HOTEL bookings on 2026-09-30/10-01 (Empire at 21:15 and 22:11 UTC, and three on Must Hotel) have **0** email rows. All were later cancelled test bookings, and it is not recorded whether they came from the guest flow or staff tooling, so the Clock-property pay-at-hotel guest flow still needs one real end-to-end booking to confirm or clear it.
+- `test/mail-delivery.e2e.spec.ts` has 2 failing tests in a local full run (`provider_message_id` is null where the test expects the mock id) although production rows do carry the id; treat as a test/mock mismatch to resolve before Phase C.
 
 ### Phase B — Email log and durable sending
 
