@@ -1,15 +1,6 @@
 'use client';
 
-import {
-  breakpoints,
-  Card,
-  designTokens,
-  Heading,
-  Stack,
-  statusTokenPairs,
-  Text,
-  typographyRoles,
-} from '@must/ui';
+import { breakpoints, designTokens, statusTokenPairs, typographyRoles } from '@must/ui';
 
 import { CopyChip, Section, Specimen, useTokenValues } from './specimens';
 import styles from './styleguide.module.css';
@@ -161,21 +152,6 @@ export function Foundations() {
               );
             })}
           </div>
-        </Specimen>
-        <Specimen title="Heading, Text and Stack" note="The shared text and layout primitives.">
-          <Stack gap="sm">
-            <Heading level={1}>Heading level 1</Heading>
-            <Heading level={2}>Heading level 2</Heading>
-            <Heading level={3}>Heading level 3</Heading>
-            <Text>Text primary — default body copy.</Text>
-            <Text tone="secondary">Text secondary — supporting descriptions.</Text>
-          </Stack>
-        </Specimen>
-        <Specimen title="Card" note="The shared surface for grouped content.">
-          <Card>
-            <Heading level={3}>Card title</Heading>
-            <Text tone="secondary">Card body content sits on the surface token.</Text>
-          </Card>
         </Specimen>
       </Section>
 

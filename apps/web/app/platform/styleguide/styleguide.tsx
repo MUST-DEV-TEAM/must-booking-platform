@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { ColorThemes } from './color-themes';
 import { Feedback } from './components';
 import { FormControls } from './form-controls';
+import { Cards, StackSpacing, TextAndHeadings } from './layout';
 import { Foundations } from './foundations';
 import { DeprecatedTokens, Planned, TokenDrift } from './reports';
 import { useForcedPseudoStates } from './specimens';
@@ -26,6 +27,14 @@ export const styleguideGroups: ReadonlyArray<{
       { id: 'radii', label: 'Radii' },
       { id: 'shadows', label: 'Shadows and focus rings' },
       { id: 'motion', label: 'Motion and breakpoints' },
+    ],
+  },
+  {
+    label: 'Text and layout',
+    sections: [
+      { id: 'headings-text', label: 'Headings and text' },
+      { id: 'cards', label: 'Cards' },
+      { id: 'stack', label: 'Stack' },
     ],
   },
   {
@@ -120,6 +129,9 @@ export function StyleGuide() {
         </header>
         <ColorThemes />
         <Foundations />
+        <TextAndHeadings />
+        <Cards />
+        <StackSpacing />
         <FormControls />
         <Feedback />
         <TokenDrift />
