@@ -72,6 +72,29 @@ A first test on 2026-10-01 picked the first row of `properties` and booked into 
 
 First live run on Empire (room 237, 3-4 Oct 2026): booking `EBR-260930-2258-9WDC`, Clock #15787, PokPay staging 250.00 EUR paid, `guarantee_policy_id` **17089 set automatically** (Milestone 21 Task 25 verified live), main folio +250.00 and open deposit folio -250.00 with the 250.00 payment, booking balance 0.00 (open deposit folios count in the balance, as documented in the booking lifecycle).
 
+## API user permissions: sandbox versus Empire (measured 2026-10-01)
+
+Measured by running the same call in both accounts: read calls on both, write calls in the sandbox only (Empire's write results come from earlier live attempts, so no further test data was written into the real hotel account). The sandbox is the demo account (subscription 16307); Empire is the real hotel (subscription 14688).
+
+| Capability | Sandbox | Empire | How known |
+| --- | --- | --- | --- |
+| Read room types, rooms, rates | allowed | allowed | probe |
+| Read bookings, search by reference, guest search | allowed | allowed | probe |
+| Read booking folios, a folio, its credit items | allowed | allowed | probe |
+| Read webhook subscription (`base_api_webhook_subscription_show`) | allowed | allowed (granted 2026-09-30) | probe |
+| Create a booking | allowed | allowed | live bookings |
+| Create a deposit folio (`pms_api_booking_folios_create`) | allowed | allowed (granted 2026-09-30) | live bookings |
+| Post a payment on a deposit folio | allowed | allowed | live bookings |
+| **Negative payment on an OPEN deposit folio** (refund mirror) | **allowed** | **denied**: "Payments: Add negative payment to Open Folio" | sandbox test; Empire refund 2026-10-01 |
+| Negative payment on a CLOSED deposit folio | allowed | not tested | sandbox test |
+| List rate plans (`pms_api_rate_plans_index`) | allowed | **denied** (403) | probe |
+| List fiscal document types (`base_api_document_types_index`) | allowed | **denied** (403) | probe |
+| Close a folio (`base_api_folios_close`) | allowed | **denied** (403), withheld on purpose: Clock wants deposit folios left open | sandbox test; Empire probe 2026-10-01 |
+| Close a folio with an outstanding balance | allowed | denied, withheld on purpose (reported by Clock) | sandbox test; Clock's message |
+| Create a booking on a date outside availability (Booking: Rate Availability Control Override) | inconclusive (a 2030 date was accepted; it may simply have been open) | **denied** (400 names the right) | sandbox test; Empire attempt 2026-10-01 |
+
+**What to ask Clock for:** "Payments: Add negative payment to Open Folio" (without it every refund must be entered in Clock by hand, and Clock keeps showing the full original payment). Rate-plan listing is optional. Do **not** ask for the folio-close, outstanding-balance or availability-override rights: they are withheld deliberately. The sandbox allows everything, so a green sandbox test says nothing about what Empire permits; check the right in Empire before relying on a feature.
+
 ## Diagnose by layer
 
 | Symptom | Check |
