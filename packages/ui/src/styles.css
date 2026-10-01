@@ -466,6 +466,12 @@ a:focus-visible:not(.must-button),
 .must-input:hover {
   border-color: var(--must-color-border-strong);
 }
+.must-input:disabled {
+  background: var(--must-color-surface-hover);
+  border-color: var(--must-color-border);
+  color: var(--must-color-text-tertiary);
+  cursor: not-allowed;
+}
 .must-input--error {
   border-color: var(--must-color-danger);
 }
@@ -536,9 +542,13 @@ a:focus-visible:not(.must-button),
   color: var(--must-status-badge-foreground);
   display: inline-flex;
   font: 650 0.75rem/1 var(--must-font-sans);
+  gap: var(--must-space-4);
   min-height: 1.5rem;
   padding: 0.375rem 0.5rem;
   white-space: nowrap;
+}
+.must-status-badge svg {
+  flex: 0 0 auto;
 }
 .must-stack {
   display: grid;
@@ -1134,4 +1144,12 @@ a:focus-visible:not(.must-button),
   .must-shell-profile {
     width: 100%;
   }
+}
+
+/* react-day-picker (loaded before this file) ships its own blue; follow the theme accent instead. */
+.rdp-root {
+  --rdp-accent-color: var(--must-color-accent);
+  --rdp-accent-background-color: var(--must-color-surface-selected);
+  --rdp-range_start-color: var(--must-color-surface);
+  --rdp-range_end-color: var(--must-color-surface);
 }

@@ -54,3 +54,20 @@ describe('StatusBadge', () => {
     expect(invalid).toBeDefined();
   });
 });
+
+describe('StatusBadge icon', () => {
+  it.each(cases)('shows a decorative icon for $domain/$state', ({ domain, state }) => {
+    const markup = renderToStaticMarkup(
+      <StatusBadge {...({ domain, state } as StatusBadgeProps)} />,
+    );
+
+    expect(markup).toContain('<svg');
+    expect(markup).toContain('aria-hidden="true"');
+  });
+
+  it('can hide the icon', () => {
+    const markup = renderToStaticMarkup(<StatusBadge domain="payment" icon={false} state="paid" />);
+
+    expect(markup).not.toContain('<svg');
+  });
+});

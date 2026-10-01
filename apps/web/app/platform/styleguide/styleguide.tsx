@@ -4,7 +4,8 @@ import { Heading, Text, themePresets } from '@must/ui';
 import { useEffect, useState } from 'react';
 
 import { ColorThemes } from './color-themes';
-import { Feedback, FormControls } from './components';
+import { Feedback } from './components';
+import { FormControls } from './form-controls';
 import { Foundations } from './foundations';
 import { DeprecatedTokens, Planned, TokenDrift } from './reports';
 import { useForcedPseudoStates } from './specimens';
@@ -18,7 +19,13 @@ export const styleguideSections = [
   { id: 'radii', label: 'Radii' },
   { id: 'shadows', label: 'Shadows and focus rings' },
   { id: 'motion', label: 'Motion and breakpoints' },
-  { id: 'form-controls', label: 'Form controls' },
+  { id: 'buttons', label: 'Buttons' },
+  { id: 'text-input', label: 'Text input' },
+  { id: 'search-field', label: 'Search field' },
+  { id: 'select', label: 'Select' },
+  { id: 'choice-controls', label: 'Checkbox and radio' },
+  { id: 'date-picker', label: 'Date picker' },
+  { id: 'tabs-pagination', label: 'Tabs and pagination' },
   { id: 'feedback', label: 'Feedback' },
   { id: 'token-drift', label: 'Token drift' },
   { id: 'deprecated', label: 'Deprecated tokens' },

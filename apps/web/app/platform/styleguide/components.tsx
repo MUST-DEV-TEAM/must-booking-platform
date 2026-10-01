@@ -4,19 +4,14 @@ import {
   Alert,
   Badge,
   Button,
-  NavigationPagination,
-  NavigationSectionTabBar,
-  NavigationSectionTabItem,
   StatePanel,
   StatusBadge,
   statusTokenPairs,
-  TextInput,
   type StatusBadgeProps,
 } from '@must/ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Ban, CalendarX, Inbox, Loader2, Lock, Search, TriangleAlert } from 'lucide-react';
+import { Ban, CalendarX, Inbox, Loader2, Lock, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
-import { DayPicker } from 'react-day-picker';
 import { toast } from 'sonner';
 
 import {
@@ -24,16 +19,8 @@ import {
   PropertyImageLibraryDialog,
   type LibraryImage,
 } from '../../dashboard/[tenantId]/property-image-library';
-import { interactiveStates, Section, Specimen, StateGrid } from './specimens';
+import { Section, Specimen } from './specimens';
 import styles from './styleguide.module.css';
-
-const buttonVariants = ['primary', 'secondary', 'danger', 'ghost'] as const;
-const inputStates = [
-  { label: 'Default' },
-  { label: 'Hover', forced: 'hover' },
-  { label: 'Focus', forced: 'focus' },
-  { label: 'Disabled', disabled: true },
-] as const;
 
 function swatchImage(color: string): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(
@@ -61,137 +48,6 @@ function sampleClient() {
   });
   client.setQueryData(libraryQueryKey('styleguide', 'styleguide'), sampleLibrary);
   return client;
-}
-
-export function FormControls() {
-  const [range] = useState({ from: new Date(2026, 9, 12), to: new Date(2026, 9, 15) });
-
-  return (
-    <Section
-      id="form-controls"
-      title="Form controls"
-      description="Hover, focus and active are forced so every state is visible at once."
-    >
-      <Specimen title="Button" note="Four variants from @must/ui.">
-        {buttonVariants.map((variant) => (
-          <div className={styles.variantRow} key={variant}>
-            <span className={styles.variantLabel}>{variant}</span>
-            <StateGrid
-              columns={interactiveStates}
-              render={(state, className) => (
-                <Button className={className} disabled={state.disabled} variant={variant}>
-                  {variant === 'danger' ? 'Delete' : 'Save'}
-                </Button>
-              )}
-            />
-          </div>
-        ))}
-      </Specimen>
-
-      <Specimen
-        title="Text input"
-        note="TextInput from @must/ui: label, hint, error and adornments."
-      >
-        <StateGrid
-          columns={inputStates}
-          render={(state, className) => (
-            <TextInput
-              className={className}
-              defaultValue="Empire Beach Resort"
-              disabled={state.disabled}
-              label="Property name"
-            />
-          )}
-        />
-        <div className={styles.stateGrid}>
-          <div className={styles.stateCell}>
-            <span className={styles.stateLabel}>Empty with placeholder</span>
-            <TextInput label="Guest email" placeholder="name@example.com" />
-          </div>
-          <div className={styles.stateCell}>
-            <span className={styles.stateLabel}>With hint</span>
-            <TextInput hint="We only use this for the booking." label="Phone" />
-          </div>
-          <div className={styles.stateCell}>
-            <span className={styles.stateLabel}>Error</span>
-            <TextInput
-              defaultValue="not-an-email"
-              error="Enter a valid email address."
-              label="Email"
-            />
-          </div>
-          <div className={styles.stateCell}>
-            <span className={styles.stateLabel}>With adornment</span>
-            <TextInput
-              label="Search"
-              placeholder="Search bookings"
-              startAdornment={<Search size={16} />}
-            />
-          </div>
-        </div>
-      </Specimen>
-
-      <Specimen
-        title="Select"
-        note="There is no shared Select component; screens use a native select with the must-input class."
-      >
-        <StateGrid
-          columns={inputStates}
-          render={(state, className) => (
-            <label className="must-field">
-              <span className="must-field__label">Room type</span>
-              <select
-                className={`must-input ${className ?? ''}`}
-                defaultValue="deluxe"
-                disabled={state.disabled}
-              >
-                <option value="deluxe">Deluxe Suite Sea View</option>
-                <option value="junior">Junior Suite Sea View</option>
-              </select>
-            </label>
-          )}
-        />
-      </Specimen>
-
-      <Specimen
-        title="Checkbox and radio"
-        note="No shared component yet; native controls are used and inherit the page font."
-      >
-        <div className={styles.stateGrid}>
-          <label className={styles.nativeControl}>
-            <input type="checkbox" /> Unchecked
-          </label>
-          <label className={styles.nativeControl}>
-            <input type="checkbox" defaultChecked /> Checked
-          </label>
-          <label className={styles.nativeControl}>
-            <input type="checkbox" disabled /> Disabled
-          </label>
-          <label className={styles.nativeControl}>
-            <input name="sg-radio" type="radio" defaultChecked /> Radio selected
-          </label>
-          <label className={styles.nativeControl}>
-            <input name="sg-radio" type="radio" /> Radio
-          </label>
-        </div>
-      </Specimen>
-
-      <Specimen
-        title="Date range picker"
-        note="react-day-picker (range mode), as used by Quick Booking and the calendar."
-      >
-        <DayPicker defaultMonth={new Date(2026, 9)} mode="range" selected={range} />
-      </Specimen>
-
-      <Specimen title="Section tabs and pagination" note="Navigation pieces from @must/ui.">
-        <NavigationSectionTabBar label="Example tabs">
-          <NavigationSectionTabItem current href="#form-controls" label="Current" />
-          <NavigationSectionTabItem href="#form-controls" label="Other" />
-        </NavigationSectionTabBar>
-        <NavigationPagination onPageChange={() => undefined} page={2} pageSize={10} total={45} />
-      </Specimen>
-    </Section>
-  );
 }
 
 const badgeTones = ['neutral', 'success', 'warning', 'danger'] as const;

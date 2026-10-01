@@ -478,6 +478,39 @@
   font-weight: 500;
 }
 
+.clearButton {
+  display: grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--must-radius-pill);
+  background: transparent;
+  color: var(--must-color-text-secondary);
+  cursor: pointer;
+}
+
+.clearButton:hover {
+  background: var(--must-color-surface-hover);
+}
+
+.spin {
+  animation: sg-spin 0.9s linear infinite;
+}
+
+@keyframes sg-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+
 @media (max-width: 767px) {
   .page {
     grid-template-columns: minmax(0, 1fr);
