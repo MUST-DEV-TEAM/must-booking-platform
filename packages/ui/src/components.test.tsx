@@ -130,6 +130,45 @@ describe('dashboard shell', () => {
     expect(markup).toContain('Needs Attention');
   });
 
+  it('switches a tab in place on a plain click but still behaves as a link for modified clicks', async () => {
+    const selected: string[] = [];
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () =>
+      root.render(
+        <NavigationSectionTabBar>
+          <NavigationSectionTabItem
+            href="/dashboard?t=needs-attention"
+            label="Needs Attention"
+            onSelect={() => selected.push('needs-attention')}
+          />
+          <NavigationSectionTabItem href="/dashboard?t=plain" label="Plain link" />
+        </NavigationSectionTabBar>,
+      ),
+    );
+    const [withHandler, plain] = Array.from(container.querySelectorAll('a'));
+    const click = (element: HTMLAnchorElement, init: MouseEventInit = {}) => {
+      const event = new MouseEvent('click', { bubbles: true, cancelable: true, ...init });
+      act(() => {
+        element.dispatchEvent(event);
+      });
+      return event;
+    };
+
+    expect(click(withHandler).defaultPrevented).toBe(true);
+    expect(selected).toEqual(['needs-attention']);
+    // Ctrl/Cmd/Shift/Alt and middle clicks keep their normal "open in a new tab" meaning.
+    for (const init of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { button: 1 }]) {
+      expect(click(withHandler, init).defaultPrevented).toBe(false);
+    }
+    expect(selected).toHaveLength(1);
+    // Without a handler the tab is an ordinary link.
+    expect(click(plain).defaultPrevented).toBe(false);
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it('renders paginated navigation with the current page and bounded controls', () => {
     const markup = renderToStaticMarkup(
       <NavigationPagination page={2} pageSize={20} total={45} onPageChange={() => undefined} />,

@@ -494,3 +494,131 @@ describe('Dashboard section tabs', () => {
     await act(async () => root.unmount());
   });
 });
+
+describe('Dashboard tabs switch in place', () => {
+  function stubDashboardApi() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body)));
+        if (url === '/api/auth/session')
+          return json({
+            user: {
+              id: 'u',
+              email: 'owner@example.test',
+              emailVerified: true,
+              isPlatformAdmin: false,
+            },
+          });
+        if (url === '/api/auth/memberships')
+          return json({ memberships: [{ tenantId: 't', role: 'OWNER' }] });
+        if (url === '/api/tenants/t/properties') return json([{ id: 'p', name: 'Grand Hotel' }]);
+        if (url.includes('/notifications')) return json({ items: [] });
+        return json({
+          kpis: {
+            date: '2026-08-24',
+            arrivals: 0,
+            departures: 0,
+            inHouse: 0,
+            bookedRoomNights: 0,
+            availableRoomNights: 0,
+            occupancyRate: null,
+          },
+          revenue: { today: null },
+          balanceDueAtDesk: null,
+          newBookingsSinceYesterday: 0,
+          needsAttentionCount: 0,
+          needsAttention: [],
+          todaysArrivals: [],
+          todaysDepartures: [],
+          upcomingArrivals: [],
+          soldOutRooms: [],
+          recentCancellations: [],
+          recentActivity: [],
+        });
+      }),
+    );
+  }
+
+  async function mountShell() {
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(DashboardShell, { tenantId: 't' }),
+        ),
+      );
+    });
+    await act(async () => {
+      await vi.waitFor(() => {
+        if (!container.querySelector('nav[aria-label="Dashboard tabs"]'))
+          throw new Error('Dashboard has not finished loading yet.');
+      });
+    });
+    return { container, unmount: () => act(async () => root.unmount()) };
+  }
+
+  const tab = (container: HTMLElement, label: string) =>
+    Array.from(
+      container.querySelectorAll<HTMLAnchorElement>('nav[aria-label="Dashboard tabs"] a'),
+    ).find((link) => link.textContent === label)!;
+
+  it('shows another tab and updates the address without loading a new page', async () => {
+    window.history.pushState({}, '', '/dashboard/t?propertyId=p&section=overview&tab=overview');
+    stubDashboardApi();
+    const { container, unmount } = await mountShell();
+    const tabBar = container.querySelector('nav[aria-label="Dashboard tabs"]');
+    const pushes = vi.spyOn(window.history, 'pushState');
+
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    await act(async () => {
+      tab(container, 'Needs Attention').dispatchEvent(click);
+    });
+    await act(async () => {
+      await vi.waitFor(() => {
+        if (!container.textContent?.includes('No bookings need attention'))
+          throw new Error('Needs Attention has not rendered yet.');
+      });
+    });
+
+    expect(click.defaultPrevented).toBe(true);
+    expect(pushes).toHaveBeenCalledWith(
+      null,
+      '',
+      '/dashboard/t?propertyId=p&section=overview&tab=needs-attention',
+    );
+    expect(window.location.search).toContain('tab=needs-attention');
+    // The same tab bar element is still there: the page was not replaced.
+    expect(container.querySelector('nav[aria-label="Dashboard tabs"]')).toBe(tabBar);
+    expect(tab(container, 'Needs Attention').getAttribute('aria-current')).toBe('page');
+    pushes.mockRestore();
+    await unmount();
+  });
+
+  it('follows the browser back button to the previous tab', async () => {
+    window.history.pushState({}, '', '/dashboard/t?propertyId=p&section=overview&tab=overview');
+    stubDashboardApi();
+    const { container, unmount } = await mountShell();
+    await act(async () => {
+      tab(container, 'Approvals').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }),
+      );
+    });
+    expect(tab(container, 'Approvals').getAttribute('aria-current')).toBe('page');
+
+    await act(async () => {
+      window.history.replaceState(
+        {},
+        '',
+        '/dashboard/t?propertyId=p&section=overview&tab=overview',
+      );
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    expect(tab(container, 'Overview').getAttribute('aria-current')).toBe('page');
+    await unmount();
+  });
+});

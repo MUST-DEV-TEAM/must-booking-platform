@@ -64,7 +64,7 @@ describe('front-desk overview fields', () => {
     await database.$disconnect();
   });
 
-  it('surfaces today\'s arrivals/departures, upcoming arrivals, revenue, balance due, and cancellations', async () => {
+  it("surfaces today's arrivals/departures, upcoming arrivals, revenue, balance due, and cancellations", async () => {
     const signup = await request(app.getHttpServer())
       .post('/auth/signup')
       .send({
@@ -115,9 +115,7 @@ describe('front-desk overview fields', () => {
       .set('Cookie', ownerCookie)
       .send({ roomTypeId, startsOn: null, endsOn: null, amount: '100.00' })
       .expect(201);
-    for (const [startsOn, endsOn] of [
-      [today, inElevenDays],
-    ] as const) {
+    for (const [startsOn, endsOn] of [[today, inElevenDays]] as const) {
       await request(app.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
         .set('Cookie', ownerCookie)
@@ -270,10 +268,39 @@ describe('front-desk overview fields', () => {
     // internal action strings.
     expect(overview.body.recentActivity).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ action: 'booking.created', summary: expect.stringContaining('booked') }),
-        expect.objectContaining({ action: 'booking.cancelled', summary: expect.stringContaining('cancelled') }),
+        expect.objectContaining({
+          action: 'booking.created',
+          summary: expect.stringContaining('booked'),
+        }),
+        expect.objectContaining({
+          action: 'booking.cancelled',
+          summary: expect.stringContaining('cancelled'),
+        }),
       ]),
     );
+
+    // Needs attention: the dashboard tab reads this list, not just the count. Nothing
+    // needs attention yet; then one booking is stuck in manual review.
+    expect(overview.body.needsAttention).toEqual([]);
+    expect(overview.body.needsAttentionCount).toBe(0);
+    const stuckBookingId = arrivalToday.body.value.id as string;
+    await database.$executeRaw`
+      UPDATE bookings SET status = 'MANUAL_REVIEW'::"BookingStatus" WHERE id = ${stuckBookingId}::uuid
+    `;
+    const withStuck = await request(app.getHttpServer())
+      .get(`${propertyUrl}/overview`)
+      .set('Cookie', ownerCookie)
+      .expect(200);
+    expect(withStuck.body.needsAttentionCount).toBe(1);
+    expect(withStuck.body.needsAttention).toEqual([
+      expect.objectContaining({
+        id: stuckBookingId,
+        status: 'MANUAL_REVIEW',
+        guestName: expect.any(String),
+        guestEmail: expect.stringContaining('@'),
+        roomTypeName: 'Overview Suite',
+      }),
+    ]);
   });
 });
 
