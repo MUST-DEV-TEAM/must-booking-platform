@@ -92,7 +92,13 @@ Measured by running the same call in both accounts: read calls on both, write ca
 | Close a folio (`base_api_folios_close`) | allowed | **denied** (403), withheld on purpose: Clock wants deposit folios left open | sandbox test; Empire probe 2026-10-01 |
 | Close a folio with an outstanding balance | allowed | denied, withheld on purpose (reported by Clock) | sandbox test; Clock's message |
 
-**What to ask Clock for:** "Payments: Add negative payment to Open folio" (without it every refund must be entered in Clock by hand, and Clock keeps showing the full original payment). Also ask whether a refund that arrives after the hotel has converted the deposit to an advance (a closed folio) needs a separate right; the sandbox allows it, Empire is untested. The rate-plan listing is not called by the integration today, so it is not worth asking for. Do **not** ask for the folio-close or outstanding-balance rights: they are withheld deliberately. The sandbox allows everything, so a green sandbox test says nothing about what Empire permits; check the right in Empire before relying on a feature.
+**What to ask Clock for (message drafted 2026-10-01):**
+
+1. **Needed now:** "Payments: Add negative payment to Open folio", so a refund returned to the guest can be mirrored on the open deposit folio. Also ask whether a refund after the hotel converted the deposit (a closed folio) needs a separate right; the sandbox allows it, Empire is untested.
+2. **Only if Clock agrees that MUST may convert deposits to advances itself** (the owner's wish: the hotel gets the balance it expects without clicking on every booking): `base_api_folios_close` (Folio: Close), "Folio: Close folio with outstanding balance" (a deposit folio holds only a payment, so its balance is not zero; nine such rejections were recorded in Milestone 21 Phase M when MUST used to close them) and `base_api_document_types_index` (to find the advance-invoice document type; id 16425 on Empire, so this one is skippable if Clock confirms the id is stable). This conflicts with Clock's 2026-09-18 instruction to leave deposit folios open, so it is asked as a question first.
+3. **Question:** can the hotel's own Clock convert deposits to advances automatically at a time the hotel chooses (for example on arrival day)? That would need no rights and no code.
+
+The rate-plan listing is not called by the integration today, so it is not worth asking for. The sandbox allows everything, so a green sandbox test says nothing about what Empire permits; check the right in Empire before relying on a feature.
 
 ## Diagnose by layer
 
