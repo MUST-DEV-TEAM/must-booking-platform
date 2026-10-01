@@ -85,15 +85,14 @@ Measured by running the same call in both accounts: read calls on both, write ca
 | Create a booking | allowed | allowed | live bookings |
 | Create a deposit folio (`pms_api_booking_folios_create`) | allowed | allowed (granted 2026-09-30) | live bookings |
 | Post a payment on a deposit folio | allowed | allowed | live bookings |
-| **Negative payment on an OPEN deposit folio** (refund mirror) | **allowed** | **denied**: "Payments: Add negative payment to Open Folio" | sandbox test; Empire refund 2026-10-01 |
+| **Negative payment on an OPEN deposit folio** (refund mirror) | **allowed** | **denied**: "Payments: Add negative payment to Open folio" | sandbox test; Empire refund 2026-10-01 |
 | Negative payment on a CLOSED deposit folio | allowed | not tested | sandbox test |
 | List rate plans (`pms_api_rate_plans_index`) | allowed | **denied** (403) | probe |
 | List fiscal document types (`base_api_document_types_index`) | allowed | **denied** (403) | probe |
 | Close a folio (`base_api_folios_close`) | allowed | **denied** (403), withheld on purpose: Clock wants deposit folios left open | sandbox test; Empire probe 2026-10-01 |
 | Close a folio with an outstanding balance | allowed | denied, withheld on purpose (reported by Clock) | sandbox test; Clock's message |
-| Create a booking on a date outside availability (Booking: Rate Availability Control Override) | inconclusive (a 2030 date was accepted; it may simply have been open) | **denied** (400 names the right) | sandbox test; Empire attempt 2026-10-01 |
 
-**What to ask Clock for:** "Payments: Add negative payment to Open Folio" (without it every refund must be entered in Clock by hand, and Clock keeps showing the full original payment). Rate-plan listing is optional. Do **not** ask for the folio-close, outstanding-balance or availability-override rights: they are withheld deliberately. The sandbox allows everything, so a green sandbox test says nothing about what Empire permits; check the right in Empire before relying on a feature.
+**What to ask Clock for:** "Payments: Add negative payment to Open folio" (without it every refund must be entered in Clock by hand, and Clock keeps showing the full original payment). Also ask whether a refund that arrives after the hotel has converted the deposit to an advance (a closed folio) needs a separate right; the sandbox allows it, Empire is untested. The rate-plan listing is not called by the integration today, so it is not worth asking for. Do **not** ask for the folio-close or outstanding-balance rights: they are withheld deliberately. The sandbox allows everything, so a green sandbox test says nothing about what Empire permits; check the right in Empire before relying on a feature.
 
 ## Diagnose by layer
 
