@@ -129,3 +129,40 @@ describe('PokPayPaymentProvider.refund currency handling', () => {
     expect(result).toMatchObject({ ok: false, error: { code: 'POKPAY_REFUND_AMOUNT_MISMATCH' } });
   });
 });
+
+describe('PokPayPaymentProvider.refund payment ids', () => {
+  const refundOnce = async (
+    idempotencyKey: string,
+    amount: string,
+    before: number,
+    after: number,
+  ) => {
+    const { provider } = providerWith([
+      order({ refundableAmount: before }),
+      order({ refundableAmount: after }),
+    ]);
+    const result = await provider.refund(context, {
+      idempotencyKey,
+      paymentId: 'order-1',
+      amount: { amount, currency: 'EUR' },
+      alreadyRefunded: { amount: '0.00', currency: 'EUR' },
+    });
+    if (!result.ok) throw new Error(result.error.message);
+    return result.value.id;
+  };
+
+  it('gives two refunds of the same order different ids, so the ledger keeps both', async () => {
+    const first = await refundOnce('manual-refund:a', '50.00', 22750, 18200);
+    const second = await refundOnce('manual-refund:b', '50.00', 22750, 18200);
+
+    expect(first).not.toBe(second);
+    expect(first).toContain('order-1');
+  });
+
+  it('gives a retry of the same refund command the same id, so it is not recorded twice', async () => {
+    const first = await refundOnce('manual-refund:a', '50.00', 22750, 18200);
+    const retry = await refundOnce('manual-refund:a', '50.00', 22750, 18200);
+
+    expect(retry).toBe(first);
+  });
+});

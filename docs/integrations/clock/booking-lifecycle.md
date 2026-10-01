@@ -61,6 +61,10 @@ PaymentRefundService owns the gateway/local refund and invokes `postRefund` afte
 
 A mirrored refund still requires Clock's human Deposit Adjustment/correction-document action according to the recorded contract evidence. Success and failure both leave the appropriate manual-review/staff notice; a sync failure cannot undo the guest refund. Automated refund synchronization must not be inferred for every cancellation path merely because manual refunds mirror.
 
+### Live refund finding (2026-10-01)
+
+On `EBR-260930-2258-9WDC` (Clock #15787, deposit folio open) two staff refunds were made through the dashboard. PokPay (staging) refunded the full 250.00. MUST recorded only the first (50.00) because both refunds carried the same PokPay id and the ledger dropped the second (fixed in code, see Milestone 21 Task 29). Clock was **not** updated by either: the first mirror was rejected (`Payments: Add negative payment to Open Folio` is not granted to the API user, Task 30) and the second was never attempted. Clock therefore still shows the full 250.00 payment on the open deposit folio and a booking balance of 0.00, while the guest has been refunded in full. The refund itself is not rolled back by a mirroring failure; a manual-review item is raised.
+
 ## Historical evidence
 
 The [sandbox report](../../archive/clock-sandbox-validation-2026-08-05.md) and [test log](../../archive/clock-test-evidence-2026-09-04.md) record dated runs. [Milestone 21](../../roadmap/milestones/21-clock-certification-fixes.md) contains later live observations and reversals. None of those tests were rerun for this documentation initialization.

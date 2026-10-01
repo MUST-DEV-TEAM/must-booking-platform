@@ -168,7 +168,10 @@ export class PokPayPaymentProvider implements PaymentProvider {
     const refundableAfter = after.ok
       ? Number(after.value.data?.sdkOrder?.refundableAmount)
       : Number.NaN;
-    if (!Number.isFinite(refundableAfter) || Math.abs(refundableLek - refundLek - refundableAfter) > 0.02) {
+    if (
+      !Number.isFinite(refundableAfter) ||
+      Math.abs(refundableLek - refundLek - refundableAfter) > 0.02
+    ) {
       this.logger.error(
         `PokPay refund for order ${order.id} sent ${refundLek} but refundableAmount went ${refundableLek} -> ${refundableAfter}; verify in the PokPay dashboard.`,
       );
@@ -180,7 +183,11 @@ export class PokPayPaymentProvider implements PaymentProvider {
     return {
       ok: true,
       value: {
-        id: order.transactionId || `${order.id}:refund`,
+        // PokPay returns the order's original transaction id for every refund, so using it
+        // would give two partial refunds of one order the same id, and the ledger (unique per
+        // payment id) would silently drop the second. Tie the id to this refund command instead;
+        // a retry of the same command keeps the same id and is still de-duplicated.
+        id: `${order.id}:refund:${command.idempotencyKey}`,
         bookingId: command.paymentId,
         amount: command.amount,
         status: order.isRefunded ? 'REFUNDED' : 'REFUND_PENDING',
