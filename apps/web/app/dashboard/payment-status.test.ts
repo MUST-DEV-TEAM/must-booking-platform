@@ -197,3 +197,59 @@ describe('paymentsCsv', () => {
     expect(row.startsWith("'=1+1,'@SUM(A1),'+x@evil.test,")).toBe(true);
   });
 });
+
+describe('refundPreview', () => {
+  const booking = (overrides: Partial<Reservation> = {}) =>
+    ({
+      total: { amount: '250.00', currency: 'EUR' },
+      paidAmount: '250.00',
+      refundedAmount: '50.00',
+      ...overrides,
+    }) as Reservation;
+
+  it('takes a percentage of what is left, not of the original payment', async () => {
+    const { refundPreview } = await import('./payment-status');
+    expect(refundPreview(booking(), 'percentage', '', '50')).toBe('100.00');
+    expect(refundPreview(booking({ refundedAmount: '0.00' }), 'percentage', '', '50')).toBe(
+      '125.00',
+    );
+    expect(refundPreview(booking(), 'percentage', '', '100')).toBe('200.00');
+  });
+
+  it('rounds to the cent like the server does', async () => {
+    const { refundPreview } = await import('./payment-status');
+    expect(
+      refundPreview(
+        booking({ paidAmount: '100.00', refundedAmount: '0.00' }),
+        'percentage',
+        '',
+        '33.33',
+      ),
+    ).toBe('33.33');
+    expect(
+      refundPreview(
+        booking({ paidAmount: '0.05', refundedAmount: '0.00' }),
+        'percentage',
+        '',
+        '50',
+      ),
+    ).toBe('0.03');
+  });
+
+  it('shows a typed amount capped at what is left, and the whole balance when blank', async () => {
+    const { refundPreview } = await import('./payment-status');
+    expect(refundPreview(booking(), 'fixed', '30', '')).toBe('30.00');
+    expect(refundPreview(booking(), 'fixed', '999', '')).toBe('200.00');
+    expect(refundPreview(booking(), 'fixed', '', '')).toBe('200.00');
+  });
+
+  it('shows nothing for input that cannot be refunded', async () => {
+    const { refundPreview } = await import('./payment-status');
+    expect(refundPreview(booking(), 'fixed', 'abc', '')).toBeNull();
+    expect(refundPreview(booking(), 'fixed', '0', '')).toBeNull();
+    expect(refundPreview(booking(), 'percentage', '', '')).toBeNull();
+    expect(refundPreview(booking(), 'percentage', '', '0')).toBeNull();
+    expect(refundPreview(booking(), 'percentage', '', '101')).toBeNull();
+    expect(refundPreview(booking({ refundedAmount: '250.00' }), 'fixed', '', '')).toBeNull();
+  });
+});

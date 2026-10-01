@@ -4,7 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { remainingRefundable } from './payment-status';
+import { refundPreview, remainingRefundable } from './payment-status';
 import { guestName, type Reservation } from './reservations';
 import styles from './data-table.module.css';
 
@@ -32,6 +32,7 @@ export function RefundDialog({
   const [note, setNote] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const maximum = remainingRefundable(booking);
+  const preview = refundPreview(booking, mode, amount, percentage);
 
   const refund = useMutation({
     mutationFn: async (body: unknown) => {
@@ -125,7 +126,7 @@ export function RefundDialog({
             </label>
           ) : (
             <label htmlFor="refund-percentage">
-              Percentage
+              Percentage of the remaining {maximum.amount} {booking.total.currency}
               <input
                 id="refund-percentage"
                 inputMode="decimal"
@@ -138,6 +139,11 @@ export function RefundDialog({
               />
             </label>
           )}
+          <Text>
+            {preview
+              ? `This will refund ${preview} ${booking.total.currency}`
+              : 'Enter an amount or percentage to see what will be refunded'}
+          </Text>
           <button
             className="must-button must-button--secondary"
             onClick={() => {

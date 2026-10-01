@@ -420,4 +420,42 @@ describe('Payments', () => {
     expect(exportButton.disabled).toBe(true);
     await unmount();
   });
+
+  it('previews the refund before confirming, taking a percentage of what is left', async () => {
+    const partlyRefunded = {
+      ...live,
+      paidAmount: '250.00',
+      refundedAmount: '50.00',
+    } as Reservation;
+    const { c, unmount } = await renderPayments([
+      { ...partlyRefunded, total: { amount: '250.00', currency: 'EUR' } } as Reservation,
+    ]);
+    await act(async () => {
+      c.querySelector<HTMLButtonElement>('button.must-button--danger')!.click();
+    });
+    const dialog = () => c.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog().textContent).toContain('Remaining refundable balance: 200.00 EUR');
+    // Blank amount means the whole remaining balance.
+    expect(dialog().textContent).toContain('This will refund 200.00 EUR');
+
+    const type = dialog().querySelector<HTMLSelectElement>('#refund-type')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(type), 'value')!.set!.call(
+        type,
+        'percentage',
+      );
+      type.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(dialog().textContent).toContain('Percentage of the remaining 200.00 EUR');
+    const percentage = c.querySelector<HTMLInputElement>('#refund-percentage')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(percentage), 'value')!.set!.call(
+        percentage,
+        '50',
+      );
+      percentage.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(dialog().textContent).toContain('This will refund 100.00 EUR');
+    await unmount();
+  });
 });

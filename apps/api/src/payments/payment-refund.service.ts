@@ -295,7 +295,9 @@ export class PaymentRefundService {
         const requestedAmount = command.amount
           ? this.minorUnits(command.amount.amount)
           : command.percentage !== undefined
-            ? this.percentageAmount(charge.amount, command.percentage)
+            ? // A staff percentage means a share of what can still be refunded, not of the
+              // original charge: 50% after a 50 refund of 250 is 100, not 125.
+              this.percentageAmount(this.money(remaining), command.percentage)
             : remaining;
         if (requestedAmount === null || requestedAmount <= 0n) {
           return this.failure(

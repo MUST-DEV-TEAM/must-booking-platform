@@ -264,3 +264,41 @@ export function paymentsCsv(bookings: Reservation[]): string {
   );
   return [header.map(csvCell).join(','), ...rows].join('\r\n');
 }
+
+/** The same rounding the server uses: a share of an amount, to the cent, halves rounded up. */
+function percentageOf(amount: string, percentage: number): bigint | null {
+  if (!Number.isFinite(percentage) || percentage < 1 || percentage > 100) return null;
+  const match = /^(\d+)(?:\.(\d{1,4}))?$/.exec(String(percentage));
+  if (!match) return null;
+  const fraction = match[2] ?? '';
+  const scale = 10n ** BigInt(fraction.length);
+  const numerator = BigInt(match[1]) * scale + BigInt(fraction || '0');
+  const denominator = 100n * scale;
+  return (minorUnits(amount) * numerator + denominator / 2n) / denominator;
+}
+
+/**
+ * What a refund form would refund, so staff see the amount before confirming. A percentage
+ * is a share of what is still refundable (50% of 200.00 left is 100.00), never of the
+ * original payment. Returns null while the input is not a usable amount.
+ */
+export function refundPreview(
+  booking: Pick<Reservation, 'paidAmount' | 'refundedAmount' | 'total'>,
+  mode: 'fixed' | 'percentage',
+  amountText: string,
+  percentageText: string,
+): string | null {
+  const remaining = remainingRefundable(booking).amount;
+  const cap = minorUnits(remaining);
+  let requested: bigint | null;
+  if (mode === 'percentage') {
+    const text = percentageText.trim();
+    requested = text ? percentageOf(remaining, Number(text)) : null;
+  } else {
+    const text = amountText.trim();
+    if (!text) requested = cap;
+    else requested = /^\d+(?:\.\d{1,2})?$/.test(text) ? minorUnits(text) : null;
+  }
+  if (requested === null || requested <= 0n) return null;
+  return money(requested > cap ? cap : requested);
+}
