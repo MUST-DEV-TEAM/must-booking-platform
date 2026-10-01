@@ -70,7 +70,7 @@
 }
 
 .statusUnread {
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
 }
 
 .statusRead {

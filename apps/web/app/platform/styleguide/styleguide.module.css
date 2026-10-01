@@ -33,11 +33,11 @@
 
 .menu li a:hover {
   background: var(--must-color-surface-selected);
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
 }
 
 .back {
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
   font-size: 0.875rem;
   font-weight: 600;
   text-decoration: none;
@@ -274,7 +274,7 @@
 .spaceBar {
   height: 0.75rem;
   border-radius: var(--must-radius-pill);
-  background: var(--must-color-ink);
+  background: var(--must-color-accent);
 }
 
 .boxGrid {
@@ -298,7 +298,7 @@
 }
 
 .radiusBox {
-  border: 2px solid var(--must-color-ink);
+  border: 2px solid var(--must-color-accent);
 }
 
 .shadowBox {
@@ -414,11 +414,19 @@
   gap: var(--must-space-12);
 }
 
+.hoverRow {
+  padding: var(--must-space-8) var(--must-space-12);
+  border-radius: var(--must-radius-control);
+  background: var(--must-color-surface-hover);
+  font-size: 0.875rem;
+}
+
 .selectedRow {
   padding: var(--must-space-8) var(--must-space-12);
   border-radius: var(--must-radius-control);
   background: var(--must-color-surface-selected);
-  color: var(--must-color-ink);
+  box-shadow: inset 3px 0 0 var(--must-color-accent);
+  color: var(--must-color-accent);
   font-size: 0.875rem;
   font-weight: 600;
 }

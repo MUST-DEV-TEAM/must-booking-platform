@@ -57,7 +57,7 @@
   left: 0.45rem;
   padding: 0.25rem 0.45rem;
   border-radius: 999px;
-  background: var(--must-color-ink);
+  background: var(--must-color-accent);
   color: white;
   font-size: 0.7rem;
   font-weight: 650;
@@ -242,7 +242,7 @@
   width: 1rem;
   height: 1rem;
   flex: 0 0 auto;
-  accent-color: var(--must-color-ink);
+  accent-color: var(--must-color-accent);
 }
 
 .roomList {

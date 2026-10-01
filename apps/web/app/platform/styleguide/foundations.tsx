@@ -21,6 +21,7 @@ const tokensByPrefix = (prefix: string, exclude: readonly string[] = []) =>
     .map((token) => token.cssVariable);
 
 const colorTokens = tokensByPrefix('--must-color-', ['-status-', 'focus-ring']);
+const neutralTokens = tokensByPrefix('--must-neutral-');
 const spaceTokens = tokensByPrefix('--must-space-');
 const radiusTokens = tokensByPrefix('--must-radius-');
 const shadowTokens = tokensByPrefix('--must-shadow-');
@@ -47,6 +48,7 @@ const typographyLabels: Record<keyof typeof typographyRoles, string> = {
 export function Foundations() {
   const allNames = [
     ...colorTokens,
+    ...neutralTokens,
     ...spaceTokens,
     ...radiusTokens,
     ...shadowTokens,
@@ -75,6 +77,20 @@ export function Foundations() {
             </div>
           ))}
         </div>
+        <Specimen
+          title="Neutral scale"
+          note="A slightly cool grey. The semantic tokens above (canvas, border, text) point into this scale; hotel themes never change it."
+        >
+          <div className={styles.pairGrid}>
+            {neutralTokens.map((name) => (
+              <div className={styles.swatch} key={name}>
+                <span className={styles.swatchColor} style={{ background: `var(${name})` }} />
+                <CopyChip value={name} />
+                <span className={styles.swatchValue}>{values[name] || '—'}</span>
+              </div>
+            ))}
+          </div>
+        </Specimen>
         <Specimen
           title="Status pairs"
           note="Background and foreground always travel together; text carries the state, color only reinforces it."

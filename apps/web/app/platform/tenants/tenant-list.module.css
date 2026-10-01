@@ -26,7 +26,7 @@
   text-transform: none;
 }
 .table tbody th a {
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
   font-weight: 700;
 }
 .table tbody tr:last-child th,
@@ -44,7 +44,7 @@
   clip: rect(0 0 0 0);
 }
 .openLink {
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
   font-weight: 700;
   white-space: nowrap;
 }

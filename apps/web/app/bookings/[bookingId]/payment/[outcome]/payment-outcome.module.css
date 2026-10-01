@@ -15,7 +15,7 @@
 
 .supportLink,
 .backLink {
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
   font-size: 0.625rem;
   font-weight: 600;
   line-height: 1.2;
@@ -24,7 +24,7 @@
 
 .supportLink:hover,
 .backLink:hover {
-  color: var(--must-color-ink-hover);
+  color: var(--must-color-accent-hover);
 }
 
 .statusBadge,

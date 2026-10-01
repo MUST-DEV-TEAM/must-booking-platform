@@ -19,6 +19,19 @@ Status: reference document, not an ADR. Written to give Milestone 13 kickoff and
 
 Both sources agree on the token layer (same `--color-*`, `--space-*`, `--radius-*` values), so there is one token vocabulary below, not two.
 
+## Neutral base and hotel themes — supersedes the pine/brass decisions below (2026-10-01)
+
+**Decision (owner, 2026-10-01):** the whole system is neutral by default, so that each hotel can later pick its own theme (booking.must.al only; not the WordPress widget or emails). This supersedes the "pine only" brand rule and the "brass stays as a semantic exception" decision below. The **code tokens in `packages/ui/src/styles.css` are the source of truth**; the Figma file and the Claude Design System export predate this palette and have not been updated.
+
+- **Neutral scale:** `--must-neutral-50…950`, a slightly cool grey. Canvas, surface-hover, borders and text point into it.
+- **Theme layer (the only thing a hotel theme changes):** `--must-color-accent` (default near-black slate `#2b3640`), `--must-color-accent-hover`, `--must-color-accent-tint`. `--must-color-surface-selected` is the accent tint. `--must-color-ink` / `-ink-hover` are deprecated aliases (renamed in token version 1.5.0, removed after 2.0.0).
+- **Hover vs selected:** hover is the neutral `--must-color-surface-hover`; selected is the accent tint **plus** a 3px accent bar, so selection never depends on color alone.
+- **Focus ring:** an accent ring with a surface-colored gap (`--must-focus-ring-*`). Brass is retired; `--must-color-accent-brass` is a deprecated alias of the warning color and the no-show/reserved status foregrounds now use the warning token.
+- **Status colors** (success, warning, danger, info and every status pair) and the notification badge are fixed and never themed.
+- **Chart series 1-6** are a fixed, theme-independent palette (blue, amber, green-teal, violet, slate, cyan); chart colors are due their own review.
+- **Presets planned:** Neutral (default), Summer, Winter, Alpine, Modern, applied through a `data-theme` attribute (preview in the style guide, `/platform/styleguide`). A custom-color picker that generates an accessible scale comes after the presets.
+- The remaining sections of this document describe the previous pine/brass palette and are kept for history.
+
 ## Brass tokens — resolved
 
 **Decision (2026-08-23, confirmed by Dejvis):** brass stays as a **semantic exception** to the "pine only" branding rule. It remains wired to `--color-domain-guest`, the no-show/reserved status pairs, and `--color-focus-ring`/`--color-accent-brass` — these are semantic/status uses, decoupled from "brand accent," not a violation of the pine-only decision. The payment/refunded pair uses the verified warning foreground because brass is not AA-readable on its warning surface. No Figma/export changes are required. Safe to scope status-badge, focus-ring, and guest-domain-coloring tasks without further sign-off on this point.

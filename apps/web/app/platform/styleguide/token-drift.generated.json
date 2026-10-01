@@ -5,11 +5,5 @@
     "tokenReferences": 600
   },
   "files": [],
-  "undocumentedTokens": [
-    "--must-color-danger-surface",
-    "--must-color-info-surface",
-    "--must-color-notification-badge",
-    "--must-color-success-surface",
-    "--must-color-warning-surface"
-  ]
+  "undocumentedTokens": []
 }

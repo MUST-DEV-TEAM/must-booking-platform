@@ -80,7 +80,7 @@
   border: 1px solid var(--must-color-border-strong);
   border-radius: 0.5rem;
   background: var(--must-color-surface);
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
   cursor: pointer;
   font-size: 0.85rem;
   font-weight: 600;

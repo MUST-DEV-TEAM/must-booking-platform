@@ -32,12 +32,12 @@
 
 .hubCardAction {
   margin-top: auto;
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
   font-weight: 600;
 }
 
 .backLink {
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
   font-weight: 600;
   text-decoration: none;
 }

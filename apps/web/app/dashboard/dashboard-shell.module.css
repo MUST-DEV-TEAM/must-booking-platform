@@ -33,7 +33,7 @@
   background: var(--must-color-surface);
   border: 1px solid var(--must-color-border);
   border-radius: var(--must-radius-control);
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
   cursor: pointer;
   display: inline-flex;
   gap: 0.3125rem;
@@ -84,7 +84,7 @@
 .markAllReadLink {
   background: none;
   border: 0;
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
   cursor: pointer;
   font: inherit;
   font-size: 0.75rem;
@@ -112,7 +112,7 @@
 .notificationPanel button {
   background: none;
   border: 0;
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
   cursor: pointer;
   font: inherit;
   font-size: 0.8125rem;
@@ -121,7 +121,7 @@
 }
 
 .viewAllLink {
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
   display: inline-flex;
   font-size: 0.8125rem;
   font-weight: 700;

@@ -13,7 +13,7 @@
 .brandPanel {
   background-image:
     url('/auth/decorative-glow.svg'), url('/auth/decorative-contour.svg'),
-    linear-gradient(71.35deg, var(--must-color-ink-hover) 18.69%, var(--must-color-ink) 112.15%);
+    linear-gradient(71.35deg, var(--must-color-accent-hover) 18.69%, var(--must-color-accent) 112.15%);
   background-position:
     right -175px top -130px,
     left -120px bottom -100px,
@@ -32,7 +32,7 @@
 
 .brandLogo {
   align-items: center;
-  background: var(--must-color-ink-hover);
+  background: var(--must-color-accent-hover);
   border-radius: var(--must-radius-control);
   display: flex;
   flex: 0 0 auto;
@@ -191,7 +191,7 @@
 .supportLink,
 .footerLink,
 .forgotLink {
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
   font-size: 0.625rem;
   font-weight: 600;
   line-height: 1.2;
@@ -201,7 +201,7 @@
 .supportLink:hover,
 .footerLink:hover,
 .forgotLink:hover {
-  color: var(--must-color-ink-hover);
+  color: var(--must-color-accent-hover);
 }
 
 .secureBadge {
@@ -380,8 +380,8 @@
 }
 
 .rememberCheckbox:checked {
-  background: var(--must-color-ink);
-  border-color: var(--must-color-ink);
+  background: var(--must-color-accent);
+  border-color: var(--must-color-accent);
   box-shadow: inset 0 0 0 0.25rem var(--must-color-surface);
 }
 
@@ -489,7 +489,7 @@
 
 .documentBackLink {
   align-self: flex-start;
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
   font-size: 0.75rem;
   font-weight: 600;
   margin-top: auto;
@@ -497,7 +497,7 @@
 }
 
 .documentBackLink:hover {
-  color: var(--must-color-ink-hover);
+  color: var(--must-color-accent-hover);
 }
 
 @media (max-width: 1100px) {

@@ -1,15 +1,37 @@
 :root {
-  /* Sourced from Figma "00 — Base & Components" (Foundation reviewed, v1.2). */
-  --must-color-ink: #174c3c;
-  --must-color-ink-hover: #103a2e;
-  --must-color-text-primary: #1c2723;
-  --must-color-text-secondary: #5f6d67;
-  --must-color-text-tertiary: #6f7d76;
+  /* Neutral base. The code tokens are the source of truth (the Figma file predates this palette).
+     A slightly cool grey scale: every neutral semantic token below points into it, so a hotel
+     theme only ever has to change the accent. */
+  --must-neutral-50: #f6f7f9;
+  --must-neutral-100: #eceff2;
+  --must-neutral-200: #dde1e6;
+  --must-neutral-300: #c3c9d1;
+  --must-neutral-400: #9aa3af;
+  --must-neutral-500: #667085;
+  --must-neutral-600: #4b5563;
+  --must-neutral-700: #364049;
+  --must-neutral-800: #232a31;
+  --must-neutral-900: #16191d;
+  --must-neutral-950: #0c0e11;
+
+  /* Theme layer: the only values a hotel theme changes. Default is near-black slate, no hue. */
+  --must-color-accent: #2b3640;
+  --must-color-accent-hover: #1a2128;
+  --must-color-accent-tint: #e8ebef;
+  /* Deprecated aliases of the accent (renamed in 1.5.0). */
+  --must-color-ink: var(--must-color-accent);
+  --must-color-ink-hover: var(--must-color-accent-hover);
+
+  --must-color-text-primary: var(--must-neutral-900);
+  --must-color-text-secondary: var(--must-neutral-600);
+  --must-color-text-tertiary: var(--must-neutral-500);
   --must-color-surface: #ffffff;
-  --must-color-canvas: #f7f5ef;
-  --must-color-surface-selected: #e2ece7;
-  --must-color-border: #d8ded9;
-  --must-color-border-strong: #c6d9d0;
+  --must-color-canvas: var(--must-neutral-50);
+  /* Hover and selected are deliberately different: hover is a neutral wash, selected carries the accent. */
+  --must-color-surface-hover: var(--must-neutral-100);
+  --must-color-surface-selected: var(--must-color-accent-tint);
+  --must-color-border: var(--must-neutral-200);
+  --must-color-border-strong: var(--must-neutral-300);
   --must-color-danger: #b42318;
   --must-color-danger-surface: #fef3f2;
   --must-color-notification-badge: #f04438;
@@ -35,21 +57,21 @@
   --must-radius-input: 0.75rem;
   --must-radius-card: 1rem;
   --must-radius-pill: 999px;
-  --must-shadow-float: 0 4px 12px rgb(23 76 60 / 0.12), 0 1px 3px rgb(23 76 60 / 0.08);
-  --must-shadow-modal: 0 12px 32px rgb(23 76 60 / 0.22), 0 2px 6px rgb(23 76 60 / 0.12);
-  /* Brass is an intentional semantic exception for focus, not a brand accent. */
-  --color-focus-ring: #c9953c;
-  --shadow-focus-ring: 0 0 0 3px rgb(201 149 60 / 0.45);
+  --must-shadow-float: 0 4px 12px rgb(22 25 29 / 0.12), 0 1px 3px rgb(22 25 29 / 0.08);
+  --must-shadow-modal: 0 12px 32px rgb(22 25 29 / 0.22), 0 2px 6px rgb(22 25 29 / 0.12);
+  /* Focus follows the accent: a surface-colored gap plus an accent ring keeps >= 3:1 on any surface. */
+  --color-focus-ring: var(--must-color-accent);
+  --shadow-focus-ring: 0 0 0 2px var(--must-color-surface), 0 0 0 4px var(--must-color-accent);
   --must-color-focus-ring: var(--color-focus-ring);
   --must-shadow-focus-ring: var(--shadow-focus-ring);
   --must-focus-ring-primary: var(--must-shadow-focus-ring);
-  --must-focus-ring-secondary:
-    0 0 0 2px var(--must-color-surface), 0 0 0 4px var(--must-color-focus-ring);
+  --must-focus-ring-secondary: var(--must-shadow-focus-ring);
   --must-focus-ring-link: 0 0 0 2px var(--must-color-focus-ring);
-  --must-focus-ring-danger: 0 0 0 3px var(--must-color-focus-ring);
+  --must-focus-ring-danger: var(--must-shadow-focus-ring);
   /* Kept for existing consumers while the semantic rings are adopted. */
   --must-focus-ring: var(--must-focus-ring-primary);
-  --color-accent-brass: var(--must-color-focus-ring);
+  /* Deprecated: brass is gone from the palette; these now resolve to the warning color. */
+  --color-accent-brass: var(--must-color-warning);
   --must-color-accent-brass: var(--color-accent-brass);
 
   --color-status-booking-pending-background: var(--must-color-warning-surface);
@@ -59,11 +81,11 @@
   --color-status-booking-cancelled-background: var(--must-color-danger-surface);
   --color-status-booking-cancelled-foreground: var(--must-color-danger);
   --color-status-booking-checked-in-background: var(--must-color-surface-selected);
-  --color-status-booking-checked-in-foreground: var(--must-color-ink);
+  --color-status-booking-checked-in-foreground: var(--must-color-accent);
   --color-status-booking-checked-out-background: var(--must-color-canvas);
   --color-status-booking-checked-out-foreground: var(--must-color-text-secondary);
   --color-status-booking-no-show-background: var(--must-color-warning-surface);
-  --color-status-booking-no-show-foreground: var(--color-accent-brass);
+  --color-status-booking-no-show-foreground: var(--must-color-warning);
 
   --color-status-payment-pending-background: var(--must-color-warning-surface);
   --color-status-payment-pending-foreground: var(--must-color-warning);
@@ -80,13 +102,13 @@
   --color-status-room-available-background: var(--must-color-success-surface);
   --color-status-room-available-foreground: var(--must-color-success);
   --color-status-room-occupied-background: var(--must-color-surface-selected);
-  --color-status-room-occupied-foreground: var(--must-color-ink);
+  --color-status-room-occupied-foreground: var(--must-color-accent);
   --color-status-room-cleaning-background: var(--must-color-info-surface);
   --color-status-room-cleaning-foreground: var(--must-color-info);
   --color-status-room-maintenance-background: var(--must-color-warning-surface);
   --color-status-room-maintenance-foreground: var(--must-color-warning);
   --color-status-room-reserved-background: var(--must-color-warning-surface);
-  --color-status-room-reserved-foreground: var(--color-accent-brass);
+  --color-status-room-reserved-foreground: var(--must-color-warning);
   --color-status-room-out-of-service-background: var(--must-color-danger-surface);
   --color-status-room-out-of-service-foreground: var(--must-color-danger);
 
@@ -144,13 +166,14 @@
   --must-color-status-room-out-of-service-foreground: var(
     --color-status-room-out-of-service-foreground
   );
-  /* Fixed chart order: pine, brass, sky, violet, green, amber. Never add a seventh slot. */
-  --color-chart-series-1: var(--color-pine-800, var(--must-color-ink));
-  --color-chart-series-2: var(--color-brass-500, var(--must-color-focus-ring));
-  --color-chart-series-3: var(--color-sky-500, var(--must-color-info));
-  --color-chart-series-4: var(--color-violet-500, var(--must-color-danger));
-  --color-chart-series-5: var(--color-green-500, var(--must-color-success));
-  --color-chart-series-6: var(--color-amber-500-2, var(--must-color-warning));
+  /* Fixed chart order: blue, amber, green, violet, slate, cyan. Independent of the hotel theme and
+     separated by hue and lightness for color-vision safety. Never add a seventh slot. */
+  --color-chart-series-1: #2563a8;
+  --color-chart-series-2: #c27803;
+  --color-chart-series-3: #0f8a6d;
+  --color-chart-series-4: #8e4ea0;
+  --color-chart-series-5: #4b5563;
+  --color-chart-series-6: #0e7490;
   --must-color-chart-series-1: var(--color-chart-series-1);
   --must-color-chart-series-2: var(--color-chart-series-2);
   --must-color-chart-series-3: var(--color-chart-series-3);
@@ -225,7 +248,7 @@ body {
 }
 .must-skip-link {
   align-items: center;
-  background: var(--must-color-ink);
+  background: var(--must-color-accent);
   border-radius: var(--must-radius-control);
   color: var(--must-color-surface);
   display: inline-flex;
@@ -314,11 +337,11 @@ a:focus-visible:not(.must-button),
   }
 }
 .must-button--primary {
-  background: var(--must-color-ink);
+  background: var(--must-color-accent);
   color: white;
 }
 .must-button--primary:hover:not(:disabled) {
-  background: var(--must-color-ink-hover);
+  background: var(--must-color-accent-hover);
 }
 .must-button--secondary {
   background: var(--must-color-surface);
@@ -327,7 +350,7 @@ a:focus-visible:not(.must-button),
 }
 .must-button--secondary:hover:not(:disabled),
 .must-button--ghost:hover:not(:disabled) {
-  background: var(--must-color-canvas);
+  background: var(--must-color-surface-hover);
 }
 .must-button--danger {
   background: var(--must-color-danger);
@@ -503,7 +526,7 @@ a:focus-visible:not(.must-button),
   align-items: center;
   background: var(--must-color-surface-selected);
   border-radius: var(--must-radius-pill);
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
   display: inline-flex;
   height: 3rem;
   justify-content: center;
@@ -635,7 +658,7 @@ a:focus-visible:not(.must-button),
 .must-shell-profile button {
   background: none;
   border: none;
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
   cursor: pointer;
   font: inherit;
   font-size: 0.8125rem;
@@ -648,7 +671,7 @@ a:focus-visible:not(.must-button),
 }
 .must-avatar {
   align-items: center;
-  background: var(--must-color-ink);
+  background: var(--must-color-accent);
   border-radius: var(--must-radius-pill);
   color: white;
   display: inline-flex;
@@ -721,7 +744,7 @@ a:focus-visible:not(.must-button),
   width: 100%;
 }
 .must-account-menu__item:hover {
-  background: var(--must-color-surface-selected);
+  background: var(--must-color-surface-hover);
 }
 .must-account-menu__item--danger {
   color: var(--must-color-danger);
@@ -909,7 +932,7 @@ a:focus-visible:not(.must-button),
   }
   .must-mobile-bottom-navigation__item[aria-current='page'] {
     background: var(--must-color-surface-selected);
-    color: var(--must-color-ink);
+    color: var(--must-color-accent);
   }
 }
 .must-sidebar-navigation {
@@ -922,7 +945,7 @@ a:focus-visible:not(.must-button),
 }
 .must-shell-brand {
   align-items: center;
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
   display: flex;
   font-size: 1rem;
   font-weight: 800;
@@ -955,12 +978,14 @@ a:focus-visible:not(.must-button),
   flex: 0 0 auto;
 }
 .must-navigation-links a:hover {
-  background: var(--must-color-canvas);
+  background: var(--must-color-surface-hover);
   color: var(--must-color-text-primary);
 }
+/* Selected is not color alone: the accent bar marks it for anyone who cannot tell the tint apart. */
 .must-navigation-links a[aria-current='page'] {
   background: var(--must-color-surface-selected);
-  color: var(--must-color-ink);
+  box-shadow: inset 3px 0 0 var(--must-color-accent);
+  color: var(--must-color-accent);
   font-weight: 700;
 }
 .must-navigation-section-tabs {
@@ -984,8 +1009,8 @@ a:focus-visible:not(.must-button),
   color: var(--must-color-text-primary);
 }
 .must-navigation-section-tab[aria-current='page'] {
-  border-bottom-color: var(--must-color-ink);
-  color: var(--must-color-ink);
+  border-bottom-color: var(--must-color-accent);
+  color: var(--must-color-accent);
   font-weight: 700;
 }
 .must-navigation-pagination {

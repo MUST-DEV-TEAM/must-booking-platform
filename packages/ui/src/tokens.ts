@@ -1,5 +1,5 @@
 /** The public token version. Increment for every token addition, change, or deprecation. */
-export const DESIGN_TOKEN_VERSION = '1.4.0';
+export const DESIGN_TOKEN_VERSION = '1.5.0';
 
 export type TokenStatus = 'active' | 'deprecated';
 
@@ -126,14 +126,36 @@ const statusTokenEntries: readonly DesignToken[] = Object.entries(statusTokenPai
  */
 export const designTokens: readonly DesignToken[] = [
   {
-    cssVariable: '--must-color-ink',
-    description: 'color/action/primary — primary brand/action color (deep pine).',
+    cssVariable: '--must-color-accent',
+    description:
+      'Theme accent — primary action color, links, selection marker and focus ring. The only color a hotel theme changes. Default: near-black slate.',
     status: 'active',
   },
   {
-    cssVariable: '--must-color-ink-hover',
-    description: 'color/action/primary-hover.',
+    cssVariable: '--must-color-accent-hover',
+    description: 'Accent hover/pressed state.',
     status: 'active',
+  },
+  {
+    cssVariable: '--must-color-accent-tint',
+    description: 'Pale accent wash behind selected items and icon chips.',
+    status: 'active',
+  },
+  {
+    cssVariable: '--must-color-ink',
+    description: 'Renamed --must-color-accent in 1.5.0 (the old deep-pine brand color).',
+    status: 'deprecated',
+    replacement: '--must-color-accent',
+    deprecatedIn: '1.5.0',
+    removeAfter: '2.0.0',
+  },
+  {
+    cssVariable: '--must-color-ink-hover',
+    description: 'Renamed --must-color-accent-hover in 1.5.0.',
+    status: 'deprecated',
+    replacement: '--must-color-accent-hover',
+    deprecatedIn: '1.5.0',
+    removeAfter: '2.0.0',
   },
   {
     cssVariable: '--must-color-text-primary',
@@ -161,18 +183,26 @@ export const designTokens: readonly DesignToken[] = [
     status: 'active',
   },
   {
+    cssVariable: '--must-color-surface-hover',
+    description:
+      'Neutral hover wash for rows, menu items and quiet buttons. Not used for selection.',
+    status: 'active',
+  },
+  {
     cssVariable: '--must-color-surface-selected',
-    description: 'color/surface/selected — selected or active surface.',
+    description:
+      'Selected or active surface — the accent tint. Pair it with a non-color marker (accent bar, weight).',
     status: 'active',
   },
   {
     cssVariable: '--must-color-border',
-    description: 'color/neutral/200 — default border color.',
+    description: 'Default border color (neutral-200).',
     status: 'active',
   },
   {
     cssVariable: '--must-color-border-strong',
-    description: 'color/pine/200 — emphasized/brand-tinted border.',
+    description:
+      'Emphasized border (neutral-300): hovered inputs, secondary buttons, dividers that need weight.',
     status: 'active',
   },
   {
@@ -197,37 +227,84 @@ export const designTokens: readonly DesignToken[] = [
   },
   {
     cssVariable: '--must-color-accent-brass',
-    description: 'Brass semantic accent used by status and focus tokens.',
+    description: 'Brass is retired from the palette; this alias now resolves to the warning color.',
+    status: 'deprecated',
+    replacement: '--must-color-warning',
+    deprecatedIn: '1.5.0',
+    removeAfter: '2.0.0',
+  },
+  {
+    cssVariable: '--must-color-danger-surface',
+    description: 'Pale danger wash behind failed/destructive content.',
     status: 'active',
   },
   {
+    cssVariable: '--must-color-success-surface',
+    description: 'Pale success wash behind confirmed/healthy content.',
+    status: 'active',
+  },
+  {
+    cssVariable: '--must-color-warning-surface',
+    description: 'Pale warning wash behind pending/attention content.',
+    status: 'active',
+  },
+  {
+    cssVariable: '--must-color-info-surface',
+    description: 'Pale info wash behind informational content.',
+    status: 'active',
+  },
+  {
+    cssVariable: '--must-color-notification-badge',
+    description: 'Unread-notification dot/badge. A fixed signal color, never themed.',
+    status: 'active',
+  },
+  ...(
+    [
+      ['50', 'page canvas'],
+      ['100', 'hover wash'],
+      ['200', 'default border'],
+      ['300', 'strong border'],
+      ['400', 'disabled/placeholder tones'],
+      ['500', 'tertiary text'],
+      ['600', 'secondary text'],
+      ['700', 'strong secondary text'],
+      ['800', 'dark surfaces'],
+      ['900', 'primary text'],
+      ['950', 'deepest neutral'],
+    ] as const
+  ).map(([step, use]) => ({
+    cssVariable: `--must-neutral-${step}` as const,
+    description: `Neutral scale ${step} (slightly cool grey) — ${use}. Semantic tokens point into this scale.`,
+    status: 'active' as const,
+  })),
+  {
     cssVariable: '--must-color-chart-series-1',
-    description: 'Chart series 1 — pine-800.',
+    description: 'Chart series 1 — blue. Chart colors are theme-independent.',
     status: 'active',
   },
   {
     cssVariable: '--must-color-chart-series-2',
-    description: 'Chart series 2 — brass-500.',
+    description: 'Chart series 2 — amber.',
     status: 'active',
   },
   {
     cssVariable: '--must-color-chart-series-3',
-    description: 'Chart series 3 — sky-500.',
+    description: 'Chart series 3 — green-teal.',
     status: 'active',
   },
   {
     cssVariable: '--must-color-chart-series-4',
-    description: 'Chart series 4 — violet-500 slot.',
+    description: 'Chart series 4 — violet.',
     status: 'active',
   },
   {
     cssVariable: '--must-color-chart-series-5',
-    description: 'Chart series 5 — green-500.',
+    description: 'Chart series 5 — slate.',
     status: 'active',
   },
   {
     cssVariable: '--must-color-chart-series-6',
-    description: 'Chart series 6 — amber-500-2.',
+    description: 'Chart series 6 — cyan.',
     status: 'active',
   },
   ...statusTokenEntries,
@@ -303,12 +380,12 @@ export const designTokens: readonly DesignToken[] = [
   },
   {
     cssVariable: '--must-color-focus-ring',
-    description: 'Brass-500 semantic focus-ring colour; intentionally separate from brand accent.',
+    description: 'Focus-ring colour; follows the theme accent.',
     status: 'active',
   },
   {
     cssVariable: '--must-shadow-focus-ring',
-    description: 'Brass-tinted focus-ring shadow foundation.',
+    description: 'Focus-ring shadow foundation: a surface-colored gap plus an accent ring.',
     status: 'active',
   },
   {

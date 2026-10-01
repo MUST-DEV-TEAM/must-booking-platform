@@ -27,7 +27,7 @@
 .choice {
   align-items: center;
   border: 1px solid var(--must-color-border);
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
   display: flex;
   font-weight: 700;
   justify-content: space-between;
@@ -39,7 +39,7 @@
 }
 .choice:hover,
 .choice:focus-visible {
-  border-color: var(--must-color-ink);
+  border-color: var(--must-color-accent);
   outline: 0;
   transform: translateY(-2px);
 }

@@ -61,7 +61,7 @@
 }
 
 .stat strong {
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
   font-size: 2rem;
   line-height: 1;
 }

@@ -28,7 +28,7 @@
   background: var(--must-color-surface);
   border: 1px solid var(--must-color-border);
   border-radius: var(--must-radius-control);
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
   min-height: 2.5rem;
   padding: 0 var(--must-space-8);
 }
@@ -63,7 +63,7 @@
   text-transform: inherit;
 }
 .sortButton:hover {
-  color: var(--must-color-ink);
+  color: var(--must-color-accent);
 }
 .table td,
 .table th {
