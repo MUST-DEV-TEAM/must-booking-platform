@@ -116,6 +116,8 @@ import { ClockPmsProvider } from './integrations/clock/clock-pms.provider';
 import { ClockCatalogSyncService } from './integrations/clock/clock-catalog-sync.service';
 import { ClockCatalogSyncController } from './integrations/clock/clock-catalog-sync.controller';
 import { ClockAvailabilityService } from './integrations/clock/clock-availability.service';
+import { ClockPrePaymentAvailability } from './integrations/clock/clock-pre-payment-availability';
+import { PrePaymentAvailabilityRegistry } from './booking/pre-payment-availability';
 import { ClockRateRankingService } from './integrations/clock/clock-rate-ranking.service';
 import {
   ClockRateRankingBatchController,
@@ -272,6 +274,8 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PmsProviderRegistry,
     ClockCatalogSyncService,
     ClockAvailabilityService,
+    ClockPrePaymentAvailability,
+    PrePaymentAvailabilityRegistry,
     ClockRateRankingService,
     ClockBookingService,
     ClockBookingConsistencyService,

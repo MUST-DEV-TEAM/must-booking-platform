@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BookingPaymentMethod, BookingStatus } from '@must/domain-contracts';
 
+import { ClockPrePaymentAvailability } from '../integrations/clock/clock-pre-payment-availability';
 import { LocalPmsProvider } from './local-pms.provider';
+import { PrePaymentAvailabilityRegistry } from './pre-payment-availability';
 
 const context = {
   tenantId: '11111111-1111-4111-8111-111111111111',
@@ -58,8 +60,14 @@ function makeProvider(options: { clockConnected: boolean; clockAvailable: boolea
       ),
   };
   const clockAvailability = {
-    isAvailableForBooking: vi.fn().mockResolvedValue({ ok: true, value: options.clockAvailable }),
+    unavailableRoomsForBooking: vi
+      .fn()
+      .mockResolvedValue({ ok: true, value: options.clockAvailable ? [] : [command.roomId] }),
   };
+  const prePaymentAvailability = new PrePaymentAvailabilityRegistry(
+    connections as never,
+    new ClockPrePaymentAvailability(clockAvailability as never),
+  );
   const checkout = { id: 'checkout-1', url: 'https://payments.example.test/checkout-1' };
   const paymentProviders = {
     forBookingMethod: vi.fn().mockReturnValue({
@@ -81,7 +89,7 @@ function makeProvider(options: { clockConnected: boolean; clockAvailable: boolea
     connections as never,
     {} as never,
     {} as never,
-    clockAvailability as never,
+    prePaymentAvailability,
   );
 
   // Isolate the guard's transactional position: all preceding validations have
@@ -156,7 +164,11 @@ describe('LocalPmsProvider pre-payment Clock availability', () => {
       error: { code: 'AVAILABILITY_FAILED' },
     });
     expect(fixture.availability.reserveRoom).toHaveBeenCalledOnce();
-    expect(fixture.clockAvailability.isAvailableForBooking).toHaveBeenCalledOnce();
+    expect(fixture.clockAvailability.unavailableRoomsForBooking).toHaveBeenCalledWith(
+      context.tenantId,
+      context.propertyId,
+      { roomIds: [command.roomId], startsOn: command.startsOn, endsOn: command.endsOn },
+    );
     expect(fixture.paymentProviders.forBookingMethod).not.toHaveBeenCalled();
     expect(fixture.rolledBack).toBe(true);
   });
@@ -168,7 +180,7 @@ describe('LocalPmsProvider pre-payment Clock availability', () => {
       ok: true,
       value: { checkoutUrl: 'https://payments.example.test/checkout-1' },
     });
-    expect(fixture.clockAvailability.isAvailableForBooking).toHaveBeenCalledOnce();
+    expect(fixture.clockAvailability.unavailableRoomsForBooking).toHaveBeenCalledOnce();
     expect(fixture.paymentProviders.forBookingMethod).toHaveBeenCalledWith(
       BookingPaymentMethod.STRIPE_CHECKOUT,
     );
@@ -181,7 +193,7 @@ describe('LocalPmsProvider pre-payment Clock availability', () => {
     await expect(fixture.provider.createBooking(context, command)).resolves.toMatchObject({
       ok: true,
     });
-    expect(fixture.clockAvailability.isAvailableForBooking).not.toHaveBeenCalled();
+    expect(fixture.clockAvailability.unavailableRoomsForBooking).not.toHaveBeenCalled();
     expect(fixture.paymentProviders.forBookingMethod).toHaveBeenCalledOnce();
   });
 });

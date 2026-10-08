@@ -13,6 +13,7 @@ import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { PAYMENT_PROVIDER } from '../src/payments/payment.provider';
 import { StripeWebhookService } from '../src/payments/stripe-webhook.service';
 import { IntegrationConnectionsService } from '../src/integrations/integration-connections.service';
+import { ClockAvailabilityService } from '../src/integrations/clock/clock-availability.service';
 import { ClockBookingService } from '../src/integrations/clock/clock-booking.service';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
@@ -31,6 +32,8 @@ describe('Multi-room booking orders', () => {
   let propertyId: string;
   let userId: string;
   let verificationToken = '';
+  let clockCheckTenantId: string | undefined;
+  let clockCheckUserId: string | undefined;
   let clockConnected = false;
   let failSecondClockReservation = false;
   let failSecondClockCancellation = false;
@@ -185,6 +188,9 @@ describe('Multi-room booking orders', () => {
 
   afterAll(async () => {
     if (tenantId) await cleanupTenant(admin, tenantId);
+    if (clockCheckTenantId) await cleanupTenant(admin, clockCheckTenantId);
+    if (clockCheckUserId)
+      await admin.$executeRaw`DELETE FROM users WHERE id = ${clockCheckUserId}::uuid`;
     if (userId) await admin.$executeRaw`DELETE FROM users WHERE id = ${userId}::uuid`;
     if (app) await app.close();
     await admin.$disconnect();
@@ -843,5 +849,178 @@ describe('Multi-room booking orders', () => {
         }),
       }),
     ]);
+  });
+
+  it('checks live Clock availability for every room before online checkout', async () => {
+    const signup = await request(app!.getHttpServer())
+      .post('/auth/signup')
+      .send({
+        organizationName: 'Multi Room Clock Check Group',
+        propertyName: 'Multi Room Clock Check Property',
+        propertyAddress: '2 Atomic Way',
+        propertyTimezone: 'Europe/Tirane',
+        email: `multi-room-clock-${randomUUID()}@example.test`,
+        password: 'correct-horse-battery-staple',
+      })
+      .expect(201);
+    const checkTenantId: string = signup.body.organization.id;
+    const checkPropertyId: string = signup.body.property.id;
+    clockCheckTenantId = checkTenantId;
+    clockCheckUserId = signup.body.user.id;
+    const cookie = signup.headers['set-cookie'][0];
+    const propertyUrl = `/tenants/${checkTenantId}/properties/${checkPropertyId}`;
+    await request(app!.getHttpServer())
+      .post('/auth/email-verification/confirm')
+      .send({ token: verificationToken })
+      .expect(204);
+    await request(app!.getHttpServer())
+      .patch(`${propertyUrl}/payment-gateways`)
+      .set('Cookie', cookie)
+      .send({ stripe: true, pokpay: false, payAtHotel: true })
+      .expect(200);
+    const [roomType, ratePlan] = await Promise.all([
+      request(app!.getHttpServer())
+        .post(`${propertyUrl}/room-types`)
+        .set('Cookie', cookie)
+        .send({ name: 'Sea View Double', maxOccupancy: 2 }),
+      request(app!.getHttpServer())
+        .post(`${propertyUrl}/rate-plans`)
+        .set('Cookie', cookie)
+        .send({ name: 'Flexible', currency: 'EUR', freeCancellationUntilHours: 48 }),
+    ]);
+    expect(roomType.status).toBe(201);
+    expect(ratePlan.status).toBe(201);
+    const startsOn = '2027-01-10';
+    const endsOn = '2027-01-12';
+    await Promise.all([
+      request(app!.getHttpServer())
+        .put(`${propertyUrl}/inventory-units`)
+        .set('Cookie', cookie)
+        .send({ roomTypeId: roomType.body.id, startsOn, endsOn, availableUnits: 2 })
+        .expect(204),
+      request(app!.getHttpServer())
+        .post(`${propertyUrl}/rate-plans/${ratePlan.body.id}/rules`)
+        .set('Cookie', cookie)
+        .send({ roomTypeId: roomType.body.id, startsOn: null, endsOn: null, amount: '90.00' })
+        .expect(201),
+    ]);
+
+    const quotes = app!.get(QuoteService);
+    const orders = app!.get(MultiRoomBookingService);
+    const order = async () => {
+      // Quotes use the local pricing path; Clock is connected only for the order itself.
+      clockConnected = false;
+      const sessionId = randomUUID();
+      const [first, second] = await Promise.all([
+        quotes.create(checkTenantId, checkPropertyId, sessionId, {
+          roomTypeId: roomType.body.id,
+          ratePlanId: ratePlan.body.id,
+          startsOn,
+          endsOn,
+        }),
+        quotes.create(checkTenantId, checkPropertyId, sessionId, {
+          roomTypeId: roomType.body.id,
+          ratePlanId: ratePlan.body.id,
+          startsOn,
+          endsOn,
+        }),
+      ]);
+      clockConnected = true;
+      try {
+        return await orders.create(
+          { tenantId: checkTenantId, propertyId: checkPropertyId },
+          {
+            idempotencyKey: randomUUID(),
+            startsOn,
+            endsOn,
+            quoteSessionId: sessionId,
+            paymentMethod: 'stripe',
+            guest: {
+              email: `clock-check-${randomUUID()}@example.test`,
+              firstName: 'Clock',
+              lastName: 'Check',
+              phone: null,
+            },
+            rooms: [first, second].map((quote) => ({
+              roomTypeId: roomType.body.id,
+              ratePlanId: ratePlan.body.id,
+              total: quote.total,
+              quoteToken: quote.quoteToken,
+            })),
+          },
+        );
+      } finally {
+        clockConnected = false;
+      }
+    };
+    const clockState = async () => {
+      const [bookings, inventory] = await Promise.all([
+        admin.$queryRaw<Array<{ count: bigint }>>`
+          SELECT COUNT(*)::bigint AS count FROM bookings
+          WHERE tenant_id = ${checkTenantId}::uuid AND property_id = ${checkPropertyId}::uuid
+        `,
+        admin.$queryRaw<Array<{ bookedUnits: number }>>`
+          SELECT booked_units AS "bookedUnits" FROM inventory_units
+          WHERE tenant_id = ${checkTenantId}::uuid AND property_id = ${checkPropertyId}::uuid
+        `,
+      ]);
+      return {
+        bookings: bookings[0]!.count,
+        bookedUnits: inventory.map((row) => row.bookedUnits),
+      };
+    };
+    const clock = app!.get(ClockAvailabilityService);
+    const createCheckout = vi.spyOn(payments, 'createCheckoutSession');
+    const liveAvailability = vi.spyOn(clock, 'getAvailability');
+    const clockAnswer = (availableUnits: number) => ({
+      ok: true as const,
+      value: {
+        roomTypeId: roomType.body.id,
+        startsOn,
+        endsOn,
+        isAvailable: availableUnits > 0,
+        availableUnits,
+      },
+    });
+    try {
+      // Locally two units are free, but Clock has only one left: no checkout, no holds.
+      liveAvailability.mockResolvedValue(clockAnswer(1));
+      await expect(order()).resolves.toMatchObject({
+        ok: false,
+        error: { code: 'AVAILABILITY_FAILED', retryable: false },
+      });
+      expect(liveAvailability).toHaveBeenCalledWith(
+        checkTenantId,
+        checkPropertyId,
+        expect.objectContaining({ roomTypeId: roomType.body.id, startsOn, endsOn }),
+        { skipCache: true },
+      );
+      expect(createCheckout).not.toHaveBeenCalled();
+      await expect(clockState()).resolves.toEqual({ bookings: 0n, bookedUnits: [0, 0] });
+
+      // Clock cannot be reached: still fail closed, and tell the guest to retry.
+      liveAvailability.mockResolvedValue({
+        ok: false,
+        error: { code: 'CLOCK_UNAVAILABLE', message: 'timeout', retryable: true },
+      });
+      await expect(order()).resolves.toMatchObject({
+        ok: false,
+        error: { code: 'AVAILABILITY_FAILED', retryable: true },
+      });
+      expect(createCheckout).not.toHaveBeenCalled();
+      await expect(clockState()).resolves.toEqual({ bookings: 0n, bookedUnits: [0, 0] });
+
+      // Clock confirms both units: checkout opens and both rooms are held.
+      liveAvailability.mockResolvedValue(clockAnswer(2));
+      const paid = await order();
+      expect(paid.ok).toBe(true);
+      if (!paid.ok) return;
+      expect(paid.value.checkoutUrl).toContain(paid.value.bookings[0]!.id);
+      expect(createCheckout).toHaveBeenCalledTimes(1);
+      await expect(clockState()).resolves.toEqual({ bookings: 2n, bookedUnits: [2, 2] });
+    } finally {
+      createCheckout.mockRestore();
+      liveAvailability.mockRestore();
+    }
   });
 });

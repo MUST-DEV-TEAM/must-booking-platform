@@ -17,6 +17,7 @@ import { BookingConfirmationNotificationService } from '../mail/booking-confirma
 import { PaymentProviderRegistry } from '../payments/payment-provider-registry';
 import { QuoteService } from './quote.service';
 import { resolveBookingOccupancy } from './booking-occupancy';
+import { PrePaymentAvailabilityRegistry } from './pre-payment-availability';
 
 type RoomGuestName = Pick<CreateBookingCommand['guest'], 'firstName' | 'lastName'>;
 
@@ -55,6 +56,12 @@ type OperationRow = { requestHash: string; result: Result<MultiRoomOrder> | null
 
 class MultiRoomAvailabilityError extends Error {}
 
+class PrePaymentAvailabilityError extends Error {
+  constructor(readonly result: Result<never>) {
+    super(result.ok ? 'Clock availability check failed.' : result.error.message);
+  }
+}
+
 /**
  * Milestone 12 Task 14 local half of the multi-room flow.  This service deliberately
  * owns no provider calls: every requested room is validated and held in the one tenant
@@ -70,6 +77,8 @@ export class MultiRoomBookingService {
     @Inject(IntegrationConnectionsService)
     private readonly connections: IntegrationConnectionsService,
     @Inject(ClockBookingService) private readonly clockBooking: ClockBookingService,
+    @Inject(PrePaymentAvailabilityRegistry)
+    private readonly prePaymentAvailability: PrePaymentAvailabilityRegistry,
     @Inject(BookingConfirmationNotificationService)
     private readonly confirmations: BookingConfirmationNotificationService,
   ) {}
@@ -193,6 +202,22 @@ export class MultiRoomBookingService {
               paymentMethod.value === BookingPaymentMethod.STRIPE_CHECKOUT ||
               paymentMethod.value === BookingPaymentMethod.POKPAY
             ) {
+              // Same live PMS check as single-room checkout: the PMS holds nothing while the
+              // guest pays, so confirm every room is still free there before taking money.
+              const confirmed = await this.prePaymentAvailability.confirmAvailable(context, {
+                startsOn: command.startsOn,
+                endsOn: command.endsOn,
+                rooms: command.rooms.map((room) => {
+                  const occupancy = resolveBookingOccupancy({ guestCount: room.guestCount });
+                  return {
+                    roomTypeId: room.roomTypeId,
+                    roomId: room.roomId,
+                    adults: occupancy.adults,
+                    children: occupancy.children,
+                  };
+                }),
+              });
+              if (!confirmed.ok) throw new PrePaymentAvailabilityError(confirmed);
               const provider = this.paymentProviders.forBookingMethod(paymentMethod.value);
               if (!provider)
                 return this.failure(
@@ -231,6 +256,7 @@ export class MultiRoomBookingService {
       if (result.ok) await this.sendPayAtHotelConfirmations(context, result.value.orderReference);
       return result;
     } catch (error) {
+      if (error instanceof PrePaymentAvailabilityError) return error.result;
       if (error instanceof MultiRoomAvailabilityError)
         return this.failure(
           'AVAILABILITY_FAILED',

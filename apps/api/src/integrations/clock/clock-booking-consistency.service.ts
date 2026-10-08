@@ -126,10 +126,29 @@ export class ClockBookingConsistencyService {
     range: { startsOn: string; endsOn: string },
     externalRoomId: string,
   ): Promise<boolean> {
+    return (await this.activeRoomConflicts(credentials, range, [externalRoomId])).has(
+      externalRoomId,
+    );
+  }
+
+  /**
+   * The subset of `externalRoomIds` occupied by a non-cancelled Clock reservation during
+   * [startsOn, endsOn), from one read of the overlapping bookings so several rooms cost
+   * the same Clock requests as one.
+   */
+  async activeRoomConflicts(
+    credentials: ClockConnectionCredentials,
+    range: { startsOn: string; endsOn: string },
+    externalRoomIds: string[],
+  ): Promise<Set<string>> {
+    const wanted = new Set(externalRoomIds);
     const bookings = await this.fetchBookings(credentials, range);
-    return bookings.some(
-      (booking) =>
-        booking.status !== 'canceled' && String(booking.arrival_room_id) === externalRoomId,
+    return new Set(
+      bookings
+        .filter(
+          (booking) => booking.status !== 'canceled' && wanted.has(String(booking.arrival_room_id)),
+        )
+        .map((booking) => String(booking.arrival_room_id)),
     );
   }
 
