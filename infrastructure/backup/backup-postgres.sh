@@ -9,7 +9,10 @@
 #   BACKUP_REMOTE          rclone destination, e.g. "must-backup-crypt:postgres" (required)
 #   PG_CONTAINER           Docker container running Postgres, e.g. "containers-postgres-1".
 #                          Set this OR BACKUP_DATABASE_URL.
-#   BACKUP_DATABASE_URL    postgresql:// URL for a host-installed pg_dump (owner role, not the app role)
+#   BACKUP_DATABASE_URL    postgresql://user@host:5432/must_booking for a host-installed pg_dump.
+#                          No password in the URL (it would show in the process list): put it in
+#                          root's ~/.pgpass (mode 600). The role must be superuser or BYPASSRLS,
+#                          because the tables force row-level security.
 #   PG_USER / PG_DATABASE  user and database inside the container (default must_booking / must_booking)
 #   BACKUP_LOCAL_DIR       local copy directory (default /var/backups/must-booking)
 #   LOCAL_KEEP_DAYS        days of local copies to keep (default 7)
@@ -26,6 +29,18 @@ REMOTE_KEEP_DAYS="${REMOTE_KEEP_DAYS:-30}"
 if [[ -z "${PG_CONTAINER:-}" && -z "${BACKUP_DATABASE_URL:-}" ]]; then
   echo "Set PG_CONTAINER or BACKUP_DATABASE_URL." >&2
   exit 2
+fi
+if [[ -z "${PG_CONTAINER:-}" ]]; then
+  if [[ "$BACKUP_DATABASE_URL" =~ ://[^/@]*:[^/@]*@ ]]; then
+    echo "Remove the password from BACKUP_DATABASE_URL and put it in ~/.pgpass." >&2
+    exit 2
+  fi
+  # pg_dump cannot read tables with forced row-level security unless the role bypasses it.
+  bypass="$(psql "$BACKUP_DATABASE_URL" -tAc 'SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user')"
+  if [[ "$bypass" != "t" ]]; then
+    echo "The backup role must be superuser or have BYPASSRLS (see infrastructure/backup/README.md)." >&2
+    exit 2
+  fi
 fi
 
 umask 077

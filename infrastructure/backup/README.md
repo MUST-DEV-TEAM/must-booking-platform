@@ -58,7 +58,13 @@ ENV
 chmod 600 /etc/must-booking/backup.env
 ```
 
-If Postgres runs directly on the server or as a managed database instead of in Docker, replace `PG_CONTAINER` with `BACKUP_DATABASE_URL=postgresql://<owner user>:<password>@<host>:5432/must_booking`. Use the owner role, not the app role. `pg_dump` on the server must then be version 17 or newer. Optional settings (`LOCAL_KEEP_DAYS`, `REMOTE_KEEP_DAYS`, `BACKUP_LOCAL_DIR`) are listed at the top of the script.
+If Postgres runs directly on the server or as a managed database instead of in Docker, replace `PG_CONTAINER` with `BACKUP_DATABASE_URL=postgresql://must_backup@<host>:5432/must_booking`, and keep the password out of the URL:
+
+- The tables force row-level security, so the backup role must bypass it. Create a dedicated read-only role once (as a superuser): `CREATE ROLE must_backup LOGIN BYPASSRLS PASSWORD '<long random>'; GRANT pg_read_all_data TO must_backup;`. Some managed databases don't allow `BYPASSRLS`; there, use their own snapshot backups instead.
+- Put the password in root's `~/.pgpass` as `<host>:5432:must_booking:must_backup:<password>` and run `chmod 600 ~/.pgpass`.
+- `pg_dump`, `pg_restore` and `psql` on the server must be version 17 or newer.
+
+The script refuses a URL that contains a password, and it refuses a role that can't bypass row-level security. Optional settings (`LOCAL_KEEP_DAYS`, `REMOTE_KEEP_DAYS`, `BACKUP_LOCAL_DIR`) are listed at the top of the script.
 
 ## 5. Run it once by hand
 
@@ -86,14 +92,17 @@ journalctl -u must-booking-backup.service -n 20      # result of the last run
 
 A backup only counts once a restore has worked. Test one into a scratch database after setup, then monthly.
 
+The decrypted dump holds guest data, so keep it readable only by root and delete it even if a step fails:
+
 ```sh
+umask 077
+trap 'rm -f /tmp/restore.dump' EXIT
 rclone ls must-backup-crypt:postgres                                   # pick a file
 rclone copyto must-backup-crypt:postgres/<file>.dump /tmp/restore.dump
 docker exec <postgres container> createdb -U must_booking restore_check
 docker exec -i <postgres container> pg_restore -U must_booking -d restore_check --no-owner </tmp/restore.dump
 docker exec <postgres container> psql -U must_booking -d restore_check -c 'select count(*) from bookings'
 docker exec <postgres container> dropdb -U must_booking restore_check
-rm /tmp/restore.dump
 ```
 
 Restoring over the live database is a production data change. Stop the `api` and `web` containers first, restore into a fresh database, and only switch over once it checks out.
