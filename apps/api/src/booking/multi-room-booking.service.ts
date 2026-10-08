@@ -12,6 +12,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { AvailabilityService } from '../tenancy/availability.service';
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
+import { ClockAvailabilityService } from '../integrations/clock/clock-availability.service';
 import { ClockBookingService } from '../integrations/clock/clock-booking.service';
 import { PaymentProviderRegistry } from '../payments/payment-provider-registry';
 import { QuoteService } from './quote.service';
@@ -54,6 +55,12 @@ type OperationRow = { requestHash: string; result: Result<MultiRoomOrder> | null
 
 class MultiRoomAvailabilityError extends Error {}
 
+class PrePaymentClockAvailabilityError extends Error {
+  constructor(readonly result: Result<never>) {
+    super(result.ok ? 'Clock availability check failed.' : result.error.message);
+  }
+}
+
 /**
  * Milestone 12 Task 14 local half of the multi-room flow.  This service deliberately
  * owns no provider calls: every requested room is validated and held in the one tenant
@@ -69,6 +76,8 @@ export class MultiRoomBookingService {
     @Inject(IntegrationConnectionsService)
     private readonly connections: IntegrationConnectionsService,
     @Inject(ClockBookingService) private readonly clockBooking: ClockBookingService,
+    @Inject(ClockAvailabilityService)
+    private readonly clockAvailability: ClockAvailabilityService,
   ) {}
 
   async create(
@@ -190,6 +199,14 @@ export class MultiRoomBookingService {
               paymentMethod.value === BookingPaymentMethod.STRIPE_CHECKOUT ||
               paymentMethod.value === BookingPaymentMethod.POKPAY
             ) {
+              // Same live Clock check as single-room checkout: Clock gets no hold while the
+              // guest pays, so confirm every room is still free there before taking money.
+              const clockAvailabilityFailure = await this.prePaymentClockAvailabilityFailure(
+                context,
+                command,
+              );
+              if (clockAvailabilityFailure)
+                throw new PrePaymentClockAvailabilityError(clockAvailabilityFailure);
               const provider = this.paymentProviders.forBookingMethod(paymentMethod.value);
               if (!provider)
                 return this.failure(
@@ -226,6 +243,7 @@ export class MultiRoomBookingService {
         { timeoutMs: 45_000 },
       );
     } catch (error) {
+      if (error instanceof PrePaymentClockAvailabilityError) return error.result;
       if (error instanceof MultiRoomAvailabilityError)
         return this.failure(
           'AVAILABILITY_FAILED',
@@ -515,6 +533,82 @@ export class MultiRoomBookingService {
       context.propertyId,
     );
     return connection?.provider === 'CLOCK_PMS';
+  }
+
+  /**
+   * Uncached Clock check before checkout. A specific room is checked against Clock's
+   * reservations; unassigned rooms are checked per room type and occupancy, and when an
+   * order asks for several rooms of one type Clock must report that many free units.
+   */
+  private async prePaymentClockAvailabilityFailure(
+    context: { tenantId: string; propertyId: string },
+    command: MultiRoomBookingCommand,
+  ): Promise<Result<never> | null> {
+    if (!(await this.isClockConnected(context))) return null;
+
+    const roomsPerType = new Map<string, number>();
+    for (const room of command.rooms)
+      roomsPerType.set(room.roomTypeId, (roomsPerType.get(room.roomTypeId) ?? 0) + 1);
+
+    const checkedTypeOccupancies = new Set<string>();
+    for (const room of command.rooms) {
+      const occupancy = resolveBookingOccupancy({ guestCount: room.guestCount });
+      if (room.roomId) {
+        const result = await this.clockAvailability.isAvailableForBooking(
+          context.tenantId,
+          context.propertyId,
+          {
+            roomTypeId: room.roomTypeId,
+            roomId: room.roomId,
+            startsOn: command.startsOn,
+            endsOn: command.endsOn,
+            adultCount: occupancy.adults,
+            childrenCount: occupancy.children,
+          },
+        );
+        if (!result.ok) return this.clockUnconfirmed(result.error.retryable);
+        if (!result.value)
+          return this.failure(
+            'AVAILABILITY_FAILED',
+            'A selected room is no longer available for the requested stay.',
+          );
+        continue;
+      }
+
+      const key = `${room.roomTypeId}:${occupancy.adults}:${occupancy.children}`;
+      if (checkedTypeOccupancies.has(key)) continue;
+      checkedTypeOccupancies.add(key);
+      const result = await this.clockAvailability.getAvailability(
+        context.tenantId,
+        context.propertyId,
+        {
+          roomTypeId: room.roomTypeId,
+          startsOn: command.startsOn,
+          endsOn: command.endsOn,
+          adultCount: occupancy.adults,
+          childrenCount: occupancy.children,
+        },
+        { skipCache: true },
+      );
+      if (!result.ok) return this.clockUnconfirmed(result.error.retryable);
+      if (
+        !result.value.isAvailable ||
+        result.value.availableUnits < roomsPerType.get(room.roomTypeId)!
+      )
+        return this.failure(
+          'AVAILABILITY_FAILED',
+          'One or more requested rooms are no longer available for the requested stay.',
+        );
+    }
+    return null;
+  }
+
+  private clockUnconfirmed(retryable: boolean): Result<never> {
+    return this.failure(
+      'AVAILABILITY_FAILED',
+      'Live Clock availability could not be confirmed. Please try again.',
+      retryable,
+    );
   }
 
   private failure(code: string, message: string, retryable = false): Result<never> {
