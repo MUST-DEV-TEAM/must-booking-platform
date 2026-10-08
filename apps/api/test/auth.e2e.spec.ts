@@ -319,6 +319,21 @@ describe('authentication endpoints', () => {
     await login({ email, password: 'new-correct-horse-battery' }).expect(201);
   });
 
+  it('caps concurrent wrong guesses at the failure limit', async () => {
+    await clearAuthRateLimits();
+    const statuses = await Promise.all(
+      Array.from({ length: LOGIN_FAILURE_LIMIT * 3 }, () =>
+        request(app.getHttpServer())
+          .post('/auth/login')
+          .send({ email, password: 'wrong-password-123' })
+          .then((response) => response.status),
+      ),
+    );
+    expect(statuses.filter((status) => status === 401)).toHaveLength(LOGIN_FAILURE_LIMIT);
+    expect(statuses.filter((status) => status === 429)).toHaveLength(LOGIN_FAILURE_LIMIT * 2);
+    await clearAuthRateLimits();
+  });
+
   it('resets the failure count after a successful sign-in', async () => {
     const login = (password: string) =>
       request(app.getHttpServer()).post('/auth/login').send({ email, password });

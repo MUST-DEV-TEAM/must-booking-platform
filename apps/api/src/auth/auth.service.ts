@@ -163,8 +163,10 @@ export class AuthService implements OnModuleDestroy {
     const { email, password } = this.credentials(input);
     const failureKey = this.rateLimitKey('login-failures', email);
     const redis = await this.client();
-    const failures = Number((await redis.get(failureKey)) ?? 0);
-    if (failures >= LOGIN_FAILURE_LIMIT) {
+    // Reserve the attempt before checking the password, so concurrent guesses cannot all
+    // read a count below the limit. A successful sign-in clears the counter below.
+    const attempts = await this.countAttempt(failureKey, LOGIN_FAILURE_WINDOW_SECONDS);
+    if (attempts > LOGIN_FAILURE_LIMIT) {
       const minutes = Math.max(1, Math.ceil((await redis.ttl(failureKey)) / 60));
       throw new HttpException(
         `Too many failed sign-in attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`,
@@ -172,10 +174,8 @@ export class AuthService implements OnModuleDestroy {
       );
     }
     const user = await this.findUser(email);
-    if (!user?.passwordHash || !(await bcrypt.compare(password, user.passwordHash))) {
-      await this.countAttempt(failureKey, LOGIN_FAILURE_WINDOW_SECONDS);
+    if (!user?.passwordHash || !(await bcrypt.compare(password, user.passwordHash)))
       throw new UnauthorizedException('Invalid email or password.');
-    }
     await redis.del(failureKey);
     const sessionId = await this.createSession(user.id);
     await this.auditLogs.record({
