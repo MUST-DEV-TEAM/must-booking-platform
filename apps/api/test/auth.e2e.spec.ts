@@ -6,9 +6,13 @@ import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { AuthService } from '../src/auth/auth.service';
+import {
+  AUTH_EMAIL_REQUEST_LIMIT,
+  AuthService,
+  LOGIN_FAILURE_LIMIT,
+} from '../src/auth/auth.service';
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
-import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
+import { clearAuthRateLimits, clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 
 const migrationPrisma = new PrismaClient({
   datasources: {
@@ -61,6 +65,7 @@ describe('authentication endpoints', () => {
     process.env.REDIS_URL = 'redis://localhost:6379';
     process.env.WEB_APP_URL = 'http://localhost:3001';
     await clearSignupRateLimits();
+    await clearAuthRateLimits();
     const { AppModule } = await import('../src/app.module');
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(MAIL_PROVIDER)
@@ -294,6 +299,64 @@ describe('authentication endpoints', () => {
       .post('/auth/login')
       .send({ email, password: 'new-correct-horse-battery' })
       .expect(201);
+  });
+
+  it('locks sign-in for one email after too many failed attempts', async () => {
+    const login = (body: { email: string; password: string }) =>
+      request(app.getHttpServer()).post('/auth/login').send(body);
+    for (let attempt = 0; attempt < LOGIN_FAILURE_LIMIT; attempt += 1)
+      await login({ email, password: 'wrong-password-123' }).expect(401);
+
+    const locked = await login({ email, password: 'new-correct-horse-battery' }).expect(429);
+    expect(locked.body.message).toContain('Too many failed sign-in attempts');
+    // Other accounts are unaffected, even though every request shares one client IP.
+    await login({
+      email: `other-${randomUUID()}@example.test`,
+      password: 'wrong-password-123',
+    }).expect(401);
+
+    await clearAuthRateLimits();
+    await login({ email, password: 'new-correct-horse-battery' }).expect(201);
+  });
+
+  it('caps concurrent wrong guesses at the failure limit', async () => {
+    await clearAuthRateLimits();
+    const statuses = await Promise.all(
+      Array.from({ length: LOGIN_FAILURE_LIMIT * 3 }, () =>
+        request(app.getHttpServer())
+          .post('/auth/login')
+          .send({ email, password: 'wrong-password-123' })
+          .then((response) => response.status),
+      ),
+    );
+    expect(statuses.filter((status) => status === 401)).toHaveLength(LOGIN_FAILURE_LIMIT);
+    expect(statuses.filter((status) => status === 429)).toHaveLength(LOGIN_FAILURE_LIMIT * 2);
+    await clearAuthRateLimits();
+  });
+
+  it('resets the failure count after a successful sign-in', async () => {
+    const login = (password: string) =>
+      request(app.getHttpServer()).post('/auth/login').send({ email, password });
+    for (let attempt = 0; attempt < LOGIN_FAILURE_LIMIT - 1; attempt += 1)
+      await login('wrong-password-123').expect(401);
+    await login('new-correct-horse-battery').expect(201);
+    for (let attempt = 0; attempt < LOGIN_FAILURE_LIMIT - 1; attempt += 1)
+      await login('wrong-password-123').expect(401);
+    await login('new-correct-horse-battery').expect(201);
+  });
+
+  it('stops sending reset emails past the hourly limit but answers the same way', async () => {
+    await clearAuthRateLimits();
+    const before = sentEmails.filter(({ kind }) => kind === 'password-reset').length;
+    for (let attempt = 0; attempt < AUTH_EMAIL_REQUEST_LIMIT + 2; attempt += 1)
+      await request(app.getHttpServer())
+        .post('/auth/password-reset/request')
+        .send({ email })
+        .expect(202)
+        .expect({ accepted: true });
+    const sent = sentEmails.filter(({ kind }) => kind === 'password-reset').length - before;
+    expect(sent).toBe(AUTH_EMAIL_REQUEST_LIMIT);
+    await clearAuthRateLimits();
   });
 
   it('rolls back the organization and property when user creation fails', async () => {
