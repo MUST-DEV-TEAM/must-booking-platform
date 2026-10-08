@@ -8,7 +8,7 @@ Use [CONTRIBUTING.md](../../CONTRIBUTING.md) for local Node/pnpm/Postgres/Redis 
 
 The last maintained environment record (2026-09-10, [Milestone 14](../roadmap/milestones/14-security-and-architecture-audit.md)) says production moved to `booking.must.al` and the homelab was retired. The old `compose.homelab.yaml` and deploy-webhook/systemd files remain repository artifacts; their presence does not prove they run on that host. No live infrastructure was contacted during initialization. Do not deploy to the retired host.
 
-The API runtime must use the RLS-constrained database role; migrations use the owner connection. The container procedure runs `db:set-app-password` after migrations. That command changes a database credential and belongs only in the explicitly targeted environment. Production secrets, DNS/TLS, backups and deployment automation still require Milestone 14 reconciliation, not a silent status change.
+The API runtime must use the RLS-constrained database role; migrations use the owner connection. The container procedure runs `db:set-app-password` after migrations. That command changes a database credential and belongs only in the explicitly targeted environment. Production secrets, DNS/TLS and deployment automation still require Milestone 14 reconciliation, not a silent status change. Nightly encrypted database backups to Google Drive are set up by hand on the server from [infrastructure/backup](../../infrastructure/backup/README.md); the repository cannot show whether a given host has done so.
 
 ## Jobs and observability
 

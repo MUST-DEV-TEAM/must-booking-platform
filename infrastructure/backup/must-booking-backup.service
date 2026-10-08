@@ -1,0 +1,9 @@
+[Unit]
+Description=MUST Booking nightly PostgreSQL backup
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/must-booking/backup.env
+ExecStart=/opt/must-booking/infrastructure/backup/backup-postgres.sh
