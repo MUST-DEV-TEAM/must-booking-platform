@@ -18,6 +18,14 @@ export interface QueuedMailCommands {
 }
 export type QueuedMailKind = keyof QueuedMailCommands;
 
+/** Every queued command's fields at once; each switch case below reads only
+ * the fields its own kind carries. */
+type AnyQueuedMailCommand = QueuedMailCommands[QueuedMailKind] extends infer U
+  ? (U extends unknown ? (arg: U) => void : never) extends (arg: infer I) => void
+    ? I
+    : never
+  : never;
+
 export interface MailDescriptor {
   eventType: string;
   recipient: string;
@@ -54,7 +62,7 @@ export function describeMail<K extends QueuedMailKind>(
   kind: K,
   command: QueuedMailCommands[K],
 ): MailDescriptor {
-  const c = command as any;
+  const c = command as unknown as AnyQueuedMailCommand;
   const hotelName = c.brand?.name || 'your hotel';
   switch (kind) {
     case 'paymentConfirmation':

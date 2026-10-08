@@ -5,7 +5,11 @@ import IORedis from 'ioredis';
 import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
 import { IntegrationConnectionsService } from '../integration-connections.service';
 import { ManualReviewService } from '../manual-review.service';
-import { CLOCK_QUEUE_NAMES, clockHydrateEventJobId, type ClockQueueName } from './clock-queue-names';
+import {
+  CLOCK_QUEUE_NAMES,
+  clockHydrateEventJobId,
+  type ClockQueueName,
+} from './clock-queue-names';
 import {
   claimEventSql,
   guardedTransitionSql,
@@ -190,7 +194,11 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
             queue: name,
             jobId: job.id,
           });
-          if (name === 'clock.webhooks' && job.name === 'hydrate-event' && isHydrateEventJobData(job.data))
+          if (
+            name === 'clock.webhooks' &&
+            job.name === 'hydrate-event' &&
+            isHydrateEventJobData(job.data)
+          )
             // job.token is this specific attempt's fencing token (ADR-0031)
             // — the guarded write only lands if it's still the current
             // owner, so a stale exhausted attempt can never mark FAILED
@@ -265,7 +273,12 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
 
     const event = await this.database.withTenantTransaction({ tenantId, propertyId }, (tx) =>
       tx.$queryRawUnsafe<
-        Array<{ id: string; eventType: string; objectId: string | null; status: ProviderEventStatus }>
+        Array<{
+          id: string;
+          eventType: string;
+          objectId: string | null;
+          status: ProviderEventStatus;
+        }>
       >(
         `SELECT id, event_type AS "eventType", object_id AS "objectId", status::text AS status
          FROM provider_events
@@ -304,7 +317,13 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
     // made. Only proceeds if the write actually lands (no other actor has
     // already moved the row to FAILED/a terminal state, or holds a claim
     // from a later generation).
-    const claimed = await this.claimEvent(tenantId, propertyId, row.id, attemptToken, job.attemptsStarted);
+    const claimed = await this.claimEvent(
+      tenantId,
+      propertyId,
+      row.id,
+      attemptToken,
+      job.attemptsStarted,
+    );
     if (!claimed) {
       this.logger.debug(
         `hydrate-event job ${job.id}: event ${eventId} reached a non-processable state, or a newer attempt already claimed it, concurrently — skipping.`,
@@ -335,7 +354,9 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
         row.objectId,
         ownership,
       );
-      this.logger.log(`hydrate-event job ${job.id}: booking ${row.objectId} -> ${outcome.outcome}.`);
+      this.logger.log(
+        `hydrate-event job ${job.id}: booking ${row.objectId} -> ${outcome.outcome}.`,
+      );
       switch (outcome.outcome) {
         case 'created':
         case 'updated':
@@ -578,7 +599,10 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
    * attempt's own token: a stale exhausted attempt whose 'failed' listener
    * fires after a replacement attempt has already taken over (and possibly
    * already succeeded) must not finalize over it. */
-  private async markHydrateEventFailed(data: HydrateEventJobData, attemptToken?: string): Promise<void> {
+  private async markHydrateEventFailed(
+    data: HydrateEventJobData,
+    attemptToken?: string,
+  ): Promise<void> {
     if (!attemptToken) {
       this.logger.error(
         `Cannot mark provider_events FAILED for event ${data.eventId}: the failed job carried no processing token.`,
@@ -612,7 +636,9 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
     );
     const id = rows[0]?.id;
     if (!id)
-      throw new Error(`no provider_events row for connection ${data.connectionId} event ${data.eventId}`);
+      throw new Error(
+        `no provider_events row for connection ${data.connectionId} event ${data.eventId}`,
+      );
     return id;
   }
 
@@ -654,7 +680,9 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
     );
 
     if (rows.length === 0) return;
-    this.logger.warn(`Clock provider-event recovery sweep: examining ${rows.length} stuck event(s).`);
+    this.logger.warn(
+      `Clock provider-event recovery sweep: examining ${rows.length} stuck event(s).`,
+    );
 
     for (const row of rows) await this.reconcileStuckEvent(row);
   }

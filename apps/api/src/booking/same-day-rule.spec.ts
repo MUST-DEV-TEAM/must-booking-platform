@@ -22,21 +22,31 @@ describe('propertyClock', () => {
 
 describe('isSameDayBookingClosed', () => {
   it('closes today once the local cutoff has passed', () => {
-    expect(isSameDayBookingClosed('2026-10-01', { ...tirane, sameDayCutoffTime: '18:00' }, evening)).toBe(true);
+    expect(
+      isSameDayBookingClosed('2026-10-01', { ...tirane, sameDayCutoffTime: '18:00' }, evening),
+    ).toBe(true);
   });
 
   it('keeps today open before the local cutoff', () => {
-    expect(isSameDayBookingClosed('2026-10-01', { ...tirane, sameDayCutoffTime: '19:00' }, evening)).toBe(false);
+    expect(
+      isSameDayBookingClosed('2026-10-01', { ...tirane, sameDayCutoffTime: '19:00' }, evening),
+    ).toBe(false);
   });
 
   it('keeps today open when there is no cutoff', () => {
-    expect(isSameDayBookingClosed('2026-10-01', { ...tirane, sameDayCutoffTime: null }, evening)).toBe(false);
+    expect(
+      isSameDayBookingClosed('2026-10-01', { ...tirane, sameDayCutoffTime: null }, evening),
+    ).toBe(false);
   });
 
   it('closes today all day when same-day booking is switched off', () => {
     const morning = new Date('2026-10-01T05:00:00.000Z');
     expect(
-      isSameDayBookingClosed('2026-10-01', { ...tirane, sameDayBookingAllowed: false, sameDayCutoffTime: null }, morning),
+      isSameDayBookingClosed(
+        '2026-10-01',
+        { ...tirane, sameDayBookingAllowed: false, sameDayCutoffTime: null },
+        morning,
+      ),
     ).toBe(true);
   });
 
@@ -49,7 +59,11 @@ describe('isSameDayBookingClosed', () => {
     // 22:30 UTC on Sep 30 is already Oct 1 00:30 in Tirane, so an Oct 1 stay is a same-day stay there.
     const lateUtc = new Date('2026-09-30T22:30:00.000Z');
     expect(
-      isSameDayBookingClosed('2026-10-01', { ...tirane, sameDayBookingAllowed: false, sameDayCutoffTime: null }, lateUtc),
+      isSameDayBookingClosed(
+        '2026-10-01',
+        { ...tirane, sameDayBookingAllowed: false, sameDayCutoffTime: null },
+        lateUtc,
+      ),
     ).toBe(true);
   });
 });

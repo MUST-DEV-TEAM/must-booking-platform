@@ -48,7 +48,11 @@ function makeService(options: {
    * with insertedRow/existingRow's status and an unclaimed (null) token —
    * override to simulate ownership having already changed by the time the
    * snapshot is read (`undefined` simulates the row having vanished). */
-  snapshotRow?: { status: string; processingToken: string | null; processingAttempt: number | null };
+  snapshotRow?: {
+    status: string;
+    processingToken: string | null;
+    processingAttempt: number | null;
+  };
 }) {
   const insertedRow = options.insertedRow;
   const existingRow = options.existingRow;
@@ -83,7 +87,9 @@ function makeService(options: {
     withWebhookGatewayLookup: vi.fn((callback) => callback(webhookGatewayTx)),
   };
   const cipher = {
-    decrypt: vi.fn().mockReturnValue({ snsTopicArn: CONNECTION.tenantId ? envelope().TopicArn : '' }),
+    decrypt: vi
+      .fn()
+      .mockReturnValue({ snsTopicArn: CONNECTION.tenantId ? envelope().TopicArn : '' }),
   };
   const verification = {
     verify: vi.fn().mockResolvedValue({ ok: true }),
@@ -139,7 +145,10 @@ describe('ClockWebhookService — durable event storage and BullMQ-state-aware e
     const result = await service.handle('webhook-1', envelope(), 100);
 
     expect(result).toEqual({ status: 200 });
-    expect(queues.reconcileJob).toHaveBeenCalledWith('clock.webhooks', 'clock-hydrate:connection-1:event-1');
+    expect(queues.reconcileJob).toHaveBeenCalledWith(
+      'clock.webhooks',
+      'clock-hydrate:connection-1:event-1',
+    );
     expect(queues.enqueue).toHaveBeenCalledWith(
       'clock.webhooks',
       'hydrate-event',
@@ -226,7 +235,7 @@ describe('ClockWebhookService — durable event storage and BullMQ-state-aware e
     const writes = providerEventWrites(tenantTx);
     expect(writes).toHaveLength(1);
     expect(writes[0]![3]).toBe('NEEDS_RECONCILIATION');
-    expect((writes[0]![4] as string[])).toEqual(['RECEIVED', 'QUEUED']); // never allowed from FAILED
+    expect(writes[0]![4] as string[]).toEqual(['RECEIVED', 'QUEUED']); // never allowed from FAILED
     expect(manualReview.recordInTransaction).toHaveBeenCalledWith(
       tenantTx,
       expect.objectContaining({

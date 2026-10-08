@@ -7,7 +7,12 @@ import {
 } from '../../tenancy/tenant-database.service';
 import { IntegrationConnectionsService } from '../integration-connections.service';
 import { ManualReviewService } from '../manual-review.service';
-import { guardedTransitionSql, ownershipLockSql, ownsRow, type OwnershipRow } from './clock-provider-event-status';
+import {
+  guardedTransitionSql,
+  ownershipLockSql,
+  ownsRow,
+  type OwnershipRow,
+} from './clock-provider-event-status';
 import { ClockCircuitBreakerService, CircuitOpenError } from './clock-circuit-breaker';
 import { parseClockCredentials } from './clock-credentials';
 import {

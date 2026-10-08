@@ -1,8 +1,16 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 
-import { TenantDatabaseService, type TenantTransaction } from '../../tenancy/tenant-database.service';
+import {
+  TenantDatabaseService,
+  type TenantTransaction,
+} from '../../tenancy/tenant-database.service';
 import { IntegrationConnectionsService } from '../integration-connections.service';
-import { guardedTransitionSql, ownershipLockSql, ownsRow, type OwnershipRow } from './clock-provider-event-status';
+import {
+  guardedTransitionSql,
+  ownershipLockSql,
+  ownsRow,
+  type OwnershipRow,
+} from './clock-provider-event-status';
 import { ClockCircuitBreakerService, CircuitOpenError } from './clock-circuit-breaker';
 import { parseClockCredentials } from './clock-credentials';
 import {

@@ -260,7 +260,11 @@ export class ClockWebhookService {
     jobId: string,
   ): Promise<void> {
     try {
-      const snapshot = await this.readProcessingSnapshot(connection.tenantId, propertyId, eventRowId);
+      const snapshot = await this.readProcessingSnapshot(
+        connection.tenantId,
+        propertyId,
+        eventRowId,
+      );
       if (!snapshot || (snapshot.status !== 'RECEIVED' && snapshot.status !== 'QUEUED')) {
         // Another actor already finalized, parked, or otherwise moved this
         // row past recreation eligibility since it was read for this
@@ -270,10 +274,20 @@ export class ClockWebhookService {
       await this.queues.enqueue(
         'clock.webhooks',
         'hydrate-event',
-        { tenantId: connection.tenantId, propertyId, connectionId: connection.connectionId, eventId },
+        {
+          tenantId: connection.tenantId,
+          propertyId,
+          connectionId: connection.connectionId,
+          eventId,
+        },
         { jobId },
       );
-      const reset = await this.resetForJobRecreation(connection.tenantId, propertyId, eventRowId, snapshot);
+      const reset = await this.resetForJobRecreation(
+        connection.tenantId,
+        propertyId,
+        eventRowId,
+        snapshot,
+      );
       if (!reset)
         this.logger.debug(
           `provider_events row ${eventRowId}'s ownership changed concurrently with job recreation — leaving the newer state in place.`,
@@ -433,7 +447,9 @@ export class ClockWebhookService {
         // Duplicate delivery of an event already persisted by an earlier
         // one. Read back its current status so the caller can decide
         // whether it still needs (re)enqueueing.
-        const existing = await tx.$queryRawUnsafe<Array<{ id: string; status: ProviderEventStatus }>>(
+        const existing = await tx.$queryRawUnsafe<
+          Array<{ id: string; status: ProviderEventStatus }>
+        >(
           `SELECT id, status::text AS status FROM provider_events
            WHERE connection_id = $1::uuid AND event_id = $2`,
           connection.connectionId,

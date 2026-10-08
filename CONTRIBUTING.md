@@ -66,7 +66,6 @@ pnpm -w test
 
 ## Pull requests
 
-- Keep each pull request scoped to one active roadmap task.
+- Keep each pull request to one change, with CI green before merge.
 - Follow the tenancy, billing, PMS, migration, and verification rules in [AGENTS.md](AGENTS.md).
-- Use [CLAUDE.md](CLAUDE.md) for the review checklist; only Claude marks roadmap tasks as Done.
-- Describe the task number, files changed, checks run, and remaining risks in the pull request.
+- Describe what changed, files changed, checks run, and remaining risks in the pull request.

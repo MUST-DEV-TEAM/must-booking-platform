@@ -81,29 +81,32 @@ describe('BookingConfirmationNotificationService', () => {
       context,
     );
     expect(notifications.sendNewBookingStaffNotificationSafely).toHaveBeenCalledTimes(2);
-    expect(notifications.sendNewBookingStaffNotificationSafely).toHaveBeenCalledWith({
-      bookingId,
-      bookingReference: 'MUST-TEST-001',
-      paymentId: 'payment-1',
-      staffUserId: 'staff-1',
-      to: 'front-desk@example.test',
-      guest: { name: 'Ada Guest', email: 'guest@example.test', phone: '+355 69 123 4567' },
-      stay: { startsOn: '2027-09-01', endsOn: '2027-09-03' },
-      roomName: 'Ocean Suite',
-      amount: { amount: '180.00', currency: 'EUR' },
-      brand: {
-        name: 'Ocean Hotel',
-        logoUrl: 'https://ocean.example.test/logo.png',
-        supportEmail: 'stay@ocean.example.test',
-        phone: '+355 69 123 4567',
-        websiteUrl: 'https://ocean.example.test',
-        address: '1 Ocean Road',
+    expect(notifications.sendNewBookingStaffNotificationSafely).toHaveBeenCalledWith(
+      {
+        bookingId,
+        bookingReference: 'MUST-TEST-001',
+        paymentId: 'payment-1',
+        staffUserId: 'staff-1',
+        to: 'front-desk@example.test',
+        guest: { name: 'Ada Guest', email: 'guest@example.test', phone: '+355 69 123 4567' },
+        stay: { startsOn: '2027-09-01', endsOn: '2027-09-03' },
+        roomName: 'Ocean Suite',
+        amount: { amount: '180.00', currency: 'EUR' },
+        brand: {
+          name: 'Ocean Hotel',
+          logoUrl: 'https://ocean.example.test/logo.png',
+          supportEmail: 'stay@ocean.example.test',
+          phone: '+355 69 123 4567',
+          websiteUrl: 'https://ocean.example.test',
+          address: '1 Ocean Road',
+        },
+        guestCount: 2,
+        paymentMethod: 'stripe',
+        nightlyRates: undefined,
+        specialRequests: 'Late arrival',
       },
-      guestCount: 2,
-      paymentMethod: 'stripe',
-      nightlyRates: undefined,
-      specialRequests: 'Late arrival',
-    }, context);
+      context,
+    );
   });
 
   it('does not send a staff email when the property has no staff assignments', async () => {

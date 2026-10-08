@@ -724,8 +724,18 @@ function ClockRatePriorityList({
     },
   });
 
-  if (rankingQuery.isPending) return <Card><p>Loading Clock rates…</p></Card>;
-  if (rankingQuery.isError) return <Card><p>{rankingQuery.error.message}</p></Card>;
+  if (rankingQuery.isPending)
+    return (
+      <Card>
+        <p>Loading Clock rates…</p>
+      </Card>
+    );
+  if (rankingQuery.isError)
+    return (
+      <Card>
+        <p>{rankingQuery.error.message}</p>
+      </Card>
+    );
 
   return (
     <>
@@ -760,13 +770,13 @@ function ClockRatePriority({
   const url = `/api/tenants/${tenantId}/properties/${propertyId}/room-types/${roomType.id}/clock-rate-ranking`;
 
   const [order, setOrder] = useState<string[] | null>(null);
+  // Only re-derive when this room type's own rates actually change, not
+  // on every render of the list (initialRates is a fresh array each time
+  // otherwise, from the parent's Record lookup).
+  const initialRatesKey = JSON.stringify(initialRates);
   useEffect(() => {
     setOrder(initialRates.map((rate) => rate.externalRateId));
-    // Only re-derive when this room type's own rates actually change, not
-    // on every render of the list (initialRates is a fresh array each time
-    // otherwise, from the parent's Record lookup).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(initialRates)]);
+  }, [initialRatesKey]);
 
   const saveMutation = useMutation({
     mutationFn: async (externalRateIds: string[]) => {

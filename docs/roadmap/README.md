@@ -40,12 +40,10 @@ The **one-time documentation initialization** was explicitly authorized outside 
 
 ## How work proceeds
 
-1. Start with [docs/README.md](../README.md), inspect the relevant code and ADRs, then the scoped task.
-2. Astra normally prepares architecture/acceptance criteria and a self-contained Claude prompt. Claude implements, tests and reports. See the [working agreement](../maintenance.md).
-3. Keep work to one task unless the owner explicitly approves a batch or exception. Missing decisions become questions, not invented behavior.
-4. Record evidence separately from workflow state: code present, unit tested, integration tested, sandbox observed and deployed are different claims.
-5. Claude reconciles task status after review; Astra does not self-mark implementation Done. Close a milestone only after accepted completion or explicitly recorded deferral/parking, not merely because code exists.
-6. Maintain the existing main order 13 - 14 - 15 unless the owner changes it. Track explicit ad hoc work such as 21 without pretending the main sequence was renumbered.
+Updated 2026-10-08: this roadmap is a backlog and history record, not a gate on what may be worked on. The owner sets priorities in the project conversation; Claude plans and implements with one PR per change and green CI. See the [working agreement](../maintenance.md).
+
+1. Record evidence separately from workflow state: code present, unit tested, integration tested, sandbox observed and deployed are different claims.
+2. Mark a task Done only when it is merged and verified; keep deferred and parked work visible.
 
 Status vocabulary: **Planned / Not started**, **In progress**, **In review**, **Done**, **Blocked/Parked**, **Deferred**, **Cancelled**, **Superseded**, and **Needs reconciliation** when recorded status conflicts with evidence. No cancelled work was inferred during this audit.
 

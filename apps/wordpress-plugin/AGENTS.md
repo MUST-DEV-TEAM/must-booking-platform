@@ -69,7 +69,7 @@ This subtree is the MUST Booking Platform guest-facing WordPress plugin. Root `A
 
 Use repository-root `docs/README.md` and its task router. WordPress transport/bootstrap/legacy boundaries live in `docs/architecture/frontends-and-api.md`; domain behavior in `docs/architecture/booking-and-payments.md`; provider contracts in `docs/integrations/clock/`; checks/deployment in `docs/operations/README.md`. Do not recreate the predecessor's missing plugin-local documentation system.
 
-Astra plans/reviews by default; Claude implements/tests/reports, per `docs/maintenance.md`. Significant decisions require an ADR; routine details do not.
+Claude plans and implements; the owner approves, per `docs/maintenance.md`. Significant decisions require an ADR; routine details do not.
 
 ## Final response
 
