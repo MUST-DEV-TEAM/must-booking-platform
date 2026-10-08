@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   Logger,
@@ -16,6 +18,13 @@ import { AuditLogService } from '../tenancy/audit-log.service';
 import { PropertyRoleTemplatesService } from '../tenancy/property-role-templates.service';
 import { MailDeliveryService } from '../mail/mail-delivery.service';
 import type { MailProvider } from '../mail/mail.provider';
+
+// Staff reach the API through the Next.js proxy, so every login shares one
+// client IP; abuse limits are therefore keyed by the target email instead.
+export const LOGIN_FAILURE_LIMIT = 10;
+const LOGIN_FAILURE_WINDOW_SECONDS = 900;
+export const AUTH_EMAIL_REQUEST_LIMIT = 5;
+const AUTH_EMAIL_REQUEST_WINDOW_SECONDS = 3_600;
 
 type AuthUserRecord = {
   id: string;
@@ -152,10 +161,22 @@ export class AuthService implements OnModuleDestroy {
     user: { id: string; email: string; emailVerified: boolean; isPlatformAdmin: boolean };
   }> {
     const { email, password } = this.credentials(input);
+    const failureKey = this.rateLimitKey('login-failures', email);
+    const redis = await this.client();
+    const failures = Number((await redis.get(failureKey)) ?? 0);
+    if (failures >= LOGIN_FAILURE_LIMIT) {
+      const minutes = Math.max(1, Math.ceil((await redis.ttl(failureKey)) / 60));
+      throw new HttpException(
+        `Too many failed sign-in attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
     const user = await this.findUser(email);
     if (!user?.passwordHash || !(await bcrypt.compare(password, user.passwordHash))) {
+      await this.countAttempt(failureKey, LOGIN_FAILURE_WINDOW_SECONDS);
       throw new UnauthorizedException('Invalid email or password.');
     }
+    await redis.del(failureKey);
     const sessionId = await this.createSession(user.id);
     await this.auditLogs.record({
       actorUserId: user.id,
@@ -237,6 +258,8 @@ export class AuthService implements OnModuleDestroy {
 
   async requestPasswordReset(input: unknown): Promise<void> {
     const email = this.email(input);
+    // Over the limit, answer exactly as usual so nothing is revealed, but send nothing.
+    if (!(await this.allowEmailRequest('password-reset', email))) return;
     const user = await this.findUser(email);
     if (user) await this.triggerPasswordReset(user);
   }
@@ -259,7 +282,9 @@ export class AuthService implements OnModuleDestroy {
   }
 
   async requestEmailVerification(input: unknown): Promise<void> {
-    const user = await this.findUser(this.email(input));
+    const email = this.email(input);
+    if (!(await this.allowEmailRequest('email-verification', email))) return;
+    const user = await this.findUser(email);
     if (user && !user.emailVerifiedAt) {
       const verificationToken = await this.issueEmailVerificationToken({
         userId: user.id,
@@ -429,6 +454,32 @@ export class AuthService implements OnModuleDestroy {
 
   private async set(key: string, value: string, ttl: number): Promise<void> {
     await this.client().then((redis) => redis.set(key, value, { EX: ttl }));
+  }
+
+  private rateLimitKey(scope: string, email: string): string {
+    const hashed = createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+    return `rate-limit:auth:${scope}:${hashed}`;
+  }
+
+  /** Increments a fixed-window counter and returns the new count. */
+  private async countAttempt(key: string, windowSeconds: number): Promise<number> {
+    const [count] = (await (
+      await this.client()
+    ).eval(
+      `local count = redis.call('INCR', KEYS[1])
+       if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+       return { count }`,
+      { keys: [key], arguments: [String(windowSeconds)] },
+    )) as [number];
+    return count;
+  }
+
+  private async allowEmailRequest(scope: string, email: string): Promise<boolean> {
+    const count = await this.countAttempt(
+      this.rateLimitKey(scope, email),
+      AUTH_EMAIL_REQUEST_WINDOW_SECONDS,
+    );
+    return count <= AUTH_EMAIL_REQUEST_LIMIT;
   }
 
   private async client(): Promise<RedisClientType> {
