@@ -5,10 +5,13 @@ import * as bcrypt from 'bcrypt';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import Stripe from 'stripe';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Queue } from 'bullmq';
+import IORedis from 'ioredis';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { LocalPmsProvider, PMS_PROVIDER } from '../src/booking/local-pms.provider';
 import { QuoteService } from '../src/booking/quote.service';
+import { MAIL_QUEUE_NAME } from '../src/mail/mail-delivery.service';
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { PAYMENT_PROVIDER } from '../src/payments/payment.provider';
 import { PaymentExpiryService } from '../src/payments/payment-expiry.service';
@@ -37,6 +40,26 @@ const admin = new PrismaClient({
 
 const stripeSecretKey = 'sk_test_webhook_e2e';
 const stripeWebhookSecret = 'whsec_webhook_e2e';
+
+let mailRedis: IORedis | undefined;
+let mailQueue: Queue | undefined;
+
+/** Booking emails go through the durable mail queue, so wait until it has
+ * delivered (or given up on) everything before asserting on the mailbox. */
+async function settleMail(): Promise<void> {
+  mailRedis ??= new IORedis(process.env.REDIS_URL ?? 'redis://localhost:6379', {
+    maxRetriesPerRequest: null,
+  });
+  mailQueue ??= new Queue(MAIL_QUEUE_NAME, { connection: mailRedis });
+  const queue = mailQueue;
+  await vi.waitFor(
+    async () => {
+      const counts = await queue.getJobCounts('waiting', 'active', 'delayed', 'prioritized');
+      expect(Object.values(counts).every((count) => count === 0)).toBe(true);
+    },
+    { timeout: 30_000, interval: 50 },
+  );
+}
 
 describe('LocalPmsProvider', () => {
   let app: INestApplication | undefined;
@@ -201,6 +224,8 @@ describe('LocalPmsProvider', () => {
   });
 
   afterAll(async () => {
+    await mailQueue?.close();
+    mailRedis?.disconnect();
     if (tenantId) await cleanupTenant(admin, tenantId);
     if (userId) await admin.$executeRaw`DELETE FROM users WHERE id = ${userId}::uuid`;
     if (notificationStaffUserId)
@@ -450,7 +475,7 @@ describe('LocalPmsProvider', () => {
     await admin.$executeRaw`
       INSERT INTO audit_logs (tenant_id, property_id, actor_user_id, actor_type, action, target_type, target_id)
       VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${userId}::uuid, 'TENANT_USER'::"AuditActorType",
-        'overview.fixture_created', 'booking', ${overviewArrivalId})
+        'booking.created', 'booking', ${overviewArrivalId})
     `;
     const overview = await request(app!.getHttpServer())
       .get(`${propertyUrl}/overview`)
@@ -474,7 +499,12 @@ describe('LocalPmsProvider', () => {
       expect.arrayContaining([expect.objectContaining({ id: overviewArrivalId })]),
     );
     expect(overview.body.recentActivity).toEqual(
-      expect.arrayContaining([expect.objectContaining({ action: 'overview.fixture_created' })]),
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'booking.created',
+          summary: expect.stringContaining(`${overviewToday} to ${overviewTomorrow}`),
+        }),
+      ]),
     );
 
     const provider = app!.get(LocalPmsProvider);
@@ -1105,7 +1135,10 @@ describe('LocalPmsProvider', () => {
       status: 'CONFIRMED',
       total: { amount: '180.00', currency: 'EUR' },
     });
-    expect(paymentConfirmationEmails).toEqual([]);
+    // A failed send no longer blocks confirmation: the durable mail queue
+    // (Milestone 22) retries it, and it is delivered exactly once.
+    await settleMail();
+    expect(paymentConfirmationEmails).toHaveLength(1);
     const paymentRows = await admin.$queryRaw<
       Array<{
         kind: string;
@@ -1174,8 +1207,20 @@ describe('LocalPmsProvider', () => {
       expectedVersion: created.value.version,
       reason: null,
     };
+    // Nobody is assigned to a property automatically any more (2026-09-29), so
+    // give the owner a temporary assignment to receive staff cancellation mail.
+    const ownerTemplate = await admin.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM property_role_templates
+      WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid
+        AND "name" = 'Front Desk'
+    `;
+    await admin.$executeRaw`
+      INSERT INTO property_staff_assignments ("tenant_id", "property_id", "user_id", "role_template_id")
+      VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${userId}::uuid, ${ownerTemplate[0].id}::uuid)
+    `;
     const cancelled = await provider.cancelBooking(context, cancelCommand);
     expect(cancelled).toMatchObject({ ok: true, value: { status: 'CANCELLED', version: 2 } });
+    await settleMail();
     expect(cancelledGuestEmails).toContainEqual(
       expect.objectContaining({
         bookingId: created.value.id,
@@ -1209,6 +1254,7 @@ describe('LocalPmsProvider', () => {
     expect(
       refundCommands.filter(({ paymentId }) => paymentId === `cs_test_${created.value.id}`),
     ).toHaveLength(1);
+    await settleMail();
     expect(refundConfirmationEmails).toEqual([
       expect.objectContaining({
         bookingId: created.value.id,
@@ -1308,6 +1354,7 @@ describe('LocalPmsProvider', () => {
         }),
       }),
     ]);
+    await settleMail();
     expect(cancelledStaffEmails).toContainEqual(
       expect.objectContaining({
         bookingId: failedRefundBooking.value.id,
@@ -1317,6 +1364,11 @@ describe('LocalPmsProvider', () => {
         }),
       }),
     );
+    await admin.$executeRaw`
+      DELETE FROM property_staff_assignments
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND user_id = ${userId}::uuid
+    `;
 
     const concurrentStartsOn = '2026-10-01';
     const concurrentEndsOn = '2026-10-03';
@@ -1658,6 +1710,7 @@ describe('LocalPmsProvider', () => {
       value: { status: 'CONFIRMED', paymentMethod: 'PAY_AT_HOTEL', guestCount: 2 },
     });
     expect(payAtHotelBooking.body.value).not.toHaveProperty('checkoutUrl');
+    await settleMail();
     expect(paymentConfirmationEmails).toHaveLength(payAtHotelEmailCount + 1);
     expect(paymentConfirmationEmails.at(-1)).toMatchObject({
       bookingId: payAtHotelBooking.body.value.id,
@@ -1689,6 +1742,7 @@ describe('LocalPmsProvider', () => {
       .set('Idempotency-Key', payAtHotelIdempotencyKey)
       .send(payAtHotelRequest)
       .expect(201);
+    await settleMail();
     expect(paymentConfirmationEmails).toHaveLength(payAtHotelEmailCount + 1);
     expect(staffBookingEmails).toHaveLength(
       payAtHotelStaffEmailCount + Number(propertyStaffRecipients[0].count),
@@ -1723,6 +1777,7 @@ describe('LocalPmsProvider', () => {
       reason: null,
     });
     expect(payAtHotelCancellation).toMatchObject({ ok: true, value: { status: 'CANCELLED' } });
+    await settleMail();
     expect(cancelledGuestEmails).toContainEqual(
       expect.objectContaining({ bookingId: payAtHotelBooking.body.value.id, guestCount: 2 }),
     );
@@ -1883,6 +1938,7 @@ describe('LocalPmsProvider', () => {
       .set('Stripe-Signature', manualRefundSignature)
       .send(manualRefundWebhookPayload)
       .expect(200);
+    await settleMail();
     expect(paymentConfirmationEmails).toEqual(
       expect.arrayContaining([
         {
@@ -2175,6 +2231,7 @@ describe('LocalPmsProvider', () => {
       })
       .expect(200);
     expect(staffCancellation.body).toMatchObject({ ok: true, value: { status: 'CANCELLED' } });
+    await settleMail();
     expect(cancelledGuestEmails).toContainEqual(
       expect.objectContaining({ bookingId: cancellableStaffBooking.body.value.id }),
     );
@@ -2400,6 +2457,7 @@ describe('LocalPmsProvider', () => {
       })
       .expect(200)
       .expect(manualRefund.body);
+    await settleMail();
     expect(refundConfirmationEmails).toEqual([
       expect.objectContaining({
         bookingId: created.value.id,
@@ -2785,8 +2843,8 @@ describe('LocalPmsProvider', () => {
           day.date === abandonedPokpayStartsOn || day.date === '2026-12-11',
       ),
     ).toEqual([
-      { date: abandonedPokpayStartsOn, isAvailable: false },
-      { date: '2026-12-11', isAvailable: false },
+      { date: abandonedPokpayStartsOn, isAvailable: false, status: 'unavailable' },
+      { date: '2026-12-11', isAvailable: false, status: 'unavailable' },
     ]);
     const wordpressWhileHeld = await request(app!.getHttpServer())
       .get(
@@ -2835,8 +2893,8 @@ describe('LocalPmsProvider', () => {
           day.date === abandonedPokpayStartsOn || day.date === '2026-12-11',
       ),
     ).toEqual([
-      { date: abandonedPokpayStartsOn, isAvailable: true },
-      { date: '2026-12-11', isAvailable: true },
+      { date: abandonedPokpayStartsOn, isAvailable: true, status: 'available' },
+      { date: '2026-12-11', isAvailable: true, status: 'available' },
     ]);
     const wordpressAfterExpiry = await request(app!.getHttpServer())
       .get(

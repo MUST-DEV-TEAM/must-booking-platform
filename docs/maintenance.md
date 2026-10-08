@@ -1,44 +1,14 @@
 # Working agreement and documentation maintenance
 
-Established by the owner for the 2026-09-19 initialization. This is the shared human/agent workflow, not a separate AI documentation system.
+Updated 2026-10-08 by the owner: the two-agent Astra/Claude split and its prompt contract are retired.
 
 ## Responsibilities
 
-**Astra (Codex): understand, architect, plan, review.** For a future feature, fix, refactor, integration or schema request, default to a plan unless the owner explicitly asks Astra to implement. Inspect focused source before reasoning from docs. When reviewing Claude's result, compare the requested behavior, plan, actual diff and test evidence; do not automatically rewrite working code.
+**Owner:** asks for work, approves plans for anything larger than a small fix, approves provider/production actions, and merges.
 
-**Claude: implement, test, report.** Preserve established conventions, execute scoped changes and report exact evidence. Claude maintains task completion status after review; no agent should equate its own implementation claim with acceptance.
+**Claude:** plans, implements, tests and reports, one change per branch and PR with green CI. Rules live in [AGENTS.md](../AGENTS.md).
 
-An explicit owner-authorized exception can permit out-of-table work, as with this initialization. It does not authorize unrelated product work. Production/provider operations require the task's concrete scope and applicable approval, not merely a general desire to improve docs.
-
-## Plans and Claude prompts
-
-A plan identifies relevant current behavior; affected modules/files; database/migration and API contracts; WordPress impact; security, concurrency, idempotency and compatibility; edge cases; tests and acceptance criteria. Mark absent/unknown inputs rather than filling them with guesses. Keep routine plans in the conversation or existing task; do not generate scratch reports.
-
-End each implementation plan with **CLAUDE IMPLEMENTATION PROMPT**, containing the applicable sections:
-
-```text
-PROJECT CONTEXT
-TASK (milestone/task or explicit exception, goal and non-goals)
-CURRENT IMPLEMENTATION
-ARCHITECTURAL CONSTRAINTS
-RELEVANT DOCUMENTATION
-FILES / MODULES LIKELY INVOLVED
-IMPLEMENTATION REQUIREMENTS
-DATABASE CHANGES (migration and rollback)
-API / CONTRACT CHANGES
-WORDPRESS CHANGES
-SECURITY REQUIREMENTS
-CONCURRENCY / IDEMPOTENCY REQUIREMENTS
-EDGE CASES
-TEST REQUIREMENTS
-ACCEPTANCE CRITERIA
-DO NOT DO
-COMPLETION REPORT
-```
-
-Every prompt tells Claude to inspect referenced files before modifying them, preserve architecture unless the task changes it, avoid unrelated rewrites/refactors, never hide failing tests or silently change business rules, never invent missing requirements or expose secrets, and run relevant tests.
-
-The completion report includes summary, files, migrations, contracts, tests added/changed/executed and exact results, assumptions, unresolved concerns and TODOs. If review finds defects, provide a focused **CLAUDE CORRECTIVE PROMPT** explaining only necessary corrections and verification.
+Keep plans short and in the conversation or PR description: current behaviour, the change, affected contracts/migrations, risks and how it was tested. Do not write separate plan or report files.
 
 ## Ownership and maintenance rules
 

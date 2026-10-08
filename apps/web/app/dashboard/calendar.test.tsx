@@ -183,9 +183,7 @@ describe('Dashboard calendar', () => {
     expect(container.textContent).not.toContain('Block all room types');
 
     await act(async () => findButton('Block availability')!.click());
-    expect(container.querySelector('[role="dialog"]')?.textContent).toContain(
-      'which room types?',
-    );
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain('which room types?');
     expect(container.textContent).toContain('All room types');
     expect(container.textContent).toContain('Room types to block');
 
@@ -214,7 +212,10 @@ describe('Dashboard calendar', () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     let postedBody: unknown;
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === '/api/tenants/tenant-1/properties/property-1/availability-blocks' && init?.method === 'POST') {
+      if (
+        url === '/api/tenants/tenant-1/properties/property-1/availability-blocks' &&
+        init?.method === 'POST'
+      ) {
         postedBody = JSON.parse(init.body as string);
         return Promise.resolve(
           new Response(JSON.stringify({ id: 'block-1', ...postedBody }), { status: 200 }),

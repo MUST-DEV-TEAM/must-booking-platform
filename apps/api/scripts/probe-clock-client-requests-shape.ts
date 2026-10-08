@@ -35,7 +35,11 @@ async function main() {
     console.log('Reference booking fields:', existing.body);
 
     const shapes: Array<{ label: string; field: string; value: unknown }> = [
-      { label: 'singular client_request string', field: 'client_request', value: 'probe test note' },
+      {
+        label: 'singular client_request string',
+        field: 'client_request',
+        value: 'probe test note',
+      },
     ];
 
     for (const shape of shapes) {

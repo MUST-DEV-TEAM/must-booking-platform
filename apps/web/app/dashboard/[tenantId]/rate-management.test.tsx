@@ -45,7 +45,13 @@ describe('RateManagement — Clock-connected property (Task 13)', () => {
       roomTypes: {
         'room-type-1': [
           { externalRateId: 'r0', name: 'DBL - Summer', maxAdults: 6, maxChildren: 6, rank: 0 },
-          { externalRateId: 'r1', name: 'DBL - Summer 2', maxAdults: 7, maxChildren: 7, rank: null },
+          {
+            externalRateId: 'r1',
+            name: 'DBL - Summer 2',
+            maxAdults: 7,
+            maxChildren: 7,
+            rank: null,
+          },
         ],
       },
     };

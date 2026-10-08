@@ -924,17 +924,21 @@ export class ClockAvailabilityService {
       // this size in this many rooms; stop-sale always wins over free rooms.
       const openCells = cells.filter(
         (cell) =>
-          cell.free && !cell.rate_restriction?.stop_from_sale && cell.room_type_free_rooms >= roomsNeeded,
+          cell.free &&
+          !cell.rate_restriction?.stop_from_sale &&
+          cell.room_type_free_rooms >= roomsNeeded,
       );
       if (openCells.length > 0) {
         const day: CalendarDay = { date, isAvailable: true, status: 'available' };
         // Restrictions only count when every open rate carries them, since a
         // guest can pick whichever rate is unrestricted.
-        if (openCells.every((cell) => cell.rate_restriction?.close_for_arrival)) day.closedToArrival = true;
+        if (openCells.every((cell) => cell.rate_restriction?.close_for_arrival))
+          day.closedToArrival = true;
         if (openCells.every((cell) => cell.rate_restriction?.close_for_departure))
           day.closedToDeparture = true;
         const minStays = openCells.map(
-          (cell) => cell.rate_restriction?.min_stay_on_arrival ?? cell.rate_restriction?.min_stay ?? 0,
+          (cell) =>
+            cell.rate_restriction?.min_stay_on_arrival ?? cell.rate_restriction?.min_stay ?? 0,
         );
         const minStay = Math.min(...minStays);
         if (minStay > 1) day.minStay = minStay;
@@ -942,7 +946,9 @@ export class ClockAvailabilityService {
       }
       const stoppedWithRooms = cells.some(
         (cell) =>
-          cell.free && cell.rate_restriction?.stop_from_sale && cell.room_type_free_rooms >= roomsNeeded,
+          cell.free &&
+          cell.rate_restriction?.stop_from_sale &&
+          cell.room_type_free_rooms >= roomsNeeded,
       );
       return { date, isAvailable: false, status: stoppedWithRooms ? 'closed' : 'sold_out' };
     });
@@ -1101,17 +1107,15 @@ export class ClockAvailabilityService {
     const parsed = parseClockCredentials(connection.credentials);
     if (!parsed.ok) return failure(classifyConfigurationError(parsed.message));
 
-    const mappings = await this.database.withTenantTransaction(
-      { tenantId, propertyId },
-      (tx) =>
-        tx.$queryRawUnsafe<Array<{ localRoomTypeId: string; externalRoomTypeId: string }>>(
-          `SELECT local_entity_id AS "localRoomTypeId", external_entity_id AS "externalRoomTypeId"
+    const mappings = await this.database.withTenantTransaction({ tenantId, propertyId }, (tx) =>
+      tx.$queryRawUnsafe<Array<{ localRoomTypeId: string; externalRoomTypeId: string }>>(
+        `SELECT local_entity_id AS "localRoomTypeId", external_entity_id AS "externalRoomTypeId"
            FROM clock_catalog_mappings
            WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND entity_type = 'ROOM_TYPE'
              AND sync_status = 'CONFIRMED'`,
-          tenantId,
-          propertyId,
-        ),
+        tenantId,
+        propertyId,
+      ),
     );
     if (mappings.length === 0) return { ok: true, value: new Map() };
 
@@ -1269,7 +1273,9 @@ function rejectionReasons(
   for (const [rateId, offers] of Object.entries(rateOffers ?? {})) {
     const errors = offers
       .map((offer) => offer.errors)
-      .filter((errors): errors is Record<string, unknown> => !!errors && Object.keys(errors).length > 0);
+      .filter(
+        (errors): errors is Record<string, unknown> => !!errors && Object.keys(errors).length > 0,
+      );
     if (errors.length > 0) reasons[rateId] = errors;
   }
   return reasons;

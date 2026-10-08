@@ -85,14 +85,18 @@ export class PublicAvailabilityController {
   @PublicRateLimit(PUBLIC_READ_RATE_LIMIT)
   getCalendar(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
     const parsed = parseAvailabilityCalendarQuery(query);
-    return this.availability.getCalendar(request.tenantContext.tenantId, request.tenantContext.propertyId, {
-      roomTypeId: parsed.roomTypeId,
-      roomId: parsed.roomId,
-      month: parsed.month,
-      adultCount: parsed.adultCount,
-      childrenCount: parsed.childrenCount,
-      roomCount: parsed.roomCount,
-    });
+    return this.availability.getCalendar(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      {
+        roomTypeId: parsed.roomTypeId,
+        roomId: parsed.roomId,
+        month: parsed.month,
+        adultCount: parsed.adultCount,
+        childrenCount: parsed.childrenCount,
+        roomCount: parsed.roomCount,
+      },
+    );
   }
 }
 

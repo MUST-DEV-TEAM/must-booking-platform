@@ -119,7 +119,10 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
   };
   const mail: MailProvider = {
     async sendVerificationEmail(command) {
-      verificationTokens.set(command.to, new URL(command.verificationUrl).searchParams.get('token')!);
+      verificationTokens.set(
+        command.to,
+        new URL(command.verificationUrl).searchParams.get('token')!,
+      );
     },
     async sendWelcomeEmail() {},
     async sendPasswordResetEmail() {},
@@ -168,7 +171,9 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
       .expect(201);
     const connectionId = connection.body.id;
     await request(app!.getHttpServer())
-      .patch(`/tenants/${tenantId}/properties/${propertyId}/integration-connections/${connectionId}`)
+      .patch(
+        `/tenants/${tenantId}/properties/${propertyId}/integration-connections/${connectionId}`,
+      )
       .set('Cookie', cookie)
       .send({ enabled: true })
       .expect(200);
@@ -250,9 +255,11 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
 
   afterAll(async () => {
     if (tenantA?.tenantId) await cleanupTenant(admin, tenantA.tenantId);
-    if (tenantA?.userId) await admin.$executeRaw`DELETE FROM users WHERE id = ${tenantA.userId}::uuid`;
+    if (tenantA?.userId)
+      await admin.$executeRaw`DELETE FROM users WHERE id = ${tenantA.userId}::uuid`;
     if (tenantB?.tenantId) await cleanupTenant(admin, tenantB.tenantId);
-    if (tenantB?.userId) await admin.$executeRaw`DELETE FROM users WHERE id = ${tenantB.userId}::uuid`;
+    if (tenantB?.userId)
+      await admin.$executeRaw`DELETE FROM users WHERE id = ${tenantB.userId}::uuid`;
     if (pmsPlanId) await admin.$executeRaw`DELETE FROM plans WHERE id = ${pmsPlanId}::uuid`;
     if (app) await app.close();
     await admin.$disconnect();
@@ -433,7 +440,14 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
     //      change B's terminal outcome.
     const eventId = `ownership-${randomUUID()}`;
     const externalBookingId = '38144099';
-    const rowId = await insertStuckEvent(tenantA, eventId, 'booking_new', externalBookingId, 'RECEIVED', 0);
+    const rowId = await insertStuckEvent(
+      tenantA,
+      eventId,
+      'booking_new',
+      externalBookingId,
+      'RECEIVED',
+      0,
+    );
     const database = app!.get(TenantDatabaseService);
     const hydrationService = app!.get(ClockBookingHydrationService);
 
@@ -464,7 +478,11 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
     queuedResponses = [
       {
         status: 200,
-        body: realBookingDetail({ id: Number(externalBookingId), number: 'A-STALE', total_booking_value: { cents: 10_000, currency: 'EUR' } }),
+        body: realBookingDetail({
+          id: Number(externalBookingId),
+          number: 'A-STALE',
+          total_booking_value: { cents: 10_000, currency: 'EUR' },
+        }),
         gate: gateA,
       },
     ];
@@ -487,7 +505,11 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
     // B's distinguishable (winning) result, ungated — runs to completion first.
     queuedResponses.push({
       status: 200,
-      body: realBookingDetail({ id: Number(externalBookingId), number: 'B-WINNER', total_booking_value: { cents: 20_000, currency: 'EUR' } }),
+      body: realBookingDetail({
+        id: Number(externalBookingId),
+        number: 'B-WINNER',
+        total_booking_value: { cents: 20_000, currency: 'EUR' },
+      }),
     });
     const outcomeB = await hydrationService.hydrateBooking(
       tenantA.tenantId,
@@ -612,7 +634,12 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
     await app!.get(ClockQueueService).enqueue(
       'clock.webhooks',
       'hydrate-event',
-      { tenantId: tenantA.tenantId, propertyId: tenantA.propertyId, connectionId: tenantA.connectionId, eventId },
+      {
+        tenantId: tenantA.tenantId,
+        propertyId: tenantA.propertyId,
+        connectionId: tenantA.connectionId,
+        eventId,
+      },
       { jobId, attempts: 3 },
     );
 
@@ -739,7 +766,14 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
 
     // Case 1: a strictly newer generation overwrites; a strictly older,
     // later-arriving generation is rejected.
-    const rowId1 = await insertStuckEvent(tenantA, `claim-order-${randomUUID()}`, 'booking_new', '1', 'RECEIVED', 0);
+    const rowId1 = await insertStuckEvent(
+      tenantA,
+      `claim-order-${randomUUID()}`,
+      'booking_new',
+      '1',
+      'RECEIVED',
+      0,
+    );
     expect(await claim(rowId1, 'token-B-fresh', 2)).toBe(true);
     expect(await claim(rowId1, 'token-A-obsolete', 1)).toBe(false);
     expect((await currentClaim(rowId1)).processingToken).toBe('token-B-fresh');
@@ -747,7 +781,14 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
     // Case 2: same generation, same token — idempotent re-claim allowed
     // (the same attempt issuing the write twice, e.g. after a transient
     // DB error retried the claim call).
-    const rowId2 = await insertStuckEvent(tenantA, `claim-idem-${randomUUID()}`, 'booking_new', '1', 'RECEIVED', 0);
+    const rowId2 = await insertStuckEvent(
+      tenantA,
+      `claim-idem-${randomUUID()}`,
+      'booking_new',
+      '1',
+      'RECEIVED',
+      0,
+    );
     expect(await claim(rowId2, 'token-same', 5)).toBe(true);
     expect(await claim(rowId2, 'token-same', 5)).toBe(true);
     const afterIdempotent = await currentClaim(rowId2);
@@ -757,7 +798,14 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
     // Case 3: same generation, different token — rejected. Two distinct
     // dispatches should never legitimately tie, but if they did, neither
     // may silently replace the other.
-    const rowId3 = await insertStuckEvent(tenantA, `claim-tie-${randomUUID()}`, 'booking_new', '1', 'RECEIVED', 0);
+    const rowId3 = await insertStuckEvent(
+      tenantA,
+      `claim-tie-${randomUUID()}`,
+      'booking_new',
+      '1',
+      'RECEIVED',
+      0,
+    );
     expect(await claim(rowId3, 'token-first', 7)).toBe(true);
     expect(await claim(rowId3, 'token-second-different', 7)).toBe(false);
     expect((await currentClaim(rowId3)).processingToken).toBe('token-first');
@@ -772,7 +820,14 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
     // hand-assembled SQL, so the whole chain — recreate, claim, hydrate,
     // finalize — is proven end to end.
     const eventId = `recreate-${randomUUID()}`;
-    const rowId = await insertStuckEvent(tenantA, eventId, 'booking_new', '38144200', 'QUEUED', 10 * 60_000);
+    const rowId = await insertStuckEvent(
+      tenantA,
+      eventId,
+      'booking_new',
+      '38144200',
+      'QUEUED',
+      10 * 60_000,
+    );
     const database = app!.get(TenantDatabaseService);
 
     // Simulate an old job that reached a high generation before its lineage
@@ -785,15 +840,18 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
       token: 'old-lineage-token',
       generation: 9,
     });
-    await database.withTenantTransaction({ tenantId: tenantA.tenantId, propertyId: tenantA.propertyId }, (tx) =>
-      tx.$executeRawUnsafe(oldClaimSql, ...oldClaimParams),
+    await database.withTenantTransaction(
+      { tenantId: tenantA.tenantId, propertyId: tenantA.propertyId },
+      (tx) => tx.$executeRawUnsafe(oldClaimSql, ...oldClaimParams),
     );
 
     // reconcileJob reports 'missing' for this row's deterministic jobId (no
     // real job exists) — the real sweep path recreates it and resets the
     // stale claim state via a genuine CAS against the snapshot it reads,
     // then the new job's real worker claims and hydrates it.
-    queuedResponses = [{ status: 200, body: realBookingDetail({ id: 38144200, number: 'RECREATE-OK' }) }];
+    queuedResponses = [
+      { status: 200, body: realBookingDetail({ id: 38144200, number: 'RECREATE-OK' }) },
+    ];
     const worker = app!.get(ClockWorkerService) as unknown as {
       reconcileStuckEvent: (row: StuckEventRow) => Promise<void>;
     };
@@ -818,7 +876,7 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
     expect(bookings[0]!.externalReference).toBe('CLOCK-RECREATE-OK');
   });
 
-  it('recreation reset cannot erase ownership the new job\'s own worker already claimed (forced interleaving through the real recreation methods)', async () => {
+  it("recreation reset cannot erase ownership the new job's own worker already claimed (forced interleaving through the real recreation methods)", async () => {
     // Fifth corrective review: a blind reset after enqueue could arrive
     // *after* the freshly created job's own worker had already claimed the
     // row, silently wiping that legitimate claim back to NULL. This forces
@@ -827,7 +885,14 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
     // actual production methods (readProcessingSnapshot/
     // resetForJobRecreation), not a reimplementation of their SQL.
     const eventId = `recreate-claim-race-${randomUUID()}`;
-    const rowId = await insertStuckEvent(tenantA, eventId, 'booking_new', '38144210', 'RECEIVED', 0);
+    const rowId = await insertStuckEvent(
+      tenantA,
+      eventId,
+      'booking_new',
+      '38144210',
+      'RECEIVED',
+      0,
+    );
     const jobId = clockHydrateEventJobId(tenantA.connectionId, eventId);
 
     const worker = app!.get(ClockWorkerService) as unknown as {
@@ -836,21 +901,34 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
         propertyId: string,
         eventRowId: string,
       ) => Promise<
-        { status: string; processingToken: string | null; processingAttempt: number | null } | undefined
+        | { status: string; processingToken: string | null; processingAttempt: number | null }
+        | undefined
       >;
       resetForJobRecreation: (
         tenantId: string,
         propertyId: string,
         eventRowId: string,
-        snapshot: { status: string; processingToken: string | null; processingAttempt: number | null },
+        snapshot: {
+          status: string;
+          processingToken: string | null;
+          processingAttempt: number | null;
+        },
       ) => Promise<boolean>;
     };
     const queues = app!.get(ClockQueueService);
 
     // Step 1: the recreator's snapshot — exactly what recreateMissingJob
     // reads immediately before creating the replacement job.
-    const snapshot = await worker.readProcessingSnapshot(tenantA.tenantId, tenantA.propertyId, rowId);
-    expect(snapshot).toEqual({ status: 'RECEIVED', processingToken: null, processingAttempt: null });
+    const snapshot = await worker.readProcessingSnapshot(
+      tenantA.tenantId,
+      tenantA.propertyId,
+      rowId,
+    );
+    expect(snapshot).toEqual({
+      status: 'RECEIVED',
+      processingToken: null,
+      processingAttempt: null,
+    });
 
     // Step 2: the recreator creates the replacement job — the same call
     // recreateMissingJob makes. The app's own live ClockWorkerService
@@ -866,7 +944,12 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
     await queues.enqueue(
       'clock.webhooks',
       'hydrate-event',
-      { tenantId: tenantA.tenantId, propertyId: tenantA.propertyId, connectionId: tenantA.connectionId, eventId },
+      {
+        tenantId: tenantA.tenantId,
+        propertyId: tenantA.propertyId,
+        connectionId: tenantA.connectionId,
+        eventId,
+      },
       { jobId },
     );
     await waitFor(async () => (await eventStatus(tenantA, eventId)) === 'QUEUED');
@@ -879,10 +962,17 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
     // Step 3: the recreator's reset, arriving late — the exact race the
     // fifth corrective review flagged. It must NOT erase the ownership the
     // new job's worker legitimately just acquired.
-    const reset = await worker.resetForJobRecreation(tenantA.tenantId, tenantA.propertyId, rowId, snapshot!);
+    const reset = await worker.resetForJobRecreation(
+      tenantA.tenantId,
+      tenantA.propertyId,
+      rowId,
+      snapshot!,
+    );
     expect(reset).toBe(false);
 
-    const afterReset = await admin.$queryRaw<Array<{ processingToken: string | null; status: string }>>`
+    const afterReset = await admin.$queryRaw<
+      Array<{ processingToken: string | null; status: string }>
+    >`
       SELECT processing_token AS "processingToken", status FROM provider_events WHERE id = ${rowId}::uuid
     `;
     expect(afterReset[0]!.processingToken).toBe(realClaimToken);
@@ -910,7 +1000,14 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
     // entry points at the same time and proves the outcome is never
     // corrupted, regardless of how the real interleaving lands.
     const eventId = `recreate-concurrent-${randomUUID()}`;
-    const rowId = await insertStuckEvent(tenantA, eventId, 'booking_new', '38144211', 'RECEIVED', 0);
+    const rowId = await insertStuckEvent(
+      tenantA,
+      eventId,
+      'booking_new',
+      '38144211',
+      'RECEIVED',
+      0,
+    );
     const jobId = clockHydrateEventJobId(tenantA.connectionId, eventId);
 
     let releaseHydration!: () => void;
@@ -918,7 +1015,11 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
       releaseHydration = resolve;
     });
     queuedResponses = [
-      { status: 200, body: realBookingDetail({ id: 38144211, number: 'CONCURRENT-RECREATE' }), gate },
+      {
+        status: 200,
+        body: realBookingDetail({ id: 38144211, number: 'CONCURRENT-RECREATE' }),
+        gate,
+      },
     ];
 
     const worker = app!.get(ClockWorkerService) as unknown as {
@@ -984,7 +1085,14 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
 
   it('operator-retry path: resetting a FAILED row to RECEIVED per the documented runbook lets the next sweep tick recover it', async () => {
     const eventId = `operator-retry-${randomUUID()}`;
-    const rowId = await insertStuckEvent(tenantA, eventId, 'booking_new', '38144201', 'RECEIVED', 10 * 60_000);
+    const rowId = await insertStuckEvent(
+      tenantA,
+      eventId,
+      'booking_new',
+      '38144201',
+      'RECEIVED',
+      10 * 60_000,
+    );
     const database = app!.get(TenantDatabaseService);
     const worker = app!.get(ClockWorkerService) as unknown as {
       transitionEventStatus: (
@@ -1021,15 +1129,26 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
 
     // The next real sweep tick picks it up and recovers it normally, with
     // no leftover state from the FAILED attempt blocking the new claim.
-    queuedResponses = [{ status: 200, body: realBookingDetail({ id: 38144201, number: 'RETRY-OK' }) }];
-    const worker2 = app!.get(ClockWorkerService) as unknown as { processEventRecoverySweep: () => Promise<void> };
+    queuedResponses = [
+      { status: 200, body: realBookingDetail({ id: 38144201, number: 'RETRY-OK' }) },
+    ];
+    const worker2 = app!.get(ClockWorkerService) as unknown as {
+      processEventRecoverySweep: () => Promise<void>;
+    };
     await worker2.processEventRecoverySweep();
     await waitFor(async () => (await eventStatus(tenantA, eventId)) === 'HYDRATED');
   });
 
   it('a stale sweep snapshot does not resurrect a row that became FAILED between the sweep’s SELECT and its per-row write', async () => {
     const eventId = `stale-sweep-${randomUUID()}`;
-    const rowId = await insertStuckEvent(tenantA, eventId, 'booking_new', '1', 'RECEIVED', 10 * 60_000);
+    const rowId = await insertStuckEvent(
+      tenantA,
+      eventId,
+      'booking_new',
+      '1',
+      'RECEIVED',
+      10 * 60_000,
+    );
     const worker = app!.get(ClockWorkerService) as unknown as {
       transitionEventStatus: (
         tenantId: string,
@@ -1093,7 +1212,12 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
     await queues.enqueue(
       'clock.webhooks',
       'hydrate-event',
-      { tenantId: tenantA.tenantId, propertyId: tenantA.propertyId, connectionId: tenantA.connectionId, eventId },
+      {
+        tenantId: tenantA.tenantId,
+        propertyId: tenantA.propertyId,
+        connectionId: tenantA.connectionId,
+        eventId,
+      },
       { jobId },
     );
 
@@ -1106,7 +1230,14 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
 
   it('parks a completed-but-unreconciled job as NEEDS_RECONCILIATION with a real ManualReviewItem, and the sweep never selects it again even after the underlying BullMQ job later ages out', async () => {
     const eventId = `unreconciled-${randomUUID()}`;
-    const rowId = await insertStuckEvent(tenantA, eventId, 'booking_new', '1', 'QUEUED', 10 * 60_000);
+    const rowId = await insertStuckEvent(
+      tenantA,
+      eventId,
+      'booking_new',
+      '1',
+      'QUEUED',
+      10 * 60_000,
+    );
     const jobId = clockHydrateEventJobId(tenantA.connectionId, eventId);
     const queues = app!.get(ClockQueueService);
 
@@ -1119,7 +1250,9 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
     await queues.enqueue('clock.webhooks', 'noop-completed-probe', {}, { jobId });
     await waitFor(async () => (await queues.reconcileJob('clock.webhooks', jobId)) === 'completed');
 
-    const worker = app!.get(ClockWorkerService) as unknown as { processEventRecoverySweep: () => Promise<void> };
+    const worker = app!.get(ClockWorkerService) as unknown as {
+      processEventRecoverySweep: () => Promise<void>;
+    };
     await worker.processEventRecoverySweep();
 
     await waitFor(async () => (await eventStatus(tenantA, eventId)) === 'NEEDS_RECONCILIATION');
@@ -1186,7 +1319,9 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
     };
 
     const failingReview = {
-      recordInTransaction: vi.fn().mockRejectedValue(new Error('simulated ManualReviewItem insert failure')),
+      recordInTransaction: vi
+        .fn()
+        .mockRejectedValue(new Error('simulated ManualReviewItem insert failure')),
     };
     const brokenWorker = new ClockWorkerService(
       app!.get(ClockQueueService),
@@ -1278,7 +1413,14 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
   it('the recovery sweep reads across tenants (platform_admin carve-out), but a tenant-scoped write can never touch another tenant’s row', async () => {
     const eventIdA = `cross-tenant-a-${randomUUID()}`;
     const eventIdB = `cross-tenant-b-${randomUUID()}`;
-    await insertStuckEvent(tenantA, eventIdA, 'unsupported_event_type', 'x', 'RECEIVED', 10 * 60_000);
+    await insertStuckEvent(
+      tenantA,
+      eventIdA,
+      'unsupported_event_type',
+      'x',
+      'RECEIVED',
+      10 * 60_000,
+    );
     const rowIdB = await insertStuckEvent(
       tenantB,
       eventIdB,

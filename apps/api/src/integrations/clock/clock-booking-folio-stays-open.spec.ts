@@ -77,9 +77,7 @@ describe('ClockBookingService postDeposit folio handling', () => {
 
     expect(fetch).not.toHaveBeenCalled();
     expect(fetch.mock.calls.some((call) => String(call[1]?.path).includes('/close'))).toBe(false);
-    expect(
-      fetch.mock.calls.some((call) => call[1]?.path === '/document_types'),
-    ).toBe(false);
+    expect(fetch.mock.calls.some((call) => call[1]?.path === '/document_types')).toBe(false);
 
     expect(audit.recordInTransaction).toHaveBeenCalledWith(
       {},

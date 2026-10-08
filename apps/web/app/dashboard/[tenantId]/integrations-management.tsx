@@ -421,7 +421,12 @@ type ClockPolicyCatalog = {
 
 type ClockConfirmAllResult = {
   confirmed: number;
-  skipped: Array<{ mappingId: string; entityType: 'ROOM_TYPE' | 'ROOM'; externalName: string; reason: string }>;
+  skipped: Array<{
+    mappingId: string;
+    entityType: 'ROOM_TYPE' | 'ROOM';
+    externalName: string;
+    reason: string;
+  }>;
 };
 
 function ClockCatalogSync({ tenantId, property }: { tenantId: string; property: Property }) {
@@ -453,7 +458,9 @@ function ClockCatalogSync({ tenantId, property }: { tenantId: string; property: 
       void queryClient.invalidateQueries({ queryKey: mappingsQueryKey });
       setLastSkipped(result.skipped);
       if (result.skipped.length === 0) {
-        toast.success(`Applied ${result.confirmed} item${result.confirmed === 1 ? '' : 's'} to your catalog.`);
+        toast.success(
+          `Applied ${result.confirmed} item${result.confirmed === 1 ? '' : 's'} to your catalog.`,
+        );
       } else {
         toast.warning(
           `Applied ${result.confirmed}, skipped ${result.skipped.length} (see below to resolve).`,
@@ -514,9 +521,9 @@ function ClockCatalogSync({ tenantId, property }: { tenantId: string; property: 
     <Card>
       <Heading level={3}>Clock catalog sync — {property.name}</Heading>
       <Text tone="secondary">
-        Pulls room types and rooms from Clock and applies them to your local catalog
-        automatically. Anything that can&apos;t be applied (e.g. a name that&apos;s already in
-        use) is listed below for you to resolve by hand.
+        Pulls room types and rooms from Clock and applies them to your local catalog automatically.
+        Anything that can&apos;t be applied (e.g. a name that&apos;s already in use) is listed below
+        for you to resolve by hand.
       </Text>
       <button
         className="must-button must-button--primary"

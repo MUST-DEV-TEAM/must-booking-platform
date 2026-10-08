@@ -17,7 +17,11 @@ function makeWorker(
      * (null-token) row, RECEIVED unless providerEventsRow says otherwise —
      * override to simulate ownership having already changed by the time
      * the snapshot is read (`null` simulates the row having vanished). */
-    snapshotRow?: { status: string; processingToken: string | null; processingAttempt: number | null } | null;
+    snapshotRow?: {
+      status: string;
+      processingToken: string | null;
+      processingAttempt: number | null;
+    } | null;
   } = {},
 ) {
   const snapshotRow =
@@ -180,7 +184,12 @@ describe('ClockWorkerService dispatch — clock.webhooks/hydrate-event', () => {
   });
 
   it('throws on malformed job data instead of silently ignoring it', async () => {
-    const { worker } = makeWorker({ id: 'row-x', status: 'QUEUED', eventType: 'booking_new', objectId: '1' });
+    const { worker } = makeWorker({
+      id: 'row-x',
+      status: 'QUEUED',
+      eventType: 'booking_new',
+      objectId: '1',
+    });
     await expect(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (worker as any).process('clock.webhooks', fakeJob('j4', 'hydrate-event', { bogus: true })),
@@ -188,7 +197,12 @@ describe('ClockWorkerService dispatch — clock.webhooks/hydrate-event', () => {
   });
 
   it('throws when the job carries no BullMQ processing token', async () => {
-    const { worker } = makeWorker({ id: 'row-x2', status: 'QUEUED', eventType: 'booking_new', objectId: '1' });
+    const { worker } = makeWorker({
+      id: 'row-x2',
+      status: 'QUEUED',
+      eventType: 'booking_new',
+      objectId: '1',
+    });
     const jobWithoutToken = { id: 'j4b', name: 'hydrate-event', data: jobData } as never;
     await expect(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -428,7 +442,10 @@ describe('ClockWorkerService — provider_events durable status (ownership + exp
 
     await expect(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (worker as any).process('clock.webhooks', fakeJob('j-stale-finalize', 'hydrate-event', jobData)),
+      (worker as any).process(
+        'clock.webhooks',
+        fakeJob('j-stale-finalize', 'hydrate-event', jobData),
+      ),
     ).resolves.toBeUndefined();
   });
 
@@ -453,8 +470,10 @@ describe('ClockWorkerService — provider_events durable status (ownership + exp
 
   it('markHydrateEventFailed does nothing (no crash) when the provider_events row is missing', async () => {
     const { worker, transaction } = makeWorker(undefined);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await expect((worker as any).markHydrateEventFailed(jobData, 'token-A')).resolves.toBeUndefined();
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (worker as any).markHydrateEventFailed(jobData, 'token-A'),
+    ).resolves.toBeUndefined();
     expect(transaction.$executeRawUnsafe).not.toHaveBeenCalled();
   });
 });
@@ -477,7 +496,10 @@ describe('ClockWorkerService — provider_events recovery sweep (BullMQ job-stat
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (worker as any).process('clock.webhooks', fakeJob('sweep-1', 'sweep-stuck-events', {}));
 
-    expect(queues.reconcileJob).toHaveBeenCalledWith('clock.webhooks', 'clock-hydrate:connection-1:event-stuck-1');
+    expect(queues.reconcileJob).toHaveBeenCalledWith(
+      'clock.webhooks',
+      'clock-hydrate:connection-1:event-stuck-1',
+    );
     expect(queues.enqueue).toHaveBeenCalledWith(
       'clock.webhooks',
       'hydrate-event',
@@ -564,10 +586,11 @@ describe('ClockWorkerService — provider_events recovery sweep (BullMQ job-stat
   });
 
   it('does not record a ManualReviewItem when the NEEDS_RECONCILIATION write itself loses the race', async () => {
-    const { worker, manualReview } = makeWorker(
-      undefined,
-      { stuckRows: [stuckRow], reconcileJob: async () => 'completed', executeRowCount: 0 },
-    );
+    const { worker, manualReview } = makeWorker(undefined, {
+      stuckRows: [stuckRow],
+      reconcileJob: async () => 'completed',
+      executeRowCount: 0,
+    });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (worker as any).process('clock.webhooks', fakeJob('sweep-4b', 'sweep-stuck-events', {}));
     expect(manualReview.recordInTransaction).not.toHaveBeenCalled();

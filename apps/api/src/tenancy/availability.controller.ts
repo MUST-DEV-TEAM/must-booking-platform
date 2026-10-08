@@ -171,7 +171,8 @@ export class AvailabilityController {
       roomTypeId: typeof value.roomTypeId === 'string' ? value.roomTypeId : '',
       roomId: typeof value.roomId === 'string' ? value.roomId : undefined,
       month: typeof value.month === 'string' ? value.month : '',
-      roomCount: Number.isInteger(roomCount) && roomCount >= 1 && roomCount <= 25 ? roomCount : undefined,
+      roomCount:
+        Number.isInteger(roomCount) && roomCount >= 1 && roomCount <= 25 ? roomCount : undefined,
     };
   }
 }

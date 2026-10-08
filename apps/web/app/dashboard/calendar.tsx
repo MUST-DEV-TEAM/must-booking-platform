@@ -117,17 +117,19 @@ export function DashboardCalendar({
         roomTypes: initialRoomTypes,
         rooms: initialRooms ?? [],
         availability: initialAvailability,
-        rows: initialRows ?? initialRoomTypes.map((roomType): CalendarRow => {
-          const forType = initialAvailability.filter((item) => item.roomTypeId === roomType.id);
-          return {
-            id: roomType.id,
-            label: roomType.name,
-            totalUnits: forType.reduce((max, item) => Math.max(max, item.availableUnits), 0),
-            availableByDate: Object.fromEntries(
-              forType.map((item) => [item.startsOn, item.availableUnits]),
-            ),
-          };
-        }),
+        rows:
+          initialRows ??
+          initialRoomTypes.map((roomType): CalendarRow => {
+            const forType = initialAvailability.filter((item) => item.roomTypeId === roomType.id);
+            return {
+              id: roomType.id,
+              label: roomType.name,
+              totalUnits: forType.reduce((max, item) => Math.max(max, item.availableUnits), 0),
+              availableByDate: Object.fromEntries(
+                forType.map((item) => [item.startsOn, item.availableUnits]),
+              ),
+            };
+          }),
       }
     : undefined;
   const availabilityQuery = useQuery({
@@ -267,14 +269,16 @@ export function DashboardCalendar({
           </Text>
           <Heading>Calendar</Heading>
           <Text tone="secondary">
-            {includeRooms
-              ? 'Nightly availability by room.'
-              : 'Nightly availability by room type.'}
+            {includeRooms ? 'Nightly availability by room.' : 'Nightly availability by room type.'}
           </Text>
         </div>
         <div className={styles.headingActions}>
           {canManageAvailability ? (
-            <button className="must-button must-button--secondary" onClick={openBlockDialog} type="button">
+            <button
+              className="must-button must-button--secondary"
+              onClick={openBlockDialog}
+              type="button"
+            >
               Block availability
             </button>
           ) : null}
@@ -338,7 +342,11 @@ export function DashboardCalendar({
                   const isClosed = row.closedByDate?.[day] === true;
                   // A closed night reads as closed even if the day-level count still shows free rooms.
                   const remaining = isClosed ? 0 : (row.availableByDate[day] ?? 0);
-                  const stateLabel = isClosed ? 'Closed' : remaining > 0 ? `${remaining} available` : 'Sold out';
+                  const stateLabel = isClosed
+                    ? 'Closed'
+                    : remaining > 0
+                      ? `${remaining} available`
+                      : 'Sold out';
                   return (
                     <button
                       key={`${row.id}-${day}`}
@@ -565,8 +573,8 @@ function BlockAvailabilityDialog({
               </select>
             </label>
             <Text tone="secondary">
-              Leave every room unselected to block all rooms of the selected type(s). Hold Ctrl
-              (Cmd on Mac) to select more than one.
+              Leave every room unselected to block all rooms of the selected type(s). Hold Ctrl (Cmd
+              on Mac) to select more than one.
             </Text>
           </div>
         ) : null}
@@ -622,7 +630,11 @@ function BlockAvailabilityDialog({
               >
                 Back
               </button>
-              <button className="must-button must-button--primary" disabled={savingBlock} type="submit">
+              <button
+                className="must-button must-button--primary"
+                disabled={savingBlock}
+                type="submit"
+              >
                 {savingBlock ? (
                   <>
                     <Loader2 aria-hidden="true" size={16} /> Creating…
@@ -640,7 +652,9 @@ function BlockAvailabilityDialog({
             </button>
             <button
               className="must-button must-button--primary"
-              onClick={blockStep === 'room-type' ? goToRoomOrDatesStep : () => setBlockStep('dates')}
+              onClick={
+                blockStep === 'room-type' ? goToRoomOrDatesStep : () => setBlockStep('dates')
+              }
               type="button"
             >
               Next

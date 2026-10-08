@@ -29,7 +29,9 @@ describe('TenantPicker', () => {
     });
   }
 
-  function membershipsResponse(memberships: Array<{ tenantId: string; organizationName: string; role: string }>) {
+  function membershipsResponse(
+    memberships: Array<{ tenantId: string; organizationName: string; role: string }>,
+  ) {
     return { ok: true, json: async () => ({ memberships }) };
   }
 
@@ -45,9 +47,13 @@ describe('TenantPicker', () => {
   it('redirects straight to the tenant dashboard when there is exactly one workspace', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(
-        membershipsResponse([{ tenantId: 'tenant-1', organizationName: 'Must Hotel Testing', role: 'OWNER' }]),
-      ),
+      vi
+        .fn()
+        .mockResolvedValue(
+          membershipsResponse([
+            { tenantId: 'tenant-1', organizationName: 'Must Hotel Testing', role: 'OWNER' },
+          ]),
+        ),
     );
 
     await render(<TenantPicker />);

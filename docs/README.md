@@ -22,12 +22,12 @@ MUST is a multi-tenant hotel booking platform: a NestJS API owns booking and gue
 | Original Clock requirements | [Reference material](source/README.md) | External/source requirements, not implemented features |
 | Old plans, reports, completed work | [Archive](archive/README.md), [completed milestones](roadmap/completed/README.md) | Historical evidence, not current behavior |
 | Old filenames or a document's classification | [Documentation catalog](catalog.md) | Maintained inventory and migration map |
-| How to plan, review and maintain docs | [Working agreement](maintenance.md) | Astra/Claude roles and documentation rules |
+| How to plan, review and maintain docs | [Working agreement](maintenance.md) | Owner/Claude roles and documentation rules |
 
 ## Read efficiently
 
 1. Read this page and the repository [agent instructions](../AGENTS.md).
-2. Select the relevant document above; check the roadmap task and applicable ADRs.
+2. Select the relevant document above and any applicable ADR.
 3. Jump to its source paths and inspect the actual handlers/services/schema before planning a change.
 4. Broaden the search only when those sources cannot answer the question. Skip dependencies, generated outputs, caches and unrelated history.
 
@@ -39,4 +39,4 @@ Implementation establishes **current behavior**. Schema and SQL migrations estab
 
 Each durable fact has one owner. Link to that owner rather than copying its prose into a plan. [INDEX.md](INDEX.md) remains a compatibility pointer only. Historical source comments may use old uppercase filenames; resolve them through the catalog.
 
-Astra normally **understands, architects, plans and reviews**. Claude normally **implements, tests and reports**. Product implementation by Astra requires an explicit request; the one-time documentation initialization was separately authorized.
+Claude plans and implements; the owner approves plans and merges. See the [working agreement](maintenance.md).

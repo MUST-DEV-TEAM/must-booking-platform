@@ -154,7 +154,12 @@ export class ClockCatalogSyncService {
     actorUserId: string,
   ): Promise<{
     confirmed: number;
-    skipped: Array<{ mappingId: string; entityType: EntityType; externalName: string; reason: string }>;
+    skipped: Array<{
+      mappingId: string;
+      entityType: EntityType;
+      externalName: string;
+      reason: string;
+    }>;
   }> {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const rows = await tx.$queryRawUnsafe<ClockCatalogMappingRow[]>(
@@ -181,7 +186,7 @@ export class ClockCatalogSyncService {
         } catch (error: unknown) {
           const reason =
             error instanceof ConflictException || error instanceof BadRequestException
-              ? (error.getResponse() as { message?: string }).message ?? error.message
+              ? ((error.getResponse() as { message?: string }).message ?? error.message)
               : (() => {
                   throw error;
                 })();

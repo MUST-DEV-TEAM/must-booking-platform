@@ -36,9 +36,14 @@ describe('environment validation', () => {
     });
 
     it('accepts plain and "Name <address>" sender formats', () => {
-      expect(() => validateEnvironment({ ...base, MAIL_FROM_EMAIL: 'noreply@mail.example.test' })).not.toThrow();
       expect(() =>
-        validateEnvironment({ ...base, MAIL_FROM_EMAIL: 'MUST Booking <noreply@mail.example.test>' }),
+        validateEnvironment({ ...base, MAIL_FROM_EMAIL: 'noreply@mail.example.test' }),
+      ).not.toThrow();
+      expect(() =>
+        validateEnvironment({
+          ...base,
+          MAIL_FROM_EMAIL: 'MUST Booking <noreply@mail.example.test>',
+        }),
       ).not.toThrow();
     });
 
@@ -53,8 +58,12 @@ describe('environment validation', () => {
 
     it('reports which mail settings are missing', () => {
       expect(missingMailConfiguration({})).toEqual(['RESEND_API_KEY', 'MAIL_FROM_EMAIL']);
-      expect(missingMailConfiguration({ RESEND_API_KEY: 'k', MAIL_FROM_EMAIL: ' ' })).toEqual(['MAIL_FROM_EMAIL']);
-      expect(missingMailConfiguration({ RESEND_API_KEY: 'k', MAIL_FROM_EMAIL: 'a@b.test' })).toEqual([]);
+      expect(missingMailConfiguration({ RESEND_API_KEY: 'k', MAIL_FROM_EMAIL: ' ' })).toEqual([
+        'MAIL_FROM_EMAIL',
+      ]);
+      expect(
+        missingMailConfiguration({ RESEND_API_KEY: 'k', MAIL_FROM_EMAIL: 'a@b.test' }),
+      ).toEqual([]);
     });
   });
 });

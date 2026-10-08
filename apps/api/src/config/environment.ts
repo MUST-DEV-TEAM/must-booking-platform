@@ -27,7 +27,8 @@ const requiredEnvironmentVariables = [
   'INTEGRATION_CREDENTIALS_KEY',
 ] as const;
 
-const mailFromAddressPattern = /^(?:[^<>@]+<[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+>|[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+)$/;
+const mailFromAddressPattern =
+  /^(?:[^<>@]+<[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+>|[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+)$/;
 
 function isSet(value: unknown): boolean {
   return typeof value === 'string' && value.trim() !== '';
@@ -66,7 +67,10 @@ export function validateEnvironment(config: Record<string, unknown>): Record<str
   assertBase64Key32Bytes(config.INTEGRATION_CREDENTIALS_KEY, 'INTEGRATION_CREDENTIALS_KEY');
   if (isSet(config.RESEND_API_BASE_URL))
     assertUrl(config.RESEND_API_BASE_URL, 'RESEND_API_BASE_URL', ['http:', 'https:']);
-  if (isSet(config.MAIL_FROM_EMAIL) && !mailFromAddressPattern.test(String(config.MAIL_FROM_EMAIL).trim()))
+  if (
+    isSet(config.MAIL_FROM_EMAIL) &&
+    !mailFromAddressPattern.test(String(config.MAIL_FROM_EMAIL).trim())
+  )
     throw new Error('MAIL_FROM_EMAIL must be an email address, optionally as "Name <address>".');
 
   return {

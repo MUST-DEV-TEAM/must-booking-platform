@@ -7,7 +7,7 @@ Multi-tenant hotel booking platform with a NestJS API, Next.js staff/platform da
 - [Documentation](docs/README.md) - canonical entry point, current architecture and task router.
 - [Roadmap](docs/roadmap/README.md) - active work, review state and historical milestones.
 - [Contributing](CONTRIBUTING.md) - local setup and checks.
-- [Agent instructions](AGENTS.md) - repository constraints and Astra/Claude responsibilities.
+- [Agent instructions](AGENTS.md) - repository rules and how work is done.
 
 The repository contains working application code. See [product scope](docs/product-overview.md) for implemented features and known limits; checked-in code and historical sandbox evidence are not a production certification.
 

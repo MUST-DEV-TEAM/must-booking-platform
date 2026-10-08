@@ -38,7 +38,7 @@ Old names remain searchable here for source comments and external references. Th
 | [Booking and payments](architecture/booking-and-payments.md) | CURRENT inventory, quote, lifecycle, guest-money and concurrency behavior; known limitations explicit. |
 | [Frontends and API](architecture/frontends-and-api.md) | CURRENT Next.js/WordPress transport, API ownership and legacy boundaries. |
 | [Operations](operations/README.md) | CURRENT source-backed setup/test/job/deployment map; live host state UNKNOWN. |
-| [Maintenance](maintenance.md) | CURRENT ownership, Astra/Claude workflow and prompt contract. |
+| [Maintenance](maintenance.md) | CURRENT ownership and owner/Claude workflow. |
 | [ADR index](decisions/README.md) | HISTORICAL accepted intent and supersession metadata; all 30 ADR files individually indexed there, bodies preserved. Acceptance is not implementation. |
 | [Roadmap](roadmap/README.md) | CURRENT task authorization, implemented-but-unreviewed work, future scope and deferrals. |
 | [Completed index](roadmap/completed/README.md) | HISTORICAL delivery evidence, individually classified below. |

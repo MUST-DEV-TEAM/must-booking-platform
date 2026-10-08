@@ -21,12 +21,7 @@
 // break.
 
 export type ProviderEventStatus =
-  | 'RECEIVED'
-  | 'QUEUED'
-  | 'HYDRATED'
-  | 'IGNORED'
-  | 'FAILED'
-  | 'NEEDS_RECONCILIATION';
+  'RECEIVED' | 'QUEUED' | 'HYDRATED' | 'IGNORED' | 'FAILED' | 'NEEDS_RECONCILIATION';
 
 export interface GuardedTransitionParams {
   tenantId: string;
@@ -131,7 +126,10 @@ export function claimEventSql(params: ClaimEventParams): [string, unknown[]] {
          OR processing_attempt < $4
          OR (processing_attempt = $4 AND processing_token = $3)
        )`;
-  return [sql, [params.tenantId, params.eventRowId, params.token, params.generation, params.allowedFrom]];
+  return [
+    sql,
+    [params.tenantId, params.eventRowId, params.token, params.generation, params.allowedFrom],
+  ];
 }
 
 export interface ProcessingSnapshot {
@@ -217,7 +215,13 @@ export function resetForJobRecreationSql(params: RecreateJobResetParams): [strin
        AND processing_attempt IS NOT DISTINCT FROM $5`;
   return [
     sql,
-    [params.tenantId, params.eventRowId, params.allowedFrom, params.expectedToken, params.expectedAttempt],
+    [
+      params.tenantId,
+      params.eventRowId,
+      params.allowedFrom,
+      params.expectedToken,
+      params.expectedAttempt,
+    ],
   ];
 }
 

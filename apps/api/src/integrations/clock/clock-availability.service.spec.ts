@@ -388,8 +388,16 @@ describe('ClockAvailabilityService.getAvailability', () => {
                 },
               },
               '69999': {
-                '2026-08-10': { free: true, room_type_free_rooms: 2, rate_restriction: { stop_from_sale: false } },
-                '2026-08-11': { free: true, room_type_free_rooms: 2, rate_restriction: { stop_from_sale: false } },
+                '2026-08-10': {
+                  free: true,
+                  room_type_free_rooms: 2,
+                  rate_restriction: { stop_from_sale: false },
+                },
+                '2026-08-11': {
+                  free: true,
+                  room_type_free_rooms: 2,
+                  rate_restriction: { stop_from_sale: false },
+                },
               },
             },
           },
@@ -542,11 +550,19 @@ describe('ClockAvailabilityService.getAvailabilityCalendar', () => {
       })
       .mockResolvedValueOnce({
         status: 200,
-        body: [{ id: 42023, rates: { '69242': { '2026-08-10': { free: true, room_type_free_rooms: 2 } } } }],
+        body: [
+          {
+            id: 42023,
+            rates: { '69242': { '2026-08-10': { free: true, room_type_free_rooms: 2 } } },
+          },
+        ],
       });
     const { service } = makeService({ client: { request } });
 
-    await service.getAvailabilityCalendar('t1', 'p1', { roomTypeId: 'local-rt-1', month: '2026-08' });
+    await service.getAvailabilityCalendar('t1', 'p1', {
+      roomTypeId: 'local-rt-1',
+      month: '2026-08',
+    });
 
     expect(request).toHaveBeenLastCalledWith(
       credentials,
@@ -594,10 +610,7 @@ describe('ClockAvailabilityService.getAvailabilityCalendar', () => {
   });
 
   // Runs one calendar month against a single rate whose cells are given by the test.
-  async function calendarFor(
-    cells: Record<string, unknown>,
-    extra: { roomCount?: number } = {},
-  ) {
+  async function calendarFor(cells: Record<string, unknown>, extra: { roomCount?: number } = {}) {
     const request = vi
       .fn()
       .mockResolvedValueOnce({
@@ -620,9 +633,17 @@ describe('ClockAvailabilityService.getAvailabilityCalendar', () => {
 
   it('tells a stop-sale closure (rooms free) apart from a sold-out night (no rooms free)', async () => {
     const days = await calendarFor({
-      '2026-08-10': { free: true, room_type_free_rooms: 7, rate_restriction: { stop_from_sale: true } },
+      '2026-08-10': {
+        free: true,
+        room_type_free_rooms: 7,
+        rate_restriction: { stop_from_sale: true },
+      },
       '2026-08-11': { free: false, room_type_free_rooms: 0 },
-      '2026-08-12': { free: true, room_type_free_rooms: 0, rate_restriction: { stop_from_sale: true } },
+      '2026-08-12': {
+        free: true,
+        room_type_free_rooms: 0,
+        rate_restriction: { stop_from_sale: true },
+      },
       '2026-08-13': { free: true, room_type_free_rooms: 3 },
     });
 
@@ -665,7 +686,11 @@ describe('ClockAvailabilityService.getAvailabilityCalendar', () => {
                 '2026-08-10': {
                   free: true,
                   room_type_free_rooms: 2,
-                  rate_restriction: { close_for_arrival: true, close_for_departure: true, min_stay: 3 },
+                  rate_restriction: {
+                    close_for_arrival: true,
+                    close_for_departure: true,
+                    min_stay: 3,
+                  },
                 },
                 '2026-08-11': {
                   free: true,
@@ -674,7 +699,11 @@ describe('ClockAvailabilityService.getAvailabilityCalendar', () => {
                 },
               },
               '2': {
-                '2026-08-10': { free: true, room_type_free_rooms: 2, rate_restriction: { min_stay: 5 } },
+                '2026-08-10': {
+                  free: true,
+                  room_type_free_rooms: 2,
+                  rate_restriction: { min_stay: 5 },
+                },
                 '2026-08-11': {
                   free: true,
                   room_type_free_rooms: 2,
@@ -699,7 +728,11 @@ describe('ClockAvailabilityService.getAvailabilityCalendar', () => {
     expect(days['2026-08-10']?.closedToArrival).toBeUndefined();
     expect(days['2026-08-10']?.closedToDeparture).toBeUndefined();
     // Both rates close arrival on the 11th; the smaller minimum stay is the one offered.
-    expect(days['2026-08-11']).toMatchObject({ isAvailable: true, closedToArrival: true, minStay: 2 });
+    expect(days['2026-08-11']).toMatchObject({
+      isAvailable: true,
+      closedToArrival: true,
+      minStay: 2,
+    });
   });
 });
 
