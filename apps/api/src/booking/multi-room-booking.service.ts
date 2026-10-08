@@ -13,6 +13,7 @@ import { AvailabilityService } from '../tenancy/availability.service';
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
 import { ClockBookingService } from '../integrations/clock/clock-booking.service';
+import { BookingConfirmationNotificationService } from '../mail/booking-confirmation-notification.service';
 import { PaymentProviderRegistry } from '../payments/payment-provider-registry';
 import { QuoteService } from './quote.service';
 import { resolveBookingOccupancy } from './booking-occupancy';
@@ -69,6 +70,8 @@ export class MultiRoomBookingService {
     @Inject(IntegrationConnectionsService)
     private readonly connections: IntegrationConnectionsService,
     @Inject(ClockBookingService) private readonly clockBooking: ClockBookingService,
+    @Inject(BookingConfirmationNotificationService)
+    private readonly confirmations: BookingConfirmationNotificationService,
   ) {}
 
   async create(
@@ -78,8 +81,11 @@ export class MultiRoomBookingService {
     const invalid = this.validateCommand(command);
     if (invalid) return invalid;
 
+    // Pay-at-hotel rooms confirmed by this call; emailed only after the transaction commits.
+    // An idempotent replay returns the stored result without re-running, so nothing is resent.
+    const payAtHotelConfirmedIds: string[] = [];
     try {
-      return await this.database.withTenantTransaction(
+      const result = await this.database.withTenantTransaction(
         context,
         async (tx) => {
           await this.lockInventory(tx, context, command.rooms);
@@ -184,6 +190,9 @@ export class MultiRoomBookingService {
                 `;
                 for (const booking of bookings) booking.status = BookingStatus.CONFIRMED;
               }
+              for (const booking of bookings)
+                if (booking.status === BookingStatus.CONFIRMED)
+                  payAtHotelConfirmedIds.push(booking.id);
               return { ok: true, value: { orderReference, bookings } };
             }
             if (
@@ -225,6 +234,14 @@ export class MultiRoomBookingService {
         },
         { timeoutMs: 45_000 },
       );
+      if (result.ok)
+        for (const bookingId of payAtHotelConfirmedIds)
+          await this.confirmations.sendAfterConfirmation(
+            context,
+            bookingId,
+            `pay-at-hotel:${bookingId}`,
+          );
+      return result;
     } catch (error) {
       if (error instanceof MultiRoomAvailabilityError)
         return this.failure(

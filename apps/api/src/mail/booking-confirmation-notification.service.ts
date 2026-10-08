@@ -4,6 +4,7 @@ import type { PaymentProviderContext } from '@must/domain-contracts';
 import { CancellationLinkService } from '../booking/cancellation-link.service';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { PaymentNotificationService } from './payment-notification.service';
+import { staffRecipients } from './staff-recipients';
 
 type BookingEmailRow = {
   email: string;
@@ -29,8 +30,6 @@ type BookingEmailRow = {
   publicWebsiteOrigin: string | null;
   propertyAddress: string | null;
 };
-
-type StaffRecipient = { staffUserId: string; email: string };
 
 @Injectable()
 export class BookingConfirmationNotificationService {
@@ -68,13 +67,7 @@ export class BookingConfirmationNotificationService {
       `;
       const row = rows[0] ?? null;
       if (!row) return null;
-      const staff = await tx.$queryRaw<StaffRecipient[]>`
-        SELECT psa.user_id AS "staffUserId", u.email
-        FROM property_staff_assignments psa
-        JOIN users u ON u.id = psa.user_id
-        WHERE psa.tenant_id = ${context.tenantId}::uuid
-          AND psa.property_id = ${context.propertyId}::uuid
-      `;
+      const staff = await staffRecipients(tx, context);
       return { row, staff };
     });
     if (!notification) return;

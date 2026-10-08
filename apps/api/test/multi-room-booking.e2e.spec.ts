@@ -3,11 +3,12 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { MultiRoomBookingService } from '../src/booking/multi-room-booking.service';
 import { LocalPmsProvider } from '../src/booking/local-pms.provider';
 import { QuoteService } from '../src/booking/quote.service';
+import { BookingConfirmationNotificationService } from '../src/mail/booking-confirmation-notification.service';
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { PAYMENT_PROVIDER } from '../src/payments/payment.provider';
 import { StripeWebhookService } from '../src/payments/stripe-webhook.service';
@@ -303,6 +304,10 @@ describe('Multi-room booking orders', () => {
       },
     );
     expect(result).toMatchObject({ ok: false, error: { code: 'AVAILABILITY_FAILED' } });
+    const confirmationEmails = vi.spyOn(
+      app!.get(BookingConfirmationNotificationService),
+      'sendAfterConfirmation',
+    );
 
     const inventory = await admin.$queryRaw<Array<{ roomTypeId: string; bookedUnits: number }>>`
       SELECT room_type_id AS "roomTypeId", booked_units AS "bookedUnits"
@@ -376,6 +381,15 @@ describe('Multi-room booking orders', () => {
       'CONFIRMED',
       'CONFIRMED',
     ]);
+    // Every confirmed pay-at-hotel room gets its guest and staff confirmation email.
+    expect(confirmationEmails.mock.calls).toEqual(
+      held.value.bookings.map((booking) => [
+        { tenantId, propertyId },
+        booking.id,
+        `pay-at-hotel:${booking.id}`,
+      ]),
+    );
+    confirmationEmails.mockRestore();
     const payAtHotelClockBookings = await admin.$queryRaw<
       Array<{ externalBookingId: string | null }>
     >`
