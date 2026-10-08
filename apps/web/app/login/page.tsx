@@ -14,6 +14,12 @@ import styles from './login.module.css';
 const genericLoginError = 'Incorrect email or password';
 const genericLoginErrorDescription =
   'Check your credentials and try again. For security, we do not indicate which field was incorrect.';
+const genericError: LoginError = {
+  title: genericLoginError,
+  description: genericLoginErrorDescription,
+};
+
+type LoginError = { title: string; description: string };
 
 type LoginFields = { email: string; password: string };
 
@@ -26,7 +32,7 @@ export default function LoginPage() {
   const [fields, setFields] = useState<LoginFields>(initialFields);
   const [rememberDevice, setRememberDevice] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<LoginError | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -45,10 +51,10 @@ export default function LoginPage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError(false);
+    setError(null);
 
     if (!fields.email.trim() || !fields.password) {
-      setError(true);
+      setError(genericError);
       return;
     }
 
@@ -61,6 +67,15 @@ export default function LoginPage() {
         method: 'POST',
       });
 
+      if (response.status === 429) {
+        const body = (await response.json().catch(() => null)) as { message?: unknown } | null;
+        setError({
+          title: 'Too many failed sign-in attempts',
+          description:
+            typeof body?.message === 'string' ? body.message : 'Wait a few minutes and try again.',
+        });
+        return;
+      }
       if (!response.ok) {
         throw new Error(genericLoginError);
       }
@@ -68,7 +83,7 @@ export default function LoginPage() {
       const body = (await response.json()) as { user: SessionUser };
       router.push(authDestination(body.user, returnTo));
     } catch {
-      setError(true);
+      setError(genericError);
     } finally {
       setSubmitting(false);
     }
@@ -106,8 +121,8 @@ export default function LoginPage() {
             <img alt="" height="18" src={authAssets.shieldAlert} width="18" />
           </span>
           <span className={styles.errorCopy}>
-            <span className={styles.errorTitle}>{genericLoginError}</span>
-            <span className={styles.errorDescription}>{genericLoginErrorDescription}</span>
+            <span className={styles.errorTitle}>{error.title}</span>
+            <span className={styles.errorDescription}>{error.description}</span>
           </span>
         </Alert>
       ) : null}
@@ -132,7 +147,7 @@ export default function LoginPage() {
         </div>
         <div className={`${styles.field} ${error ? styles.errorInput : ''}`}>
           <TextInput
-            aria-invalid={error || undefined}
+            aria-invalid={error ? true : undefined}
             autoComplete="current-password"
             endAdornment={
               <button
