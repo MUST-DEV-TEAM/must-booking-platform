@@ -1207,17 +1207,14 @@ describe('LocalPmsProvider', () => {
       expectedVersion: created.value.version,
       reason: null,
     };
-    // Nobody is assigned to a property automatically any more (2026-09-29), so
-    // give the owner a temporary assignment to receive staff cancellation mail.
-    const ownerTemplate = await admin.$queryRaw<Array<{ id: string }>>`
-      SELECT "id" FROM property_role_templates
-      WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid
-        AND "name" = 'Front Desk'
-    `;
-    await admin.$executeRaw`
-      INSERT INTO property_staff_assignments ("tenant_id", "property_id", "user_id", "role_template_id")
-      VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${userId}::uuid, ${ownerTemplate[0].id}::uuid)
-    `;
+    // Nobody is assigned to this property, so staff cancellation mail falls
+    // back to the organization owner.
+    await expect(
+      admin.$queryRaw<Array<{ count: bigint }>>`
+        SELECT count(*)::bigint AS count FROM property_staff_assignments
+        WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+      `,
+    ).resolves.toEqual([{ count: 0n }]);
     const cancelled = await provider.cancelBooking(context, cancelCommand);
     expect(cancelled).toMatchObject({ ok: true, value: { status: 'CANCELLED', version: 2 } });
     await settleMail();
@@ -1231,6 +1228,8 @@ describe('LocalPmsProvider', () => {
     expect(cancelledStaffEmails).toContainEqual(
       expect.objectContaining({
         bookingId: created.value.id,
+        staffUserId: userId,
+        to: email,
         guestCount: 2,
         refund: expect.objectContaining({
           status: 'processed',
@@ -1364,12 +1363,6 @@ describe('LocalPmsProvider', () => {
         }),
       }),
     );
-    await admin.$executeRaw`
-      DELETE FROM property_staff_assignments
-      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
-        AND user_id = ${userId}::uuid
-    `;
-
     const concurrentStartsOn = '2026-10-01';
     const concurrentEndsOn = '2026-10-03';
     await request(app!.getHttpServer())

@@ -3,6 +3,7 @@ import type { PaymentProviderContext } from '@must/domain-contracts';
 
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { PaymentNotificationService } from './payment-notification.service';
+import { staffRecipients } from './staff-recipients';
 
 type CancellationRow = {
   email: string;
@@ -22,8 +23,6 @@ type CancellationRow = {
   publicWebsiteOrigin: string | null;
   propertyAddress: string | null;
 };
-
-type StaffRecipient = { staffUserId: string; email: string };
 
 type CancellationRefund = {
   refundAmount: string | null;
@@ -62,11 +61,7 @@ export class BookingCancellationNotificationService {
       `;
       const row = rows[0];
       if (!row) return null;
-      const staff = await tx.$queryRaw<StaffRecipient[]>`
-        SELECT psa.user_id AS "staffUserId", u.email
-        FROM property_staff_assignments psa JOIN users u ON u.id = psa.user_id
-        WHERE psa.tenant_id = ${context.tenantId}::uuid AND psa.property_id = ${context.propertyId}::uuid
-      `;
+      const staff = await staffRecipients(tx, context);
       const refunds = await tx.$queryRaw<CancellationRefund[]>`
         SELECT refunded.amount::text AS "refundAmount", refunded.currency AS "refundCurrency",
           charged.amount::text AS "chargeAmount", charged.currency AS "chargeCurrency",

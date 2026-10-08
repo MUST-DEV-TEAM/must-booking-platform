@@ -13,6 +13,7 @@ import { AvailabilityService } from '../tenancy/availability.service';
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
 import { ClockBookingService } from '../integrations/clock/clock-booking.service';
+import { BookingConfirmationNotificationService } from '../mail/booking-confirmation-notification.service';
 import { PaymentProviderRegistry } from '../payments/payment-provider-registry';
 import { QuoteService } from './quote.service';
 import { resolveBookingOccupancy } from './booking-occupancy';
@@ -78,6 +79,8 @@ export class MultiRoomBookingService {
     @Inject(ClockBookingService) private readonly clockBooking: ClockBookingService,
     @Inject(PrePaymentAvailabilityRegistry)
     private readonly prePaymentAvailability: PrePaymentAvailabilityRegistry,
+    @Inject(BookingConfirmationNotificationService)
+    private readonly confirmations: BookingConfirmationNotificationService,
   ) {}
 
   async create(
@@ -88,7 +91,7 @@ export class MultiRoomBookingService {
     if (invalid) return invalid;
 
     try {
-      return await this.database.withTenantTransaction(
+      const result = await this.database.withTenantTransaction(
         context,
         async (tx) => {
           await this.lockInventory(tx, context, command.rooms);
@@ -250,6 +253,8 @@ export class MultiRoomBookingService {
         },
         { timeoutMs: 45_000 },
       );
+      if (result.ok) await this.sendPayAtHotelConfirmations(context, result.value.orderReference);
+      return result;
     } catch (error) {
       if (error instanceof PrePaymentAvailabilityError) return error.result;
       if (error instanceof MultiRoomAvailabilityError)
@@ -259,6 +264,30 @@ export class MultiRoomBookingService {
         );
       throw error;
     }
+  }
+
+  /**
+   * Emails every confirmed pay-at-hotel room of the order after commit. It runs on idempotent
+   * replays too, so a retry recovers emails a crash skipped; the mail layer's idempotency key
+   * (`payment-confirmation/pay-at-hotel:<booking>`) stops anything already queued from repeating.
+   */
+  private async sendPayAtHotelConfirmations(
+    context: { tenantId: string; propertyId: string },
+    orderReference: string,
+  ): Promise<void> {
+    const confirmed = await this.database.withTenantTransaction(
+      context,
+      (tx) => tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM bookings
+        WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+          AND order_reference = ${orderReference}
+          AND payment_method = ${BookingPaymentMethod.PAY_AT_HOTEL}::"BookingPaymentMethod"
+          AND status = ${BookingStatus.CONFIRMED}::"BookingStatus"
+        ORDER BY order_room_number
+      `,
+    );
+    for (const { id } of confirmed)
+      await this.confirmations.sendAfterConfirmation(context, id, `pay-at-hotel:${id}`);
   }
 
   private validateCommand(command: MultiRoomBookingCommand): Result<never> | null {
