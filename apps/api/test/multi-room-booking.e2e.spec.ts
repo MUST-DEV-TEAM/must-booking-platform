@@ -3,11 +3,12 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { MultiRoomBookingService } from '../src/booking/multi-room-booking.service';
 import { LocalPmsProvider } from '../src/booking/local-pms.provider';
 import { QuoteService } from '../src/booking/quote.service';
+import { BookingConfirmationNotificationService } from '../src/mail/booking-confirmation-notification.service';
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { PAYMENT_PROVIDER } from '../src/payments/payment.provider';
 import { StripeWebhookService } from '../src/payments/stripe-webhook.service';
@@ -303,6 +304,10 @@ describe('Multi-room booking orders', () => {
       },
     );
     expect(result).toMatchObject({ ok: false, error: { code: 'AVAILABILITY_FAILED' } });
+    const confirmationEmails = vi.spyOn(
+      app!.get(BookingConfirmationNotificationService),
+      'sendAfterConfirmation',
+    );
 
     const inventory = await admin.$queryRaw<Array<{ roomTypeId: string; bookedUnits: number }>>`
       SELECT room_type_id AS "roomTypeId", booked_units AS "bookedUnits"
@@ -338,44 +343,58 @@ describe('Multi-room booking orders', () => {
     ]);
     clockConnected = true;
     failSecondClockReservation = false;
-    const held = await orders.create(
-      { tenantId, propertyId },
-      {
-        idempotencyKey: randomUUID(),
-        externalReference: `must-order-${randomUUID()}`,
-        startsOn,
-        endsOn,
-        quoteSessionId: sessionId,
-        paymentMethod: 'pay_at_hotel',
-        guest: {
-          email: `second-guest-${randomUUID()}@example.test`,
-          firstName: 'Primary',
-          lastName: 'Guest',
-          phone: null,
-        },
-        rooms: [
-          {
-            roomTypeId: firstType.body.id,
-            ratePlanId: ratePlan.body.id,
-            total: availableFirstQuote.total,
-            quoteToken: availableFirstQuote.quoteToken,
-          },
-          {
-            roomTypeId: secondType.body.id,
-            ratePlanId: ratePlan.body.id,
-            total: availableSecondQuote.total,
-            quoteToken: availableSecondQuote.quoteToken,
-            guest: { firstName: 'Second', lastName: 'Guest' },
-          },
-        ],
+    const heldCommand: Parameters<MultiRoomBookingService['create']>[1] = {
+      idempotencyKey: randomUUID(),
+      externalReference: `must-order-${randomUUID()}`,
+      startsOn,
+      endsOn,
+      quoteSessionId: sessionId,
+      paymentMethod: 'pay_at_hotel',
+      guest: {
+        email: `second-guest-${randomUUID()}@example.test`,
+        firstName: 'Primary',
+        lastName: 'Guest',
+        phone: null,
       },
-    );
+      rooms: [
+        {
+          roomTypeId: firstType.body.id,
+          ratePlanId: ratePlan.body.id,
+          total: availableFirstQuote.total,
+          quoteToken: availableFirstQuote.quoteToken,
+        },
+        {
+          roomTypeId: secondType.body.id,
+          ratePlanId: ratePlan.body.id,
+          total: availableSecondQuote.total,
+          quoteToken: availableSecondQuote.quoteToken,
+          guest: { firstName: 'Second', lastName: 'Guest' },
+        },
+      ],
+    };
+    const held = await orders.create({ tenantId, propertyId }, heldCommand);
     expect(held.ok).toBe(true);
     if (!held.ok) return;
     expect(held.value.bookings.map((booking) => booking.status)).toEqual([
       'CONFIRMED',
       'CONFIRMED',
     ]);
+    // Every confirmed pay-at-hotel room gets its guest and staff confirmation email.
+    expect(confirmationEmails.mock.calls).toEqual(
+      held.value.bookings.map((booking) => [
+        { tenantId, propertyId },
+        booking.id,
+        `pay-at-hotel:${booking.id}`,
+      ]),
+    );
+    // A retry of the same order resends nothing new (the mail layer dedupes by key) but
+    // re-offers every confirmation, so emails a crash skipped are recovered.
+    confirmationEmails.mockClear();
+    await expect(orders.create({ tenantId, propertyId }, heldCommand)).resolves.toEqual(held);
+    expect(confirmationEmails.mock.calls.map(([, bookingId]) => bookingId)).toEqual(
+      held.value.bookings.map((booking) => booking.id),
+    );
+    confirmationEmails.mockRestore();
     const payAtHotelClockBookings = await admin.$queryRaw<
       Array<{ externalBookingId: string | null }>
     >`
