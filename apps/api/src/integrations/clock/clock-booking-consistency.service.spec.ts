@@ -93,6 +93,28 @@ describe('ClockBookingConsistencyService', () => {
     expect(circuitBreaker.assertClosed).toHaveBeenCalledTimes(3);
   });
 
+  it('checks several physical rooms with one overlap read', async () => {
+    const { service, client } = makeService(
+      [],
+      [],
+      [
+        [361, 362, 363],
+        { id: 361, status: 'expected', arrival_room_id: 606113 },
+        { id: 362, status: 'canceled', arrival_room_id: 606114 },
+        { id: 363, status: 'checked_in', arrival_room_id: 606999 },
+      ],
+    );
+
+    await expect(
+      service.activeRoomConflicts(credentials, { startsOn: '2026-09-25', endsOn: '2026-09-27' }, [
+        '606113',
+        '606114',
+        '606115',
+      ]),
+    ).resolves.toEqual(new Set(['606113']));
+    expect(client.request).toHaveBeenCalledTimes(4);
+  });
+
   it('accepts Clock expected/no-show for local CONFIRMED and a missing Clock row for local CANCELLED', async () => {
     const { service, client, audit, rateLimiter, circuitBreaker } = makeService(
       [

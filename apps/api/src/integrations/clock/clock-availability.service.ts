@@ -319,6 +319,50 @@ export class ClockAvailabilityService {
   }
 
   /**
+   * Uncached check of several physical rooms for one stay, sharing a single read of
+   * Clock's overlapping reservations. Returns the local room ids Clock shows as taken.
+   */
+  async unavailableRoomsForBooking(
+    tenantId: string,
+    propertyId: string,
+    query: { roomIds: string[]; startsOn: string; endsOn: string },
+  ): Promise<Result<string[]>> {
+    const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
+    if (!connection || connection.provider !== 'CLOCK_PMS')
+      return failure(
+        classifyConfigurationError('This property has no active Clock PMS connection.'),
+      );
+    const parsed = parseClockCredentials(connection.credentials);
+    if (!parsed.ok) return failure(classifyConfigurationError(parsed.message));
+
+    const externalIds = new Map<string, string>();
+    for (const roomId of query.roomIds) {
+      const externalRoomId = await this.mappedExternalRoomId(tenantId, propertyId, roomId);
+      if (!externalRoomId)
+        return failure(
+          classifyConfigurationError(
+            'This room has no confirmed Clock catalog mapping — sync and confirm it first.',
+          ),
+        );
+      externalIds.set(roomId, externalRoomId);
+    }
+    try {
+      const taken = await this.bookingConsistency.activeRoomConflicts(
+        parsed.value,
+        { startsOn: query.startsOn, endsOn: query.endsOn },
+        [...externalIds.values()],
+      );
+      return {
+        ok: true,
+        value: query.roomIds.filter((roomId) => taken.has(externalIds.get(roomId)!)),
+      };
+    } catch (error) {
+      if (error instanceof ClockBookingReadError) return failure(error.classified);
+      throw error;
+    }
+  }
+
+  /**
    * `skipCache` exists for Task 10's final pre-booking availability check
    * (source brief section 16: a cached answer must never gate booking
    * creation), not used yet since booking creation isn't implemented here.

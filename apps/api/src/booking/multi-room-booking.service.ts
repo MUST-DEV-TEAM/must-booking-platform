@@ -550,31 +550,26 @@ export class MultiRoomBookingService {
     for (const room of command.rooms)
       roomsPerType.set(room.roomTypeId, (roomsPerType.get(room.roomTypeId) ?? 0) + 1);
 
+    // Specific rooms are checked against Clock's reservations in one read for the stay.
+    const roomIds = command.rooms.flatMap((room) => (room.roomId ? [room.roomId] : []));
+    if (roomIds.length > 0) {
+      const taken = await this.clockAvailability.unavailableRoomsForBooking(
+        context.tenantId,
+        context.propertyId,
+        { roomIds, startsOn: command.startsOn, endsOn: command.endsOn },
+      );
+      if (!taken.ok) return this.clockUnconfirmed(taken.error.retryable);
+      if (taken.value.length > 0)
+        return this.failure(
+          'AVAILABILITY_FAILED',
+          'A selected room is no longer available for the requested stay.',
+        );
+    }
+
     const checkedTypeOccupancies = new Set<string>();
     for (const room of command.rooms) {
+      if (room.roomId) continue;
       const occupancy = resolveBookingOccupancy({ guestCount: room.guestCount });
-      if (room.roomId) {
-        const result = await this.clockAvailability.isAvailableForBooking(
-          context.tenantId,
-          context.propertyId,
-          {
-            roomTypeId: room.roomTypeId,
-            roomId: room.roomId,
-            startsOn: command.startsOn,
-            endsOn: command.endsOn,
-            adultCount: occupancy.adults,
-            childrenCount: occupancy.children,
-          },
-        );
-        if (!result.ok) return this.clockUnconfirmed(result.error.retryable);
-        if (!result.value)
-          return this.failure(
-            'AVAILABILITY_FAILED',
-            'A selected room is no longer available for the requested stay.',
-          );
-        continue;
-      }
-
       const key = `${room.roomTypeId}:${occupancy.adults}:${occupancy.children}`;
       if (checkedTypeOccupancies.has(key)) continue;
       checkedTypeOccupancies.add(key);
