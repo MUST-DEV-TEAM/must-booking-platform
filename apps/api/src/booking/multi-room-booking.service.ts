@@ -81,9 +81,6 @@ export class MultiRoomBookingService {
     const invalid = this.validateCommand(command);
     if (invalid) return invalid;
 
-    // Pay-at-hotel rooms confirmed by this call; emailed only after the transaction commits.
-    // An idempotent replay returns the stored result without re-running, so nothing is resent.
-    const payAtHotelConfirmedIds: string[] = [];
     try {
       const result = await this.database.withTenantTransaction(
         context,
@@ -190,9 +187,6 @@ export class MultiRoomBookingService {
                 `;
                 for (const booking of bookings) booking.status = BookingStatus.CONFIRMED;
               }
-              for (const booking of bookings)
-                if (booking.status === BookingStatus.CONFIRMED)
-                  payAtHotelConfirmedIds.push(booking.id);
               return { ok: true, value: { orderReference, bookings } };
             }
             if (
@@ -234,13 +228,7 @@ export class MultiRoomBookingService {
         },
         { timeoutMs: 45_000 },
       );
-      if (result.ok)
-        for (const bookingId of payAtHotelConfirmedIds)
-          await this.confirmations.sendAfterConfirmation(
-            context,
-            bookingId,
-            `pay-at-hotel:${bookingId}`,
-          );
+      if (result.ok) await this.sendPayAtHotelConfirmations(context, result.value.orderReference);
       return result;
     } catch (error) {
       if (error instanceof MultiRoomAvailabilityError)
@@ -250,6 +238,30 @@ export class MultiRoomBookingService {
         );
       throw error;
     }
+  }
+
+  /**
+   * Emails every confirmed pay-at-hotel room of the order after commit. It runs on idempotent
+   * replays too, so a retry recovers emails a crash skipped; the mail layer's idempotency key
+   * (`payment-confirmation/pay-at-hotel:<booking>`) stops anything already queued from repeating.
+   */
+  private async sendPayAtHotelConfirmations(
+    context: { tenantId: string; propertyId: string },
+    orderReference: string,
+  ): Promise<void> {
+    const confirmed = await this.database.withTenantTransaction(
+      context,
+      (tx) => tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM bookings
+        WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+          AND order_reference = ${orderReference}
+          AND payment_method = ${BookingPaymentMethod.PAY_AT_HOTEL}::"BookingPaymentMethod"
+          AND status = ${BookingStatus.CONFIRMED}::"BookingStatus"
+        ORDER BY order_room_number
+      `,
+    );
+    for (const { id } of confirmed)
+      await this.confirmations.sendAfterConfirmation(context, id, `pay-at-hotel:${id}`);
   }
 
   private validateCommand(command: MultiRoomBookingCommand): Result<never> | null {

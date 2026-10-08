@@ -343,38 +343,36 @@ describe('Multi-room booking orders', () => {
     ]);
     clockConnected = true;
     failSecondClockReservation = false;
-    const held = await orders.create(
-      { tenantId, propertyId },
-      {
-        idempotencyKey: randomUUID(),
-        externalReference: `must-order-${randomUUID()}`,
-        startsOn,
-        endsOn,
-        quoteSessionId: sessionId,
-        paymentMethod: 'pay_at_hotel',
-        guest: {
-          email: `second-guest-${randomUUID()}@example.test`,
-          firstName: 'Primary',
-          lastName: 'Guest',
-          phone: null,
-        },
-        rooms: [
-          {
-            roomTypeId: firstType.body.id,
-            ratePlanId: ratePlan.body.id,
-            total: availableFirstQuote.total,
-            quoteToken: availableFirstQuote.quoteToken,
-          },
-          {
-            roomTypeId: secondType.body.id,
-            ratePlanId: ratePlan.body.id,
-            total: availableSecondQuote.total,
-            quoteToken: availableSecondQuote.quoteToken,
-            guest: { firstName: 'Second', lastName: 'Guest' },
-          },
-        ],
+    const heldCommand: Parameters<MultiRoomBookingService['create']>[1] = {
+      idempotencyKey: randomUUID(),
+      externalReference: `must-order-${randomUUID()}`,
+      startsOn,
+      endsOn,
+      quoteSessionId: sessionId,
+      paymentMethod: 'pay_at_hotel',
+      guest: {
+        email: `second-guest-${randomUUID()}@example.test`,
+        firstName: 'Primary',
+        lastName: 'Guest',
+        phone: null,
       },
-    );
+      rooms: [
+        {
+          roomTypeId: firstType.body.id,
+          ratePlanId: ratePlan.body.id,
+          total: availableFirstQuote.total,
+          quoteToken: availableFirstQuote.quoteToken,
+        },
+        {
+          roomTypeId: secondType.body.id,
+          ratePlanId: ratePlan.body.id,
+          total: availableSecondQuote.total,
+          quoteToken: availableSecondQuote.quoteToken,
+          guest: { firstName: 'Second', lastName: 'Guest' },
+        },
+      ],
+    };
+    const held = await orders.create({ tenantId, propertyId }, heldCommand);
     expect(held.ok).toBe(true);
     if (!held.ok) return;
     expect(held.value.bookings.map((booking) => booking.status)).toEqual([
@@ -388,6 +386,13 @@ describe('Multi-room booking orders', () => {
         booking.id,
         `pay-at-hotel:${booking.id}`,
       ]),
+    );
+    // A retry of the same order resends nothing new (the mail layer dedupes by key) but
+    // re-offers every confirmation, so emails a crash skipped are recovered.
+    confirmationEmails.mockClear();
+    await expect(orders.create({ tenantId, propertyId }, heldCommand)).resolves.toEqual(held);
+    expect(confirmationEmails.mock.calls.map(([, bookingId]) => bookingId)).toEqual(
+      held.value.bookings.map((booking) => booking.id),
     );
     confirmationEmails.mockRestore();
     const payAtHotelClockBookings = await admin.$queryRaw<
