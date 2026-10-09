@@ -31,6 +31,12 @@ from the app's `.env`) with the unit's last log lines. Used by the sorter and, t
 | Failure email | `/usr/local/sbin/must-booking-alert`, `must-booking-alert@.service` |
 | DB backup ([../backup](../backup/README.md)) | `must-booking-backup.{service,timer}` (03:15 UTC), `/etc/must-booking/backup.env` with `BACKUP_REMOTE=gdrive:MUST Booking backups` (**not encrypted yet**) and `PG_CONTAINER=must-booking-postgres-1` |
 
-Until the release pipeline's `/opt/must-booking` checkout exists, the backup drop-in on the host
-also has `ExecStart=/usr/local/sbin/must-booking-backup`, a copy of `backup-postgres.sh` from main.
-Remove that line once `/opt/must-booking` is in place.
+The release pipeline's one-time server setup was done on 2026-10-09: `deploy` user (docker
+group, sudo only for `systemctl start must-booking-backup.service`), checkout `/opt/must-booking`,
+`ssh-gate.sh` key, `production` environment secrets and `DEPLOY_ENABLED=true`. The first pipeline
+deploy (`eb09721`, run 37914544337) passed its health check. The old checkout in
+`/root/must-booking-platform` is no longer used by deploys.
+
+SSH password logins are still enabled (`PasswordAuthentication yes`, `PermitRootLogin yes`).
+The 2026-10-09 auth logs show only key logins, so turning passwords off is low risk. It is
+still waiting for an explicit decision.
