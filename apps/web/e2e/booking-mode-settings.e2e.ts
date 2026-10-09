@@ -43,6 +43,7 @@ test('changing booking mode in Settings changes real booking enforcement', async
       `/dashboard/${tenant.tenantId}?propertyId=${tenant.propertyId}&section=settings`,
     );
     await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+    await page.getByRole('link', { name: 'Open Booking rules' }).click();
     await page.getByRole('combobox', { name: 'Booking mode' }).selectOption('INDIVIDUAL_ROOM_ONLY');
     const saveResponse = page.waitForResponse(
       (response) =>

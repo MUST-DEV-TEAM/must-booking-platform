@@ -21,6 +21,9 @@ let redisConnection: Promise<unknown> | undefined;
 const createdTenantIds = new Set<string>();
 const createdEmails = new Set<string>();
 
+// An account with one workspace lands straight in it; the picker only shows with several.
+export const workspaceUrl = /\/dashboard\/[0-9a-f-]{36}(\?.*)?$/;
+
 export type Credentials = {
   email: string;
   password: string;
@@ -57,7 +60,7 @@ export async function signup(page: Page, account: Credentials): Promise<void> {
   await page.getByLabel('Email address').fill(account.email);
   await page.getByLabel('Password', { exact: true }).fill(account.password);
   await page.getByRole('button', { name: 'Create free workspace' }).click();
-  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page).toHaveURL(workspaceUrl);
 }
 
 export async function verifyEmail(page: Page, account: Credentials): Promise<void> {
@@ -67,7 +70,7 @@ export async function verifyEmail(page: Page, account: Credentials): Promise<voi
     '/email-verification',
   );
   await page.goto(verificationUrl);
-  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page).toHaveURL(workspaceUrl);
   await currentTenant(page);
 }
 
@@ -191,13 +194,37 @@ export async function cleanupE2EData(): Promise<void> {
 
 export async function resetSignupRateLimit(): Promise<void> {
   const client = await redisClient();
-  await client.del(`rate-limit:signup:ip:${hash('::ffff:127.0.0.1')}`);
+  // The API may see the browser as IPv4 or IPv4-mapped IPv6 depending on how it is proxied.
+  await client.del([
+    `rate-limit:signup:ip:${hash('127.0.0.1')}`,
+    `rate-limit:signup:ip:${hash('::ffff:127.0.0.1')}`,
+  ]);
 }
 
 export async function closeE2EDatabase(): Promise<void> {
   await database.$disconnect();
   if (redis.isOpen) await redis.quit();
   redisConnection = undefined;
+}
+
+export async function capturedEmail(
+  email: string,
+  matchesSubject: (subject: string) => boolean,
+): Promise<EmailMessage> {
+  let found: EmailMessage | undefined;
+  await expect
+    .poll(
+      async () => {
+        const response = await fetch(`${mailSinkOrigin}/messages?to=${encodeURIComponent(email)}`);
+        const messages = (await response.json()) as EmailMessage[];
+        found = messages.find((candidate) => matchesSubject(candidate.subject));
+        return found?.subject ?? null;
+      },
+      { intervals: [100, 250, 500], timeout: 15_000 },
+    )
+    .not.toBeNull();
+  if (!found) throw new Error(`No matching email was captured for ${email}.`);
+  return found;
 }
 
 export async function capturedEmailLink(
