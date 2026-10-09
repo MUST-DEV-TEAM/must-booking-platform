@@ -7,6 +7,9 @@ export type PublicRateLimitOptions = {
   name: string;
   maximum: number;
   windowSeconds: number;
+  /** Route param that scopes the window (e.g. one Clock connection) instead of
+   * the peer address, which behind the reverse proxy is the same for everyone. */
+  scopeParam?: string;
 };
 
 /**
@@ -39,4 +42,15 @@ export const PUBLIC_WEBHOOK_RATE_LIMIT: PublicRateLimitOptions = {
   name: 'webhook',
   maximum: 120,
   windowSeconds: 60,
+};
+
+// Clock delivers through Amazon SNS in bursts (about 18,000 notifications on
+// 2026-10-02, mostly folio updates), so one shared 120/minute window turned
+// most of them away. Every notification is still SNS-signature verified, and
+// hydration is paced separately by the 4/s Clock API limiter.
+export const CLOCK_WEBHOOK_RATE_LIMIT: PublicRateLimitOptions = {
+  name: 'clock-webhook',
+  maximum: 1_200,
+  windowSeconds: 60,
+  scopeParam: 'webhookPublicId',
 };

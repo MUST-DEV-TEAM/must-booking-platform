@@ -1,6 +1,7 @@
 import { HttpStatus } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 
+import { CLOCK_WEBHOOK_RATE_LIMIT } from '../src/tenancy/public-rate-limit.decorator';
 import { PublicRateLimitGuard } from '../src/tenancy/public-rate-limit.guard';
 
 describe('PublicRateLimitGuard', () => {
@@ -52,5 +53,32 @@ describe('PublicRateLimitGuard', () => {
     };
 
     await expect(guard.canActivate(context as never)).resolves.toBe(true);
+  });
+
+  it('scopes Clock webhooks to their connection, not the shared proxy address', async () => {
+    const consume = vi.fn().mockResolvedValue({ allowed: true, retryAfterSeconds: 0 });
+    const guard = new PublicRateLimitGuard(
+      { getAllAndOverride: () => CLOCK_WEBHOOK_RATE_LIMIT } as never,
+      { consume } as never,
+    );
+    const context = {
+      getHandler: () => undefined,
+      getClass: () => undefined,
+      switchToHttp: () => ({
+        getRequest: () => ({
+          params: { webhookPublicId: 'hook-a' },
+          socket: { remoteAddress: '172.18.0.5' },
+        }),
+        getResponse: () => ({ setHeader: vi.fn() }),
+      }),
+    };
+
+    await expect(guard.canActivate(context as never)).resolves.toBe(true);
+    expect(consume).toHaveBeenCalledWith(
+      CLOCK_WEBHOOK_RATE_LIMIT,
+      'webhookPublicId:hook-a',
+      undefined,
+      undefined,
+    );
   });
 });
