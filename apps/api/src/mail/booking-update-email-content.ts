@@ -65,6 +65,7 @@ function guestEmail(input: {
     text,
     bookingId: input.stay.bookingId,
     replyTo: input.brand.supportEmail ?? null,
+    fromName: input.brand.name || null,
   };
 }
 

@@ -175,6 +175,7 @@ export class EmailTemplatesService {
         idempotencyKey: `template-test/${templateKey}/${randomUUID()}`,
         bookingId: null,
         replyTo: work.brand.supportEmail ?? null,
+        fromName: work.brand.name || null,
       },
       context,
     );

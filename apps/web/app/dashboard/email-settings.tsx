@@ -787,8 +787,12 @@ function SenderTab({ base, brandingHref }: { base: string; brandingHref: string 
       <Stack gap="md">
         <Heading level={2}>Who your emails come from</Heading>
         <dl className={styles.details}>
-          <dt>Sent from</dt>
-          <dd>{sender.fromAddress ?? 'Not set up on the server yet'}</dd>
+          <dt>Guests see</dt>
+          <dd>
+            {sender.fromAddress
+              ? `${sender.hotelName} <${sender.fromAddress}>`
+              : 'Not set up on the server yet'}
+          </dd>
           <dt>Replies go to</dt>
           <dd>
             {sender.replyTo ?? 'Nowhere yet: add a support email so guests can reply to you.'}
@@ -798,9 +802,8 @@ function SenderTab({ base, brandingHref }: { base: string; brandingHref: string 
           Change the reply address in Branding
         </a>
         <Text tone="secondary">
-          Coming soon: guest emails will show {sender.hotelName} as the sender name, and you will be
-          able to send from your own address, such as bookings@yourhotel.com, after adding a few DNS
-          records to your domain.
+          Guest emails show your hotel name as the sender. Coming soon: sending from your own
+          address, such as bookings@yourhotel.com, after adding a few DNS records to your domain.
         </Text>
       </Stack>
     </Card>

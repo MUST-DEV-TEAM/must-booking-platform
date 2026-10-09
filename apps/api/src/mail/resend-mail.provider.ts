@@ -203,6 +203,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
       }),
       text: `${command.template ? `${command.template.text}\n\n` : ''}${paid ? `Your payment of ${this.money(command.amount)} was received and your reservation is confirmed.` : 'Your reservation is confirmed. Payment will be collected at the hotel on arrival.'} Booking ${command.bookingReference}: ${command.rooms && command.rooms.length > 1 ? this.roomLines(command.rooms).replace(/\n/g, '; ') : command.roomName}, ${command.stay.startsOn} to ${command.stay.endsOn}, ${command.guestCount} guest${command.guestCount === 1 ? '' : 's'}.${command.specialRequests?.trim() ? ` Special requests: ${command.specialRequests.trim()}` : ''}${command.cancellationUrl ? ` Review or cancel: ${command.cancellationUrl}` : ''}`,
       idempotencyKey,
+      ...this.guestSender(command.brand),
     });
   }
 
@@ -266,6 +267,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
       }),
       text: `${command.template ? `${command.template.text}\n\n` : ''}Your refund of ${this.money(command.amount)} for booking ${command.bookingReference} has been processed. It may take a few business days to appear on your original payment method.`,
       idempotencyKey,
+      ...this.guestSender(command.brand),
     });
   }
 
@@ -296,6 +298,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
       }),
       text: `${command.template ? `${command.template.text}\n\n` : ''}Your booking ${command.bookingReference} has been cancelled as requested. ${command.roomName}, ${command.stay.startsOn} to ${command.stay.endsOn}.`,
       idempotencyKey,
+      ...this.guestSender(command.brand),
     });
   }
 
@@ -480,6 +483,23 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
     return this.send(command);
   }
 
+  /** Guest emails come from the hotel's name, and replies go to the hotel. */
+  private guestSender(brand: { name?: string | null; supportEmail?: string | null }) {
+    return { fromName: brand.name ?? null, replyTo: brand.supportEmail ?? null };
+  }
+
+  /** "Hotel name" <our address>: the name is the hotel's, the sending address stays ours. */
+  private from(fromName: string | null | undefined): string {
+    const configured = this.requiredEnvironment('MAIL_FROM_EMAIL');
+    const name = (fromName ?? '')
+      .replace(/["\\<>\r\n]/g, '')
+      .trim()
+      .slice(0, 100);
+    if (!name) return configured;
+    const address = /<([^>]+)>/.exec(configured)?.[1]?.trim() ?? configured;
+    return `"${name}" <${address}>`;
+  }
+
   private async send(message: {
     to: string;
     subject: string;
@@ -487,6 +507,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
     text: string;
     idempotencyKey: string;
     replyTo?: string | null;
+    fromName?: string | null;
   }): Promise<MailSendReceipt> {
     let response: Response;
     try {
@@ -500,7 +521,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
           'User-Agent': 'must-booking-platform/0.0.0',
         },
         body: JSON.stringify({
-          from: this.requiredEnvironment('MAIL_FROM_EMAIL'),
+          from: this.from(message.fromName),
           to: [message.to],
           subject: message.subject,
           html: message.html,

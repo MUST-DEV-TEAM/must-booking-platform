@@ -106,6 +106,7 @@ export function preArrivalEmail(
     text,
     bookingId: stay.bookingId,
     replyTo: brand.supportEmail ?? null,
+    fromName: brand.name || null,
   };
 }
 
@@ -209,5 +210,6 @@ export function postStayEmail(
     text,
     bookingId: stay.bookingId,
     replyTo: brand.supportEmail ?? null,
+    fromName: brand.name || null,
   };
 }
