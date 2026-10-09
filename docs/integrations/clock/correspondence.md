@@ -72,7 +72,20 @@ Screenshot: [2026-10-02-clock-reply.png](correspondence/2026-10-02-clock-reply.p
 3. Matching by `text` is the supported filter. Current code already matches `reference` client-side, which works; switching is optional.
 4. A second hotel can be connected only after Empire's 30-day pilot ends.
 
-## Earlier
+## 2026-10-06: follow-up on item 2 (ticket #277575)
 
-- **2026-09-18:** Clock said deposit folios must stay open and MUST must not close them. Recorded in [Milestone 21 Task 1](../../roadmap/milestones/21-clock-certification-fixes.md).
-- **2026-09-30:** Clock granted the webhook-subscription and deposit-folio-creation rights on Empire (see the [runbook](runbook.md) permissions table).
+MUST asked whether Clock had seen the 2026-10-01 email, "especially for the #2", because the client wants automatic conversion as a feature. Clock replied the same day that they had already answered on 2 October. MUST apologized: the 2 October reply had not reached us at first. No new information about automation. Any further follow-up should cite the 2 October answer and ask a narrower question (the exact call sequence and rights for option B in [Milestone 21 Task 26](../../roadmap/milestones/21-clock-certification-fixes.md)), not repeat the original question.
+
+## Earlier (ticket #277575, summarized from the full thread export read 2026-10-09)
+
+- **2026-07-01:** MUST reported the sandbox trial had expired (422 "The trial period has expired") and asked for an extension.
+- **2026-07-17:** MUST asked for `pms_api_room_statuses_index` and the webhook-subscription show/create/delete rights on the demo account. Clock granted them the same day.
+- **2026-08-04/05:** MUST asked for "Booking: Rate Availability Control Override" after a 400 on `POST /bookings/`. Clock refused by default: the right allows overbookings and bookings that break rate restrictions. They would grant it only with a written acknowledgement of the risks, and they would not investigate issues it causes.
+- **2026-09-04:** MUST sent the integration summary and test evidence log and asked for the certification call. Clock's comments: the hotel never sees API credentials, which are emailed to the partner, so the partner owns that configuration. Rate plans are folders of rates (one rate per room type), so build a hotel-side rate mapping like the room mapping. Call `rates_availability` no more than once every 15 minutes and cache accordingly. Never update `lock_version` through the API. Clock sends no webhooks for price changes.
+- **2026-09-08:** Clock: booking updates should send only the changed fields.
+- **2026-09-10:** Clock: reservations were created without adults and children, which also matters for rate prices, restrictions, meals and packages. MUST implemented the deposit-folio close Clock required on the certification call; it failed for lack of "Folio: Close", which Clock then granted.
+- **2026-09-11/14:** MUST also asked for "Folio: Close folio with outstanding balance", `base_api_document_types_index` and `pms_api_rate_plans_create`. Clock granted the close and document-type rights (14 Sep) and asked why rate-plan creation was needed. MUST withdrew that request: rates are managed only in Clock.
+- **2026-09-16/17:** MUST reported all seven certification items done (including closing the deposit folio with the configured document type, verified on demo booking 38363610) and gave Clock the live booking engine link to test.
+- **2026-09-18:** Clock tested the booking flow and said its earlier advice to close deposit folios was wrong: they must stay open so the hotel can process them. Special requests should go in the booking notes; MUST found `active_notes` rejects plain strings and used `booking[client_request]` instead. Recorded in [Milestone 21 Task 1](../../roadmap/milestones/21-clock-certification-fixes.md).
+- **2026-09-21 to 26:** MUST sent the AppConnector form. Clock said the sandbox expires automatically and they extend it on request. On 26 Sep the AppConnector was updated so the pilot hotel could activate the integration.
+- **2026-09-30:** On the live Empire account, Clock granted the webhook-subscription and deposit-folio-creation rights, and repeated that folios must not be closed (see the [runbook](runbook.md) permissions table).
