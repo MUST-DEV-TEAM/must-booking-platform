@@ -14,3 +14,4 @@ apps/api/.dev-certs/
 .playwright-mcp/
 output/playwright/
 dump.rdb
+infrastructure/containers/.deployed-release
