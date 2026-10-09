@@ -40,7 +40,8 @@ type LibraryImage = {
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 type AllowedImageType = (typeof ALLOWED_IMAGE_TYPES)[number];
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const MAX_ROOM_TYPE_IMAGES = 13;
+// One main photo plus up to 20 more.
+const MAX_ROOM_TYPE_IMAGES = 21;
 
 @Injectable()
 export class RoomTypesService {

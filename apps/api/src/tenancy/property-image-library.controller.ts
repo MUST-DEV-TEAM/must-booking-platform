@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Post, Req } fro
 
 import { TenantScoped } from './tenant-context.decorator';
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
-import { Role, Roles } from './roles.decorator';
+import { RequiresCapability } from './capabilities.decorator';
 import { RoomTypesService } from './room-types.service';
 
 type TenantPropertyRequest = { tenantContext: { tenantId: string; propertyId: string } };
@@ -13,7 +13,7 @@ export class PropertyImageLibraryController {
 
   @Get()
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('photos.manage')
   list(@Req() request: TenantPropertyRequest) {
     return this.roomTypes.listLibrary(
       request.tenantContext.tenantId,
@@ -23,7 +23,7 @@ export class PropertyImageLibraryController {
 
   @Post()
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('photos.manage')
   @RequiresVerifiedEmail()
   createUpload(
     @Body() body: unknown,
@@ -40,7 +40,7 @@ export class PropertyImageLibraryController {
   @Post(':imageId/confirm')
   @HttpCode(204)
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('photos.manage')
   @RequiresVerifiedEmail()
   confirm(@Param('imageId') imageId: string, @Req() request: TenantPropertyRequest) {
     return this.roomTypes.confirmLibraryUpload(
@@ -53,7 +53,7 @@ export class PropertyImageLibraryController {
   @Delete(':imageId')
   @HttpCode(204)
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('photos.manage')
   @RequiresVerifiedEmail()
   remove(
     @Param('imageId') imageId: string,

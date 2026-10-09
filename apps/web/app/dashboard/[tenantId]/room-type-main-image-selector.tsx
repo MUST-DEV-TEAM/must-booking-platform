@@ -10,12 +10,12 @@ import {
   libraryQueryKey,
   PropertyImageLibraryDialog,
   uploadToLibrary,
-  validateImageFile,
+  checkImageFiles,
 } from './property-image-library';
 import type { RoomTypeImage } from './room-type-photo-gallery';
 import styles from './room-type-main-image-selector.module.css';
 
-const maxImages = 13;
+const maxImages = 21;
 
 export function RoomTypeMainImageSelector({
   tenantId,
@@ -86,9 +86,9 @@ export function RoomTypeMainImageSelector({
     },
   });
 
-  function chooseUpload(file: File | undefined) {
+  async function chooseUpload(file: File | undefined) {
     if (!file) return;
-    const problem = validateImageFile(file);
+    const problem = await checkImageFiles([file]);
     if (problem) {
       toast.error(problem);
       return;
@@ -139,7 +139,7 @@ export function RoomTypeMainImageSelector({
                 accept="image/jpeg,image/png,image/webp"
                 disabled={busy || (!primaryImage && images.length >= maxImages)}
                 onChange={(event) => {
-                  chooseUpload(event.target.files?.[0]);
+                  void chooseUpload(event.target.files?.[0]);
                   event.target.value = '';
                 }}
               />
