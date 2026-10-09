@@ -1,7 +1,11 @@
 import { Logger } from '@nestjs/common';
 
 import type { TenantTransaction } from '../tenancy/tenant-database.service';
-import type { NotificationTopic } from './notification-topics';
+import {
+  NOTIFICATION_TOPICS,
+  topicDaysOffset,
+  type NotificationTopic,
+} from './notification-topics';
 
 /** `staffUserId` is the user id, or `email:<address>` for an extra address that has no account. */
 export type StaffRecipient = { staffUserId: string; email: string };
@@ -27,9 +31,10 @@ export async function guestNotificationEnabled(
 /**
  * Who receives the staff email for a topic, one entry per address.
  *
- * Until the property saves its own recipients for the topic, this is the built-in
- * default: its assigned staff, or the account's owners and admins when nobody is
- * assigned (without that fallback a property with no assignments would get no staff
+ * Nobody when the property switched the staff email off. Until the property saves
+ * its own recipients for the topic, this is the topic's built-in default: the
+ * account owners for owner-only topics (e.g. the daily summary); otherwise its
+ * assigned staff, or the account's owners and admins when nobody is assigned (without that fallback a property with no assignments would get no staff
  * email at all). Once saved, only the saved rules apply: owners/admins by account
  * role, everyone holding a property role, specific staff, and extra addresses.
  */
@@ -38,11 +43,14 @@ export async function staffRecipients(
   context: Context,
   topic: NotificationTopic,
 ): Promise<StaffRecipient[]> {
-  const settings = await tx.$queryRaw<Array<{ custom: boolean }>>`
-    SELECT custom_staff_recipients AS custom FROM notification_topic_settings
+  const settings = await tx.$queryRaw<Array<{ custom: boolean; enabled: boolean }>>`
+    SELECT custom_staff_recipients AS custom, staff_enabled AS enabled FROM notification_topic_settings
     WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
       AND topic = ${topic}
   `;
+  if (settings[0] && !settings[0].enabled) return [];
+  const definition = NOTIFICATION_TOPICS[topic];
+  const ownersOnly = 'defaultStaff' in definition && definition.defaultStaff === 'owners';
   const rows = settings[0]?.custom
     ? await tx.$queryRaw<StaffRecipient[]>`
         SELECT tm.user_id::text AS "staffUserId", u.email
@@ -71,7 +79,14 @@ export async function staffRecipients(
         WHERE nr.tenant_id = ${context.tenantId}::uuid AND nr.property_id = ${context.propertyId}::uuid
           AND nr.topic = ${topic} AND nr.target = 'EMAIL'
       `
-    : await tx.$queryRaw<StaffRecipient[]>`
+    : ownersOnly
+      ? await tx.$queryRaw<StaffRecipient[]>`
+          SELECT tm.user_id::text AS "staffUserId", u.email
+          FROM tenant_memberships tm
+          JOIN users u ON u.id = tm.user_id
+          WHERE tm.tenant_id = ${context.tenantId}::uuid AND tm.role = 'OWNER'
+        `
+      : await tx.$queryRaw<StaffRecipient[]>`
         WITH assigned AS (
           SELECT psa.user_id::text AS "staffUserId", u.email
           FROM property_staff_assignments psa
@@ -102,4 +117,21 @@ export async function staffRecipients(
       `No staff recipients for ${topic} at property ${context.propertyId}: nobody at the hotel gets this email.`,
     );
   return recipients;
+}
+
+/** Guest switch and timing of a scheduled guest email (e.g. days before arrival). */
+export async function scheduledGuestSettings(
+  tx: TenantTransaction,
+  context: Context,
+  topic: NotificationTopic,
+): Promise<{ enabled: boolean; daysOffset: number }> {
+  const rows = await tx.$queryRaw<Array<{ guestEnabled: boolean; daysOffset: number | null }>>`
+    SELECT guest_enabled AS "guestEnabled", days_offset AS "daysOffset" FROM notification_topic_settings
+    WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+      AND topic = ${topic}
+  `;
+  return {
+    enabled: rows[0]?.guestEnabled ?? true,
+    daysOffset: rows[0]?.daysOffset ?? topicDaysOffset(topic)?.default ?? 0,
+  };
 }

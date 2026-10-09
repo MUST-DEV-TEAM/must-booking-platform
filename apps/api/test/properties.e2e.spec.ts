@@ -43,6 +43,7 @@ describe('properties', () => {
     async sendRefundConfirmationEmail() {},
     async sendBookingCancelledEmail() {},
     async sendBookingCancelledStaffNotification() {},
+    async sendRenderedEmail() {},
   };
   beforeAll(async () => {
     process.env.APP_PORT = '3000';

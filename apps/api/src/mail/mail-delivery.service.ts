@@ -299,6 +299,8 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
         return this.mail.sendPasswordResetEmail(command);
       case 'staffInvitation':
         return this.mail.sendStaffInvitationEmail(command);
+      case 'rendered':
+        return this.mail.sendRenderedEmail(command);
       default:
         return Promise.reject(
           new MailDeliveryError(`Unknown mail kind: ${String(data.kind)}`, false),

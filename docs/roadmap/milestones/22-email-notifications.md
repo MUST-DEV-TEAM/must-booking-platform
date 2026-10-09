@@ -107,6 +107,14 @@ Depends on Phase B (queue/log). Numbering continues to avoid renumbering earlier
 | 19 | Per-property own SMTP (level 3) | Property-scoped SMTP credentials, encrypted, tenant-isolated, with test-send. Failed sends recorded as `failed` and surfaced in activity; no cross-sender fallback. Google/Microsoft OAuth connect is a separate follow-up once needed. | Not started |
 | 20 | Admin/Email-tab UI for transports | Platform admin transport screen; property Sender screen with the three levels and verification/test states. | Not started |
 
+### Email plan Step 2a — scheduled emails (done 2026-10-09)
+
+- Guest **pre-arrival reminder** (`pre_arrival`, default 3 days before check-in, 1-30 settable) and **owner daily summary** (`owner_daily_summary`: today's arrivals/departures, in-house tonight, yesterday's new bookings with revenue and cancellations; default recipients = account owners).
+- `ScheduledEmailService` (BullMQ queue `mail.scheduled`, sweep every 15 min, not started under `NODE_ENV=test`) visits every property in its own time zone via the definer function `scheduled_email_properties()`; summary from 07:00, reminders from 09:00 local. Fixed idempotency keys mean one email per booking/order or per owner per day.
+- Reminders go only to direct bookings: Clock-imported reservations (`CLOCK-…`) may come from other channels whose guests we may not email; bookings made the same day are skipped. Multi-room orders get one reminder.
+- Both start **off for every property that existed before** migration `20261009140000_scheduled_emails`; new properties get them on. Settings gained `staffEnabled` and `daysOffset`.
+- New generic mail kind `rendered` (`MailProvider.sendRenderedEmail`, supports reply-to) for emails rendered by the caller.
+
 ### Phase F — Out of scope / later (recorded, not scheduled)
 
 - In-app mailbox / inbound email parsing and threading.

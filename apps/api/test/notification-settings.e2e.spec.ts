@@ -50,6 +50,7 @@ describe('notification settings (who receives which email)', () => {
     async sendRefundConfirmationEmail() {},
     async sendBookingCancelledEmail() {},
     async sendBookingCancelledStaffNotification() {},
+    async sendRenderedEmail() {},
   };
 
   beforeAll(async () => {
@@ -111,6 +112,8 @@ describe('notification settings (who receives which email)', () => {
       'new_booking',
       'booking_cancelled',
       'refund_processed',
+      'pre_arrival',
+      'owner_daily_summary',
     ]);
     expect(topic(settings.body, 'new_booking')).toMatchObject({
       guestEnabled: true,
@@ -202,7 +205,7 @@ describe('notification settings (who receives which email)', () => {
 
   it('rejects invalid recipients and other hotels’ roles or people', async () => {
     const url = `/tenants/${tenantId}/properties/${propertyId}/notification-settings`;
-    const put = (topic: string, body: unknown) =>
+    const put = (topic: string, body: object) =>
       request(app!.getHttpServer()).put(`${url}/${topic}`).set('Cookie', cookie).send(body);
     const custom = (rules: unknown[]) => ({
       guestEnabled: true,

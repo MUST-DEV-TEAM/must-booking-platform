@@ -39,6 +39,7 @@ import { AuditLogService } from './tenancy/audit-log.service';
 import { MAIL_PROVIDER } from './mail/mail.provider';
 import { ResendMailProvider } from './mail/resend-mail.provider';
 import { MailDeliveryService } from './mail/mail-delivery.service';
+import { ScheduledEmailService } from './mail/scheduled-email.service';
 import { ResendWebhookController } from './mail/resend-webhook.controller';
 import { ResendWebhookService } from './mail/resend-webhook.service';
 import { PaymentNotificationService } from './mail/payment-notification.service';
@@ -300,6 +301,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     { provide: STORAGE_PROVIDER, useExisting: R2StorageProvider },
     ResendMailProvider,
     MailDeliveryService,
+    ScheduledEmailService,
     ResendWebhookService,
     PaymentNotificationService,
     BookingConfirmationNotificationService,

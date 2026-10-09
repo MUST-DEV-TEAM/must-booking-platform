@@ -6,6 +6,7 @@ import type {
   MailProvider,
   MailSendReceipt,
   NightlyRate,
+  RenderedEmailCommand,
 } from '@must/domain-contracts';
 import { MailDeliveryError, isRetryableHttpStatus } from './mail-delivery-error';
 import { describeMail } from './mail-descriptors';
@@ -471,12 +472,17 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
     return `You&#39;re receiving this email because you manage bookings for ${escapeHtml(hotelName || 'this hotel')} on MUST Booking.${preferencesUrl ? ` <a href="${escapeHtml(preferencesUrl)}" style="color:#a39a86;text-decoration:underline;">Manage email preferences</a>.` : ''}`;
   }
 
+  async sendRenderedEmail(command: RenderedEmailCommand): Promise<MailSendReceipt> {
+    return this.send(command);
+  }
+
   private async send(message: {
     to: string;
     subject: string;
     html: string;
     text: string;
     idempotencyKey: string;
+    replyTo?: string | null;
   }): Promise<MailSendReceipt> {
     let response: Response;
     try {
@@ -495,6 +501,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
           subject: message.subject,
           html: message.html,
           text: message.text,
+          ...(message.replyTo ? { reply_to: message.replyTo } : {}),
         }),
       });
     } catch (error) {

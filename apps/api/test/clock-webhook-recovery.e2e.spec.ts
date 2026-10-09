@@ -132,6 +132,7 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
     async sendRefundConfirmationEmail() {},
     async sendBookingCancelledEmail() {},
     async sendBookingCancelledStaffNotification() {},
+    async sendRenderedEmail() {},
   };
   const verificationTokens = new Map<string, string>();
 
