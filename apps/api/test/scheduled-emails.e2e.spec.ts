@@ -173,6 +173,18 @@ describe('scheduled emails (pre-arrival reminder, owner daily summary)', () => {
     });
     await book({ guestId: ada, ref: 'BK-6', startsOn: '2030-05-08', endsOn: today });
     await book({ guestId: ada, ref: 'BK-7', startsOn: '2030-05-09', endsOn: '2030-05-11' });
+    // Checked out yesterday, for the post-stay thank-you: only BK-9 qualifies.
+    await book({ guestId: ada, ref: 'BK-9', startsOn: '2030-05-06', endsOn: '2030-05-09' });
+    await book({ guestId: clock, ref: 'CLOCK-100', startsOn: '2030-05-07', endsOn: '2030-05-09' });
+    await book({ guestId: bob, ref: 'BK-10', startsOn: '2030-05-07', endsOn: '2030-05-09' });
+    await admin.$executeRaw`UPDATE bookings SET pms_stay_status = 'no_show' WHERE tenant_id = ${tenantId}::uuid AND external_reference = 'BK-10'`;
+    await book({
+      guestId: today2,
+      ref: 'BK-11',
+      startsOn: '2030-05-07',
+      endsOn: '2030-05-09',
+      status: 'CANCELLED',
+    });
     await book({
       guestId: bob,
       ref: 'BK-8',
@@ -260,6 +272,62 @@ describe('scheduled emails (pre-arrival reminder, owner daily summary)', () => {
     await scheduled.sendOwnerSummary(context, 'Europe/Tirane', '2030-05-11');
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(sent.filter((e) => e.eventType === 'owner.daily_summary')).toHaveLength(1);
+  });
+
+  it('thanks guests after check-out with the review links, once', async () => {
+    const scheduled = app!.get(ScheduledEmailService);
+    const context = { tenantId, propertyId };
+    const url = `/tenants/${tenantId}/properties/${propertyId}/review-links`;
+    const http = () => request(app!.getHttpServer());
+    await http()
+      .put(url)
+      .set('Cookie', cookie)
+      .send({ google: 'http://g.page/seaside' })
+      .expect(400);
+    await http().put(url).set('Cookie', cookie).send({ yelp: 'https://yelp.test' }).expect(400);
+    const saved = await http()
+      .put(url)
+      .set('Cookie', cookie)
+      .send({
+        google: 'https://g.page/r/seaside/review',
+        booking_com: 'https://www.booking.com/hotel/al/seaside.html',
+        facebook: '',
+      })
+      .expect(200);
+    expect(saved.body.links).toEqual({
+      google: 'https://g.page/r/seaside/review',
+      booking_com: 'https://www.booking.com/hotel/al/seaside.html',
+    });
+    const read = await http().get(url).set('Cookie', cookie).expect(200);
+    expect(read.body.links.google).toBe('https://g.page/r/seaside/review');
+
+    const before = sent.length;
+    await scheduled.sendPostStay(context, today);
+    await waitForSent(before + 1);
+    const thanks = sent.filter((e) => e.eventType === 'guest.post_stay');
+    expect(thanks.map((e) => e.to)).toEqual(['ada@example.test']);
+    const email = thanks[0]!;
+    expect(email.subject).toBe('Thank you for staying at Seaside <Hotel>');
+    expect(email.html).toContain('https://g.page/r/seaside/review');
+    expect(email.html).toContain('Review us on Booking.com');
+    expect(email.html).not.toContain('Facebook');
+    expect(email.text).toContain('Review us on Google: https://g.page/r/seaside/review');
+    expect(email.replyTo).toBe('stay@seaside.test');
+
+    await scheduled.sendPostStay(context, today);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(sent.filter((e) => e.eventType === 'guest.post_stay')).toHaveLength(1);
+
+    // Off (as for every property that existed before this feature): nothing.
+    await http()
+      .put(`/tenants/${tenantId}/properties/${propertyId}/notification-settings/post_stay`)
+      .set('Cookie', cookie)
+      .send({ guestEnabled: false, customStaffRecipients: false, rules: [] })
+      .expect(200);
+    await scheduled.sendPostStay(context, '2030-05-11'); // would thank BK-6 (left 05-10)
+    await scheduled.sendPostStay(context, '2030-05-12');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(sent.filter((e) => e.eventType === 'guest.post_stay')).toHaveLength(1);
   });
 
   it('validates the reminder timing setting', async () => {

@@ -140,6 +140,7 @@ model Property {
   sameDayCutoffTime                 String?                   @map("same_day_cutoff_time") @db.VarChar(5)
   freeCancellationDaysBeforeArrival Int                       @default(21) @map("free_cancellation_days_before_arrival")
   publicWebsiteOrigin               String?                   @map("public_website_origin") @db.VarChar(500)
+  reviewLinks                       Json                      @default("{}") @map("review_links")
   wordpressConnectedAt              DateTime?                 @map("wordpress_connected_at") @db.Timestamptz(6)
   stripeEnabled                     Boolean                   @default(false) @map("stripe_enabled")
   pokpayEnabled                     Boolean                   @default(false) @map("pokpay_enabled")

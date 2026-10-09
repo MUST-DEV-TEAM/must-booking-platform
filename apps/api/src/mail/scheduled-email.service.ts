@@ -7,8 +7,10 @@ import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant
 import { renderTemplate, savedTemplate, stayTemplateValues } from './email-templates';
 import { MailDeliveryService } from './mail-delivery.service';
 import { scheduledGuestSettings, staffRecipients } from './notification-recipients';
+import { reviewButtons, storedReviewLinks } from './review-links';
 import {
   ownerDailySummaryEmail,
+  postStayEmail,
   preArrivalEmail,
   type OwnerDailySummary,
   type PreArrivalStay,
@@ -20,6 +22,7 @@ const SWEEP_INTERVAL_MS = 15 * 60_000;
 /** Local hour (property time zone) from which each email may go out that day. */
 const OWNER_SUMMARY_HOUR = 7;
 const PRE_ARRIVAL_HOUR = 9;
+const POST_STAY_HOUR = 10;
 
 type Context = { tenantId: string; propertyId: string };
 type PropertyRow = {
@@ -134,6 +137,7 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
           await this.sendOwnerSummary(context, property.timezone || 'UTC', local.date);
         if (local.hour >= PRE_ARRIVAL_HOUR)
           await this.sendPreArrival(context, property.timezone || 'UTC', local.date);
+        if (local.hour >= POST_STAY_HOUR) await this.sendPostStay(context, local.date);
       } catch (error) {
         this.logger.error(
           `Scheduled emails failed for property ${property.propertyId}.`,
@@ -196,6 +200,73 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
       await this.delivery.dispatch(
         'rendered',
         { ...email, idempotencyKey: `pre-arrival/${stay.bookingId}` },
+        context,
+      );
+    }
+  }
+
+  /**
+   * Thank-you a set number of days after check-out (email plan Step 6). Confirmed direct
+   * bookings only: cancelled bookings never qualify, and a stay Clock marked as a
+   * no-show is skipped.
+   */
+  async sendPostStay(context: Context, today: string): Promise<void> {
+    const work = await this.database.withTenantTransaction(context, async (tx) => {
+      const settings = await scheduledGuestSettings(tx, context, 'post_stay');
+      if (!settings.enabled) return null;
+      const departure = addDays(today, -settings.daysOffset);
+      const rows = await tx.$queryRaw<StayRow[]>`
+        SELECT b.id::text, COALESCE(b.order_reference, b.id::text) AS "groupKey",
+          COALESCE(b.order_reference, b.external_reference) AS reference,
+          g.email, g.first_name AS "firstName", g.last_name AS "lastName",
+          b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
+          COALESCE(r.name, rt.name) AS "roomName", (b.adults + b.children) AS "guestCount",
+          b.payment_method::text AS "paymentMethod", b.total_amount::text AS amount, rp.currency
+        FROM bookings b
+        JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
+        JOIN rate_plans rp ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
+        JOIN room_types rt ON rt.tenant_id = b.tenant_id AND rt.property_id = b.property_id AND rt.id = b.room_type_id
+        LEFT JOIN rooms r ON r.tenant_id = b.tenant_id AND r.property_id = b.property_id AND r.id = b.room_id
+        WHERE b.tenant_id = ${context.tenantId}::uuid AND b.property_id = ${context.propertyId}::uuid
+          AND b.status = 'CONFIRMED'::"BookingStatus" AND b.ends_on = ${departure}::date
+          AND b.external_reference NOT LIKE 'CLOCK-%'
+          AND COALESCE(b.pms_stay_status, '') <> 'no_show'
+          AND COALESCE(g.email, '') <> ''
+        ORDER BY "groupKey", b.order_room_number NULLS FIRST, b.id
+      `;
+      if (!rows.length) return null;
+      const [links] = await tx.$queryRaw<Array<{ reviewLinks: unknown }>>`
+        SELECT review_links AS "reviewLinks" FROM properties
+        WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
+      `;
+      return {
+        brand: await this.brand(tx, context),
+        stays: this.groupStays(rows),
+        template: await savedTemplate(tx, context, 'post_stay'),
+        buttons: reviewButtons(storedReviewLinks(links?.reviewLinks)),
+      };
+    });
+    if (!work) return;
+    for (const stay of work.stays) {
+      const message = renderTemplate(
+        'post_stay',
+        work.template,
+        stayTemplateValues({
+          guestName: stay.guestName,
+          hotelName: work.brand.name || 'the hotel',
+          reference: stay.reference,
+          startsOn: stay.startsOn,
+          endsOn: stay.endsOn,
+          roomName: stay.rooms.map((room) => room.roomName).join(', '),
+          guestCount: stay.rooms.reduce((sum, room) => sum + room.guestCount, 0),
+        }),
+      );
+      await this.delivery.dispatch(
+        'rendered',
+        {
+          ...postStayEmail(stay, work.brand, message, work.buttons),
+          idempotencyKey: `post-stay/${stay.bookingId}`,
+        },
         context,
       );
     }

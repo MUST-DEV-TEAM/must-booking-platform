@@ -146,6 +146,12 @@ Depends on Phase B (queue/log). Numbering continues to avoid renumbering earlier
 - Sender: today's from address and reply-to (the property's support email, set under Branding). Hotel-name sender and own domains are Step 5.
 - Activity: `GET /tenants/:t/properties/:p/email-activity?filter=all|problems&page&pageSize` lists the property's `email_messages` newest first, with booking reference and error. `POST …/email-activity/:id/resend` sends a FAILED email again (audited `email.resent`, needs a verified email): the row goes back to QUEUED and the email is rebuilt from its finished queue job, which is now kept for 7 days (`RESEND_WINDOW_DAYS`). Secret-link emails (verification, password reset, invitations) are never kept, so they can't be resent. `GET …/email-sender` returns the sender details. All need `settings.manage`.
 
+### Email plan Step 6 — post-stay thank-you with review links (done 2026-10-09)
+
+- Guest topic `post_stay` ("Post-stay thank-you"): sent from 10:00 local time a set number of days after check-out (default 1, 0-14 settable). Confirmed direct bookings only (not `CLOCK-…`); cancelled bookings never qualify and stays Clock marked `no_show` (`bookings.pms_stay_status`) are skipped. One email per booking or multi-room order (key `post-stay/<booking>`). Starts **off for properties that existed before** migration `20261010090000_post_stay_emails`.
+- Review links live on `properties.review_links` (JSONB): Google, Tripadvisor, Booking.com, Facebook, the hotel website, and a private feedback link. `GET/PUT /tenants/:t/properties/:p/review-links` (`settings.manage`; saves need a verified email and are audited); only https addresses are accepted, empty values clear a link. The email shows a button per link that is set; every guest gets the same links (no review gating).
+- The wording is editable as template `post_stay`; the Review links card sits in the Emails > Templates tab.
+
 ### Phase F — Out of scope / later (recorded, not scheduled)
 
 - In-app mailbox / inbound email parsing and threading.

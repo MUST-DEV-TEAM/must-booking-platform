@@ -703,7 +703,72 @@ function TemplatesTab({ base }: { base: string }) {
           </Stack>
         </Card>
       ) : null}
+      <ReviewLinksCard base={base} />
     </Stack>
+  );
+}
+
+type ReviewLinks = {
+  links: Record<string, string>;
+  sites: Array<{ key: string; label: string }>;
+};
+
+function ReviewLinksCard({ base }: { base: string }) {
+  const queryClient = useQueryClient();
+  const queryKey = ['dashboard', 'email', 'review-links', base];
+  const query = useQuery({
+    queryKey,
+    queryFn: () => request<ReviewLinks>(`${base}/review-links`, 'Unable to load review links.'),
+  });
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (query.data) setDraft(query.data.links);
+  }, [query.data]);
+  const save = useMutation({
+    mutationFn: () =>
+      request<ReviewLinks>(`${base}/review-links`, 'Unable to save the review links.', {
+        method: 'PUT',
+        body: JSON.stringify(draft),
+      }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(queryKey, updated);
+      toast.success('Review links saved.');
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  if (!query.data) return null;
+  return (
+    <Card>
+      <form
+        className="must-stack must-stack--md"
+        onSubmit={(event) => {
+          event.preventDefault();
+          save.mutate();
+        }}
+      >
+        <Heading level={2}>Review links</Heading>
+        <Text tone="secondary">
+          The post-stay thank-you shows a button for each link you add. Every guest gets the same
+          links: Google and the big review sites don&apos;t allow sending only happy guests to
+          public reviews.
+        </Text>
+        {query.data.sites.map((site) => (
+          <label className="must-field" key={site.key}>
+            <span className="must-field__label">{site.label}</span>
+            <input
+              className="must-input"
+              type="url"
+              placeholder="https://"
+              value={draft[site.key] ?? ''}
+              onChange={(event) => setDraft({ ...draft, [site.key]: event.target.value })}
+            />
+          </label>
+        ))}
+        <button className="must-button must-button--primary" disabled={save.isPending}>
+          <SavingLabel pending={save.isPending} idle="Save review links" busy="Saving…" />
+        </button>
+      </form>
+    </Card>
   );
 }
 

@@ -115,6 +115,7 @@ describe('notification settings (who receives which email)', () => {
       'booking_changed',
       'payment_not_completed',
       'pre_arrival',
+      'post_stay',
       'owner_daily_summary',
       'owner_alerts',
     ]);

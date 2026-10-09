@@ -1,6 +1,6 @@
 import type { MailBrand, RenderedEmailCommand } from '@must/domain-contracts';
 
-import { escapeHtml, renderBrandedEmail } from './email-layout';
+import { escapeHtml, renderBrandedEmail, renderCtaButton } from './email-layout';
 
 export type PreArrivalStay = {
   bookingId: string;
@@ -167,4 +167,47 @@ export function ownerDailySummaryEmail(
     ...(dashboardUrl ? [`Dashboard: ${dashboardUrl}`] : []),
   ].join('\n');
   return { eventType: 'owner.daily_summary', to, subject, html, text, bookingId: null };
+}
+
+/** Guest thank-you after check-out, with a button per review link. */
+export function postStayEmail(
+  stay: PreArrivalStay,
+  brand: MailBrand,
+  message: { subject: string; html: string; text: string },
+  reviewButtons: Array<{ url: string; label: string }>,
+): Omit<RenderedEmailCommand, 'idempotencyKey'> {
+  const hotel = brand.name || 'the hotel';
+  const buttons = reviewButtons.map(renderCtaButton).join('');
+  const html = renderBrandedEmail({
+    subject: message.subject,
+    brand,
+    preheader: `Thank you for staying at ${hotel}.`,
+    heading: 'Thank you for staying with us',
+    content: message.html + buttons,
+    summaryRows: [
+      { label: 'Booking reference', value: stay.reference },
+      {
+        label: 'Your stay',
+        value: `${longDate(stay.startsOn)} – ${longDate(stay.endsOn)}`,
+      },
+    ],
+    summaryHeading: 'Your stay',
+    footerNote: `You&#39;re receiving this email because you stayed at ${escapeHtml(hotel)}.`,
+  });
+  const text = [
+    message.text,
+    '',
+    ...reviewButtons.map((button) => `${button.label}: ${button.url}`),
+    '',
+    `Booking reference: ${stay.reference}`,
+  ].join('\n');
+  return {
+    eventType: 'guest.post_stay',
+    to: stay.guestEmail,
+    subject: message.subject,
+    html,
+    text,
+    bookingId: stay.bookingId,
+    replyTo: brand.supportEmail ?? null,
+  };
 }
