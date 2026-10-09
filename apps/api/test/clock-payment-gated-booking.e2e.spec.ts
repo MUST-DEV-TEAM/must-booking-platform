@@ -69,6 +69,7 @@ describe.skipIf(!hasSandboxCredentials)(
       async sendRefundConfirmationEmail() {},
       async sendBookingCancelledEmail() {},
       async sendBookingCancelledStaffNotification() {},
+      async sendRenderedEmail() {},
     };
 
     beforeAll(async () => {

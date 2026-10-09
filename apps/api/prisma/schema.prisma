@@ -379,6 +379,8 @@ model NotificationTopicSettings {
   topic                 String   @db.VarChar(80)
   guestEnabled          Boolean  @default(true) @map("guest_enabled")
   customStaffRecipients Boolean  @default(false) @map("custom_staff_recipients")
+  staffEnabled          Boolean  @default(true) @map("staff_enabled")
+  daysOffset            Int?     @map("days_offset") @db.SmallInt
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 

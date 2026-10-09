@@ -52,6 +52,7 @@ describe('staff-bookings: payment method selection', () => {
     async sendRefundConfirmationEmail() {},
     async sendBookingCancelledEmail() {},
     async sendBookingCancelledStaffNotification() {},
+    async sendRenderedEmail() {},
   };
   const payments: PaymentProvider = {
     async createCheckoutSession(_context, command) {

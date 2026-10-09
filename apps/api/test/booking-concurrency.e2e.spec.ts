@@ -40,6 +40,7 @@ describe('LocalPmsProvider concurrent booking creation', () => {
     async sendRefundConfirmationEmail() {},
     async sendBookingCancelledEmail() {},
     async sendBookingCancelledStaffNotification() {},
+    async sendRenderedEmail() {},
   };
   const payments: PaymentProvider = {
     async createCheckoutSession(_context, command) {

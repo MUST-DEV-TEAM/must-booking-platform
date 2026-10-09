@@ -56,6 +56,7 @@ describe.skipIf(!hasSandboxCredentials)('Clock booking CRUD (real sandbox)', () 
     async sendRefundConfirmationEmail() {},
     async sendBookingCancelledEmail() {},
     async sendBookingCancelledStaffNotification() {},
+    async sendRenderedEmail() {},
   };
 
   beforeAll(async () => {

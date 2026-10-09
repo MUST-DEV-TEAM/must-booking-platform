@@ -51,6 +51,7 @@ describe('Clock payment reconciliation (read-only)', () => {
     async sendRefundConfirmationEmail() {},
     async sendBookingCancelledEmail() {},
     async sendBookingCancelledStaffNotification() {},
+    async sendRenderedEmail() {},
   };
 
   beforeAll(async () => {

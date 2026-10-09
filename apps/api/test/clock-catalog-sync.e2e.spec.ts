@@ -43,6 +43,7 @@ describe.skipIf(!hasSandboxCredentials)('Clock catalog sync (real sandbox)', () 
     async sendRefundConfirmationEmail() {},
     async sendBookingCancelledEmail() {},
     async sendBookingCancelledStaffNotification() {},
+    async sendRenderedEmail() {},
   };
 
   beforeAll(async () => {

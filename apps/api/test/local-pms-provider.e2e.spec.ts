@@ -115,6 +115,7 @@ describe('LocalPmsProvider', () => {
     async sendBookingCancelledStaffNotification(command) {
       cancelledStaffEmails.push(command);
     },
+    async sendRenderedEmail() {},
   };
   const payments: PaymentProvider = {
     async createCheckoutSession(_context, command) {

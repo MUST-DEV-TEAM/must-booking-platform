@@ -90,6 +90,8 @@ export interface MailProvider {
     guestCount: number;
     nightlyRates?: NightlyRate[];
   }): Promise<MailSendReceipt | void>;
+  /** An email whose subject and body were already rendered by the caller. */
+  sendRenderedEmail(command: RenderedEmailCommand): Promise<MailSendReceipt | void>;
   sendBookingCancelledStaffNotification(command: {
     bookingId: string;
     bookingReference: string;
@@ -108,6 +110,19 @@ export interface MailProvider {
     };
   }): Promise<MailSendReceipt | void>;
 }
+
+export type RenderedEmailCommand = {
+  /** Log event type, e.g. `guest.pre_arrival`. */
+  eventType: string;
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+  idempotencyKey: string;
+  bookingId: string | null;
+  /** Where replies go, e.g. the hotel's own address. */
+  replyTo?: string | null;
+};
 
 export type MailOrderRoom = {
   roomName: string;
@@ -403,8 +418,12 @@ export interface NotificationTopicSettings {
   hasGuestEmail: boolean;
   hasStaffEmail: boolean;
   guestEnabled: boolean;
-  /** False: staff recipients follow the default (assigned staff, else owners/admins). */
+  /** Whether the staff email is sent at all. */
+  staffEnabled: boolean;
+  /** False: staff recipients follow the topic's default (e.g. assigned staff, else owners/admins). */
   customStaffRecipients: boolean;
+  /** For scheduled emails: days before arrival / after departure, with its allowed range. */
+  daysOffset: { value: number; min: number; max: number; label: string } | null;
   rules: NotificationRecipientRule[];
   /** Who gets the staff email today, after applying the rules. */
   staffRecipients: Array<{ email: string }>;
@@ -420,6 +439,10 @@ export interface NotificationSettingsResponse {
 
 export interface UpdateNotificationTopicCommand {
   guestEnabled: boolean;
+  /** Defaults to true when omitted. */
+  staffEnabled?: boolean;
   customStaffRecipients: boolean;
   rules: NotificationRecipientRule[];
+  /** Only for scheduled topics; omitted keeps the default. */
+  daysOffset?: number | null;
 }

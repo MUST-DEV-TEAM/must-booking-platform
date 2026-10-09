@@ -15,6 +15,7 @@ export interface QueuedMailCommands {
   welcome: CommandOf<'sendWelcomeEmail'>;
   passwordReset: CommandOf<'sendPasswordResetEmail'>;
   staffInvitation: CommandOf<'sendStaffInvitationEmail'>;
+  rendered: CommandOf<'sendRenderedEmail'>;
 }
 export type QueuedMailKind = keyof QueuedMailCommands;
 
@@ -136,6 +137,15 @@ export function describeMail<K extends QueuedMailKind>(
         idempotencyKey: `password-reset/${c.userId}/${tokenFingerprint(c.resetUrl)}`,
         bookingId: null,
         sensitive: true,
+      };
+    case 'rendered':
+      return {
+        eventType: c.eventType,
+        recipient: c.to,
+        subject: c.subject,
+        idempotencyKey: c.idempotencyKey,
+        bookingId: c.bookingId,
+        sensitive: false,
       };
     case 'staffInvitation':
       return {

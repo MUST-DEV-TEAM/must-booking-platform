@@ -52,6 +52,7 @@ describe('authentication endpoints', () => {
     async sendRefundConfirmationEmail() {},
     async sendBookingCancelledEmail() {},
     async sendBookingCancelledStaffNotification() {},
+    async sendRenderedEmail() {},
   };
   const email = `auth-${randomUUID()}@example.test`;
   let userId: string | undefined;
