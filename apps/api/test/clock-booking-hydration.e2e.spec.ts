@@ -425,6 +425,15 @@ describe('Clock booking hydration', () => {
 
     expect(outcome.outcome).toBe('unknown_status');
     expect(await bookingState('38144012')).toBeUndefined();
+
+    // A repeated event for the same booking does not raise a second item.
+    queuedResponses = [
+      {
+        status: 200,
+        body: realBookingDetail({ id: 38144012, number: '372', status: 'tentative' }),
+      },
+    ];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144012');
     expect(await unknownStatusReviews('38144012')).toHaveLength(1);
   });
 

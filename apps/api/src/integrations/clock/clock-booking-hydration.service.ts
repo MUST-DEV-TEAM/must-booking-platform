@@ -154,10 +154,8 @@ export class ClockBookingHydrationService {
           if (!ownsRow(ownershipRows[0], ownership.token)) return { outcome: 'ownership_lost' };
         }
 
-        const existingRows = await tx.$queryRawUnsafe<
-          Array<{ status: string; pmsStayStatus: string | null }>
-        >(
-          `SELECT status::text AS status, pms_stay_status AS "pmsStayStatus" FROM bookings
+        const existingRows = await tx.$queryRawUnsafe<Array<{ status: string }>>(
+          `SELECT status::text AS status FROM bookings
          WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND external_booking_id = $3
          FOR UPDATE`,
           tenantId,
@@ -166,7 +164,10 @@ export class ClockBookingHydrationService {
         );
         const existing = existingRows[0];
         const mappedStatus = localStatusForClockStatus(detail.status);
-        if (!mappedStatus && (!existing || existing.pmsStayStatus !== detail.status))
+        if (
+          !mappedStatus &&
+          !(await this.hasOpenUnknownStatusReview(tx, tenantId, propertyId, detail))
+        )
           await this.manualReview.recordInTransaction(tx, {
             tenantId,
             propertyId,
@@ -302,6 +303,29 @@ export class ClockBookingHydrationService {
     if ((outcome.outcome === 'created' || outcome.outcome === 'updated') && outcome.cancelledInPms)
       await this.notifyStaffOfPmsCancellation(tenantId, propertyId, outcome.bookingId);
     return outcome;
+  }
+
+  /** One open review item per Clock booking and unknown status, whether or
+   * not the booking was imported, so repeated events don't repeat the alert. */
+  private async hasOpenUnknownStatusReview(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    detail: ClockBookingDetail,
+  ): Promise<boolean> {
+    const rows = await tx.$queryRawUnsafe<Array<{ found: number }>>(
+      `SELECT 1 AS found FROM manual_review_items
+       WHERE tenant_id = $1::uuid AND property_id = $2::uuid
+         AND category = 'UNKNOWN_STATUS'::"ManualReviewCategory" AND status = 'OPEN'::"ManualReviewStatus"
+         AND reference_type = 'clock_booking' AND reference_id = $3
+         AND context->>'clockStatus' = $4
+       LIMIT 1`,
+      tenantId,
+      propertyId,
+      String(detail.id),
+      detail.status,
+    );
+    return rows.length > 0;
   }
 
   /** Staff hear about a front-desk cancellation; the guest is not emailed.
