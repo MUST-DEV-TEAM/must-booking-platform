@@ -3,12 +3,13 @@ name: Uptime
 # Checks booking.must.al from outside every 5 minutes. When the site stays down
 # for three tries in a row, it opens one "site is down" issue assigned to the
 # owner (GitHub emails the assignee). When the site is back, it closes that issue.
-# GitHub may start scheduled runs a few minutes late; this is a smoke alarm, not a
-# precise stopwatch.
+# GitHub may start scheduled runs late or skip some under load; this is a smoke
+# alarm, not a precise stopwatch. Running at minutes 3, 8, 13, ... keeps it away
+# from the busy top of the hour, which GitHub's docs say is when runs get dropped.
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '3-58/5 * * * *'
   workflow_dispatch:
 
 permissions:
