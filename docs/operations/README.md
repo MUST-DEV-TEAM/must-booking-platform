@@ -22,7 +22,7 @@ Workers run in the API process; startup of a full AppModule can connect to Redis
 | `integrations/clock/clock-webhook-health.service.ts` | Every 6 hours: 48-hour webhook silence, queue backlog >100, PMS-pending bookings older than one hour |
 | `integrations/clock/clock-queue.service.ts` | Queue handles/backoff/dead-letter copying; only implemented processors perform business work |
 
-Pino supplies request IDs and structured request/response logging. `observability/error-tracking.ts` and the exception filter report to Sentry when configured; Clock failures/manual review/circuit breaking have reporting hooks. A reporting call in code is not proof alerts are delivered to an operator. No full metrics/histogram/export system was found. Inspect log payloads and configuration before treating logs as safe to publish.
+Pino supplies request IDs and structured request/response logging. `observability/error-tracking.ts` and the exception filter report to Sentry when configured; Clock failures/manual review/circuit breaking have reporting hooks. A reporting call in code is not proof alerts are delivered to an operator. The [Uptime workflow](../../.github/workflows/uptime.yml) checks `https://booking.must.al/api/health` every 5 minutes from GitHub; after three failed tries it opens one `uptime-alert` issue assigned to the owner (GitHub emails them) and closes it when the site answers again. No full metrics/histogram/export system was found. Inspect log payloads and configuration before treating logs as safe to publish.
 
 Clock recovery, webhook setup and limitations belong in the [Clock runbook](../integrations/clock/runbook.md). Reconciliation finds discrepancies; it does not automatically repair financial records.
 
