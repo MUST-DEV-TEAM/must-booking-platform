@@ -58,6 +58,10 @@ jobs:
             echo "::error::$sha is not a commit on main."
             exit 1
           fi
+          if ! git cat-file -e "$sha:infrastructure/containers/compose.release.yaml" 2>/dev/null; then
+            echo "::error::$sha predates the release pipeline and cannot be deployed by it."
+            exit 1
+          fi
           # A newer push to main has its own CI run and deploy; never deploy older
           # code over it automatically.
           if [ "$EVENT" = workflow_run ] && [ "$sha" != "$main_sha" ]; then

@@ -43,7 +43,8 @@ Production deploys from GitHub, so the server never builds anything (it has 1 vC
 Migrations are not rolled back, so a migration must keep working with the previous release.
 Add columns and tables in one release, and drop them in a later one.
 
-To roll back by hand, run the Deploy workflow from the Actions tab with an older commit of `main`.
+To roll back by hand, run the Deploy workflow from the Actions tab with an older commit of `main`
+(one that already has this pipeline; older commits have no prebuilt images).
 The Ops workflow runs fixed maintenance actions: `status`, `health`, `restart-api`,
 `restart-web`, `backup-now` and `cleanup`. It does not show application logs, because they can
 contain guest details. Read logs over SSH instead.
