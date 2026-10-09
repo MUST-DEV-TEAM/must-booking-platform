@@ -1,0 +1,51 @@
+name: Ops
+
+# One-click maintenance on booking.must.al. Each action is a fixed command in
+# infrastructure/containers/ops.sh; the deploy key cannot run anything else.
+# Application logs are deliberately not available here (they can hold guest details).
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: What to run on the server
+        required: true
+        type: choice
+        options:
+          - status
+          - health
+          - restart-api
+          - restart-web
+          - backup-now
+          - cleanup
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  run:
+    name: ${{ inputs.action }}
+    if: vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Set up SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" >~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" >~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+
+      - name: Run ${{ inputs.action }}
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          ACTION: ${{ inputs.action }}
+        run: ssh -n -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" ops "$ACTION"

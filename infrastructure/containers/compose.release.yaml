@@ -1,0 +1,8 @@
+# Release override: run api and web from the images the Deploy workflow built in
+# GitHub Actions instead of building them on the server. Used by deploy-release.sh:
+#   IMAGE_TAG=<commit sha> docker compose -f compose.homelab.yaml -f compose.release.yaml --env-file .env ...
+services:
+  api:
+    image: ghcr.io/must-dev-team/must-booking-platform-api:${IMAGE_TAG:?set IMAGE_TAG to the release commit sha}
+  web:
+    image: ghcr.io/must-dev-team/must-booking-platform-web:${IMAGE_TAG:?set IMAGE_TAG to the release commit sha}

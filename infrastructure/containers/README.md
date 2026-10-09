@@ -25,6 +25,67 @@ Optional automation — historically used by the retired homelab host, safe to i
 `compose.homelab.yaml` plus a filled-in `.env` is the entire runtime requirement. None of the
 optional automation needs to exist for a manual deployment.
 
+## Release pipeline (booking.must.al)
+
+Production deploys from GitHub, so the server never builds anything (it has 1 vCPU and 1 GB RAM):
+
+1. CI passes on `main`.
+2. `.github/workflows/deploy.yml` builds the api and web images and pushes them to GHCR as
+   `ghcr.io/must-dev-team/must-booking-platform-{api,web}:<commit sha>`.
+3. It connects over SSH and runs `deploy-release.sh <sha>`. That script:
+   1. checks out that commit;
+   2. takes a fresh backup (`must-booking-backup.service`, see [../backup](../backup/README.md));
+   3. pulls the images, runs migrations and `db:set-app-password`, and restarts api and web
+      (`compose.release.yaml` swaps their `build:` for the GHCR images);
+   4. waits for `/api/health`. If it fails, it starts the previous release again and the
+      workflow goes red.
+
+Migrations are not rolled back, so a migration must keep working with the previous release.
+Add columns and tables in one release, and drop them in a later one.
+
+To roll back by hand, run the Deploy workflow from the Actions tab with an older commit of `main`.
+The Ops workflow runs fixed maintenance actions: `status`, `health`, `restart-api`,
+`restart-web`, `backup-now` and `cleanup`. It does not show application logs, because they can
+contain guest details. Read logs over SSH instead.
+
+### One-time server setup
+
+Run as root. The checkout moves to `/opt/must-booking`, the path the backup unit expects.
+
+```sh
+adduser --disabled-password --gecos '' deploy
+usermod -aG docker deploy
+git clone https://github.com/MUST-DEV-TEAM/must-booking-platform.git /opt/must-booking
+cp /root/must-booking-platform/infrastructure/containers/.env /opt/must-booking/infrastructure/containers/.env
+chown -R deploy:deploy /opt/must-booking
+chmod 600 /opt/must-booking/infrastructure/containers/.env
+# Lets the deploy take a backup without any other root access.
+echo 'deploy ALL=(root) NOPASSWD: /usr/bin/systemctl start must-booking-backup.service' >/etc/sudoers.d/must-deploy
+chmod 440 /etc/sudoers.d/must-deploy
+```
+
+Keep the compose project name `must-booking` (it is set in `compose.homelab.yaml`), so the new
+checkout drives the same containers and volumes.
+
+Generate a key used only by GitHub, and pin it to `ssh-gate.sh` so it can run nothing but a
+deploy or an Ops action:
+
+```sh
+ssh-keygen -t ed25519 -N '' -C github-deploy -f /root/github-deploy
+install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
+echo "restrict,command=\"/opt/must-booking/infrastructure/containers/ssh-gate.sh\" $(cat /root/github-deploy.pub)" \
+  >>/home/deploy/.ssh/authorized_keys
+chown deploy:deploy /home/deploy/.ssh/authorized_keys && chmod 600 /home/deploy/.ssh/authorized_keys
+ssh-keyscan -t ed25519 <server ip>      # value for DEPLOY_KNOWN_HOSTS
+```
+
+In GitHub, open Settings, then Environments, and create `production` with these secrets:
+`DEPLOY_HOST` (server IP), `DEPLOY_USER` (`deploy`), `DEPLOY_SSH_KEY` (the contents of
+`/root/github-deploy`, then delete that file) and `DEPLOY_KNOWN_HOSTS`. For the web build, also
+add the repository secrets `WEB_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT` and
+`SENTRY_AUTH_TOKEN`, copied from the server's `.env`. Finally, set the repository variable
+`DEPLOY_ENABLED` to `true`. Until then the workflow builds images and skips the deploy.
+
 ## Prerequisites
 
 - Docker Engine with the Compose plugin (`docker compose`, not the standalone `docker-compose`).
