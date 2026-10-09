@@ -190,7 +190,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
           ? 'Your payment was received and your stay is confirmed.'
           : 'Your stay is confirmed. Payment is collected at the hotel.',
         heading: 'Your stay is confirmed',
-        content: `<p style="margin:0 0 18px 0;">Hello <strong>${escapeHtml(command.guest.name)}</strong>, ${paid ? `thank you for choosing ${escapeHtml(hotelName)}. We've received your payment and your reservation is confirmed.` : `your reservation at ${escapeHtml(hotelName)} is confirmed. Payment will be collected at the hotel on arrival.`}</p>${this.specialRequests(command.specialRequests)}`,
+        content: `${command.template?.html ?? `<p style="margin:0 0 18px 0;">Hello <strong>${escapeHtml(command.guest.name)}</strong>, ${paid ? `thank you for choosing ${escapeHtml(hotelName)}. We've received your payment and your reservation is confirmed.` : `your reservation at ${escapeHtml(hotelName)} is confirmed. Payment will be collected at the hotel on arrival.`}</p>`}${this.specialRequests(command.specialRequests)}`,
         summaryRows: this.bookingSummaryRows(command, {
           paymentMethod: command.paymentMethod,
           amountLabel: paid ? 'Paid' : 'Due at hotel',
@@ -201,7 +201,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
           : null,
         footerNote: `You&#39;re receiving this email because you made a reservation at ${escapeHtml(hotelName)}.`,
       }),
-      text: `${paid ? `Your payment of ${this.money(command.amount)} was received and your reservation is confirmed.` : 'Your reservation is confirmed. Payment will be collected at the hotel on arrival.'} Booking ${command.bookingReference}: ${command.rooms && command.rooms.length > 1 ? this.roomLines(command.rooms).replace(/\n/g, '; ') : command.roomName}, ${command.stay.startsOn} to ${command.stay.endsOn}, ${command.guestCount} guest${command.guestCount === 1 ? '' : 's'}.${command.specialRequests?.trim() ? ` Special requests: ${command.specialRequests.trim()}` : ''}${command.cancellationUrl ? ` Review or cancel: ${command.cancellationUrl}` : ''}`,
+      text: `${command.template ? `${command.template.text}\n\n` : ''}${paid ? `Your payment of ${this.money(command.amount)} was received and your reservation is confirmed.` : 'Your reservation is confirmed. Payment will be collected at the hotel on arrival.'} Booking ${command.bookingReference}: ${command.rooms && command.rooms.length > 1 ? this.roomLines(command.rooms).replace(/\n/g, '; ') : command.roomName}, ${command.stay.startsOn} to ${command.stay.endsOn}, ${command.guestCount} guest${command.guestCount === 1 ? '' : 's'}.${command.specialRequests?.trim() ? ` Special requests: ${command.specialRequests.trim()}` : ''}${command.cancellationUrl ? ` Review or cancel: ${command.cancellationUrl}` : ''}`,
       idempotencyKey,
     });
   }
@@ -255,14 +255,16 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
         brand: command.brand,
         preheader: 'Your refund has been processed and is on its way.',
         heading: 'Refund processed',
-        content: `<p style="margin:0 0 18px 0;">Hello <strong>${escapeHtml(command.guest.name)}</strong>, your refund has been processed. It may take a few business days to appear on your original payment method.</p>`,
+        content:
+          command.template?.html ??
+          `<p style="margin:0 0 18px 0;">Hello <strong>${escapeHtml(command.guest.name)}</strong>, your refund has been processed. It may take a few business days to appear on your original payment method.</p>`,
         summaryRows: this.bookingSummaryRows(command, {
           amountLabel: 'Refund amount',
           dateFormat: 'us',
         }),
         footerNote: `You&#39;re receiving this email because a refund was issued for a reservation at ${escapeHtml(hotelName)}.`,
       }),
-      text: `Your refund of ${this.money(command.amount)} for booking ${command.bookingReference} has been processed. It may take a few business days to appear on your original payment method.`,
+      text: `${command.template ? `${command.template.text}\n\n` : ''}Your refund of ${this.money(command.amount)} for booking ${command.bookingReference} has been processed. It may take a few business days to appear on your original payment method.`,
       idempotencyKey,
     });
   }
@@ -280,7 +282,9 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
         brand: command.brand,
         preheader: `Your reservation at ${hotelName} has been cancelled.`,
         heading: 'Your booking was cancelled',
-        content: `<p style="margin:0 0 18px 0;">Hello <strong>${escapeHtml(command.guest.name)}</strong>, your booking has been cancelled as requested. If you need help planning a new stay, we're here for you.</p>`,
+        content:
+          command.template?.html ??
+          `<p style="margin:0 0 18px 0;">Hello <strong>${escapeHtml(command.guest.name)}</strong>, your booking has been cancelled as requested. If you need help planning a new stay, we're here for you.</p>`,
         summaryRows: this.bookingSummaryRows(command, { includeGuests: false, dateFormat: 'us' }),
         cta: this.guestBookingUrl(command.brand, command.bookingReference)
           ? {
@@ -290,7 +294,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
           : null,
         footerNote: `You&#39;re receiving this email because a reservation at ${escapeHtml(hotelName)} under your name was cancelled.`,
       }),
-      text: `Your booking ${command.bookingReference} has been cancelled as requested. ${command.roomName}, ${command.stay.startsOn} to ${command.stay.endsOn}.`,
+      text: `${command.template ? `${command.template.text}\n\n` : ''}Your booking ${command.bookingReference} has been cancelled as requested. ${command.roomName}, ${command.stay.startsOn} to ${command.stay.endsOn}.`,
       idempotencyKey,
     });
   }

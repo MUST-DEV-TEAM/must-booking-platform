@@ -131,6 +131,13 @@ Depends on Phase B (queue/log). Numbering continues to avoid renumbering earlier
 
 - Each member can mute the non-urgent staff emails for themselves: `GET/PUT /tenants/:tenantId/my-email-preferences` (`muteOptionalEmails`), stored on `tenant_memberships.mute_optional_emails`. Optional topics are marked `optional` (today: daily summary, refund made); new booking, cancellation and problem alerts can't be muted. Extra addresses have no account and are never muted.
 
+### Email plan Step 3 — editable guest email templates (done 2026-10-09, API only)
+
+- Table `email_templates` (tenant, property, `template_key`, `language` default `en`, subject, body; RLS like the notification settings). No row = the default wording.
+- Editable: booking confirmed, booking cancelled, refund processed, pre-arrival, booking changed, payment not completed. The property edits the subject and the message; the branded header, booking details and footer stay generated. Placeholders (`{guest_name}`, `{hotel_name}`, `{booking_reference}`, `{check_in}`, `{check_out}`, `{nights}`, `{room}`, `{guests}`, plus `{payment_note}` / `{refund_amount}` where they apply) are filled at send time with escaped values; unknown placeholders are refused on save. Blank lines become paragraphs.
+- API: `GET /tenants/:t/properties/:p/email-templates`, `PUT|DELETE …/:key` (save / reset), `POST …/:key/preview` and `POST …/:key/test` (sends to the signed-in user). Requires `settings.manage`; writes and test sends need a verified email; saves and resets are audited.
+- The three built-in guest emails (confirmed, cancelled, refund) use the saved wording only when one exists (`template` on the mail command); otherwise they are unchanged. The Step 2 emails always render through the template defaults. The editor screen comes with the Email tab (Step 4).
+
 ### Phase F — Out of scope / later (recorded, not scheduled)
 
 - In-app mailbox / inbound email parsing and threading.

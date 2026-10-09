@@ -7,6 +7,13 @@ import {
   paymentNotCompletedEmail,
   type GuestStay,
 } from './booking-update-email-content';
+import {
+  renderTemplate,
+  savedTemplate,
+  stayTemplateValues,
+  type EmailTemplateKey,
+  type SavedTemplate,
+} from './email-templates';
 import { MailDeliveryService } from './mail-delivery.service';
 import { guestNotificationEnabled } from './notification-recipients';
 
@@ -60,6 +67,7 @@ export class BookingUpdateNotificationService {
           row,
           previousRoom: previousRoom?.name ?? '',
           brand: await this.brand(tx, context),
+          template: await savedTemplate(tx, context, 'booking_changed'),
         };
       });
       if (!work) return;
@@ -76,6 +84,7 @@ export class BookingUpdateNotificationService {
               : work.previousRoom,
         },
         work.brand,
+        this.message('booking_changed', work.template, stay, work.brand),
       );
       await this.delivery.dispatch(
         'rendered',
@@ -107,14 +116,22 @@ export class BookingUpdateNotificationService {
           'EXPIRED',
         );
         if (!rows.length) return null;
-        return { rows, brand: await this.brand(tx, context) };
+        return {
+          rows,
+          brand: await this.brand(tx, context),
+          template: await savedTemplate(tx, context, 'payment_not_completed'),
+        };
       });
       if (!work) return;
       const stay = this.stay(work.rows);
       await this.delivery.dispatch(
         'rendered',
         {
-          ...paymentNotCompletedEmail(stay, work.brand),
+          ...paymentNotCompletedEmail(
+            stay,
+            work.brand,
+            this.message('payment_not_completed', work.template, stay, work.brand),
+          ),
           idempotencyKey: `payment-not-completed/${stay.reference}`,
         },
         context,
@@ -152,6 +169,27 @@ export class BookingUpdateNotificationService {
       context.propertyId,
       bookingId,
       status,
+    );
+  }
+
+  private message(
+    key: EmailTemplateKey,
+    template: SavedTemplate | null,
+    stay: GuestStay,
+    brand: MailBrand,
+  ) {
+    return renderTemplate(
+      key,
+      template,
+      stayTemplateValues({
+        guestName: stay.guestName,
+        hotelName: brand.name || 'the hotel',
+        reference: stay.reference,
+        startsOn: stay.startsOn,
+        endsOn: stay.endsOn,
+        roomName: stay.rooms.map((room) => room.roomName).join(', '),
+        guestCount: stay.rooms.reduce((sum, room) => sum + room.guestCount, 0),
+      }),
     );
   }
 

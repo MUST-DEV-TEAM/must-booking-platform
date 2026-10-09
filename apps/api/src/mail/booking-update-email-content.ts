@@ -34,11 +34,10 @@ function guestEmail(input: {
   subject: string;
   preheader: string;
   heading: string;
-  intro: string;
+  message: { html: string; text: string };
   rows: Array<{ label: string; value: string }>;
   cta: { url: string; label: string } | null;
   eventType: string;
-  closing: string;
 }): Omit<RenderedEmailCommand, 'idempotencyKey'> {
   const hotel = input.brand.name || 'the hotel';
   const html = renderBrandedEmail({
@@ -46,18 +45,17 @@ function guestEmail(input: {
     brand: input.brand,
     preheader: input.preheader,
     heading: input.heading,
-    content: `<p style="margin:0 0 18px 0;">Hello <strong>${escapeHtml(input.stay.guestName)}</strong>, ${escapeHtml(input.intro)}</p><p style="margin:0 0 18px 0;">${escapeHtml(input.closing)}</p>`,
+    content: input.message.html,
     summaryRows: input.rows,
     summaryHeading: 'Your booking',
     cta: input.cta,
     footerNote: `You&#39;re receiving this email because you made a booking at ${escapeHtml(hotel)}.`,
   });
   const text = [
-    `Hello ${input.stay.guestName},`,
-    input.intro,
+    input.message.text,
+    '',
     ...input.rows.map((row) => `${row.label}: ${row.value.replace(/\n/g, '; ')}`),
     ...(input.cta ? [`${input.cta.label}: ${input.cta.url}`] : []),
-    input.closing,
   ].join('\n');
   return {
     eventType: input.eventType,
@@ -75,9 +73,9 @@ export function bookingChangedEmail(
   stay: GuestStay,
   previous: { startsOn: string; endsOn: string; roomName: string },
   brand: MailBrand,
+  message: { subject: string; html: string; text: string },
 ): Omit<RenderedEmailCommand, 'idempotencyKey'> {
-  const hotel = brand.name || 'the hotel';
-  const subject = `Your booking at ${hotel} has been updated — ${stay.reference}`;
+  const subject = message.subject;
   const datesChanged = previous.startsOn !== stay.startsOn || previous.endsOn !== stay.endsOn;
   const roomChanged = previous.roomName !== stay.rooms[0]?.roomName;
   const rows = [
@@ -99,11 +97,10 @@ export function bookingChangedEmail(
     subject,
     preheader: `Your stay is now ${dates(stay.startsOn, stay.endsOn)}.`,
     heading: 'Your booking has been updated',
-    intro: `${hotel} has updated your booking. Here are the new details.`,
+    message,
     rows,
     cta: null,
     eventType: 'guest.booking_changed',
-    closing: 'If you did not ask for this change, simply reply to this email.',
   });
 }
 
@@ -111,9 +108,9 @@ export function bookingChangedEmail(
 export function paymentNotCompletedEmail(
   stay: GuestStay,
   brand: MailBrand,
+  message: { subject: string; html: string; text: string },
 ): Omit<RenderedEmailCommand, 'idempotencyKey'> {
-  const hotel = brand.name || 'the hotel';
-  const subject = `Your booking at ${hotel} was not completed`;
+  const subject = message.subject;
   const rows = [
     { label: stay.rooms.length === 1 ? 'Room' : 'Rooms', value: roomsValue(stay) },
     { label: 'Dates', value: dates(stay.startsOn, stay.endsOn) },
@@ -124,11 +121,9 @@ export function paymentNotCompletedEmail(
     subject,
     preheader: 'The payment was not completed, so the booking was not made.',
     heading: 'Your booking was not completed',
-    intro: `the payment for your booking at ${hotel} was not completed in time, so the booking was not made and the room was released. You have not been charged; if a payment still goes through, it is refunded automatically.`,
+    message,
     rows,
     cta: brand.websiteUrl ? { url: brand.websiteUrl, label: 'Book again' } : null,
     eventType: 'guest.payment_not_completed',
-    closing:
-      'Still want to stay with us? You are welcome to book again, or simply reply to this email.',
   });
 }

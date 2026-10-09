@@ -390,6 +390,23 @@ model NotificationTopicSettings {
   @@map("notification_topic_settings")
 }
 
+/// A property's own subject and message for one guest email (email plan Step 3).
+model EmailTemplate {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  propertyId      String   @map("property_id") @db.Uuid
+  templateKey     String   @map("template_key") @db.VarChar(80)
+  language        String   @default("en") @db.VarChar(10)
+  subject         String   @db.VarChar(300)
+  body            String
+  updatedByUserId String?  @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, propertyId, templateKey, language], map: "email_templates_property_key_language_key")
+  @@map("email_templates")
+}
+
 model NotificationRecipientRule {
   id             String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId       String                      @map("tenant_id") @db.Uuid

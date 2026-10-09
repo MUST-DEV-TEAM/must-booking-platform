@@ -58,9 +58,10 @@ function list(lines: string[]): string {
 export function preArrivalEmail(
   stay: PreArrivalStay,
   brand: MailBrand & { checkInTime?: string | null },
+  message: { subject: string; html: string; text: string },
 ): Omit<RenderedEmailCommand, 'idempotencyKey'> {
   const hotel = brand.name || 'the hotel';
-  const subject = `See you soon at ${hotel} — ${longDate(stay.startsOn)}`;
+  const subject = message.subject;
   const guests = stay.rooms.reduce((sum, room) => sum + room.guestCount, 0);
   const roomValue =
     stay.rooms.length === 1
@@ -87,16 +88,15 @@ export function preArrivalEmail(
     brand,
     preheader: `Your stay at ${hotel} starts on ${longDate(stay.startsOn)}.`,
     heading: 'Your stay is coming up',
-    content: `<p style="margin:0 0 18px 0;">Hello <strong>${escapeHtml(stay.guestName)}</strong>, we look forward to welcoming you at ${escapeHtml(hotel)} on ${escapeHtml(longDate(stay.startsOn))}. Simply reply to this email if you have any questions before you arrive.</p>`,
+    content: message.html,
     summaryRows: rows,
     summaryHeading: 'Your stay',
     footerNote: `You&#39;re receiving this email because you have a reservation at ${escapeHtml(hotel)}.`,
   });
   const text = [
-    `Hello ${stay.guestName},`,
-    `we look forward to welcoming you at ${hotel} on ${longDate(stay.startsOn)}.`,
+    message.text,
+    '',
     ...rows.map((row) => `${row.label}: ${row.value.replace(/\n/g, '; ')}`),
-    'Reply to this email if you have any questions before you arrive.',
   ].join('\n');
   return {
     eventType: 'guest.pre_arrival',
