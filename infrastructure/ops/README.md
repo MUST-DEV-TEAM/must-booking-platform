@@ -39,4 +39,4 @@ deploy (`eb09721`, run 37914544337) passed its health check. The old checkout in
 
 SSH password logins are still enabled (`PasswordAuthentication yes`, `PermitRootLogin yes`).
 The 2026-10-09 auth logs show only key logins, so turning passwords off is low risk. It is
-still waiting for an explicit decision.
+left on by the owner's decision (2026-10-09).
