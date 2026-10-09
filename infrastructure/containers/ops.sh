@@ -28,10 +28,10 @@ case "${1:-}" in
     ;;
   sentry)
     # Shows which Sentry project each service reports to: the project id only,
-    # never the key part of the DSN.
+    # never the key part of the DSN. web falls back to apps/web/sentry.dsn.ts when unset.
     for service in api web; do
       dsn="$(compose exec -T "$service" printenv SENTRY_DSN 2>/dev/null || true)"
-      if [ -n "$dsn" ]; then echo "$service: Sentry project ${dsn##*/}"; else echo "$service: no Sentry DSN"; fi
+      if [ -n "$dsn" ]; then echo "$service: Sentry project ${dsn##*/}"; else echo "$service: SENTRY_DSN not set"; fi
     done
     ;;
   restart-api) compose restart api ;;
