@@ -34,7 +34,9 @@ Production deploys from GitHub, so the server never builds anything (it has 1 vC
    `ghcr.io/must-dev-team/must-booking-platform-{api,web}:<commit sha>`.
 3. It connects over SSH and runs `deploy-release.sh <sha>`. That script:
    1. checks out that commit;
-   2. takes a fresh backup (`must-booking-backup.service`, see [../backup](../backup/README.md));
+   2. saves a local `pg_dump` to `/var/backups/must-booking/pre-deploy` (last 5 kept), then runs the
+      off-site backup (`must-booking-backup.service`, see [../backup](../backup/README.md)) if it is
+      installed. A failed off-site backup only warns; a failed local dump stops the deploy;
    3. pulls the images, runs migrations and `db:set-app-password`, and restarts api and web
       (`compose.release.yaml` swaps their `build:` for the GHCR images);
    4. waits for `/api/health`. If it fails, it starts the previous release again and the
@@ -63,6 +65,7 @@ chmod 600 /opt/must-booking/infrastructure/containers/.env
 # Lets the deploy take a backup without any other root access.
 echo 'deploy ALL=(root) NOPASSWD: /usr/bin/systemctl start must-booking-backup.service' >/etc/sudoers.d/must-deploy
 chmod 440 /etc/sudoers.d/must-deploy
+install -d -m 700 -o deploy -g deploy /var/backups/must-booking/pre-deploy
 ```
 
 Keep the compose project name `must-booking` (it is set in `compose.homelab.yaml`), so the new
