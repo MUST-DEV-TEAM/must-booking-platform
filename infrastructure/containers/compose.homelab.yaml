@@ -1,7 +1,15 @@
 name: must-booking
 
+# Cap container logs (Docker's default json-file driver never rotates).
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '3'
+
 services:
   postgres:
+    logging: *logging
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
@@ -19,6 +27,7 @@ services:
       - internal
 
   redis:
+    logging: *logging
     image: redis:7-alpine
     restart: unless-stopped
     healthcheck:
@@ -32,6 +41,7 @@ services:
       - internal
 
   api:
+    logging: *logging
     build:
       context: ../..
       dockerfile: infrastructure/containers/api.Dockerfile
@@ -64,6 +74,7 @@ services:
       - proxy
 
   web:
+    logging: *logging
     build:
       context: ../..
       dockerfile: infrastructure/containers/web.Dockerfile

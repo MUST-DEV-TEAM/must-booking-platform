@@ -1,0 +1,104 @@
+name: Deploy
+
+# Deploys main to booking.must.al after CI passes on it. Images are built here
+# (the server has 1 vCPU / 1 GB RAM), streamed to the server over SSH, and
+# switched in by infrastructure/ops/must-deploy.sh, which migrates, health-checks
+# and rolls back on failure. Run manually to redeploy main or roll back.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: deploy (latest main) or rollback (previous release)
+        type: choice
+        options: [deploy, rollback]
+        default: deploy
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://booking.must.al
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Set up SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf 'Host prod\n  HostName %s\n  User root\n  IdentityFile ~/.ssh/deploy_key\n  IdentitiesOnly yes\n  ServerAliveInterval 30\n' "$DEPLOY_HOST" > ~/.ssh/config
+
+      - name: Roll back
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'rollback'
+        run: ssh prod rollback
+
+      - name: Check out the commit being deployed
+        if: github.event_name != 'workflow_dispatch' || inputs.action == 'deploy'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+
+      - name: Set up Docker Buildx
+        if: github.event_name != 'workflow_dispatch' || inputs.action == 'deploy'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build api image
+        if: github.event_name != 'workflow_dispatch' || inputs.action == 'deploy'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infrastructure/containers/api.Dockerfile
+          tags: must-booking-api:${{ env.SHA }}
+          load: true
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
+
+      - name: Build web image
+        if: github.event_name != 'workflow_dispatch' || inputs.action == 'deploy'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infrastructure/containers/web.Dockerfile
+          tags: must-booking-web:${{ env.SHA }}
+          load: true
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,scope=web,mode=max
+          build-args: |
+            API_URL=http://api:3000
+            NEXT_PUBLIC_SENTRY_DSN=${{ secrets.WEB_SENTRY_DSN }}
+            SENTRY_ORG=${{ secrets.SENTRY_ORG }}
+            SENTRY_PROJECT=${{ secrets.SENTRY_PROJECT }}
+            SENTRY_AUTH_TOKEN=${{ secrets.SENTRY_AUTH_TOKEN }}
+
+      - name: Send images to the server
+        if: github.event_name != 'workflow_dispatch' || inputs.action == 'deploy'
+        run: docker save "must-booking-api:$SHA" "must-booking-web:$SHA" | gzip -1 | ssh prod load
+
+      - name: Migrate, switch and health-check
+        if: github.event_name != 'workflow_dispatch' || inputs.action == 'deploy'
+        run: ssh prod deploy "$SHA"
+
+      - name: Public health check
+        if: github.event_name != 'workflow_dispatch' || inputs.action == 'deploy'
+        run: curl -fsS --retry 5 --retry-delay 5 --retry-all-errors https://booking.must.al/api/health
