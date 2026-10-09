@@ -4,7 +4,7 @@ import type { MailOrderRoom, PaymentProviderContext } from '@must/domain-contrac
 import { CancellationLinkService } from '../booking/cancellation-link.service';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { PaymentNotificationService } from './payment-notification.service';
-import { staffRecipients } from './staff-recipients';
+import { staffRecipients } from './notification-recipients';
 
 type BookingEmailRow = {
   email: string;
@@ -84,7 +84,7 @@ export class BookingConfirmationNotificationService {
             ORDER BY b.order_room_number, b.id
           `
         : [];
-      const staff = await staffRecipients(tx, context);
+      const staff = await staffRecipients(tx, context, 'new_booking');
       return { row, orderRooms, staff };
     });
     if (!notification) return;

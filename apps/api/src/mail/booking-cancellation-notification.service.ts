@@ -3,7 +3,7 @@ import type { PaymentProviderContext } from '@must/domain-contracts';
 
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { PaymentNotificationService } from './payment-notification.service';
-import { staffRecipients } from './staff-recipients';
+import { staffRecipients } from './notification-recipients';
 
 type CancellationRow = {
   email: string;
@@ -61,7 +61,7 @@ export class BookingCancellationNotificationService {
       `;
       const row = rows[0];
       if (!row) return null;
-      const staff = await staffRecipients(tx, context);
+      const staff = await staffRecipients(tx, context, 'booking_cancelled');
       const refunds = await tx.$queryRaw<CancellationRefund[]>`
         SELECT refunded.amount::text AS "refundAmount", refunded.currency AS "refundCurrency",
           charged.amount::text AS "chargeAmount", charged.currency AS "chargeCurrency",

@@ -388,3 +388,38 @@ export interface PaymentProvider {
   refund(context: PaymentProviderContext, command: RefundCommand): Promise<Result<Payment>>;
   getPayment(context: PaymentProviderContext, paymentId: string): Promise<Payment | null>;
 }
+
+/** Email plan Step 1: who receives each notification at a property. */
+export type NotificationRecipientRule =
+  | { target: 'MEMBERSHIP_ROLE'; membershipRole: 'OWNER' | 'ADMIN' }
+  | { target: 'ROLE_TEMPLATE'; roleTemplateId: string }
+  | { target: 'STAFF_USER'; userId: string }
+  | { target: 'EMAIL'; email: string };
+
+export interface NotificationTopicSettings {
+  topic: string;
+  label: string;
+  /** Whether this topic has a guest email / a staff email at all. */
+  hasGuestEmail: boolean;
+  hasStaffEmail: boolean;
+  guestEnabled: boolean;
+  /** False: staff recipients follow the default (assigned staff, else owners/admins). */
+  customStaffRecipients: boolean;
+  rules: NotificationRecipientRule[];
+  /** Who gets the staff email today, after applying the rules. */
+  staffRecipients: Array<{ email: string }>;
+}
+
+export interface NotificationSettingsResponse {
+  topics: NotificationTopicSettings[];
+  options: {
+    roleTemplates: Array<{ id: string; name: string }>;
+    staff: Array<{ userId: string; email: string; role: 'OWNER' | 'ADMIN' | 'STAFF' }>;
+  };
+}
+
+export interface UpdateNotificationTopicCommand {
+  guestEnabled: boolean;
+  customStaffRecipients: boolean;
+  rules: NotificationRecipientRule[];
+}
