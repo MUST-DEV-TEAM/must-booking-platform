@@ -4,7 +4,7 @@ name: Uptime
 # for three tries in a row, it opens one "site is down" issue assigned to the
 # owner (GitHub emails the assignee). When the site is back, it closes that issue.
 # GitHub may start scheduled runs late or skip some under load; this is a smoke
-# alarm, not a precise stopwatch. The odd minutes (3, 8, 13, ...) keep it away
+# alarm, not a precise stopwatch. Running at minutes 3, 8, 13, ... keeps it away
 # from the busy top of the hour, which GitHub's docs say is when runs get dropped.
 
 on:
