@@ -40,7 +40,8 @@ function createService(
     .fn()
     .mockResolvedValueOnce([{ ...bookingRow, orderReference: order?.orderReference ?? null }]);
   if (order) queryRaw.mockResolvedValueOnce(order.rooms);
-  queryRaw.mockResolvedValueOnce(staff);
+  // Staff recipients: no saved settings for the topic, then the default list.
+  queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce(staff);
   const database = {
     withTenantTransaction: vi.fn(
       async (_context: unknown, callback: (tx: { $queryRaw: typeof queryRaw }) => unknown) =>

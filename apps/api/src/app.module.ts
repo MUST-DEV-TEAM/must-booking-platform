@@ -50,6 +50,8 @@ import { PropertiesController } from './tenancy/properties.controller';
 import { PropertiesService } from './tenancy/properties.service';
 import { CancellationPoliciesController } from './tenancy/cancellation-policies.controller';
 import { CancellationPoliciesService } from './tenancy/cancellation-policies.service';
+import { NotificationSettingsController } from './tenancy/notification-settings.controller';
+import { NotificationSettingsService } from './tenancy/notification-settings.service';
 import { STORAGE_PROVIDER } from './storage/storage.provider';
 import { R2StorageProvider } from './storage/r2-storage.provider';
 import { RoomTypesController } from './tenancy/room-types.controller';
@@ -181,6 +183,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PlanUsageController,
     PropertiesController,
     CancellationPoliciesController,
+    NotificationSettingsController,
     RoomTypesController,
     PropertyImageLibraryController,
     RoomsController,
@@ -234,6 +237,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PlanUsageService,
     PropertiesService,
     CancellationPoliciesService,
+    NotificationSettingsService,
     RoomTypesService,
     RoomsService,
     RatePlansService,

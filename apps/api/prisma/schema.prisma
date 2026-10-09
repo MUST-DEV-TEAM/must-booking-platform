@@ -363,6 +363,45 @@ model PropertyLibraryImage {
   @@map("property_library_images")
 }
 
+// Email plan Step 1: who receives each notification, per property and topic.
+// No settings row means the built-in default (see src/mail/notification-recipients.ts).
+enum NotificationRecipientTarget {
+  MEMBERSHIP_ROLE
+  ROLE_TEMPLATE
+  STAFF_USER
+  EMAIL
+}
+
+model NotificationTopicSettings {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId              String   @map("tenant_id") @db.Uuid
+  propertyId            String   @map("property_id") @db.Uuid
+  topic                 String   @db.VarChar(80)
+  guestEnabled          Boolean  @default(true) @map("guest_enabled")
+  customStaffRecipients Boolean  @default(false) @map("custom_staff_recipients")
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, propertyId, topic], map: "notification_topic_settings_property_topic_key")
+  @@map("notification_topic_settings")
+}
+
+model NotificationRecipientRule {
+  id             String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String                      @map("tenant_id") @db.Uuid
+  propertyId     String                      @map("property_id") @db.Uuid
+  topic          String                      @db.VarChar(80)
+  target         NotificationRecipientTarget
+  membershipRole TenantMembershipRole?       @map("membership_role")
+  roleTemplateId String?                     @map("role_template_id") @db.Uuid
+  userId         String?                     @map("user_id") @db.Uuid
+  email          String?                     @db.VarChar(320)
+  createdAt      DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, propertyId, topic], map: "notification_recipient_rules_property_topic_idx")
+  @@map("notification_recipient_rules")
+}
+
 model Room {
   id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId       String              @map("tenant_id") @db.Uuid
