@@ -1,0 +1,9 @@
+[Unit]
+Description=Sort UpdraftPlus backups in Google Drive into per-site folders
+Wants=network-online.target
+After=network-online.target
+OnFailure=must-booking-alert@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/updraft-organize
