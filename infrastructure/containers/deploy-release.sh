@@ -16,7 +16,8 @@ SHA="${1:-}"
 REGISTRY_USER="${2:-must-deploy}"
 STATE_FILE="$PWD/.deployed-release"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:4011/api/health}"
-PRE_DEPLOY_BACKUP_DIR="${PRE_DEPLOY_BACKUP_DIR:-/var/backups/must-booking/pre-deploy}"
+# In the deploy user's own home: /var/backups/must-booking is root-only (the backup script uses umask 077).
+PRE_DEPLOY_BACKUP_DIR="${PRE_DEPLOY_BACKUP_DIR:-$HOME/pre-deploy-backups}"
 
 if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
   echo "Usage: deploy-release.sh <40-character commit sha> [registry-user]" >&2
