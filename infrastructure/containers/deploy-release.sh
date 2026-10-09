@@ -16,6 +16,8 @@ SHA="${1:-}"
 REGISTRY_USER="${2:-must-deploy}"
 STATE_FILE="$PWD/.deployed-release"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:4011/api/health}"
+# In the deploy user's own home: /var/backups/must-booking is root-only (the backup script uses umask 077).
+PRE_DEPLOY_BACKUP_DIR="${PRE_DEPLOY_BACKUP_DIR:-$HOME/pre-deploy-backups}"
 
 if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
   echo "Usage: deploy-release.sh <40-character commit sha> [registry-user]" >&2
@@ -120,14 +122,24 @@ echo "Deploying $SHA (previous release: ${PREVIOUS_TAG:-none, locally built imag
 
 release "$SHA" pull api web
 
+release "$SHA" up -d postgres redis
+
+# A local dump before every migration, independent of the off-site backup (which can
+# fail for reasons unrelated to this release, e.g. a full Drive). The last 5 are kept.
+install -d -m 700 "$PRE_DEPLOY_BACKUP_DIR"
+dump="$PRE_DEPLOY_BACKUP_DIR/before-${SHA:0:12}.dump"
+# shellcheck disable=SC2016 # expanded by the shell inside the postgres container
+(umask 077 && release "$SHA" exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' >"$dump.tmp")
+mv "$dump.tmp" "$dump"
+find "$PRE_DEPLOY_BACKUP_DIR" -name 'before-*.dump' -printf '%T@ %p\n' | sort -rn | tail -n +6 | cut -d' ' -f2- | xargs -r rm -f
+echo "Saved pre-deploy dump $dump."
+
 if systemctl cat must-booking-backup.service >/dev/null 2>&1; then
-  echo "Backing up the database before migrating."
-  sudo -n systemctl start must-booking-backup.service
-else
-  echo "WARNING: must-booking-backup.service is not installed; deploying without a fresh backup." >&2
+  echo "Running the off-site backup."
+  sudo -n systemctl start must-booking-backup.service ||
+    echo "WARNING: the off-site backup failed; continuing with the local pre-deploy dump." >&2
 fi
 
-release "$SHA" up -d postgres redis
 release "$SHA" run --rm api pnpm --filter api prisma migrate deploy
 # After migrate (the role may have just been created) and before api starts.
 release "$SHA" run --rm api pnpm --filter api db:set-app-password
