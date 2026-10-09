@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fixed maintenance actions for the Ops workflow. Only the actions below exist, and
 # none of them print application logs (they can contain guest details).
-# Usage: ops.sh status|health|restart-api|restart-web|backup-now|cleanup
+# Usage: ops.sh status|health|sentry|restart-api|restart-web|backup-now|cleanup
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -26,6 +26,14 @@ case "${1:-}" in
     curl -fsS --max-time 10 http://127.0.0.1:4011/api/health
     echo
     ;;
+  sentry)
+    # Shows which Sentry project each service reports to: the project id only,
+    # never the key part of the DSN. web falls back to apps/web/sentry.dsn.ts when unset.
+    for service in api web; do
+      dsn="$(compose exec -T "$service" printenv SENTRY_DSN 2>/dev/null || true)"
+      if [ -n "$dsn" ]; then echo "$service: Sentry project ${dsn##*/}"; else echo "$service: SENTRY_DSN not set"; fi
+    done
+    ;;
   restart-api) compose restart api ;;
   restart-web) compose restart web ;;
   backup-now) sudo -n systemctl start must-booking-backup.service && echo "Backup finished." ;;
@@ -35,7 +43,7 @@ case "${1:-}" in
     df -h /
     ;;
   *)
-    echo "Unknown action. Use status, health, restart-api, restart-web, backup-now or cleanup." >&2
+    echo "Unknown action. Use status, health, sentry, restart-api, restart-web, backup-now or cleanup." >&2
     exit 2
     ;;
 esac

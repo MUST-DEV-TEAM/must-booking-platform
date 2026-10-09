@@ -47,7 +47,7 @@ Add columns and tables in one release, and drop them in a later one.
 
 To roll back by hand, run the Deploy workflow from the Actions tab with an older commit of `main`
 (one that already has this pipeline; older commits have no prebuilt images).
-The Ops workflow runs fixed maintenance actions: `status`, `health`, `restart-api`,
+The Ops workflow runs fixed maintenance actions: `status`, `health`, `sentry` (which Sentry project api and web report to), `restart-api`,
 `restart-web`, `backup-now` and `cleanup`. It does not show application logs, because they can
 contain guest details. Read logs over SSH instead.
 
