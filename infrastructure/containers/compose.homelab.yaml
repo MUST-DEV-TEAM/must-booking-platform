@@ -65,7 +65,8 @@ services:
       PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD:-}
       QUOTE_SIGNING_SECRET: ${QUOTE_SIGNING_SECRET}
       INTEGRATION_CREDENTIALS_KEY: ${INTEGRATION_CREDENTIALS_KEY}
-      SENTRY_DSN: ${SENTRY_DSN:-}
+      # Public address of the production `must-api` Sentry project; .env can override it.
+      SENTRY_DSN: ${SENTRY_DSN:-https://ee7d3e813134b07888d6c8e2e3043d83@o4511925476917248.ingest.de.sentry.io/4512225747599440}
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
     ports:
       - '4010:3000'
