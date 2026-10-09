@@ -93,6 +93,14 @@ function stubFetch() {
       if (url === `${base}/email-templates`) return Response.json(templates);
       if (url === `${base}/email-templates/pre_arrival/preview`)
         return Response.json({ subject: 'See you soon at Villa', html: '<p>Hi</p>', text: 'Hi' });
+      if (url === `${base}/review-links`)
+        return Response.json({
+          links: { google: 'https://g.page/r/villa/review' },
+          sites: [
+            { key: 'google', label: 'Review us on Google' },
+            { key: 'facebook', label: 'Review us on Facebook' },
+          ],
+        });
       if (url === `${base}/email-sender`)
         return Response.json({
           fromAddress: 'bookings@mail.must.test',
@@ -176,7 +184,7 @@ describe('EmailSettings', () => {
     await act(async () => root.unmount());
   });
 
-  it('previews a template in a sandboxed frame', async () => {
+  it('previews a template in a sandboxed frame and shows the review links', async () => {
     stubFetch();
     const { container, root } = await mount('templates');
     expect(container.textContent).toContain('{guest_name}');
@@ -184,6 +192,10 @@ describe('EmailSettings', () => {
     const frame = container.querySelector('iframe')!;
     expect(frame.getAttribute('sandbox')).toBe('');
     expect(frame.getAttribute('srcdoc')).toBe('<p>Hi</p>');
+    expect(container.textContent).toContain('Review links');
+    expect(
+      container.querySelector<HTMLInputElement>('input[value="https://g.page/r/villa/review"]'),
+    ).not.toBeNull();
     await act(async () => root.unmount());
   });
 

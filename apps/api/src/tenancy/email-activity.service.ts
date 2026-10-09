@@ -55,6 +55,7 @@ const LABELS: Record<string, string> = {
   'guest.pre_arrival': 'Pre-arrival reminder (guest)',
   'guest.booking_changed': 'Booking changed (guest)',
   'guest.payment_not_completed': 'Payment not completed (guest)',
+  'guest.post_stay': 'Post-stay thank-you (guest)',
   'owner.alert': 'Alert (owner)',
   'owner.refund_alert': 'Refund made (owner)',
   'owner.daily_summary': 'Daily summary (owner)',

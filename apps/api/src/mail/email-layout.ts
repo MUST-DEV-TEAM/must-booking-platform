@@ -102,7 +102,7 @@ function renderLogoBlock(brand: EmailBrand): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px 0;"><tr><td align="center">${linked}</td></tr></table>`;
 }
 
-function renderCtaButton(cta: { url: string; label: string }): string {
+export function renderCtaButton(cta: { url: string; label: string }): string {
   const url = safeHttpUrl(cta.url);
   const label = clean(cta.label);
   if (!url || !label) return '';
@@ -181,7 +181,7 @@ function clean(value: string | null | undefined): string {
 function safeHref(value: string): boolean {
   return value.startsWith('mailto:') || value.startsWith('tel:') || !!safeHttpUrl(value);
 }
-function safeHttpUrl(value: string | null | undefined): string | null {
+export function safeHttpUrl(value: string | null | undefined): string | null {
   const normalized = clean(value);
   if (!normalized) return null;
   try {

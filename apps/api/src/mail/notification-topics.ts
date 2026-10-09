@@ -33,6 +33,13 @@ export const NOTIFICATION_TOPICS = {
     staff: false,
     daysOffset: { default: 3, min: 1, max: 30, label: 'Days before check-in' },
   },
+  /** Thank-you after check-out, with the property's review links. */
+  post_stay: {
+    label: 'Post-stay thank-you',
+    guest: true,
+    staff: false,
+    daysOffset: { default: 1, min: 0, max: 14, label: 'Days after check-out' },
+  },
   owner_daily_summary: {
     label: 'Daily summary',
     guest: false,

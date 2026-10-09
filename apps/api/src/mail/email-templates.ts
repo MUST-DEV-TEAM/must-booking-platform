@@ -57,6 +57,12 @@ export const EMAIL_TEMPLATES = {
     subject: 'Your booking at {hotel_name} was not completed',
     body: 'Hello {guest_name}, the payment for your booking at {hotel_name} was not completed in time, so the booking was not made and the room was released. You have not been charged; if a payment still goes through, it is refunded automatically.\n\nStill want to stay with us? You are welcome to book again, or simply reply to this email.',
   },
+  post_stay: {
+    label: 'Post-stay thank-you',
+    placeholders: [...COMMON],
+    subject: 'Thank you for staying at {hotel_name}',
+    body: 'Hello {guest_name}, thank you for staying with us at {hotel_name}. We hope you enjoyed your stay.\n\nWe would love to hear how it went. If you have a moment, please leave us a review.',
+  },
 } as const satisfies Record<
   string,
   { label: string; placeholders: readonly string[]; subject: string; body: string }

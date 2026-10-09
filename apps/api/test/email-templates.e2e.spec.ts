@@ -112,6 +112,7 @@ describe('email templates (a property’s own wording for guest emails)', () => 
       'pre_arrival',
       'booking_changed',
       'payment_not_completed',
+      'post_stay',
     ]);
     expect(list.body[3]).toMatchObject({
       key: 'pre_arrival',

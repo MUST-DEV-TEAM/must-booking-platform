@@ -63,6 +63,7 @@ import {
   EmailSenderController,
 } from './tenancy/email-activity.controller';
 import { EmailActivityService } from './tenancy/email-activity.service';
+import { ReviewLinksController, ReviewLinksService } from './tenancy/review-links.controller';
 import { EmailTemplatesController } from './tenancy/email-templates.controller';
 import { EmailTemplatesService } from './tenancy/email-templates.service';
 import { STORAGE_PROVIDER } from './storage/storage.provider';
@@ -201,6 +202,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     EmailTemplatesController,
     EmailActivityController,
     EmailSenderController,
+    ReviewLinksController,
     RoomTypesController,
     PropertyImageLibraryController,
     RoomsController,
@@ -257,6 +259,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     NotificationSettingsService,
     EmailTemplatesService,
     EmailActivityService,
+    ReviewLinksService,
     RoomTypesService,
     RoomsService,
     RatePlansService,
