@@ -542,7 +542,7 @@ function ReservationDetails({
         {canCancel ? (
           <div>
             <button type="button" disabled={cancelling} onClick={() => void cancel()}>
-              {cancelling ? 'Cancellingâ€¦' : 'Cancel reservation'}
+              {cancelling ? 'Cancelling…' : 'Cancel reservation'}
             </button>
             {error ? (
               <div role="alert">

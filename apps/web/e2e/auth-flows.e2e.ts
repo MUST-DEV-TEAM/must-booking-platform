@@ -14,6 +14,7 @@ import {
   resetSignupRateLimit,
   signup,
   verifyEmail,
+  workspaceUrl,
 } from './support';
 
 test.beforeEach(async () => {
@@ -38,16 +39,12 @@ test('signup, verification, login, and tenant/platform redirects run against the
   try {
     await signup(tenantPage, tenantAccount);
     await verifyEmail(tenantPage, tenantAccount);
-    await expect(tenantPage.getByRole('heading', { name: 'Choose a workspace' })).toBeVisible();
 
     const signedOutTenantContext = await browser.newContext();
     const signedOutTenantPage = await signedOutTenantContext.newPage();
     try {
       await login(signedOutTenantPage, tenantAccount);
-      await expect(signedOutTenantPage).toHaveURL(/\/dashboard$/);
-      await expect(
-        signedOutTenantPage.getByRole('heading', { name: 'Choose a workspace' }),
-      ).toBeVisible();
+      await expect(signedOutTenantPage).toHaveURL(workspaceUrl);
     } finally {
       await signedOutTenantContext.close();
     }
@@ -115,8 +112,7 @@ test('forgot-password follows the captured email link and signs in with the new 
     const loginPage = await loginContext.newPage();
     try {
       await login(loginPage, { ...account, password: updatedPassword });
-      await expect(loginPage).toHaveURL(/\/dashboard$/);
-      await expect(loginPage.getByRole('heading', { name: 'Choose a workspace' })).toBeVisible();
+      await expect(loginPage).toHaveURL(workspaceUrl);
     } finally {
       await loginContext.close();
     }
@@ -199,6 +195,8 @@ test('staff invitation acceptance grants access to an existing signed-in account
     await expect(existingPage.getByRole('heading', { name: 'Welcome to the team.' })).toBeVisible();
     await expect(existingPage.getByText('Continue to workspace')).toBeVisible();
     await expect.poll(() => membershipCount(existingPage)).toBe(2);
+    await existingPage.goto('/dashboard');
+    await expect(existingPage.getByRole('heading', { name: 'Choose a workspace' })).toBeVisible();
   } finally {
     await ownerContext.close();
     await existingContext.close();

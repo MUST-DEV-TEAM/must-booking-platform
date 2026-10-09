@@ -12,6 +12,9 @@ const nextCli = resolve(webDirectory, 'node_modules/next/dist/bin/next');
 const e2eEnvironment = {
   ...process.env,
   API_URL: 'http://127.0.0.1:3100',
+  // Test runs must never report into the live Sentry projects.
+  NEXT_PUBLIC_SENTRY_DISABLED: 'true',
+  SENTRY_DSN: '',
 };
 
 runNode([typescriptCli, '--project', 'tsconfig.build.json'], process.env, uiDirectory);

@@ -22,4 +22,10 @@ describe('webSentryDsn', () => {
     vi.stubEnv('NODE_ENV', 'development');
     expect(webSentryDsn(undefined)).toBeUndefined();
   });
+
+  it('reports nothing when Sentry is switched off, even in production', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('NEXT_PUBLIC_SENTRY_DISABLED', 'true');
+    expect(webSentryDsn('https://key@example.ingest.sentry.io/1')).toBeUndefined();
+  });
 });
