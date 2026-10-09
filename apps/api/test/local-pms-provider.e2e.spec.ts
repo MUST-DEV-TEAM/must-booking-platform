@@ -2526,6 +2526,15 @@ describe('LocalPmsProvider', () => {
     await expect(provider.getBooking(context, expiringBooking.value.id)).resolves.toMatchObject({
       status: 'EXPIRED',
     });
+    // The guest is told the booking was not made (email plan Step 2c).
+    const notCompleted = await admin.$queryRaw<Array<{ recipient: string; subject: string }>>`
+      SELECT recipient_email AS recipient, subject FROM email_messages
+      WHERE tenant_id = ${tenantId}::uuid AND booking_id = ${expiringBooking.value.id}::uuid
+        AND event_type = 'guest.payment_not_completed'
+    `;
+    expect(notCompleted).toHaveLength(1);
+    expect(notCompleted[0]!.recipient).toMatch(/^expiry-.*@example\.test$/);
+    expect(notCompleted[0]!.subject).toMatch(/^Your booking at .+ was not completed$/);
     await expect(
       provider.getAvailability(context, {
         roomTypeId,

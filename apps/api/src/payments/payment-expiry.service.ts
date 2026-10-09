@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nest
 import { Queue, Worker, type ConnectionOptions } from 'bullmq';
 
 import { LocalPmsProvider } from '../booking/local-pms.provider';
+import { BookingUpdateNotificationService } from '../mail/booking-update-notification.service';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { PokPayPaymentService } from './pokpay-payment.service';
 
@@ -29,6 +30,8 @@ export class PaymentExpiryService implements OnModuleInit, OnModuleDestroy {
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(LocalPmsProvider) private readonly bookings: LocalPmsProvider,
     @Inject(PokPayPaymentService) private readonly pokpay: PokPayPaymentService,
+    @Inject(BookingUpdateNotificationService)
+    private readonly updates: BookingUpdateNotificationService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -82,7 +85,12 @@ export class PaymentExpiryService implements OnModuleInit, OnModuleDestroy {
             cutoffAt,
           ),
       );
-      if (didExpire) expired += 1;
+      if (!didExpire) continue;
+      expired += 1;
+      await this.updates.sendPaymentNotCompleted(
+        { tenantId: candidate.tenantId, propertyId: candidate.propertyId },
+        candidate.bookingId,
+      );
     }
     return { expired };
   }

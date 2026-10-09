@@ -40,6 +40,7 @@ import { MAIL_PROVIDER } from './mail/mail.provider';
 import { ResendMailProvider } from './mail/resend-mail.provider';
 import { MailDeliveryService } from './mail/mail-delivery.service';
 import { AlertEmailService } from './mail/alert-email.service';
+import { BookingUpdateNotificationService } from './mail/booking-update-notification.service';
 import { ScheduledEmailService } from './mail/scheduled-email.service';
 import { ResendWebhookController } from './mail/resend-webhook.controller';
 import { ResendWebhookService } from './mail/resend-webhook.service';
@@ -304,6 +305,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     MailDeliveryService,
     ScheduledEmailService,
     AlertEmailService,
+    BookingUpdateNotificationService,
     ResendWebhookService,
     PaymentNotificationService,
     BookingConfirmationNotificationService,

@@ -37,11 +37,11 @@ export function longDate(value: string): string {
   }).format(new Date(Date.UTC(year!, month! - 1, day!)));
 }
 
-function nights(startsOn: string, endsOn: string): number {
+export function nights(startsOn: string, endsOn: string): number {
   return Math.round((Date.parse(endsOn) - Date.parse(startsOn)) / 86_400_000);
 }
 
-function plural(count: number, word: string): string {
+export function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? '' : 's'}`;
 }
 
