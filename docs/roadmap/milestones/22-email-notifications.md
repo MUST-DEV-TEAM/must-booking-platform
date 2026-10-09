@@ -127,6 +127,10 @@ Depends on Phase B (queue/log). Numbering continues to avoid renumbering earlier
 - Guest **payment not completed** (`payment_not_completed`): when `PaymentExpiryService` expires an unpaid booking, the guest is told the booking was not made, that nothing was charged (a late payment is refunded automatically) and gets a "Book again" link to the hotel website. One email per booking or multi-room order.
 - Both are guest-only, direct bookings only (not `CLOCK-…`), and start **off for properties that existed before** migration `20261009180000_booking_update_emails`. Our own platform cannot change a confirmed booking's stay yet, so Clock is the only source of changes today.
 
+### Email plan Step 1 follow-up — staff mute (done 2026-10-09)
+
+- Each member can mute the non-urgent staff emails for themselves: `GET/PUT /tenants/:tenantId/my-email-preferences` (`muteOptionalEmails`), stored on `tenant_memberships.mute_optional_emails`. Optional topics are marked `optional` (today: daily summary, refund made); new booking, cancellation and problem alerts can't be muted. Extra addresses have no account and are never muted.
+
 ### Phase F — Out of scope / later (recorded, not scheduled)
 
 - In-app mailbox / inbound email parsing and threading.

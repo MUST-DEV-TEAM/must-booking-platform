@@ -251,4 +251,53 @@ describe('notification settings (who receives which email)', () => {
     const otherCookie = other.headers['set-cookie'][0];
     await request(app!.getHttpServer()).get(url).set('Cookie', otherCookie).expect(403);
   });
+
+  it('lets each member mute the non-urgent staff emails for themselves', async () => {
+    const owner = await signup(`notify-mute-${randomUUID()}@example.test`, 'Mute Hotel');
+    const muteTenant = owner.body.organization.id;
+    const muteProperty = owner.body.property.id;
+    const muteCookie = owner.headers['set-cookie'][0];
+    try {
+      const prefs = `/tenants/${muteTenant}/my-email-preferences`;
+      const initial = await request(app!.getHttpServer())
+        .get(prefs)
+        .set('Cookie', muteCookie)
+        .expect(200);
+      expect(initial.body).toEqual({
+        muteOptionalEmails: false,
+        optionalEmails: [
+          { topic: 'refund_processed', label: 'Refund processed' },
+          { topic: 'owner_daily_summary', label: 'Daily summary' },
+        ],
+      });
+      await request(app!.getHttpServer())
+        .put(prefs)
+        .set('Cookie', muteCookie)
+        .send({ muteOptionalEmails: 'yes' })
+        .expect(400);
+      await request(app!.getHttpServer())
+        .put(prefs)
+        .set('Cookie', muteCookie)
+        .send({ muteOptionalEmails: true })
+        .expect(200);
+
+      // Optional emails skip the owner; urgent ones still reach them.
+      const settings = await request(app!.getHttpServer())
+        .get(`/tenants/${muteTenant}/properties/${muteProperty}/notification-settings`)
+        .set('Cookie', muteCookie)
+        .expect(200);
+      const recipients = (name: string) =>
+        settings.body.topics.find((entry: TopicBody) => entry.topic === name).staffRecipients;
+      expect(recipients('owner_daily_summary')).toEqual([]);
+      expect(recipients('refund_processed')).toEqual([]);
+      expect(recipients('new_booking')).toHaveLength(1);
+      expect(recipients('owner_alerts')).toHaveLength(1);
+
+      // Another hotel's member can't read this one's preferences.
+      await request(app!.getHttpServer()).get(prefs).set('Cookie', cookie).expect(403);
+    } finally {
+      await cleanupTenant(admin, muteTenant);
+      await admin.$executeRaw`DELETE FROM users WHERE id = ${owner.body.user.id}::uuid`;
+    }
+  });
 });

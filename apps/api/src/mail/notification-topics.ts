@@ -2,7 +2,7 @@
  * The notifications a property can route (email plan Steps 1-2). Each topic has an
  * optional guest email and an optional staff email; `guest` / `staff` say which
  * exist. `defaultStaff` is who gets the staff email until the property saves its
- * own list. `daysOffset` marks scheduled topics whose timing the property can set.
+ * own list. `optional` staff emails can be muted by each staff member. `daysOffset` marks scheduled topics whose timing the property can set.
  */
 export const NOTIFICATION_TOPICS = {
   new_booking: {
@@ -22,6 +22,7 @@ export const NOTIFICATION_TOPICS = {
     guest: true,
     staff: true,
     defaultStaff: 'owners',
+    optional: true,
   },
   booking_changed: { label: 'Booking changed', guest: true, staff: false },
   /** The guest started a booking but the payment was not completed in time. */
@@ -37,6 +38,7 @@ export const NOTIFICATION_TOPICS = {
     guest: false,
     staff: true,
     defaultStaff: 'owners',
+    optional: true,
   },
   /** Bookings that need attention and Clock sync problems, sent within minutes. */
   owner_alerts: {
@@ -52,6 +54,8 @@ export const NOTIFICATION_TOPICS = {
     guest: boolean;
     staff: boolean;
     defaultStaff?: 'assigned-or-owners' | 'owners';
+    /** Non-urgent staff email that each staff member may mute for themselves. */
+    optional?: boolean;
     daysOffset?: { default: number; min: number; max: number; label: string };
   }
 >;
@@ -65,4 +69,9 @@ export function isNotificationTopic(value: string): value is NotificationTopic {
 export function topicDaysOffset(topic: NotificationTopic) {
   const definition = NOTIFICATION_TOPICS[topic];
   return 'daysOffset' in definition ? definition.daysOffset : null;
+}
+
+export function isOptionalStaffTopic(topic: NotificationTopic): boolean {
+  const definition = NOTIFICATION_TOPICS[topic];
+  return 'optional' in definition && definition.optional === true;
 }
