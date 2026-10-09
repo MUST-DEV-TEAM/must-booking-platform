@@ -44,6 +44,8 @@ export interface MailProvider {
     roomName: string;
     guestCount: number;
     nightlyRates?: NightlyRate[];
+    /** Every room of a multi-room order; absent or a single entry for a one-room booking. */
+    rooms?: MailOrderRoom[];
     cancellationUrl?: string;
     specialRequests?: string | null;
   }): Promise<MailSendReceipt | void>;
@@ -61,6 +63,7 @@ export interface MailProvider {
     guestCount: number;
     paymentMethod: GuestPaymentMethod;
     nightlyRates?: NightlyRate[];
+    rooms?: MailOrderRoom[];
     specialRequests?: string | null;
   }): Promise<MailSendReceipt | void>;
   sendRefundConfirmationEmail(command: {
@@ -105,6 +108,12 @@ export interface MailProvider {
     };
   }): Promise<MailSendReceipt | void>;
 }
+
+export type MailOrderRoom = {
+  roomName: string;
+  guestCount: number;
+  amount: Money;
+};
 
 export type MailBrand = {
   name: string;
