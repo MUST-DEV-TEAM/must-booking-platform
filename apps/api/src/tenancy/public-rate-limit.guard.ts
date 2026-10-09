@@ -36,7 +36,9 @@ export class PublicRateLimitGuard implements CanActivate {
     const response = context.switchToHttp().getResponse<ServerResponse>();
     const result = await this.limiter.consume(
       options,
-      request.socket.remoteAddress ?? 'unknown',
+      options.scopeParam
+        ? `${options.scopeParam}:${request.params[options.scopeParam] ?? ''}`
+        : (request.socket.remoteAddress ?? 'unknown'),
       request.tenantContext?.tenantId ?? request.params.tenantId,
       request.tenantContext?.propertyId ?? request.params.propertyId,
     );

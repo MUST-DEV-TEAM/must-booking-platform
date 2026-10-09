@@ -37,7 +37,7 @@ The 256 KiB check uses Content-Length after parsing. The text/plain parser does 
 | folio_update, folio_close | ClockFolioHydrationService | Fetch Base API folio; upsert separate `clock_folios` row for the linked booking |
 | Other types | ClockWorkerService fallback | Log acknowledgment; no business application |
 
-Hydration imports Clock-origin bookings as well as updating MUST-origin records. It updates dates, rooms, occupancy, amount, nightly rates and version. Only canceled maps to CANCELLED; other status strings map to CONFIRMED. Missing room-type mapping creates manual review. These are projections, not invocations of the local inventory/payment/cancellation pipeline. Clock-only imported bookings are not direct Booking.com API integration.
+Hydration imports Clock-origin bookings as well as updating MUST-origin records. It updates dates, rooms, occupancy, amount, nightly rates and version, and stores Clock's raw status in `bookings.pms_stay_status` (shown as a stay badge in the dashboard). Clock's documented statuses map in `clock-booking-status.ts`: `canceled` to CANCELLED; `expected`, `checked_in`, `checked_out` and `no_show` to CONFIRMED. Any other status creates an `UNKNOWN_STATUS` manual-review item (once per new value): an existing booking keeps its local status, and a new booking is not imported (event FAILED, so it can be re-sent). A booking that moves to CANCELLED through hydration was cancelled in Clock itself, so staff get the cancellation email; the guest is not emailed and no refund is started. Missing room-type mapping creates manual review. These are projections, not invocations of the local inventory/payment/cancellation pipeline. Clock-only imported bookings are not direct Booking.com API integration.
 
 A duplicate external booking upserts the same identity, but can still increment version. A missing event row/object ID or unmapped resource can end processing without a retry-producing exception. Exhausted failing jobs go to dead-letter and operational reporting; success of BullMQ processing is not proof that every event was applied.
 
@@ -45,10 +45,10 @@ A duplicate external booking upserts the same identity, but can still increment 
 
 ClockWorkerService upserts `daily-clock-booking-reconciliation` at 03:00 UTC. A global tick enumerates active connected Clock properties and creates tenant/property-scoped, date-keyed jobs:
 
-- `reconcile-property`: ClockBookingConsistencyService reads overlap booking IDs and then each detail, comparing status/existence with local confirmed/cancelled rows over at most 31 days. It reports/audits findings; it is not a repair/import sweep.
+- `reconcile-property`: ClockBookingConsistencyService reads overlap booking IDs and then each detail, comparing status/existence with local confirmed/cancelled rows over at most 31 days. An undocumented Clock status is reported as an `UNKNOWN_CLOCK_STATUS` finding rather than aborting the check. It reports/audits findings; it is not a repair/import sweep.
 - `reconcile-payments`: ClockPaymentReconciliationService selects online-paid attached bookings created since the same window start; it reads deposit folios and charge-reference credit items and flags missing/mismatched amount/currency. It does not reconcile net refunds or general folio balances, or write financial corrections.
 
-The checker still sends a `reference.eq` filter that the later recorded refund contract rejects. Treat its successful execution against today's provider as **NEEDS VERIFICATION**, despite the scheduler and tests being present.
+Since 2026-10-01 the checker lists a folio's credit items and matches the reference client-side, like the refund path; it no longer sends the `reference.eq` filter Clock rejects.
 
 The separate six-hour health job detects webhook silence, queue backlog and stuck PMS operations. See [operations](../../operations/README.md) for thresholds and [architecture gaps](architecture.md#known-gaps-and-deviations) for remaining limitations.
 

@@ -55,10 +55,7 @@ These are findings for planning/review, not new authorized implementation tasks.
 | Finding | Evidence and implication |
 | --- | --- |
 | Provider-port isolation incomplete | LocalPmsProvider, QuoteService, MultiRoomBookingService and PaymentRefundService inject Clock services directly. A new PMS may require orchestration changes. |
-| Stored event can lose its enqueue | `ClockWebhookService.handle` commits `storeEvent`, then enqueues only when newly inserted. A queue failure followed by redelivery can deduplicate without re-enqueueing. No transactional outbox/recovery dispatcher was found. |
 | Hydration bypasses domain effects | `clock-booking-hydration.service.ts` directly upserts status, totals, dates/rooms and version; no local inventory/refund transition pipeline runs. Replayed hydration is identity-idempotent, not a no-op on version. |
-| Unknown Clock statuses become confirmed | Hydration maps only `canceled` to CANCELLED and every other string to CONFIRMED. This conflicts with brief section 15's unknown-status/manual-review rule; check-in/out/no-show are not retained as distinct MUST states. |
-| Reconciliation filter contradicts recorded contract | `ClockPaymentReconciliationService.creditItemsByReference` still sends `reference.eq`. The refund helper and 2026-09-10 evidence say Clock rejects it. Treat financial reconciliation reliability as unresolved until corrected/tested. |
 | Pre-payment guard coverage differs | Single booking has the uncached guard; MultiRoomBookingService does not call it. Local atomic reservations do not reserve inventory at Clock while a guest pays. |
 | Payment reconciliation is narrow | It selects online-method bookings with local charges and compares gross charge-reference credit items; not net refunds, all manual payments, all order children or general folio settlement. |
 | Ingest defenses have limits | The custom text/plain parser buffers before the Content-Length check; no streaming byte cap is evident. Certificate/SubscribeURL checks validate the starting host while fetch follows redirects. Confirmation's boolean result is not used to change the acknowledgment. |

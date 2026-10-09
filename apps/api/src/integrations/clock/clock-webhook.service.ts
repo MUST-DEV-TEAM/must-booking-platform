@@ -4,7 +4,11 @@ import { BadRequestException, Inject, Injectable, Logger, NotFoundException } fr
 import { CredentialCipherService } from '../credential-cipher';
 import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
 import { ManualReviewService } from '../manual-review.service';
-import { ClockQueueService, type JobReconciliationState } from './clock-queue.service';
+import {
+  ClockQueueService,
+  HYDRATE_EVENT_JOB_OPTIONS,
+  type JobReconciliationState,
+} from './clock-queue.service';
 import { clockHydrateEventJobId } from './clock-queue-names';
 import {
   guardedTransitionSql,
@@ -280,7 +284,7 @@ export class ClockWebhookService {
           connectionId: connection.connectionId,
           eventId,
         },
-        { jobId },
+        { ...HYDRATE_EVENT_JOB_OPTIONS, jobId },
       );
       const reset = await this.resetForJobRecreation(
         connection.tenantId,

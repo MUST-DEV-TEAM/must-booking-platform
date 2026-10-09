@@ -29,7 +29,7 @@ The `POST /bookings/` `booking` object includes optional integer `adults` and `c
 
 - Deposit folios remain **OPEN** after payment, following the 2026-09-18 correction in Milestone 21. The document-type and close rows preserve prior contract research; neither is part of the current deposit workflow.
 - Booking payloads send normalized `adults`/`children` and singular `client_request` for special requests. `active_notes` and plural `client_requests` were rejected intermediate attempts, not current contracts.
-- The refund path lists credit items and compares references locally. Financial reconciliation still sends `reference.eq`, contrary to the recorded rejection below; this is an unresolved code discrepancy, not a verified filter.
+- The refund path and financial reconciliation both list credit items and compare references locally; neither sends `reference.eq`.
 - Guest search is now backed by the 2026-09-11 task record. Notes describing it as unverified refer to earlier implementation dates.
 - Safe reads, write ambiguity and conflict handling differ by caller; see [errors and retries](errors-and-retries.md). A classification of retryable does not prove an automatic retry loop exists.
 - The table's SNS verification evidence does not certify all request hardening: body buffering and redirects have unresolved limits documented in [webhooks](webhooks-and-reconciliation.md).

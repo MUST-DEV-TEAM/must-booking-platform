@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { ClockWebhookService } from './clock-webhook.service';
 import type { SnsEnvelope } from './clock-webhook-signature';
+import { HYDRATE_EVENT_JOB_OPTIONS } from './clock-queue.service';
 
 const CONNECTION = {
   tenantId: 'tenant-1',
@@ -158,7 +159,7 @@ describe('ClockWebhookService — durable event storage and BullMQ-state-aware e
         connectionId: 'connection-1',
         eventId: 'event-1',
       },
-      { jobId: 'clock-hydrate:connection-1:event-1' },
+      { ...HYDRATE_EVENT_JOB_OPTIONS, jobId: 'clock-hydrate:connection-1:event-1' },
     );
     // The reset is a compare-and-swap against the pre-recreation snapshot
     // (ADR-0031, fifth corrective round) — not an unconditional write —
@@ -187,7 +188,7 @@ describe('ClockWebhookService — durable event storage and BullMQ-state-aware e
       'clock.webhooks',
       'hydrate-event',
       expect.objectContaining({ eventId: 'event-1' }),
-      { jobId: 'clock-hydrate:connection-1:event-1' },
+      { ...HYDRATE_EVENT_JOB_OPTIONS, jobId: 'clock-hydrate:connection-1:event-1' },
     );
   });
 

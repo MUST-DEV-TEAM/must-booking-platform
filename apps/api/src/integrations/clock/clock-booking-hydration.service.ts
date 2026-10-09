@@ -5,8 +5,11 @@ import {
   TenantDatabaseService,
   type TenantTransaction,
 } from '../../tenancy/tenant-database.service';
+import { BookingCancellationNotificationService } from '../../mail/booking-cancellation-notification.service';
+import { reportOperationalFailure } from '../../observability/error-tracking';
 import { IntegrationConnectionsService } from '../integration-connections.service';
 import { ManualReviewService } from '../manual-review.service';
+import { localStatusForClockStatus } from './clock-booking-status';
 import {
   guardedTransitionSql,
   ownershipLockSql,
@@ -60,15 +63,10 @@ export function isClockBookingDetail(value: unknown): value is ClockBookingDetai
   );
 }
 
-// Same real Clock booking-status vocabulary confirmed in
-// clock-booking-consistency.service.ts. MUST models far fewer states than
-// Clock does — anything that isn't a cancellation is treated as CONFIRMED,
-// matching that service's existing statusesMatch reasoning.
-const CANCELLED_CLOCK_STATUSES = new Set(['canceled']);
-
 export type HydrationOutcome =
-  | { outcome: 'created' | 'updated'; bookingId: string }
+  | { outcome: 'created' | 'updated'; bookingId: string; cancelledInPms: boolean }
   | { outcome: 'missing_room_type_mapping' }
+  | { outcome: 'unknown_status' }
   | { outcome: 'no_active_connection' }
   | { outcome: 'ownership_lost' };
 
@@ -111,6 +109,8 @@ export class ClockBookingHydrationService {
     @Inject(ClockHttpClient) private readonly client: ClockHttpClient,
     @Inject(ClockRateLimiterService) private readonly rateLimiter: ClockRateLimiterService,
     @Inject(ClockCircuitBreakerService) private readonly circuitBreaker: ClockCircuitBreakerService,
+    @Inject(BookingCancellationNotificationService)
+    private readonly cancellations: BookingCancellationNotificationService,
   ) {}
 
   async hydrateBooking(
@@ -141,82 +141,116 @@ export class ClockBookingHydrationService {
       `/bookings/${clockBookingId}`,
     );
 
-    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      if (ownership) {
-        // Real fencing, not a preceding check: this row lock is held for
-        // the rest of this transaction, so no concurrent claim/finalize
-        // from another attempt can interleave between this validation and
-        // the effect + status write committing together below.
-        const [lockSql, lockParams] = ownershipLockSql(tenantId, ownership.eventRowId);
-        const ownershipRows = await tx.$queryRawUnsafe<OwnershipRow[]>(lockSql, ...lockParams);
-        if (!ownsRow(ownershipRows[0], ownership.token)) return { outcome: 'ownership_lost' };
-      }
+    const outcome = await this.database.withTenantTransaction<HydrationOutcome>(
+      { tenantId, propertyId },
+      async (tx) => {
+        if (ownership) {
+          // Real fencing, not a preceding check: this row lock is held for
+          // the rest of this transaction, so no concurrent claim/finalize
+          // from another attempt can interleave between this validation and
+          // the effect + status write committing together below.
+          const [lockSql, lockParams] = ownershipLockSql(tenantId, ownership.eventRowId);
+          const ownershipRows = await tx.$queryRawUnsafe<OwnershipRow[]>(lockSql, ...lockParams);
+          if (!ownsRow(ownershipRows[0], ownership.token)) return { outcome: 'ownership_lost' };
+        }
 
-      const roomTypeId = await this.mappedEntityId(
-        tx,
-        tenantId,
-        propertyId,
-        'ROOM_TYPE',
-        detail.arrival_room_type_id,
-      );
-      if (!roomTypeId) {
-        await this.manualReview.recordInTransaction(tx, {
+        const existingRows = await tx.$queryRawUnsafe<Array<{ status: string }>>(
+          `SELECT status::text AS status FROM bookings
+         WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND external_booking_id = $3
+         FOR UPDATE`,
           tenantId,
           propertyId,
-          connectionId,
-          category: 'MISSING_MAPPING',
-          referenceType: 'clock_booking',
-          referenceId: String(detail.id),
-          message: `Clock booking ${detail.number ?? detail.id} references room type ${detail.arrival_room_type_id}, which has no confirmed local mapping. Confirm the mapping in Catalog Sync, then re-send the event.`,
+          String(detail.id),
+        );
+        const existing = existingRows[0];
+        const mappedStatus = localStatusForClockStatus(detail.status);
+        if (
+          !mappedStatus &&
+          !(await this.hasOpenUnknownStatusReview(tx, tenantId, propertyId, detail))
+        )
+          await this.manualReview.recordInTransaction(tx, {
+            tenantId,
+            propertyId,
+            connectionId,
+            category: 'UNKNOWN_STATUS',
+            referenceType: 'clock_booking',
+            referenceId: String(detail.id),
+            message: existing
+              ? `Clock booking ${detail.number ?? detail.id} has status "${detail.status}", which MUST does not recognise. The booking keeps its current status (${existing.status}); check it in Clock.`
+              : `Clock booking ${detail.number ?? detail.id} has status "${detail.status}", which MUST does not recognise, so it was not imported. Check it in Clock, then re-send the event.`,
+            context: { clockStatus: detail.status },
+          });
+        if (!mappedStatus && !existing) {
+          if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'FAILED');
+          return { outcome: 'unknown_status' };
+        }
+
+        const roomTypeId = await this.mappedEntityId(
+          tx,
+          tenantId,
+          propertyId,
+          'ROOM_TYPE',
+          detail.arrival_room_type_id,
+        );
+        if (!roomTypeId) {
+          await this.manualReview.recordInTransaction(tx, {
+            tenantId,
+            propertyId,
+            connectionId,
+            category: 'MISSING_MAPPING',
+            referenceType: 'clock_booking',
+            referenceId: String(detail.id),
+            message: `Clock booking ${detail.number ?? detail.id} references room type ${detail.arrival_room_type_id}, which has no confirmed local mapping. Confirm the mapping in Catalog Sync, then re-send the event.`,
+          });
+          if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'FAILED');
+          return { outcome: 'missing_room_type_mapping' };
+        }
+
+        const ratePlanId = await this.shadowRatePlanId(
+          tx,
+          tenantId,
+          propertyId,
+          roomTypeId,
+          detail.arrival_room_type_id,
+          detail.total_booking_value?.currency ?? 'EUR',
+        );
+        const roomId = await this.mappedEntityId(
+          tx,
+          tenantId,
+          propertyId,
+          'ROOM',
+          detail.current_room_id ?? detail.arrival_room_id,
+        );
+        const guestId = await this.resolveGuest(tx, tenantId, detail);
+
+        // An unrecognised status keeps the booking's current local status.
+        const status = mappedStatus ?? existing!.status;
+        const totalAmount = ((detail.total_booking_value?.cents ?? 0) / 100).toFixed(2);
+        const occupancy = resolveBookingOccupancy({
+          adults:
+            detail.adults != null && Number.isInteger(detail.adults) && detail.adults >= 1
+              ? detail.adults
+              : undefined,
+          children:
+            detail.children != null && Number.isInteger(detail.children) && detail.children >= 0
+              ? detail.children
+              : undefined,
         });
-        if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'FAILED');
-        return { outcome: 'missing_room_type_mapping' };
-      }
+        const externalReference = `CLOCK-${detail.number ?? detail.id}`;
+        const nightlyRates = (detail.rate_calculation ?? []).map((night) => ({
+          date: night.date,
+          amount: (night.cents / 100).toFixed(2),
+        }));
 
-      const ratePlanId = await this.shadowRatePlanId(
-        tx,
-        tenantId,
-        propertyId,
-        roomTypeId,
-        detail.arrival_room_type_id,
-        detail.total_booking_value?.currency ?? 'EUR',
-      );
-      const roomId = await this.mappedEntityId(
-        tx,
-        tenantId,
-        propertyId,
-        'ROOM',
-        detail.current_room_id ?? detail.arrival_room_id,
-      );
-      const guestId = await this.resolveGuest(tx, tenantId, detail);
-
-      const status = CANCELLED_CLOCK_STATUSES.has(detail.status) ? 'CANCELLED' : 'CONFIRMED';
-      const totalAmount = ((detail.total_booking_value?.cents ?? 0) / 100).toFixed(2);
-      const occupancy = resolveBookingOccupancy({
-        adults:
-          detail.adults != null && Number.isInteger(detail.adults) && detail.adults >= 1
-            ? detail.adults
-            : undefined,
-        children:
-          detail.children != null && Number.isInteger(detail.children) && detail.children >= 0
-            ? detail.children
-            : undefined,
-      });
-      const externalReference = `CLOCK-${detail.number ?? detail.id}`;
-      const nightlyRates = (detail.rate_calculation ?? []).map((night) => ({
-        date: night.date,
-        amount: (night.cents / 100).toFixed(2),
-      }));
-
-      const rows = await tx.$queryRawUnsafe<Array<{ id: string; inserted: boolean }>>(
-        `INSERT INTO bookings (
+        const rows = await tx.$queryRawUnsafe<Array<{ id: string; inserted: boolean }>>(
+          `INSERT INTO bookings (
            tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
            external_booking_id, status, payment_method, starts_on, ends_on, rate_plan_id,
-           total_amount, adults, children, guest_count, nightly_rates
+           total_amount, adults, children, guest_count, nightly_rates, pms_stay_status
          ) VALUES (
            $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, $8::"BookingStatus",
            'PAY_AT_HOTEL'::"BookingPaymentMethod", $9::date, $10::date, $11::uuid, $12::decimal,
-           $13, $14, $15, $16::jsonb
+           $13, $14, $15, $16::jsonb, $17
          )
          ON CONFLICT (tenant_id, property_id, external_booking_id) DO UPDATE SET
            room_type_id = EXCLUDED.room_type_id,
@@ -230,31 +264,89 @@ export class ClockBookingHydrationService {
            children = EXCLUDED.children,
            guest_count = EXCLUDED.guest_count,
            nightly_rates = EXCLUDED.nightly_rates,
+           pms_stay_status = EXCLUDED.pms_stay_status,
            version = bookings.version + 1,
            updated_at = CURRENT_TIMESTAMP
          RETURNING id, (xmax = 0) AS inserted`,
+          tenantId,
+          propertyId,
+          roomTypeId,
+          roomId,
+          guestId,
+          externalReference,
+          String(detail.id),
+          status,
+          detail.arrival,
+          detail.departure,
+          ratePlanId,
+          totalAmount,
+          occupancy.adults,
+          occupancy.children,
+          occupancy.guestCount,
+          JSON.stringify(nightlyRates),
+          detail.status.slice(0, 40),
+        );
+
+        const row = rows[0]!;
+        if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'HYDRATED');
+        return {
+          outcome: row.inserted ? 'created' : 'updated',
+          bookingId: row.id,
+          // Cancelled at Clock itself: a cancellation MUST made has already set
+          // the local row to CANCELLED before Clock's event comes back.
+          cancelledInPms:
+            existing !== undefined && existing.status !== 'CANCELLED' && status === 'CANCELLED',
+        };
+      },
+    );
+
+    if ((outcome.outcome === 'created' || outcome.outcome === 'updated') && outcome.cancelledInPms)
+      await this.notifyStaffOfPmsCancellation(tenantId, propertyId, outcome.bookingId);
+    return outcome;
+  }
+
+  /** One open review item per Clock booking and unknown status, whether or
+   * not the booking was imported, so repeated events don't repeat the alert. */
+  private async hasOpenUnknownStatusReview(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    detail: ClockBookingDetail,
+  ): Promise<boolean> {
+    const rows = await tx.$queryRawUnsafe<Array<{ found: number }>>(
+      `SELECT 1 AS found FROM manual_review_items
+       WHERE tenant_id = $1::uuid AND property_id = $2::uuid
+         AND category = 'UNKNOWN_STATUS'::"ManualReviewCategory" AND status = 'OPEN'::"ManualReviewStatus"
+         AND reference_type = 'clock_booking' AND reference_id = $3
+         AND context->>'clockStatus' = $4
+       LIMIT 1`,
+      tenantId,
+      propertyId,
+      String(detail.id),
+      detail.status,
+    );
+    return rows.length > 0;
+  }
+
+  /** Staff hear about a front-desk cancellation; the guest is not emailed.
+   * Never fails hydration: the booking change has already committed. */
+  private async notifyStaffOfPmsCancellation(
+    tenantId: string,
+    propertyId: string,
+    bookingId: string,
+  ): Promise<void> {
+    try {
+      await this.cancellations.sendAfterCancellation({ tenantId, propertyId }, bookingId, {
+        notifyGuest: false,
+      });
+    } catch (error) {
+      reportOperationalFailure(error, {
+        component: 'clock',
+        operation: 'clock-cancellation-staff-notification',
         tenantId,
         propertyId,
-        roomTypeId,
-        roomId,
-        guestId,
-        externalReference,
-        String(detail.id),
-        status,
-        detail.arrival,
-        detail.departure,
-        ratePlanId,
-        totalAmount,
-        occupancy.adults,
-        occupancy.children,
-        occupancy.guestCount,
-        JSON.stringify(nightlyRates),
-      );
-
-      const row = rows[0]!;
-      if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'HYDRATED');
-      return { outcome: row.inserted ? 'created' : 'updated', bookingId: row.id };
-    });
+      });
+    }
   }
 
   /** Writes the event's terminal status inside the caller's own

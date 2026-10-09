@@ -23,7 +23,11 @@ import { ClockBookingConsistencyService } from './clock-booking-consistency.serv
 import { ClockBookingHydrationService } from './clock-booking-hydration.service';
 import { ClockFolioHydrationService } from './clock-folio-hydration.service';
 import { ClockPaymentReconciliationService } from './clock-payment-reconciliation.service';
-import { ClockQueueService, type JobReconciliationState } from './clock-queue.service';
+import {
+  ClockQueueService,
+  HYDRATE_EVENT_JOB_OPTIONS,
+  type JobReconciliationState,
+} from './clock-queue.service';
 import { reportOperationalFailure } from '../../observability/error-tracking';
 
 // ADR-0031: every automatic (non-operator) transition out of RECEIVED/QUEUED
@@ -361,8 +365,9 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
         case 'created':
         case 'updated':
         case 'missing_room_type_mapping':
+        case 'unknown_status':
           // Both the local effect (or its ManualReviewItem, for a missing
-          // mapping) and the event's terminal status already committed
+          // mapping or an unrecognised Clock status) and the event's terminal status already committed
           // together inside hydrateBooking's own transaction — nothing
           // left to do here.
           return;
@@ -486,7 +491,10 @@ export class ClockWorkerService implements OnModuleInit, OnModuleDestroy {
         // and now — nothing to recreate.
         return;
       }
-      await this.queues.enqueue('clock.webhooks', 'hydrate-event', jobData, { jobId });
+      await this.queues.enqueue('clock.webhooks', 'hydrate-event', jobData, {
+        ...HYDRATE_EVENT_JOB_OPTIONS,
+        jobId,
+      });
       const reset = await this.resetForJobRecreation(tenantId, propertyId, eventRowId, snapshot);
       if (!reset)
         this.logger.debug(

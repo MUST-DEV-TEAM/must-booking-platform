@@ -26,6 +26,7 @@ describe('BookingProjectionService', () => {
       startsOn: '2026-09-03',
       endsOn: '2026-09-04',
       status: BookingStatus.CONFIRMED,
+      pmsStayStatus: null,
       paymentMethod: BookingPaymentMethod.PAY_AT_HOTEL,
       adults: 1,
       children: 0,

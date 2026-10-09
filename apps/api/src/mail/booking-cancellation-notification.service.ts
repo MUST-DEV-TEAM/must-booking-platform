@@ -6,7 +6,7 @@ import { PaymentNotificationService } from './payment-notification.service';
 import { staffRecipients } from './notification-recipients';
 
 type CancellationRow = {
-  email: string;
+  email: string | null;
   firstName: string | null;
   lastName: string | null;
   phone: string | null;
@@ -41,7 +41,15 @@ export class BookingCancellationNotificationService {
     @Inject(PaymentNotificationService) private readonly notifications: PaymentNotificationService,
   ) {}
 
-  async sendAfterCancellation(context: PaymentProviderContext, bookingId: string): Promise<void> {
+  /** `notifyGuest: false` is for a cancellation made outside MUST (at the
+   * PMS front desk): staff are told, the guest already dealt with the hotel.
+   * Clock-imported bookings can have no guest record, so the guest is optional. */
+  async sendAfterCancellation(
+    context: PaymentProviderContext,
+    bookingId: string,
+    options: { notifyGuest?: boolean } = {},
+  ): Promise<void> {
+    const notifyGuest = options.notifyGuest ?? true;
     const notification = await this.database.withTenantTransaction(context, async (tx) => {
       const rows = await tx.$queryRaw<CancellationRow[]>`
         SELECT g.email, g.first_name AS "firstName", g.last_name AS "lastName", g.phone,
@@ -53,7 +61,7 @@ export class BookingCancellationNotificationService {
           p.public_website_origin AS "publicWebsiteOrigin", p.address AS "propertyAddress"
         FROM bookings b
         JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
-        JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
+        LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
         JOIN room_types rt ON rt.tenant_id = b.tenant_id AND rt.property_id = b.property_id AND rt.id = b.room_type_id
         LEFT JOIN rooms r ON r.tenant_id = b.tenant_id AND r.property_id = b.property_id AND r.id = b.room_id
         WHERE b.id = ${bookingId}::uuid AND b.tenant_id = ${context.tenantId}::uuid
@@ -92,7 +100,8 @@ export class BookingCancellationNotificationService {
     });
     if (!notification) return;
     const { row, staff, refund } = notification;
-    const guestName = [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || row.email;
+    const guestName =
+      [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || row.email || 'Guest';
     const brand = {
       name: row.propertyName,
       logoUrl: row.logoUrl,
@@ -130,17 +139,18 @@ export class BookingCancellationNotificationService {
             paymentMethod: refund.paymentMethod ?? refund.paymentProvider,
           }
         : undefined;
-    await this.notifications.sendBookingCancelledEmailSafely(
-      { to: row.email, ...details },
-      context,
-    );
+    if (notifyGuest && row.email)
+      await this.notifications.sendBookingCancelledEmailSafely(
+        { to: row.email, ...details },
+        context,
+      );
     for (const recipient of staff)
       await this.notifications.sendBookingCancelledStaffNotificationSafely(
         {
           ...details,
           staffUserId: recipient.staffUserId,
           to: recipient.email,
-          guest: { name: guestName, email: row.email, phone: row.phone },
+          guest: { name: guestName, email: row.email ?? '', phone: row.phone },
           ...(refundDetails ? { refund: refundDetails } : {}),
         },
         context,

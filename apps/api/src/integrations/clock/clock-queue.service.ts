@@ -16,6 +16,18 @@ const DEFAULT_JOB_OPTIONS: JobsOptions = {
   removeOnFail: false, // kept so the dead-letter path (ClockWorkerService) can read attemptsMade/failedReason.
 };
 
+/**
+ * hydrate-event retries must outlast the circuit breaker's 30s cooldown. With
+ * the default 3 attempts (2s, 4s), an open breaker during a burst failed every
+ * queued event within seconds: 843 Empire folio events went FAILED on
+ * 2026-10-02. Ten attempts keep the quick first retries and then wait about
+ * 17 minutes in total (2s doubling to 512s).
+ */
+export const HYDRATE_EVENT_JOB_OPTIONS: JobsOptions = {
+  attempts: 10,
+  backoff: { type: 'exponential', delay: 2_000 },
+};
+
 export interface DeadLetterJobData {
   originalQueue: string;
   originalJobName: string;
