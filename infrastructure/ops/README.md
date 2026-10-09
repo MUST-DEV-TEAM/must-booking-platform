@@ -29,7 +29,7 @@ from the app's `.env`) with the unit's last log lines. Used by the sorter and, t
 | rclone 1.60 (apt), remote `gdrive`: full Drive scope on the backup Google account | `/root/.config/rclone/rclone.conf` |
 | UpdraftPlus sorter | `/usr/local/sbin/updraft-organize`, `updraft-organize.{service,timer}` |
 | Failure email | `/usr/local/sbin/must-booking-alert`, `must-booking-alert@.service` |
-| DB backup ([../backup](../backup/README.md)) | `must-booking-backup.{service,timer}` (03:15 UTC), `/etc/must-booking/backup.env` with `BACKUP_REMOTE=gdrive:MUST Booking backups` (**not encrypted yet**) and `PG_CONTAINER=must-booking-postgres-1` |
+| DB backup ([../backup](../backup/README.md)) | `must-booking-backup.{service,timer}` (03:15 UTC), `/etc/must-booking/backup.env` with `BACKUP_REMOTE=must-backup-crypt:postgres` (rclone `crypt` over `gdrive:must-booking-backups`, as in the backup README; the owner holds both passwords) and `PG_CONTAINER=must-booking-postgres-1` |
 
 The release pipeline's one-time server setup was done on 2026-10-09: `deploy` user (docker
 group, sudo only for `systemctl start must-booking-backup.service`), checkout `/opt/must-booking`,
