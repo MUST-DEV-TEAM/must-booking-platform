@@ -42,6 +42,7 @@ describe('DashboardSettings', () => {
       'Booking rules',
       'Payments',
       'Branding',
+      'Emails',
       'Managed Pages',
       'Billing account',
     ];

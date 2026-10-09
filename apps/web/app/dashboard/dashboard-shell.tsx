@@ -42,6 +42,7 @@ import { DashboardGuests } from './guests';
 import { GuestDetail } from './guest-detail';
 import { DashboardStaff } from './staff';
 import { DashboardReservations } from './reservations';
+import { EmailSettings, isEmailTab, type EmailTab } from './email-settings';
 import { DashboardSettings, isSettingsArea, SettingsHub, type SettingsArea } from './settings';
 import { DashboardNotifications, NotificationsInbox } from './notifications';
 import { DashboardReports } from './reports';
@@ -278,6 +279,7 @@ export function DashboardShell({
   const [guestId, setGuestId] = useState<string | null>(null);
   const [tab, setTab] = useState<DashboardTab>('overview');
   const [settingsArea, setSettingsArea] = useState<SettingsArea | null>(null);
+  const [emailTab, setEmailTab] = useState<EmailTab | undefined>(undefined);
   const selectedProperty =
     properties?.find((property) => property.id === selectedPropertyId) ?? properties?.[0];
 
@@ -325,6 +327,8 @@ export function DashboardShell({
         setTab(isDashboardTab(requestedTab) ? requestedTab : 'overview');
         const requestedSettingsArea = params.get('settingsArea');
         setSettingsArea(isSettingsArea(requestedSettingsArea) ? requestedSettingsArea : null);
+        const requestedEmailTab = params.get('emailTab');
+        setEmailTab(isEmailTab(requestedEmailTab) ? requestedEmailTab : undefined);
         setSelectedPropertyId(
           propertyList.some((property) => property.id === requestedPropertyId)
             ? requestedPropertyId!
@@ -495,7 +499,13 @@ export function DashboardShell({
         <DashboardReports tenantId={tenantId} propertyId={selectedProperty.id} />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'settings' ? (
-        settingsArea ? (
+        settingsArea === 'email' ? (
+          <EmailSettings
+            tenantId={tenantId}
+            propertyId={selectedProperty.id}
+            initialTab={emailTab}
+          />
+        ) : settingsArea ? (
           <DashboardSettings
             tenantId={tenantId}
             propertyId={selectedProperty.id}

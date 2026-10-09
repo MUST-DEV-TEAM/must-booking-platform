@@ -138,6 +138,14 @@ Depends on Phase B (queue/log). Numbering continues to avoid renumbering earlier
 - API: `GET /tenants/:t/properties/:p/email-templates`, `PUT|DELETE …/:key` (save / reset), `POST …/:key/preview` and `POST …/:key/test` (sends to the signed-in user). Requires `settings.manage`; writes and test sends need a verified email; saves and resets are audited.
 - The three built-in guest emails (confirmed, cancelled, refund) use the saved wording only when one exists (`template` on the mail command); otherwise they are unchanged. The Step 2 emails always render through the template defaults. The editor screen comes with the Email tab (Step 4).
 
+### Email plan Step 4 — Email screen in property settings (done 2026-10-09)
+
+- New Settings area **Emails** (`settingsArea=email`, tabs via `emailTab=recipients|templates|sender|activity`), built from the current dashboard components; the UI overhaul restyles it later.
+- Recipients: per topic, the guest and staff toggles, the reminder timing, and "the usual people" vs. a chosen list (owners, admins, a role, a person, or an extra address), showing who gets it now; plus "My emails" (mute non-urgent emails for yourself).
+- Templates: pick an email, edit subject and message, see the placeholders, preview (sandboxed frame), send a test to yourself, reset to default. Plain text only; no HTML mode.
+- Sender: today's from address and reply-to (the property's support email, set under Branding). Hotel-name sender and own domains are Step 5.
+- Activity: `GET /tenants/:t/properties/:p/email-activity?filter=all|problems&page&pageSize` lists the property's `email_messages` newest first, with booking reference and error. `POST …/email-activity/:id/resend` sends a FAILED email again (audited `email.resent`, needs a verified email): the row goes back to QUEUED and the email is rebuilt from its finished queue job, which is now kept for 7 days (`RESEND_WINDOW_DAYS`). Secret-link emails (verification, password reset, invitations) are never kept, so they can't be resent. `GET …/email-sender` returns the sender details. All need `settings.manage`.
+
 ### Phase F — Out of scope / later (recorded, not scheduled)
 
 - In-app mailbox / inbound email parsing and threading.
