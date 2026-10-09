@@ -313,6 +313,7 @@ describe('scheduled emails (pre-arrival reminder, owner daily summary)', () => {
     expect(email.html).not.toContain('Facebook');
     expect(email.text).toContain('Review us on Google: https://g.page/r/seaside/review');
     expect(email.replyTo).toBe('stay@seaside.test');
+    expect(email.fromName).toBe('Seaside <Hotel>');
 
     await scheduled.sendPostStay(context, today);
     await new Promise((resolve) => setTimeout(resolve, 300));

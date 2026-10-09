@@ -202,7 +202,7 @@ describe('EmailSettings', () => {
   it('shows the sender and the reply address', async () => {
     stubFetch();
     const { container, root } = await mount('sender');
-    expect(container.textContent).toContain('bookings@mail.must.test');
+    expect(container.textContent).toContain('Villa <bookings@mail.must.test>');
     expect(container.textContent).toContain('add a support email');
     await act(async () => root.unmount());
   });

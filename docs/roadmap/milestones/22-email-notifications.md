@@ -152,6 +152,13 @@ Depends on Phase B (queue/log). Numbering continues to avoid renumbering earlier
 - Review links live on `properties.review_links` (JSONB): Google, Tripadvisor, Booking.com, Facebook, the hotel website, and a private feedback link. `GET/PUT /tenants/:t/properties/:p/review-links` (`settings.manage`; saves need a verified email and are audited); only https addresses are accepted, empty values clear a link. The email shows a button per link that is set; every guest gets the same links (no review gating).
 - The wording is editable as template `post_stay`; the Review links card sits in the Emails > Templates tab.
 
+### Email plan Step 5a — hotel name as sender (done 2026-10-09)
+
+- Guest emails (booking confirmed, cancelled, refund, pre-arrival, booking changed, payment not completed, post-stay, template tests) are sent as `"<Hotel name>" <our address>`: the display name is the property's name (quotes, angle brackets and line breaks stripped), the address stays the one in `MAIL_FROM_EMAIL`. Staff, owner, account and platform emails keep the configured sender.
+- The built-in guest emails (confirmed, cancelled, refund) now also set reply-to to the property's support email, like the newer guest emails already did.
+- `RenderedEmailCommand.fromName` carries the name for caller-rendered emails.
+- Still to do (Step 5b): move `MAIL_FROM_EMAIL` to a `mail.must.al` address (DNS records on must.al, then a server setting), and let a hotel verify its own domain.
+
 ### Phase F — Out of scope / later (recorded, not scheduled)
 
 - In-app mailbox / inbound email parsing and threading.

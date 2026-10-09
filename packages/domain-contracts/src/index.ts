@@ -126,6 +126,8 @@ export type RenderedEmailCommand = {
   bookingId: string | null;
   /** Where replies go, e.g. the hotel's own address. */
   replyTo?: string | null;
+  /** Sender name shown to the recipient, e.g. the hotel's name; the address stays ours. */
+  fromName?: string | null;
 };
 
 /** A property's own wording for a guest email, already filled in and escaped. */

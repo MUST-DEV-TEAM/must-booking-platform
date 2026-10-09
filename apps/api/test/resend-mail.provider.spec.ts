@@ -142,6 +142,36 @@ describe('ResendMailProvider', () => {
       'Special requests: Late arrival after 22:00.\nNo feathers, please.',
     );
     expect(payment.html).not.toContain('>booking-1<');
+    // Guest emails carry the hotel's name as sender (angle brackets stripped) and its reply-to.
+    expect(payment.from).toBe('"MUST Hotel" <noreply@example.test>');
+    expect(payment.reply_to).toBe('stay@hotel.example.test');
+    const refund = JSON.parse(String(fetchMock.mock.calls[1][1]?.body));
+    expect(refund.from).toBe('"MUST Hotel" <noreply@example.test>');
+    expect(refund.reply_to).toBeUndefined();
+  });
+
+  it('keeps the configured sender for emails without a sender name', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.MAIL_FROM_EMAIL = 'noreply@example.test';
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const base = {
+      eventType: 'guest.pre_arrival',
+      to: 'guest@example.test',
+      subject: 'See you soon',
+      html: '<p>Hi</p>',
+      text: 'Hi',
+      bookingId: null,
+    };
+    await provider.sendRenderedEmail({
+      ...base,
+      idempotencyKey: 'a',
+      fromName: 'Villa "Mare"\r\n',
+    });
+    await provider.sendRenderedEmail({ ...base, idempotencyKey: 'b', fromName: '  ' });
+    const bodies = fetchMock.mock.calls.map(([, options]) => JSON.parse(String(options?.body)));
+    expect(bodies[0].from).toBe('"Villa Mare" <noreply@example.test>');
+    expect(bodies[1].from).toBe('noreply@example.test');
   });
 
   it('uses accurate pay-at-hotel copy and sends guest and staff cancellation messages', async () => {
