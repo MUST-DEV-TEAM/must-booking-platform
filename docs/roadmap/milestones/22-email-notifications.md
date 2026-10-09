@@ -115,6 +115,12 @@ Depends on Phase B (queue/log). Numbering continues to avoid renumbering earlier
 - Both start **off for every property that existed before** migration `20261009140000_scheduled_emails`; new properties get them on. Settings gained `staffEnabled` and `daysOffset`.
 - New generic mail kind `rendered` (`MailProvider.sendRenderedEmail`, supports reply-to) for emails rendered by the caller.
 
+### Email plan Step 2b — instant alerts (done 2026-10-09)
+
+- `AlertEmailService` (BullMQ queue `mail.alerts`, every 5 min, not started under `NODE_ENV=test`) reads the definer function `notification_alert_events(from, to)` for the last three closed 5-minute windows and sends at most one email per window and recipient (the key names the window), so bursts become one email and re-checks never resend.
+- Property owners (topic `owner_alerts`, "Problem alerts"): bookings entering an attention status (manual review, payment/availability failed, Clock rejected / unknown result), new Clock manual-review items and failed Clock webhook events. Topic `refund_processed` gained a staff email ("refund made"). Both default to the account owners and start **off for properties that existed before** migration `20261009160000_alert_emails`.
+- System owner: the same problems for every hotel plus failed/bounced/complained emails (not its own alert emails) and new hotel signups, sent to `PLATFORM_ALERT_EMAIL`; a daily platform summary (definer function `platform_daily_stats(day, tz)`) from 07:00 in `PLATFORM_TIMEZONE` (default Europe/Tirane). Unset `PLATFORM_ALERT_EMAIL` = none of these.
+
 ### Phase F — Out of scope / later (recorded, not scheduled)
 
 - In-app mailbox / inbound email parsing and threading.

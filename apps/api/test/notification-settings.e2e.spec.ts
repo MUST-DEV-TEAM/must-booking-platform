@@ -114,6 +114,7 @@ describe('notification settings (who receives which email)', () => {
       'refund_processed',
       'pre_arrival',
       'owner_daily_summary',
+      'owner_alerts',
     ]);
     expect(topic(settings.body, 'new_booking')).toMatchObject({
       guestEnabled: true,
@@ -224,7 +225,7 @@ describe('notification settings (who receives which email)', () => {
       customStaffRecipients: false,
       rules: [{ target: 'EMAIL', email: 'a@hotel.test' }],
     }).expect(400);
-    await put('refund_processed', custom([])).expect(400);
+    await put('pre_arrival', custom([])).expect(400);
     await put(
       'new_booking',
       custom(
