@@ -70,7 +70,7 @@ export function describeMail<K extends QueuedMailKind>(
       return {
         eventType: 'booking.confirmed',
         recipient: c.to,
-        subject: `${hotelName} booking confirmed — ${c.bookingReference}`,
+        subject: c.template?.subject ?? `${hotelName} booking confirmed — ${c.bookingReference}`,
         idempotencyKey: `payment-confirmation/${c.paymentId}`,
         bookingId: c.bookingId,
         sensitive: false,
@@ -88,7 +88,7 @@ export function describeMail<K extends QueuedMailKind>(
       return {
         eventType: 'booking.refund_processed',
         recipient: c.to,
-        subject: `${hotelName} refund processed — ${c.bookingReference}`,
+        subject: c.template?.subject ?? `${hotelName} refund processed — ${c.bookingReference}`,
         idempotencyKey: `refund-confirmation/${c.refundId}`,
         bookingId: c.bookingId,
         sensitive: false,
@@ -97,7 +97,7 @@ export function describeMail<K extends QueuedMailKind>(
       return {
         eventType: 'booking.cancelled',
         recipient: c.to,
-        subject: `Booking ${c.bookingReference} cancelled`,
+        subject: c.template?.subject ?? `Booking ${c.bookingReference} cancelled`,
         idempotencyKey: `booking-cancelled/guest/${c.bookingId}`,
         bookingId: c.bookingId,
         sensitive: false,

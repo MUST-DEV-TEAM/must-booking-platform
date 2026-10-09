@@ -4,6 +4,7 @@ import IORedis from 'ioredis';
 import type { MailBrand } from '@must/domain-contracts';
 
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
+import { renderTemplate, savedTemplate, stayTemplateValues } from './email-templates';
 import { MailDeliveryService } from './mail-delivery.service';
 import { scheduledGuestSettings, staffRecipients } from './notification-recipients';
 import {
@@ -170,11 +171,28 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         ORDER BY "groupKey", b.order_room_number NULLS FIRST, b.id
       `;
       if (!rows.length) return null;
-      return { brand: await this.brand(tx, context), stays: this.groupStays(rows) };
+      return {
+        brand: await this.brand(tx, context),
+        stays: this.groupStays(rows),
+        template: await savedTemplate(tx, context, 'pre_arrival'),
+      };
     });
     if (!work) return;
     for (const stay of work.stays) {
-      const email = preArrivalEmail(stay, work.brand);
+      const message = renderTemplate(
+        'pre_arrival',
+        work.template,
+        stayTemplateValues({
+          guestName: stay.guestName,
+          hotelName: work.brand.name || 'the hotel',
+          reference: stay.reference,
+          startsOn: stay.startsOn,
+          endsOn: stay.endsOn,
+          roomName: stay.rooms.map((room) => room.roomName).join(', '),
+          guestCount: stay.rooms.reduce((sum, room) => sum + room.guestCount, 0),
+        }),
+      );
+      const email = preArrivalEmail(stay, work.brand, message);
       await this.delivery.dispatch(
         'rendered',
         { ...email, idempotencyKey: `pre-arrival/${stay.bookingId}` },

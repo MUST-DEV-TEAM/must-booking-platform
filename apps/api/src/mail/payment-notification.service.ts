@@ -1,8 +1,16 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import type { MailTemplateOverride } from '@must/domain-contracts';
 
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { MailDeliveryService } from './mail-delivery.service';
 import type { QueuedMailCommands } from './mail-descriptors';
+import {
+  renderTemplate,
+  savedTemplate,
+  stayTemplateValues,
+  type EmailTemplateKey,
+  type TemplateValues,
+} from './email-templates';
 import { guestNotificationEnabled } from './notification-recipients';
 import type { NotificationTopic } from './notification-topics';
 
@@ -28,8 +36,24 @@ export class PaymentNotificationService {
     command: QueuedMailCommands['paymentConfirmation'],
     context: NotificationContext,
   ): Promise<void> {
-    if (!(await this.guestEnabled(context, 'new_booking'))) return;
-    return this.delivery.dispatch('paymentConfirmation', command, this.scope(context));
+    const paid = command.paymentMethod === 'stripe' || command.paymentMethod === 'pokpay';
+    const guest = await this.guestSetup(
+      context,
+      'new_booking',
+      'booking_confirmed',
+      command,
+      () => ({
+        payment_note: paid
+          ? "We've received your payment."
+          : 'Payment will be collected at the hotel on arrival.',
+      }),
+    );
+    if (!guest.enabled) return;
+    return this.delivery.dispatch(
+      'paymentConfirmation',
+      { ...command, ...(guest.template ? { template: guest.template } : {}) },
+      this.scope(context),
+    );
   }
 
   sendNewBookingStaffNotificationSafely(
@@ -43,16 +67,34 @@ export class PaymentNotificationService {
     command: QueuedMailCommands['refundConfirmation'],
     context: NotificationContext,
   ): Promise<void> {
-    if (!(await this.guestEnabled(context, 'refund_processed'))) return;
-    return this.delivery.dispatch('refundConfirmation', command, this.scope(context));
+    const guest = await this.guestSetup(
+      context,
+      'refund_processed',
+      'refund_processed',
+      command,
+      () => ({
+        refund_amount: `${command.amount.amount} ${command.amount.currency}`,
+      }),
+    );
+    if (!guest.enabled) return;
+    return this.delivery.dispatch(
+      'refundConfirmation',
+      { ...command, ...(guest.template ? { template: guest.template } : {}) },
+      this.scope(context),
+    );
   }
 
   async sendBookingCancelledEmailSafely(
     command: QueuedMailCommands['bookingCancelled'],
     context: NotificationContext,
   ): Promise<void> {
-    if (!(await this.guestEnabled(context, 'booking_cancelled'))) return;
-    return this.delivery.dispatch('bookingCancelled', command, this.scope(context));
+    const guest = await this.guestSetup(context, 'booking_cancelled', 'booking_cancelled', command);
+    if (!guest.enabled) return;
+    return this.delivery.dispatch(
+      'bookingCancelled',
+      { ...command, ...(guest.template ? { template: guest.template } : {}) },
+      this.scope(context),
+    );
   }
 
   sendBookingCancelledStaffNotificationSafely(
@@ -62,21 +104,52 @@ export class PaymentNotificationService {
     return this.delivery.dispatch('bookingCancelledStaff', command, this.scope(context));
   }
 
-  /** Never throws: if the setting can't be read, the guest email still goes out. */
-  private async guestEnabled(
+  /**
+   * Whether the guest email is switched on, and the property's own wording for it when
+   * it saved one (otherwise the built-in email is sent unchanged). Never throws: if the
+   * settings can't be read, the default guest email still goes out.
+   */
+  private async guestSetup(
     context: NotificationContext,
     topic: NotificationTopic,
-  ): Promise<boolean> {
+    templateKey: EmailTemplateKey,
+    command: {
+      bookingReference: string;
+      brand: { name: string };
+      guest: { name: string };
+      stay: { startsOn: string; endsOn: string };
+      roomName: string;
+      guestCount: number;
+    },
+    /** Email-specific values, read only when a saved template needs them. */
+    extra: () => TemplateValues = () => ({}),
+  ): Promise<{ enabled: boolean; template: MailTemplateOverride | null }> {
     try {
-      return await this.database.withTenantTransaction(context, (tx) =>
-        guestNotificationEnabled(tx, context, topic),
-      );
+      return await this.database.withTenantTransaction(context, async (tx) => {
+        if (!(await guestNotificationEnabled(tx, context, topic)))
+          return { enabled: false, template: null };
+        const saved = await savedTemplate(tx, context, templateKey);
+        if (!saved) return { enabled: true, template: null };
+        const values = {
+          ...stayTemplateValues({
+            guestName: command.guest.name,
+            hotelName: command.brand.name || 'the hotel',
+            reference: command.bookingReference,
+            startsOn: command.stay.startsOn,
+            endsOn: command.stay.endsOn,
+            roomName: command.roomName,
+            guestCount: command.guestCount,
+          }),
+          ...extra(),
+        };
+        return { enabled: true, template: renderTemplate(templateKey, saved, values) };
+      });
     } catch (error) {
       this.logger.error(
-        `Could not read the guest email setting for ${topic}; sending anyway.`,
+        `Could not read the guest email settings for ${topic}; sending the default email.`,
         error instanceof Error ? error.stack : String(error),
       );
-      return true;
+      return { enabled: true, template: null };
     }
   }
 

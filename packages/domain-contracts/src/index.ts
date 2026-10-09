@@ -48,6 +48,8 @@ export interface MailProvider {
     rooms?: MailOrderRoom[];
     cancellationUrl?: string;
     specialRequests?: string | null;
+    /** The property's own subject and message, when it saved one. */
+    template?: MailTemplateOverride;
   }): Promise<MailSendReceipt | void>;
   sendNewBookingStaffNotification(command: {
     bookingId: string;
@@ -78,6 +80,7 @@ export interface MailProvider {
     roomName: string;
     guestCount: number;
     nightlyRates?: NightlyRate[];
+    template?: MailTemplateOverride;
   }): Promise<MailSendReceipt | void>;
   sendBookingCancelledEmail(command: {
     bookingId: string;
@@ -89,6 +92,7 @@ export interface MailProvider {
     roomName: string;
     guestCount: number;
     nightlyRates?: NightlyRate[];
+    template?: MailTemplateOverride;
   }): Promise<MailSendReceipt | void>;
   /** An email whose subject and body were already rendered by the caller. */
   sendRenderedEmail(command: RenderedEmailCommand): Promise<MailSendReceipt | void>;
@@ -123,6 +127,9 @@ export type RenderedEmailCommand = {
   /** Where replies go, e.g. the hotel's own address. */
   replyTo?: string | null;
 };
+
+/** A property's own wording for a guest email, already filled in and escaped. */
+export type MailTemplateOverride = { subject: string; html: string; text: string };
 
 export type MailOrderRoom = {
   roomName: string;

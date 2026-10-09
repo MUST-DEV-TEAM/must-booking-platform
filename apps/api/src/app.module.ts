@@ -58,6 +58,8 @@ import {
   NotificationSettingsController,
 } from './tenancy/notification-settings.controller';
 import { NotificationSettingsService } from './tenancy/notification-settings.service';
+import { EmailTemplatesController } from './tenancy/email-templates.controller';
+import { EmailTemplatesService } from './tenancy/email-templates.service';
 import { STORAGE_PROVIDER } from './storage/storage.provider';
 import { R2StorageProvider } from './storage/r2-storage.provider';
 import { RoomTypesController } from './tenancy/room-types.controller';
@@ -191,6 +193,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     CancellationPoliciesController,
     NotificationSettingsController,
     EmailPreferencesController,
+    EmailTemplatesController,
     RoomTypesController,
     PropertyImageLibraryController,
     RoomsController,
@@ -245,6 +248,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PropertiesService,
     CancellationPoliciesService,
     NotificationSettingsService,
+    EmailTemplatesService,
     RoomTypesService,
     RoomsService,
     RatePlansService,
