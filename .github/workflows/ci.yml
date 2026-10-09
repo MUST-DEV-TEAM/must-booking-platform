@@ -122,6 +122,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build workspace
+        run: pnpm -w build
+
       - name: Install the test browser
         run: pnpm --filter web exec playwright install --with-deps chromium
 
