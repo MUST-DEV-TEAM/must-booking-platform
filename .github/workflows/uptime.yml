@@ -1,0 +1,82 @@
+name: Uptime
+
+# Checks booking.must.al from outside every 5 minutes. When the site stays down
+# for three tries in a row, it opens one "site is down" issue assigned to the
+# owner (GitHub emails the assignee). When the site is back, it closes that issue.
+# GitHub may start scheduled runs a few minutes late; this is a smoke alarm, not a
+# precise stopwatch.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+env:
+  SITE_URL: https://booking.must.al/api/health
+  ISSUE_LABEL: uptime-alert
+  ALERT_ASSIGNEE: Dejvis0001
+
+jobs:
+  check:
+    name: Check booking.must.al
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the health endpoint
+        id: probe
+        run: |
+          for attempt in 1 2 3; do
+            code="$(curl -sS -o body.txt -w '%{http_code}' --max-time 15 "$SITE_URL" || echo 000)"
+            if [ "$code" = 200 ] && grep -q '"status":"ok"' body.txt; then
+              echo "up=true" >>"$GITHUB_OUTPUT"
+              echo "Up (HTTP $code) on attempt $attempt."
+              exit 0
+            fi
+            echo "Attempt $attempt failed with HTTP $code."
+            [ "$attempt" = 3 ] || sleep 20
+          done
+          echo "up=false" >>"$GITHUB_OUTPUT"
+          echo "code=$code" >>"$GITHUB_OUTPUT"
+
+      - name: Open or close the alert issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          UP: ${{ steps.probe.outputs.up }}
+          CODE: ${{ steps.probe.outputs.code }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          open_issue="$(gh issue list --label "$ISSUE_LABEL" --state open --json number --jq '.[0].number // empty')"
+          now="$(date -u '+%Y-%m-%d %H:%M UTC')"
+
+          if [ "$UP" = true ]; then
+            if [ -n "$open_issue" ]; then
+              gh issue close "$open_issue" --comment "The site answers again as of $now. [Check run]($RUN_URL)"
+            fi
+            exit 0
+          fi
+
+          if [ -z "$open_issue" ]; then
+            gh label create "$ISSUE_LABEL" --color B60205 --description 'booking.must.al is not answering' 2>/dev/null || true
+            gh issue create \
+              --title 'booking.must.al is down' \
+              --label "$ISSUE_LABEL" \
+              --assignee "$ALERT_ASSIGNEE" \
+              --body "@$ALERT_ASSIGNEE The booking platform stopped answering at $now (HTTP $CODE from $SITE_URL, 3 tries over about a minute).
+
+          Guests may not be able to book. This issue closes by itself when the site is back.
+
+          First steps: run the Ops workflow with \`status\`, then \`restart-web\` or \`restart-api\`.
+
+          [Check run]($RUN_URL)"
+          fi
+          echo "::error::booking.must.al is down (HTTP $CODE)."
+          exit 1
