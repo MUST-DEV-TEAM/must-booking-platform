@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 
 import type { TenantTransaction } from '../tenancy/tenant-database.service';
 import {
+  isOptionalStaffTopic,
   NOTIFICATION_TOPICS,
   topicDaysOffset,
   type NotificationTopic,
@@ -103,10 +104,23 @@ export async function staffRecipients(
           AND tm.role IN ('OWNER', 'ADMIN')
           AND NOT EXISTS (SELECT 1 FROM assigned)
       `;
+  // Staff who muted non-urgent emails don't get optional ones (extra addresses
+  // have no account and can't mute).
+  const muted = isOptionalStaffTopic(topic)
+    ? new Set(
+        (
+          await tx.$queryRaw<Array<{ userId: string }>>`
+            SELECT user_id::text AS "userId" FROM tenant_memberships
+            WHERE tenant_id = ${context.tenantId}::uuid AND mute_optional_emails
+          `
+        ).map((row) => row.userId),
+      )
+    : new Set<string>();
   // The same person can match several rules (e.g. an owner who is also assigned):
   // they get the email once.
   const seen = new Set<string>();
   const recipients = rows.filter((row) => {
+    if (muted.has(row.staffUserId)) return false;
     const key = row.email.toLowerCase();
     if (seen.has(key)) return false;
     seen.add(key);

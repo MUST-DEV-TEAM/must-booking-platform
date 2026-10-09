@@ -10,6 +10,7 @@ import { staffRecipients } from '../mail/notification-recipients';
 import {
   NOTIFICATION_TOPICS,
   isNotificationTopic,
+  isOptionalStaffTopic,
   topicDaysOffset,
   type NotificationTopic,
 } from '../mail/notification-topics';
@@ -29,6 +30,12 @@ type RuleRow = {
   email: string | null;
 };
 
+/** Whether this person skips the non-urgent staff emails, and which ones those are. */
+export type EmailPreferences = {
+  muteOptionalEmails: boolean;
+  optionalEmails: Array<{ topic: string; label: string }>;
+};
+
 /** Per-property choice of who receives each notification (email plan Step 1). */
 @Injectable()
 export class NotificationSettingsService {
@@ -36,6 +43,46 @@ export class NotificationSettingsService {
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(AuditLogService) private readonly audit: AuditLogService,
   ) {}
+
+  /** The signed-in member's own email preferences in this hotel account. */
+  getPreferences(tenantId: string, userId: string): Promise<EmailPreferences> {
+    return this.database.withTenantTransaction({ tenantId }, async (tx) =>
+      this.preferences(tx, tenantId, userId),
+    );
+  }
+
+  updatePreferences(tenantId: string, userId: string, body: object): Promise<EmailPreferences> {
+    const value = body as { muteOptionalEmails?: unknown };
+    if (typeof value.muteOptionalEmails !== 'boolean')
+      throw new BadRequestException('muteOptionalEmails must be true or false.');
+    const mute = value.muteOptionalEmails;
+    return this.database.withTenantTransaction({ tenantId }, async (tx) => {
+      await tx.$executeRaw`
+        UPDATE tenant_memberships SET mute_optional_emails = ${mute}, updated_at = now()
+        WHERE tenant_id = ${tenantId}::uuid AND user_id = ${userId}::uuid
+      `;
+      return this.preferences(tx, tenantId, userId);
+    });
+  }
+
+  private async preferences(
+    tx: TenantTransaction,
+    tenantId: string,
+    userId: string,
+  ): Promise<EmailPreferences> {
+    const rows = await tx.$queryRaw<Array<{ mute: boolean }>>`
+      SELECT mute_optional_emails AS mute FROM tenant_memberships
+      WHERE tenant_id = ${tenantId}::uuid AND user_id = ${userId}::uuid
+    `;
+    if (!rows[0]) throw new NotFoundException('Membership was not found.');
+    const topics = Object.keys(NOTIFICATION_TOPICS) as NotificationTopic[];
+    return {
+      muteOptionalEmails: rows[0].mute,
+      optionalEmails: topics
+        .filter(isOptionalStaffTopic)
+        .map((topic) => ({ topic, label: NOTIFICATION_TOPICS[topic].label })),
+    };
+  }
 
   get(tenantId: string, propertyId: string): Promise<NotificationSettingsResponse> {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
