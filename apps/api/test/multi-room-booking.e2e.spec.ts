@@ -385,21 +385,16 @@ describe('Multi-room booking orders', () => {
       'CONFIRMED',
       'CONFIRMED',
     ]);
-    // Every confirmed pay-at-hotel room gets its guest and staff confirmation email.
-    expect(confirmationEmails.mock.calls).toEqual(
-      held.value.bookings.map((booking) => [
-        { tenantId, propertyId },
-        booking.id,
-        `pay-at-hotel:${booking.id}`,
-      ]),
-    );
+    // The order gets one guest and staff confirmation that lists every room.
+    const firstRoom = held.value.bookings[0]!;
+    expect(confirmationEmails.mock.calls).toEqual([
+      [{ tenantId, propertyId }, firstRoom.id, `pay-at-hotel:${firstRoom.id}`],
+    ]);
     // A retry of the same order resends nothing new (the mail layer dedupes by key) but
-    // re-offers every confirmation, so emails a crash skipped are recovered.
+    // re-offers the confirmation, so an email a crash skipped is recovered.
     confirmationEmails.mockClear();
     await expect(orders.create({ tenantId, propertyId }, heldCommand)).resolves.toEqual(held);
-    expect(confirmationEmails.mock.calls.map(([, bookingId]) => bookingId)).toEqual(
-      held.value.bookings.map((booking) => booking.id),
-    );
+    expect(confirmationEmails.mock.calls.map(([, bookingId]) => bookingId)).toEqual([firstRoom.id]);
     confirmationEmails.mockRestore();
     const payAtHotelClockBookings = await admin.$queryRaw<
       Array<{ externalBookingId: string | null }>

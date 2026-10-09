@@ -29,10 +29,18 @@ const bookingRow = {
   propertyPhone: '+355 69 123 4567',
   publicWebsiteOrigin: 'https://ocean.example.test',
   propertyAddress: '1 Ocean Road',
+  orderReference: null as string | null,
 };
 
-function createService(staff: Array<{ staffUserId: string; email: string }>) {
-  const queryRaw = vi.fn().mockResolvedValueOnce([bookingRow]).mockResolvedValueOnce(staff);
+function createService(
+  staff: Array<{ staffUserId: string; email: string }>,
+  order?: { orderReference: string; rooms: unknown[] },
+) {
+  const queryRaw = vi
+    .fn()
+    .mockResolvedValueOnce([{ ...bookingRow, orderReference: order?.orderReference ?? null }]);
+  if (order) queryRaw.mockResolvedValueOnce(order.rooms);
+  queryRaw.mockResolvedValueOnce(staff);
   const database = {
     withTenantTransaction: vi.fn(
       async (_context: unknown, callback: (tx: { $queryRaw: typeof queryRaw }) => unknown) =>
@@ -116,5 +124,46 @@ describe('BookingConfirmationNotificationService', () => {
 
     expect(notifications.sendPaymentConfirmationEmailSafely).toHaveBeenCalledTimes(1);
     expect(notifications.sendNewBookingStaffNotificationSafely).not.toHaveBeenCalled();
+  });
+
+  it('sends one guest and one staff email per multi-room order, listing every room', async () => {
+    const { service, notifications } = createService(
+      [{ staffUserId: 'staff-1', email: 'front-desk@example.test' }],
+      {
+        orderReference: 'MUST-ORDER-001',
+        rooms: [
+          { roomName: 'Ocean Suite', guestCount: 2, amount: '180.00', orderTotal: '300.00' },
+          { roomName: 'Garden Room', guestCount: 1, amount: '120.00', orderTotal: '300.00' },
+        ],
+      },
+    );
+
+    await service.sendAfterConfirmation(context, bookingId, 'payment-1');
+
+    const rooms = [
+      { roomName: 'Ocean Suite', guestCount: 2, amount: { amount: '180.00', currency: 'EUR' } },
+      { roomName: 'Garden Room', guestCount: 1, amount: { amount: '120.00', currency: 'EUR' } },
+    ];
+    expect(notifications.sendPaymentConfirmationEmailSafely).toHaveBeenCalledTimes(1);
+    expect(notifications.sendPaymentConfirmationEmailSafely).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bookingReference: 'MUST-ORDER-001',
+        amount: { amount: '300.00', currency: 'EUR' },
+        roomName: '2 rooms',
+        guestCount: 3,
+        nightlyRates: undefined,
+        rooms,
+      }),
+      context,
+    );
+    expect(notifications.sendNewBookingStaffNotificationSafely).toHaveBeenCalledTimes(1);
+    expect(notifications.sendNewBookingStaffNotificationSafely).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bookingReference: 'MUST-ORDER-001',
+        amount: { amount: '300.00', currency: 'EUR' },
+        rooms,
+      }),
+      context,
+    );
   });
 });

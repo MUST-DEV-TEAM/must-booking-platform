@@ -233,6 +233,52 @@ describe('ResendMailProvider', () => {
     );
   });
 
+  it('lists every room of a multi-room order in the guest and staff emails', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.MAIL_FROM_EMAIL = 'MUST Booking <noreply@example.test>';
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const order = {
+      bookingId: 'booking-1',
+      bookingReference: 'MUST-ORDER-001',
+      paymentId: 'cs_test_order',
+      stay: { startsOn: '2027-09-01', endsOn: '2027-09-03' },
+      roomName: '2 rooms',
+      amount: { amount: '300.00', currency: 'EUR' },
+      guestCount: 3,
+      paymentMethod: 'stripe' as const,
+      brand: { name: 'Ocean Hotel' },
+      rooms: [
+        { roomName: 'Ocean <Suite>', guestCount: 2, amount: { amount: '180.00', currency: 'EUR' } },
+        { roomName: 'Garden Room', guestCount: 1, amount: { amount: '120.00', currency: 'EUR' } },
+      ],
+    };
+
+    await provider.sendPaymentConfirmationEmail({
+      ...order,
+      to: 'guest@example.test',
+      guest: { name: 'Ada Guest' },
+    });
+    await provider.sendNewBookingStaffNotification({
+      ...order,
+      staffUserId: 'staff-1',
+      to: 'front-desk@example.test',
+      guest: { name: 'Ada Guest', email: 'guest@example.test', phone: null },
+    });
+
+    const [guestEmail, staffEmail] = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse(String(init?.body)),
+    );
+    for (const message of [guestEmail, staffEmail]) {
+      expect(message.html).toContain('Rooms');
+      expect(message.html).toContain('1. Ocean &lt;Suite&gt; — 2 guests');
+      expect(message.html).toContain('2. Garden Room — 1 guest');
+      expect(message.html).not.toContain('>2 rooms<');
+    }
+    expect(guestEmail.text).toContain('Booking MUST-ORDER-001: 1. Ocean <Suite>');
+    expect(staffEmail.text).toContain('Rooms:\n1. Ocean <Suite> — 2 guests');
+  });
+
   it('sends password reset links with escaped content and a token-scoped idempotency key', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
     process.env.MAIL_FROM_EMAIL = 'MUST Booking <noreply@example.test>';

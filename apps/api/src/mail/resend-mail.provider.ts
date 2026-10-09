@@ -1,6 +1,12 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 
-import type { MailBrand, MailProvider, MailSendReceipt, NightlyRate } from '@must/domain-contracts';
+import type {
+  MailBrand,
+  MailOrderRoom,
+  MailProvider,
+  MailSendReceipt,
+  NightlyRate,
+} from '@must/domain-contracts';
 import { MailDeliveryError, isRetryableHttpStatus } from './mail-delivery-error';
 import { describeMail } from './mail-descriptors';
 import { missingMailConfiguration } from '../config/environment';
@@ -194,7 +200,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
           : null,
         footerNote: `You&#39;re receiving this email because you made a reservation at ${escapeHtml(hotelName)}.`,
       }),
-      text: `${paid ? `Your payment of ${this.money(command.amount)} was received and your reservation is confirmed.` : 'Your reservation is confirmed. Payment will be collected at the hotel on arrival.'} Booking ${command.bookingReference}: ${command.roomName}, ${command.stay.startsOn} to ${command.stay.endsOn}, ${command.guestCount} guest${command.guestCount === 1 ? '' : 's'}.${command.specialRequests?.trim() ? ` Special requests: ${command.specialRequests.trim()}` : ''}${command.cancellationUrl ? ` Review or cancel: ${command.cancellationUrl}` : ''}`,
+      text: `${paid ? `Your payment of ${this.money(command.amount)} was received and your reservation is confirmed.` : 'Your reservation is confirmed. Payment will be collected at the hotel on arrival.'} Booking ${command.bookingReference}: ${command.rooms && command.rooms.length > 1 ? this.roomLines(command.rooms).replace(/\n/g, '; ') : command.roomName}, ${command.stay.startsOn} to ${command.stay.endsOn}, ${command.guestCount} guest${command.guestCount === 1 ? '' : 's'}.${command.specialRequests?.trim() ? ` Special requests: ${command.specialRequests.trim()}` : ''}${command.cancellationUrl ? ` Review or cancel: ${command.cancellationUrl}` : ''}`,
       idempotencyKey,
     });
   }
@@ -230,7 +236,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
         footerNote: this.staffFooterNote(command.brand.name),
         platformFooter: 'MUST Booking Platform',
       }),
-      text: `New booking received\nBooking reference: ${command.bookingReference}\nGuest: ${command.guest.name}\nEmail: ${command.guest.email}${command.guest.phone ? `\nPhone: ${command.guest.phone}` : ''}\nRoom: ${command.roomName}\nDates: ${command.stay.startsOn} to ${command.stay.endsOn}\nTotal: ${this.money(command.amount)}${command.specialRequests?.trim() ? `\nSpecial requests: ${command.specialRequests.trim()}` : ''}`,
+      text: `New booking received\nBooking reference: ${command.bookingReference}\nGuest: ${command.guest.name}\nEmail: ${command.guest.email}${command.guest.phone ? `\nPhone: ${command.guest.phone}` : ''}\n${command.rooms && command.rooms.length > 1 ? `Rooms:\n${this.roomLines(command.rooms)}` : `Room: ${command.roomName}`}\nDates: ${command.stay.startsOn} to ${command.stay.endsOn}\nTotal: ${this.money(command.amount)}${command.specialRequests?.trim() ? `\nSpecial requests: ${command.specialRequests.trim()}` : ''}`,
       idempotencyKey,
     });
   }
@@ -343,6 +349,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
       guestCount: number;
       nightlyRates?: NightlyRate[];
       amount?: { amount: string; currency: string };
+      rooms?: MailOrderRoom[];
     },
     options: {
       includeGuests?: boolean;
@@ -362,7 +369,9 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
       : `${this.formatDate(command.stay.startsOn, options.dateFormat)} – ${this.formatDate(command.stay.endsOn, options.dateFormat)}`;
     const rows = [
       { label: 'Booking reference', value: command.bookingReference },
-      { label: 'Room', value: command.roomName },
+      command.rooms && command.rooms.length > 1
+        ? { label: 'Rooms', value: this.roomLines(command.rooms) }
+        : { label: 'Room', value: command.roomName },
       { label: 'Dates', value: dates },
     ];
     if (options.includeGuests ?? true)
@@ -372,6 +381,15 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
     if (options.amountLabel && command.amount)
       rows.push({ label: options.amountLabel, value: this.money(command.amount) });
     return rows;
+  }
+
+  private roomLines(rooms: MailOrderRoom[]): string {
+    return rooms
+      .map(
+        (room, index) =>
+          `${index + 1}. ${room.roomName} — ${room.guestCount} guest${room.guestCount === 1 ? '' : 's'} — ${this.money(room.amount)}`,
+      )
+      .join('\n');
   }
 
   private specialRequests(value: string | null | undefined, compact = false): string {

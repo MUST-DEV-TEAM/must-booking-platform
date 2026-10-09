@@ -267,7 +267,7 @@ export class MultiRoomBookingService {
   }
 
   /**
-   * Emails every confirmed pay-at-hotel room of the order after commit. It runs on idempotent
+   * Sends the order's confirmation email (all rooms in one) after commit. It runs on idempotent
    * replays too, so a retry recovers emails a crash skipped; the mail layer's idempotency key
    * (`payment-confirmation/pay-at-hotel:<booking>`) stops anything already queued from repeating.
    */
@@ -286,8 +286,9 @@ export class MultiRoomBookingService {
         ORDER BY order_room_number
       `,
     );
-    for (const { id } of confirmed)
-      await this.confirmations.sendAfterConfirmation(context, id, `pay-at-hotel:${id}`);
+    const first = confirmed[0];
+    if (first)
+      await this.confirmations.sendAfterConfirmation(context, first.id, `pay-at-hotel:${first.id}`);
   }
 
   private validateCommand(command: MultiRoomBookingCommand): Result<never> | null {
