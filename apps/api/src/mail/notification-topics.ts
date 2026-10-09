@@ -17,7 +17,12 @@ export const NOTIFICATION_TOPICS = {
     staff: true,
     defaultStaff: 'assigned-or-owners',
   },
-  refund_processed: { label: 'Refund processed', guest: true, staff: false },
+  refund_processed: {
+    label: 'Refund processed',
+    guest: true,
+    staff: true,
+    defaultStaff: 'owners',
+  },
   pre_arrival: {
     label: 'Pre-arrival reminder',
     guest: true,
@@ -26,6 +31,13 @@ export const NOTIFICATION_TOPICS = {
   },
   owner_daily_summary: {
     label: 'Daily summary',
+    guest: false,
+    staff: true,
+    defaultStaff: 'owners',
+  },
+  /** Bookings that need attention and Clock sync problems, sent within minutes. */
+  owner_alerts: {
+    label: 'Problem alerts',
     guest: false,
     staff: true,
     defaultStaff: 'owners',
