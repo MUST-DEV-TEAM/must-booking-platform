@@ -463,4 +463,67 @@ describe('Clock booking hydration', () => {
     `;
     expect(emails).toEqual([{ eventType: 'booking.staff_cancelled', recipient: email }]);
   });
+
+  it('emails the guest of a direct booking when the hotel moves it in Clock, once', async () => {
+    const guestEmail = `hydration-change-${randomUUID()}@example.test`;
+    const detail = {
+      id: 38144020,
+      number: '380',
+      guest_e_mail: guestEmail,
+      guest_first_name: 'Ada',
+    };
+    const hydration = app!.get(ClockBookingHydrationService);
+    queuedResponses = [{ status: 200, body: realBookingDetail(detail) }];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144020');
+    const booking = (await bookingState('38144020'))!;
+    const changedEmails = () => admin.$queryRaw<Array<{ recipient: string; subject: string }>>`
+      SELECT recipient_email AS recipient, subject FROM email_messages
+      WHERE tenant_id = ${tenantId}::uuid AND booking_id = ${booking.id}::uuid
+        AND event_type = 'guest.booking_changed'
+    `;
+
+    // A Clock-imported reservation (CLOCK-…) may come from another channel: no email.
+    queuedResponses = [
+      { status: 200, body: realBookingDetail({ ...detail, departure: '2026-09-25' }) },
+    ];
+    const moved = await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144020');
+    expect(moved).toMatchObject({
+      changedFrom: { startsOn: '2026-09-23', endsOn: '2026-09-24', roomTypeId },
+    });
+    expect(await changedEmails()).toHaveLength(0);
+
+    // The same stay booked directly with us: the guest hears about the new dates once.
+    await admin.$executeRaw`UPDATE bookings SET external_reference = 'MH-CHANGE-1' WHERE id = ${booking.id}::uuid`;
+    for (let i = 0; i < 2; i++) {
+      queuedResponses = [
+        { status: 200, body: realBookingDetail({ ...detail, departure: '2026-09-26' }) },
+      ];
+      await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144020');
+    }
+    expect(await changedEmails()).toEqual([
+      {
+        recipient: guestEmail,
+        subject: 'Your booking at Main Property has been updated — MH-CHANGE-1',
+      },
+    ]);
+
+    // An unchanged re-sync is not a change.
+    queuedResponses = [
+      { status: 200, body: realBookingDetail({ ...detail, departure: '2026-09-26' }) },
+    ];
+    expect(
+      await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144020'),
+    ).not.toHaveProperty('changedFrom');
+
+    // Switched off (as for every property that existed before): nothing.
+    await admin.$executeRaw`
+      INSERT INTO notification_topic_settings (tenant_id, property_id, topic, guest_enabled)
+      VALUES (${tenantId}::uuid, ${propertyId}::uuid, 'booking_changed', false)
+    `;
+    queuedResponses = [
+      { status: 200, body: realBookingDetail({ ...detail, departure: '2026-09-27' }) },
+    ];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144020');
+    expect(await changedEmails()).toHaveLength(1);
+  });
 });

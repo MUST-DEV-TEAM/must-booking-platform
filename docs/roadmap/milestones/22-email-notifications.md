@@ -121,6 +121,12 @@ Depends on Phase B (queue/log). Numbering continues to avoid renumbering earlier
 - Property owners (topic `owner_alerts`, "Problem alerts"): bookings entering an attention status (manual review, payment/availability failed, Clock rejected / unknown result), new Clock manual-review items and failed Clock webhook events. Topic `refund_processed` gained a staff email ("refund made"). Both default to the account owners and start **off for properties that existed before** migration `20261009160000_alert_emails`.
 - System owner: the same problems for every hotel plus failed/bounced/complained emails (not its own alert emails) and new hotel signups, sent to `PLATFORM_ALERT_EMAIL`; a daily platform summary (definer function `platform_daily_stats(day, tz)`) from 07:00 in `PLATFORM_TIMEZONE` (default Europe/Tirane). Unset `PLATFORM_ALERT_EMAIL` = none of these.
 
+### Email plan Step 2c — booking changed and payment not completed (done 2026-10-09)
+
+- Guest **booking changed** (`booking_changed`): when Clock hydration moves a confirmed booking's dates or room type (room-number assignment alone is not a change), the guest gets the new details and what they were before. Sent from `ClockBookingHydrationService` after the transaction; key names the new stay, so repeated syncs send once.
+- Guest **payment not completed** (`payment_not_completed`): when `PaymentExpiryService` expires an unpaid booking, the guest is told the booking was not made, that nothing was charged (a late payment is refunded automatically) and gets a "Book again" link to the hotel website. One email per booking or multi-room order.
+- Both are guest-only, direct bookings only (not `CLOCK-…`), and start **off for properties that existed before** migration `20261009180000_booking_update_emails`. Our own platform cannot change a confirmed booking's stay yet, so Clock is the only source of changes today.
+
 ### Phase F — Out of scope / later (recorded, not scheduled)
 
 - In-app mailbox / inbound email parsing and threading.

@@ -6,6 +6,10 @@ import {
   type TenantTransaction,
 } from '../../tenancy/tenant-database.service';
 import { BookingCancellationNotificationService } from '../../mail/booking-cancellation-notification.service';
+import {
+  BookingUpdateNotificationService,
+  type PreviousStay,
+} from '../../mail/booking-update-notification.service';
 import { reportOperationalFailure } from '../../observability/error-tracking';
 import { IntegrationConnectionsService } from '../integration-connections.service';
 import { ManualReviewService } from '../manual-review.service';
@@ -64,7 +68,13 @@ export function isClockBookingDetail(value: unknown): value is ClockBookingDetai
 }
 
 export type HydrationOutcome =
-  | { outcome: 'created' | 'updated'; bookingId: string; cancelledInPms: boolean }
+  | {
+      outcome: 'created' | 'updated';
+      bookingId: string;
+      cancelledInPms: boolean;
+      /** Set when a confirmed booking's dates or room type changed at Clock. */
+      changedFrom?: PreviousStay;
+    }
   | { outcome: 'missing_room_type_mapping' }
   | { outcome: 'unknown_status' }
   | { outcome: 'no_active_connection' }
@@ -111,6 +121,8 @@ export class ClockBookingHydrationService {
     @Inject(ClockCircuitBreakerService) private readonly circuitBreaker: ClockCircuitBreakerService,
     @Inject(BookingCancellationNotificationService)
     private readonly cancellations: BookingCancellationNotificationService,
+    @Inject(BookingUpdateNotificationService)
+    private readonly updates: BookingUpdateNotificationService,
   ) {}
 
   async hydrateBooking(
@@ -154,8 +166,11 @@ export class ClockBookingHydrationService {
           if (!ownsRow(ownershipRows[0], ownership.token)) return { outcome: 'ownership_lost' };
         }
 
-        const existingRows = await tx.$queryRawUnsafe<Array<{ status: string }>>(
-          `SELECT status::text AS status FROM bookings
+        const existingRows = await tx.$queryRawUnsafe<
+          Array<{ status: string; startsOn: string; endsOn: string; roomTypeId: string }>
+        >(
+          `SELECT status::text AS status, starts_on::text AS "startsOn", ends_on::text AS "endsOn",
+             room_type_id::text AS "roomTypeId" FROM bookings
          WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND external_booking_id = $3
          FOR UPDATE`,
           tenantId,
@@ -289,9 +304,25 @@ export class ClockBookingHydrationService {
 
         const row = rows[0]!;
         if (ownership) await this.finalizeOwnedEvent(tx, tenantId, ownership, 'HYDRATED');
+        const changed =
+          existing !== undefined &&
+          existing.status === 'CONFIRMED' &&
+          status === 'CONFIRMED' &&
+          (existing.startsOn !== detail.arrival ||
+            existing.endsOn !== detail.departure ||
+            existing.roomTypeId !== roomTypeId);
         return {
           outcome: row.inserted ? 'created' : 'updated',
           bookingId: row.id,
+          ...(changed
+            ? {
+                changedFrom: {
+                  startsOn: existing.startsOn,
+                  endsOn: existing.endsOn,
+                  roomTypeId: existing.roomTypeId,
+                },
+              }
+            : {}),
           // Cancelled at Clock itself: a cancellation MUST made has already set
           // the local row to CANCELLED before Clock's event comes back.
           cancelledInPms:
@@ -302,6 +333,14 @@ export class ClockBookingHydrationService {
 
     if ((outcome.outcome === 'created' || outcome.outcome === 'updated') && outcome.cancelledInPms)
       await this.notifyStaffOfPmsCancellation(tenantId, propertyId, outcome.bookingId);
+    // The hotel moved a guest's stay in Clock: tell the guest (direct bookings only,
+    // when the property has this email on). Never fails hydration.
+    if (outcome.outcome === 'updated' && outcome.changedFrom)
+      await this.updates.sendBookingChanged(
+        { tenantId, propertyId },
+        outcome.bookingId,
+        outcome.changedFrom,
+      );
     return outcome;
   }
 
