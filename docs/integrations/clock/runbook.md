@@ -108,10 +108,11 @@ The rate-plan listing is not called by the integration today, so it is not worth
 | Topic mismatch | Bare topic ARN versus subscription ARN, correct connection/environment |
 | Signature/freshness rejection | Timestamp, expected signing host/certificate and signature; do not disable verification |
 | Accepted event, no booking change | Enabled-property count; persisted event; queue enqueue; recognized type; mapping; worker error/dead-letter |
-| Event stored but no queued job | Known insert/enqueue gap; do not assume redelivery repairs it |
+| `UNKNOWN_STATUS` review item | Clock sent a status MUST does not map; read the booking in Clock, then add the status to `clock-booking-status.ts` if it is real, and re-send the event |
+| Event stored but no queued job | The recovery sweep re-creates the job (ADR-0031); check the sweep ran and the row is not `NEEDS_RECONCILIATION` |
 | Paid booking not confirmed | Booking state, payment/session record, integration operation and manual-review item; lookup vendor reference before considering any retry |
 | Confirmed booking, no deposit | Original credit-item reference, deposit folio and manual-review/notification; do not create another charge blindly |
-| Financial reconciliation fails | Check the known `reference.eq` contract mismatch before trusting its coverage |
+| Financial reconciliation fails | Check Clock reachability and the folio/credit-item reads; references are matched client-side |
 | No operational alert | Reporting configuration and actual delivery, not merely Sentry call sites |
 
 Manual-review resolution is not automatic recovery. No general queue replay/reconciliation-repair admin workflow is documented as implemented. Prepare a targeted, idempotent corrective plan before changing financial/provider state.

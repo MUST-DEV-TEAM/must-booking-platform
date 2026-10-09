@@ -166,6 +166,44 @@ describe('ClockBookingConsistencyService', () => {
     );
   });
 
+  it('reports an unknown Clock status as a finding instead of aborting the check', async () => {
+    const { service } = makeService(
+      [
+        {
+          id: 'local-confirmed',
+          externalReference: 'must-1',
+          externalBookingId: '100',
+          status: 'CONFIRMED',
+        },
+      ],
+      [{ externalReference: 'must-1' }],
+      [
+        [100, 300],
+        { id: 100, status: 'waiting_list', reference_number: 'must-1' },
+        { id: 300, status: 'tentative', reference_number: null },
+      ],
+    );
+
+    const result = await service.check('tenant', 'property', {
+      startsOn: '2026-08-01',
+      endsOn: '2026-08-31',
+    });
+    expect(result.findings).toEqual([
+      {
+        type: 'UNKNOWN_CLOCK_STATUS',
+        clockBookingId: '100',
+        clockStatus: 'waiting_list',
+        localBookingId: 'local-confirmed',
+      },
+      {
+        type: 'UNKNOWN_CLOCK_STATUS',
+        clockBookingId: '300',
+        clockStatus: 'tentative',
+        localBookingId: null,
+      },
+    ]);
+  });
+
   it('flags missing/status-drift local bookings and only Clock-only rows corroborated by MUST operations', async () => {
     const { service } = makeService(
       [

@@ -5,7 +5,12 @@ import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { DashboardReservations, filterReservations, type Reservation } from './reservations';
+import {
+  DashboardReservations,
+  filterReservations,
+  pmsStayStatusBadge,
+  type Reservation,
+} from './reservations';
 import { DashboardQueryProvider } from './query-provider';
 
 const bookings: Reservation[] = [
@@ -111,6 +116,34 @@ const pendingPokpayBooking: Reservation = {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Dashboard reservations', () => {
+  it('adds a Clock stay badge only when it says more than the booking status', () => {
+    expect(pmsStayStatusBadge(null)).toBeNull();
+    expect(pmsStayStatusBadge('expected')).toBeNull();
+    expect(pmsStayStatusBadge('canceled')).toBeNull();
+    expect(pmsStayStatusBadge('checked_in')).toMatchObject({ state: 'checked-in' });
+    expect(pmsStayStatusBadge('checked_out')).toMatchObject({ state: 'checked-out' });
+    expect(pmsStayStatusBadge('no_show')).toMatchObject({ state: 'no-show' });
+    expect(pmsStayStatusBadge('waiting_list')).toMatchObject({
+      state: 'pending',
+      label: 'Clock: waiting list',
+    });
+  });
+
+  it('renders the Clock stay badge in the reservations list', () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        DashboardQueryProvider,
+        null,
+        createElement(DashboardReservations, {
+          tenantId: 'tenant-1',
+          propertyId: 'property-1',
+          initialBookings: [{ ...bookings[0]!, pmsStayStatus: 'checked_in' }],
+        }),
+      ),
+    );
+    expect(markup).toContain('Checked in');
+  });
+
   it('renders booking guest, room, rate, status, and payment data from the bookings projection', () => {
     const markup = renderToStaticMarkup(
       createElement(

@@ -561,6 +561,8 @@ model Booking {
   roomGuestLastName          String?                  @map("room_guest_last_name") @db.VarChar(100)
   externalBookingId          String?                  @map("external_booking_id") @db.VarChar(64)
   status                     BookingStatus            @default(DRAFT)
+  // The PMS's own stay status as received (Clock: expected, checked_in, ...).
+  pmsStayStatus              String?                  @map("pms_stay_status") @db.VarChar(40)
   paymentMethod              BookingPaymentMethod     @default(STRIPE_CHECKOUT) @map("payment_method")
   startsOn                   DateTime                 @map("starts_on") @db.Date
   endsOn                     DateTime                 @map("ends_on") @db.Date

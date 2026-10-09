@@ -220,6 +220,7 @@ describe('Clock booking hydration', () => {
               guestFirstName: null,
               guestLastName: null,
               guestEmail: null,
+              pmsStayStatus: 'expected',
             }),
           ]),
         );
@@ -349,5 +350,107 @@ describe('Clock booking hydration', () => {
     `;
     expect(reviewRows).toHaveLength(1);
     expect(reviewRows[0]!.category).toBe('MISSING_MAPPING');
+  });
+
+  async function bookingState(clockBookingId: string) {
+    const rows = await admin.$queryRaw<
+      Array<{ id: string; status: string; pmsStayStatus: string | null }>
+    >`
+      SELECT id, status::text AS status, pms_stay_status AS "pmsStayStatus" FROM bookings
+      WHERE tenant_id = ${tenantId}::uuid AND external_booking_id = ${clockBookingId}
+    `;
+    return rows[0];
+  }
+
+  async function unknownStatusReviews(clockBookingId: string) {
+    return admin.$queryRaw<Array<{ message: string }>>`
+      SELECT message FROM manual_review_items
+      WHERE tenant_id = ${tenantId}::uuid AND category = 'UNKNOWN_STATUS'::"ManualReviewCategory"
+        AND reference_type = 'clock_booking' AND reference_id = ${clockBookingId}
+    `;
+  }
+
+  it('keeps every documented Clock stay status as CONFIRMED and stores the raw status', async () => {
+    const hydration = app!.get(ClockBookingHydrationService);
+    for (const status of ['checked_in', 'checked_out', 'no_show']) {
+      queuedResponses = [
+        { status: 200, body: realBookingDetail({ id: 38144010, number: '370', status }) },
+      ];
+      await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144010');
+      expect(await bookingState('38144010')).toMatchObject({
+        status: 'CONFIRMED',
+        pmsStayStatus: status,
+      });
+    }
+    expect(await unknownStatusReviews('38144010')).toHaveLength(0);
+  });
+
+  it('keeps the current status of a booking whose new Clock status is unknown, and flags it once', async () => {
+    const hydration = app!.get(ClockBookingHydrationService);
+    queuedResponses = [{ status: 200, body: realBookingDetail({ id: 38144011, number: '371' }) }];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144011');
+
+    for (let delivery = 0; delivery < 2; delivery += 1) {
+      queuedResponses = [
+        {
+          status: 200,
+          body: realBookingDetail({ id: 38144011, number: '371', status: 'waiting_list' }),
+        },
+      ];
+      const outcome = await hydration.hydrateBooking(
+        tenantId,
+        propertyId,
+        connectionId,
+        '38144011',
+      );
+      expect(outcome.outcome).toBe('updated');
+    }
+
+    expect(await bookingState('38144011')).toMatchObject({
+      status: 'CONFIRMED',
+      pmsStayStatus: 'waiting_list',
+    });
+    expect(await unknownStatusReviews('38144011')).toHaveLength(1);
+  });
+
+  it('does not import a new Clock booking with an unknown status', async () => {
+    queuedResponses = [
+      {
+        status: 200,
+        body: realBookingDetail({ id: 38144012, number: '372', status: 'tentative' }),
+      },
+    ];
+    const hydration = app!.get(ClockBookingHydrationService);
+    const outcome = await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144012');
+
+    expect(outcome.outcome).toBe('unknown_status');
+    expect(await bookingState('38144012')).toBeUndefined();
+    expect(await unknownStatusReviews('38144012')).toHaveLength(1);
+  });
+
+  it('emails staff, not the guest, when a booking is cancelled at Clock', async () => {
+    const guestEmail = `hydration-cancel-${randomUUID()}@example.test`;
+    const detail = { id: 38144013, number: '373', guest_e_mail: guestEmail };
+    const hydration = app!.get(ClockBookingHydrationService);
+    queuedResponses = [{ status: 200, body: realBookingDetail(detail) }];
+    await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144013');
+
+    queuedResponses = [{ status: 200, body: realBookingDetail({ ...detail, status: 'canceled' }) }];
+    const outcome = await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144013');
+    expect(outcome).toMatchObject({ outcome: 'updated', cancelledInPms: true });
+    const booking = await bookingState('38144013');
+    expect(booking).toMatchObject({ status: 'CANCELLED', pmsStayStatus: 'canceled' });
+
+    // A repeated cancellation event is not a new cancellation.
+    queuedResponses = [{ status: 200, body: realBookingDetail({ ...detail, status: 'canceled' }) }];
+    expect(
+      await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144013'),
+    ).toMatchObject({ cancelledInPms: false });
+
+    const emails = await admin.$queryRaw<Array<{ eventType: string; recipient: string }>>`
+      SELECT event_type AS "eventType", recipient_email AS recipient FROM email_messages
+      WHERE tenant_id = ${tenantId}::uuid AND booking_id = ${booking!.id}::uuid
+    `;
+    expect(emails).toEqual([{ eventType: 'booking.staff_cancelled', recipient: email }]);
   });
 });
