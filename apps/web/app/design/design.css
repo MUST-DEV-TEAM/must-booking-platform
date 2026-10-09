@@ -1,0 +1,86 @@
+/*
+ * Tailwind + shadcn theme for the /design preview pages only. Scanning is limited to this
+ * folder, and colors map onto the existing --must-* tokens from @must/ui so the new
+ * components keep the current green and brass look. Light mode only for now.
+ */
+@import 'tailwindcss' source('./');
+@import 'tw-animate-css';
+
+@theme inline {
+  --font-sans: var(--must-font-sans);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-brass: var(--brass);
+  --color-destructive: var(--destructive);
+  --color-destructive-surface: var(--destructive-surface);
+  --color-success: var(--success);
+  --color-success-surface: var(--success-surface);
+  --color-warning: var(--warning);
+  --color-warning-surface: var(--warning-surface);
+  --color-info: var(--info);
+  --color-info-surface: var(--info-surface);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root:has(.design-root) {
+  /* On :root so dialogs and menus rendered in portals outside .design-root get them too. */
+  --radius: 0.75rem;
+  --background: var(--must-color-canvas);
+  --foreground: var(--must-color-text-primary);
+  --card: var(--must-color-surface);
+  --card-foreground: var(--must-color-text-primary);
+  --popover: var(--must-color-surface);
+  --popover-foreground: var(--must-color-text-primary);
+  --primary: var(--must-color-ink);
+  --primary-hover: var(--must-color-ink-hover);
+  --primary-foreground: #ffffff;
+  --secondary: var(--must-color-surface-selected);
+  --secondary-foreground: var(--must-color-ink);
+  --muted: #efece4;
+  --muted-foreground: var(--must-color-text-secondary);
+  --accent: var(--must-color-surface-selected);
+  --accent-foreground: var(--must-color-ink);
+  --brass: var(--must-color-accent-brass);
+  --destructive: var(--must-color-danger);
+  --destructive-surface: var(--must-color-danger-surface);
+  --success: var(--must-color-success);
+  --success-surface: var(--must-color-success-surface);
+  --warning: var(--must-color-warning);
+  --warning-surface: var(--must-color-warning-surface);
+  --info: var(--must-color-info);
+  --info-surface: var(--must-color-info-surface);
+  --border: var(--must-color-border);
+  --input: var(--must-color-border);
+  --ring: var(--must-color-focus-ring);
+}
+
+.design-root {
+  background: var(--background);
+  color: var(--foreground);
+  min-height: 100vh;
+}
+
+@layer base {
+  :root:has(.design-root) * {
+    @apply border-border outline-ring/50;
+  }
+}
