@@ -58,6 +58,12 @@ export const settingsAreas = [
     description: 'Customize the identity and contact details used in booking emails.',
   },
   {
+    key: 'email',
+    label: 'Emails',
+    description:
+      'Choose who gets which emails, edit guest email wording, and see every email sent.',
+  },
+  {
     key: 'managed-pages',
     label: 'Managed Pages',
     description: 'Connect the property website and manage its WordPress pairing.',

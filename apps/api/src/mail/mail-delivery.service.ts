@@ -9,6 +9,8 @@ import { describeMail, type QueuedMailCommands, type QueuedMailKind } from './ma
 import { MAIL_PROVIDER } from './mail.provider';
 
 export const MAIL_QUEUE_NAME = 'mail.transactional';
+/** How long a failed email can still be sent again from the activity screen. */
+export const RESEND_WINDOW_DAYS = 7;
 
 /**
  * Where an email's log row lives. Booking mail is scoped to a hotel and property; staff invites
@@ -121,15 +123,7 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
         }
       }
       try {
-        await this.queue.add(kind, data, {
-          jobId: messageId,
-          attempts: remainingAttempts,
-          delay,
-          backoff: { type: 'exponential', delay: this.retryPolicy.backoffMs },
-          // Secret links (verify / reset / invite) must not linger in Redis after they are done.
-          removeOnComplete: descriptor.sensitive ? true : { age: 24 * 60 * 60 },
-          removeOnFail: { age: descriptor.sensitive ? 60 * 60 : 7 * 24 * 60 * 60 },
-        });
+        await this.enqueue(data, descriptor.sensitive, remainingAttempts, delay);
       } catch (error) {
         this.logger.error(
           `Could not queue email ${messageId} (${descriptor.eventType}); sending inline once.`,
@@ -143,6 +137,67 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
         error instanceof Error ? error.stack : String(error),
       );
     }
+  }
+
+  /**
+   * Sends a FAILED email again ("send again" in the email activity screen). The email is
+   * rebuilt from its finished queue job, which is kept for RESEND_WINDOW_DAYS; secret-link
+   * emails are never kept, so they cannot be re-sent this way.
+   */
+  async resend(
+    messageId: string,
+    context: MailDeliveryContext,
+  ): Promise<'queued' | 'not_failed' | 'unavailable'> {
+    if (!this.queue) return 'unavailable';
+    const job = await this.queue.getJob(messageId);
+    if (!job || !['completed', 'failed'].includes(await job.getState())) return 'unavailable';
+    const data = job.data;
+    if (
+      data.context.tenantId !== context.tenantId ||
+      data.context.propertyId !== context.propertyId ||
+      describeMail(data.kind, data.command as never).sensitive
+    )
+      return 'unavailable';
+    const claimed = await this.withContext(
+      context,
+      (tx) => tx.$queryRaw<{ id: string }[]>`
+        UPDATE email_messages SET status = 'QUEUED', last_error = NULL, updated_at = now()
+        WHERE id = ${messageId}::uuid AND tenant_id IS NOT DISTINCT FROM ${context.tenantId}::uuid
+          AND status = 'FAILED'
+        RETURNING id
+      `,
+    );
+    if (!claimed.length) return 'not_failed';
+    try {
+      await job.remove();
+      await this.enqueue(data, false, this.retryPolicy.attempts, 0);
+    } catch (error) {
+      this.logger.error(
+        `Could not queue the resend of email ${messageId}; sending inline once.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      await this.attempt(data, true);
+    }
+    return 'queued';
+  }
+
+  private async enqueue(
+    data: MailJobData,
+    sensitive: boolean,
+    attempts: number,
+    delay: number,
+  ): Promise<void> {
+    const keep = RESEND_WINDOW_DAYS * 24 * 60 * 60;
+    await this.queue!.add(data.kind, data, {
+      jobId: data.messageId,
+      attempts,
+      delay,
+      backoff: { type: 'exponential', delay: this.retryPolicy.backoffMs },
+      // Secret links (verify / reset / invite) must not linger in Redis after they are done.
+      // Other jobs are kept so a failed email can be sent again from the activity screen.
+      removeOnComplete: sensitive ? true : { age: keep },
+      removeOnFail: { age: sensitive ? 60 * 60 : keep },
+    });
   }
 
   /**
