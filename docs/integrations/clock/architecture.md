@@ -16,6 +16,8 @@ Status: **PARTIALLY IMPLEMENTED against the original production brief**. Code in
 
 ## Module and connection model
 
+What Clock told us in writing is kept in the [correspondence log](correspondence.md).
+
 Implementation lives in [apps/api/src/integrations/clock](../../../apps/api/src/integrations/clock). AppModule registers the services directly; there is no standalone `ClockIntegrationModule` or separate worker deployable.
 
 `IntegrationConnectionsService` owns tenant-scoped encrypted named connections and property assignments. `CredentialCipherService` uses AES-256-GCM. A property may use one enabled PMS connection; webhook resolution currently additionally requires the connection to map to exactly one enabled property. Clock credentials include the host, two path IDs, API user/key and pinned SNS topic ARN.

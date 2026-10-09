@@ -85,14 +85,14 @@ Measured by running the same call in both accounts: read calls on both, write ca
 | Create a booking | allowed | allowed | live bookings |
 | Create a deposit folio (`pms_api_booking_folios_create`) | allowed | allowed (granted 2026-09-30) | live bookings |
 | Post a payment on a deposit folio | allowed | allowed | live bookings |
-| **Negative payment on an OPEN deposit folio** (refund mirror) | **allowed** | **denied**: "Payments: Add negative payment to Open folio" | sandbox test; Empire refund 2026-10-01 |
-| Negative payment on a CLOSED deposit folio | allowed | not tested | sandbox test |
+| **Negative payment on an OPEN deposit folio** (refund mirror) | **allowed** | granted 2026-10-02 ("Payments: Add negative payment to Open folio"); denied before | sandbox test; Empire refund 2026-10-01; Clock's reply |
+| Negative payment on a CLOSED deposit folio | allowed | granted 2026-10-02 ("Payments: Add negative payment to Closed folio"), not yet used | sandbox test; Clock's reply |
 | List rate plans (`pms_api_rate_plans_index`) | allowed | **denied** (403) | probe |
 | List fiscal document types (`base_api_document_types_index`) | allowed | **denied** (403) | probe |
 | Close a folio (`base_api_folios_close`) | allowed | **denied** (403), withheld on purpose: Clock wants deposit folios left open | sandbox test; Empire probe 2026-10-01 |
 | Close a folio with an outstanding balance | allowed | denied, withheld on purpose (reported by Clock) | sandbox test; Clock's message |
 
-**What to ask Clock for (message drafted 2026-10-01):**
+**What was asked of Clock (message drafted 2026-10-01, answered 2026-10-02; full text and reply in the [correspondence log](correspondence.md)).** Clock granted both negative-payment rights, said there is "no way to automate" converting deposits to advances, and pointed to `text` instead of `reference` for filtering. The original asks:
 
 1. **Needed now:** "Payments: Add negative payment to Open folio", so a refund returned to the guest can be mirrored on the open deposit folio. Also ask whether a refund after the hotel converted the deposit (a closed folio) needs a separate right; the sandbox allows it, Empire is untested.
 2. **The owner's goal: every online payment converted to an advance automatically** (the reception only wants the deposit converted; how the booking looks is irrelevant). Converting is a multi-step accounting operation, not a close (see the booking lifecycle): a pre-invoiced deposit charge per tax group on the deposit folio, then close with the advance document type. Ask Clock for the supported way to do it through the API. If it is done with ordinary calls, the rights involved would include creating charges on a folio, reading charge templates, reading document types (`base_api_document_types_index`) and closing (`base_api_folios_close`); the exact right names must come from Clock. This also conflicts with Clock's 2026-09-18 instruction to leave deposit folios open, so it is asked as a question first.
