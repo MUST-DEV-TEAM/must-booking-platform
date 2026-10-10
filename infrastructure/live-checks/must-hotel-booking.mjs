@@ -15,6 +15,7 @@
 import { randomUUID } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 import process from 'node:process';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 const MUST_HOTEL_TENANT_ID = 'fdb9f701-510e-4deb-857b-08a87fcdfbcc';
 const MUST_HOTEL_PROPERTY_ID = '9231b946-f244-4a84-af54-0774710f3464';
@@ -127,7 +128,7 @@ async function waitForClock(session, bookingId) {
       ].includes(booking.status)
     )
       fail(`booking ${bookingId} ended as ${booking.status} instead of reaching Clock.`);
-    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    await sleep(3_000);
   }
   fail(`booking ${bookingId} did not get a Clock reservation within a minute.`);
 }
