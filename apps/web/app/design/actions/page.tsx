@@ -289,8 +289,8 @@ function SplitButton({
           <DropdownMenuItem>
             <Plus /> Create and add payment
           </DropdownMenuItem>
-          <DropdownMenuItem>
-            <Send /> Create and send confirmation
+          <DropdownMenuItem className="whitespace-nowrap text-xs">
+            <Send /> Create &amp; send confirmation
           </DropdownMenuItem>
           <DropdownMenuItem>
             <Save /> Save as draft

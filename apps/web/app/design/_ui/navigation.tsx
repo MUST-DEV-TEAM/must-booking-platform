@@ -372,12 +372,14 @@ export function TopHeader({
   return (
     <header
       className={cn(
-        'flex items-center gap-3 border-b bg-card px-4 py-3 @sm/design-preview:px-6',
+        'flex flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-3 @sm/design-preview:px-6',
         className,
       )}
     >
-      <h1 className="min-w-0 flex-1 truncate text-xl font-extrabold tracking-tight">{title}</h1>
-      <div className="flex items-center gap-2">
+      <h1 className="min-w-0 flex-[1_1_12rem] truncate text-xl font-extrabold tracking-tight">
+        {title}
+      </h1>
+      <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
         {actions}
         {onMenu ? (
           <Button variant="outline" size="icon" aria-label="Open menu" onClick={onMenu}>
@@ -391,7 +393,7 @@ export function TopHeader({
 
 export type TabEntry = { id: string; label: string; icon?: LucideIcon; disabled?: boolean };
 
-/** Underline tabs for switching views inside a page. Scrolls sideways when it does not fit. */
+/** Underline tabs wrap onto another row when the available width is narrow. */
 export function TabBar({
   tabs,
   current,
@@ -404,7 +406,7 @@ export function TabBar({
   label?: string;
 }) {
   return (
-    <div role="tablist" aria-label={label} className="flex gap-1 overflow-x-auto border-b">
+    <div role="tablist" aria-label={label} className="flex flex-wrap gap-x-1 border-b">
       {tabs.map(({ id, label: text, icon: Icon, disabled }) => {
         const active = id === current;
         return (
@@ -416,7 +418,7 @@ export function TabBar({
             disabled={disabled}
             onClick={() => onSelect?.(id)}
             className={cn(
-              '-mb-px flex shrink-0 items-center gap-2 border-b-2 border-transparent px-3 py-2.5 text-sm font-semibold text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40',
+              '-mb-px flex min-w-0 items-center gap-2 border-b-2 border-transparent px-2 py-2.5 text-sm font-semibold text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40 @sm/design-preview:px-3',
               active && 'border-primary text-primary hover:text-primary',
             )}
           >
@@ -449,7 +451,7 @@ export function SectionTabs({
       role="tablist"
       aria-label={label}
       className={cn(
-        'inline-flex max-w-full gap-1 overflow-x-auto rounded-lg bg-muted p-1',
+        'inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-muted p-1',
         compact && 'gap-0.5 p-0.5',
       )}
     >
@@ -464,7 +466,7 @@ export function SectionTabs({
             disabled={disabled}
             onClick={() => onSelect?.(id)}
             className={cn(
-              'flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40',
+              'flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40 @sm/design-preview:px-3',
               compact && 'gap-1 px-2 py-1 text-xs [&_svg]:size-3.5',
               active && 'bg-card text-foreground shadow-sm',
             )}
@@ -482,7 +484,7 @@ export function SectionTabs({
 export function Breadcrumb({ items }: { items: readonly string[] }) {
   return (
     <nav aria-label="Breadcrumb">
-      <ol className="flex flex-nowrap items-center gap-1.5 overflow-x-auto text-sm whitespace-nowrap text-muted-foreground">
+      <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-muted-foreground">
         {items.map((item, index) => {
           const last = index === items.length - 1;
           const hiddenOnPhone = index < items.length - 2;
@@ -490,7 +492,7 @@ export function Breadcrumb({ items }: { items: readonly string[] }) {
             <li
               key={item}
               className={cn(
-                'shrink-0 items-center gap-1.5',
+                'min-w-0 max-w-full items-center gap-1.5 break-words',
                 hiddenOnPhone ? 'hidden @sm/design-preview:flex' : 'flex',
               )}
             >

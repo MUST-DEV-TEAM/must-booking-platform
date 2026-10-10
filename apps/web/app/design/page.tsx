@@ -642,10 +642,11 @@ export function DesignShowcaseContent() {
                     className="h-2 overflow-hidden rounded-full bg-secondary"
                   >
                     <div
-                      className="h-full w-full rounded-full"
+                      className="design-progress-indeterminate h-full w-full rounded-full"
                       style={{
                         background:
                           'repeating-linear-gradient(135deg, var(--primary) 0 8px, transparent 8px 16px)',
+                        backgroundSize: '32px 32px',
                       }}
                     />
                   </div>

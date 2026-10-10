@@ -67,6 +67,7 @@ describe('Design showcase', () => {
     expect(markup).toContain('aria-label="Loading booking table"');
     expect(markup).toContain('aria-label="Loading booking detail panel"');
     expect(markup).toContain('aria-busy="true"');
+    expect(markup).toContain('design-progress-indeterminate');
     expect(markup).not.toContain('>Buttons</h2>');
     expect(markup).not.toContain('Responsive behavior');
     expect(markup).not.toContain('design-color-variant');

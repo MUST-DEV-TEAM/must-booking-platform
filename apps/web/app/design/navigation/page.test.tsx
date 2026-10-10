@@ -43,5 +43,8 @@ describe('Navigation design', () => {
     for (const heading of ['Try it', 'Sidebar by role', 'Mobile drawer', 'Top header', 'Tabs']) {
       expect(markup).toContain(`>${heading}</h2>`);
     }
+    expect(markup).toContain('aria-label="Choose dashboard date range"');
+    expect(markup).toContain('aria-label="Quick destinations"');
+    expect(markup).not.toContain('overflow-x-auto');
   });
 });

@@ -30,5 +30,13 @@ describe('Forms and filters design page', () => {
     expect(markup).toContain('MH-1042');
     expect(markup).not.toContain('EBR-');
     expect(markup).toContain('No connection or verification request is made.');
+    expect(markup).toContain('aria-label="Default phone prefix"');
+    expect(markup).toContain('aria-label="Show provider secret"');
+    expect(markup).toContain('type="time"');
+    expect(markup).toContain('type="file"');
+    expect(markup).toContain('aria-label="Select stay dates"');
+    expect(markup).toContain('Choose 14 October 2026');
+    expect(markup).toContain('aria-label="Children"');
+    expect(markup).toContain('aria-label="Child 1 age"');
   });
 });

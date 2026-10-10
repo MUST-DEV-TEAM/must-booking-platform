@@ -1,14 +1,12 @@
 'use client';
 
+import { useState, type ChangeEvent, type DragEvent } from 'react';
 import {
   AlertCircle,
-  CalendarDays,
   Check,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Clock3,
   Eye,
+  EyeOff,
   FileUp,
   Filter,
   Minus,
@@ -22,8 +20,15 @@ import { Badge } from '../_ui/badge';
 import { Button } from '../_ui/button';
 import { Card } from '../_ui/card';
 import { Checkbox } from '../_ui/checkbox';
+import {
+  CalendarPicker,
+  DemoCalendar,
+  formatCalendarSelection,
+  type CalendarSelection,
+} from '../_ui/demo-calendar';
 import { Input, Textarea } from '../_ui/input';
 import { Label } from '../_ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '../_ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../_ui/select';
 import { Switch } from '../_ui/switch';
 
@@ -78,25 +83,12 @@ function StateInput({
     );
   } else if (kind === 'rates') {
     control = (
-      <div
-        aria-label={`${state} rate plans`}
-        aria-invalid={invalid || undefined}
-        className={`flex min-h-9 items-center gap-1 rounded-md border border-input bg-card px-2 py-1 text-xs ${stateClass} ${disabled ? 'bg-muted text-muted-foreground' : ''}`}
-      >
-        {state === 'Filled' ? (
-          <>
-            <Badge variant="secondary">
-              Flexible <X aria-hidden="true" />
-            </Badge>
-            <Badge variant="secondary">
-              Prepaid <X aria-hidden="true" />
-            </Badge>
-          </>
-        ) : (
-          <span className="flex-1 text-muted-foreground">Select rate plans</span>
-        )}
-        <ChevronDown aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-      </div>
+      <RatePlanControl
+        state={state}
+        invalid={invalid}
+        disabled={disabled}
+        stateClass={stateClass}
+      />
     );
   } else if (kind === 'notes') {
     control = (
@@ -138,9 +130,20 @@ function StateInput({
   } else if (kind === 'phone') {
     control = (
       <div className="flex h-9 overflow-hidden rounded-md border border-input bg-card">
-        <span className="flex items-center gap-1 border-r px-2 text-xs text-muted-foreground">
-          +355 <ChevronDown className="size-3" />
-        </span>
+        <Select defaultValue="+355" disabled={disabled}>
+          <SelectTrigger
+            aria-label={`${state} phone prefix`}
+            className="h-full w-[5.5rem] shrink-0 rounded-none border-0 border-r bg-transparent px-2 text-xs shadow-none focus-visible:ring-0"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="+355">+355 · AL</SelectItem>
+            <SelectItem value="+44">+44 · UK</SelectItem>
+            <SelectItem value="+39">+39 · IT</SelectItem>
+            <SelectItem value="+1">+1 · US</SelectItem>
+          </SelectContent>
+        </Select>
         <Input
           aria-label={`${state} guest phone`}
           aria-invalid={invalid || undefined}
@@ -154,21 +157,7 @@ function StateInput({
     );
   } else if (kind === 'secret') {
     control = (
-      <div className="relative">
-        <Input
-          aria-label={`${state} provider secret`}
-          aria-invalid={invalid || undefined}
-          className={`pr-9 ${stateClass}`}
-          disabled={disabled}
-          placeholder="Enter API secret"
-          type="password"
-          defaultValue={state === 'Filled' ? 'demo-secret' : undefined}
-        />
-        <Eye
-          className="absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted-foreground"
-          aria-hidden="true"
-        />
-      </div>
+      <SecretControl state={state} stateClass={stateClass} disabled={disabled} invalid={invalid} />
     );
   } else {
     control = (
@@ -205,6 +194,117 @@ function StateInput({
           </p>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function RatePlanControl({
+  state,
+  invalid,
+  disabled,
+  stateClass,
+}: {
+  state: FieldState;
+  invalid: boolean;
+  disabled: boolean;
+  stateClass: string;
+}) {
+  const [selected, setSelected] = useState<string[]>(
+    state === 'Filled' ? ['Flexible', 'Prepaid'] : [],
+  );
+  const [open, setOpen] = useState(false);
+  const plans = ['Flexible', 'Prepaid', 'Non-refundable'];
+  const fieldClass = `flex min-h-9 items-center gap-1 rounded-md border border-input bg-card px-2 py-1 text-xs ${stateClass} ${disabled ? 'bg-muted text-muted-foreground' : ''}`;
+
+  function toggle(plan: string) {
+    setSelected((current) =>
+      current.includes(plan) ? current.filter((item) => item !== plan) : [...current, plan],
+    );
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <div aria-invalid={invalid || undefined} className={fieldClass}>
+        {selected.map((plan) => (
+          <Badge key={plan} variant="secondary" className="gap-1 pr-1">
+            {plan}
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label={`Remove ${plan} rate plan`}
+              onClick={() => toggle(plan)}
+              className="rounded-full hover:text-foreground disabled:pointer-events-none"
+            >
+              <X aria-hidden="true" />
+            </button>
+          </Badge>
+        ))}
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label={`${state} rate plans`}
+            disabled={disabled}
+            className="flex min-h-7 min-w-0 flex-1 items-center justify-between gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {selected.length ? null : (
+              <span className="text-muted-foreground">Select rate plans</span>
+            )}
+            <ChevronDown aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+          </button>
+        </PopoverTrigger>
+      </div>
+      <PopoverContent align="start" className="w-56 p-2">
+        <p className="px-2 py-1 text-xs font-semibold">Choose rate plans</p>
+        {plans.map((plan) => (
+          <label
+            key={plan}
+            className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm hover:bg-accent"
+          >
+            <Checkbox checked={selected.includes(plan)} onCheckedChange={() => toggle(plan)} />
+            {plan}
+          </label>
+        ))}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function SecretControl({
+  state,
+  stateClass,
+  disabled,
+  invalid,
+}: {
+  state: FieldState;
+  stateClass: string;
+  disabled: boolean;
+  invalid: boolean;
+}) {
+  const [visible, setVisible] = useState(false);
+  const hasSecret = state === 'Filled';
+  return (
+    <div className="relative">
+      <Input
+        aria-label={`${state} provider secret`}
+        aria-invalid={invalid || undefined}
+        className={`pr-10 ${stateClass}`}
+        disabled={disabled}
+        placeholder="Enter API secret"
+        type={visible ? 'text' : 'password'}
+        defaultValue={hasSecret ? 'demo-secret' : undefined}
+      />
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label={visible ? 'Hide provider secret' : 'Show provider secret'}
+        aria-pressed={visible}
+        disabled={disabled}
+        onClick={() => setVisible((current) => !current)}
+        className="absolute top-1/2 right-1 -translate-y-1/2"
+      >
+        {visible ? <EyeOff /> : <Eye />}
+      </Button>
     </div>
   );
 }
@@ -302,113 +402,153 @@ function ToggleExamples() {
   );
 }
 
-function CalendarMonth({
-  month,
-  range = false,
-}: {
-  month: 'October' | 'November';
-  range?: boolean;
-}) {
-  const daysInMonth = month === 'October' ? 31 : 30;
-  const monthDays = Array.from({ length: daysInMonth }, (_, index) => index + 1);
-  const blankDays = month === 'October' ? 4 : 0;
-  return (
-    <div className="min-w-0 rounded-lg border bg-card p-3">
-      <div className="mb-3 flex items-center justify-between text-xs font-semibold">
-        <Button variant="ghost" size="icon-sm" aria-label={`Previous month before ${month}`}>
-          <ChevronLeft className="size-3" />
-        </Button>
-        <span>{month} 2026</span>
-        <Button variant="ghost" size="icon-sm" aria-label={`Next month after ${month}`}>
-          <ChevronRight className="size-3" />
-        </Button>
-      </div>
-      <div className="grid grid-cols-7 gap-1 text-center text-[9px] text-muted-foreground">
-        {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day) => (
-          <span key={day} className="py-1">
-            {day}
-          </span>
-        ))}
-      </div>
-      <div className="grid grid-cols-7 gap-1 text-center text-[10px]">
-        {Array.from({ length: blankDays }, (_, index) => (
-          <span key={`blank-${index}`} />
-        ))}
-        {monthDays.map((day) => {
-          const selected = range ? (month === 'October' ? day >= 30 : day <= 3) : day === 14;
-          const edge = range && (month === 'October' ? day === 30 : day === 3);
-          return (
-            <span
-              key={day}
-              className={`flex aspect-square items-center justify-center rounded-full ${selected ? 'bg-secondary text-primary' : ''} ${edge ? 'bg-primary text-primary-foreground' : ''} ${day === 20 && !range ? 'outline outline-1 outline-primary' : ''}`}
-            >
-              {day}
-            </span>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 function CalendarExamples() {
+  const [checkIn, setCheckIn] = useState<CalendarSelection>({ start: '2026-10-14', end: null });
+  const [stayRange, setStayRange] = useState<CalendarSelection>({
+    start: '2026-10-30',
+    end: '2026-11-03',
+  });
+  const [appliedRange, setAppliedRange] = useState(stayRange);
+
   return (
     <div className="grid gap-3 @lg/design-preview:grid-cols-[minmax(0,0.8fr)_minmax(0,1.7fr)]">
       <Card className="gap-4 p-4">
         <h3 className="text-sm font-bold">13 · Check-in date</h3>
-        <div className="relative">
-          <Input aria-label="Check-in date" placeholder="Select check-in date" className="pr-9" />
-          <CalendarDays className="absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted-foreground" />
-        </div>
-        <CalendarMonth month="October" />
+        <Input
+          aria-label="Selected check-in date"
+          readOnly
+          value={formatCalendarSelection(checkIn, 'single')}
+        />
+        <DemoCalendar selection={checkIn} mode="single" onChange={setCheckIn} />
       </Card>
       <Card className="gap-4 p-4">
         <h3 className="text-sm font-bold">14 · Stay date range</h3>
-        <div className="relative">
-          <Input aria-label="Stay date range" placeholder="Select stay dates" className="pr-9" />
-          <CalendarDays className="absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted-foreground" />
-        </div>
-        <div className="grid gap-3 @md/design-preview:grid-cols-2">
-          <CalendarMonth month="October" range />
-          <CalendarMonth month="November" range />
-        </div>
+        <Input
+          aria-label="Selected stay date range"
+          readOnly
+          value={formatCalendarSelection(stayRange, 'range')}
+        />
+        <DemoCalendar selection={stayRange} mode="range" months={2} onChange={setStayRange} />
         <div className="flex justify-end gap-2">
-          <Button variant="outline" size="sm">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const cleared = { start: null, end: null };
+              setStayRange(cleared);
+              setAppliedRange(cleared);
+            }}
+          >
             Clear
           </Button>
-          <Button size="sm">Apply</Button>
+          <Button size="sm" onClick={() => setAppliedRange(stayRange)}>
+            Apply
+          </Button>
         </div>
+        <p aria-live="polite" className="text-[11px] text-muted-foreground">
+          Applied: {formatCalendarSelection(appliedRange, 'range') || 'No dates selected'}
+        </p>
       </Card>
     </div>
   );
 }
 
 function UtilityFields() {
+  const [time, setTime] = useState('10:30');
+  const [files, setFiles] = useState([{ name: 'guest_document.pdf', size: 1_200_000 }]);
+  const [fileMessage, setFileMessage] = useState('');
+
+  function addFiles(list: FileList | null) {
+    if (!list) return;
+    const candidates = Array.from(list);
+    const next = candidates
+      .filter((file) => /\.(pdf|jpe?g|png)$/i.test(file.name) && file.size <= 10_000_000)
+      .map((file) => ({ name: file.name, size: file.size }));
+    setFiles((current) => [...current, ...next]);
+    setFileMessage(
+      candidates.length === next.length
+        ? ''
+        : 'Only PDF, JPG, and PNG files up to 10 MB are accepted.',
+    );
+  }
+
+  function formatSize(size: number) {
+    return size < 1_000_000
+      ? `${Math.max(0.1, size / 1_000).toFixed(0)} KB`
+      : `${(size / 1_000_000).toFixed(1)} MB`;
+  }
+
   return (
     <div className="grid gap-3 @md/design-preview:grid-cols-2 @xl/design-preview:grid-cols-5">
       <Card className="gap-3 p-4">
         <h3 className="text-sm font-bold">15 · Check-in time</h3>
-        <div className="relative">
-          <Input aria-label="Check-in time" placeholder="Select check-in time" />
-          <Clock3 className="absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted-foreground" />
-        </div>
-        <div className="flex items-center gap-2 rounded-md border p-3 text-lg font-semibold">
-          10 <span className="text-muted-foreground">:</span> 30{' '}
-          <Badge variant="secondary">AM</Badge>
-        </div>
+        <Input
+          aria-label="Check-in time"
+          type="time"
+          step={900}
+          value={time}
+          onChange={(event) => setTime(event.currentTarget.value)}
+        />
+        <p aria-live="polite" className="text-xs text-muted-foreground">
+          Selected local time: {time || 'Not set'} · 24-hour clock
+        </p>
       </Card>
       <Card className="gap-3 p-4">
         <h3 className="text-sm font-bold">16 · Booking attachment</h3>
-        <div className="grid min-h-24 place-content-center justify-items-center rounded-md border border-dashed bg-muted/20 p-3 text-center text-xs text-muted-foreground">
+        <label
+          htmlFor="demo-booking-files"
+          onDragOver={(event: DragEvent<HTMLLabelElement>) => event.preventDefault()}
+          onDrop={(event: DragEvent<HTMLLabelElement>) => {
+            event.preventDefault();
+            addFiles(event.dataTransfer.files);
+          }}
+          className="grid min-h-24 cursor-pointer place-content-center justify-items-center rounded-md border border-dashed bg-muted/20 p-3 text-center text-xs text-muted-foreground hover:bg-muted/50 focus-within:ring-2 focus-within:ring-ring"
+        >
+          <input
+            id="demo-booking-files"
+            type="file"
+            accept=".pdf,.jpg,.jpeg,.png"
+            multiple
+            className="sr-only"
+            onChange={(event: ChangeEvent<HTMLInputElement>) => {
+              addFiles(event.currentTarget.files);
+              event.currentTarget.value = '';
+            }}
+          />
           <FileUp className="mb-2 size-5 text-primary" />
           <strong className="text-foreground">Drop booking files here</strong>
           <span>or click to browse · PDF, JPG, PNG · Max 10MB</span>
-        </div>
-        <div className="flex items-center justify-between rounded-md border p-2 text-xs">
-          <span>
-            guest_document.pdf <span className="text-muted-foreground">· 1.2 MB</span>
-          </span>
-          <X className="size-3 text-muted-foreground" />
+        </label>
+        {fileMessage ? (
+          <p role="status" className="text-xs text-destructive">
+            {fileMessage}
+          </p>
+        ) : null}
+        <div className="space-y-2">
+          {files.map((file, index) => (
+            <div
+              key={`${file.name}-${index}`}
+              className="flex items-center justify-between gap-2 rounded-md border p-2 text-xs"
+            >
+              <span className="min-w-0 truncate">
+                {file.name} <span className="text-muted-foreground">· {formatSize(file.size)}</span>
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Remove ${file.name}`}
+                onClick={() =>
+                  setFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))
+                }
+              >
+                <X />
+              </Button>
+            </div>
+          ))}
+          {files.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No files selected.</p>
+          ) : null}
         </div>
       </Card>
       <Card className="gap-3 p-4">
@@ -457,15 +597,23 @@ function FilterSelect({
   label,
   value,
   options,
+  selectedValue,
+  onChange,
 }: {
   label: string;
   value: string;
   options: string[];
+  selectedValue?: string;
+  onChange?: (value: string) => void;
 }) {
   return (
     <div className="min-w-0 space-y-1">
       <Label className="text-[11px]">{label}</Label>
-      <Select defaultValue={value}>
+      <Select
+        value={selectedValue}
+        defaultValue={selectedValue === undefined ? value : undefined}
+        onValueChange={onChange}
+      >
         <SelectTrigger aria-label={label} className="h-9 w-full bg-card text-xs">
           <SelectValue />
         </SelectTrigger>
@@ -482,6 +630,115 @@ function FilterSelect({
 }
 
 function FiltersShowcase() {
+  const [draft, setDraft] = useState({
+    status: 'Confirmed',
+    hotel: 'Demo hotel',
+    source: 'All sources',
+    payment: 'Paid',
+    search: '',
+  });
+  const [dateRange, setDateRange] = useState<CalendarSelection>({
+    start: '2026-10-30',
+    end: '2026-11-03',
+  });
+  const [active, setActive] = useState([
+    { id: 'status', label: 'Confirmed' },
+    { id: 'payment', label: 'Paid' },
+    { id: 'hotel', label: 'Hotel: Demo' },
+  ]);
+  const [addOpen, setAddOpen] = useState(false);
+
+  function clearFilters() {
+    setDraft({
+      status: 'All statuses',
+      hotel: 'All hotels',
+      source: 'All sources',
+      payment: 'All payments',
+      search: '',
+    });
+    setDateRange({ start: null, end: null });
+    setActive([]);
+  }
+
+  function applyFilters() {
+    const next = [
+      draft.status !== 'All statuses' ? { id: 'status', label: draft.status } : null,
+      draft.payment !== 'All payments' ? { id: 'payment', label: draft.payment } : null,
+      draft.hotel !== 'All hotels'
+        ? { id: 'hotel', label: `Hotel: ${draft.hotel.replace(' hotel', '')}` }
+        : null,
+      draft.source !== 'All sources' ? { id: 'source', label: `Source: ${draft.source}` } : null,
+      draft.search ? { id: 'search', label: `Search: ${draft.search}` } : null,
+      dateRange.start && dateRange.end
+        ? { id: 'dates', label: `Stay: ${formatCalendarSelection(dateRange, 'range')}` }
+        : null,
+    ].filter((filter): filter is { id: string; label: string } => filter !== null);
+    setActive(next);
+  }
+
+  function removeFilter(id: string) {
+    setActive((current) => current.filter((filter) => filter.id !== id));
+    if (id === 'status') setDraft((current) => ({ ...current, status: 'All statuses' }));
+    if (id === 'payment') setDraft((current) => ({ ...current, payment: 'All payments' }));
+    if (id === 'hotel') setDraft((current) => ({ ...current, hotel: 'All hotels' }));
+    if (id === 'source') setDraft((current) => ({ ...current, source: 'All sources' }));
+    if (id === 'search') setDraft((current) => ({ ...current, search: '' }));
+    if (id === 'dates') setDateRange({ start: null, end: null });
+  }
+
+  function addQuickFilter(id: string) {
+    const options: Record<string, { label: string; update: () => void }> = {
+      source: {
+        label: 'Source: Website',
+        update: () => setDraft((current) => ({ ...current, source: 'Website' })),
+      },
+      status: {
+        label: 'Pending',
+        update: () => setDraft((current) => ({ ...current, status: 'Pending' })),
+      },
+      payment: {
+        label: 'Unpaid',
+        update: () => setDraft((current) => ({ ...current, payment: 'Unpaid' })),
+      },
+      hotel: {
+        label: 'Hotel: Harbor View',
+        update: () => setDraft((current) => ({ ...current, hotel: 'Harbor View Hotel' })),
+      },
+    };
+    const option = options[id];
+    if (!option) return;
+    option.update();
+    setActive((current) => [
+      ...current.filter((filter) => filter.id !== id),
+      { id, label: option.label },
+    ]);
+    setAddOpen(false);
+  }
+
+  function removeAll() {
+    clearFilters();
+  }
+
+  function ActiveChips() {
+    return active.map((filter) => (
+      <Badge
+        key={filter.id}
+        variant={filter.id === 'hotel' ? 'secondary' : 'success'}
+        className="gap-1 pr-1"
+      >
+        {filter.label}
+        <button
+          type="button"
+          aria-label={`Remove filter ${filter.label}`}
+          onClick={() => removeFilter(filter.id)}
+          className="rounded-full hover:text-foreground"
+        >
+          <X aria-hidden="true" />
+        </button>
+      </Badge>
+    ));
+  }
+
   return (
     <div className="space-y-3">
       <Card className="gap-4 p-4">
@@ -492,7 +749,7 @@ function FiltersShowcase() {
               Combine common fields to narrow a reservations list.
             </p>
           </div>
-          <Badge variant="muted">3 filters applied</Badge>
+          <Badge variant="muted">{active.length} filters applied</Badge>
         </div>
         <div className="grid gap-3 @md/design-preview:grid-cols-2 @xl/design-preview:grid-cols-6">
           <div className="space-y-1">
@@ -501,45 +758,63 @@ function FiltersShowcase() {
             </Label>
             <div className="relative">
               <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input id="filter-search" className="pl-9 text-xs" placeholder="Booking or guest…" />
+              <Input
+                id="filter-search"
+                className="pl-9 text-xs"
+                placeholder="Booking or guest…"
+                value={draft.search}
+                onChange={(event) => {
+                  const search = event.currentTarget.value;
+                  setDraft((current) => ({ ...current, search }));
+                }}
+              />
             </div>
           </div>
           <FilterSelect
             label="Booking status"
             value="All statuses"
             options={['All statuses', 'Confirmed', 'Pending', 'Cancelled']}
+            selectedValue={draft.status}
+            onChange={(status) => setDraft((current) => ({ ...current, status }))}
           />
           <FilterSelect
             label="Hotel"
-            value="Demo hotel"
+            value="All hotels"
             options={['All hotels', 'Demo hotel', 'Harbor View Hotel']}
+            selectedValue={draft.hotel}
+            onChange={(hotel) => setDraft((current) => ({ ...current, hotel }))}
           />
           <div className="space-y-1">
-            <Label htmlFor="filter-dates" className="text-[11px]">
-              Stay dates
-            </Label>
-            <div className="relative">
-              <Input id="filter-dates" className="pr-8 text-xs" defaultValue="Oct 30 – Nov 3" />
-              <CalendarDays className="absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            </div>
+            <Label className="text-[11px]">Stay dates</Label>
+            <CalendarPicker
+              label="Select stay dates"
+              mode="range"
+              value={dateRange}
+              onChange={setDateRange}
+              className="h-9 w-full text-xs"
+            />
           </div>
           <FilterSelect
             label="Source"
             value="All sources"
             options={['All sources', 'Website', 'Walk-in', 'Clock PMS']}
+            selectedValue={draft.source}
+            onChange={(source) => setDraft((current) => ({ ...current, source }))}
           />
           <FilterSelect
             label="Payment status"
             value="All payments"
             options={['All payments', 'Paid', 'Unpaid', 'Refunded']}
+            selectedValue={draft.payment}
+            onChange={(payment) => setDraft((current) => ({ ...current, payment }))}
           />
         </div>
         <div className="flex flex-wrap justify-end gap-2 border-t pt-3">
-          <Button>
+          <Button onClick={applyFilters}>
             <Filter aria-hidden="true" />
             Apply filters
           </Button>
-          <Button variant="outline">
+          <Button variant="outline" onClick={removeAll}>
             <X aria-hidden="true" />
             Reset
           </Button>
@@ -549,41 +824,49 @@ function FiltersShowcase() {
         <Card className="gap-3 p-4">
           <h3 className="text-sm font-bold">21 · Filter chips</h3>
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="success">
-              Confirmed <X />
-            </Badge>
-            <Badge variant="success">
-              Paid <X />
-            </Badge>
-            <Badge variant="secondary">
-              Hotel: Demo <X />
-            </Badge>
-            <Button variant="outline" size="sm">
-              <Plus />
-              Add filter
-            </Button>
+            <ActiveChips />
+            <Popover open={addOpen} onOpenChange={setAddOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Plus />
+                  Add filter
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-52 p-2">
+                <p className="px-2 py-1 text-xs font-semibold">Add a demo filter</p>
+                {[
+                  ['source', 'Source: Website'],
+                  ['status', 'Booking status: Pending'],
+                  ['payment', 'Payment: Unpaid'],
+                  ['hotel', 'Hotel: Harbor View'],
+                ].map(([id, label]) => (
+                  <Button
+                    key={id}
+                    variant="ghost"
+                    className="h-auto w-full justify-start px-2 py-2 text-xs"
+                    onClick={() => addQuickFilter(id)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </PopoverContent>
+            </Popover>
           </div>
         </Card>
         <Card className="gap-3 p-4">
           <h3 className="text-sm font-bold">22 · Active filter summary</h3>
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <SlidersHorizontal className="size-4 text-muted-foreground" />
-            <span className="text-muted-foreground">3 filters applied</span>
-            <Badge variant="success">
-              Confirmed <X />
-            </Badge>
-            <Badge variant="success">
-              Paid <X />
-            </Badge>
-            <Badge variant="secondary">
-              Hotel: Demo <X />
-            </Badge>
+            <span aria-live="polite" className="text-muted-foreground">
+              {active.length} filters applied
+            </span>
+            <ActiveChips />
           </div>
         </Card>
         <Card className="gap-3 p-4">
           <h3 className="text-sm font-bold">23 · Clear filters</h3>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" onClick={removeAll}>
               Clear filters <X />
             </Button>
             <span className="text-[11px] text-muted-foreground">Removes all active filters.</span>
@@ -595,6 +878,17 @@ function FiltersShowcase() {
 }
 
 function CompositeFields() {
+  const [childCount, setChildCount] = useState('1');
+  const [childAges, setChildAges] = useState(['7 years']);
+  const ageOptions = Array.from({ length: 18 }, (_, age) => `${age} years`);
+
+  function updateChildCount(value: string) {
+    setChildCount(value);
+    setChildAges((current) =>
+      Array.from({ length: Number(value) }, (_, index) => current[index] ?? '7 years'),
+    );
+  }
+
   return (
     <section className="space-y-3">
       <div>
@@ -609,18 +903,111 @@ function CompositeFields() {
           <p className="text-xs text-muted-foreground">
             Adults, children, and each child age are separate pricing inputs.
           </p>
-          <div className="grid gap-3 @sm/design-preview:grid-cols-3">
+          <div
+            className={`grid gap-3 @sm/design-preview:grid-cols-3 ${
+              Number(childCount) >= 2 ? 'pt-36' : ''
+            }`}
+          >
             <div>
               <Label>Adults</Label>
               <Input className="mt-1" defaultValue="2" />
             </div>
             <div>
-              <Label>Children</Label>
-              <Input className="mt-1" defaultValue="1" />
+              <FilterSelect
+                label="Children"
+                value="1"
+                selectedValue={childCount}
+                onChange={updateChildCount}
+                options={['0', '1', '2', '3', '4']}
+              />
             </div>
             <div>
-              <Label>Child age</Label>
-              <Input className="mt-1" defaultValue="7 years" />
+              <div className="relative">
+                {Number(childCount) >= 2 ? (
+                  <div
+                    role="region"
+                    aria-label="Child ages"
+                    className="absolute right-0 bottom-[calc(100%+0.5rem)] z-20 w-64 space-y-2 rounded-lg border bg-popover p-3 text-popover-foreground shadow-lg"
+                  >
+                    <div className="space-y-1">
+                      <Label htmlFor="child-count-bubble" className="text-xs">
+                        Number of children
+                      </Label>
+                      <Select value={childCount} onValueChange={updateChildCount}>
+                        <SelectTrigger
+                          id="child-count-bubble"
+                          aria-label="Number of children"
+                          className="h-8 w-full"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {['0', '1', '2', '3', '4'].map((count) => (
+                            <SelectItem key={count} value={count}>
+                              {count}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {childAges.map((age, index) => (
+                        <div key={index} className="space-y-1">
+                          <Label className="text-[11px]">Child {index + 1} age</Label>
+                          <Select
+                            value={age}
+                            onValueChange={(nextAge) =>
+                              setChildAges((current) =>
+                                current.map((item, ageIndex) =>
+                                  ageIndex === index ? nextAge : item,
+                                ),
+                              )
+                            }
+                          >
+                            <SelectTrigger
+                              aria-label={`Child ${index + 1} age`}
+                              className="h-8 w-full"
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ageOptions.map((option) => (
+                                <SelectItem key={option} value={option}>
+                                  {option}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                <Label>Child age</Label>
+                {Number(childCount) === 0 ? (
+                  <Input className="mt-1" disabled placeholder="No children" />
+                ) : (
+                  <Select
+                    value={childAges[0]}
+                    onValueChange={(age) =>
+                      setChildAges((current) =>
+                        current.map((value, index) => (index === 0 ? age : value)),
+                      )
+                    }
+                  >
+                    <SelectTrigger aria-label="Child 1 age" className="mt-1 h-9 w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ageOptions.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
             </div>
           </div>
           <p className="text-[11px] text-warning">

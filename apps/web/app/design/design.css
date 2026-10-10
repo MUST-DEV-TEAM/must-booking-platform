@@ -143,6 +143,22 @@
   min-height: 100vh;
 }
 
+@keyframes design-progress-stripes {
+  to {
+    background-position-x: 32px;
+  }
+}
+
+.design-progress-indeterminate {
+  animation: design-progress-stripes 900ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .design-progress-indeterminate {
+    animation: none;
+  }
+}
+
 :root[data-preview-viewport='mobile'] [data-slot='dialog-content'] {
   width: calc(390px - 2rem);
   max-width: calc(390px - 2rem);
