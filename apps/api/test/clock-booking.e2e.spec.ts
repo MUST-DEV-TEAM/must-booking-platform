@@ -9,6 +9,7 @@ import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { ClockBookingService } from '../src/integrations/clock/clock-booking.service';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
+import { sandboxStay } from './helpers/sandbox-stay';
 
 // Milestone 11 Task 10's real-sandbox gate. Booking CRUD isn't reachable
 // through an HTTP endpoint yet (same reason as Task 8's getAvailability —
@@ -180,8 +181,8 @@ describe.skipIf(!hasSandboxCredentials)('Clock booking CRUD (real sandbox)', () 
       externalReference: `must-e2e-${randomUUID()}`,
       roomTypeId: localRoomType[0]!.id,
       ratePlanId,
-      startsOn: '2026-08-16',
-      endsOn: '2026-08-18',
+      startsOn: sandboxStay.startsOn,
+      endsOn: sandboxStay.endsOn,
       guest: { email: 'guest@example.test', firstName: 'E2E', lastName: 'Guest', phone: null },
       total: { amount: '100.00', currency: 'EUR' },
     };

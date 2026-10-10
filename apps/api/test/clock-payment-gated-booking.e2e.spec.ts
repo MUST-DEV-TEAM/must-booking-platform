@@ -12,6 +12,7 @@ import { ClockHttpClient } from '../src/integrations/clock/clock-http-client';
 import { ClockBookingService } from '../src/integrations/clock/clock-booking.service';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
+import { sandboxSecondNight, sandboxStay } from './helpers/sandbox-stay';
 
 const sandboxCredentials = () => {
   const url = new URL(process.env.CLOCK_SANDBOX_PMS_API_URL!);
@@ -189,8 +190,8 @@ describe.skipIf(!hasSandboxCredentials)(
       await admin.$executeRaw`
       INSERT INTO inventory_units (tenant_id, property_id, room_type_id, stays_on, available_units)
       VALUES
-        (${tenantId}::uuid, ${propertyId}::uuid, ${localRoomTypeId}::uuid, '2026-08-16'::date, 5),
-        (${tenantId}::uuid, ${propertyId}::uuid, ${localRoomTypeId}::uuid, '2026-08-17'::date, 5)
+        (${tenantId}::uuid, ${propertyId}::uuid, ${localRoomTypeId}::uuid, ${sandboxStay.startsOn}::date, 5),
+        (${tenantId}::uuid, ${propertyId}::uuid, ${localRoomTypeId}::uuid, ${sandboxSecondNight}::date, 5)
     `;
     });
 
@@ -224,8 +225,8 @@ describe.skipIf(!hasSandboxCredentials)(
         .send({
           roomTypeId: localRoomTypeId,
           ratePlanId,
-          startsOn: '2026-08-16',
-          endsOn: '2026-08-18',
+          startsOn: sandboxStay.startsOn,
+          endsOn: sandboxStay.endsOn,
           paymentMethod: 'pay_at_hotel',
           guest: {
             email: 'pay-at-hotel-guest@example.test',
@@ -249,7 +250,7 @@ describe.skipIf(!hasSandboxCredentials)(
       // LocalPmsProvider directly (matching BookingController.cancel), which
       // calls ClockBookingService.cancelRealReservation as a sub-step — real
       // proof the Clock reservation itself gets cancelled, not just the local
-      // row. This booking's arrival (2026-08-16) is inside the property's
+      // row. This booking's arrival (14 days out) is inside the property's
       // default 21-day self-service window relative to real "now" — widen the
       // window to 0 so this cleanup cancel isn't blocked by the guard the
       // dedicated window-guard test below exercises.
@@ -303,8 +304,8 @@ describe.skipIf(!hasSandboxCredentials)(
         .set('Idempotency-Key', `no-rate-plan-${randomUUID()}`)
         .send({
           roomTypeId: localRoomTypeId,
-          startsOn: '2026-08-16',
-          endsOn: '2026-08-18',
+          startsOn: sandboxStay.startsOn,
+          endsOn: sandboxStay.endsOn,
           paymentMethod: 'pay_at_hotel',
           guest: {
             email: 'no-rate-plan-guest@example.test',
@@ -356,8 +357,8 @@ describe.skipIf(!hasSandboxCredentials)(
         .send({
           roomTypeId: localRoomTypeId,
           ratePlanId,
-          startsOn: '2026-08-16',
-          endsOn: '2026-08-18',
+          startsOn: sandboxStay.startsOn,
+          endsOn: sandboxStay.endsOn,
           paymentMethod: 'pay_at_hotel',
           guest: {
             email: 'window-guard-guest@example.test',
@@ -374,7 +375,7 @@ describe.skipIf(!hasSandboxCredentials)(
       expect(row[0]?.externalBookingId).toMatch(/^\d+$/);
 
       // Property default is 21 days before arrival; the booking's arrival
-      // (2026-08-16) is far closer than that to "now" in the test environment,
+      // (14 days out) is closer than that to "now",
       // so self-service cancellation must be blocked before Clock is ever
       // called.
       const bookings = app!.get(LocalPmsProvider);
@@ -445,7 +446,7 @@ describe.skipIf(!hasSandboxCredentials)(
       ) VALUES (
         ${bookingId}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${localRoomTypeId}::uuid,
         ${guestId}::uuid, ${externalReference}, 'PAYMENT_PENDING'::"BookingStatus",
-        'POKPAY'::"BookingPaymentMethod", '2026-08-16'::date, '2026-08-18'::date,
+        'POKPAY'::"BookingPaymentMethod", ${sandboxStay.startsOn}::date, ${sandboxStay.endsOn}::date,
         ${ratePlanId}::uuid, 500.00
       )
     `;
@@ -485,7 +486,12 @@ describe.skipIf(!hasSandboxCredentials)(
         { api: 'pms_api', method: 'GET', path: `/bookings/${externalBookingId}` },
       );
       expect(clockBooking.status).toBe(200);
-      expect((clockBooking.body as { balance: { cents: number } }).balance.cents).toBe(0);
+      // The stay's nights are relative to today, so Clock's own price for them
+      // varies; the 500.00 deposit nets the balance to 0 or leaves a credit
+      // when Clock charges less. An un-netted payment would leave it positive.
+      expect(
+        (clockBooking.body as { balance: { cents: number } }).balance.cents,
+      ).toBeLessThanOrEqual(0);
 
       // GET .../folios/ returns bare numeric folio IDs, not objects
       // (confirmed for real) — each folio's own fields need GET /folios/{id}.
