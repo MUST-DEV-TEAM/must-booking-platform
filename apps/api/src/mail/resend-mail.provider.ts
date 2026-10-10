@@ -10,6 +10,7 @@ import type {
 } from '@must/domain-contracts';
 import { MailDeliveryError, isRetryableHttpStatus } from './mail-delivery-error';
 import { describeMail } from './mail-descriptors';
+import { isReservedTestAddress } from './reserved-address';
 import { missingMailConfiguration } from '../config/environment';
 import {
   MUST_BOOKING_BRAND,
@@ -509,6 +510,13 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
     replyTo?: string | null;
     fromName?: string | null;
   }): Promise<MailSendReceipt> {
+    // Never spend real quota on addresses that cannot receive mail (e.g. the @must.test
+    // staff of the test hotel). Kept out of tests, which use such addresses on purpose.
+    if (process.env.NODE_ENV === 'production' && isReservedTestAddress(message.to))
+      throw new MailDeliveryError(
+        'Not sent: the address belongs to a reserved test domain and can never receive mail.',
+        false,
+      );
     let response: Response;
     try {
       response = await fetch(resendEmailsUrl(), {
