@@ -19,6 +19,7 @@ import {
   CreditCard,
   FileChartColumn,
   Hotel as IconHotel,
+  Images,
   Layers,
   LayoutDashboard,
   LoaderCircle,
@@ -47,6 +48,7 @@ import { DashboardSettings, isSettingsArea, SettingsHub, type SettingsArea } fro
 import { DashboardNotifications, NotificationsInbox } from './notifications';
 import { DashboardReports } from './reports';
 import { RoomManagement } from './[tenantId]/room-management';
+import { PhotosManagement } from './[tenantId]/photos-management';
 import { RateManagement } from './[tenantId]/rate-management';
 import { IntegrationsManagement } from './[tenantId]/integrations-management';
 import { PropertyManagement } from './[tenantId]/property-management';
@@ -114,6 +116,7 @@ const managementNavigation = [
   // capability -- see ownerAdminOnlySections below -- so they intentionally carry no
   // `capabilities` entry here.
   { section: 'accommodations', label: 'Accommodations', icon: IconHotel },
+  { section: 'photos', label: 'Photos', icon: Images, capabilities: ['photos.manage'] },
   { section: 'rates-pricing', label: 'Rates & Pricing', icon: Tags },
   { section: 'staff', label: 'Staff', icon: Users },
   { section: 'reports', label: 'Reports', icon: FileChartColumn, capabilities: ['reports.view'] },
@@ -488,6 +491,9 @@ export function DashboardShell({
       ) : null}
       {selectedProperty && role && canViewSection && section === 'accommodations' ? (
         <RoomManagement propertyId={selectedProperty.id} tenantId={tenantId} />
+      ) : null}
+      {selectedProperty && role && canViewSection && section === 'photos' ? (
+        <PhotosManagement propertyId={selectedProperty.id} tenantId={tenantId} />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'rates-pricing' ? (
         <RateManagement propertyId={selectedProperty.id} tenantId={tenantId} />

@@ -38,6 +38,7 @@ describe('Tenant dashboard shell', () => {
       'Payments',
       'Guests',
       'Accommodations',
+      'Photos',
       'Rates &amp; Pricing',
       'Staff',
       'Reports',
@@ -122,6 +123,27 @@ describe('Tenant dashboard shell', () => {
       expect(markup).toContain(label);
     for (const label of ['Accommodations', 'Rates &amp; Pricing', 'Staff', 'Settings', 'Reports'])
       expect(markup).not.toContain(`>${label}</a>`);
+  });
+
+  it('shows Photos to staff granted photos.manage but not Accommodations', () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(DashboardShell, {
+          tenantId: 'tenant-1',
+          initialData: {
+            user,
+            role: 'STAFF',
+            properties: [{ id: 'property-1', name: 'Grand Hotel' }],
+            capabilities: ['photos.manage'],
+          },
+        }),
+      ),
+    );
+
+    expect(markup).toContain('Photos');
+    expect(markup).not.toContain(`>Accommodations</a>`);
   });
 
   it('only renders the property switcher when a non-staff user has more than one property', () => {
@@ -226,6 +248,7 @@ describe('Tenant dashboard shell', () => {
       'Payments',
       'Guests',
       'Accommodations',
+      'Photos',
       'Rates & Pricing',
       'Staff',
       'Reports',
