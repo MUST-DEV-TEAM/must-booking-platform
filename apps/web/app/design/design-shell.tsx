@@ -6,6 +6,7 @@ import {
   CalendarDays,
   LayoutDashboard,
   ListChecks,
+  PanelLeft,
   Palette,
   Receipt,
   Tags,
@@ -21,6 +22,7 @@ type DesignNavItem = { href: string; label: string; icon: typeof Palette; ready:
 
 export const designNavigation: readonly DesignNavItem[] = [
   { href: '/design', label: 'Components', icon: Palette, ready: true },
+  { href: '/design/navigation', label: 'Navigation', icon: PanelLeft, ready: true },
   { href: '/design/overview', label: 'Overview', icon: LayoutDashboard, ready: false },
   { href: '/design/reservations', label: 'Reservations', icon: ListChecks, ready: false },
   { href: '/design/booking', label: 'Booking detail', icon: Receipt, ready: false },
