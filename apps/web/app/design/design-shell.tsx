@@ -82,11 +82,11 @@ export function DesignShell({ children }: { children: ReactNode }) {
         <ThemeSwitcher className="mb-2 w-full" />
         {/* A full page load, so this page's Tailwind styles don't carry over to the live app. */}
         <a
-          href="/platform"
+          href="/design"
           className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           <ArrowLeft className="size-4" />
-          Back to platform
+          Back to components
         </a>
       </aside>
       <div className="min-w-0 flex-1">
@@ -96,8 +96,8 @@ export function DesignShell({ children }: { children: ReactNode }) {
           </span>
           <div className="flex items-center gap-3">
             <ThemeSwitcher className="w-40" />
-            <a href="/platform" className="text-sm font-semibold text-primary">
-              Back
+            <a href="/design" className="text-sm font-semibold text-primary">
+              Back to components
             </a>
           </div>
         </header>

@@ -40,7 +40,7 @@ describe('Design showcase', () => {
     expect(markup).toContain('aria-current="page"');
     expect(markup).not.toContain('href="/design/overview"');
     expect(markup).not.toContain('href="/dashboard');
-    expect(markup).toContain('href="/platform"');
+    expect(markup).not.toContain('href="/platform"');
     expect(markup).toContain('<p>child</p>');
   });
 });
