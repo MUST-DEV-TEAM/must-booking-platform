@@ -485,7 +485,12 @@ describe.skipIf(!hasSandboxCredentials)(
         { api: 'pms_api', method: 'GET', path: `/bookings/${externalBookingId}` },
       );
       expect(clockBooking.status).toBe(200);
-      expect((clockBooking.body as { balance: { cents: number } }).balance.cents).toBe(0);
+      // The stay's nights are relative to today, so Clock's own price for them
+      // varies; the 500.00 deposit nets the balance to 0 or leaves a credit
+      // when Clock charges less. An un-netted payment would leave it positive.
+      expect(
+        (clockBooking.body as { balance: { cents: number } }).balance.cents,
+      ).toBeLessThanOrEqual(0);
 
       // GET .../folios/ returns bare numeric folio IDs, not objects
       // (confirmed for real) — each folio's own fields need GET /folios/{id}.
