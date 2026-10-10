@@ -24,6 +24,8 @@ export type BookingProjection = {
   startsOn: string;
   endsOn: string;
   status: BookingStatus;
+  // The PMS's own stay status as received (Clock: expected, checked_in, ...).
+  pmsStayStatus: string | null;
   paymentMethod: BookingPaymentMethod;
   adults: number;
   children: number;
@@ -72,7 +74,7 @@ export class BookingProjectionService {
           b.special_requests AS "specialRequests",
           b.room_type_id AS "roomTypeId", rt.name AS "roomTypeName", b.room_id AS "roomId",
           b.rate_plan_id AS "ratePlanId", rp.name AS "ratePlanName",
-          b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
+          b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status, b.pms_stay_status AS "pmsStayStatus",
           b.payment_method AS "paymentMethod",
           b.adults, b.children,
           b.total_amount::text AS "totalAmount", rp.currency, b.external_reference AS "externalReference",

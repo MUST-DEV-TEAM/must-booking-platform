@@ -44,6 +44,7 @@ describe('MailDeliveryService (real Postgres + Redis/BullMQ)', () => {
     sendRefundConfirmationEmail: send,
     sendBookingCancelledEmail: send,
     sendBookingCancelledStaffNotification: send,
+    sendRenderedEmail: send,
     sendVerificationEmail: send,
     sendWelcomeEmail: send,
     sendPasswordResetEmail: send,

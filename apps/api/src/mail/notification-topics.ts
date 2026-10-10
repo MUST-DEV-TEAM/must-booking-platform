@@ -1,16 +1,84 @@
 /**
- * The notifications a property can route (email plan Step 1). Each topic has an
+ * The notifications a property can route (email plan Steps 1-2). Each topic has an
  * optional guest email and an optional staff email; `guest` / `staff` say which
- * exist. Later steps add topics here (owner summary, pre-arrival, post-stay).
+ * exist. `defaultStaff` is who gets the staff email until the property saves its
+ * own list. `optional` staff emails can be muted by each staff member. `daysOffset` marks scheduled topics whose timing the property can set.
  */
 export const NOTIFICATION_TOPICS = {
-  new_booking: { label: 'New booking', guest: true, staff: true },
-  booking_cancelled: { label: 'Booking cancelled', guest: true, staff: true },
-  refund_processed: { label: 'Refund processed', guest: true, staff: false },
-} as const;
+  new_booking: {
+    label: 'New booking',
+    guest: true,
+    staff: true,
+    defaultStaff: 'assigned-or-owners',
+  },
+  booking_cancelled: {
+    label: 'Booking cancelled',
+    guest: true,
+    staff: true,
+    defaultStaff: 'assigned-or-owners',
+  },
+  refund_processed: {
+    label: 'Refund processed',
+    guest: true,
+    staff: true,
+    defaultStaff: 'owners',
+    optional: true,
+  },
+  booking_changed: { label: 'Booking changed', guest: true, staff: false },
+  /** The guest started a booking but the payment was not completed in time. */
+  payment_not_completed: { label: 'Payment not completed', guest: true, staff: false },
+  pre_arrival: {
+    label: 'Pre-arrival reminder',
+    guest: true,
+    staff: false,
+    daysOffset: { default: 3, min: 1, max: 30, label: 'Days before check-in' },
+  },
+  /** Thank-you after check-out, with the property's review links. */
+  post_stay: {
+    label: 'Post-stay thank-you',
+    guest: true,
+    staff: false,
+    daysOffset: { default: 1, min: 0, max: 14, label: 'Days after check-out' },
+  },
+  owner_daily_summary: {
+    label: 'Daily summary',
+    guest: false,
+    staff: true,
+    defaultStaff: 'owners',
+    optional: true,
+  },
+  /** Bookings that need attention and Clock sync problems, sent within minutes. */
+  owner_alerts: {
+    label: 'Problem alerts',
+    guest: false,
+    staff: true,
+    defaultStaff: 'owners',
+  },
+} as const satisfies Record<
+  string,
+  {
+    label: string;
+    guest: boolean;
+    staff: boolean;
+    defaultStaff?: 'assigned-or-owners' | 'owners';
+    /** Non-urgent staff email that each staff member may mute for themselves. */
+    optional?: boolean;
+    daysOffset?: { default: number; min: number; max: number; label: string };
+  }
+>;
 
 export type NotificationTopic = keyof typeof NOTIFICATION_TOPICS;
 
 export function isNotificationTopic(value: string): value is NotificationTopic {
   return Object.hasOwn(NOTIFICATION_TOPICS, value);
+}
+
+export function topicDaysOffset(topic: NotificationTopic) {
+  const definition = NOTIFICATION_TOPICS[topic];
+  return 'daysOffset' in definition ? definition.daysOffset : null;
+}
+
+export function isOptionalStaffTopic(topic: NotificationTopic): boolean {
+  const definition = NOTIFICATION_TOPICS[topic];
+  return 'optional' in definition && definition.optional === true;
 }

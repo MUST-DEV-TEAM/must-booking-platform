@@ -140,6 +140,7 @@ model Property {
   sameDayCutoffTime                 String?                   @map("same_day_cutoff_time") @db.VarChar(5)
   freeCancellationDaysBeforeArrival Int                       @default(21) @map("free_cancellation_days_before_arrival")
   publicWebsiteOrigin               String?                   @map("public_website_origin") @db.VarChar(500)
+  reviewLinks                       Json                      @default("{}") @map("review_links")
   wordpressConnectedAt              DateTime?                 @map("wordpress_connected_at") @db.Timestamptz(6)
   stripeEnabled                     Boolean                   @default(false) @map("stripe_enabled")
   pokpayEnabled                     Boolean                   @default(false) @map("pokpay_enabled")
@@ -184,6 +185,8 @@ model TenantMembership {
   userId            String                    @map("user_id") @db.Uuid
   role              TenantMembershipRole
   isAutoProvisioned Boolean                   @default(false) @map("is_auto_provisioned")
+  /// Skip the non-urgent staff emails (daily summary, refund made) for this person.
+  muteOptionalEmails Boolean                  @default(false) @map("mute_optional_emails")
   createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   organization      Organization              @relation(fields: [tenantId], references: [id], onDelete: Restrict)
@@ -379,11 +382,30 @@ model NotificationTopicSettings {
   topic                 String   @db.VarChar(80)
   guestEnabled          Boolean  @default(true) @map("guest_enabled")
   customStaffRecipients Boolean  @default(false) @map("custom_staff_recipients")
+  staffEnabled          Boolean  @default(true) @map("staff_enabled")
+  daysOffset            Int?     @map("days_offset") @db.SmallInt
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   @@unique([tenantId, propertyId, topic], map: "notification_topic_settings_property_topic_key")
   @@map("notification_topic_settings")
+}
+
+/// A property's own subject and message for one guest email (email plan Step 3).
+model EmailTemplate {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  propertyId      String   @map("property_id") @db.Uuid
+  templateKey     String   @map("template_key") @db.VarChar(80)
+  language        String   @default("en") @db.VarChar(10)
+  subject         String   @db.VarChar(300)
+  body            String
+  updatedByUserId String?  @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, propertyId, templateKey, language], map: "email_templates_property_key_language_key")
+  @@map("email_templates")
 }
 
 model NotificationRecipientRule {
@@ -600,6 +622,8 @@ model Booking {
   roomGuestLastName          String?                  @map("room_guest_last_name") @db.VarChar(100)
   externalBookingId          String?                  @map("external_booking_id") @db.VarChar(64)
   status                     BookingStatus            @default(DRAFT)
+  // The PMS's own stay status as received (Clock: expected, checked_in, ...).
+  pmsStayStatus              String?                  @map("pms_stay_status") @db.VarChar(40)
   paymentMethod              BookingPaymentMethod     @default(STRIPE_CHECKOUT) @map("payment_method")
   startsOn                   DateTime                 @map("starts_on") @db.Date
   endsOn                     DateTime                 @map("ends_on") @db.Date

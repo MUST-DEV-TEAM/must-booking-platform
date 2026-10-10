@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { ClockWorkerService } from './clock-worker.service';
+import { HYDRATE_EVENT_JOB_OPTIONS } from './clock-queue.service';
 
 function fakeJob(id: string, name: string, data: unknown, token = 'token-A', attemptsStarted = 1) {
   return { id, name, data, token, attemptsStarted } as never;
@@ -509,7 +510,7 @@ describe('ClockWorkerService — provider_events recovery sweep (BullMQ job-stat
         connectionId: 'connection-1',
         eventId: 'event-stuck-1',
       },
-      { jobId: 'clock-hydrate:connection-1:event-stuck-1' },
+      { ...HYDRATE_EVENT_JOB_OPTIONS, jobId: 'clock-hydrate:connection-1:event-stuck-1' },
     );
     // The reset is a compare-and-swap against the pre-recreation snapshot
     // (ADR-0031, fifth corrective round), not an unconditional write —

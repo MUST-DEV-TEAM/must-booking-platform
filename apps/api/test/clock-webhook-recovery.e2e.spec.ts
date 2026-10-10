@@ -107,12 +107,20 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
   let tenantB: TestTenant;
   let queuedResponses: QueuedClockResponse[] = [];
   const httpClientStub: Pick<ClockHttpClient, 'request'> = {
-    request: async <T = unknown>() => {
-      // Reserved (shifted) in call order, so which attempt's fetch is
-      // gated is determined by which one calls request() first, not by
-      // which one happens to resolve first.
-      const next = queuedResponses.shift();
-      if (!next) throw new Error('No stubbed Clock response queued.');
+    request: async <T = unknown>(_credentials: unknown, options: { path: string }) => {
+      // Reserved in call order, so which attempt's fetch is gated is
+      // determined by which one calls request() first, not by which one
+      // happens to resolve first. A booking fetch only takes a response for
+      // the same booking id: hydrate-event jobs retry for minutes, so a job
+      // left over from an earlier test can still be retrying and must not
+      // consume a later test's response.
+      const bookingId = /\/bookings\/(\d+)$/.exec(options.path)?.[1];
+      const index = queuedResponses.findIndex((candidate) => {
+        const responseId = (candidate.body as { id?: unknown } | null)?.id;
+        return !bookingId || responseId === undefined || String(responseId) === bookingId;
+      });
+      if (index < 0) throw new Error('No stubbed Clock response queued.');
+      const [next] = queuedResponses.splice(index, 1) as [QueuedClockResponse];
       if (next.gate) await next.gate;
       return { status: next.status, body: next.body } as { status: number; body: T };
     },
@@ -132,6 +140,7 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
     async sendRefundConfirmationEmail() {},
     async sendBookingCancelledEmail() {},
     async sendBookingCancelledStaffNotification() {},
+    async sendRenderedEmail() {},
   };
   const verificationTokens = new Map<string, string>();
 
@@ -1208,7 +1217,7 @@ describe('Clock webhook durable recovery (real Postgres RLS + real Redis/BullMQ)
     const queues = app!.get(ClockQueueService);
     const jobId = clockHydrateEventJobId(tenantA.connectionId, eventId);
     const responsesBefore = queuedResponses.length;
-    queuedResponses = [{ status: 200, body: realBookingDetail() }];
+    queuedResponses = [{ status: 200, body: realBookingDetail({ id: 1 }) }];
     await queues.enqueue(
       'clock.webhooks',
       'hydrate-event',

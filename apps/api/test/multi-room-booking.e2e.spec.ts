@@ -58,6 +58,7 @@ describe('Multi-room booking orders', () => {
     async sendRefundConfirmationEmail() {},
     async sendBookingCancelledEmail() {},
     async sendBookingCancelledStaffNotification() {},
+    async sendRenderedEmail() {},
   };
   const payments = {
     async createCheckoutSession(_context: unknown, command: { bookingId: string }) {

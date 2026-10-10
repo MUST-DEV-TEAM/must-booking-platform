@@ -13,7 +13,7 @@ import {
 import { Public } from '../../tenancy/tenant-context.decorator';
 import { PublicRateLimitGuard } from '../../tenancy/public-rate-limit.guard';
 import {
-  PUBLIC_WEBHOOK_RATE_LIMIT,
+  CLOCK_WEBHOOK_RATE_LIMIT,
   PublicRateLimit,
 } from '../../tenancy/public-rate-limit.decorator';
 import { ClockWebhookService } from './clock-webhook.service';
@@ -31,7 +31,7 @@ export class ClockWebhookController {
   @HttpCode(HttpStatus.OK)
   @Public()
   @UseGuards(PublicRateLimitGuard)
-  @PublicRateLimit(PUBLIC_WEBHOOK_RATE_LIMIT)
+  @PublicRateLimit(CLOCK_WEBHOOK_RATE_LIMIT)
   async receive(
     @Param('webhookPublicId') webhookPublicId: string,
     @Body() body: unknown,

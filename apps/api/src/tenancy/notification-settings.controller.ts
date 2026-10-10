@@ -31,3 +31,28 @@ export class NotificationSettingsController {
     return this.settings.update(c.tenantId, c.propertyId, c.userId, topic, body);
   }
 }
+
+/** Each member's own email preferences: mute the non-urgent staff emails. */
+@Controller('tenants/:tenantId/my-email-preferences')
+export class EmailPreferencesController {
+  constructor(
+    @Inject(NotificationSettingsService) private readonly settings: NotificationSettingsService,
+  ) {}
+
+  @Get()
+  @TenantScoped()
+  get(@Req() request: { tenantContext: { tenantId: string; userId: string } }) {
+    const c = request.tenantContext;
+    return this.settings.getPreferences(c.tenantId, c.userId);
+  }
+
+  @Put()
+  @TenantScoped()
+  update(
+    @Body() body: object,
+    @Req() request: { tenantContext: { tenantId: string; userId: string } },
+  ) {
+    const c = request.tenantContext;
+    return this.settings.updatePreferences(c.tenantId, c.userId, body ?? {});
+  }
+}

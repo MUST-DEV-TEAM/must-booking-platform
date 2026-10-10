@@ -39,6 +39,9 @@ import { AuditLogService } from './tenancy/audit-log.service';
 import { MAIL_PROVIDER } from './mail/mail.provider';
 import { ResendMailProvider } from './mail/resend-mail.provider';
 import { MailDeliveryService } from './mail/mail-delivery.service';
+import { AlertEmailService } from './mail/alert-email.service';
+import { BookingUpdateNotificationService } from './mail/booking-update-notification.service';
+import { ScheduledEmailService } from './mail/scheduled-email.service';
 import { ResendWebhookController } from './mail/resend-webhook.controller';
 import { ResendWebhookService } from './mail/resend-webhook.service';
 import { PaymentNotificationService } from './mail/payment-notification.service';
@@ -50,8 +53,19 @@ import { PropertiesController } from './tenancy/properties.controller';
 import { PropertiesService } from './tenancy/properties.service';
 import { CancellationPoliciesController } from './tenancy/cancellation-policies.controller';
 import { CancellationPoliciesService } from './tenancy/cancellation-policies.service';
-import { NotificationSettingsController } from './tenancy/notification-settings.controller';
+import {
+  EmailPreferencesController,
+  NotificationSettingsController,
+} from './tenancy/notification-settings.controller';
 import { NotificationSettingsService } from './tenancy/notification-settings.service';
+import {
+  EmailActivityController,
+  EmailSenderController,
+} from './tenancy/email-activity.controller';
+import { EmailActivityService } from './tenancy/email-activity.service';
+import { ReviewLinksController, ReviewLinksService } from './tenancy/review-links.controller';
+import { EmailTemplatesController } from './tenancy/email-templates.controller';
+import { EmailTemplatesService } from './tenancy/email-templates.service';
 import { STORAGE_PROVIDER } from './storage/storage.provider';
 import { R2StorageProvider } from './storage/r2-storage.provider';
 import { RoomTypesController } from './tenancy/room-types.controller';
@@ -184,6 +198,11 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PropertiesController,
     CancellationPoliciesController,
     NotificationSettingsController,
+    EmailPreferencesController,
+    EmailTemplatesController,
+    EmailActivityController,
+    EmailSenderController,
+    ReviewLinksController,
     RoomTypesController,
     PropertyImageLibraryController,
     RoomsController,
@@ -238,6 +257,9 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PropertiesService,
     CancellationPoliciesService,
     NotificationSettingsService,
+    EmailTemplatesService,
+    EmailActivityService,
+    ReviewLinksService,
     RoomTypesService,
     RoomsService,
     RatePlansService,
@@ -300,6 +322,9 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     { provide: STORAGE_PROVIDER, useExisting: R2StorageProvider },
     ResendMailProvider,
     MailDeliveryService,
+    ScheduledEmailService,
+    AlertEmailService,
+    BookingUpdateNotificationService,
     ResendWebhookService,
     PaymentNotificationService,
     BookingConfirmationNotificationService,

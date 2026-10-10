@@ -8,6 +8,10 @@
 
 Status: reference document, not an ADR. Written to give Milestone 13 kickoff and every dispatched task a single source of truth for tokens and component names, replacing ad-hoc lookups in the Figma file or the Claude-Design export.
 
+## New UI preview (2026-10-09)
+
+The UI overhaul is built with shadcn/ui and Tailwind at `/design` (platform owners only, demo data), separate from the live dashboard. Components live in `apps/web/app/design/_ui/` and use the tokens above. See [ADR-0032](../decisions/ADR-0032-shadcn-tailwind-for-new-dashboard-ui.md).
+
 ## Sources
 
 1. **Figma file** — `zhCG5chiRQccT69cqBRLaK`, the canonical design source, reachable live via the Figma MCP connection. It has **two pages**, and both matter:

@@ -43,10 +43,12 @@ describe('auth route destination', () => {
     expect(authDestination(user(true), '/platform?section=tenants')).toBe(
       '/platform?section=tenants',
     );
+    expect(authDestination(user(true), '/design')).toBe('/design');
   });
 
   it('rejects unsafe or mismatched return paths', () => {
     expect(authDestination(user(false), '/platform?section=tenants')).toBe('/dashboard');
+    expect(authDestination(user(false), '/design')).toBe('/dashboard');
     expect(authDestination(user(true), '//external.example')).toBe('/platform');
   });
 

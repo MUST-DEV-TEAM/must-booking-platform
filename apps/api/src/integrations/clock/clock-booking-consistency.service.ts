@@ -17,10 +17,12 @@ import {
   ClockHttpError,
   type ClockConnectionCredentials,
 } from './clock-http-client';
+import { isKnownClockBookingStatus } from './clock-booking-status';
 import { ClockRateLimiterService } from './clock-rate-limiter';
 
 type LocalBookingStatus = 'CONFIRMED' | 'CANCELLED';
-type ClockBookingStatus = 'expected' | 'checked_in' | 'checked_out' | 'no_show' | 'canceled';
+// Any string: a status Clock adds later is reported, never a reason to abort the check.
+type ClockBookingStatus = string;
 
 type LocalBookingRow = {
   id: string;
@@ -53,6 +55,12 @@ export type ClockBookingConsistencyFinding =
       type: 'CLOCK_BOOKING_MISSING_LOCALLY';
       clockBookingId: string;
       clockStatus: ClockBookingStatus;
+    }
+  | {
+      type: 'UNKNOWN_CLOCK_STATUS';
+      clockBookingId: string;
+      clockStatus: ClockBookingStatus;
+      localBookingId: string | null;
     };
 
 export type ClockBookingConsistencyResult = {
@@ -241,6 +249,7 @@ export class ClockBookingConsistencyService {
         .map((booking) => [booking.reference_number, booking]),
     );
     const findings: ClockBookingConsistencyFinding[] = [];
+    const unknownStatusIds = new Set<string>();
 
     for (const local of localBookings) {
       const clock =
@@ -254,6 +263,16 @@ export class ClockBookingConsistencyService {
             localStatus: local.status,
           });
         continue; // A cancelled local booking correctly matches a missing Clock reservation.
+      }
+      if (!isKnownClockBookingStatus(clock.status)) {
+        unknownStatusIds.add(String(clock.id));
+        findings.push({
+          type: 'UNKNOWN_CLOCK_STATUS',
+          clockBookingId: String(clock.id),
+          clockStatus: clock.status,
+          localBookingId: local.id,
+        });
+        continue;
       }
       if (!statusesMatch(local.status, clock.status))
         findings.push({
@@ -271,6 +290,13 @@ export class ClockBookingConsistencyService {
       ),
     );
     for (const clock of clockBookings) {
+      if (!isKnownClockBookingStatus(clock.status) && !unknownStatusIds.has(String(clock.id)))
+        findings.push({
+          type: 'UNKNOWN_CLOCK_STATUS',
+          clockBookingId: String(clock.id),
+          clockStatus: clock.status,
+          localBookingId: null,
+        });
       const reference = clock.reference_number;
       if (
         reference &&
@@ -413,7 +439,6 @@ function isClockBookingResource(value: unknown): value is ClockBookingResource {
   return (
     (typeof booking.id === 'string' || typeof booking.id === 'number') &&
     typeof booking.status === 'string' &&
-    ['expected', 'checked_in', 'checked_out', 'no_show', 'canceled'].includes(booking.status) &&
     (booking.reference_number === undefined ||
       booking.reference_number === null ||
       typeof booking.reference_number === 'string') &&

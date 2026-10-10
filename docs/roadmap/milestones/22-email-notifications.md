@@ -107,6 +107,58 @@ Depends on Phase B (queue/log). Numbering continues to avoid renumbering earlier
 | 19 | Per-property own SMTP (level 3) | Property-scoped SMTP credentials, encrypted, tenant-isolated, with test-send. Failed sends recorded as `failed` and surfaced in activity; no cross-sender fallback. Google/Microsoft OAuth connect is a separate follow-up once needed. | Not started |
 | 20 | Admin/Email-tab UI for transports | Platform admin transport screen; property Sender screen with the three levels and verification/test states. | Not started |
 
+### Email plan Step 2a — scheduled emails (done 2026-10-09)
+
+- Guest **pre-arrival reminder** (`pre_arrival`, default 3 days before check-in, 1-30 settable) and **owner daily summary** (`owner_daily_summary`: today's arrivals/departures, in-house tonight, yesterday's new bookings with revenue and cancellations; default recipients = account owners).
+- `ScheduledEmailService` (BullMQ queue `mail.scheduled`, sweep every 15 min, not started under `NODE_ENV=test`) visits every property in its own time zone via the definer function `scheduled_email_properties()`; summary from 07:00, reminders from 09:00 local. Fixed idempotency keys mean one email per booking/order or per owner per day.
+- Reminders go only to direct bookings: Clock-imported reservations (`CLOCK-…`) may come from other channels whose guests we may not email; bookings made the same day are skipped. Multi-room orders get one reminder.
+- Both start **off for every property that existed before** migration `20261009140000_scheduled_emails`; new properties get them on. Settings gained `staffEnabled` and `daysOffset`.
+- New generic mail kind `rendered` (`MailProvider.sendRenderedEmail`, supports reply-to) for emails rendered by the caller.
+
+### Email plan Step 2b — instant alerts (done 2026-10-09)
+
+- `AlertEmailService` (BullMQ queue `mail.alerts`, every 5 min, not started under `NODE_ENV=test`) reads the definer function `notification_alert_events(from, to)` for the last three closed 5-minute windows and sends at most one email per window and recipient (the key names the window), so bursts become one email and re-checks never resend.
+- Property owners (topic `owner_alerts`, "Problem alerts"): bookings entering an attention status (manual review, payment/availability failed, Clock rejected / unknown result), new Clock manual-review items and failed Clock webhook events. Topic `refund_processed` gained a staff email ("refund made"). Both default to the account owners and start **off for properties that existed before** migration `20261009160000_alert_emails`.
+- System owner: the same problems for every hotel plus failed/bounced/complained emails (not its own alert emails) and new hotel signups, sent to `PLATFORM_ALERT_EMAIL`; a daily platform summary (definer function `platform_daily_stats(day, tz)`) from 07:00 in `PLATFORM_TIMEZONE` (default Europe/Tirane). Unset `PLATFORM_ALERT_EMAIL` = none of these.
+
+### Email plan Step 2c — booking changed and payment not completed (done 2026-10-09)
+
+- Guest **booking changed** (`booking_changed`): when Clock hydration moves a confirmed booking's dates or room type (room-number assignment alone is not a change), the guest gets the new details and what they were before. Sent from `ClockBookingHydrationService` after the transaction; key names the new stay, so repeated syncs send once.
+- Guest **payment not completed** (`payment_not_completed`): when `PaymentExpiryService` expires an unpaid booking, the guest is told the booking was not made, that nothing was charged (a late payment is refunded automatically) and gets a "Book again" link to the hotel website. One email per booking or multi-room order.
+- Both are guest-only, direct bookings only (not `CLOCK-…`), and start **off for properties that existed before** migration `20261009180000_booking_update_emails`. Our own platform cannot change a confirmed booking's stay yet, so Clock is the only source of changes today.
+
+### Email plan Step 1 follow-up — staff mute (done 2026-10-09)
+
+- Each member can mute the non-urgent staff emails for themselves: `GET/PUT /tenants/:tenantId/my-email-preferences` (`muteOptionalEmails`), stored on `tenant_memberships.mute_optional_emails`. Optional topics are marked `optional` (today: daily summary, refund made); new booking, cancellation and problem alerts can't be muted. Extra addresses have no account and are never muted.
+
+### Email plan Step 3 — editable guest email templates (done 2026-10-09, API only)
+
+- Table `email_templates` (tenant, property, `template_key`, `language` default `en`, subject, body; RLS like the notification settings). No row = the default wording.
+- Editable: booking confirmed, booking cancelled, refund processed, pre-arrival, booking changed, payment not completed. The property edits the subject and the message; the branded header, booking details and footer stay generated. Placeholders (`{guest_name}`, `{hotel_name}`, `{booking_reference}`, `{check_in}`, `{check_out}`, `{nights}`, `{room}`, `{guests}`, plus `{payment_note}` / `{refund_amount}` where they apply) are filled at send time with escaped values; unknown placeholders are refused on save. Blank lines become paragraphs.
+- API: `GET /tenants/:t/properties/:p/email-templates`, `PUT|DELETE …/:key` (save / reset), `POST …/:key/preview` and `POST …/:key/test` (sends to the signed-in user). Requires `settings.manage`; writes and test sends need a verified email; saves and resets are audited.
+- The three built-in guest emails (confirmed, cancelled, refund) use the saved wording only when one exists (`template` on the mail command); otherwise they are unchanged. The Step 2 emails always render through the template defaults. The editor screen comes with the Email tab (Step 4).
+
+### Email plan Step 4 — Email screen in property settings (done 2026-10-09)
+
+- New Settings area **Emails** (`settingsArea=email`, tabs via `emailTab=recipients|templates|sender|activity`), built from the current dashboard components; the UI overhaul restyles it later.
+- Recipients: per topic, the guest and staff toggles, the reminder timing, and "the usual people" vs. a chosen list (owners, admins, a role, a person, or an extra address), showing who gets it now; plus "My emails" (mute non-urgent emails for yourself).
+- Templates: pick an email, edit subject and message, see the placeholders, preview (sandboxed frame), send a test to yourself, reset to default. Plain text only; no HTML mode.
+- Sender: today's from address and reply-to (the property's support email, set under Branding). Hotel-name sender and own domains are Step 5.
+- Activity: `GET /tenants/:t/properties/:p/email-activity?filter=all|problems&page&pageSize` lists the property's `email_messages` newest first, with booking reference and error. `POST …/email-activity/:id/resend` sends a FAILED email again (audited `email.resent`, needs a verified email): the row goes back to QUEUED and the email is rebuilt from its finished queue job, which is now kept for 7 days (`RESEND_WINDOW_DAYS`). Secret-link emails (verification, password reset, invitations) are never kept, so they can't be resent. `GET …/email-sender` returns the sender details. All need `settings.manage`.
+
+### Email plan Step 6 — post-stay thank-you with review links (done 2026-10-09)
+
+- Guest topic `post_stay` ("Post-stay thank-you"): sent from 10:00 local time a set number of days after check-out (default 1, 0-14 settable). Confirmed direct bookings only (not `CLOCK-…`); cancelled bookings never qualify and stays Clock marked `no_show` (`bookings.pms_stay_status`) are skipped. One email per booking or multi-room order (key `post-stay/<booking>`). Starts **off for properties that existed before** migration `20261010090000_post_stay_emails`.
+- Review links live on `properties.review_links` (JSONB): Google, Tripadvisor, Booking.com, Facebook, the hotel website, and a private feedback link. `GET/PUT /tenants/:t/properties/:p/review-links` (`settings.manage`; saves need a verified email and are audited); only https addresses are accepted, empty values clear a link. The email shows a button per link that is set; every guest gets the same links (no review gating).
+- The wording is editable as template `post_stay`; the Review links card sits in the Emails > Templates tab.
+
+### Email plan Step 5a — hotel name as sender (done 2026-10-09)
+
+- Guest emails (booking confirmed, cancelled, refund, pre-arrival, booking changed, payment not completed, post-stay, template tests) are sent as `"<Hotel name>" <our address>`: the display name is the property's name (quotes, angle brackets and line breaks stripped), the address stays the one in `MAIL_FROM_EMAIL`. Staff, owner, account and platform emails keep the configured sender.
+- The built-in guest emails (confirmed, cancelled, refund) now also set reply-to to the property's support email, like the newer guest emails already did.
+- `RenderedEmailCommand.fromName` carries the name for caller-rendered emails.
+- Still to do (Step 5b): move `MAIL_FROM_EMAIL` to a `mail.must.al` address (DNS records on must.al, then a server setting), and let a hotel verify its own domain.
+
 ### Phase F — Out of scope / later (recorded, not scheduled)
 
 - In-app mailbox / inbound email parsing and threading.

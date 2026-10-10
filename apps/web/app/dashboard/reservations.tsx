@@ -38,6 +38,8 @@ export type Reservation = {
   startsOn: string;
   endsOn: string;
   status: string;
+  // The PMS's own stay status as received (Clock: expected, checked_in, ...).
+  pmsStayStatus?: string | null;
   paymentMethod: string;
   total: { amount: string; currency: string };
   paidAmount: string;
@@ -128,7 +130,15 @@ export function DashboardReservations({
         accessorKey: 'status',
         header: 'Status',
         enableSorting: false,
-        cell: ({ row }) => <StatusBadge {...reservationStatusBadge(row.original.status)} />,
+        cell: ({ row }) => {
+          const stay = pmsStayStatusBadge(row.original.pmsStayStatus);
+          return (
+            <>
+              <StatusBadge {...reservationStatusBadge(row.original.status)} />
+              {stay ? <StatusBadge {...stay} /> : null}
+            </>
+          );
+        },
       },
       {
         id: 'payment',
@@ -467,6 +477,20 @@ function ReservationDetails({
               <StatusBadge {...reservationStatusBadge(booking.status)} />
             </dd>
           </div>
+          {booking.pmsStayStatus ? (
+            <div>
+              <dt>Stay status in Clock</dt>
+              <dd>
+                <StatusBadge
+                  {...(pmsStayStatusBadge(booking.pmsStayStatus) ?? {
+                    domain: 'booking' as const,
+                    state: booking.pmsStayStatus === 'canceled' ? 'cancelled' : 'pending',
+                    label: formatStatus(booking.pmsStayStatus),
+                  })}
+                />
+              </dd>
+            </div>
+          ) : null}
           <div>
             <dt>Payment</dt>
             <dd>
@@ -588,6 +612,24 @@ export function reservationStatusBadge(status: string) {
     return { domain: 'booking' as const, state: 'pending' as const, label: 'Needs review' };
   }
   return { domain: 'booking' as const, state: 'pending' as const, label };
+}
+
+/** A second badge for the PMS stay status, only where it adds something to
+ * the booking status: arrival, departure, no-show, or a status MUST does not
+ * recognise. `expected` and `canceled` repeat Confirmed/Cancelled. */
+export function pmsStayStatusBadge(value: string | null | undefined) {
+  if (!value || value === 'expected' || value === 'canceled') return null;
+  if (value === 'checked_in')
+    return { domain: 'booking' as const, state: 'checked-in' as const, label: 'Checked in' };
+  if (value === 'checked_out')
+    return { domain: 'booking' as const, state: 'checked-out' as const, label: 'Checked out' };
+  if (value === 'no_show')
+    return { domain: 'booking' as const, state: 'no-show' as const, label: 'No-show' };
+  return {
+    domain: 'booking' as const,
+    state: 'pending' as const,
+    label: `Clock: ${formatStatus(value)}`,
+  };
 }
 
 function formatPaymentMethod(value: string) {

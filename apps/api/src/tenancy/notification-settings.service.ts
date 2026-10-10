@@ -10,6 +10,8 @@ import { staffRecipients } from '../mail/notification-recipients';
 import {
   NOTIFICATION_TOPICS,
   isNotificationTopic,
+  isOptionalStaffTopic,
+  topicDaysOffset,
   type NotificationTopic,
 } from '../mail/notification-topics';
 import { AuditLogService } from './audit-log.service';
@@ -28,6 +30,12 @@ type RuleRow = {
   email: string | null;
 };
 
+/** Whether this person skips the non-urgent staff emails, and which ones those are. */
+export type EmailPreferences = {
+  muteOptionalEmails: boolean;
+  optionalEmails: Array<{ topic: string; label: string }>;
+};
+
 /** Per-property choice of who receives each notification (email plan Step 1). */
 @Injectable()
 export class NotificationSettingsService {
@@ -35,6 +43,46 @@ export class NotificationSettingsService {
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(AuditLogService) private readonly audit: AuditLogService,
   ) {}
+
+  /** The signed-in member's own email preferences in this hotel account. */
+  getPreferences(tenantId: string, userId: string): Promise<EmailPreferences> {
+    return this.database.withTenantTransaction({ tenantId }, async (tx) =>
+      this.preferences(tx, tenantId, userId),
+    );
+  }
+
+  updatePreferences(tenantId: string, userId: string, body: object): Promise<EmailPreferences> {
+    const value = body as { muteOptionalEmails?: unknown };
+    if (typeof value.muteOptionalEmails !== 'boolean')
+      throw new BadRequestException('muteOptionalEmails must be true or false.');
+    const mute = value.muteOptionalEmails;
+    return this.database.withTenantTransaction({ tenantId }, async (tx) => {
+      await tx.$executeRaw`
+        UPDATE tenant_memberships SET mute_optional_emails = ${mute}, updated_at = now()
+        WHERE tenant_id = ${tenantId}::uuid AND user_id = ${userId}::uuid
+      `;
+      return this.preferences(tx, tenantId, userId);
+    });
+  }
+
+  private async preferences(
+    tx: TenantTransaction,
+    tenantId: string,
+    userId: string,
+  ): Promise<EmailPreferences> {
+    const rows = await tx.$queryRaw<Array<{ mute: boolean }>>`
+      SELECT mute_optional_emails AS mute FROM tenant_memberships
+      WHERE tenant_id = ${tenantId}::uuid AND user_id = ${userId}::uuid
+    `;
+    if (!rows[0]) throw new NotFoundException('Membership was not found.');
+    const topics = Object.keys(NOTIFICATION_TOPICS) as NotificationTopic[];
+    return {
+      muteOptionalEmails: rows[0].mute,
+      optionalEmails: topics
+        .filter(isOptionalStaffTopic)
+        .map((topic) => ({ topic, label: NOTIFICATION_TOPICS[topic].label })),
+    };
+  }
 
   get(tenantId: string, propertyId: string): Promise<NotificationSettingsResponse> {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
@@ -75,11 +123,15 @@ export class NotificationSettingsService {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       await this.requireTargetsBelongHere(tx, tenantId, propertyId, input.rules);
       await tx.$executeRaw`
-        INSERT INTO notification_topic_settings (tenant_id, property_id, topic, guest_enabled, custom_staff_recipients)
-        VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${topic}, ${input.guestEnabled}, ${input.customStaffRecipients})
+        INSERT INTO notification_topic_settings
+          (tenant_id, property_id, topic, guest_enabled, staff_enabled, custom_staff_recipients, days_offset)
+        VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${topic}, ${input.guestEnabled},
+          ${input.staffEnabled ?? true}, ${input.customStaffRecipients}, ${input.daysOffset ?? null}::smallint)
         ON CONFLICT (tenant_id, property_id, topic) DO UPDATE
         SET guest_enabled = EXCLUDED.guest_enabled,
+          staff_enabled = EXCLUDED.staff_enabled,
           custom_staff_recipients = EXCLUDED.custom_staff_recipients,
+          days_offset = EXCLUDED.days_offset,
           updated_at = CURRENT_TIMESTAMP
       `;
       await tx.$executeRaw`
@@ -117,8 +169,17 @@ export class NotificationSettingsService {
     topic: NotificationTopic,
   ): Promise<NotificationTopicSettings> {
     const definition = NOTIFICATION_TOPICS[topic];
-    const settings = await tx.$queryRaw<Array<{ guestEnabled: boolean; custom: boolean }>>`
-      SELECT guest_enabled AS "guestEnabled", custom_staff_recipients AS custom
+    const days = topicDaysOffset(topic);
+    const settings = await tx.$queryRaw<
+      Array<{
+        guestEnabled: boolean;
+        staffEnabled: boolean;
+        custom: boolean;
+        daysOffset: number | null;
+      }>
+    >`
+      SELECT guest_enabled AS "guestEnabled", staff_enabled AS "staffEnabled",
+        custom_staff_recipients AS custom, days_offset AS "daysOffset"
       FROM notification_topic_settings
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND topic = ${topic}
     `;
@@ -135,7 +196,16 @@ export class NotificationSettingsService {
       hasGuestEmail: definition.guest,
       hasStaffEmail: definition.staff,
       guestEnabled: definition.guest && (settings[0]?.guestEnabled ?? true),
+      staffEnabled: definition.staff && (settings[0]?.staffEnabled ?? true),
       customStaffRecipients: settings[0]?.custom ?? false,
+      daysOffset: days
+        ? {
+            value: settings[0]?.daysOffset ?? days.default,
+            min: days.min,
+            max: days.max,
+            label: days.label,
+          }
+        : null,
       rules: rows.map((row) => this.rule(row)),
       staffRecipients: definition.staff
         ? (await staffRecipients(tx, { tenantId, propertyId }, topic)).map(({ email }) => ({
@@ -169,10 +239,27 @@ export class NotificationSettingsService {
     if (value.rules.length > MAX_RULES)
       throw new BadRequestException(`At most ${MAX_RULES} recipients per notification.`);
     const definition = NOTIFICATION_TOPICS[topic];
-    if (!definition.guest && !value.guestEnabled)
-      throw new BadRequestException('This notification has no guest email.');
     if (!definition.staff && (value.customStaffRecipients || value.rules.length))
       throw new BadRequestException('This notification has no staff email.');
+    if (value.staffEnabled !== undefined && typeof value.staffEnabled !== 'boolean')
+      throw new BadRequestException('staffEnabled must be true or false.');
+    if (!definition.staff && value.staffEnabled === false)
+      throw new BadRequestException('This notification has no staff email.');
+    const days = topicDaysOffset(topic);
+    let daysOffset: number | null = null;
+    if (value.daysOffset !== undefined && value.daysOffset !== null) {
+      if (!days) throw new BadRequestException('This notification has no timing to set.');
+      if (
+        typeof value.daysOffset !== 'number' ||
+        !Number.isInteger(value.daysOffset) ||
+        value.daysOffset < days.min ||
+        value.daysOffset > days.max
+      )
+        throw new BadRequestException(
+          `${days.label} must be a whole number from ${days.min} to ${days.max}.`,
+        );
+      daysOffset = value.daysOffset;
+    }
     if (!value.customStaffRecipients && value.rules.length)
       throw new BadRequestException('Turn on custom recipients to choose who gets this email.');
     const seen = new Set<string>();
@@ -185,9 +272,12 @@ export class NotificationSettingsService {
       rules.push(rule);
     }
     return {
-      guestEnabled: value.guestEnabled,
+      // A topic with no guest email ignores the guest switch.
+      guestEnabled: definition.guest ? value.guestEnabled : true,
+      staffEnabled: definition.staff ? ((value.staffEnabled as boolean | undefined) ?? true) : true,
       customStaffRecipients: value.customStaffRecipients,
       rules,
+      daysOffset,
     };
   }
 

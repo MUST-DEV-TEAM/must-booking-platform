@@ -41,7 +41,11 @@ export async function fetchSessionUser(): Promise<SessionUser | null> {
 
 export function authDestination(user: SessionUser, returnTo?: string): string {
   if (returnTo && isSafeReturnPath(returnTo)) {
-    if (user.isPlatformAdmin && returnTo.startsWith('/platform')) return returnTo;
+    if (
+      user.isPlatformAdmin &&
+      (returnTo.startsWith('/platform') || returnTo.startsWith('/design'))
+    )
+      return returnTo;
     if (!user.isPlatformAdmin && returnTo.startsWith('/dashboard')) return returnTo;
   }
   return user.isPlatformAdmin ? '/platform' : '/dashboard';
