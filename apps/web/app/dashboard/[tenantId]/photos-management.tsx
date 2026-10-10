@@ -38,10 +38,8 @@ export function PhotosManagement({
           const imageResponse = await fetch(`${roomTypesUrl}/${roomType.id}/images`, {
             credentials: 'include',
           });
-          return [
-            roomType.id,
-            imageResponse.ok ? ((await imageResponse.json()) as RoomTypeImage[]) : [],
-          ] as const;
+          if (!imageResponse.ok) throw new Error(`Unable to load photos for ${roomType.name}.`);
+          return [roomType.id, (await imageResponse.json()) as RoomTypeImage[]] as const;
         }),
       );
       return { roomTypes, images: Object.fromEntries(images) as Record<string, RoomTypeImage[]> };
