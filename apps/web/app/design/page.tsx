@@ -3,14 +3,19 @@
 import {
   BedDouble,
   CalendarCheck,
+  Check,
+  CircleHelp,
   Info,
+  Minus,
   MoreHorizontal,
   Plus,
   RefreshCw,
   Search,
   TriangleAlert,
   Wallet,
+  X,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { Alert, AlertDescription, AlertTitle } from './_ui/alert';
@@ -124,7 +129,7 @@ const demoBookings: Array<{
 const sections = [
   ['colors', 'Colors'],
   ['type', 'Typography'],
-  ['buttons', 'Buttons'],
+  ['responsive', 'Responsive behavior'],
   ['badges', 'Badges and statuses'],
   ['forms', 'Form controls'],
   ['cards', 'Cards and stats'],
@@ -138,29 +143,33 @@ const sections = [
 const typeScale = [
   {
     name: 'Display',
-    spec: '32 / 40 · Bold',
-    className: 'text-[32px] leading-10 font-bold tracking-tight',
+    spec: '24 / 32 → 28 / 36 → 32 / 40 · mobile / tablet / desktop',
+    className:
+      'text-2xl leading-8 font-bold tracking-tight sm:text-[28px] sm:leading-9 lg:text-[32px] lg:leading-10',
     sample: '€12,480.00 this week',
     use: 'Hero numbers, empty-state headlines',
   },
   {
     name: 'Page title',
-    spec: '28 / 36 · Extra bold',
-    className: 'text-[28px] leading-9 font-extrabold tracking-tight',
+    spec: '24 / 32 → 26 / 34 → 28 / 36 · mobile / tablet / desktop',
+    className:
+      'text-2xl leading-8 font-extrabold tracking-tight sm:text-[26px] sm:leading-[34px] lg:text-[28px] lg:leading-9',
     sample: 'Reservations',
     use: 'One per page',
   },
   {
     name: 'Section title',
-    spec: '24 / 32 · Extra bold',
-    className: 'text-2xl leading-8 font-extrabold tracking-tight',
+    spec: '20 / 28 → 22 / 30 → 24 / 32 · mobile / tablet / desktop',
+    className:
+      'text-xl leading-7 font-extrabold tracking-tight sm:text-[22px] sm:leading-[30px] lg:text-2xl lg:leading-8',
     sample: 'Arrivals today',
     use: 'Major blocks inside a page',
   },
   {
     name: 'Panel title',
-    spec: '20 / 28 · Semibold',
-    className: 'text-xl leading-7 font-semibold',
+    spec: '18 / 24 → 19 / 27 → 20 / 28 · mobile / tablet / desktop',
+    className:
+      'text-lg leading-6 font-semibold sm:text-[19px] sm:leading-[27px] lg:text-xl lg:leading-7',
     sample: 'Guest details',
     use: 'Cards, dialogs, side panels',
   },
@@ -207,6 +216,77 @@ const swatches = [
   ['Info', 'bg-info', 'Notes, deposits'],
 ] as const;
 
+const themePreviews = [
+  { name: 'Neutral', theme: 'neutral' },
+  { name: 'Pine', theme: 'pine' },
+  { name: 'Ocean', theme: 'ocean' },
+  { name: 'Terracotta', theme: 'terracotta' },
+] as const;
+
+const statusGroups = [
+  {
+    name: 'Inventory',
+    statuses: [
+      { label: 'Available', variant: 'success', icon: Check },
+      { label: 'Low availability', variant: 'warning', icon: TriangleAlert },
+      { label: 'Blocked', variant: 'muted', icon: Minus },
+      { label: 'Maintenance', variant: 'warning', icon: TriangleAlert },
+      { label: 'Sold out', variant: 'muted', icon: Minus },
+      { label: 'Inventory conflict', variant: 'danger', icon: X },
+    ],
+  },
+  {
+    name: 'Booking',
+    statuses: [
+      { label: 'Confirmed', variant: 'success', icon: Check },
+      { label: 'Pending review', variant: 'warning', icon: TriangleAlert },
+      { label: 'Cancelled', variant: 'danger', icon: X },
+      { label: 'Completed', variant: 'muted', icon: Minus },
+      { label: 'On request', variant: 'info', icon: Info },
+      { label: 'Pending confirmation', variant: 'warning', icon: TriangleAlert },
+    ],
+  },
+  {
+    name: 'Payment',
+    statuses: [
+      { label: 'Paid', variant: 'success', icon: Check },
+      { label: 'Pending', variant: 'warning', icon: TriangleAlert },
+      { label: 'Failed', variant: 'danger', icon: X },
+      { label: 'Refunded', variant: 'info', icon: Info },
+      { label: 'Partially refunded', variant: 'info', icon: Info },
+      { label: 'Unpaid', variant: 'muted', icon: Minus },
+    ],
+  },
+  {
+    name: 'Stay',
+    statuses: [
+      { label: 'Checked-in', variant: 'success', icon: Check },
+      { label: 'Checked-out', variant: 'muted', icon: Minus },
+      { label: 'Due in', variant: 'info', icon: Info },
+      { label: 'No-show', variant: 'danger', icon: X },
+      { label: 'Due out', variant: 'warning', icon: TriangleAlert },
+    ],
+  },
+  {
+    name: 'Provider / PMS',
+    statuses: [
+      { label: 'Verified', variant: 'success', icon: Check },
+      { label: 'Degraded', variant: 'warning', icon: TriangleAlert },
+      { label: 'Failed', variant: 'danger', icon: X },
+      { label: 'Syncing', variant: 'info', icon: RefreshCw },
+      { label: 'Disconnected', variant: 'muted', icon: CircleHelp },
+      { label: 'Source conflict', variant: 'danger', icon: X },
+    ],
+  },
+] as const satisfies ReadonlyArray<{
+  name: string;
+  statuses: ReadonlyArray<{
+    label: string;
+    variant: 'success' | 'warning' | 'danger' | 'info' | 'muted';
+    icon: LucideIcon;
+  }>;
+}>;
+
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
     <section id={id} aria-labelledby={`${id}-title`} className="scroll-mt-6 space-y-4">
@@ -245,25 +325,41 @@ export default function DesignShowcasePage() {
 
       <Section id="colors" title="Colors">
         <p className="text-sm text-muted-foreground">
-          Neutral by default. Every color is a token, so a theme only swaps these values. Switch the
-          theme in the sidebar to see the whole page change.
+          Compare the same semantic tokens across the neutral, pine, ocean, and terracotta themes.
+          Each preview uses the page&apos;s swappable color tokens.
         </p>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {swatches.map(([name, swatch, use]) => (
-            <div key={name} className="overflow-hidden rounded-lg border bg-card">
-              <div className={`h-14 border-b ${swatch}`} />
-              <div className="space-y-0.5 p-3">
-                <div className="text-sm font-bold">{name}</div>
-                <div className="text-xs text-muted-foreground">{use}</div>
+        <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
+          {themePreviews.map(({ name, theme }) => (
+            <Card
+              key={theme}
+              data-theme-preview={theme}
+              className="design-color-variant gap-4 px-4 py-4"
+            >
+              <div>
+                <h3 className="font-bold">{name}</h3>
+                <p className="text-xs text-muted-foreground">Semantic color tokens</p>
               </div>
-            </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                {swatches.map(([token, swatch, use]) => (
+                  <div key={token} className="flex min-w-0 items-center gap-2">
+                    <span
+                      aria-hidden="true"
+                      className={`size-5 shrink-0 rounded border border-border ${swatch}`}
+                    />
+                    <span className="truncate text-xs" title={use}>
+                      {token}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </Card>
           ))}
         </div>
       </Section>
 
       <Section id="type" title="Typography">
         <p className="text-sm text-muted-foreground">
-          One family (Manrope), eight sizes. Sizes are font size / line height in px.
+          One family (Manrope), eight sizes. Titles scale at mobile, tablet, and desktop widths.
         </p>
         <Card className="gap-0 divide-y px-0 py-0">
           {typeScale.map(({ name, spec, className, sample, use }) => (
@@ -318,51 +414,78 @@ export default function DesignShowcasePage() {
         </div>
       </Section>
 
-      <Section id="buttons" title="Buttons">
-        <Row>
-          <Button>
-            <Plus /> New booking
-          </Button>
-          <Button variant="secondary">Secondary</Button>
-          <Button variant="outline">Outline</Button>
-          <Button variant="ghost">Ghost</Button>
-          <Button variant="link">Link</Button>
-          <Button variant="destructive">Cancel booking</Button>
-        </Row>
-        <Row>
-          <Button size="sm">Small</Button>
-          <Button size="lg">Large</Button>
-          <Button size="icon" variant="outline" aria-label="Refresh">
-            <RefreshCw />
-          </Button>
-          <Button disabled>Disabled</Button>
-          <Button disabled>
-            <RefreshCw className="animate-spin" /> Syncing with Clock
-          </Button>
-        </Row>
+      <Section id="responsive" title="Responsive behavior">
+        <p className="text-sm text-muted-foreground">
+          Resize the preview to see typography, navigation, and content reflow at mobile
+          (&lt;640px), tablet (640–1023px), and desktop (≥1024px) widths.
+        </p>
+        <Card className="gap-5 px-5 py-5">
+          <div className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-muted-foreground">Responsive page header</p>
+              <h3 className="text-xl leading-7 font-bold tracking-tight sm:text-2xl sm:leading-8 lg:text-[28px] lg:leading-9">
+                Reservations
+              </h3>
+            </div>
+            <p className="text-sm text-muted-foreground">MH-1042 · 12–15 Oct</p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              ['Arrivals', '8'],
+              ['In house', '38'],
+              ['Departures', '5'],
+              ['Rooms to clean', '7'],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-lg border bg-background p-3">
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className="mt-1 text-xl font-bold tabular-nums">{value}</p>
+              </div>
+            ))}
+          </div>
+          <div className="grid gap-3 lg:grid-cols-[180px_minmax(0,1fr)]">
+            <nav
+              aria-label="Responsive navigation example"
+              className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-1"
+            >
+              {['Overview', 'Reservations', 'Availability'].map((item) => (
+                <span key={item} className="rounded-md bg-secondary px-3 py-2 text-sm font-medium">
+                  {item}
+                </span>
+              ))}
+            </nav>
+            <div className="min-w-0 rounded-lg border p-3 text-sm">
+              <p className="font-semibold">Reservation list</p>
+              <p className="mt-1 text-muted-foreground">
+                Content stacks on narrow screens, then uses columns and a side navigation as space
+                allows.
+              </p>
+            </div>
+          </div>
+        </Card>
       </Section>
 
       <Section id="badges" title="Badges and statuses">
-        <Row>
-          <span className="w-20 text-sm text-muted-foreground">Booking</span>
-          {(
-            ['pending', 'confirmed', 'checked-in', 'checked-out', 'cancelled', 'no-show'] as const
-          ).map((status) => (
-            <BookingStatusBadge key={status} status={status} />
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          {statusGroups.map(({ name, statuses }) => (
+            <Card key={name} className="gap-3 px-4 py-4">
+              <h3 className="text-sm font-bold">{name}</h3>
+              <div className="flex flex-col items-start gap-2">
+                {statuses.map(({ label, variant, icon: Icon }) => (
+                  <Badge key={label} variant={variant}>
+                    <Icon aria-hidden="true" />
+                    {label}
+                  </Badge>
+                ))}
+              </div>
+            </Card>
           ))}
-        </Row>
-        <Row>
-          <span className="w-20 text-sm text-muted-foreground">Payment</span>
-          {(['paid', 'partial', 'unpaid', 'refunded', 'failed'] as const).map((status) => (
-            <PaymentStatusBadge key={status} status={status} />
-          ))}
-        </Row>
-        <Row>
-          <span className="w-20 text-sm text-muted-foreground">Channel</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="mr-1 text-sm text-muted-foreground">Channel</span>
           {(['website', 'clock', 'booking', 'airbnb', 'walk-in'] as const).map((channel) => (
             <ChannelBadge key={channel} channel={channel} />
           ))}
-        </Row>
+        </div>
       </Section>
 
       <Section id="forms" title="Form controls">

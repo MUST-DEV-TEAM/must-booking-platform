@@ -13,7 +13,7 @@ describe('Design showcase', () => {
     for (const heading of [
       'Colors',
       'Typography',
-      'Buttons',
+      'Responsive behavior',
       'Badges and statuses',
       'Form controls',
       'Cards and stats',
@@ -25,6 +25,14 @@ describe('Design showcase', () => {
     ]) {
       expect(markup).toContain(`>${heading}</h2>`);
     }
+    expect(markup).toContain('>Neutral</h3>');
+    expect(markup).toContain('>Pine</h3>');
+    expect(markup).toContain('>Ocean</h3>');
+    expect(markup).toContain('>Terracotta</h3>');
+    expect(markup).toContain('Inventory conflict');
+    expect(markup).toContain('Partially refunded');
+    expect(markup).toContain('Provider / PMS');
+    expect(markup).not.toContain('>Buttons</h2>');
     expect(markup).toContain('MH-1042');
     expect(markup).not.toContain('EBR-');
   });
