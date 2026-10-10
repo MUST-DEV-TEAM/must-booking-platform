@@ -6,18 +6,21 @@ import {
   Check,
   CircleHelp,
   Info,
+  Monitor,
   Minus,
   MoreHorizontal,
-  Plus,
   RefreshCw,
   Search,
+  Smartphone,
+  Tablet,
   TriangleAlert,
   Wallet,
   X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
+import { useIsPreviewFrame } from './_lib/use-preview-frame';
 import { Alert, AlertDescription, AlertTitle } from './_ui/alert';
 import { Avatar, AvatarFallback } from './_ui/avatar';
 import { Badge } from './_ui/badge';
@@ -129,7 +132,6 @@ const demoBookings: Array<{
 const sections = [
   ['colors', 'Colors'],
   ['type', 'Typography'],
-  ['responsive', 'Responsive behavior'],
   ['badges', 'Badges and statuses'],
   ['forms', 'Form controls'],
   ['cards', 'Cards and stats'],
@@ -204,24 +206,25 @@ const typeScale = [
 ] as const;
 
 const swatches = [
-  ['Primary', 'bg-primary', 'Buttons, links, active items'],
-  ['Primary hover', 'bg-primary-hover', 'Hover on primary'],
-  ['Selected', 'bg-secondary', 'Selected rows and nav'],
-  ['Canvas', 'bg-background', 'Page background'],
-  ['Surface', 'bg-card', 'Cards and panels'],
-  ['Accent', 'bg-brass', 'Charts, highlights'],
-  ['Success', 'bg-success', 'Confirmed, paid'],
-  ['Warning', 'bg-warning', 'Pending, unpaid'],
-  ['Danger', 'bg-destructive', 'Cancelled, errors'],
-  ['Info', 'bg-info', 'Notes, deposits'],
+  { name: 'Primary', token: '--primary', value: '#18181b', swatch: 'bg-primary' },
+  { name: 'Primary hover', token: '--primary-hover', value: '#3f3f46', swatch: 'bg-primary-hover' },
+  { name: 'Selected', token: '--secondary', value: '#efeff1', swatch: 'bg-secondary' },
+  { name: 'Canvas', token: '--background', value: '#f6f6f7', swatch: 'bg-background' },
+  { name: 'Surface', token: '--card', value: '#ffffff', swatch: 'bg-card' },
+  { name: 'Accent', token: '--brass', value: '#8b8b94', swatch: 'bg-brass' },
+  { name: 'Success', token: '--success', value: '#027a48', swatch: 'bg-success' },
+  { name: 'Warning', token: '--warning', value: '#b54708', swatch: 'bg-warning' },
+  { name: 'Danger', token: '--destructive', value: '#b42318', swatch: 'bg-destructive' },
+  { name: 'Info', token: '--info', value: '#0369a1', swatch: 'bg-info' },
 ] as const;
 
-const themePreviews = [
-  { name: 'Neutral', theme: 'neutral' },
-  { name: 'Pine', theme: 'pine' },
-  { name: 'Ocean', theme: 'ocean' },
-  { name: 'Terracotta', theme: 'terracotta' },
+const viewportOptions = [
+  { value: 'desktop', label: 'Desktop', width: 1440, icon: Monitor },
+  { value: 'tablet', label: 'Tablet', width: 768, icon: Tablet },
+  { value: 'mobile', label: 'Mobile', width: 390, icon: Smartphone },
 ] as const;
+
+type Viewport = (typeof viewportOptions)[number]['value'];
 
 const statusGroups = [
   {
@@ -303,6 +306,96 @@ function Row({ children }: { children: ReactNode }) {
 }
 
 export default function DesignShowcasePage() {
+  const isPreviewFrame = useIsPreviewFrame();
+
+  if (isPreviewFrame) return <DesignShowcaseContent />;
+  return <ViewportPreview />;
+}
+
+function ViewportPreview() {
+  const [viewport, setViewport] = useState<Viewport>('desktop');
+  const [availableWidth, setAvailableWidth] = useState(1440);
+  const [previewHeight, setPreviewHeight] = useState(768);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+  const selected = viewportOptions.find((option) => option.value === viewport)!;
+  const scale = Math.max(0.1, Math.min(1, availableWidth / selected.width));
+
+  useEffect(() => {
+    const container = previewContainerRef.current;
+    if (!container) return;
+
+    const updatePreviewHeight = () => {
+      setPreviewHeight(Math.min(1000, Math.max(420, window.innerHeight * 0.76)));
+    };
+    const observer = new ResizeObserver((entries) => {
+      if (entries[0]) setAvailableWidth(entries[0].contentRect.width);
+    });
+    observer.observe(container);
+    window.addEventListener('resize', updatePreviewHeight);
+    updatePreviewHeight();
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updatePreviewHeight);
+    };
+  }, []);
+
+  return (
+    <div className="design-root min-h-screen px-4 py-6 sm:px-8 lg:px-10 lg:py-8">
+      <div className="mx-auto max-w-[1500px] space-y-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="space-y-1">
+            <h1 className="text-2xl leading-8 font-extrabold tracking-tight">Dashboard preview</h1>
+            <p className="text-sm text-muted-foreground">
+              Switch the full page between desktop, tablet, and mobile widths.
+            </p>
+          </div>
+          <Tabs
+            value={viewport}
+            onValueChange={(value) => {
+              if (viewportOptions.some((option) => option.value === value)) {
+                setViewport(value as Viewport);
+              }
+            }}
+          >
+            <TabsList aria-label="Preview size" className="h-10 w-full sm:w-fit">
+              {viewportOptions.map(({ value, label, icon: Icon }) => (
+                <TabsTrigger key={value} value={value} className="px-4">
+                  <Icon aria-hidden="true" />
+                  {label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
+        <div
+          ref={previewContainerRef}
+          className="flex justify-center overflow-auto rounded-xl border bg-muted/50 p-3 sm:p-5"
+        >
+          <div
+            className="relative shrink-0 overflow-hidden rounded-lg border bg-background shadow-sm"
+            style={{ width: `${selected.width * scale}px`, height: `${previewHeight}px` }}
+          >
+            <iframe
+              key={viewport}
+              title={`MUST dashboard preview · ${selected.label}`}
+              src="/design?previewFrame=1"
+              style={{
+                width: `${selected.width}px`,
+                height: `${previewHeight / scale}px`,
+                transform: `scale(${scale})`,
+                transformOrigin: 'top left',
+              }}
+              className="absolute top-0 left-0 max-w-none border-0 bg-background"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function DesignShowcaseContent() {
   return (
     <div className="mx-auto max-w-6xl space-y-10">
       <PageHeader
@@ -325,33 +418,23 @@ export default function DesignShowcasePage() {
 
       <Section id="colors" title="Colors">
         <p className="text-sm text-muted-foreground">
-          Compare the same semantic tokens across the neutral, pine, ocean, and terracotta themes.
-          Each preview uses the page&apos;s swappable color tokens.
+          Neutral palette. Each swatch shows the CSS token and its value; themes can still swap the
+          tokens across the preview.
         </p>
-        <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
-          {themePreviews.map(({ name, theme }) => (
-            <Card
-              key={theme}
-              data-theme-preview={theme}
-              className="design-color-variant gap-4 px-4 py-4"
-            >
-              <div>
-                <h3 className="font-bold">{name}</h3>
-                <p className="text-xs text-muted-foreground">Semantic color tokens</p>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {swatches.map(({ name, token, value, swatch }) => (
+            <Card key={token} className="gap-3 px-4 py-4">
+              <div className="flex items-center gap-3">
+                <span
+                  aria-hidden="true"
+                  className={`size-9 shrink-0 rounded-md border border-border ${swatch}`}
+                />
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold">{name}</h3>
+                  <code className="text-xs text-muted-foreground">{token}</code>
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-                {swatches.map(([token, swatch, use]) => (
-                  <div key={token} className="flex min-w-0 items-center gap-2">
-                    <span
-                      aria-hidden="true"
-                      className={`size-5 shrink-0 rounded border border-border ${swatch}`}
-                    />
-                    <span className="truncate text-xs" title={use}>
-                      {token}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              <code className="rounded bg-muted px-2 py-1 text-xs font-semibold">{value}</code>
             </Card>
           ))}
         </div>
@@ -414,56 +497,6 @@ export default function DesignShowcasePage() {
         </div>
       </Section>
 
-      <Section id="responsive" title="Responsive behavior">
-        <p className="text-sm text-muted-foreground">
-          Resize the preview to see typography, navigation, and content reflow at mobile
-          (&lt;640px), tablet (640–1023px), and desktop (≥1024px) widths.
-        </p>
-        <Card className="gap-5 px-5 py-5">
-          <div className="flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-muted-foreground">Responsive page header</p>
-              <h3 className="text-xl leading-7 font-bold tracking-tight sm:text-2xl sm:leading-8 lg:text-[28px] lg:leading-9">
-                Reservations
-              </h3>
-            </div>
-            <p className="text-sm text-muted-foreground">MH-1042 · 12–15 Oct</p>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              ['Arrivals', '8'],
-              ['In house', '38'],
-              ['Departures', '5'],
-              ['Rooms to clean', '7'],
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-lg border bg-background p-3">
-                <p className="text-xs text-muted-foreground">{label}</p>
-                <p className="mt-1 text-xl font-bold tabular-nums">{value}</p>
-              </div>
-            ))}
-          </div>
-          <div className="grid gap-3 lg:grid-cols-[180px_minmax(0,1fr)]">
-            <nav
-              aria-label="Responsive navigation example"
-              className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-1"
-            >
-              {['Overview', 'Reservations', 'Availability'].map((item) => (
-                <span key={item} className="rounded-md bg-secondary px-3 py-2 text-sm font-medium">
-                  {item}
-                </span>
-              ))}
-            </nav>
-            <div className="min-w-0 rounded-lg border p-3 text-sm">
-              <p className="font-semibold">Reservation list</p>
-              <p className="mt-1 text-muted-foreground">
-                Content stacks on narrow screens, then uses columns and a side navigation as space
-                allows.
-              </p>
-            </div>
-          </div>
-        </Card>
-      </Section>
-
       <Section id="badges" title="Badges and statuses">
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           {statusGroups.map(({ name, statuses }) => (
@@ -485,6 +518,388 @@ export default function DesignShowcasePage() {
           {(['website', 'clock', 'booking', 'airbnb', 'walk-in'] as const).map((channel) => (
             <ChannelBadge key={channel} channel={channel} />
           ))}
+        </div>
+
+        <div id="alerts" className="scroll-mt-6 space-y-8 pt-3">
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-base font-bold">Alert banners and inline alerts</h3>
+              <p className="text-sm text-muted-foreground">
+                Clear outcomes, short explanations, and a recovery action where one is useful.
+              </p>
+            </div>
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold">Alert banner</h4>
+                {[
+                  {
+                    variant: 'info',
+                    icon: Info,
+                    title: 'Payment required',
+                    description: 'No confirmation until payment is verified.',
+                    action: 'View booking',
+                  },
+                  {
+                    variant: 'success',
+                    icon: Check,
+                    title: 'Payment verified',
+                    description: 'Payment recorded; booking confirmed in this demo.',
+                    action: 'View booking',
+                  },
+                  {
+                    variant: 'warning',
+                    icon: TriangleAlert,
+                    title: 'Source-of-truth conflict',
+                    description: 'Local and provider inventory are both enabled.',
+                    action: 'Resolve',
+                  },
+                  {
+                    variant: 'destructive',
+                    icon: X,
+                    title: 'Integrity mismatch',
+                    description: 'Reservation exists without verified payment.',
+                    action: 'Investigate',
+                  },
+                ].map(({ variant, icon: Icon, title, description, action }) => (
+                  <Alert
+                    key={title}
+                    variant={variant as 'info' | 'success' | 'warning' | 'destructive'}
+                    className="flex flex-wrap items-center gap-x-3 gap-y-2"
+                  >
+                    <Icon aria-hidden="true" />
+                    <div className="min-w-[180px] flex-1">
+                      <AlertTitle>{title}</AlertTitle>
+                      <AlertDescription>{description}</AlertDescription>
+                    </div>
+                    <Button variant="outline" size="sm">
+                      {action}
+                    </Button>
+                    <Button variant="ghost" size="icon-sm" aria-label={`Dismiss ${title}`}>
+                      <X />
+                    </Button>
+                  </Alert>
+                ))}
+              </div>
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold">Inline alert</h4>
+                {[
+                  {
+                    variant: 'info',
+                    icon: Info,
+                    text: 'Price and availability revalidate before payment.',
+                  },
+                  { variant: 'success', icon: Check, text: 'Payment verified; booking confirmed.' },
+                  {
+                    variant: 'warning',
+                    icon: TriangleAlert,
+                    text: 'Enter every child age before requesting a quote.',
+                  },
+                  {
+                    variant: 'destructive',
+                    icon: X,
+                    text: 'Provider write failed; no external change assumed.',
+                  },
+                  {
+                    variant: 'default',
+                    icon: Info,
+                    text: 'Read-only access: changes are disabled.',
+                  },
+                ].map(({ variant, icon: Icon, text }) => (
+                  <Alert
+                    key={text}
+                    variant={variant as 'default' | 'info' | 'success' | 'warning' | 'destructive'}
+                    className="flex items-center gap-3 px-3 py-2.5"
+                  >
+                    <Icon aria-hidden="true" />
+                    <div className="min-w-0 flex-1 text-sm">{text}</div>
+                    <Button variant="ghost" size="icon-sm" aria-label={`Dismiss: ${text}`}>
+                      <X />
+                    </Button>
+                  </Alert>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-base font-bold">Message components</h3>
+              <p className="text-sm text-muted-foreground">
+                Success, review, failure, and information with next steps.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+              {[
+                {
+                  title: 'Booking confirmed',
+                  detail: 'Payment verified and reservation confirmed.',
+                  action: 'View',
+                  icon: Check,
+                  tone: 'border-success/30 bg-success-surface text-success',
+                },
+                {
+                  title: 'Review required',
+                  detail: 'Resolve the inventory or source-of-truth conflict.',
+                  action: 'Review',
+                  icon: TriangleAlert,
+                  tone: 'border-warning/30 bg-warning-surface text-warning',
+                },
+                {
+                  title: 'Operation failed',
+                  detail: 'No payment or provider write was assumed successful.',
+                  action: 'Retry',
+                  icon: X,
+                  tone: 'border-destructive/30 bg-destructive-surface text-destructive',
+                },
+                {
+                  title: 'Payment pending',
+                  detail: 'Keep booking and payment statuses separate.',
+                  action: 'Got it',
+                  icon: Info,
+                  tone: 'border-info/30 bg-info-surface text-info',
+                },
+              ].map(({ title, detail, action, icon: Icon, tone }) => (
+                <Card key={title} className={`flex min-h-48 flex-col gap-3 px-4 py-4 ${tone}`}>
+                  <Icon aria-hidden="true" className="size-5" />
+                  <h4 className="text-sm font-bold">{title}</h4>
+                  <p className="flex-1 text-xs leading-5 opacity-80">{detail}</p>
+                  <Button variant="outline" size="sm" className="border-current bg-card">
+                    {action}
+                  </Button>
+                </Card>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)]">
+            <div className="space-y-3">
+              <h3 className="text-base font-bold">Toast notifications</h3>
+              {[
+                {
+                  variant: 'success',
+                  icon: Check,
+                  title: 'Booking confirmed',
+                  detail: 'Payment verified for MH-1042.',
+                },
+                {
+                  variant: 'info',
+                  icon: Info,
+                  title: 'PMS connected',
+                  detail: 'Provider status refreshed in the demo.',
+                },
+                {
+                  variant: 'warning',
+                  icon: TriangleAlert,
+                  title: 'Low availability',
+                  detail: 'Deluxe Sea View has 1 room left.',
+                },
+                {
+                  variant: 'destructive',
+                  icon: X,
+                  title: 'Payment failed',
+                  detail: 'No booking confirmation was issued.',
+                },
+              ].map(({ variant, icon: Icon, title, detail }) => (
+                <Alert
+                  key={title}
+                  variant={variant as 'info' | 'success' | 'warning' | 'destructive'}
+                  className="flex items-center gap-3 shadow-sm"
+                >
+                  <Icon aria-hidden="true" />
+                  <div className="min-w-0 flex-1">
+                    <AlertTitle>{title}</AlertTitle>
+                    <AlertDescription>{detail}</AlertDescription>
+                  </div>
+                  <Button variant="ghost" size="icon-sm" aria-label={`Dismiss ${title}`}>
+                    <X />
+                  </Button>
+                </Alert>
+              ))}
+            </div>
+
+            <div id="states" className="scroll-mt-6 space-y-5">
+              <div className="space-y-3">
+                <h3 className="text-base font-bold">Progress bars</h3>
+                {[
+                  { label: 'Availability refresh', value: 45, tone: '[&>div]:bg-primary' },
+                  { label: 'Payment reconciliation', value: 75, tone: '[&>div]:bg-success' },
+                  { label: 'PMS reservation sync', value: 60, tone: '[&>div]:bg-warning' },
+                  { label: 'Provider retry', value: 30, tone: '[&>div]:bg-destructive' },
+                ].map(({ label, value, tone }) => (
+                  <div key={label} className="space-y-1.5">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">{label}</span>
+                      <span className="font-semibold tabular-nums">{value}%</span>
+                    </div>
+                    <Progress aria-label={label} value={value} className={tone} />
+                  </div>
+                ))}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Verifying provider operation</span>
+                    <span className="font-semibold">Working</span>
+                  </div>
+                  <div
+                    role="progressbar"
+                    aria-label="Verifying provider operation"
+                    className="h-2 overflow-hidden rounded-full bg-secondary"
+                  >
+                    <div
+                      className="h-full w-full rounded-full"
+                      style={{
+                        background:
+                          'repeating-linear-gradient(135deg, var(--primary) 0 8px, transparent 8px 16px)',
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <Card className="gap-4 px-4 py-4">
+                <h3 className="text-base font-bold">Loading and processing</h3>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-semibold">Sizes</h4>
+                    <div className="flex items-end justify-between">
+                      {[
+                        ['XS', 'size-3'],
+                        ['S', 'size-4'],
+                        ['M', 'size-5'],
+                        ['L', 'size-6'],
+                      ].map(([size, className]) => (
+                        <div
+                          key={size}
+                          className="grid justify-items-center gap-2 text-xs text-muted-foreground"
+                        >
+                          <RefreshCw
+                            aria-hidden="true"
+                            className={`${className} animate-spin text-primary`}
+                          />
+                          {size}
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground">12 · 16 · 20 · 24 px</p>
+                  </div>
+                  <div className="space-y-2 border-t pt-3 md:border-t-0 md:border-l md:pt-0 md:pl-4">
+                    <h4 className="text-sm font-semibold">Inline usage</h4>
+                    <Button variant="outline" loading className="w-full justify-between">
+                      Loading bookings…
+                    </Button>
+                    <Button variant="outline" loading className="w-full justify-between">
+                      Saving booking…
+                    </Button>
+                    <Button loading className="w-full">
+                      Sync PMS
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-base font-bold">Booking skeletons</h3>
+              <p className="text-sm text-muted-foreground">
+                Loading layouts for the card, table, and detail panel.
+              </p>
+            </div>
+            <div className="grid gap-3 xl:grid-cols-3">
+              <Card className="gap-3 px-4 py-4">
+                <h4 className="text-xs font-semibold">Booking card</h4>
+                <div className="flex gap-3">
+                  <Skeleton className="h-24 w-1/2" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-3/4" />
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-2/3" />
+                  </div>
+                </div>
+              </Card>
+              <Card className="gap-3 px-4 py-4">
+                <h4 className="text-xs font-semibold">Booking table</h4>
+                <Skeleton className="h-5 w-full" />
+                {[0, 1, 2].map((row) => (
+                  <div key={row} className="grid grid-cols-[12px_repeat(4,minmax(0,1fr))] gap-2">
+                    <Skeleton className="h-3 w-3" />
+                    {[0, 1, 2, 3].map((cell) => (
+                      <Skeleton key={cell} className="h-3" />
+                    ))}
+                  </div>
+                ))}
+              </Card>
+              <Card className="gap-3 px-4 py-4">
+                <h4 className="text-xs font-semibold">Booking detail panel</h4>
+                <div className="flex gap-3">
+                  <Skeleton className="h-24 w-20 shrink-0" />
+                  <div className="flex-1 space-y-3 rounded-md border p-3">
+                    <Skeleton className="h-3 w-2/3" />
+                    <Skeleton className="h-3 w-1/2" />
+                    <Skeleton className="h-3 w-3/4" />
+                    <Skeleton className="h-3 w-5/6" />
+                  </div>
+                </div>
+              </Card>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <h3 className="text-base font-bold">Empty and recovery states</h3>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <EmptyState
+                icon={CalendarCheck}
+                title="No bookings yet"
+                description="Create the first staff booking or wait for a paid public booking."
+                action={<Button size="sm">Create booking</Button>}
+              />
+              <EmptyState
+                icon={Search}
+                title="No bookings match"
+                description="Adjust hotel, dates, booking status, or payment status."
+                action={
+                  <Button size="sm" variant="secondary">
+                    Reset filters
+                  </Button>
+                }
+              />
+              <EmptyState
+                icon={RefreshCw}
+                title="Provider temporarily unavailable"
+                description="The demo provider could not be reached; no external write was assumed successful."
+                action={<Button size="sm">Retry PMS</Button>}
+              />
+              <EmptyState
+                icon={Wallet}
+                title="You cannot manage payments"
+                description="Your role cannot refund, reconcile, or change payment state."
+                action={
+                  <Button size="sm" variant="secondary">
+                    Contact admin
+                  </Button>
+                }
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-3 rounded-xl border bg-muted/60 p-4 sm:grid-cols-2 xl:grid-cols-5">
+            {[
+              [
+                'Separate status domains',
+                'Booking, payment, stay, inventory, and provider states stay distinct.',
+              ],
+              ['Canonical icons', 'Pair one clear icon with a readable status label.'],
+              ['Explicit outcomes', 'Say what failed and what the next step does.'],
+              ['Payment integrity', 'A reservation never proves that payment was verified.'],
+              ['Accessible feedback', 'Use color with labels and recovery actions.'],
+            ].map(([title, detail]) => (
+              <div key={title} className="space-y-1">
+                <h4 className="text-xs font-bold">{title}</h4>
+                <p className="text-xs leading-5 text-muted-foreground">{detail}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </Section>
 
@@ -591,33 +1006,6 @@ export default function DesignShowcasePage() {
               <BookingStatusBadge status="confirmed" />
             </CardContent>
           </Card>
-        </div>
-      </Section>
-
-      <Section id="alerts" title="Alerts">
-        <div className="grid gap-3">
-          <Alert variant="info">
-            <Info />
-            <AlertTitle>Clock sync runs every 5 minutes</AlertTitle>
-            <AlertDescription>Changes made in Clock appear here shortly after.</AlertDescription>
-          </Alert>
-          <Alert variant="success">
-            <CalendarCheck />
-            <AlertTitle>Booking confirmed</AlertTitle>
-            <AlertDescription>
-              MH-1042 was sent to Clock and the guest was emailed.
-            </AlertDescription>
-          </Alert>
-          <Alert variant="warning">
-            <TriangleAlert />
-            <AlertTitle>Deposit not received</AlertTitle>
-            <AlertDescription>The payment link for MH-1039 expires in 2 hours.</AlertDescription>
-          </Alert>
-          <Alert variant="destructive">
-            <TriangleAlert />
-            <AlertTitle>Clock rejected the booking</AlertTitle>
-            <AlertDescription>The room is no longer available for these dates.</AlertDescription>
-          </Alert>
         </div>
       </Section>
 
@@ -768,29 +1156,6 @@ export default function DesignShowcasePage() {
             </PopoverContent>
           </Popover>
         </Row>
-      </Section>
-
-      <Section id="states" title="Loading and empty states">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Card className="px-6">
-            <div className="space-y-3">
-              <Skeleton className="h-5 w-1/3" />
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-5/6" />
-              <Skeleton className="h-4 w-2/3" />
-            </div>
-          </Card>
-          <EmptyState
-            icon={CalendarCheck}
-            title="No arrivals today"
-            description="New bookings from the website and Clock show up here."
-            action={
-              <Button size="sm">
-                <Plus /> New booking
-              </Button>
-            }
-          />
-        </div>
       </Section>
     </div>
   );

@@ -17,6 +17,7 @@ import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 
 import { cn } from './_lib/utils';
+import { useIsPreviewFrame } from './_lib/use-preview-frame';
 import { Badge } from './_ui/badge';
 import { ThemeSwitcher } from './_ui/theme-switcher';
 
@@ -35,6 +36,9 @@ export const designNavigation: readonly DesignNavItem[] = [
 
 export function DesignShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const isPreviewFrame = useIsPreviewFrame();
+
+  if (pathname === '/design' && !isPreviewFrame) return children;
 
   return (
     <div className="design-root flex">
@@ -51,6 +55,7 @@ export function DesignShell({ children }: { children: ReactNode }) {
         <nav aria-label="Design preview" className="flex flex-1 flex-col gap-1">
           {designNavigation.map(({ href, label, icon: Icon, ready }) => {
             const current = pathname === href;
+            const targetHref = isPreviewFrame ? `${href}?previewFrame=1` : href;
             const content = (
               <>
                 <Icon className="size-4" />
@@ -66,7 +71,7 @@ export function DesignShell({ children }: { children: ReactNode }) {
             return ready ? (
               <Link
                 key={href}
-                href={href}
+                href={targetHref}
                 aria-current={current ? 'page' : undefined}
                 className={classes}
               >
@@ -82,7 +87,7 @@ export function DesignShell({ children }: { children: ReactNode }) {
         <ThemeSwitcher className="mb-2 w-full" />
         {/* A full page load, so this page's Tailwind styles don't carry over to the live app. */}
         <a
-          href="/design"
+          href={isPreviewFrame ? '/design?previewFrame=1' : '/design'}
           className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           <ArrowLeft className="size-4" />
@@ -90,14 +95,21 @@ export function DesignShell({ children }: { children: ReactNode }) {
         </a>
       </aside>
       <div className="min-w-0 flex-1">
-        <header className="flex items-center justify-between border-b bg-card px-4 py-3 lg:hidden">
-          <span className="font-extrabold">
-            MUST <span className="font-medium text-muted-foreground">Design preview</span>
+        <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b bg-card px-4 py-3 lg:hidden">
+          <span className="min-w-0 font-extrabold">
+            MUST{' '}
+            <span className="hidden font-medium text-muted-foreground sm:inline">
+              Design preview
+            </span>
           </span>
-          <div className="flex items-center gap-3">
-            <ThemeSwitcher className="w-40" />
-            <a href="/design" className="text-sm font-semibold text-primary">
-              Back to components
+          <div className="flex w-full items-center gap-3 sm:w-auto">
+            <ThemeSwitcher className="w-full sm:w-40" />
+            <a
+              href={isPreviewFrame ? '/design?previewFrame=1' : '/design'}
+              className="shrink-0 text-sm font-semibold text-primary"
+            >
+              <span className="sm:hidden">Components</span>
+              <span className="hidden sm:inline">Back to components</span>
             </a>
           </div>
         </header>

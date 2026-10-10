@@ -1,38 +1,59 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('next/navigation', () => ({ usePathname: () => '/design' }));
+vi.mock('next/navigation', () => ({ usePathname: () => '/design/navigation' }));
 
 import { DesignShell } from './design-shell';
-import DesignShowcasePage from './page';
+import DesignShowcasePage, { DesignShowcaseContent } from './page';
 
 describe('Design showcase', () => {
-  it('renders every component section with demo bookings only', () => {
+  it('renders page-wide viewport controls at the top-level design route', () => {
     const markup = renderToStaticMarkup(<DesignShowcasePage />);
+
+    expect(markup).toContain('>Desktop</button>');
+    expect(markup).toContain('>Tablet</button>');
+    expect(markup).toContain('>Mobile</button>');
+    expect(markup).toContain('title="MUST dashboard preview · Desktop"');
+    expect(markup).toContain('src="/design?previewFrame=1"');
+  });
+
+  it('renders the neutral palette and organized status examples with demo data only', () => {
+    const markup = renderToStaticMarkup(<DesignShowcaseContent />);
 
     for (const heading of [
       'Colors',
       'Typography',
-      'Responsive behavior',
       'Badges and statuses',
       'Form controls',
       'Cards and stats',
-      'Alerts',
       'Table',
       'Tabs',
       'Dialogs and menus',
-      'Loading and empty states',
     ]) {
       expect(markup).toContain(`>${heading}</h2>`);
     }
-    expect(markup).toContain('>Neutral</h3>');
-    expect(markup).toContain('>Pine</h3>');
-    expect(markup).toContain('>Ocean</h3>');
-    expect(markup).toContain('>Terracotta</h3>');
+    for (const heading of [
+      'Message components',
+      'Toast notifications',
+      'Progress bars',
+      'Loading and processing',
+      'Booking skeletons',
+      'Empty and recovery states',
+    ]) {
+      expect(markup).toContain(`>${heading}</h3>`);
+    }
+    expect(markup).toContain('Alert banner</h4>');
+    expect(markup).toContain('Inline alert</h4>');
+    expect(markup).toContain('--primary');
+    expect(markup).toContain('#18181b');
+    expect(markup).toContain('--success');
     expect(markup).toContain('Inventory conflict');
     expect(markup).toContain('Partially refunded');
     expect(markup).toContain('Provider / PMS');
     expect(markup).not.toContain('>Buttons</h2>');
+    expect(markup).not.toContain('Responsive behavior');
+    expect(markup).not.toContain('design-color-variant');
+    expect(markup).not.toContain('>Pine</h3>');
     expect(markup).toContain('MH-1042');
     expect(markup).not.toContain('EBR-');
   });

@@ -1,7 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('next/navigation', () => ({ usePathname: () => '/design', useRouter: () => ({}) }));
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/design/navigation',
+  useRouter: () => ({}),
+}));
 vi.mock('./design.css', () => ({}));
 
 import DesignLayout from './layout';
