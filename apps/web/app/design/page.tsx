@@ -52,11 +52,8 @@ import {
   type PaymentStatus,
   StatCard,
 } from './_ui/hotel';
-import { Input, Textarea } from './_ui/input';
-import { Label } from './_ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from './_ui/popover';
 import { Progress } from './_ui/progress';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './_ui/select';
 import { Separator } from './_ui/separator';
 import {
   Sheet,
@@ -67,7 +64,6 @@ import {
   SheetTrigger,
 } from './_ui/sheet';
 import { Skeleton } from './_ui/skeleton';
-import { Switch } from './_ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './_ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './_ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from './_ui/tooltip';
@@ -129,7 +125,6 @@ const sections = [
   ['colors', 'Colors'],
   ['type', 'Typography'],
   ['badges', 'Badges and statuses'],
-  ['forms', 'Form controls'],
   ['cards', 'Cards and stats'],
   ['alerts', 'Alerts'],
   ['table', 'Table'],
@@ -849,54 +844,6 @@ export function DesignShowcaseContent() {
             ))}
           </div>
         </div>
-      </Section>
-
-      <Section id="forms" title="Form controls">
-        <Card className="px-6">
-          <div className="grid grid-cols-1 gap-5 @md/design-preview:grid-cols-2">
-            <div className="grid gap-2">
-              <Label htmlFor="demo-guest">Guest name</Label>
-              <Input id="demo-guest" placeholder="e.g. Elira Hoxha" />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="demo-search">Search</Label>
-              <div className="relative">
-                <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input id="demo-search" className="pl-9" placeholder="Name, email or MH- ref" />
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="demo-email">Email (with error)</Label>
-              <Input id="demo-email" aria-invalid defaultValue="elira@" />
-              <p className="text-xs text-destructive">Enter a full email address.</p>
-            </div>
-            <div className="grid gap-2">
-              <Label>Room type</Label>
-              <Select defaultValue="deluxe">
-                <SelectTrigger className="w-full" aria-label="Room type">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="standard">Standard Double</SelectItem>
-                  <SelectItem value="deluxe">Deluxe Sea View</SelectItem>
-                  <SelectItem value="suite">Family Suite</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2 @md/design-preview:col-span-2">
-              <Label htmlFor="demo-notes">Internal note</Label>
-              <Textarea id="demo-notes" placeholder="Late arrival, baby cot requested…" />
-            </div>
-            <div className="flex items-center gap-2">
-              <Checkbox id="demo-email-guest" defaultChecked />
-              <Label htmlFor="demo-email-guest">Email confirmation to guest</Label>
-            </div>
-            <div className="flex items-center gap-2">
-              <Switch id="demo-sync" defaultChecked />
-              <Label htmlFor="demo-sync">Sync this room type to Clock</Label>
-            </div>
-          </div>
-        </Card>
       </Section>
 
       <Section id="cards" title="Cards and stats">

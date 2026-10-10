@@ -37,7 +37,6 @@ describe('Design showcase', () => {
       'Colors',
       'Typography',
       'Badges and statuses',
-      'Form controls',
       'Cards and stats',
       'Table',
       'Tabs',
@@ -61,6 +60,7 @@ describe('Design showcase', () => {
     expect(markup).toContain('#18181b');
     expect(markup).toContain('--success');
     expect(markup).toContain('Inventory conflict');
+    expect(markup).not.toContain('>Form controls</h2>');
     expect(markup).toContain('Partially refunded');
     expect(markup).toContain('Provider / PMS');
     expect(markup).toContain('aria-label="Loading booking card"');
