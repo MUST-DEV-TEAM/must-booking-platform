@@ -110,7 +110,7 @@ export default function NavigationDesignPage() {
           </span>
         </div>
         <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="flex h-[560px] overflow-hidden rounded-xl border bg-background">
+          <div className="flex h-[640px] overflow-hidden rounded-xl border bg-background">
             <Sidebar role={role} current={activeId} onSelect={setCurrent} className="shrink-0" />
             <div className="flex min-w-0 flex-1 flex-col">
               <TopHeader
@@ -137,22 +137,14 @@ export default function NavigationDesignPage() {
             </div>
           </div>
 
-          <div className="mx-auto flex h-[560px] w-[320px] flex-col overflow-hidden rounded-[28px] border-4 border-foreground/80 bg-background">
-            <TopHeader
-              title={activeLabel}
-              onMenu={undefined}
-              className="px-3"
-              actions={<NotificationTrigger count={3} />}
-            />
-            <div className="flex-1 space-y-3 overflow-auto p-3">
-              <Breadcrumb items={['Home', 'Empire Beach Resort', activeLabel]} />
-              <SectionTabs tabs={bookingTabs.slice(0, 3)} current={view} onSelect={setView} />
-              <Card className="px-4 text-sm text-muted-foreground">
-                Tablet and phone use the slide-over menu.
-              </Card>
-            </div>
-            <PhoneMenu role={role} current={activeId} onSelect={setCurrent} />
-          </div>
+          <PhoneFrame
+            role={role}
+            current={activeId}
+            title={activeLabel}
+            onSelect={setCurrent}
+            view={view}
+            onView={setView}
+          />
         </div>
       </Block>
 
@@ -187,7 +179,7 @@ export default function NavigationDesignPage() {
             <SheetTrigger asChild>
               <Button variant="outline">Open the real drawer</Button>
             </SheetTrigger>
-            <SheetContent side="left" hideClose className="w-72 max-w-[85vw] gap-0 p-0">
+            <SheetContent side="right" hideClose className="w-72 max-w-[85vw] gap-0 p-0">
               <SheetTitle className="sr-only">Main menu</SheetTitle>
               <MobileDrawerPanel role={role} current={activeId} onSelect={setCurrent} />
             </SheetContent>
@@ -289,47 +281,63 @@ export default function NavigationDesignPage() {
   );
 }
 
-/** Small phone-frame menu button + drawer, kept here so the frame stays self-contained. */
-function PhoneMenu({
+/** Phone frame: menu button at the right of the header, scrollable bottom bar with every destination. */
+function PhoneFrame({
   role,
   current,
+  title,
   onSelect,
+  view,
+  onView,
 }: {
   role: NavRole;
   current: string;
+  title: string;
   onSelect: (id: string) => void;
+  view: string;
+  onView: (id: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
   const items = navByRole[role].items;
   return (
-    <Sheet>
-      <div className="flex items-center justify-around border-t bg-card px-1 py-1.5">
-        {items.slice(0, 4).map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => onSelect(item.id)}
-            aria-current={item.id === current ? 'page' : undefined}
-            className={
-              item.id === current
-                ? 'flex flex-col items-center gap-0.5 rounded-md px-2 py-1 text-[11px] font-semibold text-primary'
-                : 'flex flex-col items-center gap-0.5 rounded-md px-2 py-1 text-[11px] font-semibold text-muted-foreground'
-            }
-          >
-            <item.icon className="size-4" />
-            {item.label.split(' ')[0]}
-          </button>
-        ))}
-        <SheetTrigger asChild>
-          <button
-            type="button"
-            className="flex flex-col items-center gap-0.5 rounded-md px-2 py-1 text-[11px] font-semibold text-muted-foreground"
-          >
-            <ChartColumn className="size-4" />
-            More
-          </button>
-        </SheetTrigger>
+    <Sheet open={open} onOpenChange={setOpen}>
+      <div className="mx-auto flex h-[640px] w-[320px] flex-col overflow-hidden rounded-[28px] border-4 border-foreground/80 bg-background">
+        <TopHeader
+          title={title}
+          className="px-3"
+          onMenu={() => setOpen(true)}
+          actions={<NotificationTrigger count={3} />}
+        />
+        <div className="flex-1 space-y-3 overflow-auto p-3">
+          <Breadcrumb items={['Home', 'Empire Beach Resort', title]} />
+          <SectionTabs tabs={bookingTabs.slice(0, 3)} current={view} onSelect={onView} />
+          <Card className="px-4 text-sm text-muted-foreground">
+            Menu button sits at the right of the header. The bottom bar scrolls sideways.
+          </Card>
+        </div>
+        <nav
+          aria-label="Quick destinations"
+          className="flex gap-1 overflow-x-auto border-t bg-card px-1 py-1.5"
+        >
+          {items.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onSelect(item.id)}
+              aria-current={item.id === current ? 'page' : undefined}
+              className={
+                item.id === current
+                  ? 'flex shrink-0 flex-col items-center gap-0.5 rounded-md px-3 py-1 text-[11px] font-semibold text-primary'
+                  : 'flex shrink-0 flex-col items-center gap-0.5 rounded-md px-3 py-1 text-[11px] font-semibold text-muted-foreground'
+              }
+            >
+              <item.icon className="size-4" />
+              {item.label.split(' ')[0]}
+            </button>
+          ))}
+        </nav>
       </div>
-      <SheetContent side="left" hideClose className="w-72 max-w-[85vw] gap-0 p-0">
+      <SheetContent side="right" hideClose className="w-72 max-w-[85vw] gap-0 p-0">
         <SheetTitle className="sr-only">Main menu</SheetTitle>
         <SheetClose asChild>
           <div className="h-full">

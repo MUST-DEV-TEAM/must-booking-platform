@@ -135,13 +135,72 @@ const sections = [
   ['states', 'Loading and empty states'],
 ] as const;
 
+const typeScale = [
+  {
+    name: 'Display',
+    spec: '32 / 40 · Bold',
+    className: 'text-[32px] leading-10 font-bold tracking-tight',
+    sample: '€12,480.00 this week',
+    use: 'Hero numbers, empty-state headlines',
+  },
+  {
+    name: 'Page title',
+    spec: '28 / 36 · Extra bold',
+    className: 'text-[28px] leading-9 font-extrabold tracking-tight',
+    sample: 'Reservations',
+    use: 'One per page',
+  },
+  {
+    name: 'Section title',
+    spec: '24 / 32 · Extra bold',
+    className: 'text-2xl leading-8 font-extrabold tracking-tight',
+    sample: 'Arrivals today',
+    use: 'Major blocks inside a page',
+  },
+  {
+    name: 'Panel title',
+    spec: '20 / 28 · Semibold',
+    className: 'text-xl leading-7 font-semibold',
+    sample: 'Guest details',
+    use: 'Cards, dialogs, side panels',
+  },
+  {
+    name: 'Body',
+    spec: '14 / 20 · Regular',
+    className: 'text-sm leading-5',
+    sample: 'Two adults, one child, breakfast included. Arrives 14 Oct.',
+    use: 'Default text, table cells',
+  },
+  {
+    name: 'Small',
+    spec: '13 / 18 · Regular',
+    className: 'text-[13px] leading-[18px]',
+    sample: 'Last synced with Clock 2 minutes ago',
+    use: 'Secondary lines, help text',
+  },
+  {
+    name: 'Label',
+    spec: '12 / 16 · Semibold',
+    className: 'text-xs leading-4 font-semibold',
+    sample: 'Check-in date',
+    use: 'Form labels, table headers',
+  },
+  {
+    name: 'Caption',
+    spec: '11 / 16 · Medium',
+    className: 'text-[11px] leading-4 font-medium',
+    sample: 'Prices include tax',
+    use: 'Footnotes, badges, chart axes',
+  },
+] as const;
+
 const swatches = [
   ['Primary', 'bg-primary', 'Buttons, links, active items'],
   ['Primary hover', 'bg-primary-hover', 'Hover on primary'],
   ['Selected', 'bg-secondary', 'Selected rows and nav'],
   ['Canvas', 'bg-background', 'Page background'],
   ['Surface', 'bg-card', 'Cards and panels'],
-  ['Brass', 'bg-brass', 'Focus ring, Clock channel'],
+  ['Accent', 'bg-brass', 'Charts, highlights'],
   ['Success', 'bg-success', 'Confirmed, paid'],
   ['Warning', 'bg-warning', 'Pending, unpaid'],
   ['Danger', 'bg-destructive', 'Cancelled, errors'],
@@ -185,6 +244,10 @@ export default function DesignShowcasePage() {
       </nav>
 
       <Section id="colors" title="Colors">
+        <p className="text-sm text-muted-foreground">
+          Neutral by default. Every color is a token, so a theme only swaps these values. Switch the
+          theme in the sidebar to see the whole page change.
+        </p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {swatches.map(([name, swatch, use]) => (
             <div key={name} className="overflow-hidden rounded-lg border bg-card">
@@ -199,16 +262,60 @@ export default function DesignShowcasePage() {
       </Section>
 
       <Section id="type" title="Typography">
-        <Card className="gap-3 px-6">
-          <p className="text-3xl font-extrabold tracking-tight">Page title · 30 extra bold</p>
-          <p className="text-2xl font-extrabold tracking-tight">Section title · 24 extra bold</p>
-          <p className="text-lg font-bold">Card title · 18 bold</p>
-          <p className="text-sm">Body text · 14 regular. Guests arriving today are listed first.</p>
-          <p className="text-sm text-muted-foreground">Secondary text · 14 muted</p>
-          <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-            Table header · 12 caps
-          </p>
+        <p className="text-sm text-muted-foreground">
+          One family (Manrope), eight sizes. Sizes are font size / line height in px.
+        </p>
+        <Card className="gap-0 divide-y px-0 py-0">
+          {typeScale.map(({ name, spec, className, sample, use }) => (
+            <div
+              key={name}
+              className="grid items-baseline gap-x-6 gap-y-1 px-6 py-4 md:grid-cols-[170px_minmax(0,1fr)_220px]"
+            >
+              <div>
+                <div className="text-sm font-bold">{name}</div>
+                <div className="text-xs text-muted-foreground">{spec}</div>
+              </div>
+              <p className={className}>{sample}</p>
+              <p className="text-xs text-muted-foreground">{use}</p>
+            </div>
+          ))}
         </Card>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Card className="gap-3 px-6">
+            <p className="text-sm font-bold">Weights</p>
+            <p className="text-sm font-normal">Regular 400 · body and descriptions</p>
+            <p className="text-sm font-medium">Medium 500 · inputs and table cells</p>
+            <p className="text-sm font-semibold">Semibold 600 · buttons, labels, tabs</p>
+            <p className="text-sm font-bold">Bold 700 · card and panel titles</p>
+            <p className="text-sm font-extrabold">Extra bold 800 · page titles and brand</p>
+          </Card>
+          <Card className="gap-3 px-6">
+            <p className="text-sm font-bold">Colors for text</p>
+            <p className="text-sm text-foreground">Primary text · main content</p>
+            <p className="text-sm text-muted-foreground">
+              Secondary text · help, meta, placeholders
+            </p>
+            <p className="text-sm font-semibold text-primary">Link and active text</p>
+            <p className="text-sm font-semibold text-destructive">Error text · cancelled, failed</p>
+            <p className="text-sm font-semibold text-success">Success text · paid, confirmed</p>
+          </Card>
+          <Card className="gap-3 px-6">
+            <p className="text-sm font-bold">Numbers and references</p>
+            <p className="text-sm tabular-nums">Money lines up: €1,240.00 · €86.50 · €9.90</p>
+            <p className="font-mono text-sm">MH-1042 · MH-1043 · reference codes</p>
+            <p className="text-2xl font-extrabold tracking-tight tabular-nums">€12,480.00</p>
+          </Card>
+          <Card className="gap-3 px-6">
+            <p className="text-sm font-bold">Reading width</p>
+            <p className="max-w-prose text-sm">
+              Long text stays at about 65 characters per line. Guests who arrive after 22:00 are
+              asked to confirm with the front desk before travelling, so the room is held.
+            </p>
+            <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+              Table header · 12 caps
+            </p>
+          </Card>
+        </div>
       </Section>
 
       <Section id="buttons" title="Buttons">

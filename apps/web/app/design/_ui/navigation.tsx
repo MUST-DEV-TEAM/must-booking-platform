@@ -323,19 +323,19 @@ export function UserMenuTrigger({
           type="button"
           aria-label={`Account menu for ${demoUser.name}`}
           className={cn(
-            'flex items-center gap-2.5 rounded-md border bg-card px-2 py-1.5 text-left outline-none hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50',
+            'flex h-9 items-center gap-2.5 rounded-md border bg-card px-2 text-left outline-none hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50',
             compact && 'justify-center border-transparent px-0',
             className,
           )}
         >
-          <Avatar>
+          <Avatar className="size-7">
             <AvatarFallback>{demoUser.initials}</AvatarFallback>
           </Avatar>
           {compact ? null : (
             <>
-              <span className="min-w-0 flex-1 leading-tight">
-                <span className="block truncate text-sm font-bold">{demoUser.name}</span>
-                <span className="block truncate text-xs text-muted-foreground">
+              <span className="min-w-0 flex-1 leading-none">
+                <span className="block truncate text-sm leading-4 font-bold">{demoUser.name}</span>
+                <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">
                   {navByRole[role].label}
                 </span>
               </span>
@@ -355,7 +355,7 @@ export function UserMenuTrigger({
   );
 }
 
-/** Page title bar with context controls on the right. `onMenu` shows the phone/tablet menu button. */
+/** Page title bar with context controls on the right. `onMenu` shows the phone/tablet menu button, last on the right. */
 export function TopHeader({
   title,
   onMenu,
@@ -369,13 +369,15 @@ export function TopHeader({
 }) {
   return (
     <header className={cn('flex items-center gap-3 border-b bg-card px-4 py-3 sm:px-6', className)}>
-      {onMenu ? (
-        <Button variant="ghost" size="icon" aria-label="Open menu" onClick={onMenu}>
-          <Menu />
-        </Button>
-      ) : null}
-      <h1 className="flex-1 truncate text-xl font-extrabold tracking-tight">{title}</h1>
-      <div className="flex items-center gap-2">{actions}</div>
+      <h1 className="min-w-0 flex-1 truncate text-xl font-extrabold tracking-tight">{title}</h1>
+      <div className="flex items-center gap-2">
+        {actions}
+        {onMenu ? (
+          <Button variant="outline" size="icon" aria-label="Open menu" onClick={onMenu}>
+            <Menu />
+          </Button>
+        ) : null}
+      </div>
     </header>
   );
 }
@@ -466,14 +468,17 @@ export function SectionTabs({
 export function Breadcrumb({ items }: { items: readonly string[] }) {
   return (
     <nav aria-label="Breadcrumb">
-      <ol className="flex items-center gap-1.5 text-sm text-muted-foreground">
+      <ol className="flex flex-nowrap items-center gap-1.5 overflow-x-auto text-sm whitespace-nowrap text-muted-foreground">
         {items.map((item, index) => {
           const last = index === items.length - 1;
           const hiddenOnPhone = index < items.length - 2;
           return (
             <li
               key={item}
-              className={cn('items-center gap-1.5', hiddenOnPhone ? 'hidden sm:flex' : 'flex')}
+              className={cn(
+                'shrink-0 items-center gap-1.5',
+                hiddenOnPhone ? 'hidden sm:flex' : 'flex',
+              )}
             >
               {index > 0 ? <ChevronRight className="size-3.5" /> : null}
               {last ? (
