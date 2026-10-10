@@ -370,7 +370,12 @@ export function TopHeader({
   className?: string;
 }) {
   return (
-    <header className={cn('flex items-center gap-3 border-b bg-card px-4 py-3 sm:px-6', className)}>
+    <header
+      className={cn(
+        'flex items-center gap-3 border-b bg-card px-4 py-3 @sm/design-preview:px-6',
+        className,
+      )}
+    >
       <h1 className="min-w-0 flex-1 truncate text-xl font-extrabold tracking-tight">{title}</h1>
       <div className="flex items-center gap-2">
         {actions}
@@ -486,7 +491,7 @@ export function Breadcrumb({ items }: { items: readonly string[] }) {
               key={item}
               className={cn(
                 'shrink-0 items-center gap-1.5',
-                hiddenOnPhone ? 'hidden sm:flex' : 'flex',
+                hiddenOnPhone ? 'hidden @sm/design-preview:flex' : 'flex',
               )}
             >
               {index > 0 ? <ChevronRight className="size-3.5" /> : null}
@@ -536,7 +541,7 @@ export function Pagination({
           aria-label="First page"
           disabled={page === 1}
           onClick={() => onPage?.(1)}
-          className="hidden sm:inline-flex"
+          className="hidden @sm/design-preview:inline-flex"
         >
           <ChevronsLeft />
         </Button>
@@ -562,13 +567,13 @@ export function Pagination({
               aria-label={`Page ${entry}`}
               aria-current={entry === page ? 'page' : undefined}
               onClick={() => onPage?.(entry)}
-              className="hidden sm:inline-flex"
+              className="hidden @sm/design-preview:inline-flex"
             >
               {entry}
             </Button>
           ),
         )}
-        <span className="px-2 text-sm font-semibold sm:hidden">
+        <span className="px-2 text-sm font-semibold @sm/design-preview:hidden">
           {page} / {pageCount}
         </span>
         <Button

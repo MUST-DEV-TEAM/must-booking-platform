@@ -36,7 +36,7 @@ export function SheetContent({
       <SheetPrimitive.Content
         className={cn(
           position,
-          'inset-y-0 z-50 flex h-full w-3/4 flex-col gap-4 bg-card shadow-lg transition ease-in-out data-[state=closed]:animate-out data-[state=closed]:duration-300 data-[state=open]:animate-in data-[state=open]:duration-500 sm:max-w-md',
+          'inset-y-0 z-50 flex h-full w-3/4 flex-col gap-4 bg-card shadow-lg transition ease-in-out data-[state=closed]:animate-out data-[state=closed]:duration-300 data-[state=open]:animate-in data-[state=open]:duration-500 sm:max-w-[28rem]',
           side === 'right'
             ? 'right-0 border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right'
             : 'left-0 border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left',

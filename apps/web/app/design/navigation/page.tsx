@@ -109,7 +109,7 @@ export default function NavigationDesignPage() {
             Desktop frame first, then the phone frame.
           </span>
         </div>
-        <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="grid gap-6 @2xl/design-preview:grid-cols-[minmax(0,1fr)_320px]">
           <div className="flex h-[640px] overflow-hidden rounded-xl border bg-background">
             <Sidebar role={role} current={activeId} onSelect={setCurrent} className="shrink-0" />
             <div className="flex min-w-0 flex-1 flex-col">
@@ -119,16 +119,16 @@ export default function NavigationDesignPage() {
                   <>
                     <Button
                       variant="outline"
-                      className="hidden h-10 px-3 text-[13px] md:inline-flex [&_svg]:size-3.5"
+                      className="hidden h-10 px-3 text-[13px] @md/design-preview:inline-flex [&_svg]:size-3.5"
                     >
                       <CalendarDays /> 12 – 18 Oct 2026
                     </Button>
                     <NotificationTrigger count={3} />
-                    <UserMenuTrigger role={role} className="hidden md:flex" />
+                    <UserMenuTrigger role={role} className="hidden @md/design-preview:flex" />
                   </>
                 }
               />
-              <div className="space-y-4 overflow-auto p-4 sm:p-6">
+              <div className="space-y-4 overflow-auto p-4 @sm/design-preview:p-6">
                 <Breadcrumb items={['Home', 'Empire Beach Resort', activeLabel]} />
                 <TabBar tabs={inventoryTabs} current={tab} onSelect={setTab} />
                 <Card className="px-6 text-sm text-muted-foreground">
@@ -216,7 +216,7 @@ export default function NavigationDesignPage() {
             </div>
           </div>
           <TopHeader
-            className="max-w-sm rounded-xl border"
+            className="max-w-[24rem] rounded-xl border"
             title="Dashboard"
             onMenu={() => undefined}
             actions={<NotificationTrigger count={12} />}
@@ -246,7 +246,7 @@ export default function NavigationDesignPage() {
         title="Parts"
         note="Sidebar item states, notification and account triggers, breadcrumb and pagination."
       >
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-6 @md/design-preview:grid-cols-2">
           <Card className="gap-3 px-5">
             <p className="text-sm font-bold">Sidebar item</p>
             <SidebarItem item={navByRole.admin.items[0]!} />
@@ -267,7 +267,7 @@ export default function NavigationDesignPage() {
             <UserMenuTrigger />
             <UserMenuTrigger compact className="w-fit" />
           </Card>
-          <Card className="gap-4 px-5 md:col-span-2">
+          <Card className="gap-4 px-5 @md/design-preview:col-span-2">
             <p className="text-sm font-bold">Breadcrumb and pagination</p>
             <Breadcrumb items={['Bookings', 'MH-1042', 'Payment']} />
             <Pagination page={page} pageCount={10} total={248} pageSize={25} onPage={setPage} />

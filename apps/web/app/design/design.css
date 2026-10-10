@@ -39,6 +39,11 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --container-sm: 40rem;
+  --container-md: 48rem;
+  --container-lg: 64rem;
+  --container-xl: 80rem;
+  --container-2xl: 96rem;
 }
 
 :root:has(.design-root) {
@@ -126,6 +131,31 @@
   background: var(--background);
   color: var(--foreground);
   min-height: 100vh;
+}
+
+.design-preview-stage {
+  min-height: 100vh;
+  overflow-x: auto;
+  background: var(--background);
+}
+
+.design-preview-viewport {
+  min-height: 100vh;
+}
+
+:root[data-preview-viewport='mobile'] [data-slot='dialog-content'] {
+  width: calc(390px - 2rem);
+  max-width: calc(390px - 2rem);
+}
+
+:root[data-preview-viewport='mobile'] [data-slot='sheet-content'] {
+  width: 292px;
+  max-width: calc(390px - 2rem);
+}
+
+:root[data-preview-viewport='mobile'] [data-slot='dialog-footer'] {
+  flex-direction: column-reverse;
+  justify-content: initial;
 }
 
 @layer base {

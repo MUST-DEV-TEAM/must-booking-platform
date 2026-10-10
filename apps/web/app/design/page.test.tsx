@@ -1,20 +1,33 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('next/navigation', () => ({ usePathname: () => '/design/navigation' }));
+const mockedNavigation = vi.hoisted(() => ({ usePathname: vi.fn(() => '/design') }));
+
+vi.mock('next/navigation', () => mockedNavigation);
 
 import { DesignShell } from './design-shell';
 import DesignShowcasePage, { DesignShowcaseContent } from './page';
 
 describe('Design showcase', () => {
-  it('renders page-wide viewport controls at the top-level design route', () => {
-    const markup = renderToStaticMarkup(<DesignShowcasePage />);
+  beforeEach(() => {
+    mockedNavigation.usePathname.mockReturnValue('/design');
+  });
+
+  it('renders device controls around the single responsive design shell', () => {
+    const markup = renderToStaticMarkup(
+      <DesignShell>
+        <DesignShowcasePage />
+      </DesignShell>,
+    );
 
     expect(markup).toContain('>Desktop</button>');
     expect(markup).toContain('>Tablet</button>');
     expect(markup).toContain('>Mobile</button>');
-    expect(markup).toContain('title="MUST dashboard preview · Desktop"');
-    expect(markup).toContain('src="/design?previewFrame=1"');
+    expect(markup).toContain('data-preview-viewport="desktop"');
+    expect(markup).toContain('aria-label="Design preview"');
+    expect(markup).not.toContain('<iframe');
+    expect(markup).not.toContain('previewFrame');
+    expect(markup.match(/class="[^"]*design-root/g)).toHaveLength(1);
   });
 
   it('renders the neutral palette and organized status examples with demo data only', () => {
@@ -50,6 +63,10 @@ describe('Design showcase', () => {
     expect(markup).toContain('Inventory conflict');
     expect(markup).toContain('Partially refunded');
     expect(markup).toContain('Provider / PMS');
+    expect(markup).toContain('aria-label="Loading booking card"');
+    expect(markup).toContain('aria-label="Loading booking table"');
+    expect(markup).toContain('aria-label="Loading booking detail panel"');
+    expect(markup).toContain('aria-busy="true"');
     expect(markup).not.toContain('>Buttons</h2>');
     expect(markup).not.toContain('Responsive behavior');
     expect(markup).not.toContain('design-color-variant');
@@ -59,6 +76,7 @@ describe('Design showcase', () => {
   });
 
   it('links only to ready preview pages and leaves the live app with a full page load', () => {
+    mockedNavigation.usePathname.mockReturnValue('/design/navigation');
     const markup = renderToStaticMarkup(
       <DesignShell>
         <p>child</p>

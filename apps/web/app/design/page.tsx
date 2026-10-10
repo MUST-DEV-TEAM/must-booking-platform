@@ -6,21 +6,17 @@ import {
   Check,
   CircleHelp,
   Info,
-  Monitor,
   Minus,
   MoreHorizontal,
   RefreshCw,
   Search,
-  Smartphone,
-  Tablet,
   TriangleAlert,
   Wallet,
   X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
-import { useIsPreviewFrame } from './_lib/use-preview-frame';
 import { Alert, AlertDescription, AlertTitle } from './_ui/alert';
 import { Avatar, AvatarFallback } from './_ui/avatar';
 import { Badge } from './_ui/badge';
@@ -147,7 +143,7 @@ const typeScale = [
     name: 'Display',
     spec: '24 / 32 → 28 / 36 → 32 / 40 · mobile / tablet / desktop',
     className:
-      'text-2xl leading-8 font-bold tracking-tight sm:text-[28px] sm:leading-9 lg:text-[32px] lg:leading-10',
+      'text-2xl leading-8 font-bold tracking-tight @sm/design-preview:text-[28px] @sm/design-preview:leading-9 @lg/design-preview:text-[32px] @lg/design-preview:leading-10',
     sample: '€12,480.00 this week',
     use: 'Hero numbers, empty-state headlines',
   },
@@ -155,7 +151,7 @@ const typeScale = [
     name: 'Page title',
     spec: '24 / 32 → 26 / 34 → 28 / 36 · mobile / tablet / desktop',
     className:
-      'text-2xl leading-8 font-extrabold tracking-tight sm:text-[26px] sm:leading-[34px] lg:text-[28px] lg:leading-9',
+      'text-2xl leading-8 font-extrabold tracking-tight @sm/design-preview:text-[26px] @sm/design-preview:leading-[34px] @lg/design-preview:text-[28px] @lg/design-preview:leading-9',
     sample: 'Reservations',
     use: 'One per page',
   },
@@ -163,7 +159,7 @@ const typeScale = [
     name: 'Section title',
     spec: '20 / 28 → 22 / 30 → 24 / 32 · mobile / tablet / desktop',
     className:
-      'text-xl leading-7 font-extrabold tracking-tight sm:text-[22px] sm:leading-[30px] lg:text-2xl lg:leading-8',
+      'text-xl leading-7 font-extrabold tracking-tight @sm/design-preview:text-[22px] @sm/design-preview:leading-[30px] @lg/design-preview:text-2xl @lg/design-preview:leading-8',
     sample: 'Arrivals today',
     use: 'Major blocks inside a page',
   },
@@ -171,7 +167,7 @@ const typeScale = [
     name: 'Panel title',
     spec: '18 / 24 → 19 / 27 → 20 / 28 · mobile / tablet / desktop',
     className:
-      'text-lg leading-6 font-semibold sm:text-[19px] sm:leading-[27px] lg:text-xl lg:leading-7',
+      'text-lg leading-6 font-semibold @sm/design-preview:text-[19px] @sm/design-preview:leading-[27px] @lg/design-preview:text-xl @lg/design-preview:leading-7',
     sample: 'Guest details',
     use: 'Cards, dialogs, side panels',
   },
@@ -217,14 +213,6 @@ const swatches = [
   { name: 'Danger', token: '--destructive', value: '#b42318', swatch: 'bg-destructive' },
   { name: 'Info', token: '--info', value: '#0369a1', swatch: 'bg-info' },
 ] as const;
-
-const viewportOptions = [
-  { value: 'desktop', label: 'Desktop', width: 1440, icon: Monitor },
-  { value: 'tablet', label: 'Tablet', width: 768, icon: Tablet },
-  { value: 'mobile', label: 'Mobile', width: 390, icon: Smartphone },
-] as const;
-
-type Viewport = (typeof viewportOptions)[number]['value'];
 
 const statusGroups = [
   {
@@ -306,93 +294,7 @@ function Row({ children }: { children: ReactNode }) {
 }
 
 export default function DesignShowcasePage() {
-  const isPreviewFrame = useIsPreviewFrame();
-
-  if (isPreviewFrame) return <DesignShowcaseContent />;
-  return <ViewportPreview />;
-}
-
-function ViewportPreview() {
-  const [viewport, setViewport] = useState<Viewport>('desktop');
-  const [availableWidth, setAvailableWidth] = useState(1440);
-  const [previewHeight, setPreviewHeight] = useState(768);
-  const previewContainerRef = useRef<HTMLDivElement>(null);
-  const selected = viewportOptions.find((option) => option.value === viewport)!;
-  const scale = Math.max(0.1, Math.min(1, availableWidth / selected.width));
-
-  useEffect(() => {
-    const container = previewContainerRef.current;
-    if (!container) return;
-
-    const updatePreviewHeight = () => {
-      setPreviewHeight(Math.min(1000, Math.max(420, window.innerHeight * 0.76)));
-    };
-    const observer = new ResizeObserver((entries) => {
-      if (entries[0]) setAvailableWidth(entries[0].contentRect.width);
-    });
-    observer.observe(container);
-    window.addEventListener('resize', updatePreviewHeight);
-    updatePreviewHeight();
-
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', updatePreviewHeight);
-    };
-  }, []);
-
-  return (
-    <div className="design-root min-h-screen px-4 py-6 sm:px-8 lg:px-10 lg:py-8">
-      <div className="mx-auto max-w-[1500px] space-y-5">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div className="space-y-1">
-            <h1 className="text-2xl leading-8 font-extrabold tracking-tight">Dashboard preview</h1>
-            <p className="text-sm text-muted-foreground">
-              Switch the full page between desktop, tablet, and mobile widths.
-            </p>
-          </div>
-          <Tabs
-            value={viewport}
-            onValueChange={(value) => {
-              if (viewportOptions.some((option) => option.value === value)) {
-                setViewport(value as Viewport);
-              }
-            }}
-          >
-            <TabsList aria-label="Preview size" className="h-10 w-full sm:w-fit">
-              {viewportOptions.map(({ value, label, icon: Icon }) => (
-                <TabsTrigger key={value} value={value} className="px-4">
-                  <Icon aria-hidden="true" />
-                  {label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-        </div>
-        <div
-          ref={previewContainerRef}
-          className="flex justify-center overflow-auto rounded-xl border bg-muted/50 p-3 sm:p-5"
-        >
-          <div
-            className="relative shrink-0 overflow-hidden rounded-lg border bg-background shadow-sm"
-            style={{ width: `${selected.width * scale}px`, height: `${previewHeight}px` }}
-          >
-            <iframe
-              key={viewport}
-              title={`MUST dashboard preview · ${selected.label}`}
-              src="/design?previewFrame=1"
-              style={{
-                width: `${selected.width}px`,
-                height: `${previewHeight / scale}px`,
-                transform: `scale(${scale})`,
-                transformOrigin: 'top left',
-              }}
-              className="absolute top-0 left-0 max-w-none border-0 bg-background"
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  return <DesignShowcaseContent />;
 }
 
 export function DesignShowcaseContent() {
@@ -421,7 +323,7 @@ export function DesignShowcaseContent() {
           Neutral palette. Each swatch shows the CSS token and its value; themes can still swap the
           tokens across the preview.
         </p>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-3 @sm/design-preview:grid-cols-2 @xl/design-preview:grid-cols-5">
           {swatches.map(({ name, token, value, swatch }) => (
             <Card key={token} className="gap-3 px-4 py-4">
               <div className="flex items-center gap-3">
@@ -448,7 +350,7 @@ export function DesignShowcaseContent() {
           {typeScale.map(({ name, spec, className, sample, use }) => (
             <div
               key={name}
-              className="grid items-baseline gap-x-6 gap-y-1 px-6 py-4 md:grid-cols-[170px_minmax(0,1fr)_220px]"
+              className="grid items-baseline gap-x-6 gap-y-1 px-6 py-4 @md/design-preview:grid-cols-[170px_minmax(0,1fr)_220px]"
             >
               <div>
                 <div className="text-sm font-bold">{name}</div>
@@ -459,7 +361,7 @@ export function DesignShowcaseContent() {
             </div>
           ))}
         </Card>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 @md/design-preview:grid-cols-2">
           <Card className="gap-3 px-6">
             <p className="text-sm font-bold">Weights</p>
             <p className="text-sm font-normal">Regular 400 · body and descriptions</p>
@@ -498,7 +400,7 @@ export function DesignShowcaseContent() {
       </Section>
 
       <Section id="badges" title="Badges and statuses">
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-4 @sm/design-preview:grid-cols-2 @xl/design-preview:grid-cols-5">
           {statusGroups.map(({ name, statuses }) => (
             <Card key={name} className="gap-3 px-4 py-4">
               <h3 className="text-sm font-bold">{name}</h3>
@@ -528,7 +430,7 @@ export function DesignShowcaseContent() {
                 Clear outcomes, short explanations, and a recovery action where one is useful.
               </p>
             </div>
-            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+            <div className="grid gap-5 @xl/design-preview:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
               <div className="space-y-3">
                 <h4 className="text-sm font-semibold">Alert banner</h4>
                 {[
@@ -628,7 +530,7 @@ export function DesignShowcaseContent() {
                 Success, review, failure, and information with next steps.
               </p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+            <div className="grid gap-3 @sm/design-preview:grid-cols-2 @2xl/design-preview:grid-cols-4">
               {[
                 {
                   title: 'Booking confirmed',
@@ -671,7 +573,7 @@ export function DesignShowcaseContent() {
             </div>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)]">
+          <div className="grid gap-6 @xl/design-preview:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)]">
             <div className="space-y-3">
               <h3 className="text-base font-bold">Toast notifications</h3>
               {[
@@ -757,7 +659,7 @@ export function DesignShowcaseContent() {
 
               <Card className="gap-4 px-4 py-4">
                 <h3 className="text-base font-bold">Loading and processing</h3>
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-4 @md/design-preview:grid-cols-2">
                   <div className="space-y-3">
                     <h4 className="text-sm font-semibold">Sizes</h4>
                     <div className="flex items-end justify-between">
@@ -781,7 +683,7 @@ export function DesignShowcaseContent() {
                     </div>
                     <p className="text-xs text-muted-foreground">12 · 16 · 20 · 24 px</p>
                   </div>
-                  <div className="space-y-2 border-t pt-3 md:border-t-0 md:border-l md:pt-0 md:pl-4">
+                  <div className="space-y-2 border-t pt-3 @md/design-preview:border-t-0 @md/design-preview:border-l @md/design-preview:pt-0 @md/design-preview:pl-4">
                     <h4 className="text-sm font-semibold">Inline usage</h4>
                     <Button variant="outline" loading className="w-full justify-between">
                       Loading bookings…
@@ -805,40 +707,86 @@ export function DesignShowcaseContent() {
                 Loading layouts for the card, table, and detail panel.
               </p>
             </div>
-            <div className="grid gap-3 xl:grid-cols-3">
-              <Card className="gap-3 px-4 py-4">
+            <div className="grid gap-3 @xl/design-preview:grid-cols-3">
+              <Card
+                role="status"
+                aria-label="Loading booking card"
+                aria-busy="true"
+                className="gap-3 px-4 py-4"
+              >
                 <h4 className="text-xs font-semibold">Booking card</h4>
                 <div className="flex gap-3">
-                  <Skeleton className="h-24 w-1/2" />
+                  <div className="w-24 shrink-0 space-y-2">
+                    <Skeleton className="h-20 w-full" />
+                    <Skeleton className="h-3 w-16" />
+                  </div>
                   <div className="flex-1 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <Skeleton className="h-4 w-2/3" />
+                      <Skeleton className="h-5 w-16 rounded-full" />
+                    </div>
                     <Skeleton className="h-3 w-full" />
                     <Skeleton className="h-3 w-3/4" />
-                    <Skeleton className="h-3 w-full" />
-                    <Skeleton className="h-3 w-2/3" />
+                    <div className="flex justify-between border-t pt-2">
+                      <Skeleton className="h-3 w-14" />
+                      <Skeleton className="h-4 w-20" />
+                    </div>
                   </div>
                 </div>
               </Card>
-              <Card className="gap-3 px-4 py-4">
+              <Card
+                role="status"
+                aria-label="Loading booking table"
+                aria-busy="true"
+                className="gap-3 px-4 py-4"
+              >
                 <h4 className="text-xs font-semibold">Booking table</h4>
-                <Skeleton className="h-5 w-full" />
-                {[0, 1, 2].map((row) => (
-                  <div key={row} className="grid grid-cols-[12px_repeat(4,minmax(0,1fr))] gap-2">
-                    <Skeleton className="h-3 w-3" />
-                    {[0, 1, 2, 3].map((cell) => (
-                      <Skeleton key={cell} className="h-3" />
-                    ))}
-                  </div>
-                ))}
+                <div className="overflow-hidden rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        {[0, 1, 2, 3].map((column) => (
+                          <TableHead key={column} className="h-9 px-2">
+                            <Skeleton className="h-3 w-4/5" />
+                          </TableHead>
+                        ))}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {[0, 1, 2].map((row) => (
+                        <TableRow key={row}>
+                          {[0, 1, 2, 3].map((column) => (
+                            <TableCell key={column} className="px-2 py-3">
+                              <Skeleton className={column === 0 ? 'h-3 w-3/4' : 'h-3 w-full'} />
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               </Card>
-              <Card className="gap-3 px-4 py-4">
+              <Card
+                role="status"
+                aria-label="Loading booking detail panel"
+                aria-busy="true"
+                className="gap-3 px-4 py-4"
+              >
                 <h4 className="text-xs font-semibold">Booking detail panel</h4>
                 <div className="flex gap-3">
-                  <Skeleton className="h-24 w-20 shrink-0" />
-                  <div className="flex-1 space-y-3 rounded-md border p-3">
-                    <Skeleton className="h-3 w-2/3" />
+                  <Skeleton className="size-20 shrink-0" />
+                  <div className="min-w-0 flex-1 space-y-3 rounded-md border p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <Skeleton className="h-4 w-2/3" />
+                      <Skeleton className="h-5 w-14 rounded-full" />
+                    </div>
                     <Skeleton className="h-3 w-1/2" />
                     <Skeleton className="h-3 w-3/4" />
                     <Skeleton className="h-3 w-5/6" />
+                    <div className="grid grid-cols-2 gap-3 border-t pt-3">
+                      <Skeleton className="h-8 w-full" />
+                      <Skeleton className="h-8 w-full" />
+                    </div>
                   </div>
                 </div>
               </Card>
@@ -847,7 +795,7 @@ export function DesignShowcaseContent() {
 
           <div className="space-y-4">
             <h3 className="text-base font-bold">Empty and recovery states</h3>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-3 @sm/design-preview:grid-cols-2 @xl/design-preview:grid-cols-4">
               <EmptyState
                 icon={CalendarCheck}
                 title="No bookings yet"
@@ -883,7 +831,7 @@ export function DesignShowcaseContent() {
             </div>
           </div>
 
-          <div className="grid gap-3 rounded-xl border bg-muted/60 p-4 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-3 rounded-xl border bg-muted/60 p-4 @sm/design-preview:grid-cols-2 @xl/design-preview:grid-cols-5">
             {[
               [
                 'Separate status domains',
@@ -905,7 +853,7 @@ export function DesignShowcaseContent() {
 
       <Section id="forms" title="Form controls">
         <Card className="px-6">
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-5 @md/design-preview:grid-cols-2">
             <div className="grid gap-2">
               <Label htmlFor="demo-guest">Guest name</Label>
               <Input id="demo-guest" placeholder="e.g. Elira Hoxha" />
@@ -935,7 +883,7 @@ export function DesignShowcaseContent() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid gap-2 md:col-span-2">
+            <div className="grid gap-2 @md/design-preview:col-span-2">
               <Label htmlFor="demo-notes">Internal note</Label>
               <Textarea id="demo-notes" placeholder="Late arrival, baby cot requested…" />
             </div>
@@ -952,13 +900,13 @@ export function DesignShowcaseContent() {
       </Section>
 
       <Section id="cards" title="Cards and stats">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 @sm/design-preview:grid-cols-2 @lg/design-preview:grid-cols-4">
           <StatCard label="Arrivals today" value="8" icon={CalendarCheck} hint="3 checked in" />
           <StatCard label="Occupancy" value="76%" icon={BedDouble} change={4} hint="vs last week" />
           <StatCard label="Revenue (Oct)" value="€18,240" icon={Wallet} change={12} />
           <StatCard label="Unpaid balance" value="€1,130" icon={TriangleAlert} change={-8} />
         </div>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 @md/design-preview:grid-cols-2">
           <Card>
             <CardHeader>
               <CardTitle>Today at a glance</CardTitle>

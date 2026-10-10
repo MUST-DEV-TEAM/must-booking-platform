@@ -226,7 +226,7 @@ const commonActions: ReadonlyArray<{
 
 function ActionPatterns() {
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 @sm/design-preview:grid-cols-2 @lg/design-preview:grid-cols-3">
       {commonActions.map(({ label, note, variant, icon: Icon }) => (
         <div key={label} className="flex items-center gap-3 rounded-xl border bg-card p-3">
           <Button
@@ -673,7 +673,7 @@ export default function ActionsDesignPage() {
         title="Dropdown item"
         note="Explicit verbs and outcomes. Destructive, lifecycle and financial choices stay visible, permission-gated and confirmation-gated."
       >
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 @md/design-preview:grid-cols-2">
           <Card className="gap-1 px-3">
             <MenuRow icon={Eye} label="View booking" hint="Open" />
             <MenuRow icon={Eye} label="View booking" hint="Open" state="hover" />
@@ -752,8 +752,8 @@ export default function ActionsDesignPage() {
         title="In context"
         note="The same buttons where they live: a table row, a card header, a form footer and a confirmation dialog."
       >
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <Card className="gap-0 px-0 lg:col-span-2">
+        <div className="grid grid-cols-1 gap-4 @lg/design-preview:grid-cols-2">
+          <Card className="gap-0 px-0 @lg/design-preview:col-span-2">
             <CardHeader className="flex-row items-center justify-between gap-3 border-b pb-4">
               <div>
                 <CardTitle>Arrivals today</CardTitle>
@@ -856,7 +856,7 @@ export default function ActionsDesignPage() {
             </Dialog>
           </Card>
 
-          <Card className="px-6 lg:col-span-2">
+          <Card className="px-6 @lg/design-preview:col-span-2">
             <p className="text-sm font-bold">Page footer on a phone</p>
             <div className="mx-auto w-full max-w-xs space-y-2 rounded-xl border bg-background p-3">
               <Button className="w-full" size="lg">
@@ -877,7 +877,7 @@ export default function ActionsDesignPage() {
         title="Reservation action patterns"
         note="Backend permissions, current booking and payment state and provider capability remain authoritative."
       >
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 @md/design-preview:grid-cols-2">
           {patternGroups.map((group) => (
             <Card key={group.title} className="gap-3 px-5">
               <div>
@@ -934,7 +934,7 @@ export default function ActionsDesignPage() {
             </TableBody>
           </Table>
         </Card>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 @sm/design-preview:grid-cols-2 @lg/design-preview:grid-cols-4">
           {confirmLevels.map((level) => (
             <div key={level.title} className={cn('space-y-1 rounded-xl border p-4', level.tone)}>
               <p className="text-sm font-bold">{level.title}</p>
