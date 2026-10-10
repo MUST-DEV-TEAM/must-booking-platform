@@ -296,6 +296,7 @@ describe('LocalPmsProvider', () => {
                 expect.objectContaining({ key: 'calendar.view' }),
                 expect.objectContaining({ key: 'guests.manage' }),
                 expect.objectContaining({ key: 'payments.refund' }),
+                expect.objectContaining({ key: 'photos.manage' }),
                 expect.objectContaining({ key: 'rates.manage' }),
                 expect.objectContaining({ key: 'reports.view' }),
                 expect.objectContaining({ key: 'settings.manage' }),
