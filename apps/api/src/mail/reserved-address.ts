@@ -3,7 +3,7 @@
  * and their subdomains. Sending to them only uses up the mail quota and hurts the
  * sender's reputation with the mail provider.
  */
-const RESERVED_SUFFIXES = ['.test', '.example', '.invalid', '.localhost'];
+const RESERVED_TOP_LEVEL_DOMAINS = ['test', 'example', 'invalid', 'localhost'];
 const RESERVED_DOMAINS = ['example.com', 'example.net', 'example.org'];
 
 export function isReservedTestAddress(address: string): boolean {
@@ -15,7 +15,7 @@ export function isReservedTestAddress(address: string): boolean {
     .replace(/>$/, '')
     .toLowerCase();
   return (
-    RESERVED_SUFFIXES.some((suffix) => domain.endsWith(suffix)) ||
+    RESERVED_TOP_LEVEL_DOMAINS.some((tld) => domain === tld || domain.endsWith(`.${tld}`)) ||
     RESERVED_DOMAINS.some((reserved) => domain === reserved || domain.endsWith(`.${reserved}`))
   );
 }

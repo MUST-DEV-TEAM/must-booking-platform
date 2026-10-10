@@ -9,6 +9,8 @@ describe('isReservedTestAddress', () => {
     'a@host.example',
     'a@bad.invalid',
     'a@box.localhost',
+    'user@localhost',
+    'user@test',
     'a@example.com',
     'A@Mail.Example.ORG',
     'Guest <guest@example.net>',

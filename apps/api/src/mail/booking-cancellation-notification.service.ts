@@ -80,11 +80,13 @@ export class BookingCancellationNotificationService {
       let staff = await staffRecipients(tx, context, 'booking_cancelled');
       if (!notifyGuest && staff.length > 0) {
         const recent = await tx.$queryRaw<Array<{ others: number; thisBooking: boolean }>>`
-          SELECT count(DISTINCT booking_id) FILTER (WHERE booking_id <> ${bookingId}::uuid)::int AS others,
-            COALESCE(bool_or(booking_id = ${bookingId}::uuid), false) AS "thisBooking"
-          FROM email_messages
-          WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
-            AND event_type = 'booking.staff_cancelled' AND created_at > now() - interval '1 hour'
+          SELECT count(DISTINCT em.booking_id) FILTER (WHERE em.booking_id <> ${bookingId}::uuid)::int AS others,
+            COALESCE(bool_or(em.booking_id = ${bookingId}::uuid), false) AS "thisBooking"
+          FROM email_messages em
+          JOIN bookings eb ON eb.tenant_id = em.tenant_id AND eb.id = em.booking_id
+            AND eb.pms_stay_status = 'canceled'
+          WHERE em.tenant_id = ${context.tenantId}::uuid AND em.property_id = ${context.propertyId}::uuid
+            AND em.event_type = 'booking.staff_cancelled' AND em.created_at > now() - interval '1 hour'
         `;
         if (
           !recent[0]?.thisBooking &&
