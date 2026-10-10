@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { PaymentProviderContext } from '@must/domain-contracts';
 
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
@@ -34,8 +34,16 @@ type CancellationRefund = {
   needsManualAction: boolean;
 };
 
+/** A cancellation made in the PMS is emailed to staff for at most this many different
+ * bookings per hotel per hour. A bulk cancellation (a season clean-up, a test run)
+ * would otherwise send one email per booking per staff member and use up the mail quota.
+ * The cancellations are still on the Reservations screen and in the problem alerts. */
+export const PMS_CANCELLATION_EMAILS_PER_HOUR = 3;
+
 @Injectable()
 export class BookingCancellationNotificationService {
+  private readonly logger = new Logger(BookingCancellationNotificationService.name);
+
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(PaymentNotificationService) private readonly notifications: PaymentNotificationService,
@@ -69,7 +77,27 @@ export class BookingCancellationNotificationService {
       `;
       const row = rows[0];
       if (!row) return null;
-      const staff = await staffRecipients(tx, context, 'booking_cancelled');
+      let staff = await staffRecipients(tx, context, 'booking_cancelled');
+      if (!notifyGuest && staff.length > 0) {
+        const recent = await tx.$queryRaw<Array<{ others: number; thisBooking: boolean }>>`
+          SELECT count(DISTINCT em.booking_id) FILTER (WHERE em.booking_id <> ${bookingId}::uuid)::int AS others,
+            COALESCE(bool_or(em.booking_id = ${bookingId}::uuid), false) AS "thisBooking"
+          FROM email_messages em
+          JOIN bookings eb ON eb.tenant_id = em.tenant_id AND eb.id = em.booking_id
+            AND eb.pms_stay_status = 'canceled'
+          WHERE em.tenant_id = ${context.tenantId}::uuid AND em.property_id = ${context.propertyId}::uuid
+            AND em.event_type = 'booking.staff_cancelled' AND em.created_at > now() - interval '1 hour'
+        `;
+        if (
+          !recent[0]?.thisBooking &&
+          (recent[0]?.others ?? 0) >= PMS_CANCELLATION_EMAILS_PER_HOUR
+        ) {
+          this.logger.warn(
+            `Not emailing staff about the Clock cancellation of booking ${bookingId}: ${PMS_CANCELLATION_EMAILS_PER_HOUR} bookings were already emailed for this hotel in the last hour.`,
+          );
+          staff = [];
+        }
+      }
       const refunds = await tx.$queryRaw<CancellationRefund[]>`
         SELECT refunded.amount::text AS "refundAmount", refunded.currency AS "refundCurrency",
           charged.amount::text AS "chargeAmount", charged.currency AS "chargeCurrency",
