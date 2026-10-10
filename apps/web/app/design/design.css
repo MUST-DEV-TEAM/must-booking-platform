@@ -1,7 +1,7 @@
 /*
  * Tailwind + shadcn theme for the /design preview pages only. Scanning is limited to this
  * folder, and colors map onto the existing --must-* tokens from @must/ui so the new
- * components keep the current green and brass look. Light mode only for now.
+ * components can reuse them. Neutral by default, with selectable themes. Light mode only for now.
  */
 @import 'tailwindcss' source('./');
 @import 'tw-animate-css';
@@ -42,24 +42,25 @@
 }
 
 :root:has(.design-root) {
-  /* On :root so dialogs and menus rendered in portals outside .design-root get them too. */
+  /* On :root so dialogs and menus rendered in portals outside .design-root get them too.
+     Default theme is neutral. Themes below only swap the brand tokens; every color is a token. */
   --radius: 0.75rem;
-  --background: var(--must-color-canvas);
-  --foreground: var(--must-color-text-primary);
-  --card: var(--must-color-surface);
-  --card-foreground: var(--must-color-text-primary);
-  --popover: var(--must-color-surface);
-  --popover-foreground: var(--must-color-text-primary);
-  --primary: var(--must-color-ink);
-  --primary-hover: var(--must-color-ink-hover);
+  --background: #f6f6f7;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --card-foreground: #18181b;
+  --popover: #ffffff;
+  --popover-foreground: #18181b;
+  --primary: #18181b;
+  --primary-hover: #3f3f46;
   --primary-foreground: #ffffff;
-  --secondary: var(--must-color-surface-selected);
-  --secondary-foreground: var(--must-color-ink);
-  --muted: #efece4;
-  --muted-foreground: var(--must-color-text-secondary);
-  --accent: var(--must-color-surface-selected);
-  --accent-foreground: var(--must-color-ink);
-  --brass: var(--must-color-accent-brass);
+  --secondary: #efeff1;
+  --secondary-foreground: #18181b;
+  --muted: #efeff1;
+  --muted-foreground: #62626b;
+  --accent: #efeff1;
+  --accent-foreground: #18181b;
+  --brass: #8b8b94;
   --destructive: var(--must-color-danger);
   --destructive-surface: var(--must-color-danger-surface);
   --success: var(--must-color-success);
@@ -68,9 +69,57 @@
   --warning-surface: var(--must-color-warning-surface);
   --info: var(--must-color-info);
   --info-surface: var(--must-color-info-surface);
+  --border: #e4e4e7;
+  --input: #d4d4d8;
+  --ring: #71717a;
+}
+
+/* Selectable themes: set data-theme on <html> (see DesignShell). A client theme is one more block here. */
+:root[data-theme='pine']:has(.design-root) {
+  --background: var(--must-color-canvas);
+  --foreground: var(--must-color-text-primary);
+  --card: var(--must-color-surface);
+  --card-foreground: var(--must-color-text-primary);
+  --popover: var(--must-color-surface);
+  --popover-foreground: var(--must-color-text-primary);
+  --primary: var(--must-color-ink);
+  --primary-hover: var(--must-color-ink-hover);
+  --secondary: var(--must-color-surface-selected);
+  --secondary-foreground: var(--must-color-ink);
+  --muted: #efece4;
+  --muted-foreground: var(--must-color-text-secondary);
+  --accent: var(--must-color-surface-selected);
+  --accent-foreground: var(--must-color-ink);
+  --brass: var(--must-color-accent-brass);
   --border: var(--must-color-border);
   --input: var(--must-color-border);
   --ring: var(--must-color-focus-ring);
+}
+
+:root[data-theme='ocean']:has(.design-root) {
+  --primary: #1d4ed8;
+  --primary-hover: #1e40af;
+  --secondary: #e8eefc;
+  --secondary-foreground: #1e3a8a;
+  --accent: #e8eefc;
+  --accent-foreground: #1e3a8a;
+  --brass: #60a5fa;
+  --ring: #3b82f6;
+}
+
+:root[data-theme='terracotta']:has(.design-root) {
+  --background: #faf6f2;
+  --primary: #9a3412;
+  --primary-hover: #7c2d12;
+  --secondary: #f8e9df;
+  --secondary-foreground: #7c2d12;
+  --muted: #f3ebe4;
+  --accent: #f8e9df;
+  --accent-foreground: #7c2d12;
+  --brass: #d6a37c;
+  --border: #eadfd6;
+  --input: #dccdc0;
+  --ring: #c2410c;
 }
 
 .design-root {

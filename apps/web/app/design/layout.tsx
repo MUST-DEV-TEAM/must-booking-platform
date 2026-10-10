@@ -13,8 +13,14 @@ export const metadata: Metadata = {
 /**
  * /design is a platform-owner-only preview of the new UI: a component showcase and demo pages
  * with fake data. Nothing here is linked from the live dashboard or reads real data.
+ *
+ * Under `next dev` the login check is skipped so the pages open with only the web app running.
+ * `NODE_ENV` is `production` in every build and deploy, so the skip can never apply there.
  */
 export default function DesignLayout({ children }: { children: ReactNode }) {
+  if (process.env.NODE_ENV === 'development') {
+    return <DesignShell>{children}</DesignShell>;
+  }
   return (
     <AuthRouteGuard audience="platform">
       <DesignShell>{children}</DesignShell>

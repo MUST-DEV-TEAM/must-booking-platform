@@ -5,7 +5,9 @@ import {
   BedDouble,
   CalendarDays,
   LayoutDashboard,
+  MousePointerClick,
   ListChecks,
+  PanelLeft,
   Palette,
   Receipt,
   Tags,
@@ -16,11 +18,14 @@ import type { ReactNode } from 'react';
 
 import { cn } from './_lib/utils';
 import { Badge } from './_ui/badge';
+import { ThemeSwitcher } from './_ui/theme-switcher';
 
 type DesignNavItem = { href: string; label: string; icon: typeof Palette; ready: boolean };
 
 export const designNavigation: readonly DesignNavItem[] = [
   { href: '/design', label: 'Components', icon: Palette, ready: true },
+  { href: '/design/navigation', label: 'Navigation', icon: PanelLeft, ready: true },
+  { href: '/design/actions', label: 'Actions', icon: MousePointerClick, ready: true },
   { href: '/design/overview', label: 'Overview', icon: LayoutDashboard, ready: false },
   { href: '/design/reservations', label: 'Reservations', icon: ListChecks, ready: false },
   { href: '/design/booking', label: 'Booking detail', icon: Receipt, ready: false },
@@ -74,6 +79,7 @@ export function DesignShell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
+        <ThemeSwitcher className="mb-2 w-full" />
         {/* A full page load, so this page's Tailwind styles don't carry over to the live app. */}
         <a
           href="/platform"
@@ -88,9 +94,12 @@ export function DesignShell({ children }: { children: ReactNode }) {
           <span className="font-extrabold">
             MUST <span className="font-medium text-muted-foreground">Design preview</span>
           </span>
-          <a href="/platform" className="text-sm font-semibold text-primary">
-            Back to platform
-          </a>
+          <div className="flex items-center gap-3">
+            <ThemeSwitcher className="w-40" />
+            <a href="/platform" className="text-sm font-semibold text-primary">
+              Back
+            </a>
+          </div>
         </header>
         <main className="px-4 py-6 sm:px-8 lg:px-10 lg:py-8">{children}</main>
       </div>
