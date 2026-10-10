@@ -430,17 +430,23 @@ export function SectionTabs({
   current,
   onSelect,
   label = 'Views',
+  compact = false,
 }: {
   tabs: readonly TabEntry[];
   current: string;
   onSelect?: (id: string) => void;
   label?: string;
+  /** Smaller text and padding, for inside a phone-sized frame. */
+  compact?: boolean;
 }) {
   return (
     <div
       role="tablist"
       aria-label={label}
-      className="inline-flex max-w-full gap-1 overflow-x-auto rounded-lg bg-muted p-1"
+      className={cn(
+        'inline-flex max-w-full gap-1 overflow-x-auto rounded-lg bg-muted p-1',
+        compact && 'gap-0.5 p-0.5',
+      )}
     >
       {tabs.map(({ id, label: text, icon: Icon, disabled }) => {
         const active = id === current;
@@ -454,6 +460,7 @@ export function SectionTabs({
             onClick={() => onSelect?.(id)}
             className={cn(
               'flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40',
+              compact && 'gap-1 px-2 py-1 text-xs [&_svg]:size-3.5',
               active && 'bg-card text-foreground shadow-sm',
             )}
           >

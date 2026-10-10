@@ -16,17 +16,27 @@ export function SheetContent({
   children,
   side = 'right',
   hideClose = false,
+  container,
   ...props
 }: ComponentProps<typeof SheetPrimitive.Content> & {
   side?: 'left' | 'right';
   hideClose?: boolean;
+  /** Render inside this element (a phone frame) instead of over the whole page. */
+  container?: HTMLElement | null;
 }) {
+  const position = container ? 'absolute' : 'fixed';
   return (
-    <SheetPrimitive.Portal>
-      <SheetPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
+    <SheetPrimitive.Portal container={container ?? undefined}>
+      <SheetPrimitive.Overlay
+        className={cn(
+          position,
+          'inset-0 z-50 bg-black/40 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0',
+        )}
+      />
       <SheetPrimitive.Content
         className={cn(
-          'fixed inset-y-0 z-50 flex h-full w-3/4 flex-col gap-4 bg-card shadow-lg transition ease-in-out data-[state=closed]:animate-out data-[state=closed]:duration-300 data-[state=open]:animate-in data-[state=open]:duration-500 sm:max-w-md',
+          position,
+          'inset-y-0 z-50 flex h-full w-3/4 flex-col gap-4 bg-card shadow-lg transition ease-in-out data-[state=closed]:animate-out data-[state=closed]:duration-300 data-[state=open]:animate-in data-[state=open]:duration-500 sm:max-w-md',
           side === 'right'
             ? 'right-0 border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right'
             : 'left-0 border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left',

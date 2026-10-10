@@ -18,7 +18,7 @@ import { useState, type ReactNode } from 'react';
 import { Button } from '../_ui/button';
 import { Card } from '../_ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../_ui/select';
-import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from '../_ui/sheet';
+import { Sheet, SheetClose, SheetContent, SheetTitle } from '../_ui/sheet';
 import { PageHeader } from '../_ui/hotel';
 import {
   Breadcrumb,
@@ -178,15 +178,10 @@ export default function NavigationDesignPage() {
         note="Same destinations as the sidebar, as a slide-over with a close button."
       >
         <div className="flex flex-wrap items-start gap-4">
-          <Sheet>
-            <SheetTrigger asChild>
-              <Button variant="outline">Open the real drawer</Button>
-            </SheetTrigger>
-            <SheetContent side="right" hideClose className="w-72 max-w-[85vw] gap-0 p-0">
-              <SheetTitle className="sr-only">Main menu</SheetTitle>
-              <MobileDrawerPanel role={role} current={activeId} onSelect={setCurrent} />
-            </SheetContent>
-          </Sheet>
+          <p className="w-full text-sm text-muted-foreground">
+            To open the real drawer, tap the menu button in the phone frame at the top of this page.
+            It slides in from the right inside the phone, not over the whole screen.
+          </p>
           {(['staff', 'finance'] as const).map((r) => (
             <div key={r} className="space-y-2">
               <p className="text-sm font-semibold">{navByRole[r].label}</p>
@@ -301,10 +296,14 @@ function PhoneFrame({
   onView: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [frame, setFrame] = useState<HTMLDivElement | null>(null);
   const items = navByRole[role].items;
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <div className="mx-auto flex h-[640px] w-[320px] flex-col overflow-hidden rounded-[28px] border-4 border-foreground/80 bg-background">
+      <div
+        ref={setFrame}
+        className="relative mx-auto flex h-[640px] w-[320px] flex-col overflow-hidden rounded-[28px] border-4 border-foreground/80 bg-background"
+      >
         <TopHeader
           title={title}
           className="px-3"
@@ -313,7 +312,7 @@ function PhoneFrame({
         />
         <div className="flex-1 space-y-3 overflow-auto p-3">
           <Breadcrumb items={['Home', 'Empire Beach Resort', title]} />
-          <SectionTabs tabs={bookingTabs.slice(0, 3)} current={view} onSelect={onView} />
+          <SectionTabs tabs={bookingTabs.slice(0, 3)} current={view} onSelect={onView} compact />
           <Card className="px-4 text-sm text-muted-foreground">
             Menu button sits at the right of the header. The bottom bar scrolls sideways.
           </Card>
@@ -340,11 +339,16 @@ function PhoneFrame({
           ))}
         </nav>
       </div>
-      <SheetContent side="right" hideClose className="w-72 max-w-[85vw] gap-0 p-0">
+      <SheetContent side="right" hideClose container={frame} className="w-64 max-w-[85%] gap-0 p-0">
         <SheetTitle className="sr-only">Main menu</SheetTitle>
         <SheetClose asChild>
           <div className="h-full">
-            <MobileDrawerPanel role={role} current={current} onSelect={onSelect} />
+            <MobileDrawerPanel
+              role={role}
+              current={current}
+              onSelect={onSelect}
+              className="w-full"
+            />
           </div>
         </SheetClose>
       </SheetContent>
