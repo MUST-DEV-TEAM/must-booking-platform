@@ -294,7 +294,7 @@ export function NotificationTrigger({
     <Button
       variant="outline"
       size="icon"
-      className={cn('relative', className)}
+      className={cn('relative size-10', className)}
       aria-label={count ? `Notifications, ${count} unread` : 'Notifications'}
     >
       <Bell />
@@ -323,19 +323,21 @@ export function UserMenuTrigger({
           type="button"
           aria-label={`Account menu for ${demoUser.name}`}
           className={cn(
-            'flex h-9 items-center gap-2.5 rounded-md border bg-card px-2 text-left outline-none hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50',
+            'flex h-10 items-center gap-2 rounded-md border bg-card px-3 text-left outline-none hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50',
             compact && 'justify-center border-transparent px-0',
             className,
           )}
         >
-          <Avatar className="size-7">
-            <AvatarFallback>{demoUser.initials}</AvatarFallback>
+          <Avatar className="size-6">
+            <AvatarFallback className="text-[10px]">{demoUser.initials}</AvatarFallback>
           </Avatar>
           {compact ? null : (
             <>
               <span className="min-w-0 flex-1 leading-none">
-                <span className="block truncate text-sm leading-4 font-bold">{demoUser.name}</span>
-                <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">
+                <span className="block truncate text-[13px] leading-4 font-bold">
+                  {demoUser.name}
+                </span>
+                <span className="mt-0.5 block truncate text-[11px] leading-3 text-muted-foreground">
                   {navByRole[role].label}
                 </span>
               </span>

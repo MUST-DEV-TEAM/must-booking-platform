@@ -117,7 +117,10 @@ export default function NavigationDesignPage() {
                 title={activeLabel}
                 actions={
                   <>
-                    <Button variant="outline" className="hidden md:inline-flex">
+                    <Button
+                      variant="outline"
+                      className="hidden h-10 px-3 text-[13px] md:inline-flex [&_svg]:size-3.5"
+                    >
                       <CalendarDays /> 12 – 18 Oct 2026
                     </Button>
                     <NotificationTrigger count={3} />
@@ -207,7 +210,7 @@ export default function NavigationDesignPage() {
                 title="Dashboard"
                 actions={
                   <>
-                    <Button variant="outline">
+                    <Button variant="outline" className="h-10 px-3 text-[13px] [&_svg]:size-3.5">
                       <CalendarDays /> 12 – 18 Oct 2026
                     </Button>
                     <NotificationTrigger count={3} />
