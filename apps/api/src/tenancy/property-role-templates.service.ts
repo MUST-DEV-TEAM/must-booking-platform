@@ -11,6 +11,7 @@ const builtInCapabilities = [
   ['bookings.manage', 'Manage bookings'],
   ['calendar.view', 'View property calendar'],
   ['accommodations.manage', 'Manage accommodations'],
+  ['photos.manage', 'Manage room and property photos'],
   ['rates.manage', 'Manage rates and pricing'],
   ['payments.refund', 'Refund payments'],
 ] as const;

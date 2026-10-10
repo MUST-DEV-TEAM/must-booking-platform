@@ -5,14 +5,16 @@ import { ArrowLeft, ArrowRight, ImagePlus, Images, Star, Trash2 } from 'lucide-r
 import { ChangeEvent, DragEvent, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
-import { libraryQueryKey, PropertyImageLibraryDialog } from './property-image-library';
+import {
+  checkImageFiles,
+  libraryQueryKey,
+  PropertyImageLibraryDialog,
+} from './property-image-library';
 import styles from './room-type-photo-gallery.module.css';
 
 export type RoomTypeImage = { id: string; url: string; sortOrder: number; isPrimary: boolean };
 
-const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
-const maxFileBytes = 10 * 1024 * 1024;
-const maxImages = 13;
+const maxImages = 21;
 
 type StagedPhoto = { file: File; previewUrl: string };
 
@@ -205,21 +207,16 @@ export function RoomTypePhotoGallery({
     [images],
   );
 
-  function acceptFiles(fileList: FileList | File[]) {
+  async function acceptFiles(fileList: FileList | File[]) {
     const files = Array.from(fileList);
     if (!files.length) return;
     if (files.length > remainingSlots) {
       toast.error(`You can add ${Math.max(remainingSlots, 0)} more photos to this room type.`);
       return;
     }
-    const unsupported = files.find((file) => !allowedTypes.has(file.type));
-    if (unsupported) {
-      toast.error(`${unsupported.name} is not a supported image. Choose JPG, PNG, or WebP.`);
-      return;
-    }
-    const tooLarge = files.find((file) => file.size > maxFileBytes);
-    if (tooLarge) {
-      toast.error(`${tooLarge.name} is larger than the 10 MB upload limit.`);
+    const problem = await checkImageFiles(files);
+    if (problem) {
+      toast.error(problem);
       return;
     }
     setStaged((current) => [
@@ -229,14 +226,14 @@ export function RoomTypePhotoGallery({
   }
 
   function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
-    if (event.target.files) acceptFiles(event.target.files);
+    if (event.target.files) void acceptFiles(event.target.files);
     event.target.value = '';
   }
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setDragActive(false);
-    acceptFiles(event.dataTransfer.files);
+    void acceptFiles(event.dataTransfer.files);
   }
 
   function movePhoto(imageId: string, destination: number) {

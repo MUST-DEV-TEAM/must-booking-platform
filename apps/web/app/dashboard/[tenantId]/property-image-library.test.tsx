@@ -7,7 +7,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('sonner', () => ({ toast }));
 
-import { PropertyImageLibraryDialog, validateImageFile } from './property-image-library';
+import {
+  checkImageFiles,
+  PropertyImageLibraryDialog,
+  validateImageFile,
+} from './property-image-library';
 import { DashboardQueryProvider } from '../query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -159,5 +163,27 @@ describe('validateImageFile', () => {
     const big = new File(['x'], 'big.png', { type: 'image/png' });
     Object.defineProperty(big, 'size', { value: 11 * 1024 * 1024 });
     expect(validateImageFile(big)).toContain('10 MB');
+  });
+});
+
+describe('checkImageFiles', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('rejects photos narrower than 1200 px', async () => {
+    vi.stubGlobal(
+      'createImageBitmap',
+      vi.fn(async (file: File) => ({ width: file.name === 'small.jpg' ? 800 : 1600, close() {} })),
+    );
+    const wide = new File(['x'], 'wide.jpg', { type: 'image/jpeg' });
+    const small = new File(['x'], 'small.jpg', { type: 'image/jpeg' });
+    expect(await checkImageFiles([wide])).toBeNull();
+    expect(await checkImageFiles([wide, small])).toBe(
+      'small.jpg is 800 px wide. Use a photo at least 1200 px wide.',
+    );
+  });
+
+  it('skips the width check where the browser cannot measure the photo', async () => {
+    vi.stubGlobal('createImageBitmap', undefined);
+    expect(await checkImageFiles([new File(['x'], 'a.jpg', { type: 'image/jpeg' })])).toBeNull();
   });
 });

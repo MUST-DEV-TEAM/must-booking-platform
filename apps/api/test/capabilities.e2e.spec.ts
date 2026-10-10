@@ -92,6 +92,7 @@ describe('property staff capabilities', () => {
           'calendar.view',
           'guests.manage',
           'payments.refund',
+          'photos.manage',
           'rates.manage',
           'reports.view',
           'settings.manage',

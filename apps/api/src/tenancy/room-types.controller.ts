@@ -14,6 +14,7 @@ import {
 
 import { TenantScoped } from './tenant-context.decorator';
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
+import { RequiresCapability } from './capabilities.decorator';
 import { Role, Roles } from './roles.decorator';
 import { RoomTypesService } from './room-types.service';
 
@@ -92,7 +93,7 @@ export class RoomTypesController {
 
   @Post(':roomTypeId/images')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('photos.manage')
   @RequiresVerifiedEmail()
   createImageUpload(
     @Param('roomTypeId') roomTypeId: string,
@@ -110,7 +111,7 @@ export class RoomTypesController {
 
   @Post(':roomTypeId/images/from-url')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('photos.manage')
   @RequiresVerifiedEmail()
   createImageFromUrl(
     @Param('roomTypeId') roomTypeId: string,
@@ -128,7 +129,7 @@ export class RoomTypesController {
 
   @Post(':roomTypeId/images/from-library')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('photos.manage')
   @RequiresVerifiedEmail()
   attachLibraryImages(
     @Param('roomTypeId') roomTypeId: string,
@@ -146,7 +147,7 @@ export class RoomTypesController {
 
   @Put(':roomTypeId/images/order')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('photos.manage')
   @RequiresVerifiedEmail()
   reorderImages(
     @Param('roomTypeId') roomTypeId: string,
@@ -164,7 +165,7 @@ export class RoomTypesController {
 
   @Put(':roomTypeId/images/primary')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('photos.manage')
   @RequiresVerifiedEmail()
   setPrimaryImage(
     @Param('roomTypeId') roomTypeId: string,
@@ -183,7 +184,7 @@ export class RoomTypesController {
   @Delete(':roomTypeId/images/:imageId')
   @HttpCode(204)
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('photos.manage')
   @RequiresVerifiedEmail()
   removeImage(
     @Param('roomTypeId') roomTypeId: string,

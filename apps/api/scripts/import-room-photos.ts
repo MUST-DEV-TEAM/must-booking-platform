@@ -51,7 +51,7 @@ const IMAGE_TYPES: Record<string, string> = {
   '.webp': 'image/webp',
 };
 const MAX_BYTES = 10 * 1024 * 1024;
-const MAX_PER_ROOM_TYPE = 13;
+const MAX_PER_ROOM_TYPE = 21;
 
 type LocalPhoto = { name: string; path: string; hash: string; size: number; contentType: string };
 type RoomType = { id: string; name: string };
