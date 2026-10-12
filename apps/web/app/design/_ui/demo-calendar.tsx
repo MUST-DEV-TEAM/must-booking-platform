@@ -49,11 +49,15 @@ function CalendarMonth({
   month,
   selection,
   mode,
+  hoveredDate,
+  onHover,
   onSelect,
 }: {
   month: Date;
   selection: CalendarSelection;
   mode: 'single' | 'range';
+  hoveredDate: string | null;
+  onHover: (date: string | null) => void;
   onSelect: (date: string) => void;
 }) {
   const firstDay = new Date(month.getFullYear(), month.getMonth(), 1).getDay();
@@ -65,7 +69,7 @@ function CalendarMonth({
   const end = parseDate(selection.end);
 
   return (
-    <div className="min-w-0 rounded-lg border bg-card p-3">
+    <div className="min-w-0 rounded-lg border bg-card p-3" onPointerLeave={() => onHover(null)}>
       <h4 className="mb-2 text-center text-xs font-semibold">{monthTitle}</h4>
       <div className="grid grid-cols-7 gap-1 text-center text-[10px] text-muted-foreground">
         {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day) => (
@@ -83,15 +87,33 @@ function CalendarMonth({
           const date = new Date(month.getFullYear(), month.getMonth(), day);
           const key = dateKey(date);
           const selected = key === selection.start || key === selection.end;
-          const withinRange = mode === 'range' && start && end && date >= start && date <= end;
+          const withinRange = Boolean(
+            mode === 'range' && start && end && date >= start && date <= end,
+          );
+          const previewEnd = parseDate(hoveredDate);
+          const previewRange = Boolean(
+            mode === 'range' &&
+            start &&
+            !end &&
+            previewEnd &&
+            previewEnd >= start &&
+            date >= start &&
+            date <= previewEnd,
+          );
+          const previewEndpoint =
+            mode === 'range' && !end && hoveredDate === key && key !== selection.start;
+          const solidRangeDate = selected || withinRange || previewEndpoint;
+          const softRangeDate = previewRange && !solidRangeDate;
           return (
             <button
               key={key}
               type="button"
               aria-label={`Choose ${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).format(date)}`}
               aria-pressed={selected}
+              onPointerEnter={() => onHover(key)}
+              onFocus={() => onHover(key)}
               onClick={() => onSelect(key)}
-              className={`flex aspect-square items-center justify-center rounded-full outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring ${withinRange ? 'bg-secondary text-primary' : ''} ${selected ? 'bg-primary text-primary-foreground hover:bg-primary-hover' : ''}`}
+              className={`flex aspect-square items-center justify-center rounded-full outline-none transition-colors duration-150 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring ${softRangeDate ? 'bg-neutral-200 text-neutral-800 hover:bg-neutral-300' : ''} ${solidRangeDate ? 'bg-neutral-900 text-white hover:bg-neutral-800' : ''}`}
             >
               {day}
             </button>
@@ -114,6 +136,7 @@ export function DemoCalendar({
   months?: 1 | 2;
 }) {
   const initial = parseDate(selection.start) ?? new Date(2026, 9, 1);
+  const [hoveredDate, setHoveredDate] = useState<string | null>(null);
   const [visibleMonth, setVisibleMonth] = useState(
     new Date(initial.getFullYear(), initial.getMonth(), 1),
   );
@@ -165,6 +188,8 @@ export function DemoCalendar({
             month={month}
             selection={selection}
             mode={mode}
+            hoveredDate={hoveredDate}
+            onHover={setHoveredDate}
             onSelect={selectDate}
           />
         ))}
@@ -180,6 +205,8 @@ export function CalendarPicker({
   onChange,
   months = 1,
   className,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   label: string;
   mode: 'single' | 'range';
@@ -187,9 +214,16 @@ export function CalendarPicker({
   onChange: (value: CalendarSelection) => void;
   months?: 1 | 2;
   className?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
   const [draft, setDraft] = useState(value);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (next: boolean) => {
+    if (controlledOpen === undefined) setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const labelText = formatCalendarSelection(value, mode);
 
   return (

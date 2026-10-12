@@ -12,6 +12,10 @@ Status: reference document, not an ADR. Written to give Milestone 13 kickoff and
 
 The UI overhaul is built with shadcn/ui and Tailwind at `/design` (platform owners only, demo data), separate from the live dashboard. Components live in `apps/web/app/design/_ui/` and use the tokens above. See [ADR-0032](../decisions/ADR-0032-shadcn-tailwind-for-new-dashboard-ui.md).
 
+The `/design/charts` route completes the demo-only component gallery with illustrative chart patterns and states. Its date ranges, booking and provider filters, selectable series, CSV export, focusable chart values, and simulated loading/retry examples operate on local sample data only. Hover and keyboard focus emphasize the active point, bar, or donut segment and expose its value. It does not connect to hotel or provider data or change the live dashboard chart integration.
+
+The `/design/overview` route composes the dashboard-style operational workspace from the existing preview components. Its KPI trends, reservations, queues, activity and health panels use internally consistent illustrative values; availability checks show a local sample result. It is separate from `/dashboard`, does not call tenant APIs or providers, and does not imply that payment follow-up or broad system-health data is live.
+
 ## Sources
 
 1. **Figma file** — `zhCG5chiRQccT69cqBRLaK`, the canonical design source, reachable live via the Figma MCP connection. It has **two pages**, and both matter:

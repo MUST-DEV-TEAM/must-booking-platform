@@ -2,7 +2,6 @@
 
 import {
   Bell,
-  BedDouble,
   CalendarCheck,
   CalendarDays,
   ChartColumn,
@@ -25,7 +24,8 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import type { ComponentProps, ReactNode } from 'react';
+import Link from 'next/link';
+import { useState, type ComponentProps, type ReactNode } from 'react';
 
 import { cn } from '../_lib/utils';
 import { Avatar, AvatarFallback } from './avatar';
@@ -124,8 +124,24 @@ export const demoUser = { name: 'Mira Kola', initials: 'MK' };
 export function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-        <BedDouble className="size-5" />
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border-2 border-primary bg-card text-primary">
+        <svg aria-hidden="true" viewBox="0 0 40 40" className="size-7">
+          <path
+            d="M7 33V10.5C7 8.6 8.6 7 10.5 7h19c1.9 0 3.5 1.6 3.5 3.5V33"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+          />
+          <path
+            d="m12 27 8-11 8 11M20 16v17"
+            fill="none"
+            className="stroke-brass"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
       </span>
       {compact ? null : (
         <div className="leading-tight">
@@ -209,26 +225,57 @@ export function Sidebar({
   current = 'dashboard',
   collapsed = false,
   onSelect,
+  items: itemOverride,
+  header,
+  footer,
+  onToggleCollapse,
   className,
 }: {
   role?: NavRole;
   current?: string;
   collapsed?: boolean;
   onSelect?: (id: string) => void;
+  items?: NavEntry[];
+  header?: ReactNode;
+  footer?: ReactNode;
+  onToggleCollapse?: () => void;
   className?: string;
 }) {
-  const { items } = navByRole[role];
+  const items = itemOverride ?? navByRole[role].items;
   return (
     <aside
       className={cn(
-        'flex h-full flex-col gap-4 border-r bg-card p-3',
+        'flex h-full flex-col gap-4 border-r bg-card p-3 transition-[width] duration-200',
         collapsed ? 'w-16' : 'w-60',
         className,
       )}
     >
-      <div className={cn('px-1 pt-1', collapsed && 'flex justify-center')}>
+      <div
+        className={cn(
+          'flex min-h-10 items-center px-1 pt-1',
+          collapsed ? 'flex-col gap-2' : 'justify-between gap-2',
+        )}
+      >
         <Brand compact={collapsed} />
+        {onToggleCollapse ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!collapsed}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            onClick={onToggleCollapse}
+            className="size-8 shrink-0"
+          >
+            <ChevronsLeft
+              aria-hidden="true"
+              className={cn('size-4 transition-transform', collapsed && 'rotate-180')}
+            />
+          </Button>
+        ) : null}
       </div>
+      {header ? <div className={cn('px-1', collapsed && 'hidden')}>{header}</div> : null}
       <nav aria-label="Main" className="flex flex-1 flex-col gap-1">
         {items.map((item) => (
           <SidebarItem
@@ -240,6 +287,7 @@ export function Sidebar({
           />
         ))}
       </nav>
+      {footer ? <div className="border-t pt-3">{footer}</div> : null}
       <UserFooter role={role} collapsed={collapsed} />
     </aside>
   );
@@ -251,15 +299,19 @@ export function MobileDrawerPanel({
   current = 'dashboard',
   onSelect,
   onClose,
+  items: itemOverride,
+  header,
   className,
 }: {
   role?: NavRole;
   current?: string;
   onSelect?: (id: string) => void;
   onClose?: () => void;
+  items?: NavEntry[];
+  header?: ReactNode;
   className?: string;
 }) {
-  const { items } = navByRole[role];
+  const items = itemOverride ?? navByRole[role].items;
   return (
     <div className={cn('flex h-full w-72 flex-col gap-4 bg-card p-3 shadow-lg', className)}>
       <div className="flex items-center justify-between px-1 pt-1">
@@ -268,6 +320,7 @@ export function MobileDrawerPanel({
           <X />
         </Button>
       </div>
+      {header ? <div className="px-1">{header}</div> : null}
       <nav aria-label="Main" className="flex flex-1 flex-col gap-1">
         {items.map((item) => (
           <SidebarItem
@@ -290,20 +343,102 @@ export function NotificationTrigger({
   count?: number;
   className?: string;
 }) {
+  const [unreadCount, setUnreadCount] = useState(count);
+  const [readIds, setReadIds] = useState<string[]>([]);
+  const notifications = [
+    {
+      id: 'review',
+      title: 'Booking awaiting review',
+      detail: 'MHB-1089 · Ardit Kola',
+      time: '5 min ago',
+      icon: CalendarCheck,
+    },
+    {
+      id: 'payment',
+      title: 'Payment needs verification',
+      detail: 'MHB-1088 · €540',
+      time: '18 min ago',
+      icon: CreditCard,
+    },
+    {
+      id: 'sync',
+      title: 'Reservation sync delayed',
+      detail: 'Clock PMS+ · 12 minutes behind',
+      time: '26 min ago',
+      icon: ChartColumn,
+    },
+  ];
+
+  function markRead(id: string) {
+    if (readIds.includes(id)) return;
+    setReadIds((current) => [...current, id]);
+    setUnreadCount((current) => Math.max(0, current - 1));
+  }
+
   return (
-    <Button
-      variant="outline"
-      size="icon"
-      className={cn('relative size-10', className)}
-      aria-label={count ? `Notifications, ${count} unread` : 'Notifications'}
-    >
-      <Bell />
-      {count ? (
-        <span className="absolute -top-1.5 -right-1.5 min-w-4 rounded-full bg-destructive px-1 text-center text-[10px] leading-4 font-bold text-white">
-          {count > 9 ? '9+' : count}
-        </span>
-      ) : null}
-    </Button>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="icon"
+          className={cn('relative size-10', className)}
+          aria-label={unreadCount ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+        >
+          <Bell />
+          {unreadCount ? (
+            <span className="absolute -top-1.5 -right-1.5 min-w-4 rounded-full bg-destructive px-1 text-center text-[10px] leading-4 font-bold text-white">
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
+          ) : null}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-[min(22rem,calc(100vw-1rem))] p-2">
+        <div className="flex items-center justify-between px-2 py-1">
+          <DropdownMenuLabel className="p-0">Notifications</DropdownMenuLabel>
+          {unreadCount ? (
+            <button
+              type="button"
+              onClick={() => {
+                setUnreadCount(0);
+                setReadIds(notifications.map(({ id }) => id));
+              }}
+              className="rounded-sm text-xs font-semibold text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Mark all read
+            </button>
+          ) : null}
+        </div>
+        <DropdownMenuSeparator />
+        {notifications.map(({ id, title, detail, time, icon: Icon }) => {
+          const isRead = readIds.includes(id);
+          return (
+            <DropdownMenuItem
+              key={id}
+              onSelect={() => markRead(id)}
+              className="min-h-14 items-start gap-3 px-2 py-2.5"
+            >
+              <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                <Icon aria-hidden="true" className="size-4" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-2 text-sm font-semibold">
+                  {title}
+                  {!isRead && unreadCount > 0 ? (
+                    <span aria-label="Unread" className="size-1.5 rounded-full bg-primary" />
+                  ) : null}
+                </span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">{detail}</span>
+              </span>
+              <span className="shrink-0 pt-0.5 text-[10px] text-muted-foreground">{time}</span>
+            </DropdownMenuItem>
+          );
+        })}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href="/design/overview">Open overview</Link>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -349,7 +484,9 @@ export function UserMenuTrigger({
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel>{demoUser.name}</DropdownMenuLabel>
         <DropdownMenuItem>Profile</DropdownMenuItem>
-        <DropdownMenuItem>Switch hotel</DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/design/forms">Settings</Link>
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive">Log out</DropdownMenuItem>
       </DropdownMenuContent>
@@ -361,11 +498,13 @@ export function UserMenuTrigger({
 export function TopHeader({
   title,
   onMenu,
+  menuClassName,
   actions,
   className,
 }: {
   title: string;
   onMenu?: () => void;
+  menuClassName?: string;
   actions?: ReactNode;
   className?: string;
 }) {
@@ -382,7 +521,13 @@ export function TopHeader({
       <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
         {actions}
         {onMenu ? (
-          <Button variant="outline" size="icon" aria-label="Open menu" onClick={onMenu}>
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Open menu"
+            onClick={onMenu}
+            className={menuClassName}
+          >
             <Menu />
           </Button>
         ) : null}

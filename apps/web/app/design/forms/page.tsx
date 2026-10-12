@@ -26,6 +26,13 @@ import {
   formatCalendarSelection,
   type CalendarSelection,
 } from '../_ui/demo-calendar';
+import {
+  bookingStatusOptions,
+  demoBookingSourceOptions,
+  demoHotelOptions,
+  paymentStatusMeta,
+  paymentStatusOptions,
+} from '../_lib/demo-domain';
 import { Input, Textarea } from '../_ui/input';
 import { Label } from '../_ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '../_ui/popover';
@@ -58,7 +65,7 @@ function StateInput({
   kind: FieldKind;
   error?: string;
 }) {
-  const focusClass = state === 'Focused' ? 'border-primary ring-[3px] ring-primary/20' : '';
+  const focusClass = state === 'Focused' ? 'border-ring ring-[3px] ring-ring/20' : '';
   const invalid = state === 'Error';
   const disabled = state === 'Disabled';
   const stateClass = `${focusClass} ${invalid ? 'border-destructive text-destructive' : ''}`;
@@ -214,7 +221,7 @@ function RatePlanControl({
   );
   const [open, setOpen] = useState(false);
   const plans = ['Flexible', 'Prepaid', 'Non-refundable'];
-  const fieldClass = `flex min-h-9 items-center gap-1 rounded-md border border-input bg-card px-2 py-1 text-xs ${stateClass} ${disabled ? 'bg-muted text-muted-foreground' : ''}`;
+  const fieldClass = `flex min-h-9 min-w-0 flex-wrap items-center gap-1 rounded-md border border-input bg-card px-2 py-1 text-xs ${stateClass} ${disabled ? 'bg-muted text-muted-foreground' : ''}`;
 
   function toggle(plan: string) {
     setSelected((current) =>
@@ -226,25 +233,29 @@ function RatePlanControl({
     <Popover open={open} onOpenChange={setOpen}>
       <div aria-invalid={invalid || undefined} className={fieldClass}>
         {selected.map((plan) => (
-          <Badge key={plan} variant="secondary" className="gap-1 pr-1">
-            {plan}
+          <Badge
+            key={plan}
+            variant="secondary"
+            className="max-w-full min-w-0 shrink gap-1 px-1.5 py-0.5 text-[10px] font-medium"
+          >
+            <span className="min-w-0 truncate">{plan}</span>
             <button
               type="button"
               disabled={disabled}
               aria-label={`Remove ${plan} rate plan`}
               onClick={() => toggle(plan)}
-              className="rounded-full hover:text-foreground disabled:pointer-events-none"
+              className="inline-flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none"
             >
-              <X aria-hidden="true" />
+              <X aria-hidden="true" className="size-3" />
             </button>
           </Badge>
         ))}
         <PopoverTrigger asChild>
           <button
             type="button"
-            aria-label={`${state} rate plans`}
+            aria-label={`${state} rate plans${selected.length ? `, ${selected.length} selected` : ''}`}
             disabled={disabled}
-            className="flex min-h-7 min-w-0 flex-1 items-center justify-between gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex min-h-7 min-w-7 flex-1 items-center justify-between gap-2 rounded-sm text-left outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >
             {selected.length ? null : (
               <span className="text-muted-foreground">Select rate plans</span>
@@ -632,7 +643,7 @@ function FilterSelect({
 function FiltersShowcase() {
   const [draft, setDraft] = useState({
     status: 'Confirmed',
-    hotel: 'Demo hotel',
+    hotel: 'Empire Beach Resort',
     source: 'All sources',
     payment: 'Paid',
     search: '',
@@ -642,9 +653,9 @@ function FiltersShowcase() {
     end: '2026-11-03',
   });
   const [active, setActive] = useState([
-    { id: 'status', label: 'Confirmed' },
-    { id: 'payment', label: 'Paid' },
-    { id: 'hotel', label: 'Hotel: Demo' },
+    { id: 'status', label: 'Booking: Confirmed' },
+    { id: 'payment', label: 'Payment: Paid' },
+    { id: 'hotel', label: 'Hotel: Empire Beach Resort' },
   ]);
   const [addOpen, setAddOpen] = useState(false);
 
@@ -662,11 +673,11 @@ function FiltersShowcase() {
 
   function applyFilters() {
     const next = [
-      draft.status !== 'All statuses' ? { id: 'status', label: draft.status } : null,
-      draft.payment !== 'All payments' ? { id: 'payment', label: draft.payment } : null,
-      draft.hotel !== 'All hotels'
-        ? { id: 'hotel', label: `Hotel: ${draft.hotel.replace(' hotel', '')}` }
+      draft.status !== 'All statuses' ? { id: 'status', label: `Booking: ${draft.status}` } : null,
+      draft.payment !== 'All payments'
+        ? { id: 'payment', label: `Payment: ${draft.payment}` }
         : null,
+      draft.hotel !== 'All hotels' ? { id: 'hotel', label: `Hotel: ${draft.hotel}` } : null,
       draft.source !== 'All sources' ? { id: 'source', label: `Source: ${draft.source}` } : null,
       draft.search ? { id: 'search', label: `Search: ${draft.search}` } : null,
       dateRange.start && dateRange.end
@@ -693,16 +704,16 @@ function FiltersShowcase() {
         update: () => setDraft((current) => ({ ...current, source: 'Website' })),
       },
       status: {
-        label: 'Pending',
-        update: () => setDraft((current) => ({ ...current, status: 'Pending' })),
+        label: 'Booking: Manual review',
+        update: () => setDraft((current) => ({ ...current, status: 'Manual review' })),
       },
       payment: {
-        label: 'Unpaid',
-        update: () => setDraft((current) => ({ ...current, payment: 'Unpaid' })),
+        label: 'Payment: Payment pending',
+        update: () => setDraft((current) => ({ ...current, payment: 'Payment pending' })),
       },
       hotel: {
-        label: 'Hotel: Harbor View',
-        update: () => setDraft((current) => ({ ...current, hotel: 'Harbor View Hotel' })),
+        label: 'Hotel: Marina Bay Hotel',
+        update: () => setDraft((current) => ({ ...current, hotel: 'Marina Bay Hotel' })),
       },
     };
     const option = options[id];
@@ -719,21 +730,37 @@ function FiltersShowcase() {
     clearFilters();
   }
 
+  function filterBadgeVariant(id: string, label: string) {
+    if (id === 'status') {
+      const tone = bookingStatusOptions.find(
+        (option) => option.label === label.slice('Booking: '.length),
+      )?.tone;
+      return tone ?? 'muted';
+    }
+    if (id === 'payment') {
+      return (
+        paymentStatusMeta[label.slice('Payment: '.length) as keyof typeof paymentStatusMeta]
+          ?.tone ?? 'muted'
+      );
+    }
+    return id === 'hotel' ? 'secondary' : 'info';
+  }
+
   function ActiveChips() {
     return active.map((filter) => (
       <Badge
         key={filter.id}
-        variant={filter.id === 'hotel' ? 'secondary' : 'success'}
-        className="gap-1 pr-1"
+        variant={filterBadgeVariant(filter.id, filter.label)}
+        className="max-w-full gap-1 px-1.5 py-0 text-[10px] font-medium transition-colors"
       >
         {filter.label}
         <button
           type="button"
           aria-label={`Remove filter ${filter.label}`}
           onClick={() => removeFilter(filter.id)}
-          className="rounded-full hover:text-foreground"
+          className="inline-flex size-3.5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <X aria-hidden="true" />
+          <X aria-hidden="true" className="size-2.5" />
         </button>
       </Badge>
     ));
@@ -773,14 +800,14 @@ function FiltersShowcase() {
           <FilterSelect
             label="Booking status"
             value="All statuses"
-            options={['All statuses', 'Confirmed', 'Pending', 'Cancelled']}
+            options={['All statuses', ...bookingStatusOptions.map((option) => option.label)]}
             selectedValue={draft.status}
             onChange={(status) => setDraft((current) => ({ ...current, status }))}
           />
           <FilterSelect
             label="Hotel"
             value="All hotels"
-            options={['All hotels', 'Demo hotel', 'Harbor View Hotel']}
+            options={['All hotels', ...demoHotelOptions]}
             selectedValue={draft.hotel}
             onChange={(hotel) => setDraft((current) => ({ ...current, hotel }))}
           />
@@ -797,14 +824,14 @@ function FiltersShowcase() {
           <FilterSelect
             label="Source"
             value="All sources"
-            options={['All sources', 'Website', 'Walk-in', 'Clock PMS']}
+            options={['All sources', ...demoBookingSourceOptions]}
             selectedValue={draft.source}
             onChange={(source) => setDraft((current) => ({ ...current, source }))}
           />
           <FilterSelect
             label="Payment status"
             value="All payments"
-            options={['All payments', 'Paid', 'Unpaid', 'Refunded']}
+            options={['All payments', ...paymentStatusOptions]}
             selectedValue={draft.payment}
             onChange={(payment) => setDraft((current) => ({ ...current, payment }))}
           />
@@ -827,8 +854,8 @@ function FiltersShowcase() {
             <ActiveChips />
             <Popover open={addOpen} onOpenChange={setAddOpen}>
               <PopoverTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <Plus />
+                <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-[10px]">
+                  <Plus className="size-2.5" />
                   Add filter
                 </Button>
               </PopoverTrigger>
@@ -836,9 +863,9 @@ function FiltersShowcase() {
                 <p className="px-2 py-1 text-xs font-semibold">Add a demo filter</p>
                 {[
                   ['source', 'Source: Website'],
-                  ['status', 'Booking status: Pending'],
-                  ['payment', 'Payment: Unpaid'],
-                  ['hotel', 'Hotel: Harbor View'],
+                  ['status', 'Booking: Manual review'],
+                  ['payment', 'Payment: Payment pending'],
+                  ['hotel', 'Hotel: Marina Bay Hotel'],
                 ].map(([id, label]) => (
                   <Button
                     key={id}
@@ -856,7 +883,7 @@ function FiltersShowcase() {
         <Card className="gap-3 p-4">
           <h3 className="text-sm font-bold">22 · Active filter summary</h3>
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <SlidersHorizontal className="size-4 text-muted-foreground" />
+            <SlidersHorizontal className="size-3 text-muted-foreground" />
             <span aria-live="polite" className="text-muted-foreground">
               {active.length} filters applied
             </span>
@@ -1022,8 +1049,8 @@ function CompositeFields() {
           <div className="grid gap-3 @sm/design-preview:grid-cols-3">
             <FilterSelect
               label="Hotel"
-              value="Demo hotel"
-              options={['Demo hotel', 'Harbor View Hotel']}
+              value="Empire Beach Resort"
+              options={[...demoHotelOptions]}
             />
             <FilterSelect
               label="Room type"
@@ -1036,7 +1063,7 @@ function CompositeFields() {
             </div>
           </div>
           <div className="flex items-center gap-2 text-xs">
-            <Badge variant="muted">Clock PMS · demo</Badge>
+            <Badge variant="muted">Clock PMS+ · demo</Badge>
             <span className="text-muted-foreground">Source selected; no provider connection.</span>
           </div>
         </Card>
@@ -1072,11 +1099,7 @@ function CompositeFields() {
             Environment-bound fields with a masked demo secret.
           </p>
           <div className="grid gap-3 @sm/design-preview:grid-cols-2 @xl/design-preview:grid-cols-4">
-            <FilterSelect
-              label="Provider"
-              value="Clock PMS"
-              options={['Clock PMS', 'Demo provider']}
-            />
+            <FilterSelect label="Provider" value="Clock PMS+" options={['Clock PMS+', 'PokPay']} />
             <FilterSelect label="Environment" value="Sandbox" options={['Sandbox', 'Production']} />
             <div>
               <Label>Account ID</Label>
