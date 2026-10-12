@@ -14,7 +14,7 @@ The UI overhaul is built with shadcn/ui and Tailwind at `/design` (platform owne
 
 The `/design/charts` route completes the demo-only component gallery with illustrative chart patterns and states. Its date ranges, booking and provider filters, selectable series, CSV export, focusable chart values, and simulated loading/retry examples operate on local sample data only. Hover and keyboard focus emphasize the active point, bar, or donut segment and expose its value. It does not connect to hotel or provider data or change the live dashboard chart integration.
 
-The `/design/overview` route composes the dashboard-style operational workspace from the existing preview components. Its KPI trends, reservations, queues, activity and health panels use internally consistent illustrative values; availability checks show a local sample result. It is separate from `/dashboard`, does not call tenant APIs or providers, and does not imply that payment follow-up or broad system-health data is live.
+The `/design/overview` route composes the dashboard-style operational workspace from the existing preview components. Its overview KPI trends, reservations, queues and activity use internally consistent illustrative values; availability checks show a local preview result. The System Health tab presents code-verified monitoring coverage and known visibility gaps, without claiming live service states or incidents. The route is separate from `/dashboard` and does not call tenant APIs or providers.
 
 ## Sources
 

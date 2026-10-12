@@ -2817,41 +2817,255 @@ function ApprovalsTab({
 }
 
 function SystemHealthTab() {
+  const monitorFamilies = [
+    {
+      label: 'Monitor families',
+      value: '4',
+      detail: 'Uptime, providers, Clock and payment jobs',
+      icon: Activity,
+    },
+    {
+      label: 'Provider checks',
+      value: '2',
+      detail: 'Stripe and PokPay · every 5 minutes',
+      icon: CreditCard,
+    },
+    {
+      label: 'Clock signals',
+      value: '3',
+      detail: 'Webhook, queue and pending-booking thresholds',
+      icon: RefreshCw,
+    },
+    {
+      label: 'Live readings here',
+      value: 'Unavailable',
+      detail: 'No runtime feed is connected to this preview',
+      icon: CircleAlert,
+    },
+  ] as const;
+
+  const monitors = [
+    {
+      label: 'External uptime smoke test',
+      area: 'Availability',
+      cadence: 'Every 5 minutes · GitHub Actions',
+      detail: 'Requests GET /api/health and expects HTTP 200 with status “ok”.',
+      boundary: 'Confirms the API process answers; it does not check database or Redis readiness.',
+      state: 'Endpoint only',
+      variant: 'info' as const,
+      icon: Activity,
+    },
+    {
+      label: 'Payment provider health checks',
+      area: 'Payments',
+      cadence: 'Every 5 minutes · Stripe and PokPay',
+      detail: 'Provider results are cached in Redis and exposed through the platform-admin API.',
+      boundary: 'The cached provider readings are not displayed in this design preview.',
+      state: 'API only',
+      variant: 'muted' as const,
+      icon: CreditCard,
+    },
+    {
+      label: 'Clock integration watchdog',
+      area: 'PMS integration',
+      cadence: 'Every 6 hours',
+      detail:
+        'Flags webhook silence over 48 hours, queue depth over 100, or in-flight bookings older than 1 hour.',
+      boundary:
+        'Findings use the operational error-reporting hook; Sentry delivery depends on configuration.',
+      state: 'Background monitor',
+      variant: 'muted' as const,
+      icon: BedDouble,
+    },
+    {
+      label: 'Payment expiry worker',
+      area: 'Booking recovery',
+      cadence: 'Every minute',
+      detail: 'Polls pending PokPay orders and expires payment-pending bookings after 30 minutes.',
+      boundary: 'This page does not expose worker freshness, retries, queue depth or failed jobs.',
+      state: 'Background job',
+      variant: 'muted' as const,
+      icon: FileClock,
+    },
+  ];
+
+  const visibilityGaps = [
+    'The public health endpoint does not verify database or Redis readiness.',
+    'This preview has no live service-state, incident or provider-reading feed.',
+    'Request latency, error rate and saturation are not available as dashboard metrics.',
+    'Background-job freshness, queue age and failed-job counts are not surfaced here.',
+  ];
+
+  const recommendedSteps = [
+    {
+      title: 'Separate liveness and readiness',
+      detail: 'Report process availability independently from database and Redis readiness.',
+    },
+    {
+      title: 'Add service-level signals',
+      detail: 'Track request latency, traffic, errors and saturation, then define actionable SLOs.',
+    },
+    {
+      title: 'Expose worker health',
+      detail: 'Show last successful run, oldest waiting job, retries and failed-job counts.',
+    },
+    {
+      title: 'Verify alert delivery',
+      detail:
+        'Record the alert destination and confirm that an operator receives and acknowledges it.',
+    },
+  ];
+
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.8fr)]">
-      <HealthPanel expanded />
+    <div className="space-y-5">
+      <Card className="gap-4 p-5 sm:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold tracking-wide text-muted-foreground uppercase">
+              Health control center
+            </p>
+            <h2 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">System health</h2>
+            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+              Review the monitors the platform runs, what they cover, and which operational signals
+              still need visibility.
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-col items-start gap-1.5 rounded-lg border bg-muted/40 px-3 py-2.5 lg:items-end">
+            <span className="text-xs text-muted-foreground">Live service readings</span>
+            <Badge variant="muted">Not connected to this preview</Badge>
+          </div>
+        </div>
+      </Card>
+
+      <section
+        aria-label="Monitoring coverage summary"
+        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+      >
+        {monitorFamilies.map((item) => {
+          const Icon = item.icon;
+          return (
+            <Card key={item.label} className="gap-3 p-4">
+              <div className="flex items-center gap-2.5">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-info-surface text-info">
+                  <Icon aria-hidden="true" className="size-4" />
+                </span>
+                <p className="text-sm font-medium text-muted-foreground">{item.label}</p>
+              </div>
+              <div>
+                <p className="text-xl font-bold tracking-tight">{item.value}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p>
+              </div>
+            </Card>
+          );
+        })}
+      </section>
+
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.85fr)]">
+        <Card className="min-w-0 gap-4 p-4 sm:p-5">
+          <PanelHeading
+            title="Monitoring coverage"
+            subtitle="Configured checks and scheduled work verified in the current codebase."
+            action={<Badge variant="outline">4 mechanisms</Badge>}
+          />
+          <div className="divide-y rounded-xl border">
+            {monitors.map((monitor) => {
+              const Icon = monitor.icon;
+              return (
+                <article key={monitor.label} className="flex gap-3 p-3.5 sm:gap-4 sm:p-4">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                    <Icon aria-hidden="true" className="size-4" />
+                  </span>
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-sm font-semibold">{monitor.label}</h3>
+                      <Badge variant={monitor.variant}>{monitor.state}</Badge>
+                    </div>
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {monitor.area} · {monitor.cadence}
+                    </p>
+                    <p className="text-sm text-muted-foreground">{monitor.detail}</p>
+                    <p className="rounded-md bg-muted/60 px-2.5 py-2 text-xs leading-relaxed text-muted-foreground">
+                      {monitor.boundary}
+                    </p>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </Card>
+
+        <div className="min-w-0 space-y-5">
+          <Card className="gap-4 p-4 sm:p-5">
+            <PanelHeading
+              title="Visibility gaps"
+              subtitle="Signals this page cannot confirm today."
+              action={<Badge variant="warning">Needs instrumentation</Badge>}
+            />
+            <ul className="space-y-3">
+              {visibilityGaps.map((gap) => (
+                <li key={gap} className="flex gap-2.5 text-sm leading-relaxed">
+                  <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-warning" />
+                  <span>{gap}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+
+          <Card className="gap-4 p-4 sm:p-5">
+            <PanelHeading
+              title="Recommended next steps"
+              subtitle="Build a view staff can use to detect and act on failures."
+            />
+            <ol className="space-y-3">
+              {recommendedSteps.map((step, index) => (
+                <li key={step.title} className="flex gap-3">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                    {index + 1}
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold">{step.title}</p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                      {step.detail}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </Card>
+        </div>
+      </div>
+
       <Card className="gap-4 p-4 sm:p-5">
-        <PanelHeading title="Operational summary" subtitle="Current sample snapshot." />
-        <div className="rounded-xl border border-warning/30 bg-warning-surface/30 p-4">
-          <div className="flex items-center gap-2 font-semibold text-warning">
-            <CircleAlert aria-hidden="true" className="size-4" />
-            Some checks need review
+        <PanelHeading
+          title="Alert and recovery paths"
+          subtitle="Configured response paths, without claiming an active incident state."
+        />
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="rounded-lg border p-3.5">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Activity aria-hidden="true" className="size-4 text-info" />
+              External uptime alert
+            </div>
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              The GitHub workflow opens an owner-assigned issue after three failed probes and closes
+              it after the endpoint recovers.
+            </p>
           </div>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Reservation synchronization is delayed, and one payment-to-folio sample event failed.
-          </p>
+          <div className="rounded-lg border p-3.5">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <ShieldCheck aria-hidden="true" className="size-4 text-success" />
+              Operational failure reporting
+            </div>
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              Clock watchdog findings use the Sentry reporting hook when Sentry is configured.
+              Delivery and acknowledgement are not shown here.
+            </p>
+          </div>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-lg bg-muted/70 p-3">
-            <p className="text-xs text-muted-foreground">Healthy checks</p>
-            <p className="mt-1 text-xl font-bold tabular-nums">4 / 6</p>
-          </div>
-          <div className="rounded-lg bg-muted/70 p-3">
-            <p className="text-xs text-muted-foreground">Needs follow-up</p>
-            <p className="mt-1 text-xl font-bold tabular-nums">2</p>
-          </div>
-        </div>
-        <Button asChild variant="outline">
-          <Link href="/design/timeline">
-            <Activity aria-hidden="true" />
-            View sample event timeline
-          </Link>
-        </Button>
       </Card>
     </div>
   );
 }
-
 function QuickBookingTab({
   calendarOpen,
   onCalendarOpenChange,
