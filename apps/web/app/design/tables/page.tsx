@@ -26,7 +26,7 @@ import {
   UserRound,
 } from 'lucide-react';
 
-import { cn } from '../_lib/utils';
+import { cn } from '../../../lib/utils';
 import {
   bookingStatusMeta,
   bookingStatusOptions,
@@ -36,10 +36,10 @@ import {
   type DemoStatusTone as StatusTone,
   type PaymentStatusLabel as PaymentState,
 } from '../_lib/demo-domain';
-import { Badge } from '../_ui/badge';
-import { Button } from '../_ui/button';
-import { Card } from '../_ui/card';
-import { Checkbox } from '../_ui/checkbox';
+import { Badge } from '../../../components/ui/badge';
+import { Button } from '../../../components/ui/button';
+import { Card } from '../../../components/ui/card';
+import { Checkbox } from '../../../components/ui/checkbox';
 import { CalendarPicker, type CalendarSelection } from '../_ui/demo-calendar';
 import {
   DropdownMenu,
@@ -48,12 +48,12 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '../_ui/dropdown-menu';
-import { Input } from '../_ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '../_ui/popover';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../_ui/select';
-import { Skeleton } from '../_ui/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../_ui/table';
+} from '../../../components/ui/dropdown-menu';
+import { Input } from '../../../components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
+import { Skeleton } from '../../../components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { PageHeader } from '../_ui/hotel';
 
 type StayState = 'Upcoming' | 'In house' | 'Departed' | 'Not staying';

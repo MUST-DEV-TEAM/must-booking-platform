@@ -1,139 +1,11 @@
 /*
- * Tailwind + shadcn theme for the /design preview pages only. Scanning is limited to this
- * folder, and colors map onto the existing --must-* tokens from @must/ui so the new
- * components can reuse them. Neutral by default, with selectable themes. Light mode only for now.
+ * Tailwind entry for the /design preview pages only: full Tailwind (with its reset) plus the shared
+ * theme. Scanning covers this folder and the shared components.
  */
 @import 'tailwindcss' source('./');
+@source '../../components';
 @import 'tw-animate-css';
-
-@theme inline {
-  --font-sans: var(--must-font-sans);
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-hover: var(--primary-hover);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-brass: var(--brass);
-  --color-destructive: var(--destructive);
-  --color-destructive-surface: var(--destructive-surface);
-  --color-success: var(--success);
-  --color-success-surface: var(--success-surface);
-  --color-warning: var(--warning);
-  --color-warning-surface: var(--warning-surface);
-  --color-info: var(--info);
-  --color-info-surface: var(--info-surface);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --container-sm: 40rem;
-  --container-md: 48rem;
-  --container-lg: 64rem;
-  --container-xl: 80rem;
-  --container-2xl: 96rem;
-}
-
-:root:has(.design-root) {
-  /* On :root so dialogs and menus rendered in portals outside .design-root get them too.
-     Default theme is neutral. Themes below only swap the brand tokens; every color is a token. */
-  --radius: 0.75rem;
-  --background: #f6f6f7;
-  --foreground: #18181b;
-  --card: #ffffff;
-  --card-foreground: #18181b;
-  --popover: #ffffff;
-  --popover-foreground: #18181b;
-  --primary: #18181b;
-  --primary-hover: #3f3f46;
-  --primary-foreground: #ffffff;
-  --secondary: #efeff1;
-  --secondary-foreground: #18181b;
-  --muted: #efeff1;
-  --muted-foreground: #62626b;
-  --accent: #efeff1;
-  --accent-foreground: #18181b;
-  --brass: #8b8b94;
-  --destructive: var(--must-color-danger);
-  --destructive-surface: var(--must-color-danger-surface);
-  --success: var(--must-color-success);
-  --success-surface: var(--must-color-success-surface);
-  --warning: var(--must-color-warning);
-  --warning-surface: var(--must-color-warning-surface);
-  --info: var(--must-color-info);
-  --info-surface: var(--must-color-info-surface);
-  --border: #e4e4e7;
-  --input: #d4d4d8;
-  --ring: #71717a;
-}
-
-/* Selectable themes: set data-theme on <html> (see DesignShell). A client theme is one more block here. */
-:root[data-theme='pine']:has(.design-root) {
-  --background: var(--must-color-canvas);
-  --foreground: var(--must-color-text-primary);
-  --card: var(--must-color-surface);
-  --card-foreground: var(--must-color-text-primary);
-  --popover: var(--must-color-surface);
-  --popover-foreground: var(--must-color-text-primary);
-  --primary: var(--must-color-ink);
-  --primary-hover: var(--must-color-ink-hover);
-  --secondary: var(--must-color-surface-selected);
-  --secondary-foreground: var(--must-color-ink);
-  --muted: #efece4;
-  --muted-foreground: var(--must-color-text-secondary);
-  --accent: var(--must-color-surface-selected);
-  --accent-foreground: var(--must-color-ink);
-  --brass: var(--must-color-accent-brass);
-  --border: var(--must-color-border);
-  --input: var(--must-color-border);
-}
-
-:root[data-theme='ocean']:has(.design-root) {
-  --primary: #1d4ed8;
-  --primary-hover: #1e40af;
-  --secondary: #e8eefc;
-  --secondary-foreground: #1e3a8a;
-  --accent: #e8eefc;
-  --accent-foreground: #1e3a8a;
-  --brass: #60a5fa;
-}
-
-:root[data-theme='terracotta']:has(.design-root) {
-  --background: #faf6f2;
-  --primary: #9a3412;
-  --primary-hover: #7c2d12;
-  --secondary: #f8e9df;
-  --secondary-foreground: #7c2d12;
-  --muted: #f3ebe4;
-  --accent: #f8e9df;
-  --accent-foreground: #7c2d12;
-  --brass: #d6a37c;
-  --border: #eadfd6;
-  --input: #dccdc0;
-}
-
-.design-root {
-  background: var(--background);
-  color: var(--foreground);
-  min-height: 100vh;
-}
-
-:root[data-input-modality='pointer']:has(.design-root) :focus {
-  outline: none !important;
-  box-shadow: none !important;
-}
+@import '../ui-theme.css';
 
 .design-preview-stage {
   min-height: 100vh;
@@ -143,22 +15,6 @@
 
 .design-preview-viewport {
   min-height: 100vh;
-}
-
-@keyframes design-progress-stripes {
-  to {
-    background-position-x: 32px;
-  }
-}
-
-.design-progress-indeterminate {
-  animation: design-progress-stripes 900ms linear infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .design-progress-indeterminate {
-    animation: none;
-  }
 }
 
 :root[data-preview-viewport='mobile'] [data-slot='dialog-content'] {
@@ -174,10 +30,4 @@
 :root[data-preview-viewport='mobile'] [data-slot='dialog-footer'] {
   flex-direction: column-reverse;
   justify-content: initial;
-}
-
-@layer base {
-  :root:has(.design-root) * {
-    @apply border-border outline-ring/50;
-  }
 }

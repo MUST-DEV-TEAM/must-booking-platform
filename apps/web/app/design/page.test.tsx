@@ -27,7 +27,7 @@ describe('Design showcase', () => {
     expect(markup).toContain('aria-label="Design preview"');
     expect(markup).not.toContain('<iframe');
     expect(markup).not.toContain('previewFrame');
-    expect(markup.match(/class="[^"]*design-root/g)).toHaveLength(1);
+    expect(markup.match(/class="[^"]*ui-root/g)).toHaveLength(1);
   });
 
   it('renders the neutral palette and organized status examples with demo data only', () => {
@@ -67,7 +67,7 @@ describe('Design showcase', () => {
     expect(markup).toContain('aria-label="Loading booking table"');
     expect(markup).toContain('aria-label="Loading booking detail panel"');
     expect(markup).toContain('aria-busy="true"');
-    expect(markup).toContain('design-progress-indeterminate');
+    expect(markup).toContain('ui-progress-indeterminate');
     expect(markup).not.toContain('>Buttons</h2>');
     expect(markup).not.toContain('Responsive behavior');
     expect(markup).not.toContain('design-color-variant');

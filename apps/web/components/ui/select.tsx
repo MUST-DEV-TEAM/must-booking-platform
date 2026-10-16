@@ -4,7 +4,7 @@ import { CheckIcon, ChevronDownIcon } from 'lucide-react';
 import { Select as SelectPrimitive } from 'radix-ui';
 import type { ComponentProps } from 'react';
 
-import { cn } from '../_lib/utils';
+import { cn } from '../../lib/utils';
 
 export const Select = SelectPrimitive.Root;
 export const SelectGroup = SelectPrimitive.Group;

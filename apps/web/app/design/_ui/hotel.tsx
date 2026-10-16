@@ -2,9 +2,9 @@ import type { LucideIcon } from 'lucide-react';
 import { ArrowDownRight, ArrowUpRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import { cn } from '../_lib/utils';
-import { Badge } from './badge';
-import { Card } from './card';
+import { cn } from '../../../lib/utils';
+import { Badge } from '../../../components/ui/badge';
+import { Card } from '../../../components/ui/card';
 
 /** Hotel-specific building blocks layered on the shadcn primitives. */
 

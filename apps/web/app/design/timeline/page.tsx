@@ -21,9 +21,9 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
-import { Badge } from '../_ui/badge';
-import { Button } from '../_ui/button';
-import { Card } from '../_ui/card';
+import { Badge } from '../../../components/ui/badge';
+import { Button } from '../../../components/ui/button';
+import { Card } from '../../../components/ui/card';
 import { PageHeader } from '../_ui/hotel';
 
 type Tone = 'success' | 'info' | 'warning' | 'danger' | 'staff';

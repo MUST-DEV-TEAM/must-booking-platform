@@ -27,10 +27,10 @@ import {
 } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 
-import { cn } from '../_lib/utils';
-import { Alert, AlertDescription } from '../_ui/alert';
-import { Badge } from '../_ui/badge';
-import { Button } from '../_ui/button';
+import { cn } from '../../../lib/utils';
+import { Alert, AlertDescription } from '../../../components/ui/alert';
+import { Badge } from '../../../components/ui/badge';
+import { Button } from '../../../components/ui/button';
 import {
   Dialog,
   DialogClose,
@@ -40,11 +40,11 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '../_ui/dialog';
-import { Input, Textarea } from '../_ui/input';
-import { Label } from '../_ui/label';
+} from '../../../components/ui/dialog';
+import { Input, Textarea } from '../../../components/ui/input';
+import { Label } from '../../../components/ui/label';
 import { PageHeader } from '../_ui/hotel';
-import { Popover, PopoverContent, PopoverTrigger } from '../_ui/popover';
+import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover';
 import {
   Sheet,
   SheetContent,
@@ -52,7 +52,7 @@ import {
   SheetHeader,
   SheetTitle,
   SheetTrigger,
-} from '../_ui/sheet';
+} from '../../../components/ui/sheet';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,8 +60,8 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '../_ui/dropdown-menu';
-import { Tooltip, TooltipContent, TooltipTrigger } from '../_ui/tooltip';
+} from '../../../components/ui/dropdown-menu';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip';
 
 type SpecimenDefinition = {
   number: string;

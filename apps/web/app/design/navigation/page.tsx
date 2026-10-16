@@ -15,11 +15,11 @@ import {
 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
-import { Button } from '../_ui/button';
-import { Card } from '../_ui/card';
+import { Button } from '../../../components/ui/button';
+import { Card } from '../../../components/ui/card';
 import { CalendarPicker, type CalendarSelection } from '../_ui/demo-calendar';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../_ui/select';
-import { Sheet, SheetClose, SheetContent, SheetTitle } from '../_ui/sheet';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
+import { Sheet, SheetClose, SheetContent, SheetTitle } from '../../../components/ui/sheet';
 import { PageHeader } from '../_ui/hotel';
 import {
   Breadcrumb,

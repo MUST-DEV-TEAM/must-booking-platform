@@ -33,14 +33,14 @@ import {
 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
-import { cn } from '../_lib/utils';
-import { Alert, AlertDescription, AlertTitle } from '../_ui/alert';
-import { Badge, type badgeVariants } from '../_ui/badge';
-import { Button } from '../_ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../_ui/card';
+import { cn } from '../../../lib/utils';
+import { Alert, AlertDescription, AlertTitle } from '../../../components/ui/alert';
+import { Badge, type badgeVariants } from '../../../components/ui/badge';
+import { Button } from '../../../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { PageHeader } from '../_ui/hotel';
-import { Switch } from '../_ui/switch';
-import { Tooltip, TooltipContent, TooltipTrigger } from '../_ui/tooltip';
+import { Switch } from '../../../components/ui/switch';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../../components/ui/tooltip';
 
 type BadgeTone = NonNullable<Parameters<typeof badgeVariants>[0]>['variant'];
 

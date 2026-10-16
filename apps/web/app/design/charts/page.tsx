@@ -25,9 +25,9 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { Badge } from '../_ui/badge';
-import { Button } from '../_ui/button';
-import { Card } from '../_ui/card';
+import { Badge } from '../../../components/ui/badge';
+import { Button } from '../../../components/ui/button';
+import { Card } from '../../../components/ui/card';
 import { PageHeader } from '../_ui/hotel';
 
 type DateRange = 'Last 7 days' | 'Last 30 days' | 'Last 6 months' | 'Last 12 months';

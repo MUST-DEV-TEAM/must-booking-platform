@@ -34,21 +34,21 @@ import {
 } from 'lucide-react';
 import { useState, type FormEvent, type ReactNode } from 'react';
 
-import { Badge } from '../_ui/badge';
-import { Button } from '../_ui/button';
-import { Card } from '../_ui/card';
+import { Badge } from '../../../components/ui/badge';
+import { Button } from '../../../components/ui/button';
+import { Card } from '../../../components/ui/card';
 import {
   CalendarPicker,
   type CalendarSelection,
   formatCalendarSelection,
 } from '../_ui/demo-calendar';
-import { Input } from '../_ui/input';
-import { Label } from '../_ui/label';
+import { Input } from '../../../components/ui/input';
+import { Label } from '../../../components/ui/label';
 import { BookingStatusBadge, ChannelBadge, PaymentStatusBadge } from '../_ui/hotel';
-import { Popover, PopoverContent, PopoverTrigger } from '../_ui/popover';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../_ui/select';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../_ui/table';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../_ui/tabs';
+import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../../components/ui/tabs';
 import {
   Dialog,
   DialogContent,
@@ -56,7 +56,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '../_ui/dialog';
+} from '../../../components/ui/dialog';
 import { useDesignPreviewContext } from '../design-shell';
 import { defaultPhoneCountryCodeId, phoneCountryCodes } from '../_lib/phone-country-codes';
 

@@ -22,8 +22,8 @@ import {
 import { usePathname, useRouter } from 'next/navigation';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
-import { cn } from './_lib/utils';
-import { Button } from './_ui/button';
+import { cn } from '../../lib/utils';
+import { Button } from '../../components/ui/button';
 import {
   MobileDrawerPanel,
   navByRole,
@@ -33,9 +33,9 @@ import {
   UserMenuTrigger,
   type NavEntry,
 } from './_ui/navigation';
-import { Popover, PopoverContent, PopoverTrigger } from './_ui/popover';
-import { Sheet, SheetContent, SheetTitle } from './_ui/sheet';
-import { Tabs, TabsList, TabsTrigger } from './_ui/tabs';
+import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
+import { Sheet, SheetContent, SheetTitle } from '../../components/ui/sheet';
+import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { ThemeSwitcher } from './_ui/theme-switcher';
 
 type DesignNavItem = { href: string; label: string; icon: typeof Palette; ready: boolean };
@@ -307,7 +307,7 @@ export function DesignShell({ children }: { children: ReactNode }) {
 
   return pathname === '/design/pokpay-checkout' ? (
     <div className="design-preview-stage min-h-screen">
-      <div className="design-root min-h-screen bg-muted/30">
+      <div className="ui-root min-h-screen bg-muted/30">
         <DesignPreviewContext.Provider value={{ dashboardName }}>
           {children}
         </DesignPreviewContext.Provider>
@@ -325,7 +325,7 @@ export function DesignShell({ children }: { children: ReactNode }) {
         }}
         data-preview-viewport={viewport}
       >
-        <div className="design-root @container/design-preview flex min-h-screen">
+        <div className="ui-root @container/design-preview flex min-h-screen">
           <div className="sticky top-0 z-40 hidden h-screen shrink-0 @lg/design-preview:block">
             <Sidebar
               role="admin"

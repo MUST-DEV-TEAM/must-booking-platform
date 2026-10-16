@@ -16,10 +16,10 @@ import {
   X,
 } from 'lucide-react';
 
-import { Badge } from '../_ui/badge';
-import { Button } from '../_ui/button';
-import { Card } from '../_ui/card';
-import { Checkbox } from '../_ui/checkbox';
+import { Badge } from '../../../components/ui/badge';
+import { Button } from '../../../components/ui/button';
+import { Card } from '../../../components/ui/card';
+import { Checkbox } from '../../../components/ui/checkbox';
 import {
   CalendarPicker,
   DemoCalendar,
@@ -33,11 +33,11 @@ import {
   paymentStatusMeta,
   paymentStatusOptions,
 } from '../_lib/demo-domain';
-import { Input, Textarea } from '../_ui/input';
-import { Label } from '../_ui/label';
-import { Popover, PopoverContent, PopoverTrigger } from '../_ui/popover';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../_ui/select';
-import { Switch } from '../_ui/switch';
+import { Input, Textarea } from '../../../components/ui/input';
+import { Label } from '../../../components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
+import { Switch } from '../../../components/ui/switch';
 
 type FieldState = 'Default' | 'Focused' | 'Filled' | 'Error' | 'Disabled';
 type FieldKind =

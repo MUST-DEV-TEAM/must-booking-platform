@@ -28,11 +28,11 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import { cn } from '../_lib/utils';
-import { Alert, AlertDescription } from '../_ui/alert';
-import { Badge } from '../_ui/badge';
-import { Button } from '../_ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../_ui/card';
+import { cn } from '../../../lib/utils';
+import { Alert, AlertDescription } from '../../../components/ui/alert';
+import { Badge } from '../../../components/ui/badge';
+import { Button } from '../../../components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../components/ui/card';
 import {
   Dialog,
   DialogClose,
@@ -42,18 +42,18 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '../_ui/dialog';
+} from '../../../components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '../_ui/dropdown-menu';
+} from '../../../components/ui/dropdown-menu';
 import { PageHeader } from '../_ui/hotel';
-import { Input } from '../_ui/input';
-import { Label } from '../_ui/label';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../_ui/table';
+import { Input } from '../../../components/ui/input';
+import { Label } from '../../../components/ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 
 type Variant = 'default' | 'secondary' | 'ghost' | 'destructive' | 'success';
 type ButtonState = 'default' | 'hover' | 'pressed' | 'focus' | 'disabled' | 'loading';

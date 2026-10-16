@@ -17,12 +17,12 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import { Alert, AlertDescription, AlertTitle } from './_ui/alert';
-import { Avatar, AvatarFallback } from './_ui/avatar';
-import { Badge } from './_ui/badge';
-import { Button } from './_ui/button';
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from './_ui/card';
-import { Checkbox } from './_ui/checkbox';
+import { Alert, AlertDescription, AlertTitle } from '../../components/ui/alert';
+import { Avatar, AvatarFallback } from '../../components/ui/avatar';
+import { Badge } from '../../components/ui/badge';
+import { Button } from '../../components/ui/button';
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
+import { Checkbox } from '../../components/ui/checkbox';
 import {
   Dialog,
   DialogClose,
@@ -32,7 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from './_ui/dialog';
+} from '../../components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,7 +40,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from './_ui/dropdown-menu';
+} from '../../components/ui/dropdown-menu';
 import {
   BookingStatusBadge,
   type BookingStatus,
@@ -52,9 +52,9 @@ import {
   type PaymentStatus,
   StatCard,
 } from './_ui/hotel';
-import { Popover, PopoverContent, PopoverTrigger } from './_ui/popover';
-import { Progress } from './_ui/progress';
-import { Separator } from './_ui/separator';
+import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
+import { Progress } from '../../components/ui/progress';
+import { Separator } from '../../components/ui/separator';
 import {
   Sheet,
   SheetContent,
@@ -62,11 +62,11 @@ import {
   SheetHeader,
   SheetTitle,
   SheetTrigger,
-} from './_ui/sheet';
-import { Skeleton } from './_ui/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './_ui/table';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './_ui/tabs';
-import { Tooltip, TooltipContent, TooltipTrigger } from './_ui/tooltip';
+} from '../../components/ui/sheet';
+import { Skeleton } from '../../components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
 
 /** Fake data only. Nothing on this page reads or writes real bookings. */
 const demoBookings: Array<{
@@ -642,7 +642,7 @@ export function DesignShowcaseContent() {
                     className="h-2 overflow-hidden rounded-full bg-secondary"
                   >
                     <div
-                      className="design-progress-indeterminate h-full w-full rounded-full"
+                      className="ui-progress-indeterminate h-full w-full rounded-full"
                       style={{
                         background:
                           'repeating-linear-gradient(135deg, var(--primary) 0 8px, transparent 8px 16px)',

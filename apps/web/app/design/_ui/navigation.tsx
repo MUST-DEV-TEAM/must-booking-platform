@@ -27,9 +27,9 @@ import {
 import Link from 'next/link';
 import { useState, type ComponentProps, type ReactNode } from 'react';
 
-import { cn } from '../_lib/utils';
-import { Avatar, AvatarFallback } from './avatar';
-import { Button } from './button';
+import { cn } from '../../../lib/utils';
+import { Avatar, AvatarFallback } from '../../../components/ui/avatar';
+import { Button } from '../../../components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,7 +37,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from './dropdown-menu';
+} from '../../../components/ui/dropdown-menu';
 
 /**
  * Navigation building blocks for the new dashboard: sidebar by role, mobile drawer, top header,

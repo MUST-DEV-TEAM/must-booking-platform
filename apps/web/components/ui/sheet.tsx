@@ -4,7 +4,7 @@ import { XIcon } from 'lucide-react';
 import { Dialog as SheetPrimitive } from 'radix-ui';
 import type { ComponentProps } from 'react';
 
-import { cn } from '../_lib/utils';
+import { cn } from '../../lib/utils';
 
 export const Sheet = SheetPrimitive.Root;
 export const SheetTrigger = SheetPrimitive.Trigger;

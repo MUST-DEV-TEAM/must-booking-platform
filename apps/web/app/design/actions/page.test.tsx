@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { Button } from '../_ui/button';
+import { Button } from '../../../components/ui/button';
 import ActionsDesignPage from './page';
 
 describe('Actions design', () => {

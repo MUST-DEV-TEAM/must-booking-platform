@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  AppShell,
   Card,
   Heading,
   NavigationSectionTabBar,
@@ -32,6 +31,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
+import { AppShell } from '../../components/app-shell';
 import { fetchSessionUser, type SessionUser } from '../auth-routing';
 import styles from './dashboard-shell.module.css';
 import { DashboardOverview, NeedsAttentionTab } from './overview';

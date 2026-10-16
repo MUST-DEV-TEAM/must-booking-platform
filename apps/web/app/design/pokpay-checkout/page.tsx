@@ -1,9 +1,9 @@
 import Link from 'next/link';
 import { ArrowLeft, CreditCard, Info } from 'lucide-react';
 
-import { Badge } from '../_ui/badge';
-import { Button } from '../_ui/button';
-import { Card } from '../_ui/card';
+import { Badge } from '../../../components/ui/badge';
+import { Button } from '../../../components/ui/button';
+import { Card } from '../../../components/ui/card';
 
 export default async function PokPayCheckoutPage({
   searchParams,
