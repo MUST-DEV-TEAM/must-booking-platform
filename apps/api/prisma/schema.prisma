@@ -488,6 +488,10 @@ model AvailabilityBlock {
   endsOn     DateTime @map("ends_on") @db.Date
   blocksAll  Boolean  @default(false) @map("blocks_all")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  reason          String? @db.VarChar(30)
+  note            String? @db.VarChar(500)
+  reference       String? @db.VarChar(80)
+  createdByUserId String? @map("created_by_user_id") @db.Uuid
 
   @@unique([tenantId, propertyId, id])
   @@index([tenantId, propertyId, startsOn, endsOn])

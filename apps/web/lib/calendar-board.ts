@@ -57,6 +57,22 @@ export function barGeometry(
 }
 
 /**
+ * Where a block (whole days out of sale) is drawn: from the start of its first day to the start of
+ * the day it is available again. Null when it does not touch the window.
+ */
+export function blockGeometry(
+  startsOn: string,
+  endsOn: string,
+  windowStart: string,
+  dayCount: number,
+): { left: number; width: number } | null {
+  const from = Math.max(diffDays(windowStart, startsOn), 0);
+  const to = Math.min(diffDays(windowStart, endsOn), dayCount);
+  if (to <= from) return null;
+  return { left: from / dayCount, width: (to - from) / dayCount };
+}
+
+/**
  * Puts stays that overlap in time on separate lines (lane 0, 1, 2…) so bars never draw on top of
  * each other. A stay may start on the day the previous one ends.
  */

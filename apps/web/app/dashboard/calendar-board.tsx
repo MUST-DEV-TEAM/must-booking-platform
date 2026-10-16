@@ -1,13 +1,15 @@
 'use client';
 
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { ChevronDown, ChevronLeft, ChevronRight, CirclePlus, RefreshCw } from 'lucide-react';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronDown, ChevronLeft, ChevronRight, CirclePlus, Lock, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { CalendarPicker } from '../../components/ui/calendar-picker';
 import { Card } from '../../components/ui/card';
+import { ConfirmDialog } from '../../components/ui/confirm-dialog';
+import { DetailList } from '../../components/ui/detail-list';
 import { IconButton } from '../../components/ui/icon-button';
 import { Input } from '../../components/ui/input';
 import { NumberStepper } from '../../components/ui/number-stepper';
@@ -19,6 +21,7 @@ import { EmptyPanel, ErrorPanel, ListSkeleton } from '../../components/ui/state-
 import {
   addDays,
   barGeometry,
+  blockGeometry,
   diffDays,
   occupiesNight,
   packLanes,
@@ -29,6 +32,7 @@ import {
 } from '../../lib/calendar-board';
 import { cleanDigits } from '../../lib/input-rules';
 import { cn } from '../../lib/utils';
+import { BLOCK_REASON_LABELS, BlockDialog, type BlockReason } from './block-dialog';
 import { fetchAvailabilityBlocks, type AvailabilityBlock } from './calendar';
 import { ReservationSheet, type ReservationRow } from './reservations-page';
 import { useUnseenBookings } from './unseen-bookings';
@@ -107,8 +111,11 @@ export function CalendarBoard({
   const [collapsed, setCollapsed] = useState<string[]>([]);
   const [selected, setSelected] = useState<ReservationRow | null>(null);
   // An empty day the person clicked: nothing happens until they choose to add a reservation.
-  const [cell, setCell] = useState<{ key: string; day: string; room?: Room; nights: number } | null>(null);
+  const [cell, setCell] = useState<{ key: string; day: string; room?: Room; roomTypeId: string; nights: number } | null>(null);
+  const [blocking, setBlocking] = useState(false);
+  const [openBlock, setOpenBlock] = useState<AvailabilityBlock | null>(null);
   const unseen = useUnseenBookings(tenantId, propertyId);
+  const queryClient = useQueryClient();
 
   // Remember how this person likes the calendar set up.
   useEffect(() => {
@@ -125,6 +132,24 @@ export function CalendarBoard({
       // Storage can be blocked; the calendar simply forgets its setup.
     }
   }, [preset, custom, typeFilter, hidden]);
+
+  // Arrow keys move the window a day (Shift: a week); T returns to today.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (target?.closest('input, textarea, select, [role="dialog"], [role="listbox"], [contenteditable="true"]')) return;
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        event.preventDefault();
+        const step = event.shiftKey ? 7 : 1;
+        setStart((current) => addDays(current, event.key === 'ArrowLeft' ? -step : step));
+      } else if (event.key === 't' || event.key === 'T') {
+        setStart(addDays(todayIso(), -1));
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const dayCount = preset === 'custom' ? Math.min(MAX_DAYS, Math.max(1, Number(custom) || 1)) : Number(preset);
   const end = addDays(start, dayCount);
@@ -278,7 +303,7 @@ export function CalendarBoard({
             const index = Math.min(dayCount - 1, Math.max(0, Math.floor(((event.clientX - bounds.left) / bounds.width) * dayCount)));
             const day = days[index]!;
             // Clicking the same day again lets go of it.
-            setCell((current) => (current?.key === key && current.day === day ? null : { key, day, room, nights: 1 }));
+            setCell((current) => (current?.key === key && current.day === day ? null : { key, day, room, roomTypeId, nights: 1 }));
           }}
         >
           {cell?.key === key && diffDays(start, cell.day) >= 0 && diffDays(start, cell.day) < dayCount ? (
@@ -299,17 +324,21 @@ export function CalendarBoard({
             />
           ) : null}
           {rowBlocks.map((block) => {
-            const geometry = barGeometry(block.startsOn, block.endsOn, start, dayCount);
+            const geometry = blockGeometry(block.startsOn, block.endsOn, start, dayCount);
             if (!geometry) return null;
+            const reasonLabel = block.reason ? (BLOCK_REASON_LABELS[block.reason as BlockReason] ?? block.reason) : 'Blocked';
             return (
-              <div
+              <button
                 key={block.id}
-                title="Blocked"
-                className="pointer-events-none absolute top-1 bottom-1 flex items-center rounded-md border border-dashed bg-[repeating-linear-gradient(135deg,transparent,transparent_6px,rgb(0_0_0/0.06)_6px,rgb(0_0_0/0.06)_12px)] px-2 text-[10px] font-semibold text-muted-foreground"
+                type="button"
+                title={`${reasonLabel}${block.createdByEmail ? ` · ${block.createdByEmail}` : ''}`}
+                onClick={() => setOpenBlock(block)}
+                className="absolute top-1 bottom-1 flex items-center gap-1 overflow-hidden rounded-md border border-dashed bg-[repeating-linear-gradient(135deg,transparent,transparent_6px,rgb(0_0_0/0.06)_6px,rgb(0_0_0/0.06)_12px)] px-2 text-left text-[10px] font-semibold text-muted-foreground outline-none hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 style={{ left: `${geometry.left * 100}%`, width: `${geometry.width * 100}%` }}
               >
-                Blocked
-              </div>
+                <Lock aria-hidden="true" className="size-3 shrink-0" />
+                <span className="truncate">{reasonLabel}</span>
+              </button>
             );
           })}
           {packed.map(({ item, lane }) => {
@@ -629,6 +658,11 @@ export function CalendarBoard({
               <Button variant="ghost" size="sm" onClick={() => setCell(null)}>
                 Cancel
               </Button>
+              {canManageAvailability && cell.day >= today ? (
+                <Button variant="outline" size="sm" onClick={() => setBlocking(true)}>
+                  <Lock aria-hidden="true" /> Block these nights
+                </Button>
+              ) : null}
               {cell.day < today ? (
                 <Button size="sm" disabled>
                   <CirclePlus aria-hidden="true" /> Add reservation
@@ -662,6 +696,55 @@ export function CalendarBoard({
           </span>
         </div>
       </Card>
+
+      {cell && canManageAvailability ? (
+        <BlockDialog
+          open={blocking}
+          onOpenChange={(open) => {
+            setBlocking(open);
+            if (!open) setCell(null);
+          }}
+          tenantId={tenantId}
+          propertyId={propertyId}
+          startsOn={cell.day}
+          endsOn={addDays(cell.day, cell.nights)}
+          target={
+            cell.room
+              ? { label: `Room ${cell.room.name} · ${cell.room.roomTypeName}`, roomId: cell.room.id, roomTypeId: cell.roomTypeId }
+              : { label: `Every ${(catalog.data?.roomTypes ?? []).find((type) => type.id === cell.roomTypeId)?.name ?? 'room'}`, roomTypeId: cell.roomTypeId }
+          }
+        />
+      ) : null}
+
+      <ConfirmDialog
+        open={openBlock !== null}
+        onOpenChange={(open) => {
+          if (!open) setOpenBlock(null);
+        }}
+        title="This block"
+        description="Rooms covered by it can be sold again once it is removed."
+        confirmLabel="Remove block"
+        destructive
+        onConfirm={async () => {
+          if (!openBlock) return;
+          const response = await fetch(`${base}/availability-blocks/${openBlock.id}`, { method: 'DELETE', credentials: 'include' });
+          if (!response.ok) throw new Error('The block could not be removed.');
+          await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        }}
+      >
+        {openBlock ? (
+          <DetailList
+            items={[
+              { label: 'Reason', value: openBlock.reason ? (BLOCK_REASON_LABELS[openBlock.reason as BlockReason] ?? openBlock.reason) : 'Not recorded' },
+              { label: 'From', value: openBlock.startsOn },
+              { label: 'Available again', value: openBlock.endsOn },
+              { label: 'Reference', value: openBlock.reference },
+              { label: 'Note', value: openBlock.note },
+              { label: 'Created by', value: openBlock.createdByEmail },
+            ]}
+          />
+        ) : null}
+      </ConfirmDialog>
 
       <ReservationSheet row={selected} tenantId={tenantId} propertyId={propertyId} onClose={() => setSelected(null)} />
     </div>

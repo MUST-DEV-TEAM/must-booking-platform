@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { addDays, barGeometry, diffDays, occupiesNight, packLanes, windowDays } from './calendar-board';
+import { addDays, barGeometry, blockGeometry, diffDays, occupiesNight, packLanes, windowDays } from './calendar-board';
 
 describe('calendar board dates', () => {
   it('adds and measures days across month ends', () => {
@@ -80,5 +80,17 @@ describe('stayState', () => {
     expect(stayState(base, '2026-10-19')).toBe('expected');
     expect(stayState(base, '2026-10-21')).toBe('in_house');
     expect(stayState(base, '2026-10-23')).toBe('checked_out');
+  });
+});
+
+describe('blockGeometry', () => {
+  it('covers whole days up to the day it is available again', () => {
+    const bar = blockGeometry('2026-10-12', '2026-10-14', '2026-10-10', 10)!;
+    expect(bar.left).toBeCloseTo(2 / 10);
+    expect(bar.width).toBeCloseTo(2 / 10);
+  });
+  it('is clipped to the window and null outside it', () => {
+    expect(blockGeometry('2026-10-01', '2026-10-12', '2026-10-10', 10)).toEqual({ left: 0, width: 0.2 });
+    expect(blockGeometry('2026-10-01', '2026-10-05', '2026-10-10', 10)).toBeNull();
   });
 });

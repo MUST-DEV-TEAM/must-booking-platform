@@ -27,6 +27,10 @@ export type AvailabilityBlock = {
   all: boolean;
   roomTypeIds: string[];
   roomIds: string[];
+  reason?: string | null;
+  note?: string | null;
+  reference?: string | null;
+  createdByEmail?: string | null;
 };
 // A single grid row: one physical room when the property tracks individual
 // rooms (INDIVIDUAL_ROOM_ONLY/MIXED), or one room type when it doesn't

@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
 import { AuditLogService } from './audit-log.service';
@@ -33,14 +33,29 @@ type RoomAvailabilityInput = {
   endsOn: string;
   isAvailable: boolean;
 };
+export const BLOCK_REASONS = [
+  'maintenance',
+  'renovation',
+  'owner_use',
+  'house_use',
+  'event',
+  'other',
+] as const;
+
 type AvailabilityBlockInput = {
   startsOn: string;
   endsOn: string;
   all: boolean;
   roomTypeIds: string[];
   roomIds: string[];
+  reason?: (typeof BLOCK_REASONS)[number];
+  note?: string;
+  reference?: string;
 };
-type AvailabilityBlock = AvailabilityBlockInput & { id: string };
+type AvailabilityBlock = AvailabilityBlockInput & {
+  id: string;
+  createdByEmail?: string | null;
+};
 
 export type InventoryBookedUnitsInput = {
   roomTypeId: string;
@@ -369,15 +384,56 @@ export class AvailabilityService {
         await this.requireRoomType(tx, tenantId, propertyId, roomTypeId);
       for (const roomId of input.roomIds) await this.requireRoom(tx, tenantId, propertyId, roomId);
 
+      // A block never cancels or moves a reservation: if one is in the way, stop and say which.
+      const conflicts = await tx.$queryRaw<
+        Array<{
+          id: string;
+          externalReference: string;
+          startsOn: string;
+          endsOn: string;
+          guestName: string | null;
+          roomName: string | null;
+        }>
+      >`
+        SELECT b.id, b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
+          b.ends_on::text AS "endsOn",
+          NULLIF(TRIM(CONCAT_WS(' ', g.first_name, g.last_name)), '') AS "guestName",
+          r.name AS "roomName"
+        FROM bookings b
+        LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
+        LEFT JOIN rooms r ON r.tenant_id = b.tenant_id AND r.id = b.room_id
+        WHERE b.tenant_id = ${tenantId}::uuid AND b.property_id = ${propertyId}::uuid
+          AND b.starts_on < ${input.endsOn}::date AND b.ends_on > ${input.startsOn}::date
+          AND b.status NOT IN ('CANCELLED', 'EXPIRED', 'DRAFT', 'QUOTED')
+          AND (
+            ${input.all}
+            OR b.room_type_id = ANY(${input.roomTypeIds}::uuid[])
+            OR b.room_id = ANY(${input.roomIds}::uuid[])
+          )
+        ORDER BY b.starts_on
+        LIMIT 20
+      `;
+      if (conflicts.length > 0)
+        throw new ConflictException({
+          message:
+            'Reservations are already booked on these dates. Move or cancel them first; a block never cancels a reservation.',
+          conflicts,
+        });
+
       await tx.$executeRaw`
-        INSERT INTO availability_blocks (id, tenant_id, property_id, starts_on, ends_on, blocks_all)
+        INSERT INTO availability_blocks (id, tenant_id, property_id, starts_on, ends_on, blocks_all,
+          reason, note, reference, created_by_user_id)
         VALUES (
           ${id}::uuid,
           ${tenantId}::uuid,
           ${propertyId}::uuid,
           ${input.startsOn}::date,
           ${input.endsOn}::date,
-          ${input.all}
+          ${input.all},
+          ${input.reason ?? null},
+          ${input.note ?? null},
+          ${input.reference ?? null},
+          ${actorUserId}::uuid
         )
       `;
       for (const roomTypeId of input.roomTypeIds)
@@ -409,7 +465,7 @@ export class AvailabilityService {
       (tx) =>
         tx.$queryRaw<AvailabilityBlock[]>`
         SELECT ab.id, ab.starts_on::text AS "startsOn", ab.ends_on::text AS "endsOn",
-          ab.blocks_all AS "all",
+          ab.blocks_all AS "all", ab.reason, ab.note, ab.reference, u.email AS "createdByEmail",
           COALESCE(ARRAY_AGG(DISTINCT abrt.room_type_id::text) FILTER (WHERE abrt.room_type_id IS NOT NULL), ARRAY[]::text[]) AS "roomTypeIds",
           COALESCE(ARRAY_AGG(DISTINCT abr.room_id::text) FILTER (WHERE abr.room_id IS NOT NULL), ARRAY[]::text[]) AS "roomIds"
         FROM availability_blocks ab
@@ -417,8 +473,9 @@ export class AvailabilityService {
           ON abrt.tenant_id = ab.tenant_id AND abrt.property_id = ab.property_id AND abrt.block_id = ab.id
         LEFT JOIN availability_block_rooms abr
           ON abr.tenant_id = ab.tenant_id AND abr.property_id = ab.property_id AND abr.block_id = ab.id
+        LEFT JOIN users u ON u.id = ab.created_by_user_id
         WHERE ab.tenant_id = ${tenantId}::uuid AND ab.property_id = ${propertyId}::uuid
-        GROUP BY ab.id
+        GROUP BY ab.id, u.email
         ORDER BY ab.starts_on ASC, ab.created_at ASC, ab.id ASC
       `,
     );
@@ -544,7 +601,28 @@ export class AvailabilityService {
     const roomIds = this.targetIds(value.roomIds, 'roomIds');
     if (!all && roomTypeIds.length === 0 && roomIds.length === 0)
       throw new BadRequestException('At least one availability-block target is required.');
-    return { ...range, all, roomTypeIds, roomIds };
+    const reason = value.reason;
+    if (
+      reason !== undefined &&
+      !(typeof reason === 'string' && (BLOCK_REASONS as readonly string[]).includes(reason))
+    )
+      throw new BadRequestException(`reason must be one of ${BLOCK_REASONS.join(', ')}.`);
+    const text = (field: 'note' | 'reference', max: number): string | undefined => {
+      const raw = value[field];
+      if (raw === undefined || raw === null || raw === '') return undefined;
+      if (typeof raw !== 'string' || raw.trim().length > max)
+        throw new BadRequestException(`${field} must be text of up to ${max} characters.`);
+      return raw.trim();
+    };
+    return {
+      ...range,
+      all,
+      roomTypeIds,
+      roomIds,
+      ...(reason ? { reason: reason as (typeof BLOCK_REASONS)[number] } : {}),
+      ...(text('note', 500) ? { note: text('note', 500) } : {}),
+      ...(text('reference', 80) ? { reference: text('reference', 80) } : {}),
+    };
   }
 
   private targetIds(value: unknown, field: string): string[] {
