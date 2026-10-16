@@ -2441,13 +2441,13 @@ S01 stays **In progress** until every row below is Done or explicitly moved. Upd
 | --- | --- | --- | --- |
 | Reservation preview as its own reusable component (also used by Calendar and Guests) | D31 / S36 | none | With S02 Booking detail |
 | Clicking a row opens details; a full detail page | Page 3, S02 | S02 | S02 |
-| Density toggle (comfortable / compact) | D10 (S8) | none | Before S01 is closed |
-| Header stays visible while the page scrolls | D10 (S8) | none | Before S01 is closed |
+| Density toggle (comfortable / compact) | D10 (S8) | none | **Done 2026-10-17** (remembered per browser) |
+| Header stays visible while the page scrolls | D10 (S8) | none | **Done 2026-10-17** (the shell publishes its real header height) |
 | Keyboard shortcuts (for example `/` to search) | Claude's suggestion, not yet accepted | none | Owner to decide |
 | Real bulk actions (send email, assign room, confirm) | D10 (S6), G20 | email sending, room assignment (Milestone 25) | When those exist |
 | Export list / results (CSV) | G21 | export permission and audit | Next release |
 | Saved views per user | G20 | per-user preferences storage | Next release |
-| Readable payment reference (PAY-1084) in the list | G99 | B01 follow-up | Before S01 is closed |
+| Readable payment reference (PAY-1084) | G99, S102 | A reference for every payment, issued when the payment is created in each provider path (Stripe, PokPay, manual, refund) with a backfill; not needed on this list, which shows the booking reference | **Moved to S05 Payments**, where payments are listed |
 | Phone layout | Owner: later | phone designs | Phone pass (R03) |
 
 ### Suggested first slice (smallest thing that proves the whole stack)

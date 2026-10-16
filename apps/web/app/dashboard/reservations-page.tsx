@@ -13,6 +13,7 @@ import {
   ListFilter,
   MoreHorizontal,
   RefreshCw,
+  Rows3,
   Search,
   UserRound,
 } from 'lucide-react';
@@ -145,6 +146,17 @@ const columnLabels: Record<ColumnKey, string> = {
 };
 const COLUMNS_STORAGE_KEY = 'must.reservations.columns';
 const defaultColumns: Record<ColumnKey, boolean> = { room: true, source: true, payment: true, total: true };
+
+type Density = 'comfortable' | 'compact';
+const DENSITY_STORAGE_KEY = 'must.reservations.density';
+
+function loadDensity(): Density {
+  try {
+    return window.localStorage.getItem(DENSITY_STORAGE_KEY) === 'compact' ? 'compact' : 'comfortable';
+  } catch {
+    return 'comfortable';
+  }
+}
 
 function loadColumns(): Record<ColumnKey, boolean> {
   try {
@@ -288,13 +300,17 @@ export function ReservationsPage({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [columns, setColumns] = useState<Record<ColumnKey, boolean>>(defaultColumns);
+  const [density, setDensity] = useState<Density>('comfortable');
   const [committedSearch, setCommittedSearch] = useState('');
   const [ready, setReady] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const lastSearchRef = useRef<string | null>(null);
 
   // Remembered column choice (a per-browser convenience).
-  useEffect(() => setColumns(loadColumns()), []);
+  useEffect(() => {
+    setColumns(loadColumns());
+    setDensity(loadDensity());
+  }, []);
 
   // Restore the filters from the page address on first load, and again on Back / Forward.
   useEffect(() => {
@@ -431,6 +447,15 @@ export function ReservationsPage({
       // Remembering the choice is a convenience; ignore blocked storage.
     }
   };
+  const toggleDensity = () => {
+    const next: Density = density === 'compact' ? 'comfortable' : 'compact';
+    setDensity(next);
+    try {
+      window.localStorage.setItem(DENSITY_STORAGE_KEY, next);
+    } catch {
+      // Remembering the choice is a convenience; ignore blocked storage.
+    }
+  };
   const copyReferences = async () => {
     try {
       await navigator.clipboard.writeText(selectedRows.map((row) => row.externalReference).join('\n'));
@@ -489,7 +514,7 @@ export function ReservationsPage({
         />
       </div>
 
-      <Card className="gap-0 overflow-hidden p-0">
+      <Card className="gap-0 overflow-clip p-0">
         <div className="space-y-3 border-b p-4">
           <TabBar
             tabs={tabs}
@@ -599,6 +624,15 @@ export function ReservationsPage({
             </Popover>
 
             <IconButton
+              label={density === 'compact' ? 'Comfortable rows' : 'Compact rows'}
+              hint={density === 'compact' ? 'Showing one line per row' : 'Showing details under each name'}
+              aria-pressed={density === 'compact'}
+              onClick={toggleDensity}
+            >
+              <Rows3 aria-hidden="true" />
+            </IconButton>
+
+            <IconButton
               label="Refresh"
               hint={query.dataUpdatedAt ? `Updated ${updatedLabel(query.dataUpdatedAt, now)}` : undefined}
               onClick={() => void query.refetch()}
@@ -661,8 +695,12 @@ export function ReservationsPage({
           </div>
         ) : data ? (
           <>
-            <Table containerClassName="overflow-x-auto" className="text-[11px]">
-              <TableHeader className="sticky top-0 z-10 bg-muted">
+            <Table
+              containerClassName="overflow-x-clip"
+              data-density={density}
+              className="group text-[11px] data-[density=compact]:[&_td]:py-1"
+            >
+              <TableHeader className="sticky top-[var(--app-header-height,86px)] z-20 bg-muted">
                 <TableRow className="hover:bg-muted">
                   <TableHead className="w-8 px-3 py-2">
                     <Checkbox
@@ -702,7 +740,7 @@ export function ReservationsPage({
                       <TableRow
                         data-state={isSelected ? 'selected' : undefined}
                         className={cn(
-                          'h-12 cursor-pointer',
+                          'h-12 cursor-pointer group-data-[density=compact]:h-9',
                           isSelected && 'bg-primary/10 hover:bg-primary/10',
                         )}
                         onClick={(event) => {
@@ -731,7 +769,7 @@ export function ReservationsPage({
                             )}
                             {row.externalReference}
                           </button>
-                          <span className="block pl-4 text-[10px] text-muted-foreground">
+                          <span className="block pl-4 text-[10px] text-muted-foreground group-data-[density=compact]:hidden">
                             Created {createdLabel(row.createdAt)}
                           </span>
                         </TableCell>
@@ -742,7 +780,7 @@ export function ReservationsPage({
                             </span>
                             <span className="min-w-0">
                               <span className="block truncate font-semibold">{guestName(row)}</span>
-                              <span className="block truncate text-[10px] text-muted-foreground">
+                              <span className="block truncate text-[10px] text-muted-foreground group-data-[density=compact]:hidden">
                                 {row.guestEmail ?? row.guestPhone ?? ''}
                               </span>
                             </span>
@@ -751,7 +789,7 @@ export function ReservationsPage({
                         {columns.room ? (
                           <TableCell className="px-2 py-2">
                             <span className="block">{row.roomTypeName}</span>
-                            <span className="block text-[10px] text-muted-foreground">
+                            <span className="block text-[10px] text-muted-foreground group-data-[density=compact]:hidden">
                               {row.roomName ? `Room ${row.roomName}` : 'Not assigned'}
                             </span>
                           </TableCell>
@@ -760,7 +798,7 @@ export function ReservationsPage({
                           <span className="block whitespace-nowrap">
                             {shortDate(row.startsOn)} – {shortDate(row.endsOn)}
                           </span>
-                          <span className="block text-[10px] text-muted-foreground">
+                          <span className="block text-[10px] text-muted-foreground group-data-[density=compact]:hidden">
                             {nights} night{nights === 1 ? '' : 's'} · {guestsLabel(row)}
                           </span>
                         </TableCell>

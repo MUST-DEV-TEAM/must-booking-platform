@@ -1,7 +1,7 @@
 'use client';
 
 import { ChevronDown, ChevronsLeft, LogOut, Menu, X, type LucideIcon } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { cn } from '../lib/utils';
 import { Avatar, AvatarFallback } from './ui/avatar';
@@ -211,6 +211,22 @@ export function AppShell({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
+
+  // Publishes the real header height so sticky table headers sit directly under it.
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    const root = document.documentElement;
+    const publish = () => root.style.setProperty('--app-header-height', `${header.offsetHeight}px`);
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(header);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty('--app-header-height');
+    };
+  }, []);
 
   // The theme hides focus outlines while the mouse is in use and keeps them for keyboard users.
   useEffect(() => {
@@ -275,7 +291,7 @@ export function AppShell({
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex min-h-[68px] shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-card/95 px-4 py-3 backdrop-blur sm:px-6">
+        <header ref={headerRef} className="sticky top-0 z-30 flex min-h-[68px] shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-card/95 px-4 py-3 backdrop-blur sm:px-6">
           <h2 className="min-w-0 flex-[1_1_12rem] truncate text-xl font-extrabold tracking-tight">
             {title}
           </h2>
