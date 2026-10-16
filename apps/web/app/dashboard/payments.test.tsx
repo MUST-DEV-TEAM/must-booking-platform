@@ -39,7 +39,28 @@ const setValue = async (input: HTMLInputElement | HTMLTextAreaElement, value: st
     Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!.set!.call(input, value);
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
-const refundButtons = () => buttons().filter((button) => button.textContent?.trim() === 'Refund');
+// Row actions live in a menu that Radix opens on pointer down.
+const openMenu = async (row: Element) =>
+  act(async () => {
+    row
+      .querySelector('button[aria-label^="More actions"]')!
+      .dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+  });
+const menuItems = () => Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).map((item) => item.textContent?.trim());
+const closeMenu = async () =>
+  act(async () => {
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+const menuHas = async (row: Element, item: string) => {
+  await openMenu(row);
+  const has = menuItems().includes(item);
+  await closeMenu();
+  return has;
+};
+const openRefund = async (row: Element) => {
+  await openMenu(row);
+  await act(async () => byText('Refund…')!.click());
+};
 const rows = () => Array.from(document.body.querySelectorAll('tbody tr'));
 const dialog = () => document.body.querySelector<HTMLElement>('[role="dialog"]');
 
@@ -67,7 +88,7 @@ async function renderPayments(bookings: Reservation[], capabilities = ['payments
 describe('Payments', () => {
   it('hides refund without capability', async () => {
     const { unmount } = await renderPayments([{ ...booking, paidAmount: '100.00' }], []);
-    expect(refundButtons()).toHaveLength(0);
+    expect(await menuHas(rows()[0]!, 'Refund…')).toBe(false);
     await unmount();
   });
 
@@ -89,10 +110,7 @@ describe('Payments', () => {
       ),
     );
     const { unmount } = await renderPayments([booking]);
-    await act(async () => {
-      // Radix opens its menu on pointer down.
-      byText('Mark as paid')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
-    });
+    await openMenu(rows()[0]!);
     await act(async () => {
       byText('Card in person')!.click();
     });
@@ -123,9 +141,9 @@ describe('Payments', () => {
       { ...booking, id: 'partial-refund', guestEmail: 'partial-refund@test', paidAmount: '100.00', refundedAmount: '25.00' },
       { ...booking, id: 'full-refund', guestEmail: 'full-refund@test', paidAmount: '100.00', refundedAmount: '100.00' },
     ]);
-    expect(refundButtons()).toHaveLength(2);
-    expect(refundButtons().some((button) => rows()[0]!.contains(button))).toBe(false);
-    expect(refundButtons().some((button) => rows()[3]!.contains(button))).toBe(false);
+    const offered: boolean[] = [];
+    for (const row of rows()) offered.push(await menuHas(row, 'Refund…'));
+    expect(offered).toEqual([false, true, true, false]);
     await unmount();
   });
 
@@ -147,7 +165,7 @@ describe('Payments', () => {
       ),
     );
     const { unmount } = await renderPayments([{ ...booking, paidAmount: '100.00' }]);
-    await act(async () => refundButtons()[0]!.click());
+    await openRefund(rows()[0]!);
     expect(dialog()!.textContent).toContain('€100.00 was paid and can still be refunded');
     await act(async () => byText('Percentage', dialog()!)!.click());
     await act(async () => byText('25%', dialog()!)!.click());
@@ -215,10 +233,11 @@ describe('Payments', () => {
     expect(heldRow!.textContent).not.toContain('Partially paid');
     expect(hotelRow!.textContent).toContain('Nothing paid');
     expect(hotelRow!.textContent).not.toContain('Due at hotel');
-    expect(c.textContent).not.toContain('Mark as paid');
-    // The held money can still be refunded; the unpaid cancelled booking cannot.
-    expect(byText('Refund', heldRow!)).toBeDefined();
-    expect(byText('Refund', hotelRow!)).toBeUndefined();
+    // The held money can still be refunded; the unpaid cancelled booking cannot be refunded or marked paid.
+    expect(await menuHas(heldRow!, 'Refund…')).toBe(true);
+    expect(await menuHas(hotelRow!, 'Refund…')).toBe(false);
+    expect(await menuHas(hotelRow!, 'Cash')).toBe(false);
+    expect(c.textContent).toContain('Cancelled');
     await unmount();
   });
 
@@ -263,7 +282,7 @@ describe('Payments', () => {
 
   it('names the booking in the refund dialog so the right row is refunded', async () => {
     const { unmount } = await renderPayments([live]);
-    await act(async () => refundButtons()[0]!.click());
+    await openRefund(rows()[0]!);
     expect(dialog()!.textContent).toContain('EBR-LIVE-0001 · Ada Lovelace');
     expect(dialog()!.textContent).toContain('€100.00 was paid and can still be refunded');
     await unmount();
@@ -307,7 +326,7 @@ describe('Payments', () => {
     const { unmount } = await renderPayments([
       { ...live, total: { amount: '250.00', currency: 'EUR' }, paidAmount: '250.00', refundedAmount: '50.00' } as Reservation,
     ]);
-    await act(async () => refundButtons()[0]!.click());
+    await openRefund(rows()[0]!);
     expect(dialog()!.textContent).toContain('€200.00 was paid and can still be refunded');
     expect(dialog()!.textContent).toContain('Refund: €200.00');
     await act(async () => byText('Percentage', dialog()!)!.click());
