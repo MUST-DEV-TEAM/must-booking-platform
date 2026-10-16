@@ -171,9 +171,9 @@ describe('PaymentDetail', () => {
     await act(async () => {
       view.c.querySelector<HTMLButtonElement>('button.must-button--danger')!.click();
     });
-    const dialog = view.c.querySelector('[role="dialog"]')!;
+    const dialog = document.body.querySelector('[role="dialog"]')!;
     expect(dialog.textContent).toContain('EBR-260930-2258-9WDC · Ada Lovelace');
-    expect(dialog.textContent).toContain('Remaining refundable balance: 200.00 EUR');
+    expect(dialog.textContent).toContain('€200.00 was paid and can still be refunded');
     await view.unmount();
   });
 
