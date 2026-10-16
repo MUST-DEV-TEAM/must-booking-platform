@@ -206,6 +206,19 @@ export function CalendarBoard({
   const totalUnits = (catalog.data?.roomTypes ?? []).reduce((sum, type) => sum + type.roomCount, 0);
   const occupiedOn = (day: string, typeId?: string) =>
     holding.filter(({ row }) => (typeId ? row.roomTypeId === typeId : true) && occupiesNight(row.startsOn, row.endsOn, day)).length;
+  // Rooms taken out of sale by a block that night (a room counted once, however many blocks cover it).
+  const blockedOn = (day: string, typeId?: string) => {
+    const live = (blocks.data ?? []).filter((block) => block.startsOn <= day && day < block.endsOn);
+    return (catalog.data?.roomTypes ?? [])
+      .filter((type) => !typeId || type.id === typeId)
+      .reduce((sum, type) => {
+        if (live.some((block) => block.all || block.roomTypeIds.includes(type.id))) return sum + type.roomCount;
+        const roomIds = new Set(live.flatMap((block) => block.roomIds));
+        const covered = rooms.filter((room) => room.roomTypeId === type.id && roomIds.has(room.id)).length;
+        return sum + Math.min(type.roomCount, covered);
+      }, 0);
+  };
+  const freeOn = (day: string) => Math.max(0, totalUnits - occupiedOn(day) - blockedOn(day));
   const arrivals = holding.filter(({ row }) => row.startsOn === today).length;
   const departures = holding.filter(({ row }) => row.endsOn === today).length;
   const attention = allBookings.filter(({ state }) => state === 'needs_attention').length;
@@ -411,7 +424,7 @@ export function CalendarBoard({
           value={totalUnits > 0 ? `${Math.round((occupiedOn(today) / totalUnits) * 100)}%` : '—'}
           note={`${occupiedOn(today)} of ${totalUnits} rooms`}
         />
-        <StatTile size="sm" label="Available tonight" value={Math.max(0, totalUnits - occupiedOn(today))} note="Rooms free" />
+        <StatTile size="sm" label="Available tonight" value={freeOn(today)} note="Rooms free" />
         <StatTile size="sm" label="Arrivals today" value={arrivals} />
         <StatTile size="sm" label="Departures today" value={departures} />
         <StatTile
@@ -563,7 +576,7 @@ export function CalendarBoard({
               </div>
               <div className="grid flex-1" style={{ gridTemplateColumns: `repeat(${dayCount}, minmax(0, 1fr))` }}>
                 {days.map((day) => {
-                  const free = Math.max(0, totalUnits - occupiedOn(day));
+                  const free = freeOn(day);
                   return (
                     <div
                       key={day}
