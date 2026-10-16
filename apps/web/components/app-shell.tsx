@@ -220,10 +220,11 @@ export function AppShell({
     const root = document.documentElement;
     const publish = () => root.style.setProperty('--app-header-height', `${header.offsetHeight}px`);
     publish();
-    const observer = new ResizeObserver(publish);
-    observer.observe(header);
+    // Without ResizeObserver the height is still published once; it just does not follow resizes.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(publish);
+    observer?.observe(header);
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
       root.style.removeProperty('--app-header-height');
     };
   }, []);
