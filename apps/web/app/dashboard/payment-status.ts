@@ -22,6 +22,7 @@ export type PaymentFilter =
 // against it is the hotel's to return (or to keep by policy), not a live payment.
 const DEAD_STATUSES = new Set([
   'CANCELLED',
+  'EXPIRED',
   'PAYMENT_FAILED',
   'PMS_REJECTED',
   'AVAILABILITY_FAILED',

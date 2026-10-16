@@ -1,6 +1,6 @@
 'use client';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, ArrowUpDown, Download, MoreHorizontal, UserRound } from 'lucide-react';
+import { Download, MoreHorizontal, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { useMemo, useState } from 'react';
 import { Badge } from '../../components/ui/badge';
@@ -21,6 +21,7 @@ import { StatTile } from '../../components/ui/stat-tile';
 import { EmptyPanel, ErrorPanel, ListSkeleton, NoResultsPanel } from '../../components/ui/state-panel';
 import { BookingStatusBadge } from '../../components/ui/status-badge';
 import { TabBar } from '../../components/ui/tab-bar';
+import { SortableTableHead } from '../../components/ui/sortable-table-head';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
 import { cn } from '../../lib/utils';
 import { nightsBetween } from '../../lib/reservation-display';
@@ -199,6 +200,7 @@ export function DashboardPayments({
   }
   const money = (amount: string, currency: string) =>
     new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(amount));
+  type SortKey = 'created' | 'guest' | 'stay' | 'total';
   const [sort, setSort] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>({ key: 'created', direction: 'desc' });
   const sorted = useMemo(() => {
     const value = (booking: Reservation): string | number => {
@@ -322,12 +324,12 @@ export function DashboardPayments({
             <Table containerClassName="overflow-x-clip" className="text-[11px]">
               <TableHeader className="sticky top-[var(--app-header-height,86px)] z-20 bg-muted">
                 <TableRow className="hover:bg-muted">
-                  <SortHeader label="Reference" sortKey="created" sort={sort} onSort={toggleSort} />
-                  <SortHeader label="Guest" sortKey="guest" sort={sort} onSort={toggleSort} />
-                  <SortHeader label="Stay" sortKey="stay" sort={sort} onSort={toggleSort} />
+                  <SortableTableHead label="Reference" active={sort.key === 'created'} direction={sort.direction} onSort={() => toggleSort('created')} />
+                  <SortableTableHead label="Guest" active={sort.key === 'guest'} direction={sort.direction} onSort={() => toggleSort('guest')} />
+                  <SortableTableHead label="Stay" active={sort.key === 'stay'} direction={sort.direction} onSort={() => toggleSort('stay')} />
                   <TableHead className="px-2 py-2 normal-case tracking-normal">Booking</TableHead>
                   <TableHead className="px-2 py-2 normal-case tracking-normal">Payment</TableHead>
-                  <SortHeader label="Total" sortKey="total" sort={sort} onSort={toggleSort} end />
+                  <SortableTableHead label="Total" active={sort.key === 'total'} direction={sort.direction} onSort={() => toggleSort('total')} align="right" />
                   <TableHead className="px-2 py-2 text-right normal-case tracking-normal">Outstanding</TableHead>
                   <TableHead className="w-10 px-2 py-2 text-right">
                     <span className="sr-only">Actions</span>
@@ -523,39 +525,3 @@ export function DashboardPayments({
   );
 }
 
-type SortKey = 'created' | 'guest' | 'stay' | 'total';
-
-function SortHeader({
-  label,
-  sortKey,
-  sort,
-  onSort,
-  end = false,
-}: {
-  label: string;
-  sortKey: SortKey;
-  sort: { key: SortKey; direction: 'asc' | 'desc' };
-  onSort: (key: SortKey) => void;
-  end?: boolean;
-}) {
-  const active = sort.key === sortKey;
-  const Icon = active ? (sort.direction === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
-  return (
-    <TableHead
-      aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
-      className={cn('px-2 py-2', end && 'text-right')}
-    >
-      <button
-        type="button"
-        onClick={() => onSort(sortKey)}
-        className={cn(
-          'inline-flex items-center gap-1 bg-transparent p-0 text-left normal-case tracking-normal outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
-          end && 'ml-auto',
-        )}
-      >
-        {label}
-        <Icon aria-hidden="true" className="size-3 shrink-0" />
-      </button>
-    </TableHead>
-  );
-}
