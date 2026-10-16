@@ -1,0 +1,91 @@
+// @vitest-environment jsdom
+import { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { AwaitingPayment } from './awaiting-payment';
+import { DashboardQueryProvider } from './query-provider';
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+afterEach(() => vi.unstubAllGlobals());
+
+async function mount() {
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(AwaitingPayment, {
+          tenantId: 't',
+          propertyId: 'p',
+          bookingId: 'b',
+          reference: 'MB-1',
+          checkoutUrl: 'https://pay.example.test/checkout',
+          providerName: 'PokPay',
+          reservationHref: '/dashboard/t?propertyId=p&section=reservations&reservation=b',
+          onStartOver: () => undefined,
+        }),
+      ),
+    );
+  });
+  return { container, root };
+}
+
+const settle = () => act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
+
+describe('AwaitingPayment', () => {
+  it('stays unconfirmed while the provider has not reported the payment', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ status: 'PAYMENT_PENDING' }))),
+    );
+    const { container, root } = await mount();
+    await settle();
+
+    expect(container.textContent).toContain('Waiting for the payment');
+    expect(container.textContent).not.toContain('Payment received');
+    expect(container.querySelector('a[href="https://pay.example.test/checkout"]')).not.toBeNull();
+    await act(async () => root.unmount());
+  });
+
+  it('confirms only after the reservation itself is confirmed, and asks the server to re-check', async () => {
+    let status = 'PAYMENT_PENDING';
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        status = 'CONFIRMED';
+        return new Response(JSON.stringify({ ok: true }));
+      }
+      return new Response(JSON.stringify({ status }));
+    });
+    vi.stubGlobal('fetch', fetch);
+    const { container, root } = await mount();
+    await settle();
+
+    const checkNow = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Check payment now'),
+    )!;
+    await act(async () => checkNow.click());
+    await settle();
+    await settle();
+
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith('/bookings/b/check-payment'))).toBe(true);
+    expect(container.textContent).toContain('Payment received');
+    await act(async () => root.unmount());
+  });
+
+  it('explains a failed payment and offers the reservation or a fresh start', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ status: 'PAYMENT_FAILED' }))),
+    );
+    const { container, root } = await mount();
+    await settle();
+
+    expect(container.textContent).toContain('The payment did not complete');
+    expect(container.textContent).toContain('Start a new reservation');
+    await act(async () => root.unmount());
+  });
+});

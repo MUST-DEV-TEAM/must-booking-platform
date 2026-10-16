@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, CalendarDays, CircleCheck, Loader2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { ActionBar } from '../../components/ui/action-bar';
 import { Alert, AlertDescription, AlertTitle } from '../../components/ui/alert';
@@ -39,6 +39,7 @@ import {
   phoneError,
 } from '../../lib/input-rules';
 import { nightsBetween } from '../../lib/reservation-display';
+import { AwaitingPayment } from './awaiting-payment';
 
 type RoomType = { id: string; name: string; roomCount: number };
 type Room = { id: string; name: string; roomTypeId: string; roomTypeName: string };
@@ -63,7 +64,13 @@ type GatewayMethod = 'pay_at_hotel' | 'stripe' | 'pokpay';
 type SettleMethod = '' | 'cash' | 'card_in_person' | 'bank_transfer';
 type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
 type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
-type Created = { id: string; reference: string; outcome: 'checkout' | 'settled' | 'pay-at-hotel' };
+type Created = {
+  id: string;
+  reference: string;
+  outcome: 'checkout' | 'settled' | 'pay-at-hotel';
+  checkoutUrl?: string;
+  gateway?: GatewayMethod;
+};
 
 const steps = [
   { id: 'stay', title: 'Stay details', description: 'Dates, guests and room' },
@@ -162,6 +169,9 @@ export function AddReservation({
   const [gateway, setGateway] = useState<GatewayMethod | ''>('');
   const [settle, setSettle] = useState<SettleMethod>('');
   const [created, setCreated] = useState<Created | null>(null);
+  // One key per distinct request: a retry of the same request cannot create a second reservation,
+  // while a changed request gets a fresh key.
+  const attempt = useRef<{ signature: string; key: string } | null>(null);
 
   const statusQuery = useQuery({
     queryKey: ['dashboard', 'add-reservation-pms', tenantId, propertyId],
@@ -303,9 +313,7 @@ export function AddReservation({
 
   const create = useMutation({
     mutationFn: async (): Promise<Created> => {
-      const result = await post(
-        `${base}/staff-bookings`,
-        {
+      const payload = {
           roomTypeId,
           roomId: showRoomPick && roomId ? roomId : undefined,
           ratePlanId: isClock ? undefined : ratePlanId,
@@ -326,15 +334,22 @@ export function AddReservation({
             specialRequests: requestsText(guest),
           },
           paymentMethod: gateway,
-        },
-        crypto.randomUUID(),
-      );
+        };
+      const signature = JSON.stringify(payload);
+      if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() };
+      const result = await post(`${base}/staff-bookings`, payload, attempt.current.key);
       if (!result.ok) throw new Error(result.error?.message ?? 'Unable to create the reservation.');
       const id = String(result.value.id);
       const reference = String(result.value.externalReference ?? id);
       if (result.value.checkoutUrl) {
         window.open(result.value.checkoutUrl, '_blank', 'noopener,noreferrer');
-        return { id, reference, outcome: 'checkout' };
+        return {
+          id,
+          reference,
+          outcome: 'checkout',
+          checkoutUrl: String(result.value.checkoutUrl),
+          gateway: gateway || undefined,
+        };
       }
       if (settle) {
         const paid = await post(`${base}/bookings/${id}/manual-payment`, { method: settle }, crypto.randomUUID());
@@ -357,6 +372,7 @@ export function AddReservation({
     setTouched(false);
     setLeft(new Set());
     setCreated(null);
+    attempt.current = null;
     create.reset();
   };
 
@@ -387,6 +403,24 @@ export function AddReservation({
         </Alert>
       </div>
     );
+
+  if (created?.outcome === 'checkout') {
+    return (
+      <div className="space-y-4">
+        {hero}
+        <AwaitingPayment
+          tenantId={tenantId}
+          propertyId={propertyId}
+          bookingId={created.id}
+          reference={created.reference}
+          checkoutUrl={created.checkoutUrl}
+          providerName={created.gateway === 'stripe' ? 'Stripe' : 'PokPay'}
+          reservationHref={href(tenantId, propertyId, `section=reservations&reservation=${created.id}`)}
+          onStartOver={reset}
+        />
+      </div>
+    );
+  }
 
   if (created) {
     const messages: Record<Created['outcome'], string> = {

@@ -18,13 +18,32 @@ import { RequiresCapability } from '../tenancy/capabilities.decorator';
 import { Role, Roles } from '../tenancy/roles.decorator';
 import { TenantScoped } from '../tenancy/tenant-context.decorator';
 import { ManualPaymentService } from './manual-payment.service';
+import { PokPayPaymentService } from './pokpay-payment.service';
 
 @Controller('tenants/:tenantId/properties/:propertyId/bookings')
 export class ManualPaymentController {
   constructor(
     @Inject(ManualPaymentService) private readonly payments: ManualPaymentService,
     @Inject(LocalPmsProvider) private readonly bookings: LocalPmsProvider,
+    @Inject(PokPayPaymentService) private readonly pokpay: PokPayPaymentService,
   ) {}
+
+  @Post(':bookingId/check-payment')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.manage')
+  async checkPayment(
+    @Param('bookingId') bookingId: string,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string } },
+  ) {
+    await this.pokpay.refreshBooking(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      bookingId,
+    );
+    return { ok: true };
+  }
 
   @Post(':bookingId/resend-pokpay-checkout')
   @HttpCode(200)

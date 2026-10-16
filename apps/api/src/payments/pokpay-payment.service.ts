@@ -144,6 +144,25 @@ export class PokPayPaymentService {
       await this.processAuthoritativeOrder(candidate.externalPaymentId);
   }
 
+  /**
+   * Asks PokPay right now whether this booking's order was paid, and confirms the booking if it
+   * was (the same authoritative re-read the webhook and the minute sweep use). Lets staff see the
+   * result straight after the guest pays without waiting for the next sweep.
+   */
+  async refreshBooking(tenantId: string, propertyId: string, bookingId: string): Promise<void> {
+    const candidates = await this.database.$queryRaw<PendingCandidate[]>`
+      SELECT "bookingId", "tenantId", "propertyId", "externalPaymentId"
+      FROM "payment_pending_pokpay_candidates"(100::integer)
+    `;
+    const own = candidates.filter(
+      (candidate) =>
+        candidate.bookingId === bookingId &&
+        candidate.tenantId === tenantId &&
+        candidate.propertyId === propertyId,
+    );
+    for (const candidate of own) await this.processAuthoritativeOrder(candidate.externalPaymentId);
+  }
+
   private failure(code: string, message: string, retryable = false): Result<never> {
     return { ok: false, error: { code, message, retryable } };
   }

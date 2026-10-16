@@ -8,7 +8,7 @@ import { PAYMENT_PROVIDER } from './payment.provider';
 export class PaymentProviderRegistry {
   constructor(
     @Inject(PAYMENT_PROVIDER) readonly stripe: PaymentProvider,
-    public pokpay: PokPayPaymentProvider,
+    @Inject(PokPayPaymentProvider) public pokpay: PokPayPaymentProvider,
   ) {}
 
   forBookingMethod(method: BookingPaymentMethod): PaymentProvider | null {
