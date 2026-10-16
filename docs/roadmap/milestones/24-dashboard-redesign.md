@@ -2423,6 +2423,16 @@ Status of every task: **Not started** unless stated. Built one at a time, review
 | R03 | Responsive and accessibility pass (widths 390, 768, 1024, 1280, 1440; keyboard; contrast; axe) once phone designs exist | Milestone 13 criteria 25 to 32 closed against the new UI |
 | R04 | Documentation and acceptance: update design docs, architecture frontends doc, roadmap status; close or defer each Milestone 13 UI task | M13 table fully accounted for |
 
+### Progress log
+
+| Date | Task | Status and evidence |
+| --- | --- | --- |
+| 2026-10-16 | T01 Form primitives | **Partly done.** Calendar and date range picker moved to `components/ui/calendar-picker.tsx`. Not yet built: text area wrapper, number stepper, form field wrapper, phone input, searchable select, multi-select, weekday picker, file drop zone |
+| 2026-10-16 | T02 Data display | **Done (thin).** Stat tile, pagination, filter chips, tab bar with counts, page header, status badges on one shared map (`lib/reservation-display.ts`, 10 unit tests). Still to build: detail list, timeline, breadcrumb, segmented control |
+| 2026-10-16 | T03 Overlays and states | **Partly done.** Empty, no-results, error (with reference) and skeleton panels (`state-panel.tsx`). The existing sheet and dropdown are used for the preview and row actions. Confirm dialog with reason and typed word not yet built |
+| 2026-10-16 | B01 Reservations list API and source | **Done except the readable payment reference (G99).** `GET .../bookings/search` with search, view, status, payment, source, date type and range, sort, paging and per-view counts; booking `source` (Direct, Website, else unknown) set at the three creation points, migration `20261016100000_booking_source`. Verified: 16 unit tests; live checks (counts 17/1/7, filters, search, bad input 400, Hotel A staff 403 on Hotel B, Finance without bookings.manage 403). Payment state is defined twice (SQL and web); both follow the same rules, so any change must update both |
+| 2026-10-16 | S01 Reservations list | **First version done, not complete.** Quick-view tabs with counts, summary tiles, search, filters with chips, sorting, paging, row actions, preview panel, empty, error and loading states; verified in a browser as the owner (tabs, search, sort, preview, no console errors). Not yet: bulk actions, column settings, density, remembered filters, export, the shared preview as its own component |
+
 ### Suggested first slice (smallest thing that proves the whole stack)
 
 T01 to T04 (a thin set of the components Reservations needs), B01, then **S01 Reservations list**. That exercises the components, a new backend endpoint, the shell, permissions and the screenshot review loop on the most-used screen, so problems show up before the other screens depend on them.
