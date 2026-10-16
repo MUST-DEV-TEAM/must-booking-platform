@@ -32,7 +32,7 @@ type RoomType = { id: string; name: string; roomCount: number };
 type Room = { id: string; name: string; roomTypeId: string; roomTypeName: string };
 type RatePlan = { id: string; name: string; currency: string };
 type Money = { amount: string; currency: string };
-type Offer = { ok: true; total: Money } | { ok: false; reason: string };
+type Offer = { ok: true; total: Money } | { ok: false; reason: string; transient?: boolean };
 type Guest = {
   firstName: string;
   lastName: string;
@@ -231,8 +231,10 @@ export function AddReservation({
       const targets = byRoom
         ? bookableRooms.map((room) => ({ key: room.id, roomTypeId: room.roomTypeId, roomId: room.id }))
         : roomTypes.map((type) => ({ key: type.id, roomTypeId: type.id, roomId: undefined }));
-      const entries = await Promise.all(
-        targets.map(async (target): Promise<[string, Offer]> => {
+      // The hotel system limits how fast it can be asked, so ask a few at a time and retry
+      // politely when it says "too many requests" (otherwise rooms look unavailable by mistake).
+      const quoteOne = async (target: (typeof targets)[number]): Promise<[string, Offer]> => {
+        for (let attempt = 0; attempt < 4; attempt += 1) {
           try {
             const quote = (await post(`${base}/quotes`, {
               roomTypeId: target.roomTypeId,
@@ -245,11 +247,29 @@ export function AddReservation({
             })) as { total: Money };
             return [target.key, { ok: true, total: quote.total }];
           } catch (error) {
-            return [target.key, { ok: false, reason: errorMessage(error) }];
+            const reason = errorMessage(error);
+            if (/too many|try again/i.test(reason)) {
+              if (attempt < 3) {
+                await new Promise((resolve) => window.setTimeout(resolve, 1200 * (attempt + 1)));
+                continue;
+              }
+              return [target.key, { ok: false, reason: 'The hotel system is busy. Check again in a moment.', transient: true }];
+            }
+            return [target.key, { ok: false, reason }];
           }
-        }),
-      );
-      return Object.fromEntries(entries);
+        }
+        return [target.key, { ok: false, reason: 'Could not check availability.', transient: true }];
+      };
+      const results: Array<[string, Offer]> = [];
+      let next = 0;
+      const worker = async () => {
+        while (next < targets.length) {
+          const target = targets[next++]!;
+          results.push(await quoteOne(target));
+        }
+      };
+      await Promise.all(Array.from({ length: isClock ? 1 : 3 }, worker));
+      return Object.fromEntries(results);
     },
     staleTime: 30_000,
   });
@@ -445,6 +465,7 @@ export function AddReservation({
                         label="Stay dates"
                         mode="range"
                         months={2}
+                        minDate={todayIso()}
                         value={dates}
                         onChange={(next) => {
                           setDates(next);
@@ -486,8 +507,12 @@ export function AddReservation({
               <Card>
                 <CardHeader>
                   <div className="flex items-center justify-between gap-2">
-                    <CardTitle className="text-lg">Available room types</CardTitle>
-                    {searching ? (
+                    <CardTitle className="text-lg">Available rooms</CardTitle>
+                    {!searching && Object.values(offers).some((offer) => !offer.ok && offer.transient) ? (
+                      <Button variant="outline" size="sm" onClick={() => void offersQuery.refetch()}>
+                        Check again
+                      </Button>
+                    ) : searching ? (
                       <span className="flex items-center gap-1 text-xs text-muted-foreground">
                         <Loader2 aria-hidden="true" className="size-3.5 animate-spin" /> Checking…
                       </span>
@@ -552,7 +577,7 @@ export function AddReservation({
                                       <span className="block text-base font-extrabold">{money(offer.total)}</span>
                                     ) : offer ? (
                                       <Badge variant="muted" className="rounded-full px-2 py-0 text-[10px]">
-                                        Not available
+                                        {offer && !offer.ok && offer.transient ? 'Busy' : 'Not available'}
                                       </Badge>
                                     ) : null
                                   }
@@ -594,7 +619,7 @@ export function AddReservation({
                                 </span>
                               ) : offer ? (
                                 <Badge variant="muted" className="rounded-full px-2 py-0 text-[10px]">
-                                  Not available
+                                  {offer && !offer.ok && offer.transient ? 'Busy' : 'Not available'}
                                 </Badge>
                               ) : null
                             }

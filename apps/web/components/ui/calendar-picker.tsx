@@ -53,6 +53,7 @@ function CalendarMonth({
   hoveredDate,
   onHover,
   onSelect,
+  minDate,
 }: {
   month: Date;
   selection: CalendarSelection;
@@ -60,6 +61,7 @@ function CalendarMonth({
   hoveredDate: string | null;
   onHover: (date: string | null) => void;
   onSelect: (date: string) => void;
+  minDate?: string;
 }) {
   const firstDay = new Date(month.getFullYear(), month.getMonth(), 1).getDay();
   const days = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
@@ -105,16 +107,18 @@ function CalendarMonth({
             mode === 'range' && !end && hoveredDate === key && key !== selection.start;
           const solidRangeDate = selected || withinRange || previewEndpoint;
           const softRangeDate = previewRange && !solidRangeDate;
+          const disabled = minDate !== undefined && key < minDate;
           return (
             <button
               key={key}
               type="button"
               aria-label={`Choose ${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).format(date)}`}
               aria-pressed={selected}
-              onPointerEnter={() => onHover(key)}
-              onFocus={() => onHover(key)}
+              disabled={disabled}
+              onPointerEnter={() => (disabled ? undefined : onHover(key))}
+              onFocus={() => (disabled ? undefined : onHover(key))}
               onClick={() => onSelect(key)}
-              className={`flex aspect-square items-center justify-center rounded-full outline-none transition-colors duration-150 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring ${softRangeDate ? 'bg-neutral-200 text-neutral-800 hover:bg-neutral-300' : ''} ${solidRangeDate ? 'bg-neutral-900 text-white hover:bg-neutral-800' : ''}`}
+              className={`flex aspect-square items-center justify-center rounded-full outline-none transition-colors duration-150 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:text-muted-foreground/40 disabled:line-through ${softRangeDate ? 'bg-neutral-200 text-neutral-800 hover:bg-neutral-300' : ''} ${solidRangeDate ? 'bg-neutral-900 text-white hover:bg-neutral-800' : ''}`}
             >
               {day}
             </button>
@@ -130,13 +134,16 @@ export function CalendarMonths({
   mode,
   onChange,
   months = 1,
+  minDate,
 }: {
   selection: CalendarSelection;
   mode: 'single' | 'range';
   onChange: (selection: CalendarSelection) => void;
   months?: 1 | 2;
+  /** Days before this date (YYYY-MM-DD) cannot be chosen. */
+  minDate?: string;
 }) {
-  const initial = parseDate(selection.start) ?? new Date(2026, 9, 1);
+  const initial = parseDate(selection.start) ?? parseDate(minDate ?? null) ?? new Date();
   const [hoveredDate, setHoveredDate] = useState<string | null>(null);
   const [visibleMonth, setVisibleMonth] = useState(
     new Date(initial.getFullYear(), initial.getMonth(), 1),
@@ -192,6 +199,7 @@ export function CalendarMonths({
             hoveredDate={hoveredDate}
             onHover={setHoveredDate}
             onSelect={selectDate}
+            minDate={minDate}
           />
         ))}
       </div>
@@ -211,6 +219,7 @@ export function CalendarPicker({
   iconOnly = false,
   active = false,
   header,
+  minDate,
 }: {
   label: string;
   mode: 'single' | 'range';
@@ -226,6 +235,8 @@ export function CalendarPicker({
   active?: boolean;
   /** Extra controls shown above the calendar in the popover. */
   header?: ReactNode;
+  /** Days before this date (YYYY-MM-DD) cannot be chosen. */
+  minDate?: string;
 }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -276,7 +287,13 @@ export function CalendarPicker({
         className={months === 2 ? 'w-[min(42rem,calc(100vw-2rem))]' : 'w-72'}
       >
         {header ? <div className="mb-3">{header}</div> : null}
-        <CalendarMonths selection={draft} mode={mode} onChange={setDraft} months={months} />
+        <CalendarMonths
+          selection={draft}
+          mode={mode}
+          onChange={setDraft}
+          months={months}
+          minDate={minDate}
+        />
         <div className="mt-3 flex justify-end gap-2 border-t pt-3">
           <Button
             variant="outline"
