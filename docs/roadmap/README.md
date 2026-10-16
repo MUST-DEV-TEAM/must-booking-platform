@@ -4,7 +4,7 @@ Status reconciled against repository evidence on **2026-09-19**. This page owns 
 
 ## Current work
 
-**Main active milestone: [13 - Application UI/UX & Feature Enhancements](milestones/13-app-ui-ux-and-features.md).** It has **36 numbered tasks**, not four or 32. Much of its code exists while the old table still said Not started. Its current state is **implementation present; acceptance/status reconciliation pending**. Do not dispatch a rebuild of a feature solely from the old label.
+**Main active milestone: [24 - Dashboard redesign](milestones/24-dashboard-redesign.md)** (opened 2026-10-16, design intake phase: pages are planned from owner-supplied designs, implementation happens after all pages are planned). It supersedes the dashboard/UI tasks of [Milestone 13](milestones/13-app-ui-ux-and-features.md); 13 stays open only for Tasks 6-7 (payments) and 33-36 (WordPress booking flow). Planned next: [25 - Native PMS](milestones/25-native-pms.md).
 
 **Separate authorized track: [21 - Clock Certification Fixes](milestones/21-clock-certification-fixes.md)**, explicitly documented there as ad hoc parallel work. It contains reviewed work through September 18 and superseded folio-close instructions. Task 9 appears in two historical contexts; use "Task 9 special requests" or "Task 9 rate kickoff" when referencing it. No Milestones 16-19 exist in this platform's documentation; do not invent them. **2026-09-19: the owner authorized an existing-system reliability/security remediation pass ahead of new feature work** — reconciled into this milestone's Phase L (Clock-specific findings, Task 22 onward) and into Milestone 14 (security/operational findings not specific to Clock). Task 22 (durable Clock webhook processing) is implemented and corrected five times, four rounds on 2026-09-19 and one on 2026-09-23 (event ownership fenced by a real row lock inside the effect-applying transaction, claim-ordering protection keyed off BullMQ's real `attemptsStarted` generation with a combined token+generation guard, explicit per-caller allowed-status transitions, atomic `NEEDS_RECONCILIATION` parking, corrected non-"safe at any time" rollback guidance for the processing columns, and a job-recreation reset that is now a real compare-and-swap against a pre-recreation snapshot instead of a blind write that could erase a concurrently-acquired claim or clobber a racing recreator — see ADR-0031); verified with unit tests plus real Postgres/Redis/BullMQ integration tests exercising the actual processing paths under deterministic timing barriers, including genuine BullMQ stalled-job reassignment and forced job-recreation race interleavings through the real ingestion/sweep methods. **Status: In review**, not Done; not yet live-verified against a real Clock deployment.
 
@@ -32,11 +32,13 @@ The **one-time documentation initialization** was explicitly authorized outside 
 | [11 - Clock basic adapter](completed/11-clock-pms-adapter-basic.md) | Recorded completed for its original scope; current adapter substantially extended since |
 | [11.5 - Pre-release fixes](completed/11.5-pre-release-fixes.md) | Historical v1 close-out; deferred orders/hydration later received implementation |
 | [12 - Initial release](completed/12-integration-and-initial-release.md) | Recorded closed; Tasks 1/2/6 deferred to 14; Task 16 reopened In review; Task 17 parked |
-| [13 - App enhancements](milestones/13-app-ui-ux-and-features.md) | Active, implementation evidence exists; task acceptance needs reconciliation |
+| [13 - App enhancements](milestones/13-app-ui-ux-and-features.md) | Superseded in part by 24 (2026-10-16); Tasks 6-7 and 33-36 remain open; code exists, acceptance never reconciled |
 | [14 - Environment/security](milestones/14-security-and-architecture-audit.md) | Kickoff/task list exists; host move recorded but acceptance unverified |
 | [15 - Platform billing](milestones/15-platform-billing.md) | Planned; draft areas are not approved concrete task rows |
 | [21 - Clock fixes](milestones/21-clock-certification-fixes.md) | Authorized parallel track; preserve per-task review and supersession |
 | [22 - Email notifications](milestones/22-email-notifications.md) | Planned 2026-09-30; triggered by a live booking that sent no emails; owner decisions pending, nothing dispatched |
+| [24 - Dashboard redesign](milestones/24-dashboard-redesign.md) | Planning (design intake) 2026-10-16; foundation exists uncommitted in the working tree; no page implemented |
+| [25 - Native PMS](milestones/25-native-pms.md) | Planned 2026-10-16; MUST as source of truth for hotels without an external PMS; scope = front desk + stay money; no tasks yet |
 
 ## How work proceeds
 

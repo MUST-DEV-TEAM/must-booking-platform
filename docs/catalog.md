@@ -66,7 +66,9 @@ Descriptions below distinguish task records from current behavior. Follow the ma
 | [Milestone 11: Clock PMS+ Adapter (Basic Integration)](roadmap/completed/11-clock-pms-adapter-basic.md) | HISTORICAL / recorded completed; later behavior may supersede original task prose. |
 | [Milestone 11.5: Pre-Release Fixes (before Milestone 12)](roadmap/completed/11.5-pre-release-fixes.md) | HISTORICAL pre-release fixes; original deferrals must be checked against later Clock work. |
 | [Milestone 12: Integration, Hardening & Initial Release Readiness](roadmap/completed/12-integration-and-initial-release.md) | HISTORICAL mixed close-out: Task 16 reopened/In review, Task 17 parked; Tasks 1/2/6 deferred to Milestone 14. |
-| [Milestone 13: Application UI/UX & Feature Enhancements](roadmap/milestones/13-app-ui-ux-and-features.md) | PARTIALLY OUTDATED kickoff prose retained; implementation exists, 36 tasks need acceptance reconciliation. |
+| [Milestone 13: Application UI/UX & Feature Enhancements](roadmap/milestones/13-app-ui-ux-and-features.md) | Superseded in part by Milestone 24 (2026-10-16); Tasks 6-7 and 33-36 remain open. |
+| [Milestone 24: Dashboard redesign](roadmap/milestones/24-dashboard-redesign.md) | Planning: design intake page by page, shared components, implement at the end. |
+| [Milestone 25: Native PMS](roadmap/milestones/25-native-pms.md) | Planned: MUST as source of truth (front desk + stay money) for hotels without an external PMS. |
 | [Milestone 14: Environment Rebuild & Security Audit](roadmap/milestones/14-security-and-architecture-audit.md) | PLANNED security/architecture audit; not authorized as current implementation. |
 | [Milestone 15: Platform Billing](roadmap/milestones/15-platform-billing.md) | PLANNED paid platform billing; only foundation exists. |
 | [Milestone 21: Clock PMS Certification Fixes](roadmap/milestones/21-clock-certification-fixes.md) | CURRENT parallel Clock task record; mixed reviewed/pending/superseded evidence. |
