@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, CalendarDays, CircleCheck, Loader2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Building2, CalendarDays, CircleCheck, CreditCard, Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { ActionBar } from '../../components/ui/action-bar';
@@ -26,6 +26,7 @@ import { OptionCard } from '../../components/ui/option-card';
 import { PageHero } from '../../components/ui/page-hero';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { EmptyPanel } from '../../components/ui/state-panel';
+import { SegmentedControl } from '../../components/ui/segmented-control';
 import { Stepper } from '../../components/ui/stepper';
 import { findDialCountry } from '../../lib/dial-codes';
 import {
@@ -342,7 +343,10 @@ export function AddReservation({
       const id = String(result.value.id);
       const reference = String(result.value.externalReference ?? id);
       if (result.value.checkoutUrl) {
-        window.open(result.value.checkoutUrl, '_blank', 'noopener,noreferrer');
+        // Opened without a link back to this page (the provider must not control it), but still a window
+        // this page opened, so the payment-complete page can close it.
+        const payWindow = window.open(result.value.checkoutUrl, '_blank');
+        if (payWindow) payWindow.opener = null;
         return {
           id,
           reference,
@@ -887,47 +891,83 @@ export function AddReservation({
                   <CardTitle className="text-lg">Payment</CardTitle>
                   <p className="m-0 text-xs text-muted-foreground">Only the options this hotel has enabled are listed.</p>
                 </CardHeader>
-                <CardContent className="space-y-3">
-                  {(['pay_at_hotel', 'stripe', 'pokpay'] as const)
-                    .filter((method) =>
-                      method === 'pay_at_hotel' ? paymentGateways?.payAtHotel : paymentGateways?.[method],
-                    )
-                    .map((method) => (
-                      <OptionCard
-                        key={method}
-                        title={gatewayLabels[method].title}
-                        description={gatewayLabels[method].description}
-                        selected={gateway === method}
-                        onSelect={() => {
-                          setGateway(method);
-                          setSettle('');
-                        }}
-                      />
-                    ))}
+                <CardContent className="space-y-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-muted/60 px-4 py-3">
+                    <div>
+                      <p className="m-0 text-[10px] font-bold tracking-wide text-muted-foreground uppercase">
+                        Amount to collect
+                      </p>
+                      <p className="m-0 text-2xl font-extrabold tracking-tight">{total ? money(total) : '—'}</p>
+                    </div>
+                    <p className="m-0 text-xs text-muted-foreground">
+                      {nights} night{nights === 1 ? '' : 's'} · {selectedType?.name}
+                    </p>
+                  </div>
+
+                  <div role="radiogroup" aria-label="Payment method" className="grid gap-3 sm:grid-cols-2">
+                    {(['pay_at_hotel', 'stripe', 'pokpay'] as const)
+                      .filter((method) =>
+                        method === 'pay_at_hotel' ? paymentGateways?.payAtHotel : paymentGateways?.[method],
+                      )
+                      .map((method) => (
+                        <OptionCard
+                          key={method}
+                          icon={method === 'pay_at_hotel' ? Building2 : CreditCard}
+                          title={gatewayLabels[method].title}
+                          badges={
+                            method === 'pay_at_hotel' ? (
+                              <Badge variant="success" className="rounded-full px-2 py-0 text-[10px]">
+                                Confirmed now
+                              </Badge>
+                            ) : (
+                              <Badge variant="info" className="rounded-full px-2 py-0 text-[10px]">
+                                Confirms when paid
+                              </Badge>
+                            )
+                          }
+                          description={gatewayLabels[method].description}
+                          selected={gateway === method}
+                          onSelect={() => {
+                            setGateway(method);
+                            setSettle('');
+                          }}
+                        />
+                      ))}
+                  </div>
                   {!paymentGateways?.payAtHotel && !paymentGateways?.stripe && !paymentGateways?.pokpay ? (
                     <Alert variant="warning">
                       <AlertTitle>No payment method is enabled</AlertTitle>
                       <AlertDescription>Enable one in Settings before creating reservations here.</AlertDescription>
                     </Alert>
                   ) : null}
+
                   {gateway === 'pay_at_hotel' ? (
-                    <FormField
-                      label="Record a payment now"
-                      hint="Pick one if the guest is paying at the desk right now."
-                      className="max-w-sm pt-2"
-                    >
-                      <Select value={settle || 'later'} onValueChange={(value) => setSettle(value === 'later' ? '' : (value as SettleMethod))}>
-                        <SelectTrigger aria-label="Record a payment now">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="later">Not now (pay later)</SelectItem>
-                          <SelectItem value="cash">Cash</SelectItem>
-                          <SelectItem value="card_in_person">Card in person</SelectItem>
-                          <SelectItem value="bank_transfer">Bank transfer</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </FormField>
+                    <div className="space-y-2 rounded-xl border p-4">
+                      <SectionLabel>Record a payment now</SectionLabel>
+                      <p className="m-0 text-xs text-muted-foreground">
+                        Choose how the guest is paying at the desk right now, or leave it for later.
+                      </p>
+                      <SegmentedControl
+                        label="Record a payment now"
+                        value={settle}
+                        onChange={setSettle}
+                        options={[
+                          { value: '', label: 'Not now' },
+                          { value: 'cash', label: 'Cash' },
+                          { value: 'card_in_person', label: 'Card at the desk' },
+                          { value: 'bank_transfer', label: 'Bank transfer' },
+                        ]}
+                      />
+                    </div>
+                  ) : gateway ? (
+                    <div className="space-y-2 rounded-xl border border-info/30 bg-info-surface p-4 text-sm text-info">
+                      <p className="m-0 font-bold">How the card payment works</p>
+                      <ol className="m-0 list-decimal space-y-1 pl-5 text-foreground">
+                        <li>The reservation is created and the room is held, but not confirmed.</li>
+                        <li>A secure {gateway === 'stripe' ? 'Stripe' : 'PokPay'} window opens for the guest to pay.</li>
+                        <li>This page watches the payment and confirms the reservation only when the provider says it is paid.</li>
+                      </ol>
+                    </div>
                   ) : null}
                 </CardContent>
               </Card>

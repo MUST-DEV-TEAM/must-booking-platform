@@ -16,9 +16,22 @@ export default function BookingPaymentOutcomePage() {
   const isCancelled = params.outcome === 'cancel';
 
   useEffect(() => {
+    // The payment page was opened by the dashboard in its own tab. Tell that tab the payment came
+    // back (it re-checks straight away) and close this one. If the browser refuses to close it,
+    // fall back to going to the dashboard.
+    if (!isCancelled) {
+      try {
+        const channel = new BroadcastChannel('must-payment');
+        channel.postMessage({ bookingId: params.bookingId, outcome: params.outcome });
+        channel.close();
+      } catch {
+        // Not supported: the dashboard tab still re-checks on its own every few seconds.
+      }
+      window.close();
+    }
     const timer = setTimeout(() => router.replace('/dashboard'), REDIRECT_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [router]);
+  }, [isCancelled, params.bookingId, params.outcome, router]);
 
   return (
     <AuthShell sectionLabelledBy="payment-outcome-title">

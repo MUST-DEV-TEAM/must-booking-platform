@@ -1042,7 +1042,7 @@ export class LocalPmsProvider implements PmsProvider {
             }
 
             const cancellationPolicy = await this.cancellationPolicy(tx, context, row.id);
-            if (cancellationPolicy.isFree) {
+            if (cancellationPolicy.isFree && !command.skipAutomaticRefund) {
               const refunded = await this.refunds.refundPaidChargeForBooking(
                 tx,
                 context,

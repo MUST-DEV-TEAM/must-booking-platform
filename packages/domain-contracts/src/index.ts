@@ -320,6 +320,8 @@ export interface CancelBookingCommand {
   reason: string | null;
   /** Present only for an authenticated staff cancellation. */
   staffActorId?: string;
+  /** Staff chose the refund themselves, so the cancellation policy must not refund automatically. */
+  skipAutomaticRefund?: boolean;
 }
 
 export interface PmsProvider {

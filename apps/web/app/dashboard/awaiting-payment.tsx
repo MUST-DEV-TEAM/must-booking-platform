@@ -60,6 +60,20 @@ export function AwaitingPayment({
     },
   });
 
+  // The payment tab tells this one when the guest comes back from paying: check straight away.
+  useEffect(() => {
+    if (!pending || typeof BroadcastChannel === 'undefined') return;
+    const channel = new BroadcastChannel('must-payment');
+    channel.onmessage = (event: MessageEvent<{ bookingId?: string }>) => {
+      if (event.data?.bookingId === bookingId) {
+        check.mutate();
+        window.focus();
+      }
+    };
+    return () => channel.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, bookingId]);
+
   useEffect(() => {
     if (!pending) return;
     const clock = window.setInterval(() => setWaited((seconds) => seconds + 1), 1_000);

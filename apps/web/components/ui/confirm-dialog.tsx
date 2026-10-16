@@ -29,6 +29,7 @@ export function ConfirmDialog({
   reasonLabel,
   reasonRequired = false,
   typedWord,
+  confirmDisabled = false,
   children,
   onConfirm,
 }: {
@@ -43,6 +44,8 @@ export function ConfirmDialog({
   reasonRequired?: boolean;
   /** The word the user must type to enable the confirm button (for example "CANCEL"). */
   typedWord?: string;
+  /** Keeps the confirm button off while something in `children` is not valid yet. */
+  confirmDisabled?: boolean;
   /** Extra content, such as an impact summary, shown above the reason. */
   children?: ReactNode;
   onConfirm: (reason: string) => Promise<void>;
@@ -54,7 +57,7 @@ export function ConfirmDialog({
 
   const reasonOk = !reasonRequired || reason.trim().length >= 3;
   const typedOk = !typedWord || typed.trim() === typedWord;
-  const canConfirm = reasonOk && typedOk && !busy;
+  const canConfirm = reasonOk && typedOk && !busy && !confirmDisabled;
 
   const close = (next: boolean) => {
     if (busy) return;

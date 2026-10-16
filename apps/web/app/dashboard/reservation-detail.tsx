@@ -27,6 +27,13 @@ import { Alert, AlertDescription, AlertTitle } from '../../components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { DetailHeader } from '../../components/ui/detail-header';
 import { RowList } from '../../components/ui/row-list';
+import {
+  noRefund,
+  RefundChoice,
+  refundPayload,
+  refundChoiceError,
+  type RefundChoiceValue,
+} from './refund-choice';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { ActivityFeed, type ActivityEntry } from '../../components/ui/activity-feed';
 import { DetailList, Field, SectionLabel } from '../../components/ui/detail-list';
@@ -184,6 +191,7 @@ export function ReservationDetail({
   const queryClient = useQueryClient();
   const [cancelling, setCancelling] = useState(false);
   const [showAllActivity, setShowAllActivity] = useState(false);
+  const [refundPick, setRefundPick] = useState<RefundChoiceValue | null>(null);
 
   const query = useQuery({
     queryKey: ['dashboard', 'reservation-detail', tenantId, propertyId, bookingId],
@@ -285,22 +293,39 @@ export function ReservationDetail({
     ...activityIcon(event.action),
   }));
 
+  // Money still refundable: offer a refund, and start from "full" when the guest cancels for free.
+  const refundable = Number(booking.paidAmount) - Number(booking.refundedAmount) > 0;
+  const refundChoice: RefundChoiceValue =
+    refundPick ?? (refundable && freeWindowOpen ? { ...noRefund, mode: 'full' } : noRefund);
+  const refundProblem = refundable ? refundChoiceError(refundChoice, booking) : null;
+
   const cancelReservation = async (reason: string) => {
     const response = await fetch(`${base}/staff-bookings/${booking.id}`, {
       method: 'DELETE',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
-      body: JSON.stringify({ expectedVersion: booking.version, reason }),
+      body: JSON.stringify({
+        expectedVersion: booking.version,
+        reason,
+        ...(refundable ? { refund: refundPayload(refundChoice, booking) } : {}),
+      }),
     });
     const body = (await response.json().catch(() => null)) as {
       ok?: boolean;
       error?: { message?: string };
       message?: string;
+      refundOutcome?: { ok: boolean; message?: string };
     } | null;
     if (!response.ok || body?.ok === false)
       throw new Error(
         body?.error?.message ?? body?.message ?? 'The reservation could not be cancelled. Nothing was changed.',
       );
+    if (body?.refundOutcome && !body.refundOutcome.ok) {
+      await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      throw new Error(
+        `The reservation was cancelled, but the refund failed: ${body.refundOutcome.message ?? 'please try again'}. Refund it from the Payments page.`,
+      );
+    }
     await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
   };
 
@@ -586,7 +611,11 @@ export function ReservationDetail({
 
       <ConfirmDialog
         open={cancelling}
-        onOpenChange={setCancelling}
+        onOpenChange={(open) => {
+          setCancelling(open);
+          if (!open) setRefundPick(null);
+        }}
+        confirmDisabled={!!refundProblem}
         title={`Cancel ${booking.externalReference}?`}
         description={`${guest}, ${longDate(booking.startsOn)} – ${longDate(booking.endsOn)}.`}
         confirmLabel="Cancel reservation"
@@ -606,15 +635,23 @@ export function ReservationDetail({
                   : 'The free-cancellation window has passed; the rate plan may keep a charge.'}
               </span>
             ) : null}
-            {Number(booking.paidAmount) > 0 ? (
-              <span>
-                {money(booking.paidAmount, currency)} was paid and is not returned automatically; refund it
-                from the payment page.
-              </span>
-            ) : null}
             {hasClockLink ? <span>The reservation is also cancelled in Clock.</span> : null}
           </AlertDescription>
         </Alert>
+        {refundable ? (
+          <RefundChoice
+            booking={booking}
+            value={refundChoice}
+            onChange={setRefundPick}
+            policyNote={
+              cancellation.isFree === null
+                ? undefined
+                : freeWindowOpen
+                  ? 'The guest is inside the free-cancellation window, so a full refund is normally due.'
+                  : 'The free-cancellation window has passed; the rate plan allows the hotel to keep some or all of the payment.'
+            }
+          />
+        ) : null}
       </ConfirmDialog>
     </div>
   );
