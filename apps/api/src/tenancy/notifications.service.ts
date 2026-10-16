@@ -13,6 +13,20 @@ export type Notification = {
   createdAt: Date;
 };
 
+/** The reservation a notification is about, so the inbox can say who and when. */
+export type NotificationBooking = {
+  id: string;
+  externalReference: string;
+  status: string;
+  startsOn: string;
+  endsOn: string;
+  guestName: string | null;
+  guestEmail: string | null;
+  roomTypeName: string;
+};
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 @Injectable()
 export class NotificationsService {
   constructor(@Inject(TenantDatabaseService) private readonly database: TenantDatabaseService) {}
@@ -64,7 +78,42 @@ export class NotificationsService {
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
         `,
       ]);
-      return { items, page, pageSize, total: total[0]?.count ?? 0 };
+      const bookingIds = [
+        ...new Set(
+          items.flatMap((item) =>
+            typeof item.payload?.bookingId === 'string' && UUID.test(item.payload.bookingId)
+              ? [item.payload.bookingId]
+              : [],
+          ),
+        ),
+      ];
+      const bookings = bookingIds.length
+        ? await tx.$queryRaw<NotificationBooking[]>`
+            SELECT b.id, b.external_reference AS "externalReference", b.status,
+              b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
+              NULLIF(TRIM(CONCAT_WS(' ', g.first_name, g.last_name)), '') AS "guestName",
+              g.email AS "guestEmail", rt.name AS "roomTypeName"
+            FROM bookings b
+            LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
+            JOIN room_types rt
+              ON rt.tenant_id = b.tenant_id AND rt.property_id = b.property_id AND rt.id = b.room_type_id
+            WHERE b.tenant_id = ${tenantId}::uuid AND b.property_id = ${propertyId}::uuid
+              AND b.id = ANY(${bookingIds}::uuid[])
+          `
+        : [];
+      const byId = new Map(bookings.map((booking) => [booking.id, booking]));
+      return {
+        items: items.map((item) => ({
+          ...item,
+          booking:
+            typeof item.payload?.bookingId === 'string'
+              ? (byId.get(item.payload.bookingId) ?? null)
+              : null,
+        })),
+        page,
+        pageSize,
+        total: total[0]?.count ?? 0,
+      };
     });
   }
 

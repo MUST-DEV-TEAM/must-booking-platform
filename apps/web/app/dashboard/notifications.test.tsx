@@ -232,7 +232,7 @@ describe('NotificationsInbox', () => {
         (button) => button.textContent === 'Mark as read',
       )!,
     );
-    expect(container.textContent).toContain('Read');
+    expect(container.textContent).not.toContain('Unread');
     expect(fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')?.[0]).toBe(
       '/api/tenants/t/properties/p/notifications/booking',
     );
@@ -240,6 +240,7 @@ describe('NotificationsInbox', () => {
     await click(container.querySelector('button[aria-label="Next page"]')!);
     expect(container.textContent).toContain('Payment refunded');
     expect(container.textContent).toContain('Showing 21–21 of 21 notifications');
+    expect(container.textContent).toContain('Rows per page');
     expect(fetch.mock.calls.some(([url]) => url.endsWith('page=2&pageSize=20'))).toBe(true);
 
     await act(async () => root.unmount());

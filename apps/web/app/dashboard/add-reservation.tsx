@@ -16,7 +16,10 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { DetailList, SectionLabel } from '../../components/ui/detail-list';
 import { FormField } from '../../components/ui/form-field';
+import { Checkbox } from '../../components/ui/checkbox';
 import { Input, Textarea } from '../../components/ui/input';
+import { PhoneInput, phoneToString, type PhoneValue } from '../../components/ui/phone-input';
+import { TabBar } from '../../components/ui/tab-bar';
 import { NumberStepper } from '../../components/ui/number-stepper';
 import { OptionCard } from '../../components/ui/option-card';
 import { PageHero } from '../../components/ui/page-hero';
@@ -30,7 +33,21 @@ type Room = { id: string; name: string; roomTypeId: string; roomTypeName: string
 type RatePlan = { id: string; name: string; currency: string };
 type Money = { amount: string; currency: string };
 type Offer = { ok: true; total: Money } | { ok: false; reason: string };
-type Guest = { firstName: string; lastName: string; email: string; phone: string; specialRequests: string };
+type Guest = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: PhoneValue;
+  streetAddress: string;
+  addressLine2: string;
+  city: string;
+  county: string;
+  postcode: string;
+  arrivalTime: string;
+  bedPreference: string;
+  accessibility: boolean;
+  specialRequests: string;
+};
 type GatewayMethod = 'pay_at_hotel' | 'stripe' | 'pokpay';
 type SettleMethod = '' | 'cash' | 'card_in_person' | 'bank_transfer';
 type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
@@ -43,7 +60,40 @@ const steps = [
   { id: 'payment', title: 'Payment & review', description: 'Settle and confirm' },
 ] as const;
 
-const emptyGuest: Guest = { firstName: '', lastName: '', email: '', phone: '', specialRequests: '' };
+const emptyGuest: Guest = {
+  firstName: '',
+  lastName: '',
+  email: '',
+  phone: { prefix: '+355', number: '' },
+  streetAddress: '',
+  addressLine2: '',
+  city: '',
+  county: '',
+  postcode: '',
+  arrivalTime: '',
+  bedPreference: '',
+  accessibility: false,
+  specialRequests: '',
+};
+
+const bedChoices = [
+  { value: 'none', label: 'No preference' },
+  { value: 'double', label: 'One double bed' },
+  { value: 'twin', label: 'Two single beds' },
+];
+
+/** Structured choices become short lines at the top of the reservation's special requests. */
+function requestsText(guest: Guest): string | undefined {
+  const lines = [
+    guest.arrivalTime ? `Arrival around ${guest.arrivalTime}` : '',
+    guest.bedPreference && guest.bedPreference !== 'none'
+      ? `Bed: ${bedChoices.find((choice) => choice.value === guest.bedPreference)?.label.toLowerCase()}`
+      : '',
+    guest.accessibility ? 'Needs an accessible room' : '',
+    guest.specialRequests.trim(),
+  ].filter(Boolean);
+  return lines.length ? lines.join('\n') : undefined;
+}
 const gatewayLabels: Record<GatewayMethod, { title: string; description: string }> = {
   pay_at_hotel: {
     title: 'Pay at hotel',
@@ -100,6 +150,9 @@ export function AddReservation({
   const [ratePlanId, setRatePlanId] = useState('');
   const [roomTypeId, setRoomTypeId] = useState('');
   const [roomId, setRoomId] = useState('');
+  const [chooseBy, setChooseBy] = useState<'type' | 'room'>(
+    bookingMode === 'INDIVIDUAL_ROOM_ONLY' ? 'room' : 'type',
+  );
   const [guest, setGuest] = useState<Guest>(emptyGuest);
   const [touched, setTouched] = useState(false);
   const [gateway, setGateway] = useState<GatewayMethod | ''>('');
@@ -159,10 +212,13 @@ export function AddReservation({
     nights >= 1 && !pastStart && adults >= 1 && (isClock || !!ratePlanId) && roomTypes.length > 0;
   const showRoomPick = bookingMode === 'INDIVIDUAL_ROOM_ONLY' || bookingMode === 'MIXED';
   const mustPickRoom = bookingMode === 'INDIVIDUAL_ROOM_ONLY';
+  // Hotels that book specific rooms list rooms; mixed hotels can switch between the two views.
+  const byRoom = bookingMode === 'INDIVIDUAL_ROOM_ONLY' || (bookingMode === 'MIXED' && chooseBy === 'room');
+  const bookableRooms = rooms.filter((room) => roomTypes.some((type) => type.id === room.roomTypeId));
 
   // Search every room type for the chosen stay once the form is complete.
   const [searchKey, setSearchKey] = useState('');
-  const currentKey = stayReady ? `${startsOn}|${endsOn}|${adults}|${children}|${ratePlanId}|${isClock}` : '';
+  const currentKey = stayReady ? `${startsOn}|${endsOn}|${adults}|${children}|${ratePlanId}|${isClock}|${byRoom}` : '';
   useEffect(() => {
     const timer = window.setTimeout(() => setSearchKey(currentKey), 400);
     return () => window.clearTimeout(timer);
@@ -172,20 +228,24 @@ export function AddReservation({
     queryKey: ['dashboard', 'add-reservation-offers', tenantId, propertyId, searchKey, roomTypes.map((type) => type.id).join(',')],
     enabled: searchKey !== '' && searchKey === currentKey,
     queryFn: async (): Promise<Record<string, Offer>> => {
+      const targets = byRoom
+        ? bookableRooms.map((room) => ({ key: room.id, roomTypeId: room.roomTypeId, roomId: room.id }))
+        : roomTypes.map((type) => ({ key: type.id, roomTypeId: type.id, roomId: undefined }));
       const entries = await Promise.all(
-        roomTypes.map(async (type): Promise<[string, Offer]> => {
+        targets.map(async (target): Promise<[string, Offer]> => {
           try {
             const quote = (await post(`${base}/quotes`, {
-              roomTypeId: type.id,
+              roomTypeId: target.roomTypeId,
+              roomId: target.roomId,
               ratePlanId: isClock ? undefined : ratePlanId,
               startsOn,
               endsOn,
               adults,
               children,
             })) as { total: Money };
-            return [type.id, { ok: true, total: quote.total }];
+            return [target.key, { ok: true, total: quote.total }];
           } catch (error) {
-            return [type.id, { ok: false, reason: errorMessage(error) }];
+            return [target.key, { ok: false, reason: errorMessage(error) }];
           }
         }),
       );
@@ -196,12 +256,12 @@ export function AddReservation({
   const offers = offersQuery.data ?? {};
   const searching = stayReady && (searchKey !== currentKey || offersQuery.isFetching);
   const selectedType = roomTypes.find((type) => type.id === roomTypeId) ?? null;
-  const selectedOffer = roomTypeId ? offers[roomTypeId] : undefined;
+  const selectedOffer = byRoom ? (roomId ? offers[roomId] : undefined) : roomTypeId ? offers[roomTypeId] : undefined;
   const total = selectedOffer?.ok ? selectedOffer.total : null;
   const roomOptions = rooms.filter((room) => room.roomTypeId === roomTypeId);
   const selectedRoom = rooms.find((room) => room.id === roomId) ?? null;
 
-  const stayComplete = !!total && (!mustPickRoom || !!roomId);
+  const stayComplete = !!total && (!byRoom || !!roomId);
   const guestErrors = {
     firstName: guest.firstName.trim() ? null : 'Enter the first name.',
     lastName: guest.lastName.trim() ? null : 'Enter the last name.',
@@ -225,8 +285,13 @@ export function AddReservation({
             firstName: guest.firstName.trim(),
             lastName: guest.lastName.trim(),
             email: guest.email.trim(),
-            phone: guest.phone.trim() || undefined,
-            specialRequests: guest.specialRequests.trim() || undefined,
+            phone: phoneToString(guest.phone) || undefined,
+            streetAddress: guest.streetAddress.trim() || undefined,
+            addressLine2: guest.addressLine2.trim() || undefined,
+            city: guest.city.trim() || undefined,
+            county: guest.county.trim() || undefined,
+            postcode: guest.postcode.trim() || undefined,
+            specialRequests: requestsText(guest),
           },
           paymentMethod: gateway,
         },
@@ -435,15 +500,75 @@ export function AddReservation({
                   </div>
                 </CardHeader>
                 <CardContent>
+                  {bookingMode === 'MIXED' ? (
+                    <div className="mb-3">
+                      <TabBar
+                        label="Choose by"
+                        current={chooseBy}
+                        onSelect={(id) => {
+                          setChooseBy(id as 'type' | 'room');
+                          setRoomTypeId('');
+                          setRoomId('');
+                        }}
+                        tabs={[
+                          { id: 'type', label: 'By room type' },
+                          { id: 'room', label: 'By specific room' },
+                        ]}
+                      />
+                    </div>
+                  ) : null}
                   {!stayReady ? (
                     <EmptyPanel
                       title="Choose dates to see rooms"
                       description={
                         !isClock && !ratePlanId
                           ? 'Pick the stay dates and a rate plan.'
-                          : 'Pick check-in and check-out, then the matching room types appear here.'
+                          : 'Pick check-in and check-out, then the matching rooms appear here.'
                       }
                     />
+                  ) : byRoom ? (
+                    <div role="radiogroup" aria-label="Rooms" className="space-y-5">
+                      {roomTypes.map((type) => {
+                        const typeRooms = bookableRooms.filter((room) => room.roomTypeId === type.id);
+                        if (typeRooms.length === 0) return null;
+                        return (
+                          <div key={type.id} className="space-y-2">
+                            <SectionLabel>{type.name}</SectionLabel>
+                            {typeRooms.map((room) => {
+                              const offer = offers[room.id];
+                              const ok = offer?.ok === true;
+                              return (
+                                <OptionCard
+                                  key={room.id}
+                                  title={room.name}
+                                  badges={
+                                    <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px]">
+                                      {type.name}
+                                    </Badge>
+                                  }
+                                  description={offer && !offer.ok ? offer.reason : `${nights} night${nights === 1 ? '' : 's'}`}
+                                  aside={
+                                    ok ? (
+                                      <span className="block text-base font-extrabold">{money(offer.total)}</span>
+                                    ) : offer ? (
+                                      <Badge variant="muted" className="rounded-full px-2 py-0 text-[10px]">
+                                        Not available
+                                      </Badge>
+                                    ) : null
+                                  }
+                                  selected={roomId === room.id}
+                                  disabled={!ok}
+                                  onSelect={() => {
+                                    setRoomTypeId(room.roomTypeId);
+                                    setRoomId(room.id);
+                                  }}
+                                />
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
                   ) : (
                     <div role="radiogroup" aria-label="Room types" className="space-y-3">
                       {roomTypes.map((type) => {
@@ -484,7 +609,7 @@ export function AddReservation({
                       })}
                     </div>
                   )}
-                  {selectedType && showRoomPick ? (
+                  {selectedType && showRoomPick && !byRoom ? (
                     <div className="mt-4 max-w-sm">
                       <FormField
                         label="Individual room"
@@ -516,59 +641,158 @@ export function AddReservation({
           ) : null}
 
           {step === 1 ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Lead guest</CardTitle>
-                <p className="m-0 text-xs text-muted-foreground">
-                  The person the reservation is for. The confirmation goes to this email.
-                </p>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <FormField label="First name" htmlFor="guest-first" required error={touched ? guestErrors.firstName : null}>
-                    <Input
-                      id="guest-first"
-                      autoComplete="off"
-                      value={guest.firstName}
-                      onChange={(event) => setGuest({ ...guest, firstName: event.target.value })}
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Lead guest</CardTitle>
+                  <p className="m-0 text-xs text-muted-foreground">
+                    The person the reservation is for. The confirmation goes to this email, and the hotel system
+                    receives the name and email.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <FormField label="First name" htmlFor="guest-first" required error={touched ? guestErrors.firstName : null}>
+                      <Input
+                        id="guest-first"
+                        autoComplete="off"
+                        value={guest.firstName}
+                        onChange={(event) => setGuest({ ...guest, firstName: event.target.value })}
+                      />
+                    </FormField>
+                    <FormField label="Last name" htmlFor="guest-last" required error={touched ? guestErrors.lastName : null}>
+                      <Input
+                        id="guest-last"
+                        autoComplete="off"
+                        value={guest.lastName}
+                        onChange={(event) => setGuest({ ...guest, lastName: event.target.value })}
+                      />
+                    </FormField>
+                    <FormField label="Email" htmlFor="guest-email" required error={touched ? guestErrors.email : null}>
+                      <Input
+                        id="guest-email"
+                        type="email"
+                        autoComplete="off"
+                        value={guest.email}
+                        onChange={(event) => setGuest({ ...guest, email: event.target.value })}
+                      />
+                    </FormField>
+                    <FormField label="Phone" htmlFor="guest-phone" hint="Optional. Useful for arrival and payment follow-up.">
+                      <PhoneInput
+                        id="guest-phone"
+                        value={guest.phone}
+                        onChange={(phone) => setGuest({ ...guest, phone })}
+                      />
+                    </FormField>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Address</CardTitle>
+                  <p className="m-0 text-xs text-muted-foreground">
+                    Optional. Used for invoices and guest records.
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <FormField label="Street address" htmlFor="guest-street" className="sm:col-span-2">
+                      <Input
+                        id="guest-street"
+                        autoComplete="off"
+                        value={guest.streetAddress}
+                        onChange={(event) => setGuest({ ...guest, streetAddress: event.target.value })}
+                      />
+                    </FormField>
+                    <FormField label="Address line 2" htmlFor="guest-line2" className="sm:col-span-2">
+                      <Input
+                        id="guest-line2"
+                        autoComplete="off"
+                        value={guest.addressLine2}
+                        onChange={(event) => setGuest({ ...guest, addressLine2: event.target.value })}
+                      />
+                    </FormField>
+                    <FormField label="City" htmlFor="guest-city">
+                      <Input
+                        id="guest-city"
+                        autoComplete="off"
+                        value={guest.city}
+                        onChange={(event) => setGuest({ ...guest, city: event.target.value })}
+                      />
+                    </FormField>
+                    <FormField label="County / region" htmlFor="guest-county">
+                      <Input
+                        id="guest-county"
+                        autoComplete="off"
+                        value={guest.county}
+                        onChange={(event) => setGuest({ ...guest, county: event.target.value })}
+                      />
+                    </FormField>
+                    <FormField label="Postcode" htmlFor="guest-postcode">
+                      <Input
+                        id="guest-postcode"
+                        autoComplete="off"
+                        value={guest.postcode}
+                        onChange={(event) => setGuest({ ...guest, postcode: event.target.value })}
+                      />
+                    </FormField>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Stay preferences</CardTitle>
+                  <p className="m-0 text-xs text-muted-foreground">
+                    Optional. Shown at the top of the reservation so the desk and housekeeping can see them.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <FormField label="Estimated arrival time" htmlFor="guest-arrival">
+                      <Input
+                        id="guest-arrival"
+                        type="time"
+                        value={guest.arrivalTime}
+                        onChange={(event) => setGuest({ ...guest, arrivalTime: event.target.value })}
+                      />
+                    </FormField>
+                    <FormField label="Bed preference">
+                      <Select
+                        value={guest.bedPreference || 'none'}
+                        onValueChange={(value) => setGuest({ ...guest, bedPreference: value })}
+                      >
+                        <SelectTrigger aria-label="Bed preference">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {bedChoices.map((choice) => (
+                            <SelectItem key={choice.value} value={choice.value}>
+                              {choice.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </FormField>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm font-medium">
+                    <Checkbox
+                      checked={guest.accessibility}
+                      onCheckedChange={(value) => setGuest({ ...guest, accessibility: value === true })}
+                    />
+                    Needs an accessible room
+                  </label>
+                  <FormField label="Special requests" htmlFor="guest-requests" hint="Anything else the hotel should know.">
+                    <Textarea
+                      id="guest-requests"
+                      value={guest.specialRequests}
+                      onChange={(event) => setGuest({ ...guest, specialRequests: event.target.value })}
                     />
                   </FormField>
-                  <FormField label="Last name" htmlFor="guest-last" required error={touched ? guestErrors.lastName : null}>
-                    <Input
-                      id="guest-last"
-                      autoComplete="off"
-                      value={guest.lastName}
-                      onChange={(event) => setGuest({ ...guest, lastName: event.target.value })}
-                    />
-                  </FormField>
-                  <FormField label="Email" htmlFor="guest-email" required error={touched ? guestErrors.email : null}>
-                    <Input
-                      id="guest-email"
-                      type="email"
-                      autoComplete="off"
-                      value={guest.email}
-                      onChange={(event) => setGuest({ ...guest, email: event.target.value })}
-                    />
-                  </FormField>
-                  <FormField label="Phone" htmlFor="guest-phone" hint="Optional.">
-                    <Input
-                      id="guest-phone"
-                      type="tel"
-                      autoComplete="off"
-                      value={guest.phone}
-                      onChange={(event) => setGuest({ ...guest, phone: event.target.value })}
-                    />
-                  </FormField>
-                </div>
-                <FormField label="Special requests" htmlFor="guest-requests" hint="Optional. Shown on the reservation.">
-                  <Textarea
-                    id="guest-requests"
-                    value={guest.specialRequests}
-                    onChange={(event) => setGuest({ ...guest, specialRequests: event.target.value })}
-                  />
-                </FormField>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </>
           ) : null}
 
           {step === 2 ? (
@@ -645,8 +869,35 @@ export function AddReservation({
                       items={[
                         { label: 'Name', value: `${guest.firstName} ${guest.lastName}` },
                         { label: 'Email', value: guest.email },
-                        { label: 'Phone', value: guest.phone },
-                        { label: 'Special requests', value: guest.specialRequests },
+                        { label: 'Phone', value: phoneToString(guest.phone) },
+                        {
+                          label: 'Address',
+                          value: [guest.streetAddress, guest.addressLine2, guest.city, guest.county, guest.postcode]
+                            .map((part) => part.trim())
+                            .filter(Boolean)
+                            .join(', '),
+                        },
+                        { label: 'Requests', value: requestsText(guest)?.replaceAll('\n', ' · ') },
+                      ]}
+                    />
+                  </div>
+                  <div>
+                    <SectionLabel>Payment</SectionLabel>
+                    <DetailList
+                      items={[
+                        { label: 'Method', value: gateway ? gatewayLabels[gateway].title : null },
+                        { label: 'Amount', value: total ? money(total) : null },
+                        {
+                          label: 'After creating',
+                          value:
+                            gateway === 'pay_at_hotel'
+                              ? settle
+                                ? 'Confirmed and paid'
+                                : 'Confirmed, payment due at the hotel'
+                              : gateway
+                                ? 'Waiting for the guest to pay'
+                                : null,
+                        },
                       ]}
                     />
                   </div>

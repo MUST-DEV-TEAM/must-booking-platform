@@ -18,6 +18,7 @@ import { TabBar } from '../../components/ui/tab-bar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { attentionIssue, PRIORITY_RANK, type AttentionGroup, type AttentionPriority } from '../../lib/attention';
 import { balanceDue, nightsBetween } from '../../lib/reservation-display';
+import { cn } from '../../lib/utils';
 
 type Row = {
   id: string;
@@ -286,13 +287,17 @@ export function NeedsAttentionTab({ tenantId, propertyId }: { tenantId: string; 
               <NoResultsPanel onClear={clear} />
             </div>
           ) : (
-            <Table aria-label="Bookings needing attention">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="pl-5">Issue</TableHead>
-                  <TableHead>Reservation · Guest</TableHead>
-                  <TableHead>Room · Stay</TableHead>
-                  <TableHead className="pr-5">Booking · Payment</TableHead>
+            <Table
+              aria-label="Bookings needing attention"
+              containerClassName="overflow-x-clip"
+              className="text-[11px]"
+            >
+              <TableHeader className="bg-muted">
+                <TableRow className="hover:bg-muted">
+                  <TableHead className="px-4 py-2 normal-case tracking-normal">Issue</TableHead>
+                  <TableHead className="px-2 py-2 normal-case tracking-normal">Reservation · Guest</TableHead>
+                  <TableHead className="px-2 py-2 normal-case tracking-normal">Room · Stay</TableHead>
+                  <TableHead className="px-2 py-2 normal-case tracking-normal">Booking · Payment</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -309,23 +314,26 @@ export function NeedsAttentionTab({ tenantId, propertyId }: { tenantId: string; 
                         setSelectedId(item.id);
                       }
                     }}
-                    className="cursor-pointer"
+                    className={cn(
+                      'h-14 cursor-pointer',
+                      selected?.id === item.id && 'bg-primary/10 hover:bg-primary/10',
+                    )}
                   >
-                    <TableCell className="pl-5">
-                      <div className="font-semibold">{item.issue.title}</div>
+                    <TableCell className="px-4 py-2">
+                      <div className="text-xs font-semibold">{item.issue.title}</div>
                       <PriorityBadge priority={item.issue.priority} />
                     </TableCell>
-                    <TableCell>
-                      <div className="font-mono text-xs">{item.externalReference}</div>
-                      <div className="text-sm">{item.guest}</div>
+                    <TableCell className="px-2 py-2">
+                      <div className="font-mono text-[11px]">{item.externalReference}</div>
+                      <div className="text-xs">{item.guest}</div>
                     </TableCell>
-                    <TableCell>
-                      <div className="text-sm">{item.roomName ?? 'Not assigned'}</div>
-                      <div className="text-xs text-muted-foreground">
+                    <TableCell className="px-2 py-2">
+                      <div className="text-xs">{item.roomName ?? 'Not assigned'}</div>
+                      <div className="text-[11px] text-muted-foreground">
                         {item.roomTypeName} · {day(item.startsOn)}
                       </div>
                     </TableCell>
-                    <TableCell className="pr-5">
+                    <TableCell className="px-2 py-2">
                       <div className="flex flex-col items-start gap-1">
                         <BookingStatusBadge status={item.status} />
                         <PaymentStatusBadge

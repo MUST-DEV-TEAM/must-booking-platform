@@ -4,6 +4,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { Bell, CircleAlert, CirclePlus, Undo2, Users, type LucideIcon } from 'lucide-react';
 import { useState } from 'react';
 
+import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card } from '../../components/ui/card';
 import {
@@ -17,6 +18,7 @@ import {
 import { PageHero } from '../../components/ui/page-hero';
 import { Pagination } from '../../components/ui/pagination';
 import { EmptyPanel, ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
+import { BookingStatusBadge } from '../../components/ui/status-badge';
 
 export type Notification = {
   id: string;
@@ -25,6 +27,17 @@ export type Notification = {
   payload: Record<string, unknown>;
   readAt: string | null;
   createdAt: string;
+  /** The reservation this notification is about, when there is one. */
+  booking?: {
+    id: string;
+    externalReference: string;
+    status: string;
+    startsOn: string;
+    endsOn: string;
+    guestName: string | null;
+    guestEmail: string | null;
+    roomTypeName: string;
+  } | null;
 };
 
 export type NotificationPage = {
@@ -59,14 +72,19 @@ export function notificationsInboxHref(tenantId: string, propertyId: string) {
   return `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=notifications`;
 }
 
-function useNotificationPage(tenantId: string, propertyId: string, page: number) {
+function useNotificationPage(
+  tenantId: string,
+  propertyId: string,
+  page: number,
+  pageSize = NOTIFICATION_PAGE_SIZE,
+) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}/notifications`;
   const queryClient = useQueryClient();
   const rootQueryKey = notificationQueryKey(tenantId, propertyId);
   const notificationsQuery = useQuery({
-    queryKey: [...rootQueryKey, page],
+    queryKey: [...rootQueryKey, page, pageSize],
     queryFn: async (): Promise<NotificationPage> => {
-      const response = await fetch(`${base}?page=${page}&pageSize=${NOTIFICATION_PAGE_SIZE}`, {
+      const response = await fetch(`${base}?page=${page}&pageSize=${pageSize}`, {
         credentials: 'include',
       });
       if (!response.ok) throw new Error('Unable to load notifications.');
@@ -77,7 +95,7 @@ function useNotificationPage(tenantId: string, propertyId: string, page: number)
       return {
         items,
         page: result.page ?? page,
-        pageSize: result.pageSize ?? NOTIFICATION_PAGE_SIZE,
+        pageSize: result.pageSize ?? pageSize,
         total: result.total ?? items.length,
       };
     },
@@ -298,7 +316,13 @@ export function NotificationsInbox({
   propertyId: string;
 }) {
   const [page, setPage] = useState(1);
-  const { notificationsQuery, markReadMutation } = useNotificationPage(tenantId, propertyId, page);
+  const [pageSize, setPageSize] = useState(NOTIFICATION_PAGE_SIZE);
+  const { notificationsQuery, markReadMutation } = useNotificationPage(
+    tenantId,
+    propertyId,
+    page,
+    pageSize,
+  );
   const notificationPage = notificationsQuery.data;
   const error = notificationsQuery.error ?? markReadMutation.error;
 
@@ -325,41 +349,81 @@ export function NotificationsInbox({
                 const unread = notification.readAt === null;
                 const { Icon, href, attention } = notificationLook(notification, tenantId, propertyId);
                 return (
-                  <li key={notification.id} className="flex items-center gap-3 px-5 py-3">
-                    <span className={`size-9 ${iconBox} ${iconTone(attention)}`}>
-                      <Icon aria-hidden="true" className="size-4" />
+                  <li key={notification.id} className="flex items-start gap-4 px-5 py-4">
+                    <span className={`mt-0.5 size-10 ${iconBox} ${iconTone(attention)}`}>
+                      <Icon aria-hidden="true" className="size-5" />
                     </span>
-                    <a
-                      href={href}
-                      className="flex min-w-0 flex-1 flex-col gap-0.5 text-inherit no-underline hover:underline"
-                      onClick={() => {
-                        if (unread) markReadMutation.mutate(notification.id);
-                      }}
-                    >
-                      <span className="flex items-center gap-2 text-sm font-semibold">
-                        <strong>{notificationLabels[notification.type]}</strong>
-                        <span
-                          className={
-                            unread ? 'text-xs font-bold text-primary' : 'text-xs text-muted-foreground'
-                          }
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <strong className="text-sm">{notificationLabels[notification.type]}</strong>
+                        {unread ? (
+                          <Badge variant="info" className="rounded-full px-2 py-0 text-[10px]">
+                            Unread
+                          </Badge>
+                        ) : null}
+                        {notification.booking ? (
+                          <BookingStatusBadge status={notification.booking.status} />
+                        ) : null}
+                        <time
+                          dateTime={notification.createdAt}
+                          className="ml-auto text-xs text-muted-foreground"
                         >
-                          {unread ? 'Unread' : 'Read'}
-                        </span>
-                      </span>
-                      <time dateTime={notification.createdAt} className="text-xs text-muted-foreground">
-                        {formatNotificationDate(notification.createdAt)}
-                      </time>
-                    </a>
-                    {unread ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={markReadMutation.isPending}
-                        onClick={() => markReadMutation.mutate(notification.id)}
-                      >
-                        Mark as read
-                      </Button>
-                    ) : null}
+                          {formatNotificationDate(notification.createdAt)}
+                        </time>
+                      </div>
+                      <p className="m-0 text-sm text-muted-foreground">{notificationHints[notification.type]}</p>
+                      {notification.booking ? (
+                        <dl className="m-0 grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                          <Detail label="Reservation" value={notification.booking.externalReference} />
+                          <Detail
+                            label="Guest"
+                            value={notification.booking.guestName ?? notification.booking.guestEmail}
+                          />
+                          <Detail label="Room type" value={notification.booking.roomTypeName} />
+                          <Detail
+                            label="Stay"
+                            value={`${shortDay(notification.booking.startsOn)} – ${shortDay(notification.booking.endsOn)}`}
+                          />
+                        </dl>
+                      ) : null}
+                      {typeof notification.payload.amount === 'string' ||
+                      typeof notification.payload.amount === 'number' ? (
+                        <p className="m-0 text-xs text-muted-foreground">
+                          Amount: <strong className="text-foreground">{String(notification.payload.amount)}</strong>
+                        </p>
+                      ) : null}
+                      {typeof notification.payload.reason === 'string' ? (
+                        <p className="m-0 text-xs text-muted-foreground">
+                          Reason: {notification.payload.reason.replaceAll('_', ' ')}
+                        </p>
+                      ) : null}
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          asChild
+                        >
+                          <a
+                            href={href}
+                            onClick={() => {
+                              if (unread) markReadMutation.mutate(notification.id);
+                            }}
+                          >
+                            {notification.booking ? 'Open reservation' : 'Open'}
+                          </a>
+                        </Button>
+                        {unread ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={markReadMutation.isPending}
+                            onClick={() => markReadMutation.mutate(notification.id)}
+                          >
+                            Mark as read
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
                   </li>
                 );
               })}
@@ -379,11 +443,31 @@ export function NotificationsInbox({
               total={notificationPage.total}
               onPage={setPage}
               noun="notifications"
+              pageSizeOptions={[10, 20, 50]}
+              onPageSize={(size) => {
+                setPageSize(size);
+                setPage(1);
+              }}
             />
           ) : null}
         </Card>
       )}
     </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="m-0 truncate font-semibold">{value || '—'}</dd>
+    </div>
+  );
+}
+
+function shortDay(value: string) {
+  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(
+    new Date(`${value}T00:00:00`),
   );
 }
 
