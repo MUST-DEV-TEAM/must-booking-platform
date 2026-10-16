@@ -72,27 +72,24 @@ describe('DashboardNotifications', () => {
     await act(async () => root.unmount());
   });
 
-  it('counts unread rows on the bell, links each row to its place and marks one read on click', async () => {
+  it('lists only unread rows, counts the unread total, links each row and drops it once read', async () => {
+    const unread = notifications.filter((notification) => notification.readAt === null);
     const fetch = vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method === 'PATCH')
         return new Response(
           JSON.stringify({ ...notifications[0], readAt: '2026-08-03T11:00:00.000Z' }),
         );
-      expect(url).toBe('/api/tenants/t/properties/p/notifications?page=1&pageSize=20');
-      return new Response(JSON.stringify({ items: notifications }));
+      expect(url).toBe('/api/tenants/t/properties/p/notifications?page=1&pageSize=10&unread=1');
+      return new Response(JSON.stringify({ items: unread, total: 3, unreadTotal: 3 }));
     });
     vi.stubGlobal('fetch', fetch);
     const { root } = await mount();
 
     expect(bell('Notifications (3 unread)').textContent).toBe('3');
     await openMenu(bell('Notifications (3 unread)'));
-    for (const label of [
-      'Booking created',
-      'Booking needs attention',
-      'Payment refunded',
-      'Staff seat cap reached',
-    ])
+    for (const label of ['Booking created', 'Booking needs attention', 'Staff seat cap reached'])
       expect(menuText()).toContain(label);
+    expect(menuText()).not.toContain('Payment refunded');
 
     expect(
       Array.from(
@@ -111,11 +108,14 @@ describe('DashboardNotifications', () => {
       '/api/tenants/t/properties/p/notifications/booking',
     );
     expect(bell('Notifications (2 unread)').textContent).toBe('2');
+    expect(
+      document.querySelector('a[href="/dashboard/t?propertyId=p&section=reservations&reservation=b-1"]'),
+    ).toBeNull();
     await act(async () => root.unmount());
   });
 
-  it('caps the menu at 10 rows and marks everything read from the header link', async () => {
-    const eighteenUnread = Array.from({ length: 18 }, (_, index) => ({
+  it('shows the unread total, not the page length, and empties the menu after Mark all as read', async () => {
+    const tenUnread = Array.from({ length: 10 }, (_, index) => ({
       ...notifications[0],
       id: `booking-${index}`,
     }));
@@ -123,12 +123,12 @@ describe('DashboardNotifications', () => {
       if (init?.method === 'PATCH' && url.endsWith('/mark-all-read')) {
         return new Response(null, { status: 200 });
       }
-      expect(url).toBe('/api/tenants/t/properties/p/notifications?page=1&pageSize=20');
-      return new Response(JSON.stringify({ items: eighteenUnread, total: 18 }));
+      return new Response(JSON.stringify({ items: tenUnread, total: 18, unreadTotal: 18 }));
     });
     vi.stubGlobal('fetch', fetch);
     const { root } = await mount();
 
+    expect(bell('Notifications (18 unread)').textContent).toBe('18');
     await openMenu(bell('Notifications (18 unread)'));
     expect(document.querySelectorAll('[role="menuitem"][href*="reservation="]')).toHaveLength(10);
 
@@ -140,22 +140,19 @@ describe('DashboardNotifications', () => {
     expect(fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')?.[0]).toBe(
       '/api/tenants/t/properties/p/notifications/mark-all-read',
     );
-    expect(bell().textContent).not.toContain('18');
+    expect(bell().textContent).toBe('');
+    expect(menuText()).toContain('You are all caught up.');
     await act(async () => root.unmount());
   });
 
-  it('uses an explicit 20+ badge when the first page is truncated', async () => {
-    const firstPage = Array.from({ length: 20 }, (_, index) => ({
-      ...notifications[0],
-      id: `booking-${index}`,
-    }));
+  it('caps a very large unread count at 99+', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => new Response(JSON.stringify({ items: firstPage, total: 25 }))),
+      vi.fn(async () => new Response(JSON.stringify({ items: [], total: 250, unreadTotal: 250 }))),
     );
     const { root } = await mount();
 
-    expect(bell('Notifications (20+ unread)').textContent).toBe('20+');
+    expect(bell('Notifications (99+ unread)').textContent).toBe('99+');
     await act(async () => root.unmount());
   });
 
@@ -163,13 +160,14 @@ describe('DashboardNotifications', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(
-        async () => new Response(JSON.stringify({ items: [], page: 1, pageSize: 20, total: 0 })),
+        async () =>
+          new Response(JSON.stringify({ items: [], page: 1, pageSize: 10, total: 0, unreadTotal: 0 })),
       ),
     );
     const { root } = await mount();
 
     await openMenu(bell());
-    expect(menuText()).toContain('No notifications.');
+    expect(menuText()).toContain('You are all caught up.');
     expect(
       document.querySelector('a[href="/dashboard/t?propertyId=p&section=notifications"]'),
     ).not.toBeNull();
@@ -180,7 +178,9 @@ describe('DashboardNotifications', () => {
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(new Response(null, { status: 500 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ items: notifications })));
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ items: [notifications[0]], total: 1, unreadTotal: 1 })),
+      );
     vi.stubGlobal('fetch', fetch);
     const { root } = await mount();
 

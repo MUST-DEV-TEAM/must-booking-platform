@@ -1,37 +1,22 @@
 'use client';
 
+import { useMemo } from 'react';
+
+import { dialCountries, findDialCountry } from '../../lib/dial-codes';
+import { Combobox } from './combobox';
 import { Input } from './input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './select';
 
-export type PhoneValue = { prefix: string; number: string };
-
-const prefixes: ReadonlyArray<{ prefix: string; label: string }> = [
-  { prefix: '+355', label: '+355 · AL' },
-  { prefix: '+383', label: '+383 · XK' },
-  { prefix: '+389', label: '+389 · MK' },
-  { prefix: '+382', label: '+382 · ME' },
-  { prefix: '+381', label: '+381 · RS' },
-  { prefix: '+385', label: '+385 · HR' },
-  { prefix: '+30', label: '+30 · GR' },
-  { prefix: '+39', label: '+39 · IT' },
-  { prefix: '+49', label: '+49 · DE' },
-  { prefix: '+43', label: '+43 · AT' },
-  { prefix: '+41', label: '+41 · CH' },
-  { prefix: '+33', label: '+33 · FR' },
-  { prefix: '+34', label: '+34 · ES' },
-  { prefix: '+31', label: '+31 · NL' },
-  { prefix: '+44', label: '+44 · UK' },
-  { prefix: '+1', label: '+1 · US/CA' },
-  { prefix: '+90', label: '+90 · TR' },
-];
+/** The chosen country (by ISO code, because several countries share +1 or +7) and the number. */
+export type PhoneValue = { iso: string; number: string };
 
 /** The phone text as it is stored: prefix and number joined, or nothing when the number is empty. */
 export function phoneToString(value: PhoneValue): string {
   const number = value.number.trim();
-  return number ? `${value.prefix} ${number}` : '';
+  const prefix = findDialCountry(value.iso)?.prefix ?? '';
+  return number ? `${prefix} ${number}`.trim() : '';
 }
 
-/** A phone number with a country-prefix choice joined to the front of the field. */
+/** A phone number with a searchable country-prefix choice joined to the front of the field. */
 export function PhoneInput({
   value,
   onChange,
@@ -45,6 +30,16 @@ export function PhoneInput({
   invalid?: boolean;
   disabled?: boolean;
 }) {
+  const options = useMemo(
+    () =>
+      dialCountries().map((country) => ({
+        value: country.iso,
+        label: country.name,
+        hint: country.prefix,
+        keywords: `${country.iso} ${country.prefix.replace('+', '')}`,
+      })),
+    [],
+  );
   return (
     <div
       className={
@@ -53,25 +48,21 @@ export function PhoneInput({
           : 'flex h-9 overflow-hidden rounded-md border border-input bg-card'
       }
     >
-      <Select
-        value={value.prefix}
-        onValueChange={(prefix) => onChange({ ...value, prefix })}
+      <Combobox
+        label="Country prefix"
+        placeholder="Search country or prefix"
+        options={options}
+        value={value.iso}
+        onChange={(iso) => onChange({ ...value, iso })}
         disabled={disabled}
-      >
-        <SelectTrigger
-          aria-label="Phone prefix"
-          className="h-full w-[6.5rem] shrink-0 rounded-none border-0 border-r bg-transparent px-2 text-xs shadow-none focus-visible:ring-0"
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {prefixes.map((entry) => (
-            <SelectItem key={entry.prefix} value={entry.prefix}>
-              {entry.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+        triggerClassName="h-full w-[6.5rem] shrink-0 rounded-none border-0 border-r bg-transparent px-2 text-xs shadow-none"
+        contentClassName="w-80"
+        renderTrigger={(selected) => (
+          <span className="truncate font-semibold">
+            {selected ? `${selected.value} ${selected.hint}` : 'Prefix'}
+          </span>
+        )}
+      />
       <Input
         id={id}
         type="tel"

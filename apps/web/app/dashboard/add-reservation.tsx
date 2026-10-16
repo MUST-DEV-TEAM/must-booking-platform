@@ -19,6 +19,7 @@ import { FormField } from '../../components/ui/form-field';
 import { Checkbox } from '../../components/ui/checkbox';
 import { Input, Textarea } from '../../components/ui/input';
 import { PhoneInput, phoneToString, type PhoneValue } from '../../components/ui/phone-input';
+import { TimeField } from '../../components/ui/time-field';
 import { TabBar } from '../../components/ui/tab-bar';
 import { NumberStepper } from '../../components/ui/number-stepper';
 import { OptionCard } from '../../components/ui/option-card';
@@ -44,7 +45,6 @@ type Guest = {
   county: string;
   postcode: string;
   arrivalTime: string;
-  bedPreference: string;
   accessibility: boolean;
   specialRequests: string;
 };
@@ -64,31 +64,21 @@ const emptyGuest: Guest = {
   firstName: '',
   lastName: '',
   email: '',
-  phone: { prefix: '+355', number: '' },
+  phone: { iso: 'AL', number: '' },
   streetAddress: '',
   addressLine2: '',
   city: '',
   county: '',
   postcode: '',
   arrivalTime: '',
-  bedPreference: '',
   accessibility: false,
   specialRequests: '',
 };
-
-const bedChoices = [
-  { value: 'none', label: 'No preference' },
-  { value: 'double', label: 'One double bed' },
-  { value: 'twin', label: 'Two single beds' },
-];
 
 /** Structured choices become short lines at the top of the reservation's special requests. */
 function requestsText(guest: Guest): string | undefined {
   const lines = [
     guest.arrivalTime ? `Arrival around ${guest.arrivalTime}` : '',
-    guest.bedPreference && guest.bedPreference !== 'none'
-      ? `Bed: ${bedChoices.find((choice) => choice.value === guest.bedPreference)?.label.toLowerCase()}`
-      : '',
     guest.accessibility ? 'Needs an accessible room' : '',
     guest.specialRequests.trim(),
   ].filter(Boolean);
@@ -136,12 +126,16 @@ export function AddReservation({
   propertyId,
   bookingMode,
   paymentGateways,
+  checkInTime,
 }: {
   tenantId: string;
   propertyId: string;
   bookingMode?: BookingMode;
   paymentGateways?: PaymentGateways;
+  /** The hotel's check-in time ("HH:MM"); the arrival time starts here and can be changed. */
+  checkInTime?: string | null;
 }) {
+  const hotelCheckIn = /^\d{2}:\d{2}/.test(checkInTime ?? '') ? checkInTime!.slice(0, 5) : '';
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const [step, setStep] = useState(0);
   const [dates, setDates] = useState<CalendarSelection>({ start: null, end: null });
@@ -153,7 +147,7 @@ export function AddReservation({
   const [chooseBy, setChooseBy] = useState<'type' | 'room'>(
     bookingMode === 'INDIVIDUAL_ROOM_ONLY' ? 'room' : 'type',
   );
-  const [guest, setGuest] = useState<Guest>(emptyGuest);
+  const [guest, setGuest] = useState<Guest>({ ...emptyGuest, arrivalTime: hotelCheckIn });
   const [touched, setTouched] = useState(false);
   const [gateway, setGateway] = useState<GatewayMethod | ''>('');
   const [settle, setSettle] = useState<SettleMethod>('');
@@ -340,7 +334,7 @@ export function AddReservation({
     setDates({ start: null, end: null });
     setRoomTypeId('');
     setRoomId('');
-    setGuest(emptyGuest);
+    setGuest({ ...emptyGuest, arrivalTime: hotelCheckIn });
     setSettle('');
     setTouched(false);
     setCreated(null);
@@ -775,30 +769,19 @@ export function AddReservation({
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <FormField label="Estimated arrival time" htmlFor="guest-arrival">
-                      <Input
+                    <FormField
+                      label="Estimated arrival time"
+                      htmlFor="guest-arrival"
+                      hint={hotelCheckIn ? `Starts at the hotel check-in time (${hotelCheckIn}).` : 'Optional.'}
+                    >
+                      <TimeField
                         id="guest-arrival"
-                        type="time"
+                        label="Estimated arrival time"
                         value={guest.arrivalTime}
-                        onChange={(event) => setGuest({ ...guest, arrivalTime: event.target.value })}
+                        onChange={(arrivalTime) => setGuest({ ...guest, arrivalTime })}
+                        defaultValue={hotelCheckIn || undefined}
+                        defaultLabel="Use check-in time"
                       />
-                    </FormField>
-                    <FormField label="Bed preference">
-                      <Select
-                        value={guest.bedPreference || 'none'}
-                        onValueChange={(value) => setGuest({ ...guest, bedPreference: value })}
-                      >
-                        <SelectTrigger aria-label="Bed preference">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {bedChoices.map((choice) => (
-                            <SelectItem key={choice.value} value={choice.value}>
-                              {choice.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
                     </FormField>
                   </div>
                   <label className="flex items-center gap-2 text-sm font-medium">

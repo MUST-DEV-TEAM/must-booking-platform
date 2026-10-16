@@ -68,6 +68,8 @@ type Property = {
   name: string;
   bookingMode?: BookingMode;
   paymentGateways?: PaymentGateways;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
 };
 
 type PropertyOverview = {
@@ -503,6 +505,7 @@ export function DashboardShell({
               propertyId={selectedProperty.id}
               bookingMode={selectedProperty.bookingMode}
               paymentGateways={selectedProperty.paymentGateways}
+              checkInTime={selectedProperty.checkInTime}
             />
           ) : (
             <DashboardTabPlaceholder tab={visibleDashboardTab} />
@@ -522,6 +525,8 @@ export function DashboardShell({
             propertyId={selectedProperty.id}
             bookingId={reservationId}
             propertyName={selectedProperty.name}
+            checkInTime={selectedProperty.checkInTime}
+            checkOutTime={selectedProperty.checkOutTime}
             bookingMode={selectedProperty.bookingMode}
           />
         ) : (

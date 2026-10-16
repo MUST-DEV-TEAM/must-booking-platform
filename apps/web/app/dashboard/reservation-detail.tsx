@@ -138,10 +138,9 @@ function activityDetail(details: Record<string, unknown>) {
   return parts.join(' · ');
 }
 
-// Hotels have no check-in / check-out times of their own yet (Milestone 24 gap); these standard
-// defaults are shown until they do.
-const CHECK_IN = '15:00';
-const CHECK_OUT = '11:00';
+// Shown when the hotel has not set its own check-in and check-out times in Settings.
+const DEFAULT_CHECK_IN = '15:00';
+const DEFAULT_CHECK_OUT = '11:00';
 
 const CANCELLED_LIKE = new Set(['CANCELLED', 'EXPIRED']);
 
@@ -168,13 +167,19 @@ export function ReservationDetail({
   bookingId,
   propertyName,
   bookingMode,
+  checkInTime,
+  checkOutTime,
 }: {
   tenantId: string;
   propertyId: string;
   bookingId: string;
   propertyName?: string;
   bookingMode?: string;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
 }) {
+  const CHECK_IN = /^\d{2}:\d{2}/.test(checkInTime ?? '') ? checkInTime!.slice(0, 5) : DEFAULT_CHECK_IN;
+  const CHECK_OUT = /^\d{2}:\d{2}/.test(checkOutTime ?? '') ? checkOutTime!.slice(0, 5) : DEFAULT_CHECK_OUT;
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const queryClient = useQueryClient();
   const [cancelling, setCancelling] = useState(false);

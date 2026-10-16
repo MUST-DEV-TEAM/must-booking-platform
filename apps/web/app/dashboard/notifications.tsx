@@ -45,6 +45,8 @@ export type NotificationPage = {
   page: number;
   pageSize: number;
   total: number;
+  /** How many notifications are still unread in total (not just on this page). */
+  unreadTotal?: number;
 };
 
 const NOTIFICATION_PAGE_SIZE = 20;
@@ -77,14 +79,15 @@ function useNotificationPage(
   propertyId: string,
   page: number,
   pageSize = NOTIFICATION_PAGE_SIZE,
+  unreadOnly = false,
 ) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}/notifications`;
   const queryClient = useQueryClient();
   const rootQueryKey = notificationQueryKey(tenantId, propertyId);
   const notificationsQuery = useQuery({
-    queryKey: [...rootQueryKey, page, pageSize],
+    queryKey: [...rootQueryKey, page, pageSize, unreadOnly ? 'unread' : 'all'],
     queryFn: async (): Promise<NotificationPage> => {
-      const response = await fetch(`${base}?page=${page}&pageSize=${pageSize}`, {
+      const response = await fetch(`${base}?page=${page}&pageSize=${pageSize}${unreadOnly ? '&unread=1' : ''}`, {
         credentials: 'include',
       });
       if (!response.ok) throw new Error('Unable to load notifications.');
@@ -97,6 +100,7 @@ function useNotificationPage(
         page: result.page ?? page,
         pageSize: result.pageSize ?? pageSize,
         total: result.total ?? items.length,
+        unreadTotal: result.unreadTotal,
       };
     },
     placeholderData: keepPreviousData,
@@ -111,17 +115,36 @@ function useNotificationPage(
       return (await response.json()) as Notification;
     },
     onSuccess: (updated) => {
-      queryClient.setQueriesData<NotificationPage>({ queryKey: rootQueryKey }, (current) =>
-        current
-          ? {
-              ...current,
-              items: current.items.map((notification) =>
-                notification.id === updated.id
-                  ? { ...notification, readAt: updated.readAt }
-                  : notification,
-              ),
-            }
-          : current,
+      // The bell lists only unread notifications: a read one leaves it and the count drops.
+      queryClient.setQueriesData<NotificationPage>(
+        { queryKey: rootQueryKey, predicate: (query) => query.queryKey.at(-1) === 'unread' },
+        (current) =>
+          current
+            ? {
+                ...current,
+                items: current.items.filter((notification) => notification.id !== updated.id),
+                total: current.items.some((notification) => notification.id === updated.id)
+                  ? Math.max(0, current.total - 1)
+                  : current.total,
+                unreadTotal: current.items.some((notification) => notification.id === updated.id)
+                  ? Math.max(0, (current.unreadTotal ?? current.total) - 1)
+                  : current.unreadTotal,
+              }
+            : current,
+      );
+      queryClient.setQueriesData<NotificationPage>(
+        { queryKey: rootQueryKey, predicate: (query) => query.queryKey.at(-1) === 'all' },
+        (current) =>
+          current
+            ? {
+                ...current,
+                items: current.items.map((notification) =>
+                  notification.id === updated.id
+                    ? { ...notification, readAt: updated.readAt }
+                    : notification,
+                ),
+              }
+            : current,
       );
     },
   });
@@ -135,15 +158,21 @@ function useNotificationPage(
     },
     onSuccess: () => {
       const now = new Date().toISOString();
-      queryClient.setQueriesData<NotificationPage>({ queryKey: rootQueryKey }, (current) =>
-        current
-          ? {
-              ...current,
-              items: current.items.map((notification) =>
-                notification.readAt === null ? { ...notification, readAt: now } : notification,
-              ),
-            }
-          : current,
+      queryClient.setQueriesData<NotificationPage>(
+        { queryKey: rootQueryKey, predicate: (query) => query.queryKey.at(-1) === 'unread' },
+        (current) => (current ? { ...current, items: [], total: 0, unreadTotal: 0 } : current),
+      );
+      queryClient.setQueriesData<NotificationPage>(
+        { queryKey: rootQueryKey, predicate: (query) => query.queryKey.at(-1) === 'all' },
+        (current) =>
+          current
+            ? {
+                ...current,
+                items: current.items.map((notification) =>
+                  notification.readAt === null ? { ...notification, readAt: now } : notification,
+                ),
+              }
+            : current,
       );
     },
   });
@@ -198,18 +227,14 @@ export function DashboardNotifications({
     tenantId,
     propertyId,
     1,
+    NOTIFICATION_DROPDOWN_LIMIT,
+    true,
   );
   const notificationPage = notificationsQuery.data;
-  const notifications = notificationPage?.items.slice(0, NOTIFICATION_DROPDOWN_LIMIT);
+  const notifications = notificationPage?.items;
   const error = notificationsQuery.error ?? markReadMutation.error ?? markAllReadMutation.error;
-  const unread =
-    notificationPage?.items.filter((notification) => notification.readAt === null).length ?? 0;
-  const unreadBadge =
-    notificationPage && notificationPage.total > NOTIFICATION_PAGE_SIZE
-      ? '20+'
-      : unread > 0
-        ? String(unread)
-        : '';
+  const unread = notificationPage?.unreadTotal ?? notificationPage?.total ?? 0;
+  const unreadBadge = unread > 99 ? '99+' : unread > 0 ? String(unread) : '';
 
   return (
     <DropdownMenu>
@@ -297,7 +322,7 @@ export function DashboardNotifications({
         ) : notificationsQuery.isPending ? (
           <p className="m-0 px-2 py-3 text-sm text-muted-foreground">Loading notifications…</p>
         ) : (
-          <p className="m-0 px-2 py-3 text-sm text-muted-foreground">No notifications.</p>
+          <p className="m-0 px-2 py-3 text-sm text-muted-foreground">You are all caught up.</p>
         )}
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>

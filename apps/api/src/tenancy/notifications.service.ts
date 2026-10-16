@@ -63,19 +63,43 @@ export class NotificationsService {
   async list(tenantId: string, propertyId: string, query: unknown) {
     const { page, pageSize } = this.page(query);
     const offset = (page - 1) * pageSize;
+    const unreadFlag = ((query ?? {}) as Record<string, unknown>).unread;
+    const unreadOnly = unreadFlag === '1' || unreadFlag === 'true' || unreadFlag === true;
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      const [items, total] = await Promise.all([
-        tx.$queryRaw<Notification[]>`
-          SELECT id, type, payload, read_at AS "readAt", created_at AS "createdAt"
-          FROM notifications
-          WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
-          ORDER BY created_at DESC, id DESC
-          LIMIT ${pageSize} OFFSET ${offset}
-        `,
+      const [items, total, unread] = await Promise.all([
+        unreadOnly
+          ? tx.$queryRaw<Notification[]>`
+              SELECT id, type, payload, read_at AS "readAt", created_at AS "createdAt"
+              FROM notifications
+              WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+                AND read_at IS NULL
+              ORDER BY created_at DESC, id DESC
+              LIMIT ${pageSize} OFFSET ${offset}
+            `
+          : tx.$queryRaw<Notification[]>`
+              SELECT id, type, payload, read_at AS "readAt", created_at AS "createdAt"
+              FROM notifications
+              WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+              ORDER BY created_at DESC, id DESC
+              LIMIT ${pageSize} OFFSET ${offset}
+            `,
+        unreadOnly
+          ? tx.$queryRaw<[{ count: number }]>`
+              SELECT COUNT(*)::int AS count
+              FROM notifications
+              WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+                AND read_at IS NULL
+            `
+          : tx.$queryRaw<[{ count: number }]>`
+              SELECT COUNT(*)::int AS count
+              FROM notifications
+              WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+            `,
         tx.$queryRaw<[{ count: number }]>`
           SELECT COUNT(*)::int AS count
           FROM notifications
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+            AND read_at IS NULL
         `,
       ]);
       const bookingIds = [
@@ -113,6 +137,7 @@ export class NotificationsService {
         page,
         pageSize,
         total: total[0]?.count ?? 0,
+        unreadTotal: unread[0]?.count ?? 0,
       };
     });
   }
