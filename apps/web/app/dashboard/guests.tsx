@@ -1,12 +1,13 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { MoreHorizontal } from 'lucide-react';
+import { Download, MoreHorizontal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Avatar, AvatarFallback } from '../../components/ui/avatar';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
+import { Checkbox } from '../../components/ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import {
@@ -25,7 +26,12 @@ import { SearchInput } from '../../components/ui/search-input';
 import { SortableTableHead } from '../../components/ui/sortable-table-head';
 import { EmptyPanel, ErrorPanel, ListSkeleton, NoResultsPanel } from '../../components/ui/state-panel';
 import { TabBar } from '../../components/ui/tab-bar';
+import { BulkBar, ColumnChooser, DensityToggle } from '../../components/ui/table-toolbar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
+import { useTablePreferences } from '../../lib/use-table-preferences';
+import { cn } from '../../lib/utils';
+import { formatMoneyList, guestStatsById, guestsCsv, type GuestStats } from './guest-stats';
+import { GuestBadges, GuestSheet, stayLabel } from './guest-sheet';
 import { guestHref } from './payment-detail';
 import { fetchPropertyBookings } from './reservations';
 
@@ -53,8 +59,27 @@ type ReviewAction =
   | { kind: 'merge'; guestId: string; canonicalGuestId: string }
   | { kind: 'dismiss'; guestId: string };
 
-type SortKey = 'guest' | 'bookings' | 'lastStay';
-type GuestView = 'all' | 'duplicates';
+type SortKey = 'guest' | 'stays' | 'lastStay' | 'nextStay' | 'value' | 'owed';
+type GuestView = 'all' | 'returning' | 'first-time' | 'balance' | 'duplicates';
+
+type ColumnKey = 'contact' | 'type' | 'lastStay' | 'nextStay' | 'value' | 'owed';
+const COLUMN_LABELS: Record<ColumnKey, string> = {
+  contact: 'Contact',
+  type: 'Guest type',
+  lastStay: 'Last stay',
+  nextStay: 'Next stay',
+  value: 'Net paid',
+  owed: 'Still owed',
+};
+const DEFAULT_COLUMNS: Record<ColumnKey, boolean> = {
+  contact: true,
+  type: true,
+  lastStay: true,
+  nextStay: true,
+  value: true,
+  owed: true,
+};
+const todayIso = () => new Date().toISOString().slice(0, 10);
 
 type MergeCandidate = {
   pair: SuspectedDuplicatePair;
@@ -98,11 +123,14 @@ export function DashboardGuests({
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Guest>();
+  const [ticked, setTicked] = useState<string[]>([]);
+  const [notice, setNotice] = useState('');
+  const { columns, density, toggleColumn, toggleDensity } = useTablePreferences('must.guests.table', DEFAULT_COLUMNS);
   const [canonicalByGuest, setCanonicalByGuest] = useState<Record<string, string>>({});
   const [mergeCandidate, setMergeCandidate] = useState<MergeCandidate | null>(null);
   const [view, setView] = useState<GuestView>('all');
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(10);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [sort, setSort] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>({
     key: 'lastStay',
     direction: 'desc',
@@ -178,6 +206,7 @@ export function DashboardGuests({
     setCanonicalByGuest({});
     setMergeCandidate(null);
     setView('all');
+    setTicked([]);
     setPage(1);
   }, [tenantId, propertyId]);
 
@@ -193,16 +222,38 @@ export function DashboardGuests({
     return ids;
   }, [duplicatePairs]);
   const duplicateCount = guests.filter((guest) => duplicateGuestIds.has(guest.id)).length;
+  const stats = useMemo(() => guestStatsById(bookings, todayIso()), [bookings]);
+  const emptyStats = (guest: Guest): GuestStats | undefined => stats.get(guest.id);
+  const counts = useMemo(
+    () => ({
+      all: guests.length,
+      returning: guests.filter((guest) => stats.get(guest.id)?.kind === 'returning').length,
+      'first-time': guests.filter((guest) => stats.get(guest.id)?.kind !== 'returning').length,
+      balance: guests.filter((guest) => stats.get(guest.id)?.hasBalance).length,
+      duplicates: duplicateCount,
+    }),
+    [duplicateCount, guests, stats],
+  );
   const viewGuests = useMemo(
     () =>
-      guests.filter((guest) => view === 'all' || duplicateGuestIds.has(guest.id)),
-    [duplicateGuestIds, guests, view],
+      guests.filter((guest) => {
+        const entry = stats.get(guest.id);
+        if (view === 'returning') return entry?.kind === 'returning';
+        if (view === 'first-time') return entry?.kind !== 'returning';
+        if (view === 'balance') return entry?.hasBalance === true;
+        return true;
+      }),
+    [guests, stats, view],
   );
   const sortedGuests = useMemo(() => {
     const value = (guest: Guest): string | number => {
+      const entry = stats.get(guest.id);
       if (sort.key === 'guest') return guestName(guest).toLocaleLowerCase();
-      if (sort.key === 'bookings') return guest.bookingCount;
-      return guest.mostRecentStartsOn ?? '';
+      if (sort.key === 'stays') return entry?.stays ?? guest.bookingCount;
+      if (sort.key === 'value') return entry?.netValue ?? 0;
+      if (sort.key === 'owed') return entry?.outstandingValue ?? 0;
+      if (sort.key === 'nextStay') return entry?.next?.startsOn ?? '9999-12-31';
+      return entry?.last?.startsOn ?? '';
     };
     const factor = sort.direction === 'asc' ? 1 : -1;
     return [...viewGuests].sort((a, b) => {
@@ -210,12 +261,40 @@ export function DashboardGuests({
       const right = value(b);
       return (left < right ? -1 : left > right ? 1 : 0) * factor;
     });
-  }, [sort, viewGuests]);
+  }, [sort, stats, viewGuests]);
   const pageGuests = sortedGuests.slice((page - 1) * pageSize, page * pageSize);
   const history = selected
-    ? bookings.filter((booking) => booking.guestId === selected.id || booking.guestEmail === selected.email)
+    ? bookings
+        .filter((booking) => booking.guestId === selected.id)
+        .sort((a, b) => b.startsOn.localeCompare(a.startsOn))
     : [];
-
+  const tickedGuests = guests.filter((guest) => ticked.includes(guest.id));
+  const allTicked = pageGuests.length > 0 && pageGuests.every((guest) => ticked.includes(guest.id));
+  const someTicked = pageGuests.some((guest) => ticked.includes(guest.id));
+  const tick = (id: string, checked: boolean) =>
+    setTicked((current) => (checked ? [...new Set([...current, id])] : current.filter((value) => value !== id)));
+  const tickAll = (checked: boolean) =>
+    setTicked((current) => {
+      const pageIds = pageGuests.map((guest) => guest.id);
+      return checked ? [...new Set([...current, ...pageIds])] : current.filter((id) => !pageIds.includes(id));
+    });
+  const copyEmails = async () => {
+    try {
+      await navigator.clipboard.writeText(tickedGuests.map((guest) => guest.email).join('\n'));
+      setNotice(`Copied ${tickedGuests.length} email${tickedGuests.length === 1 ? '' : 's'}.`);
+    } catch {
+      setNotice('Could not copy. Select the emails manually.');
+    }
+  };
+  const exportCsv = (list: Guest[]) => {
+    const blob = new Blob([String.fromCharCode(0xfeff), guestsCsv(list, stats)], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `guests-${todayIso()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
   const setSearchValue = (value: string) => {
     setSearch(value);
     setPage(1);
@@ -228,7 +307,7 @@ export function DashboardGuests({
     setSort((current) =>
       current.key === key
         ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
-        : { key, direction: key === 'guest' ? 'asc' : 'desc' },
+        : { key, direction: key === 'guest' || key === 'nextStay' ? 'asc' : 'desc' },
     );
     setPage(1);
   };
@@ -264,14 +343,25 @@ export function DashboardGuests({
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Guests" description="Guest directory and property booking history." />
+      <PageHeader
+        title="Guests"
+        description="Everyone who has booked this hotel, with their stays and what they owe."
+        actions={
+          <Button variant="outline" disabled={sortedGuests.length === 0} onClick={() => exportCsv(sortedGuests)}>
+            <Download /> Export CSV
+          </Button>
+        }
+      />
 
       <Card className="gap-0 overflow-clip p-0">
         <div className="space-y-3 border-b p-4">
           <TabBar
             tabs={[
-              { id: 'all', label: 'All guests', count: guests.length },
-              { id: 'duplicates', label: 'Suspected duplicates', count: duplicateCount },
+              { id: 'all', label: 'All guests', count: counts.all },
+              { id: 'returning', label: 'Returning', count: counts.returning },
+              { id: 'first-time', label: 'First-time', count: counts['first-time'] },
+              { id: 'balance', label: 'With balance', count: counts.balance },
+              { id: 'duplicates', label: 'Suspected duplicates', count: counts.duplicates },
             ]}
             current={view}
             onSelect={selectView}
@@ -285,15 +375,159 @@ export function DashboardGuests({
               onChange={(event) => setSearchValue(event.target.value)}
               placeholder="Name, email, or phone"
             />
+            <ColumnChooser labels={COLUMN_LABELS} visible={columns} onToggle={toggleColumn} />
+            <DensityToggle compact={density === 'compact'} onToggle={toggleDensity} />
           </div>
           <FilterChips
             chips={search.trim() ? [{ key: 'search', label: `Search: ${search.trim()}` }] : []}
             onRemove={() => setSearchValue('')}
             onClearAll={() => setSearchValue('')}
           />
+          <BulkBar count={tickedGuests.length} onClear={() => setTicked([])}>
+            <Button variant="outline" size="sm" onClick={() => void copyEmails()}>
+              Copy emails
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => exportCsv(tickedGuests)}>
+              Export selected
+            </Button>
+          </BulkBar>
+          {notice ? (
+            <p role="status" className="m-0 text-xs text-muted-foreground">
+              {notice}
+            </p>
+          ) : null}
         </div>
 
-        {guests.length === 0 ? (
+        {view === 'duplicates' ? (
+          <section aria-labelledby="suspected-duplicates-heading" className="space-y-4 p-4">
+            <div className="space-y-1">
+              <h3 id="suspected-duplicates-heading" className="m-0 text-base font-semibold">
+                Suspected duplicates
+              </h3>
+              <p className="m-0 text-sm text-muted-foreground">
+                Review profiles that matched on one contact signal. Merging moves the other profile&apos;s
+                bookings to the profile you keep.
+              </p>
+            </div>
+            {duplicatePairs.length ? (
+      <div className="flex flex-col gap-4">
+        {duplicatePairs.map((pair) => {
+          const selectedCanonical = canonicalByGuest[pair.guest.id];
+          const pending =
+            reviewMutation.isPending && reviewMutation.variables?.guestId === pair.guest.id;
+          const differing = differingFields(pair.guest, pair.suspectedDuplicate);
+          const canonicalProfile =
+            selectedCanonical === pair.guest.id
+              ? pair.guest
+              : selectedCanonical === pair.suspectedDuplicate.id
+                ? pair.suspectedDuplicate
+                : null;
+          const otherProfile =
+            canonicalProfile === pair.guest
+              ? pair.suspectedDuplicate
+              : canonicalProfile === pair.suspectedDuplicate
+                ? pair.guest
+                : null;
+          return (
+            <Card className="gap-4 bg-muted/20 p-4" key={pair.guest.id}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Badge variant="warning">{matchReason(pair.guest, pair.suspectedDuplicate)}</Badge>
+                <span className="text-xs text-muted-foreground">
+                  Select which profile to keep
+                </span>
+              </div>
+              <div
+                className="grid gap-3 md:grid-cols-2"
+                role="radiogroup"
+                aria-label={`Choose the profile to keep for ${guestName(pair.guest)}`}
+              >
+                {[pair.guest, pair.suspectedDuplicate].map((profile) => {
+                  const selectedProfile = selectedCanonical === profile.id;
+                  return (
+                    <OptionCard
+                      key={profile.id}
+                      title={guestName(profile)}
+                      badges={selectedProfile ? <Badge variant="success">Selected to keep</Badge> : null}
+                      selected={selectedProfile}
+                      disabled={pending}
+                      description={
+                        <div className="flex flex-col gap-1">
+                          <span className="break-all">
+                            Email: {profile.email}
+                            {differing.has('email') ? ' · different' : ''}
+                          </span>
+                          <span>
+                            Phone: {profile.phone || '—'}
+                            {differing.has('phone') ? ' · different' : ''}
+                          </span>
+                          <span>
+                            Name: {guestName(profile)}
+                            {differing.has('name') ? ' · different' : ''}
+                          </span>
+                          <span>
+                            {profile.bookingCount} booking{profile.bookingCount === 1 ? '' : 's'}
+                          </span>
+                        </div>
+                      }
+                      onSelect={() =>
+                        setCanonicalByGuest((current) => ({
+                          ...current,
+                          [pair.guest.id]: profile.id,
+                        }))
+                      }
+                    />
+                  );
+                })}
+              </div>
+              {canonicalProfile && otherProfile ? (
+                <p className="m-0 text-sm text-muted-foreground">
+                  Keeping <strong className="text-foreground">{guestName(canonicalProfile)}</strong>{' '}
+                  — the {otherProfile.bookingCount} booking
+                  {otherProfile.bookingCount === 1 ? '' : 's'} on the other profile move here.{' '}
+                  {mergePreviewNote(canonicalProfile, otherProfile)}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={!selectedCanonical || pending}
+                  loading={pending}
+                  onClick={() => {
+                    if (!selectedCanonical || !canonicalProfile || !otherProfile) return;
+                    setMergeCandidate({ pair, canonicalProfile, otherProfile });
+                  }}
+                >
+                  Merge profiles
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() =>
+                    reviewMutation.mutate({ kind: 'dismiss', guestId: pair.guest.id })
+                  }
+                >
+                  Not a duplicate
+                </Button>
+                {reviewMutation.error && reviewMutation.variables?.guestId === pair.guest.id ? (
+                  <span role="alert" className="text-sm text-destructive">
+                    {reviewMutation.error.message}
+                  </span>
+                ) : null}
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+            ) : (
+              <EmptyPanel
+                title="No suspected duplicates"
+                description="Profiles matched on one contact signal will appear here for staff review."
+              />
+            )}
+          </section>
+        ) : guests.length === 0 ? (
           debouncedSearch ? (
             <NoResultsPanel onClear={clearFilters} />
           ) : (
@@ -310,29 +544,36 @@ export function DashboardGuests({
           </div>
         ) : (
           <>
-            <Table containerClassName="overflow-x-clip" className="text-xs">
+            <Table
+              containerClassName="overflow-x-clip"
+              data-density={density}
+              className="group text-[11px] data-[density=compact]:[&_td]:py-1"
+            >
               <TableHeader className="sticky top-[var(--app-header-height,86px)] z-20 bg-muted">
                 <TableRow className="hover:bg-muted">
-                  <SortableTableHead
-                    label="Guest"
-                    active={sort.key === 'guest'}
-                    direction={sort.direction}
-                    onSort={() => toggleSort('guest')}
-                  />
-                  <TableHead className="px-2 py-2 normal-case tracking-normal">Contact</TableHead>
-                  <SortableTableHead
-                    label="Bookings"
-                    active={sort.key === 'bookings'}
-                    direction={sort.direction}
-                    onSort={() => toggleSort('bookings')}
-                    align="right"
-                  />
-                  <SortableTableHead
-                    label="Last stay"
-                    active={sort.key === 'lastStay'}
-                    direction={sort.direction}
-                    onSort={() => toggleSort('lastStay')}
-                  />
+                  <TableHead className="w-8 px-3 py-2">
+                    <Checkbox
+                      aria-label="Select all guests on this page"
+                      checked={allTicked ? true : someTicked ? 'indeterminate' : false}
+                      onCheckedChange={(value) => tickAll(value === true)}
+                    />
+                  </TableHead>
+                  <SortableTableHead label="Guest" active={sort.key === 'guest'} direction={sort.direction} onSort={() => toggleSort('guest')} />
+                  {columns.contact ? <TableHead className="px-2 py-2 normal-case tracking-normal">Contact</TableHead> : null}
+                  {columns.type ? <TableHead className="px-2 py-2 normal-case tracking-normal">Guest type</TableHead> : null}
+                  <SortableTableHead label="Stays" active={sort.key === 'stays'} direction={sort.direction} onSort={() => toggleSort('stays')} align="right" />
+                  {columns.lastStay ? (
+                    <SortableTableHead label="Last stay" active={sort.key === 'lastStay'} direction={sort.direction} onSort={() => toggleSort('lastStay')} />
+                  ) : null}
+                  {columns.nextStay ? (
+                    <SortableTableHead label="Next stay" active={sort.key === 'nextStay'} direction={sort.direction} onSort={() => toggleSort('nextStay')} />
+                  ) : null}
+                  {columns.value ? (
+                    <SortableTableHead label="Net paid" active={sort.key === 'value'} direction={sort.direction} onSort={() => toggleSort('value')} align="right" />
+                  ) : null}
+                  {columns.owed ? (
+                    <SortableTableHead label="Still owed" active={sort.key === 'owed'} direction={sort.direction} onSort={() => toggleSort('owed')} align="right" />
+                  ) : null}
                   <TableHead className="w-10 px-2 py-2 text-right">
                     <span className="sr-only">Actions</span>
                   </TableHead>
@@ -342,69 +583,113 @@ export function DashboardGuests({
                 {pageGuests.map((guest) => {
                   const name = guestName(guest);
                   const detailHref = guestHref(tenantId, propertyId, guest.id);
+                  const entry = emptyStats(guest);
+                  const isTicked = ticked.includes(guest.id);
                   return (
-                    <TableRow key={guest.id} className="h-14">
+                    <TableRow
+                      key={guest.id}
+                      data-state={isTicked ? 'selected' : undefined}
+                      className={cn(
+                        'h-14 cursor-pointer group-data-[density=compact]:h-10',
+                        isTicked && 'bg-primary/10 hover:bg-primary/10',
+                      )}
+                      onClick={(event) => {
+                        if ((event.target as HTMLElement).closest('button, a, input, label, [role="checkbox"], [role="menuitem"]')) return;
+                        setSelected(guest);
+                      }}
+                    >
                       <TableCell className="px-3 py-2">
+                        <Checkbox
+                          aria-label={`Select ${name}`}
+                          checked={isTicked}
+                          onCheckedChange={(value) => tick(guest.id, value === true)}
+                        />
+                      </TableCell>
+                      <TableCell className="px-2 py-2">
                         <div className="flex min-w-0 items-center gap-2.5">
                           <Avatar>
                             <AvatarFallback>{guestInitials(guest)}</AvatarFallback>
                           </Avatar>
-                          <Button
-                            variant="link"
-                            size="sm"
-                            className="h-auto min-w-0 !px-0 py-0 text-left text-foreground"
-                            onClick={() => setSelected(guest)}
-                            aria-label={`Show booking history for ${name}`}
-                          >
-                            <span className="truncate">{name}</span>
-                          </Button>
+                          <span className="min-w-0">
+                            <button
+                              type="button"
+                              onClick={() => setSelected(guest)}
+                              aria-label={`Show details for ${name}`}
+                              className="block max-w-full truncate bg-transparent p-0 text-left text-[12px] font-semibold text-foreground hover:underline"
+                            >
+                              {name}
+                            </button>
+                            <span className="block truncate text-[10px] text-muted-foreground group-data-[density=compact]:hidden">
+                              {guest.email}
+                            </span>
+                          </span>
                         </div>
                       </TableCell>
-                      <TableCell className="max-w-64 px-2 py-2">
-                        <span className="block truncate">{guest.email}</span>
-                        {guest.phone ? (
-                          <span className="block truncate text-[10px] text-muted-foreground">
-                            {guest.phone}
+                      {columns.contact ? (
+                        <TableCell className="max-w-56 px-2 py-2">
+                          <span className="block truncate">{guest.phone ?? <span className="text-muted-foreground">No phone on file</span>}</span>
+                        </TableCell>
+                      ) : null}
+                      {columns.type ? (
+                        <TableCell className="px-2 py-2">
+                          <span className="flex flex-wrap gap-1">
+                            <GuestBadges stats={entry} duplicate={duplicateGuestIds.has(guest.id)} />
                           </span>
-                        ) : (
-                          <span className="block text-[10px] text-muted-foreground">No phone on file</span>
-                        )}
-                      </TableCell>
+                        </TableCell>
+                      ) : null}
                       <TableCell className="px-2 py-2 text-right font-semibold tabular-nums">
-                        {guest.bookingCount}
-                      </TableCell>
-                      <TableCell className="px-2 py-2">
-                        {guest.mostRecentStartsOn ? (
-                          <span className="whitespace-nowrap">
-                            {formatDay(guest.mostRecentStartsOn, false)}
-                            {guest.mostRecentEndsOn
-                              ? ` – ${formatDay(guest.mostRecentEndsOn, true)}`
-                              : ''}
+                        {entry?.stays ?? guest.bookingCount}
+                        {entry && entry.cancelled > 0 ? (
+                          <span className="block text-[10px] font-normal text-muted-foreground group-data-[density=compact]:hidden">
+                            {entry.cancelled} cancelled
                           </span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
+                        ) : null}
                       </TableCell>
+                      {columns.lastStay ? (
+                        <TableCell className="px-2 py-2 whitespace-nowrap">
+                          {stayLabel(entry?.last) ?? <span className="text-muted-foreground">—</span>}
+                        </TableCell>
+                      ) : null}
+                      {columns.nextStay ? (
+                        <TableCell className="px-2 py-2 whitespace-nowrap">
+                          {entry?.current ? (
+                            <span className="font-semibold text-info">Staying now</span>
+                          ) : (
+                            (stayLabel(entry?.next) ?? <span className="text-muted-foreground">—</span>)
+                          )}
+                        </TableCell>
+                      ) : null}
+                      {columns.value ? (
+                        <TableCell className="px-2 py-2 text-right whitespace-nowrap tabular-nums">
+                          {entry ? formatMoneyList(entry.net) : '—'}
+                        </TableCell>
+                      ) : null}
+                      {columns.owed ? (
+                        <TableCell
+                          className={cn(
+                            'px-2 py-2 text-right whitespace-nowrap tabular-nums',
+                            entry?.hasBalance ? 'font-semibold text-warning' : 'text-muted-foreground',
+                          )}
+                        >
+                          {entry?.hasBalance ? formatMoneyList(entry.outstanding) : '—'}
+                        </TableCell>
+                      ) : null}
                       <TableCell className="px-2 py-1 text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label={`More actions for ${name}`}
-                              className="size-7"
-                            >
+                            <Button variant="ghost" size="icon-sm" aria-label={`More actions for ${name}`} className="size-7">
                               <MoreHorizontal aria-hidden="true" className="size-4" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuLabel>{name}</DropdownMenuLabel>
                             <DropdownMenuSeparator />
+                            <DropdownMenuItem onSelect={() => setSelected(guest)}>Quick view</DropdownMenuItem>
                             <DropdownMenuItem asChild>
                               <a href={detailHref}>Open profile</a>
                             </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => setSelected(guest)}>
-                              View booking history
+                            <DropdownMenuItem asChild>
+                              <a href={`mailto:${guest.email}`}>Send email</a>
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -430,182 +715,15 @@ export function DashboardGuests({
         )}
       </Card>
 
-      {selected ? (
-        <Card className="gap-4">
-          <CardHeader>
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-1">
-                <CardTitle className="text-base">
-                  {guestName(selected)} — booking history
-                </CardTitle>
-                <p className="m-0 text-sm text-muted-foreground">
-                  {history.length} booking{history.length === 1 ? '' : 's'} found for this guest.
-                </p>
-              </div>
-              <Button variant="outline" size="sm" asChild>
-                <a href={guestHref(tenantId, propertyId, selected.id)}>Open guest profile</a>
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {history.length ? (
-              <Table className="text-xs">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Stay</TableHead>
-                    <TableHead>Room type</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {history.map((booking) => (
-                    <TableRow key={booking.id}>
-                      <TableCell>
-                        {booking.startsOn} – {booking.endsOn}
-                      </TableCell>
-                      <TableCell>{booking.roomTypeName}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            ) : (
-              <p className="m-0 text-sm text-muted-foreground">No bookings found.</p>
-            )}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      <section aria-labelledby="suspected-duplicates-heading">
-        <Card className="gap-4">
-          <CardHeader>
-            <CardTitle id="suspected-duplicates-heading" className="text-base">
-              Suspected duplicates
-            </CardTitle>
-            <p className="m-0 text-sm text-muted-foreground">
-              Review profiles that matched on one contact signal. Merging moves the other profile&apos;s
-              bookings to the profile you keep.
-            </p>
-          </CardHeader>
-          <CardContent>
-            {duplicatePairs.length ? (
-              <div className="flex flex-col gap-4">
-                {duplicatePairs.map((pair) => {
-                  const selectedCanonical = canonicalByGuest[pair.guest.id];
-                  const pending =
-                    reviewMutation.isPending && reviewMutation.variables?.guestId === pair.guest.id;
-                  const differing = differingFields(pair.guest, pair.suspectedDuplicate);
-                  const canonicalProfile =
-                    selectedCanonical === pair.guest.id
-                      ? pair.guest
-                      : selectedCanonical === pair.suspectedDuplicate.id
-                        ? pair.suspectedDuplicate
-                        : null;
-                  const otherProfile =
-                    canonicalProfile === pair.guest
-                      ? pair.suspectedDuplicate
-                      : canonicalProfile === pair.suspectedDuplicate
-                        ? pair.guest
-                        : null;
-                  return (
-                    <Card className="gap-4 bg-muted/20 p-4" key={pair.guest.id}>
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <Badge variant="warning">{matchReason(pair.guest, pair.suspectedDuplicate)}</Badge>
-                        <span className="text-xs text-muted-foreground">
-                          Select which profile to keep
-                        </span>
-                      </div>
-                      <div
-                        className="grid gap-3 md:grid-cols-2"
-                        role="radiogroup"
-                        aria-label={`Choose the profile to keep for ${guestName(pair.guest)}`}
-                      >
-                        {[pair.guest, pair.suspectedDuplicate].map((profile) => {
-                          const selectedProfile = selectedCanonical === profile.id;
-                          return (
-                            <OptionCard
-                              key={profile.id}
-                              title={guestName(profile)}
-                              badges={selectedProfile ? <Badge variant="success">Selected to keep</Badge> : null}
-                              selected={selectedProfile}
-                              disabled={pending}
-                              description={
-                                <div className="flex flex-col gap-1">
-                                  <span className="break-all">
-                                    Email: {profile.email}
-                                    {differing.has('email') ? ' · different' : ''}
-                                  </span>
-                                  <span>
-                                    Phone: {profile.phone || '—'}
-                                    {differing.has('phone') ? ' · different' : ''}
-                                  </span>
-                                  <span>
-                                    Name: {guestName(profile)}
-                                    {differing.has('name') ? ' · different' : ''}
-                                  </span>
-                                  <span>
-                                    {profile.bookingCount} booking{profile.bookingCount === 1 ? '' : 's'}
-                                  </span>
-                                </div>
-                              }
-                              onSelect={() =>
-                                setCanonicalByGuest((current) => ({
-                                  ...current,
-                                  [pair.guest.id]: profile.id,
-                                }))
-                              }
-                            />
-                          );
-                        })}
-                      </div>
-                      {canonicalProfile && otherProfile ? (
-                        <p className="m-0 text-sm text-muted-foreground">
-                          Keeping <strong className="text-foreground">{guestName(canonicalProfile)}</strong>{' '}
-                          — the {otherProfile.bookingCount} booking
-                          {otherProfile.bookingCount === 1 ? '' : 's'} on the other profile move here.{' '}
-                          {mergePreviewNote(canonicalProfile, otherProfile)}
-                        </p>
-                      ) : null}
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          disabled={!selectedCanonical || pending}
-                          loading={pending}
-                          onClick={() => {
-                            if (!selectedCanonical || !canonicalProfile || !otherProfile) return;
-                            setMergeCandidate({ pair, canonicalProfile, otherProfile });
-                          }}
-                        >
-                          Merge profiles
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={pending}
-                          onClick={() =>
-                            reviewMutation.mutate({ kind: 'dismiss', guestId: pair.guest.id })
-                          }
-                        >
-                          Not a duplicate
-                        </Button>
-                        {reviewMutation.error && reviewMutation.variables?.guestId === pair.guest.id ? (
-                          <span role="alert" className="text-sm text-destructive">
-                            {reviewMutation.error.message}
-                          </span>
-                        ) : null}
-                      </div>
-                    </Card>
-                  );
-                })}
-              </div>
-            ) : (
-              <EmptyPanel
-                title="No suspected duplicates"
-                description="Profiles matched on one contact signal will appear here for staff review."
-              />
-            )}
-          </CardContent>
-        </Card>
-      </section>
+      <GuestSheet
+        guest={selected ?? null}
+        stats={selected ? stats.get(selected.id) : undefined}
+        bookings={history}
+        duplicate={selected ? duplicateGuestIds.has(selected.id) : false}
+        tenantId={tenantId}
+        propertyId={propertyId}
+        onClose={() => setSelected(undefined)}
+      />
 
       <ConfirmDialog
         open={mergeCandidate !== null}

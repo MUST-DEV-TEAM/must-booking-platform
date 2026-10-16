@@ -31,14 +31,35 @@ const guests = [
     mostRecentEndsOn: '2026-08-15',
   },
 ];
+const moneyFields = {
+  status: 'CONFIRMED',
+  paymentMethod: 'POKPAY',
+  total: { amount: '100.00', currency: 'EUR' },
+  paidAmount: '100.00',
+  refundedAmount: '0.00',
+  createdAt: '2026-07-01T10:00:00Z',
+  updatedAt: '2026-07-01T10:00:00Z',
+};
 const bookings = [
   {
     id: 'booking-1',
     guestId: 'guest-1',
     guestEmail: 'ada@test',
     roomTypeName: 'Deluxe',
+    externalReference: 'EBR-1',
     startsOn: '2026-08-10',
     endsOn: '2026-08-12',
+    ...moneyFields,
+  },
+  {
+    id: 'booking-2',
+    guestId: 'guest-1',
+    guestEmail: 'ada@test',
+    roomTypeName: 'Suite',
+    externalReference: 'EBR-2',
+    startsOn: '2026-06-10',
+    endsOn: '2026-06-12',
+    ...moneyFields,
   },
 ];
 const suspectedDuplicates = [
@@ -58,6 +79,20 @@ const suspectedDuplicates = [
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Dashboard guests', () => {
+  it('selects rows, shows the bulk bar and splits guests into returning and first-time', async () => {
+    mockFetch();
+    const { container, root } = await mount();
+    expect(tab(container, 'Returning').textContent).toContain('1');
+    await click(container.querySelector('[role="checkbox"][aria-label="Select Ada Lovelace"]')!);
+    expect(container.textContent).toContain('1 selected');
+    expect(container.textContent).toContain('Copy emails');
+    await click(tab(container, 'Returning'));
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(1);
+    await click(tab(container, 'First-time'));
+    expect(container.querySelector('tbody')!.textContent).toContain('No History');
+    await act(async () => root.unmount());
+  });
+
   it('keeps the loading skeleton until the guest request and booking history resolve', async () => {
     let resolveGuests!: (value: Response) => void;
     vi.stubGlobal(
@@ -90,13 +125,12 @@ describe('Dashboard guests', () => {
     expect(container.textContent).toContain('Ada Lovelace');
     expect(container.textContent).toContain('ada@test');
     expect(container.querySelector('tbody tr')?.textContent).toContain('2');
-    await click(
-      Array.from(container.querySelectorAll('button')).find(
-        (button) => button.textContent === 'Ada Lovelace',
-      )!,
-    );
-    expect(container.textContent).toContain('booking history');
-    expect(container.textContent).toContain('Deluxe');
+    await click(container.querySelector('button[aria-label="Show details for Ada Lovelace"]')!);
+    const peek = document.body.querySelector('[role="dialog"]')!.textContent ?? '';
+    expect(peek).toContain('Latest reservations');
+    expect(peek).toContain('EBR-1');
+    expect(peek).toContain('Deluxe');
+    expect(peek).toContain('Returning');
     await act(async () => root.unmount());
   });
 
@@ -104,24 +138,25 @@ describe('Dashboard guests', () => {
     mockFetch(suspectedDuplicates);
     const { container, root } = await mount();
     const bookingSort = Array.from(container.querySelectorAll('thead button')).find(
-      (button) => button.textContent?.includes('Bookings'),
+      (button) => button.textContent?.includes('Stays'),
     )!;
     await click(bookingSort);
     expect(
       Array.from(container.querySelectorAll('tbody tr')).map(
-        (row) => row.querySelector('button')?.textContent,
+        (row) => row.querySelector('button[aria-label^="Show details"]')?.textContent,
       ),
     ).toEqual(['Ada Lovelace', 'No History']);
     await click(bookingSort);
     expect(
       Array.from(container.querySelectorAll('tbody tr')).map(
-        (row) => row.querySelector('button')?.textContent,
+        (row) => row.querySelector('button[aria-label^="Show details"]')?.textContent,
       ),
     ).toEqual(['No History', 'Ada Lovelace']);
 
-    await click(container.querySelector('[role="tab"][aria-selected="false"]')!);
-    expect(container.querySelectorAll('tbody tr')).toHaveLength(1);
-    expect(container.querySelector('tbody')?.textContent).toContain('Ada Lovelace');
+    await click(tab(container, 'Suspected duplicates'));
+    expect(container.querySelector('tbody')).toBeNull();
+    expect(container.textContent).toContain('Ada Lovelace');
+    expect(container.textContent).toContain('ada+old@test');
     await act(async () => root.unmount());
   });
 
@@ -159,12 +194,8 @@ describe('Dashboard guests', () => {
   it('shows no bookings found when the selected guest has no matching history', async () => {
     mockFetch();
     const { container, root } = await mount();
-    await click(
-      Array.from(container.querySelectorAll('button')).find(
-        (button) => button.textContent === 'No History',
-      )!,
-    );
-    expect(container.textContent).toContain('No bookings found.');
+    await click(container.querySelector('button[aria-label="Show details for No History"]')!);
+    expect(document.body.querySelector('[role="dialog"]')!.textContent).toContain('No reservations found.');
     await act(async () => root.unmount());
   });
 
@@ -182,6 +213,7 @@ describe('Dashboard guests', () => {
       vi.fn(() => true),
     );
     const { container, root } = await mount();
+    await click(tab(container, 'Suspected duplicates'));
 
     expect(container.textContent).toContain('Suspected duplicates');
     expect(container.textContent).toContain('ada+old@test');
@@ -242,6 +274,7 @@ describe('Dashboard guests', () => {
       vi.fn(() => true),
     );
     const { container, root } = await mount();
+    await click(tab(container, 'Suspected duplicates'));
 
     expect(container.textContent).toContain(
       'Flagged because the phone number matches, but the email addresses differ.',
@@ -257,6 +290,10 @@ describe('Dashboard guests', () => {
     await act(async () => root.unmount());
   });
 });
+
+function tab(container: Element, label: string) {
+  return Array.from(container.querySelectorAll('[role="tab"]')).find((entry) => entry.textContent?.startsWith(label))!;
+}
 
 function mockFetch(duplicates: typeof suspectedDuplicates = []) {
   vi.stubGlobal(

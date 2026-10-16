@@ -128,7 +128,7 @@ describe('GuestDetail', () => {
       'EBR-OLD',
     ]);
     expect(rows[0].querySelector('a')?.getAttribute('href')).toBe(
-      '/dashboard/t?propertyId=p&section=payments&payment=new',
+      '/dashboard/t?propertyId=p&section=reservations&reservation=new',
     );
     expect(c.textContent).not.toContain('EBR-OTHER');
     await unmount();
@@ -138,18 +138,34 @@ describe('GuestDetail', () => {
     const { c, unmount } = await renderGuest('g1');
     const cancelled = Array.from(c.querySelectorAll('tbody tr'))[1];
     expect(cancelled.textContent).toContain('Cancelled');
-    expect(cancelled.textContent).toContain('Partially refunded');
+    await act(async () => {
+      Array.from(c.querySelectorAll<HTMLElement>('[role="tab"]')).find((entry) => entry.textContent?.startsWith('Payments'))!.click();
+    });
+    const paymentRow = Array.from(c.querySelectorAll('tbody tr'))[1];
+    expect(paymentRow.textContent).toContain('Partially refunded');
+    expect(paymentRow.querySelector('a')?.getAttribute('href')).toBe('/dashboard/t?propertyId=p&section=payments&payment=old');
     await unmount();
   });
 
   it('totals what the guest has paid and had refunded', async () => {
     const { c, unmount } = await renderGuest('g1');
     const summary = c.querySelector('[aria-label="Guest summary"]')!.textContent ?? '';
-    expect(summary).toContain('2');
     expect(summary).toContain('1 cancelled');
-    expect(summary).toMatch(/500/);
-    expect(summary).toMatch(/100/);
-    expect(summary).toMatch(/400/);
+    expect(summary).toMatch(/Net paid.*400/);
+    expect(summary).toMatch(/Still owed.*—/);
+    await unmount();
+  });
+
+  it('shows who the guest is, what they have done and a feed of their activity', async () => {
+    const { c, unmount } = await renderGuest('g1');
+    expect(c.textContent).toContain('Contact and identity');
+    expect(c.textContent).toContain('Vlorë');
+    expect(c.textContent).toContain('Possible duplicate');
+    await act(async () => {
+      Array.from(c.querySelectorAll<HTMLElement>('[role="tab"]')).find((entry) => entry.textContent?.startsWith('Activity'))!.click();
+    });
+    expect(c.textContent).toContain('Reservation EBR-NEW created');
+    expect(c.textContent).toContain('Reservation EBR-OLD cancelled');
     await unmount();
   });
 
