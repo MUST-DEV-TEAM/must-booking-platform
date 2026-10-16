@@ -115,6 +115,7 @@ export class StaffBookingController {
         city: this.optionalNullableString(guest.city),
         county: this.optionalNullableString(guest.county),
         postcode: this.optionalNullableString(guest.postcode),
+        specialRequests: typeof guest.specialRequests === 'string' ? guest.specialRequests : undefined,
       },
     };
   }

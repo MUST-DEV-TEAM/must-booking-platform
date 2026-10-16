@@ -40,7 +40,7 @@ import styles from './dashboard-shell.module.css';
 import { NeedsAttentionTab } from './needs-attention';
 import { DashboardOverview, useOverviewQuery } from './overview';
 import { DashboardCalendar } from './calendar';
-import { WalkInBooking } from './walk-in-booking';
+import { AddReservation } from './add-reservation';
 import { DashboardPayments } from './payments';
 import { PaymentDetail } from './payment-detail';
 import { DashboardGuests } from './guests';
@@ -498,7 +498,7 @@ export function DashboardShell({
           ) : visibleDashboardTab === 'needs-attention' ? (
             <NeedsAttentionTab tenantId={tenantId} propertyId={selectedProperty.id} />
           ) : visibleDashboardTab === 'quick-booking' ? (
-            <WalkInBooking
+            <AddReservation
               tenantId={tenantId}
               propertyId={selectedProperty.id}
               bookingMode={selectedProperty.bookingMode}
