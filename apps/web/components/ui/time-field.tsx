@@ -137,7 +137,7 @@ export function TimeField({
           <Clock aria-hidden="true" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-64 space-y-3 p-3">
+      <PopoverContent align="start" className="w-72 space-y-3 p-3">
         <div className="relative">
           <div
             aria-hidden="true"
@@ -163,11 +163,12 @@ export function TimeField({
             />
           </div>
         </div>
-        <div className="flex items-center justify-between gap-2 border-t pt-2">
+        <div className="space-y-2 border-t pt-2">
           {defaultValue ? (
             <Button
               variant="ghost"
               size="sm"
+              className="w-full justify-start"
               onClick={() => {
                 onChange(defaultValue);
                 setWheelKey((key) => key + 1);
@@ -175,10 +176,8 @@ export function TimeField({
             >
               {defaultLabel} ({defaultValue})
             </Button>
-          ) : (
-            <span />
-          )}
-          <div className="flex gap-1">
+          ) : null}
+          <div className="grid grid-cols-2 gap-2">
             <Button
               variant="outline"
               size="sm"

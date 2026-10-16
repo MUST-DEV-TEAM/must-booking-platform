@@ -10,6 +10,7 @@ import { CalendarPicker } from '../../components/ui/calendar-picker';
 import { Card } from '../../components/ui/card';
 import { IconButton } from '../../components/ui/icon-button';
 import { Input } from '../../components/ui/input';
+import { NumberStepper } from '../../components/ui/number-stepper';
 import { SearchInput } from '../../components/ui/search-input';
 import { SegmentedControl } from '../../components/ui/segmented-control';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
@@ -105,6 +106,8 @@ export function CalendarBoard({
   const [hidden, setHidden] = useState<StayState[]>(['cancelled']);
   const [collapsed, setCollapsed] = useState<string[]>([]);
   const [selected, setSelected] = useState<ReservationRow | null>(null);
+  // An empty day the person clicked: nothing happens until they choose to add a reservation.
+  const [cell, setCell] = useState<{ key: string; day: string; room?: Room; nights: number } | null>(null);
   const unseen = useUnseenBookings(tenantId, propertyId);
 
   // Remember how this person likes the calendar set up.
@@ -213,11 +216,11 @@ export function CalendarBoard({
       />
     );
 
-  const dayHref = (day: string, room?: Room) =>
+  const dayHref = (day: string, nights: number, room?: Room) =>
     href(
       tenantId,
       propertyId,
-      `section=overview&tab=quick-booking&start=${day}&end=${addDays(day, 1)}${room ? `&roomTypeId=${room.roomTypeId}&roomId=${room.id}` : ''}`,
+      `section=overview&tab=quick-booking&start=${day}&end=${addDays(day, nights)}${room ? `&roomTypeId=${room.roomTypeId}&roomId=${room.id}` : ''}`,
     );
   const todayIndex = diffDays(start, today);
   const minWidth = LABEL_WIDTH + dayCount * MIN_DAY_WIDTH;
@@ -273,9 +276,21 @@ export function CalendarBoard({
             if ((event.target as HTMLElement).closest('button')) return;
             const bounds = event.currentTarget.getBoundingClientRect();
             const index = Math.min(dayCount - 1, Math.max(0, Math.floor(((event.clientX - bounds.left) / bounds.width) * dayCount)));
-            window.location.assign(dayHref(days[index]!, room));
+            const day = days[index]!;
+            // Clicking the same day again lets go of it.
+            setCell((current) => (current?.key === key && current.day === day ? null : { key, day, room, nights: 1 }));
           }}
         >
+          {cell?.key === key && diffDays(start, cell.day) >= 0 && diffDays(start, cell.day) < dayCount ? (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0.5 rounded-md border-2 border-primary bg-primary/10"
+              style={{
+                left: `${(diffDays(start, cell.day) / dayCount) * 100}%`,
+                width: `${(Math.min(cell.nights, dayCount - diffDays(start, cell.day)) / dayCount) * 100}%`,
+              }}
+            />
+          ) : null}
           {todayIndex >= 0 && todayIndex < dayCount ? (
             <div
               aria-hidden="true"
@@ -591,6 +606,46 @@ export function CalendarBoard({
             })}
           </div>
         </div>
+
+        {cell ? (
+          <div className="flex flex-wrap items-center gap-3 border-t bg-primary/5 px-4 py-3 text-sm">
+            <span className="font-semibold">
+              {cell.room ? `${cell.room.name} · ` : ''}
+              {new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).format(
+                new Date(`${cell.day}T00:00:00`),
+              )}
+            </span>
+            <span className="text-muted-foreground">for</span>
+            <NumberStepper
+              label="Nights"
+              min={1}
+              max={30}
+              value={cell.nights}
+              onChange={(nights) => setCell({ ...cell, nights })}
+              className="w-32"
+            />
+            <span className="text-muted-foreground">{cell.nights === 1 ? 'night' : 'nights'}</span>
+            <div className="ml-auto flex gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setCell(null)}>
+                Cancel
+              </Button>
+              {cell.day < today ? (
+                <Button size="sm" disabled>
+                  <CirclePlus aria-hidden="true" /> Add reservation
+                </Button>
+              ) : (
+                <Button size="sm" asChild>
+                  <a href={dayHref(cell.day, cell.nights, cell.room)}>
+                    <CirclePlus aria-hidden="true" /> Add reservation
+                  </a>
+                </Button>
+              )}
+            </div>
+            {cell.day < today ? (
+              <p className="m-0 w-full text-xs text-muted-foreground">This day has passed, so a reservation cannot start on it.</p>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="flex flex-wrap items-center gap-4 border-t px-4 py-2 text-[11px] text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
