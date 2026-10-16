@@ -45,9 +45,9 @@ export function ActivityFeed({
     else groups.push({ day, items: [entry] });
   }
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-8">
       {groups.map((group) => (
-        <div key={group.day} className="space-y-3">
+        <div key={group.day} className="flex flex-col gap-4">
           <p className="m-0 text-xs font-semibold text-muted-foreground">{group.day}</p>
           <ol className="m-0 list-none p-0">
             {group.items.map((entry, index) => {
@@ -65,7 +65,7 @@ export function ActivityFeed({
                   >
                     <Icon aria-hidden="true" className="size-4" />
                   </span>
-                  <div className="min-w-0 flex-1 space-y-1 pt-1">
+                  <div className="min-w-0 flex min-w-0 flex-1 flex-col gap-1 pt-1">
                     <div className="flex items-start justify-between gap-3">
                       <p className="m-0 text-sm leading-5 font-semibold">{entry.title}</p>
                       <time dateTime={entry.at} className="m-0 shrink-0 text-xs leading-5 text-muted-foreground">
