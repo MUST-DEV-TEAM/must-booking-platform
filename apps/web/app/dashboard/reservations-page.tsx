@@ -6,20 +6,28 @@ import {
   ArrowUp,
   ArrowUpDown,
   CalendarDays,
+  ChevronDown,
+  ChevronRight,
   CirclePlus,
-  EllipsisVertical,
+  Columns3,
   ListFilter,
+  MoreHorizontal,
   Search,
+  UserRound,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 
 import { BookingStatusBadge, PaymentStatusBadge, SourceBadge } from '../../components/ui/status-badge';
 import { Button } from '../../components/ui/button';
+import { Card } from '../../components/ui/card';
+import { Checkbox } from '../../components/ui/checkbox';
 import { CalendarPicker, formatCalendarSelection, type CalendarSelection } from '../../components/ui/calendar-picker';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu';
 import { FilterChips, type FilterChip } from '../../components/ui/filter-chips';
@@ -53,6 +61,7 @@ import {
   TableRow,
 } from '../../components/ui/table';
 import { balanceDue, bookingStatusDisplay, nightsBetween } from '../../lib/reservation-display';
+import { cn } from '../../lib/utils';
 
 type View =
   | 'all'
@@ -112,10 +121,31 @@ type Filters = {
   sort: SortKey;
   direction: 'asc' | 'desc';
   page: number;
+  pageSize: number;
 };
 
-const PAGE_SIZE = 25;
+const PAGE_SIZES = [10, 25, 50] as const;
 const ALL = 'all';
+
+type ColumnKey = 'room' | 'source' | 'payment' | 'total';
+const columnLabels: Record<ColumnKey, string> = {
+  room: 'Room',
+  source: 'Source',
+  payment: 'Payment',
+  total: 'Total',
+};
+const COLUMNS_STORAGE_KEY = 'must.reservations.columns';
+const defaultColumns: Record<ColumnKey, boolean> = { room: true, source: true, payment: true, total: true };
+
+function loadColumns(): Record<ColumnKey, boolean> {
+  try {
+    const stored = window.localStorage.getItem(COLUMNS_STORAGE_KEY);
+    if (stored) return { ...defaultColumns, ...(JSON.parse(stored) as Partial<Record<ColumnKey, boolean>>) };
+  } catch {
+    // Storage can be blocked or hold bad data; fall back to showing every column.
+  }
+  return defaultColumns;
+}
 
 const initialFilters: Filters = {
   view: 'all',
@@ -128,6 +158,7 @@ const initialFilters: Filters = {
   sort: 'stay',
   direction: 'desc',
   page: 1,
+  pageSize: 25,
 };
 
 const statusOptions = [
@@ -184,7 +215,7 @@ function queryString(filters: Filters, search: string): string {
   params.set('sort', filters.sort);
   params.set('direction', filters.direction);
   params.set('page', String(filters.page));
-  params.set('pageSize', String(PAGE_SIZE));
+  params.set('pageSize', String(filters.pageSize));
   return params.toString();
 }
 
@@ -229,7 +260,14 @@ export function ReservationsPage({
   const [filters, setFilters] = useState<Filters>(initialFilters);
   const [searchText, setSearchText] = useState('');
   const [selected, setSelected] = useState<ReservationRow | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [columns, setColumns] = useState<Record<ColumnKey, boolean>>(defaultColumns);
   const debouncedSearch = useDebounced(searchText, 300);
+
+  // Remembered column choice (a per-browser convenience).
+  useEffect(() => setColumns(loadColumns()), []);
 
   // A new search term always starts from the first page.
   useEffect(() => {
@@ -251,12 +289,16 @@ export function ReservationsPage({
     placeholderData: keepPreviousData,
   });
 
-  const update = (patch: Partial<Filters>) =>
+  const update = (patch: Partial<Filters>) => {
+    setSelectedIds([]);
+    setExpandedId(null);
+    setNotice(null);
     setFilters((current) => ({ ...current, page: 1, ...patch }));
+  };
 
   const clearAll = () => {
     setSearchText('');
-    setFilters((current) => ({ ...initialFilters, view: current.view }));
+    setFilters((current) => ({ ...initialFilters, view: current.view, pageSize: current.pageSize }));
   };
 
   const counts = query.data?.counts;
@@ -305,19 +347,37 @@ export function ReservationsPage({
       direction: filters.sort === key && filters.direction === 'desc' ? 'asc' : 'desc',
     });
 
-  const sortIcon = (key: SortKey) =>
-    filters.sort !== key ? (
-      <ArrowUpDown aria-hidden="true" className="size-3.5 opacity-50" />
-    ) : filters.direction === 'asc' ? (
-      <ArrowUp aria-hidden="true" className="size-3.5" />
-    ) : (
-      <ArrowDown aria-hidden="true" className="size-3.5" />
-    );
-
   const data = query.data;
   const filtered = Boolean(searchText.trim() || chips.length > 0 || filters.view !== 'all');
   const addHref = dashboardHref(tenantId, propertyId, 'section=overview&tab=quick-booking');
   const calendarHref = dashboardHref(tenantId, propertyId, 'section=calendar');
+  const rows = data?.items ?? [];
+  const selectedRows = rows.filter((row) => selectedIds.includes(row.id));
+  const allSelected = rows.length > 0 && selectedRows.length === rows.length;
+  const someSelected = selectedRows.length > 0 && !allSelected;
+  const visibleColumnCount =
+    7 + Object.values(columns).filter(Boolean).length;
+
+  const toggleRow = (id: string, checked: boolean) =>
+    setSelectedIds((current) => (checked ? [...new Set([...current, id])] : current.filter((value) => value !== id)));
+  const toggleAll = (checked: boolean) => setSelectedIds(checked ? rows.map((row) => row.id) : []);
+  const toggleColumn = (key: ColumnKey) => {
+    const next = { ...columns, [key]: !columns[key] };
+    setColumns(next);
+    try {
+      window.localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // Remembering the choice is a convenience; ignore blocked storage.
+    }
+  };
+  const copyReferences = async () => {
+    try {
+      await navigator.clipboard.writeText(selectedRows.map((row) => row.externalReference).join('\n'));
+      setNotice(`Copied ${selectedRows.length} reference${selectedRows.length === 1 ? '' : 's'}.`);
+    } catch {
+      setNotice('Could not copy. Select the references manually.');
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -368,146 +428,181 @@ export function ReservationsPage({
         />
       </div>
 
-      <TabBar
-        tabs={tabs}
-        current={filters.view}
-        onSelect={(id) => update({ view: id as View })}
-        label="Reservation views"
-      />
-
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-56 flex-1 sm:max-w-sm">
-          <Search
-            aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+      <Card className="gap-0 overflow-hidden p-0">
+        <div className="space-y-3 border-b p-4">
+          <TabBar
+            tabs={tabs}
+            current={filters.view}
+            onSelect={(id) => update({ view: id as View })}
+            label="Reservation views"
           />
-          <Input
-            aria-label="Search reservations"
-            placeholder="Search guest, reference, phone or email"
-            value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
-            className="pl-9"
-          />
-        </div>
-
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline">
-              <ListFilter /> More filters{chips.length > 0 ? ` (${chips.length})` : ''}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-80 space-y-3">
-            <FilterField label="Reservation status">
-              <FilterSelect
-                value={filters.status}
-                onChange={(value) => update({ status: value })}
-                options={statusOptions.map((value) => [value, bookingStatusDisplay(value).label])}
-                allLabel="Any status"
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative w-full sm:w-64">
+              <Search
+                aria-hidden="true"
+                className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-muted-foreground"
               />
-            </FilterField>
-            <FilterField label="Payment">
-              <FilterSelect
-                value={filters.payment}
-                onChange={(value) => update({ payment: value })}
-                options={paymentOptions}
-                allLabel="Any payment state"
+              <Input
+                aria-label="Search reservations"
+                placeholder="Search guest, reference, phone…"
+                value={searchText}
+                onChange={(event) => setSearchText(event.target.value)}
+                className="h-9 pl-8 text-xs"
               />
-            </FilterField>
-            <FilterField label="Source">
-              <FilterSelect
-                value={filters.source}
-                onChange={(value) => update({ source: value })}
-                options={sourceOptions}
-                allLabel="Any source"
-              />
-            </FilterField>
-            <FilterField label="Date">
-              <div className="grid gap-2">
-                <FilterSelect
-                  value={filters.dateType}
-                  onChange={(value) => update({ dateType: value as DateType })}
-                  options={dateTypeOptions}
-                />
-                <CalendarPicker
-                  label="Date range"
-                  mode="range"
-                  value={filters.range}
-                  onChange={(range) => update({ range })}
-                  months={1}
-                />
-              </div>
-            </FilterField>
-          </PopoverContent>
-        </Popover>
+            </div>
 
-        <div className="ml-auto text-sm text-muted-foreground" aria-live="polite">
-          {data ? `${data.total} reservation${data.total === 1 ? '' : 's'}` : ''}
-        </div>
-      </div>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <ListFilter aria-hidden="true" /> Filters{chips.length > 0 ? ` (${chips.length})` : ''}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-80 space-y-3">
+                <FilterField label="Reservation status">
+                  <FilterSelect
+                    value={filters.status}
+                    onChange={(value) => update({ status: value })}
+                    options={statusOptions.map((value) => [value, bookingStatusDisplay(value).label])}
+                    allLabel="Any status"
+                  />
+                </FilterField>
+                <FilterField label="Payment">
+                  <FilterSelect
+                    value={filters.payment}
+                    onChange={(value) => update({ payment: value })}
+                    options={paymentOptions}
+                    allLabel="Any payment state"
+                  />
+                </FilterField>
+                <FilterField label="Source">
+                  <FilterSelect
+                    value={filters.source}
+                    onChange={(value) => update({ source: value })}
+                    options={sourceOptions}
+                    allLabel="Any source"
+                  />
+                </FilterField>
+                <FilterField label="Date">
+                  <div className="grid gap-2">
+                    <FilterSelect
+                      value={filters.dateType}
+                      onChange={(value) => update({ dateType: value as DateType })}
+                      options={dateTypeOptions}
+                    />
+                    <CalendarPicker
+                      label="Date range"
+                      mode="range"
+                      value={filters.range}
+                      onChange={(range) => update({ range })}
+                      months={1}
+                    />
+                  </div>
+                </FilterField>
+              </PopoverContent>
+            </Popover>
 
-      <FilterChips chips={chips} onRemove={removeChip} onClearAll={clearAll} />
+            <div className="ml-auto flex items-center gap-2">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Columns3 aria-hidden="true" /> Columns
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-44 p-2">
+                  <p className="px-2 py-1 text-xs font-semibold">Show columns</p>
+                  {(Object.keys(columnLabels) as ColumnKey[]).map((key) => (
+                    <label
+                      key={key}
+                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-muted"
+                    >
+                      <Checkbox checked={columns[key]} onCheckedChange={() => toggleColumn(key)} />
+                      {columnLabels[key]}
+                    </label>
+                  ))}
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
 
-      {query.isPending ? (
-        <ListSkeleton />
-      ) : query.isError && !data ? (
-        <ErrorPanel
-          title="We could not load reservations"
-          description={query.error instanceof Error ? query.error.message : undefined}
-          onRetry={() => void query.refetch()}
-        />
-      ) : data && data.total === 0 ? (
-        counts && counts.all === 0 ? (
-          <EmptyPanel
-            title="No reservations yet"
-            description="Reservations made by guests on your website or entered by your team will appear here."
-            action={
-              <Button asChild>
-                <a href={addHref}>
-                  <CirclePlus /> Add the first reservation
-                </a>
+          <FilterChips chips={chips} onRemove={removeChip} onClearAll={clearAll} />
+
+          {selectedRows.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-md bg-muted p-2 text-xs">
+              <span className="font-semibold">{selectedRows.length} selected</span>
+              <Button variant="secondary" size="sm" onClick={() => void copyReferences()}>
+                Copy references
               </Button>
-            }
-          />
-        ) : (
-          <NoResultsPanel onClear={filtered ? clearAll : undefined} />
-        )
-      ) : data ? (
-        <div className="space-y-4">
-          <div className="overflow-x-auto rounded-xl border bg-card">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <SortButton onClick={() => toggleSort('created')} icon={sortIcon('created')}>
-                      Reservation
-                    </SortButton>
+              <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setSelectedIds([])}>
+                Clear selection
+              </Button>
+            </div>
+          ) : null}
+          {notice ? (
+            <p role="status" className="text-xs text-muted-foreground">
+              {notice}
+            </p>
+          ) : null}
+        </div>
+
+        {query.isPending ? (
+          <div className="p-4">
+            <ListSkeleton />
+          </div>
+        ) : query.isError && !data ? (
+          <div className="p-4">
+            <ErrorPanel
+              title="We could not load reservations"
+              description={query.error instanceof Error ? query.error.message : undefined}
+              onRetry={() => void query.refetch()}
+            />
+          </div>
+        ) : data && data.total === 0 ? (
+          <div className="p-4">
+            {counts && counts.all === 0 ? (
+              <EmptyPanel
+                title="No reservations yet"
+                description="Reservations made by guests on your website or entered by your team will appear here."
+                action={
+                  <Button asChild>
+                    <a href={addHref}>
+                      <CirclePlus /> Add the first reservation
+                    </a>
+                  </Button>
+                }
+              />
+            ) : (
+              <NoResultsPanel onClear={filtered ? clearAll : undefined} />
+            )}
+          </div>
+        ) : data ? (
+          <>
+            <Table containerClassName="overflow-x-auto" className="text-[11px]">
+              <TableHeader className="sticky top-0 z-10 bg-muted">
+                <TableRow className="hover:bg-muted">
+                  <TableHead className="w-8 px-3 py-2">
+                    <Checkbox
+                      aria-label="Select all reservations on this page"
+                      checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+                      onCheckedChange={(value) => toggleAll(value === true)}
+                    />
                   </TableHead>
-                  <TableHead>
-                    <SortButton onClick={() => toggleSort('guest')} icon={sortIcon('guest')}>
-                      Guest
-                    </SortButton>
-                  </TableHead>
-                  <TableHead>Room</TableHead>
-                  <TableHead>
-                    <SortButton onClick={() => toggleSort('stay')} icon={sortIcon('stay')}>
-                      Stay
-                    </SortButton>
-                  </TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Payment</TableHead>
-                  <TableHead className="text-right">
-                    <SortButton onClick={() => toggleSort('total')} icon={sortIcon('total')} end>
-                      Total
-                    </SortButton>
-                  </TableHead>
-                  <TableHead className="w-10">
+                  <SortHeader label="Reservation" sortKey="created" filters={filters} onSort={toggleSort} />
+                  <SortHeader label="Guest" sortKey="guest" filters={filters} onSort={toggleSort} />
+                  {columns.room ? <TableHead className="px-2 py-2 normal-case tracking-normal">Room</TableHead> : null}
+                  <SortHeader label="Stay" sortKey="stay" filters={filters} onSort={toggleSort} />
+                  {columns.source ? <TableHead className="px-2 py-2 normal-case tracking-normal">Source</TableHead> : null}
+                  <TableHead className="px-2 py-2 normal-case tracking-normal">Status</TableHead>
+                  {columns.payment ? <TableHead className="px-2 py-2 normal-case tracking-normal">Payment</TableHead> : null}
+                  {columns.total ? (
+                    <SortHeader label="Total" sortKey="total" filters={filters} onSort={toggleSort} end />
+                  ) : null}
+                  <TableHead className="w-10 px-2 py-2 text-right">
                     <span className="sr-only">Actions</span>
                   </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody className={query.isFetching ? 'opacity-60 transition-opacity' : undefined}>
-                {data.items.map((row) => {
+                {rows.map((row) => {
                   const due = balanceDue({
                     total: row.total.amount,
                     paid: row.paidAmount,
@@ -515,83 +610,133 @@ export function ReservationsPage({
                   });
                   const live = !['CANCELLED', 'EXPIRED', 'DRAFT', 'QUOTED'].includes(row.status);
                   const nights = nightsBetween(row.startsOn, row.endsOn);
+                  const isSelected = selectedIds.includes(row.id);
+                  const isExpanded = expandedId === row.id;
                   return (
-                    <TableRow
-                      key={row.id}
-                      className="cursor-pointer"
-                      onClick={() => setSelected(row)}
-                    >
-                      <TableCell>
-                        <div className="font-bold">{row.externalReference}</div>
-                        <div className="text-xs text-muted-foreground">
-                          Created {createdLabel(row.createdAt)}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="font-semibold">{guestName(row)}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {row.guestPhone ?? row.guestEmail ?? ''}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div>{row.roomTypeName}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {row.roomName ? `Room ${row.roomName}` : 'Not assigned'}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="whitespace-nowrap">
-                          {shortDate(row.startsOn)} – {shortDate(row.endsOn)}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {nights} night{nights === 1 ? '' : 's'} · {guestsLabel(row)}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <SourceBadge source={row.source} />
-                      </TableCell>
-                      <TableCell>
-                        <BookingStatusBadge status={row.status} />
-                      </TableCell>
-                      <TableCell>
-                        <PaymentStatusBadge
-                          status={row.status}
-                          paymentMethod={row.paymentMethod}
-                          total={row.total.amount}
-                          paid={row.paidAmount}
-                          refunded={row.refundedAmount}
-                        />
-                        {live && due > 0 ? (
-                          <div className="mt-1 text-xs font-semibold text-destructive">
-                            {money(String(due), row.total.currency)} due
+                    <Fragment key={row.id}>
+                      <TableRow
+                        data-state={isSelected ? 'selected' : undefined}
+                        className={cn('h-12', isSelected && 'bg-primary/10 hover:bg-primary/10')}
+                      >
+                        <TableCell className="px-3 py-2">
+                          <Checkbox
+                            aria-label={`Select ${row.externalReference}`}
+                            checked={isSelected}
+                            onCheckedChange={(value) => toggleRow(row.id, value === true)}
+                          />
+                        </TableCell>
+                        <TableCell className="px-2 py-2">
+                          <button
+                            type="button"
+                            onClick={() => setExpandedId(isExpanded ? null : row.id)}
+                            aria-expanded={isExpanded}
+                            className="inline-flex items-center gap-1 bg-transparent p-0 font-semibold text-primary hover:underline"
+                          >
+                            {isExpanded ? (
+                              <ChevronDown aria-hidden="true" className="size-3" />
+                            ) : (
+                              <ChevronRight aria-hidden="true" className="size-3" />
+                            )}
+                            {row.externalReference}
+                          </button>
+                          <span className="block pl-4 text-[10px] text-muted-foreground">
+                            Created {createdLabel(row.createdAt)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="px-2 py-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-secondary text-primary">
+                              <UserRound aria-hidden="true" className="size-3.5" />
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block truncate font-semibold">{guestName(row)}</span>
+                              <span className="block truncate text-[10px] text-muted-foreground">
+                                {row.guestEmail ?? row.guestPhone ?? ''}
+                              </span>
+                            </span>
                           </div>
+                        </TableCell>
+                        {columns.room ? (
+                          <TableCell className="px-2 py-2">
+                            <span className="block">{row.roomTypeName}</span>
+                            <span className="block text-[10px] text-muted-foreground">
+                              {row.roomName ? `Room ${row.roomName}` : 'Not assigned'}
+                            </span>
+                          </TableCell>
                         ) : null}
-                      </TableCell>
-                      <TableCell className="text-right font-bold whitespace-nowrap">
-                        {money(row.total.amount, row.total.currency)}
-                      </TableCell>
-                      <TableCell onClick={(event) => event.stopPropagation()}>
-                        <RowActions
-                          row={row}
-                          tenantId={tenantId}
-                          propertyId={propertyId}
-                          onView={() => setSelected(row)}
-                        />
-                      </TableCell>
-                    </TableRow>
+                        <TableCell className="px-2 py-2">
+                          <span className="block whitespace-nowrap">
+                            {shortDate(row.startsOn)} – {shortDate(row.endsOn)}
+                          </span>
+                          <span className="block text-[10px] text-muted-foreground">
+                            {nights} night{nights === 1 ? '' : 's'} · {guestsLabel(row)}
+                          </span>
+                        </TableCell>
+                        {columns.source ? (
+                          <TableCell className="px-2 py-2">
+                            <SourceBadge source={row.source} />
+                          </TableCell>
+                        ) : null}
+                        <TableCell className="px-2 py-2">
+                          <BookingStatusBadge status={row.status} />
+                        </TableCell>
+                        {columns.payment ? (
+                          <TableCell className="px-2 py-2">
+                            <PaymentStatusBadge
+                              status={row.status}
+                              paymentMethod={row.paymentMethod}
+                              total={row.total.amount}
+                              paid={row.paidAmount}
+                              refunded={row.refundedAmount}
+                            />
+                            {live && due > 0 ? (
+                              <span className="mt-0.5 block text-[10px] font-semibold text-destructive">
+                                {money(String(due), row.total.currency)} due
+                              </span>
+                            ) : null}
+                          </TableCell>
+                        ) : null}
+                        {columns.total ? (
+                          <TableCell className="px-2 py-2 text-right font-semibold whitespace-nowrap">
+                            {money(row.total.amount, row.total.currency)}
+                          </TableCell>
+                        ) : null}
+                        <TableCell className="px-2 py-1 text-right">
+                          <RowActions
+                            row={row}
+                            tenantId={tenantId}
+                            propertyId={propertyId}
+                            onView={() => setSelected(row)}
+                          />
+                        </TableCell>
+                      </TableRow>
+                      {isExpanded ? (
+                        <TableRow className="hover:bg-transparent">
+                          <TableCell colSpan={visibleColumnCount} className="p-0">
+                            <ExpandedReservation row={row} />
+                          </TableCell>
+                        </TableRow>
+                      ) : null}
+                    </Fragment>
                   );
                 })}
               </TableBody>
             </Table>
-          </div>
-          <Pagination
-            page={data.page}
-            pageSize={data.pageSize}
-            total={data.total}
-            onPage={(page) => setFilters((current) => ({ ...current, page }))}
-          />
-        </div>
-      ) : null}
+            <Pagination
+              page={data.page}
+              pageSize={data.pageSize}
+              total={data.total}
+              noun="reservations"
+              onPage={(page) => {
+                setSelectedIds([]);
+                setFilters((current) => ({ ...current, page }));
+              }}
+              pageSizeOptions={PAGE_SIZES}
+              onPageSize={(pageSize) => update({ pageSize })}
+            />
+          </>
+        ) : null}
+      </Card>
 
       <ReservationSheet
         row={selected}
@@ -600,6 +745,84 @@ export function ReservationsPage({
         onClose={() => setSelected(null)}
       />
     </div>
+  );
+}
+
+function ExpandedReservation({ row }: { row: ReservationRow }) {
+  const nights = nightsBetween(row.startsOn, row.endsOn);
+  return (
+    <div className="grid gap-3 border-t border-primary/15 bg-muted/50 px-4 py-3 text-[10px] sm:grid-cols-2 xl:grid-cols-4">
+      <div>
+        <p className="font-semibold">Guest &amp; stay</p>
+        <p className="mt-1 text-muted-foreground">{guestName(row)}</p>
+        {row.guestEmail ? <p className="text-muted-foreground">{row.guestEmail}</p> : null}
+        {row.guestPhone ? <p className="text-muted-foreground">{row.guestPhone}</p> : null}
+        <p className="text-muted-foreground">{guestsLabel(row)}</p>
+      </div>
+      <div>
+        <p className="font-semibold">Stay information</p>
+        <p className="mt-1 text-muted-foreground">Check-in: {longDate(row.startsOn)}</p>
+        <p className="text-muted-foreground">Check-out: {longDate(row.endsOn)}</p>
+        <p className="text-muted-foreground">
+          {nights} night{nights === 1 ? '' : 's'} · Rate plan: {row.ratePlanName}
+        </p>
+      </div>
+      <div>
+        <p className="font-semibold">Notes</p>
+        <p className="mt-1 text-muted-foreground">{row.specialRequests ?? 'No special requests.'}</p>
+        <p className="text-muted-foreground">
+          {row.roomName ? `Room ${row.roomName} assigned.` : 'Room not assigned yet.'}
+        </p>
+      </div>
+      <div>
+        <p className="font-semibold">Channel / payment</p>
+        <p className="mt-1 text-muted-foreground">{sourceLabelOrUnknown(row.source)}</p>
+        <p className="text-muted-foreground">
+          Payment method: {row.paymentMethod.toLowerCase().replaceAll('_', ' ')}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function sourceLabelOrUnknown(source: string | null) {
+  if (source === 'DIRECT') return 'Created by staff (Direct)';
+  if (source === 'WEBSITE') return 'Booked on the website';
+  return 'Source not recorded';
+}
+
+function SortHeader({
+  label,
+  sortKey,
+  filters,
+  onSort,
+  end = false,
+}: {
+  label: string;
+  sortKey: SortKey;
+  filters: Filters;
+  onSort: (key: SortKey) => void;
+  end?: boolean;
+}) {
+  const active = filters.sort === sortKey;
+  const Icon = active ? (filters.direction === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
+  return (
+    <TableHead
+      aria-sort={active ? (filters.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+      className={cn('px-2 py-2', end && 'text-right')}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={cn(
+          'inline-flex items-center gap-1 text-left normal-case tracking-normal outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
+          end && 'ml-auto',
+        )}
+      >
+        {label}
+        <Icon aria-hidden="true" className="size-3 shrink-0" />
+      </button>
+    </TableHead>
   );
 }
 
@@ -640,29 +863,6 @@ function FilterSelect({
   );
 }
 
-function SortButton({
-  children,
-  icon,
-  onClick,
-  end = false,
-}: {
-  children: React.ReactNode;
-  icon: React.ReactNode;
-  onClick: () => void;
-  end?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex items-center gap-1 font-semibold outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring ${end ? 'ml-auto' : ''}`}
-    >
-      {children}
-      {icon}
-    </button>
-  );
-}
-
 function RowActions({
   row,
   tenantId,
@@ -677,11 +877,18 @@ function RowActions({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${row.externalReference}`}>
-          <EllipsisVertical />
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`More actions for ${row.externalReference}`}
+          className="size-7"
+        >
+          <MoreHorizontal aria-hidden="true" className="size-4" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        <DropdownMenuLabel>{row.externalReference}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onView}>View details</DropdownMenuItem>
         {row.guestId ? (
           <DropdownMenuItem asChild>
