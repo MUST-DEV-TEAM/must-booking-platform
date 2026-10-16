@@ -28,6 +28,7 @@ import { Role, Roles } from '../tenancy/roles.decorator';
 import { TenantScoped } from '../tenancy/tenant-context.decorator';
 import { LocalPmsProvider } from './local-pms.provider';
 import { BookingProjectionService } from './booking-projection.service';
+import { parseBookingSearchQuery } from './booking-search';
 import { CancellationLinkService } from './cancellation-link.service';
 import { PmsProviderRegistry } from './pms-provider-registry';
 import { MultiRoomBookingService } from './multi-room-booking.service';
@@ -56,6 +57,21 @@ export class BookingController {
   @RequiresCapability('bookings.manage')
   list(@Req() request: { tenantContext: { tenantId: string; propertyId: string } }) {
     return this.projections.list(request.tenantContext.tenantId, request.tenantContext.propertyId);
+  }
+
+  @Get('search')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.manage')
+  search(
+    @Query() query: Record<string, unknown>,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string } },
+  ) {
+    return this.projections.search(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      parseBookingSearchQuery(query),
+    );
   }
 
   @Post()

@@ -2,6 +2,14 @@ import { Inject, Injectable } from '@nestjs/common';
 import { BookingPaymentMethod, BookingStatus } from '@must/domain-contracts';
 
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
+import {
+  BOOKING_VIEWS,
+  buildBookingSearch,
+  PAYMENT_STATE_SQL,
+  VIEW_SQL,
+  type BookingSearchQuery,
+  type BookingView,
+} from './booking-search';
 
 export type BookingProjection = {
   id: string;
@@ -51,9 +59,154 @@ export type ClockFolioProjection = {
   closedAt: Date | null;
 };
 
+export type BookingSearchItem = {
+  id: string;
+  externalReference: string;
+  orderReference: string | null;
+  status: string;
+  paymentMethod: string;
+  paymentState: string;
+  source: string | null;
+  startsOn: string;
+  endsOn: string;
+  createdAt: string;
+  adults: number;
+  children: number;
+  specialRequests: string | null;
+  pmsStayStatus: string | null;
+  roomId: string | null;
+  roomName: string | null;
+  roomTypeId: string;
+  roomTypeName: string;
+  ratePlanName: string;
+  guestId: string | null;
+  guestFirstName: string | null;
+  guestLastName: string | null;
+  guestEmail: string | null;
+  guestPhone: string | null;
+  total: { amount: string; currency: string };
+  paidAmount: string;
+  refundedAmount: string;
+};
+
+export type BookingSearchResult = {
+  items: BookingSearchItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  counts: Record<BookingView, number>;
+};
+
+const isoDate = (value: unknown): string =>
+  value instanceof Date ? value.toISOString().slice(0, 10) : String(value);
+
+function toSearchItem(row: Record<string, unknown>): BookingSearchItem {
+  return {
+    id: String(row.id),
+    externalReference: String(row.external_reference),
+    orderReference: (row.order_reference as string | null) ?? null,
+    status: String(row.status),
+    paymentMethod: String(row.payment_method),
+    paymentState: String(row.payment_state),
+    source: (row.source as string | null) ?? null,
+    startsOn: isoDate(row.starts_on),
+    endsOn: isoDate(row.ends_on),
+    createdAt:
+      row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+    adults: Number(row.adults),
+    children: Number(row.children),
+    specialRequests: (row.special_requests as string | null) ?? null,
+    pmsStayStatus: (row.pms_stay_status as string | null) ?? null,
+    roomId: (row.room_id as string | null) ?? null,
+    roomName: (row.room_name as string | null) ?? null,
+    roomTypeId: String(row.room_type_id),
+    roomTypeName: String(row.room_type_name),
+    ratePlanName: String(row.rate_plan_name),
+    guestId: (row.guest_id as string | null) ?? null,
+    guestFirstName: (row.guest_first_name as string | null) ?? null,
+    guestLastName: (row.guest_last_name as string | null) ?? null,
+    guestEmail: (row.guest_email as string | null) ?? null,
+    guestPhone: (row.guest_phone as string | null) ?? null,
+    total: { amount: String(row.total_amount), currency: String(row.currency) },
+    paidAmount: String(row.paid),
+    refundedAmount: String(row.refunded),
+  };
+}
+
 @Injectable()
 export class BookingProjectionService {
   constructor(@Inject(TenantDatabaseService) private readonly database: TenantDatabaseService) {}
+
+  /**
+   * Server-side list for the dashboard Reservations page: filtered, sorted and paged in SQL, plus
+   * a count for every saved view (counts ignore the other filters so the tabs stay stable).
+   */
+  async search(
+    tenantId: string,
+    propertyId: string,
+    query: BookingSearchQuery,
+  ): Promise<BookingSearchResult> {
+    const built = buildBookingSearch(query);
+    const limit = `$${built.params.length + 3}`;
+    const offset = `$${built.params.length + 4}`;
+    const base = `
+      SELECT x.*, ${PAYMENT_STATE_SQL} AS payment_state FROM (
+        SELECT b.id, b.external_reference, b.order_reference, b.status, b.payment_method, b.source,
+          b.starts_on, b.ends_on, b.created_at, b.total_amount, b.adults, b.children,
+          b.special_requests, b.pms_stay_status, b.room_id, r.name AS room_name,
+          b.room_type_id, rt.name AS room_type_name, rp.name AS rate_plan_name, rp.currency,
+          b.guest_id, g.first_name AS guest_first_name, g.last_name AS guest_last_name,
+          g.email AS guest_email, g.phone AS guest_phone,
+          COALESCE(pt.paid, 0) AS paid, COALESCE(pt.refunded, 0) AS refunded,
+          COALESCE(p.timezone, 'UTC') AS tz,
+          (now() AT TIME ZONE COALESCE(p.timezone, 'UTC'))::date AS today
+        FROM bookings b
+        JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
+        LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
+        LEFT JOIN rooms r ON r.tenant_id = b.tenant_id AND r.id = b.room_id
+        JOIN room_types rt
+          ON rt.tenant_id = b.tenant_id AND rt.property_id = b.property_id AND rt.id = b.room_type_id
+        JOIN rate_plans rp
+          ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
+        LEFT JOIN LATERAL (
+          SELECT SUM(CASE WHEN py.kind = 'CHARGE' AND py.status IN ('succeeded', 'PAID') THEN py.amount ELSE 0 END) AS paid,
+            SUM(CASE WHEN py.kind = 'REFUND' THEN py.amount ELSE 0 END) AS refunded
+          FROM payments py
+          WHERE py.tenant_id = b.tenant_id AND py.property_id = b.property_id AND py.booking_id = b.id
+        ) pt ON TRUE
+        WHERE b.tenant_id = $1::uuid AND b.property_id = $2::uuid
+      ) x
+    `;
+    const countSelect = BOOKING_VIEWS.map(
+      (view) => `COUNT(*) FILTER (WHERE ${VIEW_SQL[view]})::int AS "${view}"`,
+    ).join(', ');
+
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const rows = await tx.$queryRawUnsafe<
+        Array<Record<string, unknown> & { total_count: number }>
+      >(
+        `SELECT x.*, COUNT(*) OVER()::int AS total_count FROM (${base}) x
+         WHERE ${built.where} ORDER BY ${built.orderBy} LIMIT ${limit} OFFSET ${offset}`,
+        tenantId,
+        propertyId,
+        ...built.params,
+        query.pageSize,
+        (query.page - 1) * query.pageSize,
+      );
+      const counts = await tx.$queryRawUnsafe<Array<Record<BookingView, number>>>(
+        `SELECT ${countSelect} FROM (${base}) x`,
+        tenantId,
+        propertyId,
+      );
+      return {
+        items: rows.map(toSearchItem),
+        total: rows.length > 0 ? Number(rows[0]!.total_count) : 0,
+        page: query.page,
+        pageSize: query.pageSize,
+        counts: counts[0] ?? ({} as Record<BookingView, number>),
+      };
+    });
+  }
 
   async list(tenantId: string, propertyId: string): Promise<BookingProjection[]> {
     const rows = await this.database.withTenantTransaction(

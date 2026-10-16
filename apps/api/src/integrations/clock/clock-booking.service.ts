@@ -233,7 +233,7 @@ export class ClockBookingService {
           INSERT INTO bookings (
             tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
             status, payment_method, starts_on, ends_on, rate_plan_id, total_amount,
-            adults, children, guest_count
+            adults, children, guest_count, source
           ) VALUES (
             ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${command.roomTypeId}::uuid,
             ${command.roomId ?? null}::uuid, ${guestId}::uuid, ${externalReference},
@@ -241,7 +241,7 @@ export class ClockBookingService {
             ${this.paymentMethodOf(command)}::"BookingPaymentMethod",
             ${command.startsOn}::date, ${command.endsOn}::date, ${command.ratePlanId}::uuid,
             ${command.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children},
-            ${occupancy.guestCount}
+            ${occupancy.guestCount}, ${(command as CreateBookingCommand & { staffActorId?: string }).staffActorId ? 'DIRECT' : 'WEBSITE'}
           )
           RETURNING id
         `;

@@ -336,7 +336,7 @@ export class LocalPmsProvider implements PmsProvider {
         INSERT INTO bookings (
           tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
           guest_session_id, special_requests, status, payment_method, starts_on, ends_on, rate_plan_id, total_amount,
-          adults, children, guest_count
+          adults, children, guest_count, source
         ) VALUES (
           ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${command.roomTypeId}::uuid,
           ${command.roomId ?? null}::uuid, ${guestId}::uuid, ${externalReference},
@@ -346,7 +346,7 @@ export class LocalPmsProvider implements PmsProvider {
           ${paymentMethod.value}::"BookingPaymentMethod",
           ${command.startsOn}::date, ${command.endsOn}::date, ${ratePlanId}::uuid,
           ${command.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children},
-          ${occupancy.guestCount}
+          ${occupancy.guestCount}, ${command.staffActorId ? 'DIRECT' : 'WEBSITE'}
         )
         RETURNING id
       `;

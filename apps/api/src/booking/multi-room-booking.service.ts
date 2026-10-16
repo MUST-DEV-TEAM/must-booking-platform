@@ -155,7 +155,7 @@ export class MultiRoomBookingService {
                   external_reference, order_reference, order_room_number,
                   room_guest_first_name, room_guest_last_name, status, payment_method,
                   starts_on, ends_on, rate_plan_id, total_amount, adults, children, guest_count,
-                  nightly_rates
+                  nightly_rates, source
                 ) VALUES (
                   ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${room.roomTypeId}::uuid,
                   ${room.roomId ?? null}::uuid, ${guest.value}::uuid, ${command.quoteSessionId}::uuid,
@@ -164,7 +164,7 @@ export class MultiRoomBookingService {
                   ${status}::"BookingStatus", ${paymentMethod.value}::"BookingPaymentMethod",
                   ${command.startsOn}::date, ${command.endsOn}::date, ${room.ratePlanId}::uuid,
                   ${room.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children},
-                  ${occupancy.guestCount}, ${JSON.stringify(nightlyRates)}::jsonb
+                  ${occupancy.guestCount}, ${JSON.stringify(nightlyRates)}::jsonb, 'WEBSITE'
                 )
                 RETURNING id
               `;
