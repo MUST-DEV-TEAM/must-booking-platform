@@ -38,6 +38,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { fetchSessionUser, type SessionUser } from '../auth-routing';
 import styles from './dashboard-shell.module.css';
 import { NeedsAttentionTab } from './needs-attention';
+import { useUnseenBookings } from './unseen-bookings';
 import { DashboardOverview, useOverviewQuery } from './overview';
 import { DashboardCalendar } from './calendar';
 import { AddReservation } from './add-reservation';
@@ -388,25 +389,12 @@ export function DashboardShell({
 
   const canSeeBookings =
     !!role && (role !== 'STAFF' || capabilities?.includes('bookings.manage') === true);
-  // Bookings that need attention show as a count on the sidebar item.
-  const attentionQuery = useQuery({
-    queryKey: ['dashboard', 'nav-attention', tenantId, selectedProperty?.id],
-    queryFn: async (): Promise<number> => {
-      const response = await fetch(
-        `/api/tenants/${tenantId}/properties/${selectedProperty?.id}/bookings/search?pageSize=1`,
-        { credentials: 'include' },
-      );
-      if (!response.ok) return 0;
-      const body = (await response.json()) as { counts?: { needs_attention?: number } };
-      return body.counts?.needs_attention ?? 0;
-    },
-    enabled: !!selectedProperty && canSeeBookings,
-    refetchInterval: 60_000,
-  });
+  // New reservations this person has not opened yet show as a count on the Bookings item.
+  const unseen = useUnseenBookings(tenantId, selectedProperty?.id, !!selectedProperty && canSeeBookings);
   const navigation =
     selectedProperty && role
       ? dashboardNavigation(tenantId, selectedProperty.id, role, section, capabilities ?? [], {
-          reservations: attentionQuery.data ?? 0,
+          reservations: unseen.count,
         })
       : [];
   const sectionLabel =

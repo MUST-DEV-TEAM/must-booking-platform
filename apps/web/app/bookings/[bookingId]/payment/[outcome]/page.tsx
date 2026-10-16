@@ -17,8 +17,8 @@ export default function BookingPaymentOutcomePage() {
 
   useEffect(() => {
     // The payment page was opened by the dashboard in its own tab. Tell that tab the payment came
-    // back (it re-checks straight away) and close this one. If the browser refuses to close it,
-    // fall back to going to the dashboard.
+    // back (it re-checks straight away) and close this one. A browser only lets a page close a tab
+    // it opened itself, so if it refuses the page just says the tab can be closed.
     if (!isCancelled) {
       try {
         const channel = new BroadcastChannel('must-payment');
@@ -28,6 +28,7 @@ export default function BookingPaymentOutcomePage() {
         // Not supported: the dashboard tab still re-checks on its own every few seconds.
       }
       window.close();
+      return;
     }
     const timer = setTimeout(() => router.replace('/dashboard'), REDIRECT_DELAY_MS);
     return () => clearTimeout(timer);
@@ -75,7 +76,9 @@ export default function BookingPaymentOutcomePage() {
             </span>
             <span className={styles.statusCopy}>
               <span className={styles.statusTitle}>Payment received</span>
-              <span className={styles.statusDescription}>Taking you back to the dashboard…</span>
+              <span className={styles.statusDescription}>
+                You can close this tab. The dashboard already knows the payment arrived.
+              </span>
             </span>
           </Card>
         </div>

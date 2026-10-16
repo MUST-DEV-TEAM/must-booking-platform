@@ -67,6 +67,7 @@ import {
 import { balanceDue, bookingStatusDisplay, nightsBetween } from '../../lib/reservation-display';
 import { cn } from '../../lib/utils';
 import { NEIGHBOURS_KEY } from './reservation-detail';
+import { useUnseenBookings } from './unseen-bookings';
 import {
   differsOnlyBySearch,
   paramsToFilters,
@@ -297,6 +298,11 @@ export function ReservationsPage({
   const [filters, setFilters] = useState<Filters>(initialFilters);
   const [searchText, setSearchText] = useState('');
   const [selected, setSelected] = useState<ReservationRow | null>(null);
+  const unseen = useUnseenBookings(tenantId, propertyId);
+  const openPreview = (row: ReservationRow) => {
+    setSelected(row);
+    unseen.markSeen(row.id);
+  };
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -756,7 +762,7 @@ export function ReservationsPage({
                         )}
                         onClick={(event) => {
                           if ((event.target as HTMLElement).closest('button, a, input, label, [role="checkbox"]')) return;
-                          setSelected(row);
+                          openPreview(row);
                         }}
                       >
                         <TableCell className="px-3 py-2">
@@ -779,6 +785,14 @@ export function ReservationsPage({
                               <ChevronRight aria-hidden="true" className="size-3" />
                             )}
                             {row.externalReference}
+                            {unseen.ids.has(row.id) ? (
+                              <span
+                                role="img"
+                                aria-label="New, not opened yet"
+                                title="New"
+                                className="size-2 rounded-full bg-amber-400"
+                              />
+                            ) : null}
                           </button>
                           <span className="block pl-4 text-[10px] text-muted-foreground group-data-[density=compact]:hidden">
                             Created {createdLabel(row.createdAt)}
@@ -836,7 +850,7 @@ export function ReservationsPage({
                             row={row}
                             tenantId={tenantId}
                             propertyId={propertyId}
-                            onView={() => setSelected(row)}
+                            onView={() => openPreview(row)}
                           />
                         </TableCell>
                       </TableRow>

@@ -15,6 +15,11 @@ export type GuestDirectoryEntry = {
   firstName: string | null;
   lastName: string | null;
   phone: string | null;
+  streetAddress: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  county: string | null;
+  postcode: string | null;
   bookingCount: number;
   mostRecentStartsOn: string;
   mostRecentEndsOn: string;
@@ -59,6 +64,8 @@ export class GuestsService {
       (tx) =>
         tx.$queryRaw<GuestDirectoryEntry[]>`
         SELECT g.id, g.email, g.first_name AS "firstName", g.last_name AS "lastName", g.phone,
+          g.street_address AS "streetAddress", g.address_line_2 AS "addressLine2", g.city, g.county,
+          g.postcode,
           COUNT(b.id)::int AS "bookingCount",
           recent.starts_on::text AS "mostRecentStartsOn",
           recent.ends_on::text AS "mostRecentEndsOn"
@@ -80,7 +87,8 @@ export class GuestsService {
             OR CONCAT_WS(' ', g.first_name, g.last_name) ILIKE ${`%${normalizedSearch}%`}
             OR g.email ILIKE ${`%${normalizedSearch}%`}
             OR COALESCE(g.phone, '') ILIKE ${`%${normalizedSearch}%`})
-        GROUP BY g.id, g.email, g.first_name, g.last_name, g.phone, recent.starts_on, recent.ends_on
+        GROUP BY g.id, g.email, g.first_name, g.last_name, g.phone, g.street_address, g.address_line_2,
+          g.city, g.county, g.postcode, recent.starts_on, recent.ends_on
         ORDER BY recent.starts_on DESC, g.email ASC
       `,
     );

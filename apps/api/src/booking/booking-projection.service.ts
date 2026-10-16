@@ -214,6 +214,52 @@ const BOOKING_BASE_SQL = `
 export class BookingProjectionService {
   constructor(@Inject(TenantDatabaseService) private readonly database: TenantDatabaseService) {}
 
+  /**
+   * Recent reservations this staff member has not opened yet. A reservation counts as new for
+   * 14 days after it was made; opening it (the preview or the detail page) clears it for them.
+   */
+  async unseen(
+    tenantId: string,
+    propertyId: string,
+    userId: string,
+  ): Promise<{ count: number; ids: string[] }> {
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT b.id
+        FROM bookings b
+        LEFT JOIN booking_seen s
+          ON s.tenant_id = b.tenant_id AND s.booking_id = b.id AND s.user_id = ${userId}::uuid
+        WHERE b.tenant_id = ${tenantId}::uuid AND b.property_id = ${propertyId}::uuid
+          AND b.created_at > now() - interval '14 days'
+          AND b.status NOT IN ('CANCELLED', 'EXPIRED', 'DRAFT', 'QUOTED')
+          AND s.booking_id IS NULL
+        ORDER BY b.created_at DESC
+        LIMIT 500
+      `;
+      return { count: rows.length, ids: rows.map((row) => row.id) };
+    });
+  }
+
+  /** Records that this staff member has opened the reservation. Safe to repeat. */
+  async markSeen(
+    tenantId: string,
+    propertyId: string,
+    userId: string,
+    bookingId: string,
+  ): Promise<void> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bookingId)) return;
+    await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      await tx.$executeRaw`
+        INSERT INTO booking_seen (tenant_id, property_id, user_id, booking_id)
+        SELECT b.tenant_id, b.property_id, ${userId}::uuid, b.id
+        FROM bookings b
+        WHERE b.id = ${bookingId}::uuid AND b.tenant_id = ${tenantId}::uuid
+          AND b.property_id = ${propertyId}::uuid
+        ON CONFLICT DO NOTHING
+      `;
+    });
+  }
+
   /** One booking for the dashboard detail page, or null when it is not in this property. */
   async detail(
     tenantId: string,

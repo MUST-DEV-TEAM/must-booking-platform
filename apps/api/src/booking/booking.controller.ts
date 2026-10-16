@@ -75,6 +75,38 @@ export class BookingController {
     );
   }
 
+  @Get('unseen')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.manage')
+  unseen(
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
+  ) {
+    return this.projections.unseen(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      request.tenantContext.userId,
+    );
+  }
+
+  @Post(':bookingId/seen')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.manage')
+  async seen(
+    @Param('bookingId') bookingId: string,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
+  ) {
+    await this.projections.markSeen(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      request.tenantContext.userId,
+      bookingId,
+    );
+    return { ok: true };
+  }
+
   @Get(':bookingId')
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)

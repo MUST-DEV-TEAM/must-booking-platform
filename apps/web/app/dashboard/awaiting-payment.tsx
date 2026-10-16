@@ -152,10 +152,14 @@ export function AwaitingPayment({
         </p>
         <div className="flex flex-wrap justify-center gap-2">
           {checkoutUrl ? (
-            <Button variant="outline" asChild>
-              <a href={checkoutUrl} target="_blank" rel="noopener noreferrer">
-                Reopen payment window <ExternalLink aria-hidden="true" />
-              </a>
+            <Button
+              variant="outline"
+              onClick={() => {
+                const reopened = window.open(checkoutUrl, '_blank');
+                if (reopened) reopened.opener = null;
+              }}
+            >
+              Reopen payment window <ExternalLink aria-hidden="true" />
             </Button>
           ) : null}
           <Button variant="outline" onClick={() => check.mutate()} loading={check.isPending}>

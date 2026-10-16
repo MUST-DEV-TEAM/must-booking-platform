@@ -18,19 +18,22 @@ import {
   Wallet,
   type LucideIcon,
 } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
+import { useUnseenBookings } from './unseen-bookings';
 import { ActionBar } from '../../components/ui/action-bar';
 import { Alert, AlertDescription, AlertTitle } from '../../components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { DetailHeader } from '../../components/ui/detail-header';
 import { RowList } from '../../components/ui/row-list';
+import { Switch } from '../../components/ui/switch';
 import {
   noRefund,
   RefundChoice,
   refundPayload,
+  refundRequestBody,
   refundChoiceError,
   type RefundChoiceValue,
 } from './refund-choice';
@@ -191,7 +194,17 @@ export function ReservationDetail({
   const queryClient = useQueryClient();
   const [cancelling, setCancelling] = useState(false);
   const [showAllActivity, setShowAllActivity] = useState(false);
+  const unseen = useUnseenBookings(tenantId, propertyId);
+  const wasNew = unseen.ids.has(bookingId);
+  // Opening a reservation clears its "new" dot and lowers the count on the Bookings item.
+  useEffect(() => {
+    if (wasNew) unseen.markSeen(bookingId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wasNew, bookingId]);
   const [refundPick, setRefundPick] = useState<RefundChoiceValue | null>(null);
+  const [refundOn, setRefundOn] = useState<boolean | null>(null);
+  const [refunding, setRefunding] = useState(false);
+  const [refundOnlyPick, setRefundOnlyPick] = useState<RefundChoiceValue>({ ...noRefund, mode: 'full' });
 
   const query = useQuery({
     queryKey: ['dashboard', 'reservation-detail', tenantId, propertyId, bookingId],
@@ -295,9 +308,37 @@ export function ReservationDetail({
 
   // Money still refundable: offer a refund, and start from "full" when the guest cancels for free.
   const refundable = Number(booking.paidAmount) - Number(booking.refundedAmount) > 0;
-  const refundChoice: RefundChoiceValue =
-    refundPick ?? (refundable && freeWindowOpen ? { ...noRefund, mode: 'full' } : noRefund);
+  const refundWanted = refundOn ?? (refundable && freeWindowOpen);
+  const refundChoice: RefundChoiceValue = refundWanted
+    ? (refundPick ?? { ...noRefund, mode: 'full' })
+    : noRefund;
   const refundProblem = refundable ? refundChoiceError(refundChoice, booking) : null;
+  // A cancelled reservation can be refunded from here for 24 hours after it was cancelled.
+  const cancelledEvent = booking.activity.find((event) => event.action === 'booking.cancelled');
+  const refundWindowClosed =
+    booking.status === 'CANCELLED' &&
+    cancelledEvent !== undefined &&
+    Date.now() - new Date(cancelledEvent.createdAt).getTime() > 24 * 60 * 60 * 1000;
+  const canRefundHere = refundable && !refundWindowClosed && booking.status !== 'EXPIRED';
+
+  const refundOnly = async (note: string) => {
+    const body = refundRequestBody(refundOnlyPick, booking);
+    if (!body) throw new Error('Choose how much to refund.');
+    const response = await fetch(`${base}/payments/refunds`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify({ bookingId: booking.id, ...body, note: note.slice(0, 500) }),
+    });
+    const result = (await response.json().catch(() => null)) as {
+      ok?: boolean;
+      error?: { message?: string };
+      message?: string;
+    } | null;
+    if (!response.ok || result?.ok === false)
+      throw new Error(result?.error?.message ?? result?.message ?? 'The refund could not be made.');
+    await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+  };
 
   const cancelReservation = async (reason: string) => {
     const response = await fetch(`${base}/staff-bookings/${booking.id}`, {
@@ -387,6 +428,20 @@ export function ReservationDetail({
             <Button disabled title="Editing a reservation is planned, not built yet">
               <Pencil aria-hidden="true" /> Edit reservation
             </Button>
+            {refundable ? (
+              <Button
+                variant="outline"
+                disabled={!canRefundHere}
+                title={
+                  canRefundHere
+                    ? undefined
+                    : 'A cancelled reservation can only be refunded for 24 hours after it was cancelled.'
+                }
+                onClick={() => setRefunding(true)}
+              >
+                <Undo2 aria-hidden="true" /> Refund
+              </Button>
+            ) : null}
             {canCancel ? (
               <Button variant="destructive" onClick={() => setCancelling(true)}>
                 <Ban aria-hidden="true" /> Cancel reservation
@@ -613,7 +668,10 @@ export function ReservationDetail({
         open={cancelling}
         onOpenChange={(open) => {
           setCancelling(open);
-          if (!open) setRefundPick(null);
+          if (!open) {
+            setRefundPick(null);
+            setRefundOn(null);
+          }
         }}
         confirmDisabled={!!refundProblem}
         title={`Cancel ${booking.externalReference}?`}
@@ -639,19 +697,64 @@ export function ReservationDetail({
           </AlertDescription>
         </Alert>
         {refundable ? (
-          <RefundChoice
-            booking={booking}
-            value={refundChoice}
-            onChange={setRefundPick}
-            policyNote={
-              cancellation.isFree === null
-                ? undefined
-                : freeWindowOpen
-                  ? 'The guest is inside the free-cancellation window, so a full refund is normally due.'
-                  : 'The free-cancellation window has passed; the rate plan allows the hotel to keep some or all of the payment.'
-            }
-          />
+          <div className="space-y-3 rounded-xl border p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-0.5">
+                <p className="m-0 text-sm font-semibold">Refund the guest too</p>
+                <p className="m-0 text-xs text-muted-foreground">
+                  {money(String(Number(booking.paidAmount) - Number(booking.refundedAmount)), currency)} was paid and
+                  can be refunded now. If you leave this off you can still refund from the Refund button for 24
+                  hours.
+                </p>
+              </div>
+              <Switch
+                aria-label="Refund the guest too"
+                checked={refundWanted}
+                onCheckedChange={(checked) => setRefundOn(checked)}
+              />
+            </div>
+            {refundWanted ? (
+              <RefundChoice
+                booking={booking}
+                heading="How much"
+                allowNone={false}
+                value={refundChoice}
+                onChange={setRefundPick}
+                policyNote={
+                  cancellation.isFree === null
+                    ? undefined
+                    : freeWindowOpen
+                      ? 'The guest is inside the free-cancellation window, so a full refund is normally due.'
+                      : 'The free-cancellation window has passed; the rate plan allows the hotel to keep some or all of the payment.'
+                }
+              />
+            ) : null}
+          </div>
         ) : null}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={refunding}
+        onOpenChange={setRefunding}
+        title={`Refund ${booking.externalReference}`}
+        description={`${guest}. The money goes back to the guest through ${methodTitle}.`}
+        confirmLabel="Make refund"
+        reasonLabel="Note"
+        confirmDisabled={!!refundChoiceError(refundOnlyPick, booking)}
+        onConfirm={refundOnly}
+      >
+        <RefundChoice
+          booking={booking}
+          heading="How much"
+          allowNone={false}
+          value={refundOnlyPick}
+          onChange={setRefundOnlyPick}
+          policyNote={
+            booking.status === 'CANCELLED'
+              ? 'This reservation is cancelled, so it can be refunded from here for 24 hours after it was cancelled.'
+              : 'The reservation stays as it is. You can refund again later, up to what was paid.'
+          }
+        />
       </ConfirmDialog>
     </div>
   );

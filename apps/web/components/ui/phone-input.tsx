@@ -17,6 +17,23 @@ export function phoneToString(value: PhoneValue): string {
   return number ? `${prefix} ${number}`.trim() : '';
 }
 
+/** Splits a saved phone like "+355 686720021" back into country and number (longest prefix wins). */
+export function parsePhone(stored: string | null | undefined, fallbackIso = 'AL'): PhoneValue {
+  const text = (stored ?? '').trim();
+  if (!text.startsWith('+')) return { iso: fallbackIso, number: cleanDigits(text) };
+  const digits = cleanDigits(text);
+  const match = dialCountries()
+    .filter((country) => digits.startsWith(country.prefix.replace('+', '')))
+    .sort((a, b) => b.prefix.length - a.prefix.length)[0];
+  if (!match) return { iso: fallbackIso, number: digits };
+  // Where several countries share a prefix, keep the default country when it is one of them.
+  const sameLength = dialCountries().filter(
+    (country) => country.prefix === match.prefix && digits.startsWith(country.prefix.replace('+', '')),
+  );
+  const chosen = sameLength.find((country) => country.iso === fallbackIso) ?? match;
+  return { iso: chosen.iso, number: digits.slice(chosen.prefix.length - 1) };
+}
+
 /** A phone number with a searchable country-prefix choice joined to the front of the field. */
 export function PhoneInput({
   value,

@@ -393,6 +393,18 @@ model NotificationTopicSettings {
 }
 
 /// A property's own subject and message for one guest email (email plan Step 3).
+model BookingSeen {
+  tenantId   String   @map("tenant_id") @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  bookingId  String   @map("booking_id") @db.Uuid
+  seenAt     DateTime @default(now()) @map("seen_at") @db.Timestamptz(6)
+
+  @@id([tenantId, userId, bookingId])
+  @@index([tenantId, propertyId, userId])
+  @@map("booking_seen")
+}
+
 model EmailTemplate {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId        String   @map("tenant_id") @db.Uuid

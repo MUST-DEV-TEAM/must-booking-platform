@@ -18,7 +18,7 @@ import { DetailList, SectionLabel } from '../../components/ui/detail-list';
 import { FormField } from '../../components/ui/form-field';
 import { Checkbox } from '../../components/ui/checkbox';
 import { Input, Textarea } from '../../components/ui/input';
-import { PhoneInput, phoneToString, type PhoneValue } from '../../components/ui/phone-input';
+import { parsePhone, PhoneInput, phoneToString, type PhoneValue } from '../../components/ui/phone-input';
 import { TimeField } from '../../components/ui/time-field';
 import { TabBar } from '../../components/ui/tab-bar';
 import { NumberStepper } from '../../components/ui/number-stepper';
@@ -41,6 +41,7 @@ import {
 } from '../../lib/input-rules';
 import { nightsBetween } from '../../lib/reservation-display';
 import { AwaitingPayment } from './awaiting-payment';
+import { GuestLookup, type KnownGuest } from './guest-lookup';
 
 type RoomType = { id: string; name: string; roomCount: number };
 type Room = { id: string; name: string; roomTypeId: string; roomTypeName: string };
@@ -167,12 +168,17 @@ export function AddReservation({
   );
   const [guest, setGuest] = useState<Guest>({ ...emptyGuest, arrivalTime: hotelCheckIn });
   const [touched, setTouched] = useState(false);
+  const [knownGuest, setKnownGuest] = useState<KnownGuest | null>(null);
   const [gateway, setGateway] = useState<GatewayMethod | ''>('');
   const [settle, setSettle] = useState<SettleMethod>('');
   const [created, setCreated] = useState<Created | null>(null);
   // One key per distinct request: a retry of the same request cannot create a second reservation,
   // while a changed request gets a fresh key.
   const attempt = useRef<{ signature: string; key: string } | null>(null);
+  // The payment window is opened the moment the button is clicked (browsers only allow that
+  // from a click) and pointed at the checkout once it exists. A window this page opened itself
+  // is also one the payment-complete page is allowed to close.
+  const payWindow = useRef<Window | null>(null);
 
   const statusQuery = useQuery({
     queryKey: ['dashboard', 'add-reservation-pms', tenantId, propertyId],
@@ -343,10 +349,13 @@ export function AddReservation({
       const id = String(result.value.id);
       const reference = String(result.value.externalReference ?? id);
       if (result.value.checkoutUrl) {
-        // Opened without a link back to this page (the provider must not control it), but still a window
-        // this page opened, so the payment-complete page can close it.
-        const payWindow = window.open(result.value.checkoutUrl, '_blank');
-        if (payWindow) payWindow.opener = null;
+        const url = String(result.value.checkoutUrl);
+        if (payWindow.current && !payWindow.current.closed) payWindow.current.location.href = url;
+        else {
+          const fallback = window.open(url, '_blank');
+          if (fallback) fallback.opener = null;
+        }
+        payWindow.current = null;
         return {
           id,
           reference,
@@ -364,6 +373,10 @@ export function AddReservation({
       return { id, reference, outcome: 'pay-at-hotel' };
     },
     onSuccess: (result) => setCreated(result),
+    onError: () => {
+      payWindow.current?.close();
+      payWindow.current = null;
+    },
   });
 
   const reset = () => {
@@ -374,6 +387,7 @@ export function AddReservation({
     setGuest({ ...emptyGuest, arrivalTime: hotelCheckIn });
     setSettle('');
     setTouched(false);
+    setKnownGuest(null);
     setLeft(new Set());
     setCreated(null);
     attempt.current = null;
@@ -727,6 +741,27 @@ export function AddReservation({
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  <GuestLookup
+                    tenantId={tenantId}
+                    propertyId={propertyId}
+                    selected={knownGuest}
+                    onClear={() => setKnownGuest(null)}
+                    onPick={(found) => {
+                      setKnownGuest(found);
+                      setGuest((current) => ({
+                        ...current,
+                        firstName: cleanName(found.firstName ?? ''),
+                        lastName: cleanName(found.lastName ?? ''),
+                        email: cleanEmail(found.email),
+                        phone: parsePhone(found.phone),
+                        streetAddress: found.streetAddress ?? '',
+                        addressLine2: found.addressLine2 ?? '',
+                        city: found.city ?? '',
+                        county: found.county ?? '',
+                        postcode: found.postcode ?? '',
+                      }));
+                    }}
+                  />
                   <div className="grid gap-4 sm:grid-cols-2">
                     <FormField label="First name" htmlFor="guest-first" required error={shown('firstName')}>
                       <Input
@@ -1068,7 +1103,23 @@ export function AddReservation({
                 Continue to payment &amp; review <ArrowRight aria-hidden="true" />
               </Button>
             ) : (
-              <Button disabled={!gateway || create.isPending} loading={create.isPending} onClick={() => create.mutate()}>
+              <Button
+                disabled={!gateway || create.isPending}
+                loading={create.isPending}
+                onClick={() => {
+                  if (gateway === 'stripe' || gateway === 'pokpay') {
+                    const opened = window.open('', '_blank');
+                    if (opened) {
+                      // The provider's page must not be able to control this page.
+                      opened.opener = null;
+                      opened.document.title = 'Payment';
+                      opened.document.body.textContent = 'Opening the secure payment page…';
+                    }
+                    payWindow.current = opened;
+                  }
+                  create.mutate();
+                }}
+              >
                 Create reservation
               </Button>
             )}

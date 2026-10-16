@@ -72,12 +72,17 @@ export function RefundChoice({
   value,
   onChange,
   policyNote,
+  allowNone = true,
+  heading = 'Refund the guest',
 }: {
   booking: Paid;
   value: RefundChoiceValue;
   onChange: (value: RefundChoiceValue) => void;
   /** One line about the cancellation policy, shown under the choices. */
   policyNote?: string;
+  /** False when the person has already decided to refund (the Refund button), so "No refund" is not offered. */
+  allowNone?: boolean;
+  heading?: string;
 }) {
   const currency = booking.total.currency;
   const remaining = remainingRefundable(booking).amount;
@@ -86,7 +91,7 @@ export function RefundChoice({
 
   return (
     <div className="space-y-3 rounded-xl border p-4">
-      <SectionLabel>Refund the guest</SectionLabel>
+      <SectionLabel>{heading}</SectionLabel>
       <p className="m-0 text-xs text-muted-foreground">
         {formatMoney(remaining, currency)} was paid and can still be refunded.
       </p>
@@ -95,7 +100,7 @@ export function RefundChoice({
         value={value.mode}
         onChange={(mode) => onChange({ ...value, mode })}
         options={[
-          { value: 'none', label: 'No refund' },
+          ...(allowNone ? [{ value: 'none' as const, label: 'No refund' }] : []),
           { value: 'full', label: 'Full refund' },
           { value: 'percentage', label: 'Percentage' },
           { value: 'fixed', label: 'Fixed amount' },

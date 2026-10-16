@@ -29,8 +29,10 @@ export type AppNavigationItem = {
   label: string;
   current?: boolean;
   icon?: LucideIcon;
-  /** A count shown on the item (for example bookings that need attention). Hidden when 0. */
+  /** A count shown on the item (for example new reservations). Hidden when 0. */
   badge?: number;
+  /** What the count means, for screen readers ("new" by default). */
+  badgeLabel?: string;
 };
 
 export function Brand({ compact = false }: { compact?: boolean }) {
@@ -115,7 +117,7 @@ function NavLink({
             'flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] leading-5 font-bold text-primary-foreground',
             collapsed && 'absolute top-0.5 right-0.5 min-w-4 px-1 text-[10px] leading-4',
           )}
-          aria-label={`${item.badge} need attention`}
+          aria-label={`${item.badge} ${item.badgeLabel ?? 'new'}`}
         >
           {item.badge > 99 ? '99+' : item.badge}
         </span>

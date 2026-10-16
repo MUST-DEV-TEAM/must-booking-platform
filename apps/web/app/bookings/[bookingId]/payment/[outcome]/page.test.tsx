@@ -20,7 +20,7 @@ describe('Booking payment outcome page', () => {
     const markup = renderToStaticMarkup(createElement(BookingPaymentOutcomePage));
 
     expect(markup).toContain('Payment received');
-    expect(markup).toContain('Taking you back to the dashboard');
+    expect(markup).toContain('You can close this tab');
     expect(markup).toContain('href="/dashboard"');
     expect(markup).not.toContain('was not completed');
   });
