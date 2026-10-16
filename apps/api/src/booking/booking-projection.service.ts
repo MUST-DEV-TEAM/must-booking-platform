@@ -89,6 +89,48 @@ export type BookingSearchItem = {
   refundedAmount: string;
 };
 
+export type BookingActivity = {
+  action: string;
+  createdAt: string;
+  actorEmail: string | null;
+  details: Record<string, unknown>;
+};
+
+export type BookingDetail = BookingSearchItem & {
+  version: number;
+  updatedAt: string;
+  externalBookingId: string | null;
+  nightlyRates: Array<{ date: string; amount: string }> | null;
+  cancellation: {
+    isFree: boolean | null;
+    freeUntilHours: number | null;
+    cutoffAt: string | null;
+  };
+  orderRoomNumber: number | null;
+  guestAddress: {
+    street: string | null;
+    line2: string | null;
+    city: string | null;
+    county: string | null;
+    postcode: string | null;
+  };
+  clockFolios: Array<{ id: string; isDeposit: boolean; balance: string | null; closedAt: string | null }>;
+  activity: BookingActivity[];
+};
+
+// Audit details can carry provider payloads; only these fields are shown to staff.
+const VISIBLE_ACTIVITY_KEYS = [
+  'amount',
+  'note',
+  'reason',
+  'reference',
+  'externalBookingId',
+  'status',
+  'from',
+  'to',
+  'provider',
+] as const;
+
 export type BookingSearchResult = {
   items: BookingSearchItem[];
   total: number;
@@ -133,23 +175,8 @@ function toSearchItem(row: Record<string, unknown>): BookingSearchItem {
   };
 }
 
-@Injectable()
-export class BookingProjectionService {
-  constructor(@Inject(TenantDatabaseService) private readonly database: TenantDatabaseService) {}
-
-  /**
-   * Server-side list for the dashboard Reservations page: filtered, sorted and paged in SQL, plus
-   * a count for every saved view (counts ignore the other filters so the tabs stay stable).
-   */
-  async search(
-    tenantId: string,
-    propertyId: string,
-    query: BookingSearchQuery,
-  ): Promise<BookingSearchResult> {
-    const built = buildBookingSearch(query);
-    const limit = `$${built.params.length + 3}`;
-    const offset = `$${built.params.length + 4}`;
-    const base = `
+/** One row per booking with its guest, room, rate plan and payment totals. Used by list and detail. */
+const BOOKING_BASE_SQL = `
       SELECT x.*, ${PAYMENT_STATE_SQL} AS payment_state FROM (
         SELECT b.id, b.external_reference, b.order_reference, b.status, b.payment_method, b.source,
           b.starts_on, b.ends_on, b.created_at, b.total_amount, b.adults, b.children,
@@ -158,6 +185,11 @@ export class BookingProjectionService {
           b.guest_id, g.first_name AS guest_first_name, g.last_name AS guest_last_name,
           g.email AS guest_email, g.phone AS guest_phone,
           COALESCE(pt.paid, 0) AS paid, COALESCE(pt.refunded, 0) AS refunded,
+          b.version, b.updated_at, b.external_booking_id, b.nightly_rates,
+          b.cancellation_is_free, b.cancellation_free_until_hours, b.cancellation_cutoff_at,
+          b.order_room_number, g.street_address AS guest_street_address,
+          g.address_line_2 AS guest_address_line_2, g.city AS guest_city, g.county AS guest_county,
+          g.postcode AS guest_postcode,
           COALESCE(p.timezone, 'UTC') AS tz,
           (now() AT TIME ZONE COALESCE(p.timezone, 'UTC'))::date AS today
         FROM bookings b
@@ -177,6 +209,109 @@ export class BookingProjectionService {
         WHERE b.tenant_id = $1::uuid AND b.property_id = $2::uuid
       ) x
     `;
+
+@Injectable()
+export class BookingProjectionService {
+  constructor(@Inject(TenantDatabaseService) private readonly database: TenantDatabaseService) {}
+
+  /** One booking for the dashboard detail page, or null when it is not in this property. */
+  async detail(
+    tenantId: string,
+    propertyId: string,
+    bookingId: string,
+  ): Promise<BookingDetail | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bookingId)) return null;
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const rows = await tx.$queryRawUnsafe<Array<Record<string, unknown>>>(
+        `SELECT x.* FROM (${BOOKING_BASE_SQL}) x WHERE x.id = $3::uuid`,
+        tenantId,
+        propertyId,
+        bookingId,
+      );
+      const row = rows[0];
+      if (!row) return null;
+      const folios = await tx.$queryRaw<
+        Array<{ id: string; isDeposit: boolean; balance: string | null; closedAt: Date | null }>
+      >`
+        SELECT cf.clock_folio_id AS id, cf.is_deposit AS "isDeposit", cf.balance::text AS balance,
+          cf.closed_at AS "closedAt"
+        FROM clock_folios cf
+        WHERE cf.booking_id = ${bookingId}::uuid AND cf.tenant_id = ${tenantId}::uuid
+          AND cf.property_id = ${propertyId}::uuid
+        ORDER BY cf.is_deposit DESC, cf.created_at
+      `;
+      const events = await tx.$queryRaw<
+        Array<{
+          action: string;
+          createdAt: Date;
+          actorEmail: string | null;
+          details: Record<string, unknown> | null;
+        }>
+      >`
+        SELECT a.action, a.created_at AS "createdAt", u.email AS "actorEmail", a.details
+        FROM audit_logs a
+        LEFT JOIN users u ON u.id = a.actor_user_id
+        WHERE a.target_type = 'booking' AND a.target_id = ${bookingId}
+          AND a.tenant_id = ${tenantId}::uuid
+        ORDER BY a.created_at DESC, a.id DESC
+        LIMIT 50
+      `;
+      const text = (value: unknown) => (value === null || value === undefined ? null : String(value));
+      return {
+        ...toSearchItem(row),
+        version: Number(row.version),
+        updatedAt:
+          row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
+        externalBookingId: text(row.external_booking_id),
+        nightlyRates: (row.nightly_rates as BookingDetail['nightlyRates']) ?? null,
+        cancellation: {
+          isFree: (row.cancellation_is_free as boolean | null) ?? null,
+          freeUntilHours:
+            row.cancellation_free_until_hours === null ? null : Number(row.cancellation_free_until_hours),
+          cutoffAt:
+            row.cancellation_cutoff_at instanceof Date
+              ? row.cancellation_cutoff_at.toISOString()
+              : text(row.cancellation_cutoff_at),
+        },
+        orderRoomNumber: row.order_room_number === null ? null : Number(row.order_room_number),
+        guestAddress: {
+          street: text(row.guest_street_address),
+          line2: text(row.guest_address_line_2),
+          city: text(row.guest_city),
+          county: text(row.guest_county),
+          postcode: text(row.guest_postcode),
+        },
+        clockFolios: folios.map((folio) => ({
+          ...folio,
+          closedAt: folio.closedAt ? folio.closedAt.toISOString() : null,
+        })),
+        activity: events.map((event) => ({
+          action: event.action,
+          createdAt: event.createdAt.toISOString(),
+          actorEmail: event.actorEmail,
+          details: Object.fromEntries(
+            VISIBLE_ACTIVITY_KEYS.flatMap((key) =>
+              event.details && key in event.details ? [[key, event.details[key]]] : [],
+            ),
+          ),
+        })),
+      };
+    });
+  }
+
+  /**
+   * Server-side list for the dashboard Reservations page: filtered, sorted and paged in SQL, plus
+   * a count for every saved view (counts ignore the other filters so the tabs stay stable).
+   */
+  async search(
+    tenantId: string,
+    propertyId: string,
+    query: BookingSearchQuery,
+  ): Promise<BookingSearchResult> {
+    const built = buildBookingSearch(query);
+    const limit = `$${built.params.length + 3}`;
+    const offset = `$${built.params.length + 4}`;
+    const base = BOOKING_BASE_SQL;
     const countSelect = BOOKING_VIEWS.map(
       (view) => `COUNT(*) FILTER (WHERE ${VIEW_SQL[view]})::int AS "${view}"`,
     ).join(', ');

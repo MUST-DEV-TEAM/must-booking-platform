@@ -1147,6 +1147,11 @@ function ReservationSheet({
                 </div>
               ) : null}
               <div className="flex flex-wrap gap-2">
+                <Button asChild>
+                  <a href={dashboardHref(tenantId, propertyId, `section=reservations&reservation=${row.id}`)}>
+                    Open full reservation
+                  </a>
+                </Button>
                 {row.guestId ? (
                   <Button variant="outline" asChild>
                     <a href={dashboardHref(tenantId, propertyId, `section=guests&guest=${row.guestId}`)}>

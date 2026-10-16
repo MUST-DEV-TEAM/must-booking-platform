@@ -42,6 +42,7 @@ import { PaymentDetail } from './payment-detail';
 import { DashboardGuests } from './guests';
 import { GuestDetail } from './guest-detail';
 import { DashboardStaff } from './staff';
+import { ReservationDetail } from './reservation-detail';
 import { ReservationsPage } from './reservations-page';
 import { EmailSettings, isEmailTab, type EmailTab } from './email-settings';
 import { DashboardSettings, isSettingsArea, SettingsHub, type SettingsArea } from './settings';
@@ -280,6 +281,7 @@ export function DashboardShell({
   // A single payment or guest opened by link (?payment=<bookingId> / ?guest=<guestId>).
   const [paymentId, setPaymentId] = useState<string | null>(null);
   const [guestId, setGuestId] = useState<string | null>(null);
+  const [reservationId, setReservationId] = useState<string | null>(null);
   const [tab, setTab] = useState<DashboardTab>('overview');
   const [settingsArea, setSettingsArea] = useState<SettingsArea | null>(null);
   const [emailTab, setEmailTab] = useState<EmailTab | undefined>(undefined);
@@ -300,6 +302,7 @@ export function DashboardShell({
     const params = new URLSearchParams(window.location.search);
     setPaymentId(params.get('payment'));
     setGuestId(params.get('guest'));
+    setReservationId(params.get('reservation'));
   }, []);
 
   useEffect(() => {
@@ -458,7 +461,15 @@ export function DashboardShell({
         <InventorySection />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'reservations' ? (
-        <ReservationsPage tenantId={tenantId} propertyId={selectedProperty.id} />
+        reservationId ? (
+          <ReservationDetail
+            tenantId={tenantId}
+            propertyId={selectedProperty.id}
+            bookingId={reservationId}
+          />
+        ) : (
+          <ReservationsPage tenantId={tenantId} propertyId={selectedProperty.id} />
+        )
       ) : null}
       {selectedProperty && role && canViewSection && section === 'calendar' ? (
         <DashboardCalendar

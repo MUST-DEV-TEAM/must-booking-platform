@@ -8,6 +8,7 @@ import {
   Headers,
   HttpCode,
   Inject,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -72,6 +73,23 @@ export class BookingController {
       request.tenantContext.propertyId,
       parseBookingSearchQuery(query),
     );
+  }
+
+  @Get(':bookingId')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.manage')
+  async detail(
+    @Param('bookingId') bookingId: string,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string } },
+  ) {
+    const booking = await this.projections.detail(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      bookingId,
+    );
+    if (!booking) throw new NotFoundException('Booking was not found.');
+    return booking;
   }
 
   @Post()
