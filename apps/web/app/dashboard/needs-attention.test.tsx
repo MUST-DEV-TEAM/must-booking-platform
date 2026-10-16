@@ -3,74 +3,113 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { NeedsAttentionTab } from './overview';
+import { NeedsAttentionTab } from './needs-attention';
 import { DashboardQueryProvider } from './query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-const baseOverview = {
-  kpis: {
-    date: '2026-08-24',
-    arrivals: 2,
-    departures: 1,
-    inHouse: 4,
-    bookedRoomNights: 5,
-    availableRoomNights: 7,
-    occupancyRate: 71,
-  },
-  recentActivity: [],
-};
+// Radix selects measure elements that jsdom does not implement.
+class NoopObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver ??= NoopObserver as unknown as typeof ResizeObserver;
+
+const row = (overrides: Record<string, unknown>) => ({
+  id: 'booking',
+  externalReference: 'MB-1',
+  status: 'MANUAL_REVIEW',
+  paymentMethod: 'PAY_AT_HOTEL',
+  startsOn: '2026-08-24',
+  endsOn: '2026-08-26',
+  createdAt: '2026-08-20T10:00:00.000Z',
+  roomName: null,
+  roomTypeName: 'Double room',
+  guestFirstName: 'Ada',
+  guestLastName: 'Guest',
+  guestEmail: 'ada@example.test',
+  total: { amount: '200.00', currency: 'EUR' },
+  paidAmount: '0.00',
+  refundedAmount: '0.00',
+  ...overrides,
+});
+
+const items = [
+  row({ id: 'booking-1', externalReference: 'MB-1', status: 'PAYMENT_FAILED' }),
+  row({
+    id: 'booking-2',
+    externalReference: 'MB-2',
+    status: 'MANUAL_REVIEW',
+    guestFirstName: null,
+    guestLastName: null,
+    guestEmail: 'grace@example.test',
+  }),
+];
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('NeedsAttentionTab', () => {
-  it('lists the overview attention items with semantic status badges', async () => {
-    const fetch = vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            ...baseOverview,
-            needsAttention: [
-              {
-                id: 'booking-1',
-                status: 'PAYMENT_FAILED',
-                startsOn: '2026-08-24',
-                endsOn: '2026-08-26',
-                guestName: 'Ada Guest',
-                guestEmail: 'ada@example.test',
-                roomTypeName: 'Double room',
-              },
-              {
-                id: 'booking-2',
-                status: 'MANUAL_REVIEW',
-                startsOn: '2026-08-25',
-                endsOn: '2026-08-27',
-                guestName: null,
-                guestEmail: 'grace@example.test',
-                roomTypeName: 'Suite',
-              },
-            ],
-          }),
-        ),
-    );
+  it('asks the search endpoint for the attention view and lists each issue in staff words', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ items })));
     vi.stubGlobal('fetch', fetch);
 
     const { container, root } = await mount();
 
-    expect(container.textContent).toContain('Ada Guest');
-    expect(container.textContent).toContain('grace@example.test');
-    expect(container.textContent).toContain('Payment failed');
-    expect(container.textContent).toContain('Needs review');
-    expect(container.textContent).toContain('Bookings needing attention');
+    expect(String((fetch.mock.calls[0] as unknown[])[0])).toContain('view=needs_attention');
+    const table = container.querySelector('table[aria-label="Bookings needing attention"]')!;
+    expect(table.textContent).toContain('Ada Guest');
+    expect(table.textContent).toContain('grace@example.test');
+    expect(table.textContent).toContain('Payment failed');
+    expect(table.textContent).toContain('Reservation awaiting review');
+    expect(table.textContent).toContain('Urgent');
+    // Urgent items come first by default.
+    expect(table.textContent!.indexOf('Payment failed')).toBeLessThan(
+      table.textContent!.indexOf('Reservation awaiting review'),
+    );
+
+    await act(async () => root.unmount());
+  });
+
+  it('shows why the first item is flagged and links to its reservation', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items }))));
+    const { container, root } = await mount();
+
+    expect(container.textContent).toContain('Why this is flagged');
+    expect(container.textContent).toContain('The online payment for this reservation did not go through.');
+    expect(
+      container.querySelector(
+        'a[href="/dashboard/t?propertyId=p&section=reservations&reservation=booking-1"]',
+      )?.textContent,
+    ).toContain('Open reservation record');
+
+    await act(async () => root.unmount());
+  });
+
+  it('narrows the queue from a summary tile and from a search', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items }))));
+    const { container, root } = await mount();
+
+    const tile = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Booking review'),
+    )!;
+    await click(tile);
+    const table = () => container.querySelector('table')?.textContent ?? '';
+    expect(table()).toContain('Reservation awaiting review');
+    expect(table()).not.toContain('Payment failed');
+
+    await click(
+      Array.from(container.querySelectorAll('button')).find((button) =>
+        button.textContent?.includes('Open issues'),
+      )!,
+    );
+    expect(table()).toContain('Payment failed');
 
     await act(async () => root.unmount());
   });
 
   it('renders an actionable empty state when there are no attention items', async () => {
-    const fetch = vi.fn(
-      async () => new Response(JSON.stringify({ ...baseOverview, needsAttention: [] })),
-    );
-    vi.stubGlobal('fetch', fetch);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items: [] }))));
 
     const { container, root } = await mount();
 
@@ -78,6 +117,26 @@ describe('NeedsAttentionTab', () => {
     expect(
       container.querySelector('a[href="/dashboard/t?propertyId=p&section=overview&tab=overview"]'),
     ).not.toBeNull();
+
+    await act(async () => root.unmount());
+  });
+
+  it('shows an error with a retry when the queue cannot load', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 500 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ items })));
+    vi.stubGlobal('fetch', fetch);
+
+    const { container, root } = await mount();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Unable to load the queue');
+
+    await click(
+      Array.from(container.querySelectorAll('button')).find(
+        (button) => button.textContent === 'Try again',
+      )!,
+    );
+    expect(container.textContent).toContain('Payment failed');
 
     await act(async () => root.unmount());
   });
@@ -97,23 +156,19 @@ async function mount() {
   });
   await act(async () => {
     await vi.waitFor(() => {
-      if (!container.textContent?.includes('Needs attention'))
+      if (container.querySelector('[aria-busy="true"]'))
         throw new Error('Needs attention has not finished loading yet.');
     });
   });
   return { container, root };
 }
 
-describe('NeedsAttentionTab with an API that sends only the count', () => {
-  it('shows the empty state instead of crashing when the list is missing', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response(JSON.stringify({ ...baseOverview, needsAttentionCount: 2 }))),
-    );
-
-    const { container, root } = await mount();
-
-    expect(container.textContent).toContain('No bookings need attention');
-    await act(async () => root.unmount());
+async function click(element: Element) {
+  await act(async () => {
+    (element as HTMLButtonElement).click();
+    for (let iteration = 0; iteration < 4; iteration += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
+      await Promise.resolve();
+    }
   });
-});
+}
