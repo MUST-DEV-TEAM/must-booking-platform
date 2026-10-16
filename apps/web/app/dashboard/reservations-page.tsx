@@ -12,10 +12,11 @@ import {
   Columns3,
   ListFilter,
   MoreHorizontal,
+  RefreshCw,
   Search,
   UserRound,
 } from 'lucide-react';
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 
 import { BookingStatusBadge, PaymentStatusBadge, SourceBadge } from '../../components/ui/status-badge';
 import { Button } from '../../components/ui/button';
@@ -64,6 +65,12 @@ import {
 } from '../../components/ui/table';
 import { balanceDue, bookingStatusDisplay, nightsBetween } from '../../lib/reservation-display';
 import { cn } from '../../lib/utils';
+import {
+  differsOnlyBySearch,
+  paramsToFilters,
+  withFilterParams,
+  type ReservationFilters,
+} from './reservations-url';
 
 type View =
   | 'all'
@@ -193,13 +200,28 @@ const dateTypeOptions: Array<[DateType, string]> = [
   ['created', 'Created'],
 ];
 
-function useDebounced<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay]);
-  return debounced;
+/** "just now", "2 min ago", "3 h ago". */
+function updatedLabel(updatedAt: number, now: number): string {
+  const seconds = Math.max(0, Math.round((now - updatedAt) / 1000));
+  if (seconds < 45) return 'just now';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  return `${Math.round(minutes / 60)} h ago`;
+}
+
+function toUrlFilters(filters: Filters): ReservationFilters {
+  return { ...filters, from: filters.range.start, to: filters.range.end ?? filters.range.start };
+}
+
+function fromUrlFilters(filters: ReservationFilters): Filters {
+  const { from, to, ...rest } = filters;
+  return {
+    ...(rest as Omit<Filters, 'range'>),
+    view: rest.view as View,
+    dateType: rest.dateType as DateType,
+    sort: rest.sort as SortKey,
+    range: { start: from, end: to },
+  };
 }
 
 function queryString(filters: Filters, search: string): string {
@@ -266,29 +288,66 @@ export function ReservationsPage({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [columns, setColumns] = useState<Record<ColumnKey, boolean>>(defaultColumns);
-  const debouncedSearch = useDebounced(searchText, 300);
+  const [committedSearch, setCommittedSearch] = useState('');
+  const [ready, setReady] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const lastSearchRef = useRef<string | null>(null);
 
   // Remembered column choice (a per-browser convenience).
   useEffect(() => setColumns(loadColumns()), []);
 
-  // A new search term always starts from the first page.
+  // Restore the filters from the page address on first load, and again on Back / Forward.
   useEffect(() => {
-    setFilters((current) =>
-      current.page === 1 ? current : { ...current, page: 1 },
-    );
-  }, [debouncedSearch]);
+    const restore = () => {
+      const parsed = paramsToFilters(new URLSearchParams(window.location.search));
+      setFilters(fromUrlFilters(parsed.filters));
+      setSearchText(parsed.search);
+      setCommittedSearch(parsed.search);
+      lastSearchRef.current = window.location.search;
+    };
+    restore();
+    setReady(true);
+    window.addEventListener('popstate', restore);
+    return () => window.removeEventListener('popstate', restore);
+  }, []);
+
+  // Search runs shortly after typing stops.
+  useEffect(() => {
+    const timer = setTimeout(() => setCommittedSearch(searchText), 300);
+    return () => clearTimeout(timer);
+  }, [searchText]);
+
+  // Write the filters to the address. Typing only replaces the entry; every other change adds one.
+  useEffect(() => {
+    if (!ready) return;
+    const next = withFilterParams(window.location.search, toUrlFilters(filters), committedSearch);
+    if (next === window.location.search || (next === '' && window.location.search === '')) return;
+    const url = `${window.location.pathname}${next}${window.location.hash}`;
+    if (lastSearchRef.current !== null && differsOnlyBySearch(lastSearchRef.current, next))
+      window.history.replaceState(null, '', url);
+    else window.history.pushState(null, '', url);
+    lastSearchRef.current = next;
+  }, [filters, committedSearch, ready]);
+
+  // Keeps the "Updated ... ago" text current.
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const query = useQuery({
-    queryKey: ['dashboard', 'reservations-search', tenantId, propertyId, filters, debouncedSearch],
+    queryKey: ['dashboard', 'reservations-search', tenantId, propertyId, filters, committedSearch],
     queryFn: async (): Promise<SearchResult> => {
       const response = await fetch(
-        `/api/tenants/${tenantId}/properties/${propertyId}/bookings/search?${queryString(filters, debouncedSearch)}`,
+        `/api/tenants/${tenantId}/properties/${propertyId}/bookings/search?${queryString(filters, committedSearch)}`,
         { credentials: 'include' },
       );
       if (!response.ok) throw new Error(`Unable to load reservations (${response.status}).`);
       return (await response.json()) as SearchResult;
     },
     placeholderData: keepPreviousData,
+    enabled: ready,
+    refetchInterval: 60_000,
   });
 
   const update = (patch: Partial<Filters>) => {
@@ -438,7 +497,10 @@ export function ReservationsPage({
             onSelect={(id) => update({ view: id as View })}
             label="Reservation views"
           />
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="mr-auto text-xs text-muted-foreground" aria-live="polite">
+              {query.dataUpdatedAt ? `Updated ${updatedLabel(query.dataUpdatedAt, now)}` : ''}
+            </p>
             <div className="relative w-full sm:w-64">
               <Search
                 aria-hidden="true"
@@ -448,7 +510,10 @@ export function ReservationsPage({
                 aria-label="Search reservations"
                 placeholder="Search guest, reference, phone…"
                 value={searchText}
-                onChange={(event) => setSearchText(event.target.value)}
+                onChange={(event) => {
+                  setSearchText(event.target.value);
+                  setFilters((current) => (current.page === 1 ? current : { ...current, page: 1 }));
+                }}
                 className="h-9 pl-8 text-xs"
               />
             </div>
@@ -532,6 +597,14 @@ export function ReservationsPage({
                 ))}
               </PopoverContent>
             </Popover>
+
+            <IconButton
+              label="Refresh"
+              hint={query.dataUpdatedAt ? `Updated ${updatedLabel(query.dataUpdatedAt, now)}` : undefined}
+              onClick={() => void query.refetch()}
+            >
+              <RefreshCw aria-hidden="true" className={query.isFetching ? 'animate-spin' : undefined} />
+            </IconButton>
           </div>
 
           <FilterChips chips={chips} onRemove={removeChip} onClearAll={clearAll} />
@@ -628,7 +701,14 @@ export function ReservationsPage({
                     <Fragment key={row.id}>
                       <TableRow
                         data-state={isSelected ? 'selected' : undefined}
-                        className={cn('h-12', isSelected && 'bg-primary/10 hover:bg-primary/10')}
+                        className={cn(
+                          'h-12 cursor-pointer',
+                          isSelected && 'bg-primary/10 hover:bg-primary/10',
+                        )}
+                        onClick={(event) => {
+                          if ((event.target as HTMLElement).closest('button, a, input, label, [role="checkbox"]')) return;
+                          setSelected(row);
+                        }}
                       >
                         <TableCell className="px-3 py-2">
                           <Checkbox
