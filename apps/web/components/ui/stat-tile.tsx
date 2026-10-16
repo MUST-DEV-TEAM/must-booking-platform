@@ -16,6 +16,7 @@ export function StatTile({
   icon: Icon,
   tone = 'default',
   active = false,
+  size = 'lg',
   onClick,
 }: {
   label: string;
@@ -24,6 +25,8 @@ export function StatTile({
   icon?: LucideIcon;
   tone?: 'default' | 'warning' | 'danger' | 'success';
   active?: boolean;
+  /** `sm` for text values such as dates and names; `lg` for numbers. */
+  size?: 'sm' | 'lg';
   onClick?: () => void;
 }) {
   const body = (
@@ -38,7 +41,7 @@ export function StatTile({
       </div>
       <div
         className={cn(
-          'text-2xl font-extrabold tracking-tight',
+          size === 'sm' ? 'text-lg leading-tight font-bold' : 'text-2xl font-extrabold tracking-tight',
           tone === 'warning' && 'text-warning',
           tone === 'danger' && 'text-destructive',
           tone === 'success' && 'text-success',

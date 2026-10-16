@@ -24,3 +24,25 @@ export function DetailList({
     </dl>
   );
 }
+
+/** One labelled value in a grid of facts. An empty value shows a dash. */
+export function Field({ label, value }: { label: string; value: ReactNode | null | undefined }) {
+  return (
+    <div className="space-y-1">
+      <p className="m-0 text-xs text-muted-foreground">{label}</p>
+      <p className="m-0 text-sm font-semibold break-words">
+        {value === null || value === undefined || value === '' ? '—' : value}
+      </p>
+    </div>
+  );
+}
+
+/** Small capitalised heading used above a block inside a card. */
+export function SectionLabel({ children, action }: { children: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <p className="m-0 text-[10px] font-bold tracking-wide text-muted-foreground uppercase">{children}</p>
+      {action}
+    </div>
+  );
+}

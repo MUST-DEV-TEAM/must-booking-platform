@@ -1,17 +1,34 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowLeftRight, Ban, CreditCard, Pencil, Plug } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowLeftRight,
+  Ban,
+  BedDouble,
+  CalendarDays,
+  CircleCheck,
+  CirclePlus,
+  CreditCard,
+  Pencil,
+  Plug,
+  RefreshCw,
+  Undo2,
+  Users,
+  Wallet,
+  type LucideIcon,
+} from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
-import { DetailList } from '../../components/ui/detail-list';
+import { ActivityFeed, type ActivityEntry } from '../../components/ui/activity-feed';
+import { DetailList, Field, SectionLabel } from '../../components/ui/detail-list';
+import { StatTile } from '../../components/ui/stat-tile';
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import { BookingStatusBadge, PaymentStatusBadge, SourceBadge } from '../../components/ui/status-badge';
-import { Timeline, type TimelineItem } from '../../components/ui/timeline';
 import {
   balanceDue,
   bookingStatusDisplay,
@@ -98,6 +115,15 @@ function activityLabel(action: string) {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+function activityIcon(action: string): { icon: LucideIcon; tone: ActivityEntry['tone'] } {
+  if (action.includes('cancel')) return { icon: Ban, tone: 'danger' };
+  if (action.includes('refund')) return { icon: Undo2, tone: 'danger' };
+  if (action.startsWith('payment') || action.includes('deposit')) return { icon: Wallet, tone: 'success' };
+  if (action.includes('clock')) return { icon: RefreshCw, tone: 'info' };
+  if (action.includes('created')) return { icon: CirclePlus, tone: 'default' };
+  return { icon: CircleCheck, tone: 'default' };
+}
+
 function activityDetail(details: Record<string, unknown>) {
   const parts: string[] = [];
   const amount = details.amount as { amount?: string; currency?: string } | string | undefined;
@@ -136,6 +162,7 @@ export function ReservationDetail({
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const queryClient = useQueryClient();
   const [cancelling, setCancelling] = useState(false);
+  const [showAllActivity, setShowAllActivity] = useState(false);
 
   const query = useQuery({
     queryKey: ['dashboard', 'reservation-detail', tenantId, propertyId, bookingId],
@@ -212,11 +239,13 @@ export function ReservationDetail({
   const canCancel = !CANCELLED_LIKE.has(booking.status);
   const cancellation = booking.cancellation;
 
-  const timeline: TimelineItem[] = booking.activity.map((event, index) => ({
+  const feed: ActivityEntry[] = booking.activity.map((event, index) => ({
     key: `${event.action}-${event.createdAt}-${index}`,
     title: activityLabel(event.action),
-    meta: `${dateTime(event.createdAt)}${event.actorEmail ? ` · ${event.actorEmail}` : ''}`,
     detail: activityDetail(event.details) || undefined,
+    at: event.createdAt,
+    actor: event.actorEmail,
+    ...activityIcon(event.action),
   }));
 
   const cancelReservation = async (reason: string) => {
@@ -261,16 +290,8 @@ export function ReservationDetail({
           ? bookingMode.toLowerCase().replaceAll('_', ' ')
           : null;
   const nights = nightsBetween(booking.startsOn, booking.endsOn);
-  const clock = (value: string) =>
-    new Date(value).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   const sourceText = sourceDisplay(booking.source);
-
-  const field = (label: string, value: ReactNode) => (
-    <div className="space-y-1">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-sm font-semibold break-words">{value || '—'}</p>
-    </div>
-  );
+  const field = (label: string, value: ReactNode) => <Field label={label} value={value} />;
 
   return (
     <div className="space-y-4">
@@ -326,36 +347,34 @@ export function ReservationDetail({
       </Card>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          {
-            label: 'STAY',
-            value: `${longDate(booking.startsOn)} – ${longDate(booking.endsOn)}`,
-            sub: `${nights} night${nights === 1 ? '' : 's'} · Check-in from ${CHECK_IN}`,
-          },
-          {
-            label: 'ACCOMMODATION',
-            value: propertyName ?? booking.roomTypeName,
-            sub: `${booking.roomTypeName} · ${booking.roomName ?? 'Room not assigned'}`,
-          },
-          {
-            label: 'GUESTS',
-            value: `${booking.adults} adult${booking.adults === 1 ? '' : 's'}${booking.children ? ` · ${booking.children} child${booking.children === 1 ? '' : 'ren'}` : ''}`,
-            sub: `Primary guest: ${guest}`,
-          },
-          {
-            label: 'TOTAL & PAYMENT',
-            value: money(booking.total.amount, currency),
-            sub: `${methodTitle} · ${paymentLabel}`,
-          },
-        ].map((tile) => (
-          <Card key={tile.label}>
-            <CardContent className="space-y-1 p-4">
-              <p className="text-[10px] font-bold tracking-wide text-muted-foreground">{tile.label}</p>
-              <p className="text-lg font-bold">{tile.value}</p>
-              <p className="text-xs text-muted-foreground">{tile.sub}</p>
-            </CardContent>
-          </Card>
-        ))}
+        <StatTile
+          size="sm"
+          label="Stay"
+          icon={CalendarDays}
+          value={`${longDate(booking.startsOn)} – ${longDate(booking.endsOn)}`}
+          note={`${nights} night${nights === 1 ? '' : 's'} · Check-in from ${CHECK_IN}`}
+        />
+        <StatTile
+          size="sm"
+          label="Accommodation"
+          icon={BedDouble}
+          value={propertyName ?? booking.roomTypeName}
+          note={`${booking.roomTypeName} · ${booking.roomName ?? 'Room not assigned'}`}
+        />
+        <StatTile
+          size="sm"
+          label="Guests"
+          icon={Users}
+          value={`${booking.adults} adult${booking.adults === 1 ? '' : 's'}${booking.children ? ` · ${booking.children} child${booking.children === 1 ? '' : 'ren'}` : ''}`}
+          note={`Primary guest: ${guest}`}
+        />
+        <StatTile
+          size="sm"
+          label="Total & payment"
+          icon={CreditCard}
+          value={money(booking.total.amount, currency)}
+          note={`${methodTitle} · ${paymentLabel}`}
+        />
       </div>
 
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
@@ -445,7 +464,7 @@ export function ReservationDetail({
           <CardContent className="space-y-5">
             <section className="space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-[10px] font-bold tracking-wide text-muted-foreground">PAYMENT</p>
+                <SectionLabel>Payment</SectionLabel>
                 <PaymentStatusBadge
                   status={booking.status}
                   paymentMethod={booking.paymentMethod}
@@ -483,7 +502,7 @@ export function ReservationDetail({
             {hasClock ? (
               <section className="space-y-3 border-t pt-4">
                 <div className="flex items-center justify-between">
-                  <p className="text-[10px] font-bold tracking-wide text-muted-foreground">CLOCK PMS</p>
+                  <SectionLabel>Clock Pms</SectionLabel>
                   <Badge variant="info" className="rounded-full px-2 py-0 text-[10px] font-semibold">
                     Synced
                   </Badge>
@@ -504,33 +523,26 @@ export function ReservationDetail({
             ) : null}
 
             <section className="space-y-3 border-t pt-4">
-              <p className="text-[10px] font-bold tracking-wide text-muted-foreground">LATEST ACTIVITY</p>
-              {booking.activity.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No activity has been recorded for this reservation.
-                </p>
-              ) : (
-                <ul className="list-none space-y-2">
-                  {booking.activity.slice(0, 8).map((event, index) => (
-                    <li
-                      key={`${event.action}-${event.createdAt}-${index}`}
-                      className="flex items-start gap-3 text-sm"
+              <SectionLabel
+                action={
+                  booking.activity.length > 5 ? (
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-xs"
+                      onClick={() => setShowAllActivity((value) => !value)}
                     >
-                      <span className="shrink-0 rounded-md border bg-card px-2 py-1 text-xs font-semibold">
-                        {clock(event.createdAt)}
-                      </span>
-                      <span className="pt-0.5">
-                        {activityLabel(event.action)}
-                        {activityDetail(event.details) ? (
-                          <span className="block text-xs text-muted-foreground">
-                            {activityDetail(event.details)}
-                          </span>
-                        ) : null}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+                      {showAllActivity ? 'Show less' : `Show all ${booking.activity.length}`}
+                    </Button>
+                  ) : null
+                }
+              >
+                Latest activity
+              </SectionLabel>
+              <ActivityFeed
+                entries={showAllActivity ? feed : feed.slice(0, 5)}
+                empty="No activity has been recorded for this reservation."
+              />
             </section>
 
             <div className="flex flex-wrap gap-2 rounded-xl bg-primary/5 p-2">
@@ -548,15 +560,6 @@ export function ReservationDetail({
           </CardContent>
         </Card>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Full activity history</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Timeline items={timeline} empty="No activity has been recorded for this reservation." />
-        </CardContent>
-      </Card>
 
       <ConfirmDialog
         open={cancelling}
