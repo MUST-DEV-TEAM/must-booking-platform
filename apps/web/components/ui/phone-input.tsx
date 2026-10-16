@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 
 import { dialCountries, findDialCountry } from '../../lib/dial-codes';
+import { cleanDigits, LIMITS } from '../../lib/input-rules';
 import { Combobox } from './combobox';
 import { Input } from './input';
 
@@ -30,6 +31,7 @@ export function PhoneInput({
   invalid?: boolean;
   disabled?: boolean;
 }) {
+  const prefixDigits = (findDialCountry(value.iso)?.prefix ?? '').replace('+', '').length;
   const options = useMemo(
     () =>
       dialCountries().map((country) => ({
@@ -66,12 +68,15 @@ export function PhoneInput({
       <Input
         id={id}
         type="tel"
-        inputMode="tel"
-        autoComplete="off"
+        inputMode="numeric"
+        autoComplete="tel-national"
         aria-invalid={invalid || undefined}
         disabled={disabled}
         value={value.number}
-        onChange={(event) => onChange({ ...value, number: event.target.value })}
+        onChange={(event) => onChange({
+            ...value,
+            number: cleanDigits(event.target.value).slice(0, LIMITS.phoneDigits - prefixDigits),
+          })}
         className="h-full border-0 shadow-none focus-visible:ring-0"
       />
     </div>

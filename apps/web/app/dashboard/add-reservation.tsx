@@ -27,6 +27,17 @@ import { PageHero } from '../../components/ui/page-hero';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { EmptyPanel } from '../../components/ui/state-panel';
 import { Stepper } from '../../components/ui/stepper';
+import { findDialCountry } from '../../lib/dial-codes';
+import {
+  cleanAddress,
+  cleanEmail,
+  cleanName,
+  cleanPostcode,
+  emailError,
+  LIMITS,
+  nameError,
+  phoneError,
+} from '../../lib/input-rules';
 import { nightsBetween } from '../../lib/reservation-display';
 
 type RoomType = { id: string; name: string; roomCount: number };
@@ -109,7 +120,6 @@ const todayIso = () => {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 };
-const emailLooksValid = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
 function href(tenantId: string, propertyId: string, extra: string) {
   return `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&${extra}`;
@@ -277,11 +287,19 @@ export function AddReservation({
 
   const stayComplete = !!total && (!byRoom || !!roomId);
   const guestErrors = {
-    firstName: guest.firstName.trim() ? null : 'Enter the first name.',
-    lastName: guest.lastName.trim() ? null : 'Enter the last name.',
-    email: emailLooksValid(guest.email) ? null : 'Enter a valid email address.',
+    firstName: nameError(guest.firstName, 'first name'),
+    lastName: nameError(guest.lastName, 'last name'),
+    email: emailError(guest.email),
+    phone: phoneError(
+      guest.phone.number,
+      (findDialCountry(guest.phone.iso)?.prefix ?? '').replace('+', '').length,
+    ),
   };
-  const guestComplete = !guestErrors.firstName && !guestErrors.lastName && !guestErrors.email;
+  const guestComplete = Object.values(guestErrors).every((error) => !error);
+  // Problems show once a field has been left, or after trying to continue.
+  const [left, setLeft] = useState<ReadonlySet<string>>(new Set());
+  const leave = (field: string) => setLeft((current) => new Set(current).add(field));
+  const shown = (field: keyof typeof guestErrors) => (touched || left.has(field) ? guestErrors[field] : null);
 
   const create = useMutation({
     mutationFn: async (): Promise<Created> => {
@@ -337,6 +355,7 @@ export function AddReservation({
     setGuest({ ...emptyGuest, arrivalTime: hotelCheckIn });
     setSettle('');
     setTouched(false);
+    setLeft(new Set());
     setCreated(null);
     create.reset();
   };
@@ -671,36 +690,54 @@ export function AddReservation({
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <FormField label="First name" htmlFor="guest-first" required error={touched ? guestErrors.firstName : null}>
+                    <FormField label="First name" htmlFor="guest-first" required error={shown('firstName')}>
                       <Input
                         id="guest-first"
-                        autoComplete="off"
+                        autoComplete="given-name"
+                        maxLength={LIMITS.name}
                         value={guest.firstName}
-                        onChange={(event) => setGuest({ ...guest, firstName: event.target.value })}
+                        onBlur={() => leave('firstName')}
+                        onChange={(event) => setGuest({ ...guest, firstName: cleanName(event.target.value) })}
                       />
                     </FormField>
-                    <FormField label="Last name" htmlFor="guest-last" required error={touched ? guestErrors.lastName : null}>
+                    <FormField label="Last name" htmlFor="guest-last" required error={shown('lastName')}>
                       <Input
                         id="guest-last"
-                        autoComplete="off"
+                        autoComplete="family-name"
+                        maxLength={LIMITS.name}
                         value={guest.lastName}
-                        onChange={(event) => setGuest({ ...guest, lastName: event.target.value })}
+                        onBlur={() => leave('lastName')}
+                        onChange={(event) => setGuest({ ...guest, lastName: cleanName(event.target.value) })}
                       />
                     </FormField>
-                    <FormField label="Email" htmlFor="guest-email" required error={touched ? guestErrors.email : null}>
+                    <FormField label="Email" htmlFor="guest-email" required error={shown('email')}>
                       <Input
                         id="guest-email"
                         type="email"
-                        autoComplete="off"
+                        inputMode="email"
+                        autoComplete="email"
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        maxLength={LIMITS.email}
                         value={guest.email}
-                        onChange={(event) => setGuest({ ...guest, email: event.target.value })}
+                        onBlur={() => leave('email')}
+                        onChange={(event) => setGuest({ ...guest, email: cleanEmail(event.target.value) })}
                       />
                     </FormField>
-                    <FormField label="Phone" htmlFor="guest-phone" hint="Optional. Useful for arrival and payment follow-up.">
+                    <FormField
+                      label="Phone"
+                      htmlFor="guest-phone"
+                      error={shown('phone')}
+                      hint="Optional. Digits only, without the prefix. Useful for arrival and payment follow-up."
+                    >
                       <PhoneInput
                         id="guest-phone"
+                        invalid={!!shown('phone')}
                         value={guest.phone}
-                        onChange={(phone) => setGuest({ ...guest, phone })}
+                        onChange={(phone) => {
+                          setGuest({ ...guest, phone });
+                          leave('phone');
+                        }}
                       />
                     </FormField>
                   </div>
@@ -719,41 +756,46 @@ export function AddReservation({
                     <FormField label="Street address" htmlFor="guest-street" className="sm:col-span-2">
                       <Input
                         id="guest-street"
-                        autoComplete="off"
+                        autoComplete="address-line1"
+                        maxLength={LIMITS.street}
                         value={guest.streetAddress}
-                        onChange={(event) => setGuest({ ...guest, streetAddress: event.target.value })}
+                        onChange={(event) => setGuest({ ...guest, streetAddress: cleanAddress(event.target.value) })}
                       />
                     </FormField>
                     <FormField label="Address line 2" htmlFor="guest-line2" className="sm:col-span-2">
                       <Input
                         id="guest-line2"
-                        autoComplete="off"
+                        autoComplete="address-line2"
+                        maxLength={LIMITS.street}
                         value={guest.addressLine2}
-                        onChange={(event) => setGuest({ ...guest, addressLine2: event.target.value })}
+                        onChange={(event) => setGuest({ ...guest, addressLine2: cleanAddress(event.target.value) })}
                       />
                     </FormField>
                     <FormField label="City" htmlFor="guest-city">
                       <Input
                         id="guest-city"
-                        autoComplete="off"
+                        autoComplete="address-level2"
+                        maxLength={LIMITS.city}
                         value={guest.city}
-                        onChange={(event) => setGuest({ ...guest, city: event.target.value })}
+                        onChange={(event) => setGuest({ ...guest, city: cleanName(event.target.value) })}
                       />
                     </FormField>
                     <FormField label="County / region" htmlFor="guest-county">
                       <Input
                         id="guest-county"
-                        autoComplete="off"
+                        autoComplete="address-level1"
+                        maxLength={LIMITS.city}
                         value={guest.county}
-                        onChange={(event) => setGuest({ ...guest, county: event.target.value })}
+                        onChange={(event) => setGuest({ ...guest, county: cleanName(event.target.value) })}
                       />
                     </FormField>
                     <FormField label="Postcode" htmlFor="guest-postcode">
                       <Input
                         id="guest-postcode"
-                        autoComplete="off"
+                        autoComplete="postal-code"
+                        maxLength={LIMITS.postcode}
                         value={guest.postcode}
-                        onChange={(event) => setGuest({ ...guest, postcode: event.target.value })}
+                        onChange={(event) => setGuest({ ...guest, postcode: cleanPostcode(event.target.value) })}
                       />
                     </FormField>
                   </div>
@@ -794,6 +836,7 @@ export function AddReservation({
                   <FormField label="Special requests" htmlFor="guest-requests" hint="Anything else the hotel should know.">
                     <Textarea
                       id="guest-requests"
+                      maxLength={LIMITS.note}
                       value={guest.specialRequests}
                       onChange={(event) => setGuest({ ...guest, specialRequests: event.target.value })}
                     />

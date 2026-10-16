@@ -66,6 +66,7 @@ export class StaffBookingController {
     @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
   ) {
     const input = this.input(body);
+    this.validateGuest(input.guest);
     const key = this.idempotencyKey(idempotencyKey);
     const total = await this.quotes.price(
       request.tenantContext.tenantId,
@@ -85,6 +86,18 @@ export class StaffBookingController {
         'This idempotency key was already used with a different request.',
       );
     return result;
+  }
+
+  /** The same rules the dashboard form applies, so other clients cannot save bad contact data. */
+  private validateGuest(guest: { email: string; firstName: string; lastName: string; phone: string | null }) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(guest.email.trim()) || guest.email.length > 254)
+      throw new BadRequestException('A valid guest email address is required.');
+    if (!guest.firstName.trim() || guest.firstName.length > 100)
+      throw new BadRequestException('A guest first name of up to 100 characters is required.');
+    if (!guest.lastName.trim() || guest.lastName.length > 100)
+      throw new BadRequestException('A guest last name of up to 100 characters is required.');
+    if (guest.phone && !/^\+?[0-9][0-9 ]{4,19}$/.test(guest.phone.trim()))
+      throw new BadRequestException('The guest phone number may contain only digits and a country prefix.');
   }
 
   private input(body: unknown) {
