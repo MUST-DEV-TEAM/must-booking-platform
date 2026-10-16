@@ -14,13 +14,13 @@ describe('Design layout access', () => {
 
   it('skips the login check only in development', () => {
     vi.stubEnv('NODE_ENV', 'development');
-    expect(renderToStaticMarkup(<DesignLayout>child</DesignLayout>)).toContain('Design preview');
+    expect(renderToStaticMarkup(<DesignLayout>child</DesignLayout>)).toContain('Preview settings');
   });
 
   it.each(['production', 'test'])('keeps the platform login check in %s', (env) => {
     vi.stubEnv('NODE_ENV', env);
     const markup = renderToStaticMarkup(<DesignLayout>child</DesignLayout>);
     expect(markup).toContain('Loading…');
-    expect(markup).not.toContain('Design preview');
+    expect(markup).not.toContain('Preview settings');
   });
 });

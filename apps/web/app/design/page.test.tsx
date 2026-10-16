@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mockedNavigation = vi.hoisted(() => ({ usePathname: vi.fn(() => '/design') }));
+const mockedNavigation = vi.hoisted(() => ({ usePathname: vi.fn(() => '/design'), useRouter: () => ({}) }));
 
 vi.mock('next/navigation', () => mockedNavigation);
 
@@ -20,11 +20,11 @@ describe('Design showcase', () => {
       </DesignShell>,
     );
 
-    expect(markup).toContain('>Desktop</button>');
-    expect(markup).toContain('>Tablet</button>');
-    expect(markup).toContain('>Mobile</button>');
+    expect(markup).toContain('Desktop</button>');
+    expect(markup).toContain('Tablet</button>');
+    expect(markup).toContain('Mobile</button>');
     expect(markup).toContain('data-preview-viewport="desktop"');
-    expect(markup).toContain('aria-label="Design preview"');
+    expect(markup).toContain('aria-label="Preview area"');
     expect(markup).not.toContain('<iframe');
     expect(markup).not.toContain('previewFrame');
     expect(markup.match(/class="[^"]*ui-root/g)).toHaveLength(1);
