@@ -66,6 +66,7 @@ import {
 } from '../../components/ui/table';
 import { balanceDue, bookingStatusDisplay, nightsBetween } from '../../lib/reservation-display';
 import { cn } from '../../lib/utils';
+import { NEIGHBOURS_KEY } from './reservation-detail';
 import {
   differsOnlyBySearch,
   paramsToFilters,
@@ -365,6 +366,16 @@ export function ReservationsPage({
     enabled: ready,
     refetchInterval: 60_000,
   });
+
+  // The detail page's previous / next arrows follow the list the user was looking at.
+  useEffect(() => {
+    if (!query.data) return;
+    try {
+      window.sessionStorage.setItem(NEIGHBOURS_KEY, JSON.stringify(query.data.items.map((item) => item.id)));
+    } catch {
+      // Storage can be blocked; the arrows simply do not appear.
+    }
+  }, [query.data]);
 
   const update = (patch: Partial<Filters>) => {
     setSelectedIds([]);

@@ -22,7 +22,11 @@ import { useState, type ReactNode } from 'react';
 
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
+import { ActionBar } from '../../components/ui/action-bar';
+import { Alert, AlertDescription, AlertTitle } from '../../components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { DetailHeader } from '../../components/ui/detail-header';
+import { RowList } from '../../components/ui/row-list';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { ActivityFeed, type ActivityEntry } from '../../components/ui/activity-feed';
 import { DetailList, Field, SectionLabel } from '../../components/ui/detail-list';
@@ -141,6 +145,18 @@ const CHECK_OUT = '11:00';
 
 const CANCELLED_LIKE = new Set(['CANCELLED', 'EXPIRED']);
 
+/** Ids of the reservations on the list page the user came from, for the previous / next arrows. */
+export const NEIGHBOURS_KEY = 'must.reservations.neighbours';
+
+function readNeighbours(): string[] {
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(NEIGHBOURS_KEY) ?? '[]') as unknown;
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 function href(tenantId: string, propertyId: string, extra: string) {
   return `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&${extra}`;
 }
@@ -236,8 +252,24 @@ export function ReservationDetail({
   ]
     .filter(Boolean)
     .join(', ');
-  const canCancel = !CANCELLED_LIKE.has(booking.status);
   const cancellation = booking.cancellation;
+  const canCancel = !CANCELLED_LIKE.has(booking.status);
+  const neighbours = readNeighbours();
+  const at = neighbours.indexOf(booking.id);
+  const pageHref = (id: string) => href(tenantId, propertyId, `section=reservations&reservation=${id}`);
+  const pager =
+    at >= 0
+      ? {
+          position: at + 1,
+          total: neighbours.length,
+          previousHref: at > 0 ? pageHref(neighbours[at - 1]!) : undefined,
+          nextHref: at < neighbours.length - 1 ? pageHref(neighbours[at + 1]!) : undefined,
+        }
+      : undefined;
+  const hasClockLink = booking.clockFolios.length > 0 || !!booking.externalBookingId;
+  const freeWindowOpen =
+    cancellation.isFree === true &&
+    (cancellation.cutoffAt === null || new Date(cancellation.cutoffAt).getTime() > Date.now());
 
   const feed: ActivityEntry[] = booking.activity.map((event, index) => ({
     key: `${event.action}-${event.createdAt}-${index}`,
@@ -295,56 +327,44 @@ export function ReservationDetail({
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardContent className="space-y-3 p-6">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="space-y-2">
-              <a
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary no-underline"
-                href={href(tenantId, propertyId, 'section=reservations')}
-              >
-                <ArrowLeft aria-hidden="true" className="size-3.5" /> Back to reservations
-              </a>
-              <p className="text-xs font-semibold text-muted-foreground">{booking.externalReference}</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <BookingStatusBadge status={booking.status} />
-              <PaymentStatusBadge
-                status={booking.status}
-                paymentMethod={booking.paymentMethod}
-                total={booking.total.amount}
-                paid={booking.paidAmount}
-                refunded={booking.refundedAmount}
-              />
-              {hasClock ? (
-                <Badge variant="info" className="rounded-full px-2 py-0 text-[10px] font-semibold">
-                  Clock synced
-                </Badge>
-              ) : null}
-              <SourceBadge source={booking.source} />
-            </div>
-          </div>
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div className="space-y-1">
-              <h2 className="text-3xl font-extrabold tracking-tight">{guest}</h2>
-              <p className="text-sm text-muted-foreground">
-                {statusLabel} reservation
-                {sourceText ? ` · Created from ${sourceText.toLowerCase()}` : ''} · {dateTime(booking.createdAt)}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button disabled title="Editing a reservation is planned, not built yet">
-                <Pencil aria-hidden="true" /> Edit reservation
+      <DetailHeader
+        backHref={href(tenantId, propertyId, 'section=reservations')}
+        backLabel="Back to reservations"
+        reference={booking.externalReference}
+        title={guest}
+        subtitle={`${statusLabel} reservation${sourceText ? ` · Created from ${sourceText.toLowerCase()}` : ''} · ${dateTime(booking.createdAt)}`}
+        pager={pager}
+        badges={
+          <>
+            <BookingStatusBadge status={booking.status} />
+            <PaymentStatusBadge
+              status={booking.status}
+              paymentMethod={booking.paymentMethod}
+              total={booking.total.amount}
+              paid={booking.paidAmount}
+              refunded={booking.refundedAmount}
+            />
+            {hasClock ? (
+              <Badge variant="info" className="rounded-full px-2 py-0 text-[10px] font-semibold">
+                Clock synced
+              </Badge>
+            ) : null}
+            <SourceBadge source={booking.source} />
+          </>
+        }
+        actions={
+          <>
+            <Button disabled title="Editing a reservation is planned, not built yet">
+              <Pencil aria-hidden="true" /> Edit reservation
+            </Button>
+            {canCancel ? (
+              <Button variant="destructive" onClick={() => setCancelling(true)}>
+                <Ban aria-hidden="true" /> Cancel reservation
               </Button>
-              {canCancel ? (
-                <Button variant="destructive" onClick={() => setCancelling(true)}>
-                  <Ban aria-hidden="true" /> Cancel reservation
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+            ) : null}
+          </>
+        }
+      />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
@@ -421,7 +441,7 @@ export function ReservationDetail({
                   {booking.specialRequests}
                 </div>
               ) : null}
-              <div className="flex flex-wrap gap-2 rounded-xl bg-primary/5 p-2">
+              <ActionBar>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -433,7 +453,7 @@ export function ReservationDetail({
                 <Button variant="ghost" size="sm" disabled title="Provider review is planned, not built yet">
                   <Plug aria-hidden="true" /> Provider review
                 </Button>
-              </div>
+              </ActionBar>
             </CardContent>
           </Card>
 
@@ -482,20 +502,18 @@ export function ReservationDetail({
                   : null}
               </div>
               {ledger.data && ledger.data.length > 0 ? (
-                <ul className="divide-y rounded-lg border px-3 text-sm">
-                  {ledger.data.map((entry) => (
-                    <li key={entry.id} className="flex items-center justify-between gap-3 py-2">
-                      <span>
+                <RowList
+                  items={ledger.data.map((entry) => ({
+                    key: entry.id,
+                    label: (
+                      <>
                         {entry.kind === 'REFUND' ? 'Refund' : 'Payment'} ·{' '}
                         <span className="text-muted-foreground">{dateTime(entry.createdAt)}</span>
-                      </span>
-                      <span className="font-medium">
-                        {entry.kind === 'REFUND' ? '−' : ''}
-                        {money(entry.amount, entry.currency)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                      </>
+                    ),
+                    value: `${entry.kind === 'REFUND' ? '−' : ''}${money(entry.amount, entry.currency)}`,
+                  }))}
+                />
               ) : null}
             </section>
 
@@ -545,7 +563,7 @@ export function ReservationDetail({
               />
             </section>
 
-            <div className="flex flex-wrap gap-2 rounded-xl bg-primary/5 p-2">
+            <ActionBar>
               <Button variant="ghost" size="sm" asChild>
                 <a href={href(tenantId, propertyId, `section=payments&payment=${booking.id}`)}>
                   <CreditCard aria-hidden="true" /> Open payment
@@ -556,7 +574,7 @@ export function ReservationDetail({
                   <a href={href(tenantId, propertyId, `section=guests&guest=${booking.guestId}`)}>Open guest</a>
                 </Button>
               ) : null}
-            </div>
+            </ActionBar>
           </CardContent>
         </Card>
       </div>
@@ -565,20 +583,34 @@ export function ReservationDetail({
         open={cancelling}
         onOpenChange={setCancelling}
         title={`Cancel ${booking.externalReference}?`}
-        description={
-          <>
-            {guest}, {longDate(booking.startsOn)} – {longDate(booking.endsOn)}. The room goes back on sale.
-            {Number(booking.paidAmount) > 0
-              ? ' Money already paid is not returned automatically; refund it from the payment page.'
-              : ''}
-          </>
-        }
+        description={`${guest}, ${longDate(booking.startsOn)} – ${longDate(booking.endsOn)}.`}
         confirmLabel="Cancel reservation"
         destructive
         reasonLabel="Reason"
         reasonRequired
         onConfirm={cancelReservation}
-      />
+      >
+        <Alert variant={freeWindowOpen ? 'info' : 'warning'}>
+          <AlertTitle>What happens next</AlertTitle>
+          <AlertDescription>
+            <span>The room goes back on sale and the guest is no longer expected.</span>
+            {cancellation.isFree !== null ? (
+              <span>
+                {freeWindowOpen
+                  ? 'Still inside the free-cancellation window.'
+                  : 'The free-cancellation window has passed; the rate plan may keep a charge.'}
+              </span>
+            ) : null}
+            {Number(booking.paidAmount) > 0 ? (
+              <span>
+                {money(booking.paidAmount, currency)} was paid and is not returned automatically; refund it
+                from the payment page.
+              </span>
+            ) : null}
+            {hasClockLink ? <span>The reservation is also cancelled in Clock.</span> : null}
+          </AlertDescription>
+        </Alert>
+      </ConfirmDialog>
     </div>
   );
 }
