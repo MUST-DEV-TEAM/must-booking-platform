@@ -31,7 +31,8 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
-import { AppShell } from '../../components/app-shell';
+import { AppShell, type AppNavigationItem } from '../../components/app-shell';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { fetchSessionUser, type SessionUser } from '../auth-routing';
 import styles from './dashboard-shell.module.css';
 import { DashboardOverview, NeedsAttentionTab } from './overview';
@@ -253,7 +254,8 @@ export function dashboardNavigation(
   role: TenantRole,
   currentSection = 'overview',
   capabilities: readonly string[] = [],
-): NavigationItem[] {
+  badges: Readonly<Record<string, number>> = {},
+): AppNavigationItem[] {
   const items = dashboardSections.filter((item) =>
     canAccessSection(role, capabilities, item.section),
   );
@@ -262,6 +264,7 @@ export function dashboardNavigation(
     label: item.label,
     current: item.section === currentSection,
     icon: item.icon,
+    badge: badges[item.section],
   }));
 }
 
@@ -370,10 +373,31 @@ export function DashboardShell({
     };
   }, [role, selectedProperty?.id, tenantId]);
 
+  const canSeeBookings =
+    !!role && (role !== 'STAFF' || capabilities?.includes('bookings.manage') === true);
+  // Bookings that need attention show as a count on the sidebar item.
+  const attentionQuery = useQuery({
+    queryKey: ['dashboard', 'nav-attention', tenantId, selectedProperty?.id],
+    queryFn: async (): Promise<number> => {
+      const response = await fetch(
+        `/api/tenants/${tenantId}/properties/${selectedProperty?.id}/bookings/search?pageSize=1`,
+        { credentials: 'include' },
+      );
+      if (!response.ok) return 0;
+      const body = (await response.json()) as { counts?: { needs_attention?: number } };
+      return body.counts?.needs_attention ?? 0;
+    },
+    enabled: !!selectedProperty && canSeeBookings,
+    refetchInterval: 60_000,
+  });
   const navigation =
     selectedProperty && role
-      ? dashboardNavigation(tenantId, selectedProperty.id, role, section, capabilities ?? [])
+      ? dashboardNavigation(tenantId, selectedProperty.id, role, section, capabilities ?? [], {
+          reservations: attentionQuery.data ?? 0,
+        })
       : [];
+  const sectionLabel =
+    dashboardSections.find((candidate) => candidate.section === section)?.label ?? 'Dashboard';
   const canViewSection = role ? canAccessSection(role, capabilities ?? [], section) : false;
   const canAccessQuickBooking =
     role !== 'STAFF' || capabilities?.includes('bookings.manage') === true;
@@ -383,33 +407,40 @@ export function DashboardShell({
     <AppShell
       homeHref="/dashboard"
       navigation={navigation}
-      title={selectedProperty?.name ?? 'Hotel operations'}
+      title={sectionLabel}
+      breadcrumb={[
+        { label: 'Home', href: '/dashboard' },
+        ...(selectedProperty ? [{ label: selectedProperty.name }] : []),
+        { label: sectionLabel },
+      ]}
       userEmail={user?.email}
       userRole={role ? roleLabels[role] : undefined}
       headerActions={
         <>
           {properties && properties.length > 1 && role !== 'STAFF' ? (
-            <label className={styles.propertySwitcher}>
-              <Layers aria-hidden="true" size={16} />
-              <select
-                aria-label="Switch property"
-                value={selectedProperty?.id ?? ''}
-                onChange={(event) => {
-                  if (!event.target.value) return;
-                  setSelectedPropertyId(event.target.value);
-                  setSection('overview');
-                  setTab('overview');
-                  setSettingsArea(null);
-                  window.location.href = `/dashboard/${tenantId}?propertyId=${encodeURIComponent(event.target.value)}&section=overview`;
-                }}
-              >
+            <Select
+              value={selectedProperty?.id ?? ''}
+              onValueChange={(value) => {
+                if (!value) return;
+                setSelectedPropertyId(value);
+                setSection('overview');
+                setTab('overview');
+                setSettingsArea(null);
+                window.location.href = `/dashboard/${tenantId}?propertyId=${encodeURIComponent(value)}&section=overview`;
+              }}
+            >
+              <SelectTrigger aria-label="Switch property" className="h-10 w-auto min-w-44 gap-2">
+                <Layers aria-hidden="true" className="size-4 text-muted-foreground" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
                 {properties.map((property) => (
-                  <option key={property.id} value={property.id}>
+                  <SelectItem key={property.id} value={property.id}>
                     {property.name}
-                  </option>
+                  </SelectItem>
                 ))}
-              </select>
-            </label>
+              </SelectContent>
+            </Select>
           ) : null}
           {selectedProperty && role ? (
             <DashboardNotifications tenantId={tenantId} propertyId={selectedProperty.id} />

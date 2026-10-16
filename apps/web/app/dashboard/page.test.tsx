@@ -200,7 +200,7 @@ describe('Tenant dashboard shell', () => {
     expect(singleProperty).not.toContain('Switch property');
     expect(singleProperty).toContain('Grand Hotel');
     expect(multipleProperties).toContain('Switch property');
-    expect(multipleProperties).toContain('Coast Hotel');
+    expect(multipleProperties).toContain('Grand Hotel');
     expect(multipleProperties).not.toContain('Main Dashboard');
     expect(staffWithMultipleProperties).not.toContain('Switch property');
   });
@@ -224,8 +224,8 @@ describe('Tenant dashboard shell', () => {
       ),
     );
 
-    expect(markup).toMatch(/<h2[^>]*>Grand Hotel<\/h2>/);
-    expect(markup).toContain('value="property-1"');
+    expect(markup).toMatch(/aria-label="Breadcrumb"[\s\S]*Grand Hotel/);
+    expect(markup).toContain('Switch property');
   });
 
   it('links an owner to Settings', () => {

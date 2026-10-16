@@ -22,7 +22,7 @@ describe('PropertyEntry', () => {
 
     expect(container.textContent).toContain('Overview');
     expect(container.textContent).toContain('Grand Hotel');
-    expect(container.textContent).toContain('Coast Hotel');
+    expect(container.querySelector('[aria-label="Switch property"]')).not.toBeNull();
     expect(fetch).toHaveBeenCalledWith('/api/tenants/tenant-1/properties/property-1/overview', {
       credentials: 'include',
     });

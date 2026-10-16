@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { cn } from '../lib/utils';
 import { Avatar, AvatarFallback } from './ui/avatar';
+import { Breadcrumb, type BreadcrumbItem } from './ui/breadcrumb';
 import { Button } from './ui/button';
 import { IconButton } from './ui/icon-button';
 import {
@@ -29,6 +30,8 @@ export type AppNavigationItem = {
   label: string;
   current?: boolean;
   icon?: LucideIcon;
+  /** A count shown on the item (for example bookings that need attention). Hidden when 0. */
+  badge?: number;
 };
 
 export function Brand({ compact = false }: { compact?: boolean }) {
@@ -107,6 +110,17 @@ function NavLink({
     >
       {Icon ? <Icon aria-hidden="true" className="size-4 shrink-0" /> : null}
       {collapsed ? null : <span className="flex-1 truncate">{item.label}</span>}
+      {item.badge ? (
+        <span
+          className={cn(
+            'flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] leading-5 font-bold text-primary-foreground',
+            collapsed && 'absolute top-0.5 right-0.5 min-w-4 px-1 text-[10px] leading-4',
+          )}
+          aria-label={`${item.badge} need attention`}
+        >
+          {item.badge > 99 ? '99+' : item.badge}
+        </span>
+      ) : null}
     </a>
   );
 }
@@ -199,6 +213,7 @@ export function AppShell({
   userRole,
   homeHref = '/dashboard',
   headerActions,
+  breadcrumb,
   children,
 }: {
   navigation: readonly AppNavigationItem[];
@@ -207,6 +222,8 @@ export function AppShell({
   userRole?: string;
   homeHref?: string;
   headerActions?: ReactNode;
+  /** Trail shown above the page content: Home › Hotel › Page. */
+  breadcrumb?: readonly BreadcrumbItem[];
   children: ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -315,6 +332,11 @@ export function AppShell({
           tabIndex={-1}
           className="min-h-[calc(100vh-68px)] min-w-0 flex-1 bg-muted/30 px-4 py-5 outline-none sm:px-6 lg:px-8"
         >
+          {breadcrumb && breadcrumb.length > 0 ? (
+            <div className="mb-4">
+              <Breadcrumb items={breadcrumb} />
+            </div>
+          ) : null}
           {children}
         </main>
       </div>
