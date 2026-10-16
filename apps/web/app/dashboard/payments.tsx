@@ -23,6 +23,7 @@ import { TabBar } from '../../components/ui/tab-bar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { fetchPropertyBookings, guestName, type Reservation } from './reservations';
 import {
+  PAYMENT_BADGE_TONE,
   hasRefundableBalance,
   isDead,
   isHiddenFromPayments,
@@ -39,7 +40,6 @@ import {
 import { guestHref, paymentHref } from './payment-detail';
 import { RefundDialog } from './payment-refund-dialog';
 const id = () => crypto.randomUUID();
-const BADGE_TONE = { paid: 'success', pending: 'warning', refunded: 'warning', unpaid: 'secondary' } as const;
 const MANUAL_METHODS = [
   { value: 'cash', label: 'Cash' },
   { value: 'card_in_person', label: 'Card in person' },
@@ -329,7 +329,7 @@ export function DashboardPayments({
                       </TableCell>
                       <TableCell className="px-2 py-2">
                         <Badge
-                          variant={BADGE_TONE[status.state]}
+                          variant={PAYMENT_BADGE_TONE[status.state]}
                           className="rounded-full px-2 py-0 text-[10px] font-semibold"
                         >
                           {status.label}

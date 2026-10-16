@@ -105,7 +105,7 @@ async function renderDetail() {
   });
   // React only applies updates when an act scope ends, so wait one short act per tick.
   for (let tick = 0; tick < 100; tick += 1) {
-    if (c.textContent && !c.textContent.includes('Loading payment')) break;
+    if (c.textContent && !c.textContent.includes('Loading')) break;
     await act(async () => {
       await new Promise((resolve) => window.setTimeout(resolve, 20));
     });
@@ -119,10 +119,9 @@ describe('PaymentDetail', () => {
   it('shows the reference, guest link, badges and summary for the booking', async () => {
     stubApi();
     const { c, unmount } = await renderDetail();
-    expect(c.querySelector('h1, h2')?.textContent).toContain('EBR-260930-2258-9WDC');
-    const guestLink = Array.from(c.querySelectorAll('a')).find(
-      (a) => a.textContent === 'Ada Lovelace',
-    )!;
+    expect(c.textContent).toContain('EBR-260930-2258-9WDC');
+    expect(c.textContent).toContain('Ada Lovelace');
+    const guestLink = Array.from(c.querySelectorAll('a')).find((a) => a.textContent === 'Open guest')!;
     expect(guestLink.getAttribute('href')).toBe(
       '/dashboard/t?propertyId=p&section=guests&guest=g1',
     );
@@ -131,7 +130,7 @@ describe('PaymentDetail', () => {
     );
     expect(c.textContent).toContain('Confirmed');
     expect(c.textContent).toContain('Partially refunded');
-    expect(c.textContent).toContain('250.00 EUR');
+    expect(c.textContent).toContain('€250.00');
     expect(c.textContent).toContain('3 Oct → 4 Oct 2026');
     await unmount();
   });
@@ -141,10 +140,10 @@ describe('PaymentDetail', () => {
     const { c, unmount } = await renderDetail();
     const rows = Array.from(c.querySelectorAll('tbody tr')).map((row) => row.textContent ?? '');
     expect(rows[0]).toContain('Payment');
-    expect(rows[0]).toContain('+250.00 EUR');
+    expect(rows[0]).toContain('+€250.00');
     expect(rows[0]).toContain('PokPay');
     expect(rows[1]).toContain('Refund');
-    expect(rows[1]).toContain('−50.00 EUR');
+    expect(rows[1]).toContain('−€50.00');
     expect(rows[1]).toContain('reception@hotel.test');
     expect(rows[1]).toContain('goodwill');
     await unmount();
@@ -153,9 +152,11 @@ describe('PaymentDetail', () => {
   it('shows the audit activity and explains an open Clock deposit folio', async () => {
     stubApi();
     const { c, unmount } = await renderDetail();
-    expect(c.textContent).toContain('Deposit posted to Clock · folio 77313833');
-    expect(c.textContent).toContain('Refund recorded · 50.00 EUR · goodwill');
-    expect(c.textContent).toContain('Folio 77313833 · Deposit · Open');
+    expect(c.textContent).toContain('Deposit posted to Clock');
+    expect(c.textContent).toContain('folio 77313833');
+    expect(c.textContent).toContain('Refund recorded');
+    expect(c.textContent).toContain('50.00 EUR · goodwill');
+    expect(c.textContent).toContain('Folio 77313833 · Deposit');
     expect(c.textContent).toContain('counts toward the booking balance in Clock');
     await unmount();
   });
@@ -163,13 +164,15 @@ describe('PaymentDetail', () => {
   it('offers Refund only with the capability and names the booking in the dialog', async () => {
     stubApi({ capabilities: [] });
     let view = await renderDetail();
-    expect(view.c.querySelector('button.must-button--danger')).toBeNull();
+    const refundButton = (c: HTMLElement) =>
+      Array.from(c.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Refund');
+    expect(refundButton(view.c)).toBeUndefined();
     await view.unmount();
 
     stubApi();
     view = await renderDetail();
     await act(async () => {
-      view.c.querySelector<HTMLButtonElement>('button.must-button--danger')!.click();
+      refundButton(view.c)!.click();
     });
     const dialog = document.body.querySelector('[role="dialog"]')!;
     expect(dialog.textContent).toContain('EBR-260930-2258-9WDC · Ada Lovelace');

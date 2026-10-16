@@ -7,6 +7,14 @@ export type PaymentStatus = {
   state: PaymentBadgeState;
 };
 
+/** The badge colour for each payment state, shared by the payments list and the payment page. */
+export const PAYMENT_BADGE_TONE = {
+  paid: 'success',
+  pending: 'warning',
+  refunded: 'warning',
+  unpaid: 'secondary',
+} as const;
+
 export type PaymentFilter =
   'all' | 'needs-action' | 'outstanding' | 'paid' | 'refunded' | 'cancelled';
 
