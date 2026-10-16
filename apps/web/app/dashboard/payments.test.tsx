@@ -78,6 +78,7 @@ async function renderPayments(bookings: Reservation[], capabilities = ['payments
           propertyId: 'p',
           initialCapabilities: capabilities,
           initialBookings: bookings,
+          initialView: 'ledger',
         }),
       ),
     ),
@@ -333,5 +334,34 @@ describe('Payments', () => {
     await act(async () => byText('50%', dialog()!)!.click());
     expect(dialog()!.textContent).toContain('Refund: €100.00');
     await unmount();
+  });
+  it('opens on an overview that lists what needs action, what is owed and what was paid', async () => {
+    const c = document.createElement('div');
+    document.body.appendChild(c);
+    const r = createRoot(c);
+    await act(async () =>
+      r.render(
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(DashboardPayments, {
+            tenantId: 't',
+            propertyId: 'p',
+            initialCapabilities: [],
+            initialBookings: [live, cancelledHeld, cancelledPayAtHotel, { ...booking, id: 'owes', externalReference: 'EBR-OWES-0004', status: 'CONFIRMED' } as Reservation],
+          }),
+        ),
+      ),
+    );
+    const text = c.textContent ?? '';
+    expect(text).toContain('Needs action');
+    expect(text).toContain('Grace Hopper · EBR-CANCELLED-0002');
+    expect(text).toContain('money is still held');
+    expect(text).toContain('EBR-OWES-0004');
+    expect(text).toContain('Recently paid');
+    expect(c.querySelector('tbody')).toBeNull();
+    await act(async () => Array.from(c.querySelectorAll<HTMLElement>('[role="tab"]')).find((tab) => tab.textContent?.startsWith('Ledger'))!.click());
+    expect(c.querySelector('tbody')).not.toBeNull();
+    await act(async () => r.unmount());
   });
 });

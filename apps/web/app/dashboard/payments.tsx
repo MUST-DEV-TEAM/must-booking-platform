@@ -25,6 +25,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/too
 import { cn } from '../../lib/utils';
 import { nightsBetween } from '../../lib/reservation-display';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
+import { PaymentsOverview } from './payments-overview';
 import { fetchPropertyBookings, guestName, type Reservation } from './reservations';
 import {
   PAYMENT_BADGE_TONE,
@@ -94,11 +95,13 @@ export function DashboardPayments({
   propertyId,
   initialBookings,
   initialCapabilities,
+  initialView = 'overview',
 }: {
   tenantId: string;
   propertyId: string;
   initialBookings?: Reservation[];
   initialCapabilities?: string[];
+  initialView?: 'overview' | 'ledger';
 }) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const bookingsQuery = useQuery({
@@ -148,6 +151,7 @@ export function DashboardPayments({
   });
   const [filter, setFilterState] = useState<PaymentFilter>('all');
   const [search, setSearchState] = useState('');
+  const [view, setView] = useState<'overview' | 'ledger'>(initialView);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   // Any change to what is shown starts again from the first page.
@@ -251,7 +255,7 @@ export function DashboardPayments({
         title="Payments"
         description="Money collected, refunded and still owed for the reservations of this hotel."
         actions={
-          <Button variant="outline" disabled={bookings.length === 0} onClick={() => downloadCsv(sorted)}>
+          <Button variant="outline" disabled={view !== 'ledger' || bookings.length === 0} onClick={() => downloadCsv(sorted)}>
             <Download /> Export CSV
           </Button>
         }
@@ -265,18 +269,37 @@ export function DashboardPayments({
           label="Outstanding"
           size="sm"
           value={joined((totals) => totals.outstanding)}
-          active={filter === 'outstanding'}
-          onClick={() => setFilter(filter === 'outstanding' ? 'all' : 'outstanding')}
+          active={view === 'ledger' && filter === 'outstanding'}
+          onClick={() => {
+            setFilter(view === 'ledger' && filter === 'outstanding' ? 'all' : 'outstanding');
+            setView('ledger');
+          }}
         />
         <StatTile
           label="Needs action"
           value={summary.needsAction}
           tone={summary.needsAction > 0 ? 'warning' : 'default'}
-          active={filter === 'needs-action'}
-          onClick={() => setFilter(filter === 'needs-action' ? 'all' : 'needs-action')}
+          active={view === 'ledger' && filter === 'needs-action'}
+          onClick={() => {
+            setFilter(view === 'ledger' && filter === 'needs-action' ? 'all' : 'needs-action');
+            setView('ledger');
+          }}
         />
       </div>
 
+      <TabBar
+        tabs={[
+          { id: 'overview', label: 'Overview' },
+          { id: 'ledger', label: 'Ledger', count: allBookings.length },
+        ]}
+        current={view}
+        onSelect={(id) => setView(id as 'overview' | 'ledger')}
+        label="Payments sections"
+      />
+
+      {view === 'overview' ? (
+        <PaymentsOverview bookings={allBookings} tenantId={tenantId} propertyId={propertyId} />
+      ) : (
       <Card className="gap-0 overflow-clip p-0">
         <div className="space-y-3 border-b p-4">
           <TabBar tabs={tabs} current={filter} onSelect={(id) => setFilter(id as PaymentFilter)} label="Payment views" />
@@ -487,6 +510,7 @@ export function DashboardPayments({
           </>
         )}
       </Card>
+      )}
       {refundBooking ? (
         <RefundDialog
           base={base}
