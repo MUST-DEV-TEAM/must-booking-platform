@@ -40,7 +40,7 @@ import { Badge } from '../../../components/ui/badge';
 import { Button } from '../../../components/ui/button';
 import { Card } from '../../../components/ui/card';
 import { Checkbox } from '../../../components/ui/checkbox';
-import { CalendarPicker, type CalendarSelection } from '../_ui/demo-calendar';
+import { CalendarPicker, type CalendarSelection } from '../../../components/ui/calendar-picker';
 import {
   DropdownMenu,
   DropdownMenuContent,

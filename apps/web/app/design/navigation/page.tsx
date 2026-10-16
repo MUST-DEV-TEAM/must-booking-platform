@@ -17,7 +17,7 @@ import { useState, type ReactNode } from 'react';
 
 import { Button } from '../../../components/ui/button';
 import { Card } from '../../../components/ui/card';
-import { CalendarPicker, type CalendarSelection } from '../_ui/demo-calendar';
+import { CalendarPicker, type CalendarSelection } from '../../../components/ui/calendar-picker';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
 import { Sheet, SheetClose, SheetContent, SheetTitle } from '../../../components/ui/sheet';
 import { PageHeader } from '../_ui/hotel';

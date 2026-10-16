@@ -22,10 +22,10 @@ import { Card } from '../../../components/ui/card';
 import { Checkbox } from '../../../components/ui/checkbox';
 import {
   CalendarPicker,
-  DemoCalendar,
+  CalendarMonths,
   formatCalendarSelection,
   type CalendarSelection,
-} from '../_ui/demo-calendar';
+} from '../../../components/ui/calendar-picker';
 import {
   bookingStatusOptions,
   demoBookingSourceOptions,
@@ -430,7 +430,7 @@ function CalendarExamples() {
           readOnly
           value={formatCalendarSelection(checkIn, 'single')}
         />
-        <DemoCalendar selection={checkIn} mode="single" onChange={setCheckIn} />
+        <CalendarMonths selection={checkIn} mode="single" onChange={setCheckIn} />
       </Card>
       <Card className="gap-4 p-4">
         <h3 className="text-sm font-bold">14 · Stay date range</h3>
@@ -439,7 +439,7 @@ function CalendarExamples() {
           readOnly
           value={formatCalendarSelection(stayRange, 'range')}
         />
-        <DemoCalendar selection={stayRange} mode="range" months={2} onChange={setStayRange} />
+        <CalendarMonths selection={stayRange} mode="range" months={2} onChange={setStayRange} />
         <div className="flex justify-end gap-2">
           <Button
             variant="outline"

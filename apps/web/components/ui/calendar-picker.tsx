@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 
-import { Button } from '../../../components/ui/button';
-import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover';
+import { Button } from './button';
+import { Popover, PopoverContent, PopoverTrigger } from './popover';
 
 export type CalendarSelection = { start: string | null; end: string | null };
 
@@ -124,7 +124,7 @@ function CalendarMonth({
   );
 }
 
-export function DemoCalendar({
+export function CalendarMonths({
   selection,
   mode,
   onChange,
@@ -251,7 +251,7 @@ export function CalendarPicker({
         align="start"
         className={months === 2 ? 'w-[min(42rem,calc(100vw-2rem))]' : 'w-72'}
       >
-        <DemoCalendar selection={draft} mode={mode} onChange={setDraft} months={months} />
+        <CalendarMonths selection={draft} mode={mode} onChange={setDraft} months={months} />
         <div className="mt-3 flex justify-end gap-2 border-t pt-3">
           <Button
             variant="outline"

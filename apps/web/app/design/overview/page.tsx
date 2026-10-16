@@ -41,7 +41,7 @@ import {
   CalendarPicker,
   type CalendarSelection,
   formatCalendarSelection,
-} from '../_ui/demo-calendar';
+} from '../../../components/ui/calendar-picker';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
 import { BookingStatusBadge, ChannelBadge, PaymentStatusBadge } from '../_ui/hotel';

@@ -42,7 +42,7 @@ import { PaymentDetail } from './payment-detail';
 import { DashboardGuests } from './guests';
 import { GuestDetail } from './guest-detail';
 import { DashboardStaff } from './staff';
-import { DashboardReservations } from './reservations';
+import { ReservationsPage } from './reservations-page';
 import { EmailSettings, isEmailTab, type EmailTab } from './email-settings';
 import { DashboardSettings, isSettingsArea, SettingsHub, type SettingsArea } from './settings';
 import { DashboardNotifications, NotificationsInbox } from './notifications';
@@ -458,7 +458,7 @@ export function DashboardShell({
         <InventorySection />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'reservations' ? (
-        <DashboardReservations tenantId={tenantId} propertyId={selectedProperty.id} />
+        <ReservationsPage tenantId={tenantId} propertyId={selectedProperty.id} />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'calendar' ? (
         <DashboardCalendar
