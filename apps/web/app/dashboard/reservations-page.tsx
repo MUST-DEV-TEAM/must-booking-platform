@@ -302,16 +302,14 @@ export function ReservationsPage({
   };
 
   const counts = query.data?.counts;
+  // The four "today" views are the summary tiles above; the tabs hold the other list segments.
   const tabs: TabBarEntry[] = [
     { id: 'all', label: 'All', count: counts?.all },
-    { id: 'arriving_today', label: 'Arriving today', count: counts?.arriving_today },
-    { id: 'in_house', label: 'In house', count: counts?.in_house },
-    { id: 'departing_today', label: 'Departing today', count: counts?.departing_today },
     { id: 'upcoming', label: 'Upcoming', count: counts?.upcoming },
-    { id: 'needs_attention', label: 'Needs attention', count: counts?.needs_attention },
     { id: 'unpaid', label: 'Unpaid', count: counts?.unpaid },
     { id: 'cancelled', label: 'Cancelled', count: counts?.cancelled },
   ];
+  const tabViews: View[] = ['all', 'upcoming', 'unpaid', 'cancelled'];
 
   const chips = useMemo<FilterChip[]>(() => {
     const list: FilterChip[] = [];
@@ -405,26 +403,26 @@ export function ReservationsPage({
           label="Arriving today"
           value={counts?.arriving_today ?? '–'}
           active={filters.view === 'arriving_today'}
-          onClick={() => update({ view: 'arriving_today' })}
+          onClick={() => update({ view: filters.view === 'arriving_today' ? 'all' : 'arriving_today' })}
         />
         <StatTile
           label="In house"
           value={counts?.in_house ?? '–'}
           active={filters.view === 'in_house'}
-          onClick={() => update({ view: 'in_house' })}
+          onClick={() => update({ view: filters.view === 'in_house' ? 'all' : 'in_house' })}
         />
         <StatTile
           label="Departing today"
           value={counts?.departing_today ?? '–'}
           active={filters.view === 'departing_today'}
-          onClick={() => update({ view: 'departing_today' })}
+          onClick={() => update({ view: filters.view === 'departing_today' ? 'all' : 'departing_today' })}
         />
         <StatTile
           label="Needs attention"
           value={counts?.needs_attention ?? '–'}
           tone={counts && counts.needs_attention > 0 ? 'warning' : 'default'}
           active={filters.view === 'needs_attention'}
-          onClick={() => update({ view: 'needs_attention' })}
+          onClick={() => update({ view: filters.view === 'needs_attention' ? 'all' : 'needs_attention' })}
         />
       </div>
 
@@ -432,7 +430,7 @@ export function ReservationsPage({
         <div className="space-y-3 border-b p-4">
           <TabBar
             tabs={tabs}
-            current={filters.view}
+            current={tabViews.includes(filters.view) ? filters.view : ''}
             onSelect={(id) => update({ view: id as View })}
             label="Reservation views"
           />
@@ -529,7 +527,7 @@ export function ReservationsPage({
           {selectedRows.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2 rounded-md bg-muted p-2 text-xs">
               <span className="font-semibold">{selectedRows.length} selected</span>
-              <Button variant="secondary" size="sm" onClick={() => void copyReferences()}>
+              <Button variant="outline" size="sm" onClick={() => void copyReferences()}>
                 Copy references
               </Button>
               <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setSelectedIds([])}>
@@ -815,7 +813,7 @@ function SortHeader({
         type="button"
         onClick={() => onSort(sortKey)}
         className={cn(
-          'inline-flex items-center gap-1 text-left normal-case tracking-normal outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
+          'inline-flex items-center gap-1 bg-transparent p-0 text-left normal-case tracking-normal outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring',
           end && 'ml-auto',
         )}
       >

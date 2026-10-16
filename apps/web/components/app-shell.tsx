@@ -135,7 +135,7 @@ function LogOutButton({ collapsed }: { collapsed?: boolean }) {
       aria-label="Log out"
       onClick={() => void logOut()}
       className={cn(
-        'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50',
+        'flex w-full items-center gap-3 rounded-md bg-transparent px-3 py-2 text-sm font-semibold text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50',
         collapsed && 'justify-center px-0',
       )}
     >

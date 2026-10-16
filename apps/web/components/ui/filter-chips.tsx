@@ -24,7 +24,7 @@ export function FilterChips({
             type="button"
             aria-label={`Remove filter ${chip.label}`}
             onClick={() => onRemove(chip.key)}
-            className="flex size-4 items-center justify-center rounded-full outline-none hover:bg-background/60 focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex size-4 items-center justify-center rounded-full bg-transparent p-0 outline-none hover:bg-background/60 focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X aria-hidden="true" className="size-3" />
           </button>
@@ -34,7 +34,7 @@ export function FilterChips({
         <button
           type="button"
           onClick={onClearAll}
-          className="text-xs font-semibold text-primary underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+          className="bg-transparent p-0 text-xs font-semibold text-primary underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
         >
           Clear all
         </button>

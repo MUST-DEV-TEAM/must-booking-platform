@@ -55,7 +55,7 @@ export function StatTile({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className="rounded-xl text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      className="block w-full rounded-xl border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
     >
       <Card className={cn('gap-2 px-5 py-4 transition-colors hover:bg-muted/40', active && 'border-primary bg-secondary/40')}>
         {body}

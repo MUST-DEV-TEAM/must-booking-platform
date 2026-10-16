@@ -36,7 +36,7 @@ export function TabBar({
             disabled={disabled}
             onClick={() => onSelect(id)}
             className={cn(
-              '-mb-px flex min-w-0 items-center gap-2 border-b-2 border-transparent px-2 py-2.5 text-sm font-semibold text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40 sm:px-3',
+              '-mb-px flex min-w-0 items-center gap-2 border-0 border-b-2 border-transparent bg-transparent px-2 py-2.5 text-sm font-semibold text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40 sm:px-3',
               active && 'border-primary text-primary hover:text-primary',
             )}
           >

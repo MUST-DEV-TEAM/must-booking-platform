@@ -19,8 +19,8 @@ export const buttonVariants = cva(
           'border bg-card text-foreground shadow-xs hover:bg-accent hover:text-accent-foreground active:bg-accent/70',
         secondary:
           'bg-secondary text-secondary-foreground hover:bg-secondary/80 active:brightness-95',
-        ghost: 'text-foreground hover:bg-accent hover:text-accent-foreground active:bg-accent/70',
-        link: 'text-primary underline-offset-4 hover:underline',
+        ghost: 'bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground active:bg-accent/70',
+        link: 'bg-transparent text-primary underline-offset-4 hover:underline',
       },
       size: {
         default: 'h-9 px-4 py-2 has-[>svg]:px-3',
