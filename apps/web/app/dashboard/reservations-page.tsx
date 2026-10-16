@@ -101,6 +101,7 @@ export type ReservationRow = {
   adults: number;
   children: number;
   specialRequests: string | null;
+  pmsStayStatus: string | null;
   roomId: string | null;
   roomName: string | null;
   roomTypeId: string;

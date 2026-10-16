@@ -82,6 +82,7 @@ export class BookingController {
   board(
     @Query('from') from: string | undefined,
     @Query('to') to: string | undefined,
+    @Query('cancelled') cancelled: string | undefined,
     @Req() request: { tenantContext: { tenantId: string; propertyId: string } },
   ) {
     return this.projections.board(
@@ -89,6 +90,7 @@ export class BookingController {
       request.tenantContext.propertyId,
       from ?? '',
       to ?? '',
+      cancelled === '1',
     );
   }
 

@@ -81,3 +81,52 @@ export function packLanes<T extends { startsOn: string; endsOn: string }>(
 export function occupiesNight(startsOn: string, endsOn: string, night: string): boolean {
   return startsOn <= night && night < endsOn;
 }
+
+/** What a reservation looks like on the board, from the hotel's stay status and its own state. */
+export type StayState =
+  | 'expected'
+  | 'in_house'
+  | 'checked_out'
+  | 'no_show'
+  | 'awaiting_payment'
+  | 'needs_attention'
+  | 'cancelled';
+
+export const STAY_STATE_LABELS: Record<StayState, string> = {
+  expected: 'Expected',
+  in_house: 'In house',
+  checked_out: 'Checked out',
+  no_show: 'No show',
+  awaiting_payment: 'Awaiting payment',
+  needs_attention: 'Needs attention',
+  cancelled: 'Cancelled',
+};
+
+const ATTENTION = new Set([
+  'MANUAL_REVIEW',
+  'PAYMENT_FAILED',
+  'AVAILABILITY_FAILED',
+  'PMS_REJECTED',
+  'PMS_UNKNOWN_RESULT',
+]);
+
+/**
+ * The state shown for a reservation. The hotel system's own stay status wins (Clock reports
+ * expected, checked in, checked out, no show and cancelled). Without one, the dates decide: not
+ * arrived yet is expected, between arrival and departure is in house, past departure is checked out.
+ */
+export function stayState(
+  row: { status: string; pmsStayStatus: string | null; startsOn: string; endsOn: string },
+  today: string,
+): StayState {
+  if (row.status === 'CANCELLED' || row.pmsStayStatus === 'canceled') return 'cancelled';
+  if (row.status === 'PAYMENT_PENDING') return 'awaiting_payment';
+  if (ATTENTION.has(row.status)) return 'needs_attention';
+  if (row.pmsStayStatus === 'no_show') return 'no_show';
+  if (row.pmsStayStatus === 'checked_out') return 'checked_out';
+  if (row.pmsStayStatus === 'checked_in') return 'in_house';
+  if (row.pmsStayStatus === 'expected') return 'expected';
+  if (row.endsOn <= today) return 'checked_out';
+  if (row.startsOn <= today) return 'in_house';
+  return 'expected';
+}

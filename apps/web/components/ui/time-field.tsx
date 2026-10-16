@@ -1,18 +1,105 @@
 'use client';
 
 import { Clock } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { cn } from '../../lib/utils';
 import { Button } from './button';
 import { Popover, PopoverContent, PopoverTrigger } from './popover';
 
+const ROW = 36;
+const VISIBLE_ROWS = 5;
 const hours = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, '0'));
-const minutes = ['00', '15', '30', '45'];
+const minutes = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'));
+
+/** One scrolling column of a wheel: the row in the middle band is the chosen one. */
+function Wheel({
+  items,
+  value,
+  unit,
+  onPick,
+  label,
+}: {
+  items: readonly string[];
+  value: string;
+  unit: string;
+  onPick: (item: string) => void;
+  label: string;
+}) {
+  const list = useRef<HTMLDivElement>(null);
+  const settle = useRef<number | undefined>(undefined);
+
+  // Start with the chosen row in the middle band.
+  useEffect(() => {
+    const index = Math.max(0, items.indexOf(value));
+    if (list.current) list.current.scrollTop = index * ROW;
+    // Only on first show; later changes come from scrolling or clicking.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const pad = ((VISIBLE_ROWS - 1) / 2) * ROW;
+  return (
+    <div className="relative min-w-0 flex-1" style={{ height: ROW * VISIBLE_ROWS }}>
+      <div
+        ref={list}
+        role="listbox"
+        aria-label={label}
+        tabIndex={0}
+        className="h-full snap-y snap-mandatory overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        style={{ paddingBlock: pad }}
+        onScroll={(event) => {
+          const element = event.currentTarget;
+          window.clearTimeout(settle.current);
+          settle.current = window.setTimeout(() => {
+            const item = items[Math.min(items.length - 1, Math.max(0, Math.round(element.scrollTop / ROW)))];
+            if (item && item !== value) onPick(item);
+          }, 80);
+        }}
+        onKeyDown={(event) => {
+          const index = items.indexOf(value);
+          const next = event.key === 'ArrowDown' ? index + 1 : event.key === 'ArrowUp' ? index - 1 : index;
+          if (next !== index && items[next]) {
+            event.preventDefault();
+            onPick(items[next]!);
+            list.current?.scrollTo({ top: next * ROW, behavior: 'smooth' });
+          }
+        }}
+      >
+        {items.map((item, index) => (
+          <button
+            key={item}
+            type="button"
+            role="option"
+            aria-selected={item === value}
+            tabIndex={-1}
+            onClick={() => {
+              onPick(item);
+              list.current?.scrollTo({ top: index * ROW, behavior: 'smooth' });
+            }}
+            className={cn(
+              'flex w-full snap-center items-center justify-center bg-transparent text-base text-muted-foreground outline-none transition-colors',
+              item === value && 'font-bold text-foreground',
+            )}
+            style={{ height: ROW }}
+          >
+            {item}
+          </button>
+        ))}
+      </div>
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs font-semibold text-muted-foreground"
+      >
+        {unit}
+      </span>
+    </div>
+  );
+}
 
 /**
- * A time of day (24-hour, "HH:MM") chosen from an hour list and a minute list in a small
- * popover. `defaultValue` adds a one-click "Use …" shortcut (for example the hotel check-in time).
+ * A time of day (24-hour, "HH:MM") picked from two scrolling wheels, hours on one half and minutes
+ * on the other, with the chosen time in the highlighted middle band. `defaultValue` adds a
+ * one-click shortcut (for example the hotel check-in time).
  */
 export function TimeField({
   value,
@@ -32,53 +119,49 @@ export function TimeField({
   defaultLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [hour, minute] = value ? value.split(':') : ['', ''];
-
-  const set = (nextHour: string, nextMinute: string) => onChange(`${nextHour || '12'}:${nextMinute || '00'}`);
-  const column = (items: string[], current: string | undefined, pick: (item: string) => void, name: string) => (
-    <div role="listbox" aria-label={name} className="relative flex max-h-56 flex-col gap-0.5 overflow-y-auto pr-1">
-      {items.map((item) => (
-        <button
-          key={item}
-          type="button"
-          role="option"
-          aria-selected={item === current}
-          ref={
-            item === current
-              ? (element) => {
-                  // Open the list with the chosen time in view.
-                  const list = element?.parentElement;
-                  if (element && list) list.scrollTop = element.offsetTop - list.clientHeight / 2 + element.clientHeight / 2;
-                }
-              : undefined
-          }
-          onClick={() => pick(item)}
-          className={cn(
-            'w-12 rounded-md bg-transparent py-1.5 text-center text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring',
-            item === current && 'bg-primary text-primary-foreground hover:bg-primary',
-          )}
-        >
-          {item}
-        </button>
-      ))}
-    </div>
-  );
+  const [hour = '12', minute = '00'] = value ? value.split(':') : [];
+  // Remount the wheels when a shortcut changes the value from outside so they jump to it.
+  const [wheelKey, setWheelKey] = useState(0);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next && !value) onChange('12:00');
+      }}
+    >
       <PopoverTrigger asChild>
         <Button id={id} variant="outline" aria-label={label} className="w-full justify-between font-normal">
           <span className={value ? '' : 'text-muted-foreground'}>{value || placeholder}</span>
           <Clock aria-hidden="true" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto space-y-3 p-3">
-        <div className="flex items-start gap-2">
-          {column(hours, hour, (item) => set(item, minute ?? ''), 'Hour')}
-          <span aria-hidden="true" className="pt-1.5 text-sm font-semibold">
-            :
-          </span>
-          {column(minutes, minute, (item) => set(hour ?? '', item), 'Minute')}
+      <PopoverContent align="start" className="w-64 space-y-3 p-3">
+        <div className="relative">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 top-1/2 z-0 -translate-y-1/2 rounded-lg bg-muted"
+            style={{ height: ROW }}
+          />
+          <div className="relative z-10 flex gap-1">
+            <Wheel
+              key={`h-${wheelKey}`}
+              label="Hours"
+              unit="hours"
+              items={hours}
+              value={hour}
+              onPick={(next) => onChange(`${next}:${minute}`)}
+            />
+            <Wheel
+              key={`m-${wheelKey}`}
+              label="Minutes"
+              unit="min"
+              items={minutes}
+              value={minute}
+              onPick={(next) => onChange(`${hour}:${next}`)}
+            />
+          </div>
         </div>
         <div className="flex items-center justify-between gap-2 border-t pt-2">
           {defaultValue ? (
@@ -87,7 +170,7 @@ export function TimeField({
               size="sm"
               onClick={() => {
                 onChange(defaultValue);
-                setOpen(false);
+                setWheelKey((key) => key + 1);
               }}
             >
               {defaultLabel} ({defaultValue})

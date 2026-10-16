@@ -224,6 +224,7 @@ export class BookingProjectionService {
     propertyId: string,
     from: string,
     to: string,
+    includeCancelled = false,
   ): Promise<{ items: BookingSearchItem[]; truncated: boolean }> {
     const day = /^\d{4}-\d{2}-\d{2}$/;
     if (!day.test(from) || !day.test(to) || to <= from)
@@ -235,7 +236,7 @@ export class BookingProjectionService {
       const rows = await tx.$queryRawUnsafe<Array<Record<string, unknown>>>(
         `SELECT x.* FROM (${BOOKING_BASE_SQL}) x
          WHERE x.starts_on < $4::date AND x.ends_on > $3::date
-           AND x.status NOT IN ('CANCELLED', 'EXPIRED', 'DRAFT', 'QUOTED')
+           AND x.status NOT IN (${includeCancelled ? "'EXPIRED', 'DRAFT', 'QUOTED'" : "'CANCELLED', 'EXPIRED', 'DRAFT', 'QUOTED'"})
          ORDER BY x.starts_on, x.created_at
          LIMIT ${LIMIT + 1}`,
         tenantId,

@@ -60,3 +60,25 @@ describe('occupiesNight', () => {
     expect(occupiesNight('2026-10-10', '2026-10-12', '2026-10-12')).toBe(false);
   });
 });
+
+import { stayState } from './calendar-board';
+
+describe('stayState', () => {
+  const base = { status: 'CONFIRMED', pmsStayStatus: null as string | null, startsOn: '2026-10-20', endsOn: '2026-10-23' };
+  it('uses the hotel system stay status when there is one', () => {
+    expect(stayState({ ...base, pmsStayStatus: 'checked_in' }, '2026-10-01')).toBe('in_house');
+    expect(stayState({ ...base, pmsStayStatus: 'no_show' }, '2026-10-01')).toBe('no_show');
+    expect(stayState({ ...base, pmsStayStatus: 'checked_out' }, '2026-10-01')).toBe('checked_out');
+    expect(stayState({ ...base, pmsStayStatus: 'expected' }, '2026-10-22')).toBe('expected');
+  });
+  it('lets payment and attention states win over the stay status', () => {
+    expect(stayState({ ...base, status: 'PAYMENT_PENDING' }, '2026-10-01')).toBe('awaiting_payment');
+    expect(stayState({ ...base, status: 'PAYMENT_FAILED' }, '2026-10-01')).toBe('needs_attention');
+    expect(stayState({ ...base, status: 'CANCELLED' }, '2026-10-01')).toBe('cancelled');
+  });
+  it('reads the dates when there is no stay status', () => {
+    expect(stayState(base, '2026-10-19')).toBe('expected');
+    expect(stayState(base, '2026-10-21')).toBe('in_house');
+    expect(stayState(base, '2026-10-23')).toBe('checked_out');
+  });
+});
