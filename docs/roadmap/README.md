@@ -39,6 +39,7 @@ The **one-time documentation initialization** was explicitly authorized outside 
 | [22 - Email notifications](milestones/22-email-notifications.md) | Planned 2026-09-30; triggered by a live booking that sent no emails; owner decisions pending, nothing dispatched |
 | [24 - Dashboard redesign](milestones/24-dashboard-redesign.md) | Planning (design intake) 2026-10-16; foundation exists uncommitted in the working tree; no page implemented |
 | [25 - Native PMS](milestones/25-native-pms.md) | Planned 2026-10-16; MUST as source of truth for hotels without an external PMS; scope = front desk + stay money; no tasks yet |
+| [26 - Public API](milestones/26-public-api.md) | Planned 2026-10-16; per-hotel API keys so a hotel's own website can use our rooms, availability and booking; paid-plan feature; next release after the dashboard |
 
 ## How work proceeds
 

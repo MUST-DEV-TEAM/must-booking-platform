@@ -1820,7 +1820,7 @@ The design shows plan "Operations Pro" at €149 a month, next invoice, payment 
 | D110 | **Decided: yes.** Staff security basics (last sign-in, device summary, sessions revoked on suspension) and pending invitations with Resend (S177, S181) |
 | D111 | **Decided: yes.** No duplicate Settings areas; managed pages reported and repaired through the plugin (S178, S180) |
 | D112 | **Decided (owner): staff sign in only through this dashboard app.** There are no WordPress staff login or staff portal pages; the Managed Pages registry therefore lists only the public booking pages and policy pages |
-| D113 | **Decided: yes.** Public branding is a small published theme delivered to the WordPress plugin (S179) |
+| D113 | **Decided: yes, then narrowed (2026-10-16).** Public branding is a small published theme **only for hotels that use our plugin**; hotels with their own site use the public API (Milestone 26) |
 | D114 | **Decided: yes.** Billing Account is designed against Milestone 15 with the free-period lock and Stripe-hosted card and invoice management (S182) |
 | D115 | **Owner: no Notifications design exists; a single Notifications page is planned (Page 23).** The owner's all-hotels views and the platform-admin area will be planned after the Staff pages |
 
@@ -2097,6 +2097,34 @@ The owner has no further designs for the **hotel staff dashboard**. The list bel
 | D127 | **Decided: yes.** Global header search and a My account page (S206-S207) |
 | D128 | **Decided (owner): all missing items are needed and will be built; they are simply not designed.** They are built from the existing components and reviewed one by one when their turn comes (M1-M16; M13-M14 with Milestone 25) |
 | D129 | **Open: brainstorm of the current situation and next step (below, 2026-10-16)** |
+
+## First-release scope (owner, 2026-10-16)
+
+**Decision:** the first release redesigns every existing screen of the single-hotel staff dashboard on real data and adds only the small backend pieces those screens depend on. Everything designed but not listed as first release stays recorded in the gaps register and is built later as its own task; the live pages omit it (no placeholders).
+
+**First release (build now):**
+
+| Area | Backend and feature work included |
+| --- | --- |
+| Reservations | Server-side list with search, filters, paging; booking source (Direct, Website); shared reservation preview; readable payment reference |
+| Accommodation | Categories on room types (every room type belongs to a category); Draft / Live / Hidden status; readiness checks; unit active flag; slug and code |
+| Guests | Readable guest ID, flags and notes, manual Add guest, server-side directory |
+| Calendar and Availability | Block reason and creator; reservation bars grid (read-only first); today's property-wide booking rules shown as the restrictions list |
+| Notifications | Per-user read state, five categories and four priorities, link destinations, routing by permission, 90-day cleanup |
+| Audit | Missing event families recorded (sign-in, session, password, exports); list with detail and CSV export; no hash chain |
+| Staff | Last sign-in, suspend with session revoke, overrides with reason and optional expiry, role-change preview, pending invitations with resend, four seeded role names |
+| Reports | Shared metrics layer; Overview, Reservations, Revenue & Payments, Occupancy & Stay with comparison and CSV export |
+| Settings | General, Booking rules, Check-in and Check-out, Payments summary (read-only), Staff & Access, Emails (delivery log and retry restyled), Hotel rules, My account |
+| Shell | New sidebar, header, global search, user menu, error pages, shared empty, loading and error states |
+| Rates & Pricing | Redesign of today's pricing (rate plans with code and status, base prices, cancellation policies); no pricing engine v2 |
+
+**Next release (designed, recorded, not built now):** pricing engine v2 with taxes and fees and price snapshots; availability restrictions model, conflict review and writing blocks to Clock; the requests-and-approvals model (guest, cancellation, amendment requests); stay amendments of confirmed bookings; Emails template editor with versions, suppression and platform-hotel configuration split; trend history and system-health aggregation; on-request bookings; Integrations admin (request logs, sync operations, review queue v2); [public API for hotel websites](26-public-api.md).
+
+**Later:** Excel import (export first), coupons, custom report views, PDF export.
+
+**Elsewhere:** native PMS front desk and stay money (Milestone 25); platform billing and plan enforcement (Milestone 15); Billing Account screen (Milestone 15).
+
+**Change to the plan from the public-API decision (2026-10-16):** hotels with their own website use the public API (Milestone 26) instead of a theme or pages from us. So **Frontend & Branding (Page 22b) is reduced** to branding for our own plugin pages and emails, **not** a published theme delivered to every site (G164 moves to "plugin only, next release"), and **Managed Pages (Page 22c) applies only to hotels that use our plugin**. A new Settings area **API & integrations** (keys, allowed addresses, usage, webhooks) is added in Milestone 26, not the first release.
 
 ## Feature gaps register (design shows it, product does not have it yet)
 

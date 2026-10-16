@@ -38,6 +38,8 @@ Recorded from the owner during plan-catalog discussion. These are intent, not sh
 - **Rules to apply when enforcing limits:** enforce on the server, not only in the UI; going over a limit blocks the new action and never deletes existing data; a downgrade is allowed only once usage fits the new limits; PMS access is the main paid differentiator.
 - **Hidden tiers:** plans carry `is_public`. Only public plans may be offered at signup or on any upgrade screen; non-public plans (Internal Testing, Enterprise) are assigned by a platform admin only. Task 4's upgrade flow and any plan-change endpoint must filter on `is_public` and reject non-public plan IDs from tenant callers (**owner confirmed: enforcement belongs in this milestone**).
 
+- **Paid-plan entitlement for the public API (owner, 2026-10-16):** per-hotel API keys, webhooks and a sandbox are a paid-plan feature; which tiers include them and the rate and webhook limits are decided at kickoff. See [Milestone 26](26-public-api.md).
+
 ## Explicitly not included
 
 - Guest payments (Milestone 5) — no code/table sharing with this milestone.
