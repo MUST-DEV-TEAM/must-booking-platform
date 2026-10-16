@@ -1,11 +1,12 @@
 'use client';
 
 import { ChevronDown, ChevronsLeft, LogOut, Menu, X, type LucideIcon } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import { cn } from '../lib/utils';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Button } from './ui/button';
+import { IconButton } from './ui/icon-button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -211,6 +212,26 @@ export function AppShell({
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // The theme hides focus outlines while the mouse is in use and keeps them for keyboard users.
+  useEffect(() => {
+    const root = document.documentElement;
+    const keyboard = (event: KeyboardEvent) => {
+      if (['Tab', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Enter', ' '].includes(event.key))
+        root.dataset.inputModality = 'keyboard';
+    };
+    const pointer = () => {
+      root.dataset.inputModality = 'pointer';
+    };
+    document.addEventListener('keydown', keyboard, true);
+    document.addEventListener('pointerdown', pointer, true);
+    return () => {
+      document.removeEventListener('keydown', keyboard, true);
+      document.removeEventListener('pointerdown', pointer, true);
+      delete root.dataset.inputModality;
+    };
+  }, []);
+
+
   return (
     <div className="flex min-h-screen">
       <a
@@ -222,16 +243,11 @@ export function AppShell({
       <div className="sticky top-0 z-40 hidden h-screen shrink-0 lg:block">
         <aside
           className={cn(
-            'flex h-screen flex-col gap-4 border-r bg-card p-3 transition-[width] duration-200',
+            'relative flex h-screen flex-col gap-4 border-r bg-card p-3 transition-[width] duration-200',
             collapsed ? 'w-16' : 'w-60',
           )}
         >
-          <div
-            className={cn(
-              'flex min-h-10 items-center px-1 pt-1',
-              collapsed ? 'flex-col gap-2' : 'justify-between gap-2',
-            )}
-          >
+          <div className={cn('flex min-h-10 items-center px-1 pt-1', collapsed && 'justify-center')}>
             <a
               href={homeHref}
               aria-label="MUST Hotel home"
@@ -239,22 +255,18 @@ export function AppShell({
             >
               <Brand compact={collapsed} />
             </a>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              aria-expanded={!collapsed}
-              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              onClick={() => setCollapsed((value) => !value)}
-              className="size-8 shrink-0"
-            >
-              <ChevronsLeft
-                aria-hidden="true"
-                className={cn('size-4 transition-transform', collapsed && 'rotate-180')}
-              />
-            </Button>
           </div>
+          <IconButton
+            label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!collapsed}
+            onClick={() => setCollapsed((value) => !value)}
+            className="absolute top-6 -right-3 z-50 size-6 rounded-full bg-card shadow-xs"
+          >
+            <ChevronsLeft
+              aria-hidden="true"
+              className={cn('size-3.5 transition-transform', collapsed && 'rotate-180')}
+            />
+          </IconButton>
           <NavList items={navigation} collapsed={collapsed} />
           <div className="border-t pt-3">
             <LogOutButton collapsed={collapsed} />

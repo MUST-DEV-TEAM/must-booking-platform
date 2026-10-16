@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 
 import { Button } from './button';
+import { IconButton } from './icon-button';
 import { Popover, PopoverContent, PopoverTrigger } from './popover';
 
 export type CalendarSelection = { start: string | null; end: string | null };
@@ -207,6 +208,9 @@ export function CalendarPicker({
   className,
   open: controlledOpen,
   onOpenChange,
+  iconOnly = false,
+  active = false,
+  header,
 }: {
   label: string;
   mode: 'single' | 'range';
@@ -216,6 +220,12 @@ export function CalendarPicker({
   className?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** Show only the calendar icon (name and selection appear on hover), for toolbars. */
+  iconOnly?: boolean;
+  /** Marks the icon when a range is applied. */
+  active?: boolean;
+  /** Extra controls shown above the calendar in the popover. */
+  header?: ReactNode;
 }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -235,22 +245,37 @@ export function CalendarPicker({
       }}
     >
       <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          aria-label={label}
-          aria-haspopup="dialog"
-          className={`justify-between ${className ?? ''}`}
-        >
-          <span className={labelText ? 'truncate' : 'text-muted-foreground'}>
-            {labelText || (mode === 'range' ? 'Select stay dates' : 'Select a date')}
-          </span>
-          <CalendarDays aria-hidden="true" />
-        </Button>
+        {iconOnly ? (
+          <IconButton
+            label={label}
+            hint={labelText || undefined}
+            aria-haspopup="dialog"
+            className="relative"
+          >
+            <CalendarDays aria-hidden="true" />
+            {active ? (
+              <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary" />
+            ) : null}
+          </IconButton>
+        ) : (
+          <Button
+            variant="outline"
+            aria-label={label}
+            aria-haspopup="dialog"
+            className={`justify-between ${className ?? ''}`}
+          >
+            <span className={labelText ? 'truncate' : 'text-muted-foreground'}>
+              {labelText || (mode === 'range' ? 'Select stay dates' : 'Select a date')}
+            </span>
+            <CalendarDays aria-hidden="true" />
+          </Button>
+        )}
       </PopoverTrigger>
       <PopoverContent
         align="start"
         className={months === 2 ? 'w-[min(42rem,calc(100vw-2rem))]' : 'w-72'}
       >
+        {header ? <div className="mb-3">{header}</div> : null}
         <CalendarMonths selection={draft} mode={mode} onChange={setDraft} months={months} />
         <div className="mt-3 flex justify-end gap-2 border-t pt-3">
           <Button

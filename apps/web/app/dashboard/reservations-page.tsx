@@ -20,6 +20,8 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { BookingStatusBadge, PaymentStatusBadge, SourceBadge } from '../../components/ui/status-badge';
 import { Button } from '../../components/ui/button';
 import { Card } from '../../components/ui/card';
+import { IconButton } from '../../components/ui/icon-button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
 import { Checkbox } from '../../components/ui/checkbox';
 import { CalendarPicker, formatCalendarSelection, type CalendarSelection } from '../../components/ui/calendar-picker';
 import {
@@ -332,6 +334,8 @@ export function ReservationsPage({
     return list;
   }, [filters]);
 
+  const filterCount = chips.filter((chip) => chip.key !== 'range').length;
+
   const removeChip = (key: string) => {
     if (key === 'status') update({ status: ALL });
     if (key === 'payment') update({ payment: ALL });
@@ -434,7 +438,7 @@ export function ReservationsPage({
             onSelect={(id) => update({ view: id as View })}
             label="Reservation views"
           />
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <div className="relative w-full sm:w-64">
               <Search
                 aria-hidden="true"
@@ -451,11 +455,18 @@ export function ReservationsPage({
 
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <ListFilter aria-hidden="true" /> Filters{chips.length > 0 ? ` (${chips.length})` : ''}
-                </Button>
+                <IconButton
+                  label="Filters"
+                  hint={filterCount > 0 ? `${filterCount} active` : undefined}
+                  className="relative"
+                >
+                  <ListFilter aria-hidden="true" />
+                  {filterCount > 0 ? (
+                    <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-primary" />
+                  ) : null}
+                </IconButton>
               </PopoverTrigger>
-              <PopoverContent align="start" className="w-80 space-y-3">
+              <PopoverContent align="end" className="w-72 space-y-3">
                 <FilterField label="Reservation status">
                   <FilterSelect
                     value={filters.status}
@@ -480,46 +491,47 @@ export function ReservationsPage({
                     allLabel="Any source"
                   />
                 </FilterField>
-                <FilterField label="Date">
-                  <div className="grid gap-2">
-                    <FilterSelect
-                      value={filters.dateType}
-                      onChange={(value) => update({ dateType: value as DateType })}
-                      options={dateTypeOptions}
-                    />
-                    <CalendarPicker
-                      label="Date range"
-                      mode="range"
-                      value={filters.range}
-                      onChange={(range) => update({ range })}
-                      months={1}
-                    />
-                  </div>
-                </FilterField>
               </PopoverContent>
             </Popover>
 
-            <div className="ml-auto flex items-center gap-2">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <Columns3 aria-hidden="true" /> Columns
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="w-44 p-2">
-                  <p className="px-2 py-1 text-xs font-semibold">Show columns</p>
-                  {(Object.keys(columnLabels) as ColumnKey[]).map((key) => (
-                    <label
-                      key={key}
-                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-muted"
-                    >
-                      <Checkbox checked={columns[key]} onCheckedChange={() => toggleColumn(key)} />
-                      {columnLabels[key]}
-                    </label>
-                  ))}
-                </PopoverContent>
-              </Popover>
-            </div>
+            <CalendarPicker
+              iconOnly
+              label="Dates"
+              mode="range"
+              value={filters.range}
+              active={Boolean(filters.range.start)}
+              onChange={(range) => update({ range })}
+              months={1}
+              header={
+                <FilterField label="Filter by">
+                  <FilterSelect
+                    value={filters.dateType}
+                    onChange={(value) => update({ dateType: value as DateType })}
+                    options={dateTypeOptions}
+                  />
+                </FilterField>
+              }
+            />
+
+            <Popover>
+              <PopoverTrigger asChild>
+                <IconButton label="Columns">
+                  <Columns3 aria-hidden="true" />
+                </IconButton>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-44 p-2">
+                <p className="px-2 py-1 text-xs font-semibold">Show columns</p>
+                {(Object.keys(columnLabels) as ColumnKey[]).map((key) => (
+                  <label
+                    key={key}
+                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-muted"
+                  >
+                    <Checkbox checked={columns[key]} onCheckedChange={() => toggleColumn(key)} />
+                    {columnLabels[key]}
+                  </label>
+                ))}
+              </PopoverContent>
+            </Popover>
           </div>
 
           <FilterChips chips={chips} onRemove={removeChip} onClearAll={clearAll} />
@@ -527,12 +539,14 @@ export function ReservationsPage({
           {selectedRows.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2 rounded-md bg-muted p-2 text-xs">
               <span className="font-semibold">{selectedRows.length} selected</span>
-              <Button variant="outline" size="sm" onClick={() => void copyReferences()}>
-                Copy references
-              </Button>
-              <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setSelectedIds([])}>
-                Clear selection
-              </Button>
+              <div className="ml-auto flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => void copyReferences()}>
+                  Copy references
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setSelectedIds([])}>
+                  Clear selection
+                </Button>
+              </div>
             </div>
           ) : null}
           {notice ? (
@@ -680,18 +694,7 @@ export function ReservationsPage({
                         </TableCell>
                         {columns.payment ? (
                           <TableCell className="px-2 py-2">
-                            <PaymentStatusBadge
-                              status={row.status}
-                              paymentMethod={row.paymentMethod}
-                              total={row.total.amount}
-                              paid={row.paidAmount}
-                              refunded={row.refundedAmount}
-                            />
-                            {live && due > 0 ? (
-                              <span className="mt-0.5 block text-[10px] font-semibold text-destructive">
-                                {money(String(due), row.total.currency)} due
-                              </span>
-                            ) : null}
+                            <PaymentBadgeWithDetails row={row} due={due} live={live} />
                           </TableCell>
                         ) : null}
                         {columns.total ? (
@@ -743,6 +746,46 @@ export function ReservationsPage({
         onClose={() => setSelected(null)}
       />
     </div>
+  );
+}
+
+function PaymentBadgeWithDetails({
+  row,
+  due,
+  live,
+}: {
+  row: ReservationRow;
+  due: number;
+  live: boolean;
+}) {
+  const currency = row.total.currency;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          className="inline-block rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <PaymentStatusBadge
+            status={row.status}
+            paymentMethod={row.paymentMethod}
+            total={row.total.amount}
+            paid={row.paidAmount}
+            refunded={row.refundedAmount}
+          />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="space-y-0.5">
+        <span className="block">Total {money(row.total.amount, currency)}</span>
+        <span className="block">Paid {money(row.paidAmount, currency)}</span>
+        {Number(row.refundedAmount) > 0 ? (
+          <span className="block">Refunded {money(row.refundedAmount, currency)}</span>
+        ) : null}
+        {live ? (
+          <span className="block font-semibold">Balance due {money(String(due), currency)}</span>
+        ) : null}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
