@@ -47,7 +47,11 @@ describe('AwaitingPayment', () => {
 
     expect(container.textContent).toContain('Waiting for the payment');
     expect(container.textContent).not.toContain('Payment received');
-    expect(container.querySelector('a[href="https://pay.example.test/checkout"]')).not.toBeNull();
+    expect(
+      Array.from(container.querySelectorAll('button')).some((button) =>
+        button.textContent?.includes('Reopen payment window'),
+      ),
+    ).toBe(true);
     await act(async () => root.unmount());
   });
 

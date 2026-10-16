@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { BookingPaymentMethod, BookingStatus } from '@must/domain-contracts';
 
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
@@ -213,6 +213,39 @@ const BOOKING_BASE_SQL = `
 @Injectable()
 export class BookingProjectionService {
   constructor(@Inject(TenantDatabaseService) private readonly database: TenantDatabaseService) {}
+
+  /**
+   * Every live reservation that touches the window [from, to), for the calendar board. A
+   * reservation is live unless it is cancelled, expired, a draft or only a quote. Capped so a
+   * very busy hotel cannot overload the page; `truncated` says when the cap was hit.
+   */
+  async board(
+    tenantId: string,
+    propertyId: string,
+    from: string,
+    to: string,
+  ): Promise<{ items: BookingSearchItem[]; truncated: boolean }> {
+    const day = /^\d{4}-\d{2}-\d{2}$/;
+    if (!day.test(from) || !day.test(to) || to <= from)
+      throw new BadRequestException('from and to must be dates, and to must be after from.');
+    const spanDays = (new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime()) / 86_400_000;
+    if (spanDays > 92) throw new BadRequestException('The calendar window can be at most 92 days.');
+    const LIMIT = 1000;
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const rows = await tx.$queryRawUnsafe<Array<Record<string, unknown>>>(
+        `SELECT x.* FROM (${BOOKING_BASE_SQL}) x
+         WHERE x.starts_on < $4::date AND x.ends_on > $3::date
+           AND x.status NOT IN ('CANCELLED', 'EXPIRED', 'DRAFT', 'QUOTED')
+         ORDER BY x.starts_on, x.created_at
+         LIMIT ${LIMIT + 1}`,
+        tenantId,
+        propertyId,
+        from,
+        to,
+      );
+      return { items: rows.slice(0, LIMIT).map(toSearchItem), truncated: rows.length > LIMIT };
+    });
+  }
 
   /**
    * Recent reservations this staff member has not opened yet. A reservation counts as new for

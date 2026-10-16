@@ -157,14 +157,22 @@ export function AddReservation({
   const hotelCheckIn = /^\d{2}:\d{2}/.test(checkInTime ?? '') ? checkInTime!.slice(0, 5) : '';
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const [step, setStep] = useState(0);
-  const [dates, setDates] = useState<CalendarSelection>({ start: null, end: null });
+  // The calendar can send people here with a day (and a room) already chosen.
+  const prefill = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search);
+  const prefillStart = prefill?.get('start') ?? '';
+  const prefillEnd = prefill?.get('end') ?? '';
+  const [dates, setDates] = useState<CalendarSelection>(() =>
+    /^\d{4}-\d{2}-\d{2}$/.test(prefillStart) && /^\d{4}-\d{2}-\d{2}$/.test(prefillEnd) && prefillStart >= todayIso()
+      ? { start: prefillStart, end: prefillEnd }
+      : { start: null, end: null },
+  );
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
   const [ratePlanId, setRatePlanId] = useState('');
-  const [roomTypeId, setRoomTypeId] = useState('');
-  const [roomId, setRoomId] = useState('');
+  const [roomTypeId, setRoomTypeId] = useState(() => prefill?.get('roomId') ? (prefill.get('roomTypeId') ?? '') : '');
+  const [roomId, setRoomId] = useState(() => prefill?.get('roomId') ?? '');
   const [chooseBy, setChooseBy] = useState<'type' | 'room'>(
-    bookingMode === 'INDIVIDUAL_ROOM_ONLY' ? 'room' : 'type',
+    bookingMode === 'INDIVIDUAL_ROOM_ONLY' || (bookingMode === 'MIXED' && prefill?.get('roomId')) ? 'room' : 'type',
   );
   const [guest, setGuest] = useState<Guest>({ ...emptyGuest, arrivalTime: hotelCheckIn });
   const [touched, setTouched] = useState(false);

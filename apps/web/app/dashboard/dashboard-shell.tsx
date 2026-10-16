@@ -40,7 +40,7 @@ import styles from './dashboard-shell.module.css';
 import { NeedsAttentionTab } from './needs-attention';
 import { useUnseenBookings } from './unseen-bookings';
 import { DashboardOverview, useOverviewQuery } from './overview';
-import { DashboardCalendar } from './calendar';
+import { CalendarPage } from './calendar-page';
 import { AddReservation } from './add-reservation';
 import { DashboardPayments } from './payments';
 import { PaymentDetail } from './payment-detail';
@@ -522,7 +522,7 @@ export function DashboardShell({
         )
       ) : null}
       {selectedProperty && role && canViewSection && section === 'calendar' ? (
-        <DashboardCalendar
+        <CalendarPage
           tenantId={tenantId}
           propertyId={selectedProperty.id}
           bookingMode={selectedProperty.bookingMode}

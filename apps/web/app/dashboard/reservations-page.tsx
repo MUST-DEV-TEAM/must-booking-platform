@@ -88,7 +88,7 @@ type View =
 type SortKey = 'stay' | 'created' | 'total' | 'guest';
 type DateType = 'arrival' | 'departure' | 'stay' | 'created';
 
-type ReservationRow = {
+export type ReservationRow = {
   id: string;
   externalReference: string;
   status: string;
@@ -101,7 +101,9 @@ type ReservationRow = {
   adults: number;
   children: number;
   specialRequests: string | null;
+  roomId: string | null;
   roomName: string | null;
+  roomTypeId: string;
   roomTypeName: string;
   ratePlanName: string;
   guestId: string | null;
@@ -1100,7 +1102,7 @@ function DetailLine({ label, children }: { label: string; children: React.ReactN
   );
 }
 
-function ReservationSheet({
+export function ReservationSheet({
   row,
   tenantId,
   propertyId,

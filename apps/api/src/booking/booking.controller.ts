@@ -75,6 +75,23 @@ export class BookingController {
     );
   }
 
+  @Get('board')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('calendar.view')
+  board(
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+    @Req() request: { tenantContext: { tenantId: string; propertyId: string } },
+  ) {
+    return this.projections.board(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      from ?? '',
+      to ?? '',
+    );
+  }
+
   @Get('unseen')
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
