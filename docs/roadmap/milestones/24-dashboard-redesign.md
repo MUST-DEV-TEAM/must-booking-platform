@@ -2359,9 +2359,73 @@ Owner rule (D10): build every page from the components already built; when one i
 
 Filled in after intake. Initial candidates already built (see Foundation): the 20 primitives in `apps/web/components/ui/` plus the app shell. Known repeated patterns to unify once more pages are seen: stat tile, section tabs, data table + toolbar + pagination, status/source badges, list row, empty/error/loading states (reuse `StatePanel` semantics), confirm dialog with reason (sensitive actions), form field groups.
 
-## Task list
+## Task list (first release)
 
-_Defined when intake is complete, one task per page plus the shared-component task and the verification task. Do not create task rows from the intake table early._
+Status of every task: **Not started** unless stated. Built one at a time, reviewed, then marked Done with the exact verification. Scope is the "First-release scope" section above; anything not named there is not in these tasks.
+
+**Standing acceptance for every screen task** (in addition to its own): built from the shared components (`apps/web/components/ui`); real data only, no placeholder numbers, and designed-but-unbuilt features hidden; role and capability checks verified with the local test accounts (owner, admin, staff per hotel, platform admin); screenshot compared with the design PNG at 1440 px; type check, lint and the web test suite pass; the old implementation of that screen is removed once the new one is complete; the auth pages still look and work unchanged. Phone layouts are a later pass (owner will supply designs).
+
+**Order logic.** Phase A makes every later task faster. Phase B can run in parallel with Phase A (backend, no UI). Phase C builds screens in the order staff use them. Phase D retires the old UI.
+
+### Phase A — Shared foundation
+
+| ID | Task | Depends on | Done when |
+| --- | --- | --- | --- |
+| T01 | Form primitives: text area, number stepper, form field wrapper (label, hint, error), phone input with country code, searchable select, multi-select, weekday picker, date range picker (real dates), file drop zone | foundation | Each component has states (default, focus, error, disabled) and a showcase entry; used by at least one real form later |
+| T02 | Data display: stat tile, pagination bar, filter chips, status badge with one shared status-to-colour map, detail list, timeline, breadcrumb, segmented control, tab bar with counts | foundation | Same; the status map is the single source for booking, payment and review states |
+| T03 | Overlays and states: confirm dialog with required reason and optional typed word, slide-over detail panel, row actions menu, standard empty, loading and error panels with a request reference code | T01 | Used by the first screens; error panel shows a request id |
+| T04 | Shell completion: hotel switcher with search, user menu (My account, Sign out), notification bell popover shell, standard error pages (no access, not found, session expired), skip link and focus order | T02, T03 | Keyboard-only walk of the shell passes; all roles see the right sidebar items |
+| T05 | Dashboard theme provider: neutral default, saved owner choice, applied everywhere | T04 | Theme switch persists per hotel group and applies to dashboard and portals |
+
+### Phase B — Backend for the first release (parallel with A)
+
+| ID | Task | Delivers |
+| --- | --- | --- |
+| B01 | Reservations list API and booking source | Server-side list with search, status, payment, date type and source filters, sort, paging and counts; booking source (Direct, Website) set at creation with a backfill; readable payment reference; derived payment status definition shared by all screens (G16, G17, G18, G99) |
+| B02 | Time zone and property settings foundation | Fix or replace the time zone validation (verify production runtime first); General settings fields (public name, structured address, contacts, locale and formats, currency lock once in use), before/after audit of settings, hotel rules at hotel level (G72, G149, G151, G152, G60) |
+| B03 | Accommodation model | Categories on room types, listing status Draft, Live, Hidden, slug and code, bed configuration, unit active flag and code, readiness engine shared by Accommodation, Pricing and Settings (G48 to G51, G55, G56, G65) |
+| B04 | Guests | Readable guest ID, flags and notes (append-only), manual Add guest with duplicate check, server-side directory with masking by capability (G109 to G111, G113, G117) |
+| B05 | Notifications v2 | Type registry (category, priority, destination), per-user read state, routing by permission, mark read endpoints, 90-day cleanup, new types raised by the first-release features (G169 to G171, G176 to G178) |
+| B06 | Audit v2 | Missing event families (sign-in, session revoked, password change, exports, role and override changes), request id, session id and user agent on sensitive events, list and detail endpoints, CSV export (G149, G173, G175, G179) |
+| B07 | Staff and access | Last sign-in and session listing with revoke, suspend and deactivate with session revoke, pending-invitation record with resend, override reason and optional expiry with expiry reminder, role rename to the four seeded roles, role-change impact preview, staff profile fields (G156 to G158, G162, G163, G167, G168) |
+| B08 | Reports metrics layer | Written metric definitions, Reservations, Revenue and Payments, Occupancy and Stay endpoints with comparison period, CSV export with audit (G134 to G137) |
+| B09 | Blocks and availability read model | Block reason, creator, title; blocks list with status; today's property-wide rules exposed as the restrictions list (read-only); coverage and readiness data for the Availability overview (G41, G85 partial, G87) |
+| B10 | Global search | One permission-aware endpoint for booking reference, guest name, phone and email |
+| B11 | Rates and cancellation policies | Rate plan code and status, cancellation policy list and edit, cancellation preview used by cancellation review (G80 partial, G26) |
+| B12 | Reservation preview and Overview data | Shared reservation preview payload; Overview additions (balance due, sold-out rooms, cancellations, upcoming arrivals) already in the API surfaced; Needs attention fields (G6 to G8) |
+
+### Phase C — Screens (each task = design PNG to code on real data)
+
+| ID | Screen | Depends on |
+| --- | --- | --- |
+| S01 | Reservations list and shared preview panel (quick-view tabs, filters, chips, row actions, bulk actions, states) | T01 to T04, B01, B12 |
+| S02 | Booking detail and Edit details | S01, B01 |
+| S03 | Add reservation (merged flow, three steps; payment by pay at hotel, take payment now, record manual payment, no payment) | T01 to T03, B01 |
+| S04 | Calendar: reservation bars (read-only), Availability view, cell panel, Block availability panel, setup and stale states | T01 to T03, B09 |
+| S05 | Payments: overview, ledger, detail, refund within policy, reconciliation list (derived), Clock folios view, states | B01, T03 |
+| S06 | Guests: directory, profile, edit, history, flags and notes, states | B04 |
+| S07 | Overview and its tabs (real data only; Needs attention, Quick booking uses S03, Approvals and System health tabs hidden) | S01, S03, B12 |
+| S08 | Accommodation: overview, categories, listings, listing create and detail, units, unit detail, setup warnings, states (Excel import deferred) | B03 |
+| S09 | Rates & Pricing: redesign of today's pricing, rate plans list and detail, base price grid, cancellation policies | B11, B03 |
+| S10 | Availability: overview, restrictions list (read-only), manual blocks list, create and edit block | B09 |
+| S11 | Reports: overview and the four reports with comparison and export | B08 |
+| S12 | Settings hub and areas: General, Booking rules, Check-in and Check-out, Payments summary, Hotel rules, Emails (log, retry, recipients restyled), Integrations connect and test, Managed Pages for plugin hotels | B02, B03 |
+| S13 | Staff: staff users, detail, invite, suspend dialog, roles, create custom role, permission matrix, overrides, access log | B06, B07 |
+| S14 | Notifications: bell popover, inbox, side panel, preferences, states | B05 |
+| S15 | My account and global search UI | B07, B10 |
+
+### Phase D — Retire the old UI
+
+| ID | Task | Done when |
+| --- | --- | --- |
+| R01 | Remove the old dashboard components, CSS modules and unused `@must/ui` parts; keep only what the auth pages use | No dashboard screen imports legacy components |
+| R02 | Switch the dashboard Tailwind entry to the full import (remove the scoped reset) | Auth pages and every screen verified unchanged or intended |
+| R03 | Responsive and accessibility pass (widths 390, 768, 1024, 1280, 1440; keyboard; contrast; axe) once phone designs exist | Milestone 13 criteria 25 to 32 closed against the new UI |
+| R04 | Documentation and acceptance: update design docs, architecture frontends doc, roadmap status; close or defer each Milestone 13 UI task | M13 table fully accounted for |
+
+### Suggested first slice (smallest thing that proves the whole stack)
+
+T01 to T04 (a thin set of the components Reservations needs), B01, then **S01 Reservations list**. That exercises the components, a new backend endpoint, the shell, permissions and the screenshot review loop on the most-used screen, so problems show up before the other screens depend on them.
 
 ## Explicitly not included
 
