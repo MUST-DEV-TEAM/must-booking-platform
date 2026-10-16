@@ -2433,6 +2433,23 @@ Status of every task: **Not started** unless stated. Built one at a time, review
 | 2026-10-16 | B01 Reservations list API and source | **Done except the readable payment reference (G99).** `GET .../bookings/search` with search, view, status, payment, source, date type and range, sort, paging and per-view counts; booking `source` (Direct, Website, else unknown) set at the three creation points, migration `20261016100000_booking_source`. Verified: 16 unit tests; live checks (counts 17/1/7, filters, search, bad input 400, Hotel A staff 403 on Hotel B, Finance without bookings.manage 403). Payment state is defined twice (SQL and web); both follow the same rules, so any change must update both |
 | 2026-10-16 | S01 Reservations list | **First version done, not complete.** Quick-view tabs with counts, summary tiles, search, filters with chips, sorting, paging, row actions, preview panel, empty, error and loading states; verified in a browser as the owner (tabs, search, sort, preview, no console errors). Rebuilt the same day to match the `/design/tables` reference: one card, inline toolbar, row selection with a bulk bar (copy references only so far), column picker remembered per browser, expandable rows, rows-per-page footer. Then added: filters, view, sort and page in the page address (survive reload and share, Back and Forward work), row click opens the preview, refresh button with an "Updated ... ago" note and a 60-second auto refresh, icon-only toolbar with tooltips, calendar in the toolbar, payment amounts on hover. Not yet: real bulk actions (they need features that do not exist: send email, assign room), density toggle, export, the shared preview as its own component |
 
+### S01 Reservations list: what is still open (so nothing is forgotten)
+
+S01 stays **In progress** until every row below is Done or explicitly moved. Updated 2026-10-17.
+
+| Item | Where it was agreed or recorded | Depends on | When |
+| --- | --- | --- | --- |
+| Reservation preview as its own reusable component (also used by Calendar and Guests) | D31 / S36 | none | With S02 Booking detail |
+| Clicking a row opens details; a full detail page | Page 3, S02 | S02 | S02 |
+| Density toggle (comfortable / compact) | D10 (S8) | none | Before S01 is closed |
+| Header stays visible while the page scrolls | D10 (S8) | none | Before S01 is closed |
+| Keyboard shortcuts (for example `/` to search) | Claude's suggestion, not yet accepted | none | Owner to decide |
+| Real bulk actions (send email, assign room, confirm) | D10 (S6), G20 | email sending, room assignment (Milestone 25) | When those exist |
+| Export list / results (CSV) | G21 | export permission and audit | Next release |
+| Saved views per user | G20 | per-user preferences storage | Next release |
+| Readable payment reference (PAY-1084) in the list | G99 | B01 follow-up | Before S01 is closed |
+| Phone layout | Owner: later | phone designs | Phone pass (R03) |
+
 ### Suggested first slice (smallest thing that proves the whole stack)
 
 T01 to T04 (a thin set of the components Reservations needs), B01, then **S01 Reservations list**. That exercises the components, a new backend endpoint, the shell, permissions and the screenshot review loop on the most-used screen, so problems show up before the other screens depend on them.
