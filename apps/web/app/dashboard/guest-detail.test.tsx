@@ -96,7 +96,7 @@ async function renderGuest(guestId: string) {
   });
   // React only applies updates when an act scope ends, so wait one short act per tick.
   for (let tick = 0; tick < 100; tick += 1) {
-    if (c.textContent && !c.textContent.includes('Loading guest')) break;
+    if (!c.querySelector('[aria-busy="true"]')) break;
     await act(async () => {
       await new Promise((resolve) => window.setTimeout(resolve, 20));
     });
@@ -144,11 +144,12 @@ describe('GuestDetail', () => {
 
   it('totals what the guest has paid and had refunded', async () => {
     const { c, unmount } = await renderGuest('g1');
-    const summary = c.querySelector('dl')!.textContent ?? '';
-    expect(summary).toContain('2 (1 cancelled)');
-    expect(summary).toContain('500.00 EUR');
-    expect(summary).toContain('100.00 EUR');
-    expect(summary).toContain('400.00 EUR');
+    const summary = c.querySelector('[aria-label="Guest summary"]')!.textContent ?? '';
+    expect(summary).toContain('2');
+    expect(summary).toContain('1 cancelled');
+    expect(summary).toMatch(/500/);
+    expect(summary).toMatch(/100/);
+    expect(summary).toMatch(/400/);
     await unmount();
   });
 

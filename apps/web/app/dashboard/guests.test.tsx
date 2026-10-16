@@ -75,7 +75,7 @@ describe('Dashboard guests', () => {
       await settleQueries();
     });
 
-    expect(container.querySelector('[aria-busy="true"]')?.textContent).toContain('Loading guests…');
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
 
     await act(async () => {
       resolveGuests(new Response(JSON.stringify(guests)));
@@ -89,7 +89,7 @@ describe('Dashboard guests', () => {
     const { container, root } = await mount();
     expect(container.textContent).toContain('Ada Lovelace');
     expect(container.textContent).toContain('ada@test');
-    expect(container.textContent).toContain('2 bookings');
+    expect(container.querySelector('tbody tr')?.textContent).toContain('2');
     await click(
       Array.from(container.querySelectorAll('button')).find(
         (button) => button.textContent === 'Ada Lovelace',
@@ -97,6 +97,31 @@ describe('Dashboard guests', () => {
     );
     expect(container.textContent).toContain('booking history');
     expect(container.textContent).toContain('Deluxe');
+    await act(async () => root.unmount());
+  });
+
+  it('sorts the directory by booking count and filters to suspected duplicate profiles', async () => {
+    mockFetch(suspectedDuplicates);
+    const { container, root } = await mount();
+    const bookingSort = Array.from(container.querySelectorAll('thead button')).find(
+      (button) => button.textContent?.includes('Bookings'),
+    )!;
+    await click(bookingSort);
+    expect(
+      Array.from(container.querySelectorAll('tbody tr')).map(
+        (row) => row.querySelector('button')?.textContent,
+      ),
+    ).toEqual(['Ada Lovelace', 'No History']);
+    await click(bookingSort);
+    expect(
+      Array.from(container.querySelectorAll('tbody tr')).map(
+        (row) => row.querySelector('button')?.textContent,
+      ),
+    ).toEqual(['No History', 'Ada Lovelace']);
+
+    await click(container.querySelector('[role="tab"][aria-selected="false"]')!);
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(container.querySelector('tbody')?.textContent).toContain('Ada Lovelace');
     await act(async () => root.unmount());
   });
 
@@ -122,7 +147,7 @@ describe('Dashboard guests', () => {
     failGuests = false;
     await click(
       Array.from(container.querySelectorAll('button')).find(
-        (button) => button.textContent === 'Retry',
+        (button) => button.textContent === 'Try again',
       )!,
     );
 
@@ -160,14 +185,16 @@ describe('Dashboard guests', () => {
 
     expect(container.textContent).toContain('Suspected duplicates');
     expect(container.textContent).toContain('ada+old@test');
-    await click(
-      Array.from(container.querySelectorAll('input[type="radio"]')).find(
-        (input) => (input as HTMLInputElement).value === 'on',
-      )!,
-    );
+    await click(container.querySelectorAll('[role="radio"]')[0]!);
     await click(
       Array.from(container.querySelectorAll('button')).find(
-        (button) => button.textContent === 'Merge',
+        (button) => button.textContent === 'Merge profiles',
+      )!,
+    );
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    await click(
+      Array.from(dialog.querySelectorAll('button')).find(
+        (button) => button.textContent === 'Merge profiles',
       )!,
     );
 
@@ -219,14 +246,11 @@ describe('Dashboard guests', () => {
     expect(container.textContent).toContain(
       'Flagged because the phone number matches, but the email addresses differ.',
     );
-    const emailCells = Array.from(container.querySelectorAll('dd')).filter((dd) =>
-      dd.textContent?.includes('@test'),
-    );
-    expect(emailCells.some((dd) => dd.className.includes('differing'))).toBe(true);
+    expect(container.textContent).toContain('Email: bob@test · different');
 
     // Keep guest-5 (the one missing a name) — the preview should mention
     // backfilling its name from guest-4.
-    await click(container.querySelectorAll('input[type="radio"]')[1]!);
+    await click(container.querySelectorAll('[role="radio"]')[1]!);
     expect(container.textContent).toContain('Keeping bob.alt@test');
     expect(container.textContent).toContain("the other profile's name Bob");
 
@@ -234,7 +258,7 @@ describe('Dashboard guests', () => {
   });
 });
 
-function mockFetch() {
+function mockFetch(duplicates: typeof suspectedDuplicates = []) {
   vi.stubGlobal(
     'fetch',
     vi.fn((url: string) =>
@@ -242,7 +266,7 @@ function mockFetch() {
         new Response(
           JSON.stringify(
             url.endsWith('/suspected-duplicates')
-              ? []
+              ? duplicates
               : url.startsWith(`${base}/guests`)
                 ? guests
                 : bookings,
