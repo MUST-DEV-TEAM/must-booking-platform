@@ -5,7 +5,6 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { cn } from '../lib/utils';
 import { Avatar, AvatarFallback } from './ui/avatar';
-import { Breadcrumb, type BreadcrumbItem } from './ui/breadcrumb';
 import { Button } from './ui/button';
 import { IconButton } from './ui/icon-button';
 import {
@@ -160,13 +159,18 @@ function LogOutButton({ collapsed }: { collapsed?: boolean }) {
   );
 }
 
+export type AccountLink = { label: string; href: string };
+
 export function AccountMenu({
   email,
   role,
+  links = [],
   className,
 }: {
   email?: string;
   role?: string;
+  /** Pages listed in the menu above Log out (for example Profile, Settings). */
+  links?: readonly AccountLink[];
   className?: string;
 }) {
   const name = email ?? 'Signed-in user';
@@ -197,6 +201,11 @@ export function AccountMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="truncate">{name}</DropdownMenuLabel>
+        {links.map((link) => (
+          <DropdownMenuItem key={link.href} asChild>
+            <a href={link.href}>{link.label}</a>
+          </DropdownMenuItem>
+        ))}
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onSelect={() => void logOut()}>
           Log out
@@ -213,7 +222,7 @@ export function AppShell({
   userRole,
   homeHref = '/dashboard',
   headerActions,
-  breadcrumb,
+  accountLinks,
   children,
 }: {
   navigation: readonly AppNavigationItem[];
@@ -222,8 +231,7 @@ export function AppShell({
   userRole?: string;
   homeHref?: string;
   headerActions?: ReactNode;
-  /** Trail shown above the page content: Home › Hotel › Page. */
-  breadcrumb?: readonly BreadcrumbItem[];
+  accountLinks?: readonly AccountLink[];
   children: ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -315,7 +323,7 @@ export function AppShell({
           </h2>
           <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
             {headerActions}
-            <AccountMenu email={userEmail} role={userRole} />
+            <AccountMenu email={userEmail} role={userRole} links={accountLinks} />
             <Button
               variant="outline"
               size="icon"
@@ -332,11 +340,6 @@ export function AppShell({
           tabIndex={-1}
           className="min-h-[calc(100vh-68px)] min-w-0 flex-1 bg-muted/30 px-4 py-5 outline-none sm:px-6 lg:px-8"
         >
-          {breadcrumb && breadcrumb.length > 0 ? (
-            <div className="mb-4">
-              <Breadcrumb items={breadcrumb} />
-            </div>
-          ) : null}
           {children}
         </main>
       </div>

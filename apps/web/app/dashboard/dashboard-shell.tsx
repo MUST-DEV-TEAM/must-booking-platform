@@ -31,6 +31,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
+import { Chip } from '../../components/ui/chip';
 import { TabBar } from '../../components/ui/tab-bar';
 import { AppShell, type AppNavigationItem } from '../../components/app-shell';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
@@ -44,6 +45,7 @@ import { PaymentDetail } from './payment-detail';
 import { DashboardGuests } from './guests';
 import { GuestDetail } from './guest-detail';
 import { DashboardStaff } from './staff';
+import { MyAccount } from './my-account';
 import { ReservationDetail } from './reservation-detail';
 import { ReservationsPage } from './reservations-page';
 import { EmailSettings, isEmailTab, type EmailTab } from './email-settings';
@@ -174,6 +176,7 @@ function canAccessSection(role: TenantRole, capabilities: readonly string[], sec
     role !== 'STAFF' ||
     section === 'overview' ||
     section === 'hotels' ||
+    section === 'account' ||
     section === 'notifications'
   )
     return true;
@@ -404,7 +407,9 @@ export function DashboardShell({
         })
       : [];
   const sectionLabel =
-    dashboardSections.find((candidate) => candidate.section === section)?.label ?? 'Dashboard';
+    section === 'account'
+      ? 'My account'
+      : (dashboardSections.find((candidate) => candidate.section === section)?.label ?? 'Dashboard');
   const canViewSection = role ? canAccessSection(role, capabilities ?? [], section) : false;
   const canAccessQuickBooking =
     role !== 'STAFF' || capabilities?.includes('bookings.manage') === true;
@@ -415,11 +420,20 @@ export function DashboardShell({
       homeHref="/dashboard"
       navigation={navigation}
       title={sectionLabel}
-      breadcrumb={[
-        { label: 'Home', href: '/dashboard' },
-        ...(selectedProperty ? [{ label: selectedProperty.name }] : []),
-        { label: sectionLabel },
-      ]}
+      accountLinks={
+        selectedProperty
+          ? [
+              {
+                label: 'Profile',
+                href: `/dashboard/${tenantId}?propertyId=${encodeURIComponent(selectedProperty.id)}&section=account`,
+              },
+              {
+                label: 'Settings',
+                href: `/dashboard/${tenantId}?propertyId=${encodeURIComponent(selectedProperty.id)}&section=settings`,
+              },
+            ]
+          : undefined
+      }
       userEmail={user?.email}
       userRole={role ? roleLabels[role] : undefined}
       headerActions={
@@ -448,6 +462,8 @@ export function DashboardShell({
                 ))}
               </SelectContent>
             </Select>
+          ) : selectedProperty ? (
+            <Chip icon={Layers}>{selectedProperty.name}</Chip>
           ) : null}
           {selectedProperty && role ? (
             <DashboardNotifications tenantId={tenantId} propertyId={selectedProperty.id} />
@@ -536,6 +552,13 @@ export function DashboardShell({
         ) : (
           <DashboardGuests tenantId={tenantId} propertyId={selectedProperty.id} />
         )
+      ) : null}
+      {selectedProperty && role && canViewSection && section === 'account' ? (
+        <MyAccount
+          email={user?.email}
+          role={role ? roleLabels[role] : undefined}
+          hotelName={selectedProperty.name}
+        />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'notifications' ? (
         <NotificationsInbox tenantId={tenantId} propertyId={selectedProperty.id} />

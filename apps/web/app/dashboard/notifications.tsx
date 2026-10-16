@@ -1,12 +1,22 @@
 'use client';
 
-import { Card, Heading, NavigationPagination, Stack, StatePanel, Text } from '@must/ui';
-import { Bell, LoaderCircle } from 'lucide-react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Bell, CircleAlert, CirclePlus, Undo2, Users, type LucideIcon } from 'lucide-react';
 import { useState } from 'react';
 
-import shellStyles from './dashboard-shell.module.css';
-import styles from './notifications.module.css';
+import { Button } from '../../components/ui/button';
+import { Card } from '../../components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../../components/ui/dropdown-menu';
+import { PageHero } from '../../components/ui/page-hero';
+import { Pagination } from '../../components/ui/pagination';
+import { EmptyPanel, ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 
 export type Notification = {
   id: string;
@@ -32,6 +42,13 @@ const notificationLabels: Record<Notification['type'], string> = {
   BOOKING_NEEDS_ATTENTION: 'Booking needs attention',
   PAYMENT_REFUNDED: 'Payment refunded',
   STAFF_SEAT_CAP_REACHED: 'Staff seat cap reached',
+};
+
+const notificationHints: Record<Notification['type'], string> = {
+  BOOKING_CREATED: 'A new reservation was made.',
+  BOOKING_NEEDS_ATTENTION: 'Open the reservation and follow up.',
+  PAYMENT_REFUNDED: 'A refund was recorded.',
+  STAFF_SEAT_CAP_REACHED: 'The staff limit of the plan is reached.',
 };
 
 function notificationQueryKey(tenantId: string, propertyId: string) {
@@ -116,6 +133,42 @@ function useNotificationPage(tenantId: string, propertyId: string, page: number)
   return { notificationsQuery, markReadMutation, markAllReadMutation };
 }
 
+/** Icon, tone and destination for a notification; bookings and payments open their reservation. */
+function notificationLook(notification: Notification, tenantId: string, propertyId: string) {
+  const icons: Record<Notification['type'], LucideIcon> = {
+    BOOKING_CREATED: CirclePlus,
+    BOOKING_NEEDS_ATTENTION: CircleAlert,
+    PAYMENT_REFUNDED: Undo2,
+    STAFF_SEAT_CAP_REACHED: Users,
+  };
+  const bookingId =
+    typeof notification.payload.bookingId === 'string' ? notification.payload.bookingId : null;
+  const base = `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}`;
+  const href = bookingId
+    ? `${base}&section=reservations&reservation=${bookingId}`
+    : notification.type === 'STAFF_SEAT_CAP_REACHED'
+      ? `${base}&section=staff`
+      : notificationsInboxHref(tenantId, propertyId);
+  return {
+    Icon: icons[notification.type],
+    href,
+    attention: notification.type === 'BOOKING_NEEDS_ATTENTION',
+  };
+}
+
+function timeAgo(value: string) {
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 60_000));
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return formatNotificationDate(value);
+}
+
+const iconBox = 'flex shrink-0 items-center justify-center rounded-lg';
+const iconTone = (attention: boolean) =>
+  attention ? 'bg-warning-surface text-warning' : 'bg-muted text-muted-foreground';
+
 export function DashboardNotifications({
   tenantId,
   propertyId,
@@ -123,7 +176,6 @@ export function DashboardNotifications({
   tenantId: string;
   propertyId: string;
 }) {
-  const [open, setOpen] = useState(false);
   const { notificationsQuery, markReadMutation, markAllReadMutation } = useNotificationPage(
     tenantId,
     propertyId,
@@ -142,80 +194,99 @@ export function DashboardNotifications({
         : '';
 
   return (
-    <div className={shellStyles.notifications}>
-      <button
-        aria-expanded={open}
-        aria-label={`Notifications${unreadBadge ? ` (${unreadBadge} unread)` : ''}`}
-        className={shellStyles.notificationBell}
-        onClick={() => setOpen(!open)}
-        type="button"
-      >
-        <Bell aria-hidden="true" size={20} />
-        {unreadBadge ? <span className={shellStyles.notificationBadge}>{unreadBadge}</span> : null}
-      </button>
-      {open ? (
-        <section aria-label="Notifications" className={shellStyles.notificationPanel}>
-          <div className={shellStyles.notificationPanelHeader}>
-            <h2>Notifications</h2>
-            {unread > 0 ? (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="icon"
+          className="relative size-10"
+          aria-label={`Notifications${unreadBadge ? ` (${unreadBadge} unread)` : ''}`}
+        >
+          <Bell aria-hidden="true" />
+          {unreadBadge ? (
+            <span className="absolute -top-1.5 -right-1.5 min-w-4 rounded-full bg-destructive px-1 text-center text-[10px] leading-4 font-bold text-white">
+              {unreadBadge}
+            </span>
+          ) : null}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-[min(22rem,calc(100vw-1rem))] p-2">
+        <div className="flex items-center justify-between px-2 py-1">
+          <DropdownMenuLabel className="p-0">Notifications</DropdownMenuLabel>
+          {unread > 0 ? (
+            <button
+              type="button"
+              disabled={markAllReadMutation.isPending}
+              onClick={() => markAllReadMutation.mutate()}
+              className="rounded-sm bg-transparent text-xs font-semibold text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {markAllReadMutation.isPending ? 'Marking…' : 'Mark all as read'}
+            </button>
+          ) : null}
+        </div>
+        <DropdownMenuSeparator />
+        {error ? (
+          <div role="alert" className="px-2 py-3 text-sm text-destructive">
+            {error.message}
+            {notificationsQuery.isError ? (
               <button
-                className={shellStyles.markAllReadLink}
-                disabled={markAllReadMutation.isPending}
-                onClick={() => markAllReadMutation.mutate()}
                 type="button"
+                className="ml-2 bg-transparent font-semibold underline"
+                onClick={() => void notificationsQuery.refetch()}
               >
-                {markAllReadMutation.isPending ? 'Marking…' : 'Mark all as read'}
+                Retry
               </button>
             ) : null}
           </div>
-          {error ? (
-            <div role="alert">
-              <p>{error.message}</p>
-              {notificationsQuery.isError ? (
-                <button onClick={() => void notificationsQuery.refetch()} type="button">
-                  Retry
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-          {notifications?.length ? (
-            <ul>
-              {notifications.map((notification) => (
-                <li key={notification.id}>
-                  <span>{notificationLabels[notification.type]}</span>
-                  {notification.readAt === null ? (
-                    <button
-                      disabled={markReadMutation.isPending}
-                      onClick={() => markReadMutation.mutate(notification.id)}
-                      type="button"
-                    >
-                      Mark as read
-                    </button>
-                  ) : (
-                    <span>Read</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          ) : notificationsQuery.isPending ? (
-            <StatePanel
-              body={null}
-              icon={<LoaderCircle aria-hidden="true" />}
-              title="Loading notifications…"
-              variant="loading"
-            />
-          ) : (
-            <p>No notifications.</p>
-          )}
-          <a
-            className={shellStyles.viewAllLink}
-            href={notificationsInboxHref(tenantId, propertyId)}
-          >
-            View all notifications
-          </a>
-        </section>
-      ) : null}
-    </div>
+        ) : null}
+        {notifications?.length ? (
+          notifications.map((notification) => {
+            const { Icon, href, attention } = notificationLook(notification, tenantId, propertyId);
+            const isUnread = notification.readAt === null;
+            return (
+              <DropdownMenuItem
+                key={notification.id}
+                asChild
+                className="min-h-14 items-start gap-3 px-2 py-2.5"
+              >
+                <a
+                  href={href}
+                  onClick={() => {
+                    if (isUnread) markReadMutation.mutate(notification.id);
+                  }}
+                >
+                  <span className={`mt-0.5 size-8 ${iconBox} ${iconTone(attention)}`}>
+                    <Icon aria-hidden="true" className="size-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2 text-sm font-semibold">
+                      {notificationLabels[notification.type]}
+                      {isUnread ? (
+                        <span aria-label="Unread" className="size-1.5 rounded-full bg-primary" />
+                      ) : null}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      {notificationHints[notification.type]}
+                    </span>
+                  </span>
+                  <span className="shrink-0 pt-0.5 text-[10px] text-muted-foreground">
+                    {timeAgo(notification.createdAt)}
+                  </span>
+                </a>
+              </DropdownMenuItem>
+            );
+          })
+        ) : notificationsQuery.isPending ? (
+          <p className="m-0 px-2 py-3 text-sm text-muted-foreground">Loading notifications…</p>
+        ) : (
+          <p className="m-0 px-2 py-3 text-sm text-muted-foreground">No notifications.</p>
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <a href={notificationsInboxHref(tenantId, propertyId)}>View all notifications</a>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -232,76 +303,87 @@ export function NotificationsInbox({
   const error = notificationsQuery.error ?? markReadMutation.error;
 
   return (
-    <Stack className={styles.inbox} gap="lg">
-      <div className={styles.header}>
-        <span className={styles.eyebrow}>Activity</span>
-        <Heading>Notifications</Heading>
-        <Text tone="secondary">
-          Review booking, payment, and staff notifications for this property.
-        </Text>
-      </div>
+    <div className="space-y-4">
+      <PageHero
+        eyebrow="Activity"
+        title="Notifications"
+        description="Review booking, payment, and staff notifications for this property."
+      />
       {error ? (
-        <StatePanel
-          body="Try again to reload the notifications inbox."
-          icon={<LoaderCircle aria-hidden="true" />}
+        <ErrorPanel
           title="Notifications unavailable"
-          variant="error"
+          description="Try again to reload the notifications inbox."
+          onRetry={() => void notificationsQuery.refetch()}
         />
       ) : notificationsQuery.isPending && !notificationPage ? (
-        <StatePanel
-          body={null}
-          icon={<LoaderCircle aria-hidden="true" />}
-          title="Loading notifications…"
-          variant="loading"
-        />
+        <ListSkeleton rows={5} />
       ) : (
-        <Card>
+        <Card className="gap-0 py-0">
           {notificationPage?.items.length ? (
-            <ul className={styles.list}>
+            <ul className="m-0 list-none divide-y p-0">
               {notificationPage.items.map((notification) => {
                 const unread = notification.readAt === null;
+                const { Icon, href, attention } = notificationLook(notification, tenantId, propertyId);
                 return (
-                  <li className={unread ? styles.itemUnread : styles.item} key={notification.id}>
-                    <div className={styles.itemContent}>
-                      <strong>{notificationLabels[notification.type]}</strong>
-                      <span className={unread ? styles.statusUnread : styles.statusRead}>
-                        {unread ? 'Unread' : 'Read'}
+                  <li key={notification.id} className="flex items-center gap-3 px-5 py-3">
+                    <span className={`size-9 ${iconBox} ${iconTone(attention)}`}>
+                      <Icon aria-hidden="true" className="size-4" />
+                    </span>
+                    <a
+                      href={href}
+                      className="flex min-w-0 flex-1 flex-col gap-0.5 text-inherit no-underline hover:underline"
+                      onClick={() => {
+                        if (unread) markReadMutation.mutate(notification.id);
+                      }}
+                    >
+                      <span className="flex items-center gap-2 text-sm font-semibold">
+                        <strong>{notificationLabels[notification.type]}</strong>
+                        <span
+                          className={
+                            unread ? 'text-xs font-bold text-primary' : 'text-xs text-muted-foreground'
+                          }
+                        >
+                          {unread ? 'Unread' : 'Read'}
+                        </span>
                       </span>
-                      <time dateTime={notification.createdAt}>
+                      <time dateTime={notification.createdAt} className="text-xs text-muted-foreground">
                         {formatNotificationDate(notification.createdAt)}
                       </time>
-                    </div>
-                    <div className={styles.itemActions}>
-                      {unread ? (
-                        <button
-                          className="must-button must-button--secondary"
-                          disabled={markReadMutation.isPending}
-                          onClick={() => markReadMutation.mutate(notification.id)}
-                          type="button"
-                        >
-                          Mark as read
-                        </button>
-                      ) : null}
-                    </div>
+                    </a>
+                    {unread ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={markReadMutation.isPending}
+                        onClick={() => markReadMutation.mutate(notification.id)}
+                      >
+                        Mark as read
+                      </Button>
+                    ) : null}
                   </li>
                 );
               })}
             </ul>
           ) : (
-            <Text>No notifications.</Text>
+            <div className="p-6">
+              <EmptyPanel
+                title="No notifications"
+                description="New bookings, payments and alerts will show here."
+              />
+            </div>
           )}
           {notificationPage ? (
-            <NavigationPagination
-              label="Notifications pages"
-              onPageChange={setPage}
+            <Pagination
               page={notificationPage.page}
               pageSize={notificationPage.pageSize}
               total={notificationPage.total}
+              onPage={setPage}
+              noun="notifications"
             />
           ) : null}
         </Card>
       )}
-    </Stack>
+    </div>
   );
 }
 
