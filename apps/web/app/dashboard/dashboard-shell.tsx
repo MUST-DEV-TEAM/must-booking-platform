@@ -31,11 +31,12 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
+import { TabBar } from '../../components/ui/tab-bar';
 import { AppShell, type AppNavigationItem } from '../../components/app-shell';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { fetchSessionUser, type SessionUser } from '../auth-routing';
 import styles from './dashboard-shell.module.css';
-import { DashboardOverview, NeedsAttentionTab } from './overview';
+import { DashboardOverview, NeedsAttentionTab, useOverviewQuery } from './overview';
 import { DashboardCalendar } from './calendar';
 import { WalkInBooking } from './walk-in-booking';
 import { DashboardPayments } from './payments';
@@ -139,10 +140,10 @@ const dashboardSections: readonly DashboardNavigationDefinition[] = [
 
 const dashboardTabs = [
   { key: 'overview', label: 'Overview' },
-  { key: 'needs-attention', label: 'Needs Attention' },
+  { key: 'needs-attention', label: 'Needs attention' },
   { key: 'approvals', label: 'Approvals' },
-  { key: 'quick-booking', label: 'Quick Booking' },
-  { key: 'system-health', label: 'System Health' },
+  { key: 'quick-booking', label: 'Quick booking' },
+  { key: 'system-health', label: 'System health' },
 ] as const;
 
 type DashboardTab = (typeof dashboardTabs)[number]['key'];
@@ -181,8 +182,11 @@ function canAccessSection(role: TenantRole, capabilities: readonly string[], sec
   return !!item?.capabilities?.some((capability) => capabilities.includes(capability));
 }
 
+// Approvals and System health are planned; their URLs fall back to Overview until they exist.
+const LIVE_TABS: readonly string[] = ['overview', 'needs-attention', 'quick-booking'];
+
 function isDashboardTab(value: string | null): value is DashboardTab {
-  return dashboardTabs.some((tab) => tab.key === value);
+  return dashboardTabs.some((tab) => tab.key === value) && LIVE_TABS.includes(value ?? '');
 }
 
 function dashboardTabHref(tenantId: string, propertyId: string, tab: DashboardTab) {
@@ -202,20 +206,23 @@ function DashboardSectionTabs({
   canAccessQuickBooking: boolean;
   onSelectTab: (tab: DashboardTab) => void;
 }) {
+  // Approvals and System health are planned features; they stay out of the live tab bar until built.
+  const attention = useOverviewQuery(tenantId, propertyId).data?.needsAttentionCount;
+  const tabs = dashboardTabs
+    .filter((tab) => tab.key === 'overview' || tab.key === 'needs-attention' || tab.key === 'quick-booking')
+    .filter((tab) => tab.key !== 'quick-booking' || canAccessQuickBooking)
+    .map((tab) => ({
+      id: tab.key,
+      label: tab.label,
+      count: tab.key === 'needs-attention' ? attention : undefined,
+    }));
   return (
-    <NavigationSectionTabBar>
-      {dashboardTabs
-        .filter((tab) => tab.key !== 'quick-booking' || canAccessQuickBooking)
-        .map((tab) => (
-          <NavigationSectionTabItem
-            current={tab.key === currentTab}
-            href={dashboardTabHref(tenantId, propertyId, tab.key)}
-            key={tab.key}
-            label={tab.label}
-            onSelect={() => onSelectTab(tab.key)}
-          />
-        ))}
-    </NavigationSectionTabBar>
+    <TabBar
+      label="Dashboard sections"
+      tabs={tabs}
+      current={currentTab}
+      onSelect={(id) => onSelectTab(id as DashboardTab)}
+    />
   );
 }
 

@@ -67,19 +67,13 @@ describe('Tenant dashboard shell', () => {
         }),
       ),
     );
-    const labels = ['Overview', 'Needs Attention', 'Approvals', 'Quick Booking', 'System Health'];
+    const labels = ['Overview', 'Needs attention', 'Quick booking'];
     for (const label of labels) expect(markup).toContain(label);
-    expect(markup.indexOf('Needs Attention')).toBeLessThan(markup.indexOf('Approvals'));
-    expect(markup.indexOf('Approvals')).toBeLessThan(markup.indexOf('Quick Booking'));
-    expect(markup.indexOf('Quick Booking')).toBeLessThan(markup.indexOf('System Health'));
-    expect(markup).toContain('aria-label="Dashboard tabs"');
-    expect(markup).toContain(
-      'href="/dashboard/tenant-1?propertyId=property-1&amp;section=overview&amp;tab=overview"',
-    );
-    expect(markup).toContain(
-      'href="/dashboard/tenant-1?propertyId=property-1&amp;section=overview&amp;tab=quick-booking"',
-    );
-    expect(markup).toContain('aria-current="page"');
+    expect(markup.indexOf('Needs attention')).toBeLessThan(markup.indexOf('Quick booking'));
+    expect(markup).not.toContain('Approvals');
+    expect(markup).not.toContain('System health');
+    expect(markup).toContain('aria-label="Dashboard sections"');
+    expect(markup).toContain('aria-selected="true"');
   });
 
   it('hides Quick Booking from staff without bookings.manage', () => {
@@ -99,7 +93,7 @@ describe('Tenant dashboard shell', () => {
       ),
     );
 
-    expect(markup).not.toContain('Quick Booking');
+    expect(markup).not.toContain('Quick booking');
   });
 
   it('shows property-staff destinations granted by their capabilities', () => {
@@ -294,7 +288,7 @@ describe('Tenant dashboard shell', () => {
     // The Overview tab (NavigationSectionTabItem) renders its label as bare anchor text with
     // no aria-label; sidebar destinations (NavigationLinks) wrap the label in a span for
     // accessible-name/truncation purposes and carry an aria-label on the anchor itself.
-    expect(markup).toContain('>Overview</a>');
+    expect(markup).toContain('Overview');
     for (const label of ['Payments', 'Reports']) expect(markup).toContain(`aria-label="${label}"`);
     for (const label of [
       'Bookings',

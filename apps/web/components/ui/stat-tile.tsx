@@ -17,6 +17,7 @@ export function StatTile({
   tone = 'default',
   active = false,
   size = 'lg',
+  href,
   onClick,
 }: {
   label: string;
@@ -27,6 +28,8 @@ export function StatTile({
   active?: boolean;
   /** `sm` for text values such as dates and names; `lg` for numbers. */
   size?: 'sm' | 'lg';
+  /** Makes the tile a link (for tiles that open a filtered list). */
+  href?: string;
   onClick?: () => void;
 }) {
   const body = (
@@ -52,6 +55,15 @@ export function StatTile({
       {note ? <div className="text-xs text-muted-foreground">{note}</div> : null}
     </>
   );
+  if (href)
+    return (
+      <a
+        href={href}
+        className="block rounded-xl text-inherit no-underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      >
+        <Card className="gap-2 px-5 py-4 transition-colors hover:bg-muted/40">{body}</Card>
+      </a>
+    );
   if (!onClick) return <Card className="gap-2 px-5 py-4">{body}</Card>;
   return (
     <button

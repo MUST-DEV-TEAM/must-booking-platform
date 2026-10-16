@@ -81,12 +81,9 @@ describe('Dashboard section tabs', () => {
       });
     });
 
-    const tabs = container.querySelector('nav[aria-label="Dashboard tabs"]');
+    const tabs = container.querySelector('[role="tablist"]');
     expect(tabs).not.toBeNull();
-    expect(tabs?.querySelector('a[aria-current="page"]')?.textContent).toBe('Needs Attention');
-    expect(tabs?.querySelector('a[aria-current="page"]')?.getAttribute('href')).toBe(
-      '/dashboard/t?propertyId=p&section=overview&tab=needs-attention',
-    );
+    expect(tabs?.querySelector('[aria-selected="true"]')?.textContent).toContain('Needs attention');
     expect(container.textContent).toContain('No bookings need attention');
     expect(container.textContent).not.toContain('Recent activity');
 
@@ -157,7 +154,7 @@ describe('Dashboard section tabs', () => {
     });
 
     expect(container.textContent).not.toContain('New walk-in booking');
-    expect(container.querySelector('nav[aria-label="Dashboard tabs"]')).toBeNull();
+    expect(container.querySelector('[role="tablist"]')).toBeNull();
 
     await act(async () => root.unmount());
   });
@@ -404,18 +401,9 @@ describe('Dashboard section tabs', () => {
     },
   );
 
-  it.each([
-    [
-      'approvals',
-      'Approvals unavailable',
-      'Approvals will coordinate review and sign-off for bookings and other workflows',
-    ],
-    [
-      'system-health',
-      'System Health unavailable',
-      'System Health will summarize operational checks across booking, payments, PMS, notifications, processing, and security',
-    ],
-  ] as const)('renders the %s placeholder from its direct URL', async (tab, title, body) => {
+  it.each(['approvals', 'system-health'] as const)(
+    'does not offer the planned %s tab and falls back to Overview from its direct URL',
+    async (tab) => {
     window.history.pushState({}, '', `/dashboard/t?propertyId=p&section=overview&tab=${tab}`);
     const fetch = vi.fn((url: string) => {
       if (url === '/api/auth/session')
@@ -473,26 +461,19 @@ describe('Dashboard section tabs', () => {
 
     await act(async () => {
       await vi.waitFor(() => {
-        if (!container.textContent?.includes(title))
-          throw new Error(`${tab} placeholder has not finished loading yet.`);
+        if (!container.textContent?.includes('Today at a glance'))
+          throw new Error('Overview has not finished loading yet.');
       });
     });
 
-    const tabs = container.querySelector('nav[aria-label="Dashboard tabs"]');
-    const activeTab = tabs?.querySelector('a[aria-current="page"]');
-    expect(activeTab?.textContent).toBe(title.replace(' unavailable', ''));
-    expect(activeTab?.getAttribute('href')).toBe(
-      `/dashboard/t?propertyId=p&section=overview&tab=${tab}`,
-    );
-    expect(activeTab?.tagName).toBe('A');
-    expect(
-      Array.from(tabs?.querySelectorAll('a') ?? []).every((link) => link.hasAttribute('href')),
-    ).toBe(true);
-    expect(container.querySelector('.must-state-panel--not-available')).not.toBeNull();
-    expect(container.textContent).toContain(body);
+    const labels = Array.from(container.querySelectorAll('[role="tab"]')).map((item) => item.textContent);
+    expect(labels.some((label) => label?.includes('Approvals'))).toBe(false);
+    expect(labels.some((label) => label?.includes('System health'))).toBe(false);
+    expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain('Overview');
 
     await act(async () => root.unmount());
-  });
+    },
+  );
 });
 
 describe('Dashboard tabs switch in place', () => {
@@ -554,7 +535,7 @@ describe('Dashboard tabs switch in place', () => {
     });
     await act(async () => {
       await vi.waitFor(() => {
-        if (!container.querySelector('nav[aria-label="Dashboard tabs"]'))
+        if (!container.querySelector('[role="tablist"]'))
           throw new Error('Dashboard has not finished loading yet.');
       });
     });
@@ -562,20 +543,21 @@ describe('Dashboard tabs switch in place', () => {
   }
 
   const tab = (container: HTMLElement, label: string) =>
-    Array.from(
-      container.querySelectorAll<HTMLAnchorElement>('nav[aria-label="Dashboard tabs"] a'),
-    ).find((link) => link.textContent === label)!;
+    Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find((item) =>
+      item.textContent?.startsWith(label),
+    )!;
 
   it('shows another tab and updates the address without loading a new page', async () => {
     window.history.pushState({}, '', '/dashboard/t?propertyId=p&section=overview&tab=overview');
     stubDashboardApi();
     const { container, unmount } = await mountShell();
-    const tabBar = container.querySelector('nav[aria-label="Dashboard tabs"]');
+    const tabBar = container.querySelector('[role="tablist"]');
     const pushes = vi.spyOn(window.history, 'pushState');
 
-    const click = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
     await act(async () => {
-      tab(container, 'Needs Attention').dispatchEvent(click);
+      tab(container, 'Needs attention').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }),
+      );
     });
     await act(async () => {
       await vi.waitFor(() => {
@@ -584,7 +566,6 @@ describe('Dashboard tabs switch in place', () => {
       });
     });
 
-    expect(click.defaultPrevented).toBe(true);
     expect(pushes).toHaveBeenCalledWith(
       null,
       '',
@@ -592,8 +573,8 @@ describe('Dashboard tabs switch in place', () => {
     );
     expect(window.location.search).toContain('tab=needs-attention');
     // The same tab bar element is still there: the page was not replaced.
-    expect(container.querySelector('nav[aria-label="Dashboard tabs"]')).toBe(tabBar);
-    expect(tab(container, 'Needs Attention').getAttribute('aria-current')).toBe('page');
+    expect(container.querySelector('[role="tablist"]')).toBe(tabBar);
+    expect(tab(container, 'Needs attention').getAttribute('aria-selected')).toBe('true');
     pushes.mockRestore();
     await unmount();
   });
@@ -603,11 +584,11 @@ describe('Dashboard tabs switch in place', () => {
     stubDashboardApi();
     const { container, unmount } = await mountShell();
     await act(async () => {
-      tab(container, 'Approvals').dispatchEvent(
+      tab(container, 'Quick booking').dispatchEvent(
         new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }),
       );
     });
-    expect(tab(container, 'Approvals').getAttribute('aria-current')).toBe('page');
+    expect(tab(container, 'Quick booking').getAttribute('aria-selected')).toBe('true');
 
     await act(async () => {
       window.history.replaceState(
@@ -618,7 +599,7 @@ describe('Dashboard tabs switch in place', () => {
       window.dispatchEvent(new PopStateEvent('popstate'));
     });
 
-    expect(tab(container, 'Overview').getAttribute('aria-current')).toBe('page');
+    expect(tab(container, 'Overview').getAttribute('aria-selected')).toBe('true');
     await unmount();
   });
 });

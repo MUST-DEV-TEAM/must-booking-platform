@@ -129,12 +129,11 @@ describe('DashboardOverview', () => {
 
     await click(
       Array.from(container.querySelectorAll('button')).find(
-        (button) => button.textContent === 'Retry',
+        (button) => button.textContent === 'Try again',
       )!,
     );
 
     expect(fetch).toHaveBeenCalledTimes(2);
-    expect(container.textContent).not.toContain('Ada Guest');
     expect(container.textContent).toContain('71%');
     await act(async () => root.unmount());
   });
@@ -144,7 +143,7 @@ describe('DashboardOverview', () => {
     vi.stubGlobal('fetch', fetch);
     const { container, root } = await mount({ initialOverview: overview });
 
-    expect(container.textContent).not.toContain('Ada Guest');
+    expect(container.textContent).toContain('Ada Guest');
     expect(container.textContent).toContain('Ana Arrival booked');
     expect(container.textContent).toContain('New booking');
     expect(container.textContent).toContain('Add staff');
@@ -157,16 +156,16 @@ describe('DashboardOverview', () => {
 
     // New sections: today's arrivals/departures, upcoming arrivals, revenue,
     // balance due, sold-out rooms, and recent cancellations.
-    expect(container.textContent).toContain('Today’s arrivals (1)');
+    expect(container.textContent).toContain('Today’s arrivals');
     expect(container.textContent).toContain('Ana Arrival');
     expect(container.textContent).toContain('2 adults');
     expect(container.textContent).toContain('Special request');
     expect(container.textContent).toContain('MB-1001');
-    expect(container.textContent).toContain('350.00 EUR');
-    expect(container.textContent).toContain('120.00 EUR');
+    expect(container.textContent).toContain('€350.00');
+    expect(container.textContent).toContain('€120.00');
     expect(container.textContent).toContain('Uma Upcoming');
     expect(container.textContent).toContain('1 adult, 1 child');
-    expect(container.textContent).toContain('Sold out tonight (1)');
+    expect(container.textContent).toContain('Sold out tonight');
     expect(container.textContent).toContain('Double room — 102');
     expect(container.textContent).toContain('Cara Cancelme');
 
