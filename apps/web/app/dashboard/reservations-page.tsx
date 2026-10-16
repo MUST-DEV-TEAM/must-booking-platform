@@ -1157,22 +1157,22 @@ function ReservationSheet({
                   {row.specialRequests}
                 </div>
               ) : null}
-              <div className="flex flex-wrap gap-2">
-                <Button asChild>
+              <div className={cn('grid gap-2', row.guestId ? 'grid-cols-3' : 'grid-cols-2')}>
+                <Button size="sm" asChild>
                   <a href={dashboardHref(tenantId, propertyId, `section=reservations&reservation=${row.id}`)}>
-                    Open full reservation
+                    Reservation
                   </a>
                 </Button>
                 {row.guestId ? (
-                  <Button variant="outline" asChild>
+                  <Button size="sm" variant="outline" asChild>
                     <a href={dashboardHref(tenantId, propertyId, `section=guests&guest=${row.guestId}`)}>
-                      Open guest
+                      Guest
                     </a>
                   </Button>
                 ) : null}
-                <Button variant="outline" asChild>
+                <Button size="sm" variant="outline" asChild>
                   <a href={dashboardHref(tenantId, propertyId, `section=payments&payment=${row.id}`)}>
-                    Open payment
+                    Payment
                   </a>
                 </Button>
               </div>

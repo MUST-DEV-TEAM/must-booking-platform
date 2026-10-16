@@ -156,7 +156,9 @@ export function RefundChoice({
           </p>
         )
       ) : (
-        <p className="m-0 text-sm text-muted-foreground">The payment stays with the hotel.</p>
+        <p className="m-0 text-sm text-muted-foreground">
+          The payment stays with the hotel. You can still refund it from Payments for 24 hours after cancelling.
+        </p>
       )}
       {policyNote ? <p className="m-0 text-xs text-muted-foreground">{policyNote}</p> : null}
     </div>

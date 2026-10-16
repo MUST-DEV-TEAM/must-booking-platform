@@ -33,6 +33,17 @@ export class PaymentRefundController {
     @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
   ) {
     const value = (body ?? {}) as Record<string, unknown>;
+    const bookingId = typeof value.bookingId === 'string' ? value.bookingId : '';
+    if (bookingId && (await this.refunds.refundWindowClosed(request.tenantContext, bookingId)))
+      return {
+        ok: false,
+        error: {
+          code: 'REFUND_WINDOW_CLOSED',
+          message:
+            'This reservation was cancelled more than 24 hours ago, so it can no longer be refunded here.',
+          retryable: false,
+        },
+      };
     const result = await this.refunds.manualRefund(request.tenantContext, {
       bookingId: typeof value.bookingId === 'string' ? value.bookingId : '',
       idempotencyKey: this.idempotencyKey(idempotencyKey),

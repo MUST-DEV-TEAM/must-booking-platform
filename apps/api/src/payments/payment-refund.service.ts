@@ -91,6 +91,9 @@ export function percentageRefundMinorUnits(amount: string, percentage: number): 
   return (originalMinorUnits * numerator + denominator / 2n) / denominator;
 }
 
+/** How long after a cancellation a refund can still be made from Payments. */
+const REFUND_WINDOW_HOURS = 24;
+
 @Injectable()
 export class PaymentRefundService {
   private readonly logger = new Logger(PaymentRefundService.name);
@@ -249,6 +252,28 @@ export class PaymentRefundService {
       confirmation,
       clockRefund: inserted[0] ? { amount: command.amount, refundId: refunded.value.id } : null,
     };
+  }
+
+  /**
+   * A cancelled reservation can still be refunded from Payments, but only for a day after it was
+   * cancelled. True when the booking is cancelled and the cancellation is older than that.
+   */
+  async refundWindowClosed(context: PaymentProviderContext, bookingId: string): Promise<boolean> {
+    const rows = await this.database.withTenantTransaction(context, (tx) =>
+      tx.$queryRaw<Array<{ closed: boolean }>>`
+      SELECT (
+        b.status = 'CANCELLED' AND COALESCE(
+          (SELECT MAX(a.created_at) FROM audit_logs a
+            WHERE a.tenant_id = b.tenant_id AND a.target_type = 'booking'
+              AND a.target_id = b.id::text AND a.action = 'booking.cancelled'),
+          b.updated_at
+        ) < now() - make_interval(hours => ${REFUND_WINDOW_HOURS}::integer)
+      ) AS closed
+      FROM bookings b
+      WHERE b.id = ${bookingId}::uuid AND b.tenant_id = ${context.tenantId}::uuid
+    `,
+    );
+    return rows[0]?.closed === true;
   }
 
   async manualRefund(
