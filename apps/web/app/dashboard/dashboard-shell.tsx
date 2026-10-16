@@ -466,6 +466,8 @@ export function DashboardShell({
             tenantId={tenantId}
             propertyId={selectedProperty.id}
             bookingId={reservationId}
+            propertyName={selectedProperty.name}
+            bookingMode={selectedProperty.bookingMode}
           />
         ) : (
           <ReservationsPage tenantId={tenantId} propertyId={selectedProperty.id} />

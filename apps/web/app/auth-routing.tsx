@@ -1,6 +1,6 @@
 'use client';
 
-import { Text } from '@must/ui';
+import { Loader2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -112,8 +112,18 @@ export function AuthRouteGuard({
 
   if (!authorized) {
     return (
-      <main>
-        <Text>Checking your account access…</Text>
+      <main
+        role="status"
+        aria-live="polite"
+        style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', gap: 12, alignContent: 'center' }}
+      >
+        <style>{'@keyframes must-spin{to{transform:rotate(360deg)}}'}</style>
+        <Loader2
+          aria-hidden="true"
+          size={32}
+          style={{ animation: 'must-spin 0.9s linear infinite', opacity: 0.7 }}
+        />
+        <span style={{ fontSize: 14, opacity: 0.7 }}>Loading…</span>
       </main>
     );
   }

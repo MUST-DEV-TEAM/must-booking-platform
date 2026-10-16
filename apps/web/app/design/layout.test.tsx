@@ -20,7 +20,7 @@ describe('Design layout access', () => {
   it.each(['production', 'test'])('keeps the platform login check in %s', (env) => {
     vi.stubEnv('NODE_ENV', env);
     const markup = renderToStaticMarkup(<DesignLayout>child</DesignLayout>);
-    expect(markup).toContain('Checking your account access');
+    expect(markup).toContain('Loading…');
     expect(markup).not.toContain('Design preview');
   });
 });

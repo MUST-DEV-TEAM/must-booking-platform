@@ -1,9 +1,10 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Ban } from 'lucide-react';
-import { useState } from 'react';
+import { ArrowLeft, ArrowLeftRight, Ban, CreditCard, Pencil, Plug } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
 
+import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
@@ -11,7 +12,13 @@ import { DetailList } from '../../components/ui/detail-list';
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import { BookingStatusBadge, PaymentStatusBadge, SourceBadge } from '../../components/ui/status-badge';
 import { Timeline, type TimelineItem } from '../../components/ui/timeline';
-import { balanceDue, nightsBetween } from '../../lib/reservation-display';
+import {
+  balanceDue,
+  bookingStatusDisplay,
+  nightsBetween,
+  paymentDisplay,
+  sourceDisplay,
+} from '../../lib/reservation-display';
 
 type Detail = {
   id: string;
@@ -61,6 +68,7 @@ type LedgerEntry = {
   id: string;
   kind: 'CHARGE' | 'REFUND';
   provider: string;
+  externalPaymentId: string;
   status: string;
   amount: string;
   currency: string;
@@ -100,6 +108,11 @@ function activityDetail(details: Record<string, unknown>) {
   return parts.join(' · ');
 }
 
+// Hotels have no check-in / check-out times of their own yet (Milestone 24 gap); these standard
+// defaults are shown until they do.
+const CHECK_IN = '15:00';
+const CHECK_OUT = '11:00';
+
 const CANCELLED_LIKE = new Set(['CANCELLED', 'EXPIRED']);
 
 function href(tenantId: string, propertyId: string, extra: string) {
@@ -111,10 +124,14 @@ export function ReservationDetail({
   tenantId,
   propertyId,
   bookingId,
+  propertyName,
+  bookingMode,
 }: {
   tenantId: string;
   propertyId: string;
   bookingId: string;
+  propertyName?: string;
+  bookingMode?: string;
 }) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const queryClient = useQueryClient();
@@ -221,135 +238,236 @@ export function ReservationDetail({
     await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
   };
 
+  const hasClock = booking.clockFolios.length > 0 || !!booking.externalBookingId;
+  const firstCharge = ledger.data?.find((entry) => entry.kind === 'CHARGE');
+  const received = Number(booking.paidAmount) - Number(booking.refundedAmount);
+  const lastClock = booking.activity.find((event) => event.action.startsWith('booking.clock'));
+  const methodLabel = booking.paymentMethod.toLowerCase().replaceAll('_', ' ');
+  const methodTitle = methodLabel.charAt(0).toUpperCase() + methodLabel.slice(1);
+  const statusLabel = bookingStatusDisplay(booking.status).label;
+  const paymentLabel = paymentDisplay({
+    status: booking.status,
+    paymentMethod: booking.paymentMethod,
+    total: booking.total.amount,
+    paid: booking.paidAmount,
+    refunded: booking.refundedAmount,
+  }).label;
+  const modeLabel =
+    bookingMode === 'ROOM_TYPE_ONLY'
+      ? 'Room type only'
+      : bookingMode === 'ROOM_ASSIGNED'
+        ? 'Room assigned'
+        : bookingMode
+          ? bookingMode.toLowerCase().replaceAll('_', ' ')
+          : null;
+  const nights = nightsBetween(booking.startsOn, booking.endsOn);
+  const clock = (value: string) =>
+    new Date(value).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const sourceText = sourceDisplay(booking.source);
+
+  const field = (label: string, value: ReactNode) => (
+    <div className="space-y-1">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-sm font-semibold break-words">{value || '—'}</p>
+    </div>
+  );
+
   return (
-    <div className="space-y-6">
-      {back}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 space-y-2">
-          <h2 className="text-2xl font-extrabold tracking-tight">{booking.externalReference}</h2>
-          <p className="text-sm text-muted-foreground">
-            {guest} · created {dateTime(booking.createdAt)}
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <BookingStatusBadge status={booking.status} />
-            <PaymentStatusBadge
-              status={booking.status}
-              paymentMethod={booking.paymentMethod}
-              total={booking.total.amount}
-              paid={booking.paidAmount}
-              refunded={booking.refundedAmount}
-            />
-            <SourceBadge source={booking.source} />
+    <div className="space-y-4">
+      <Card>
+        <CardContent className="space-y-3 p-6">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="space-y-2">
+              <a
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary no-underline"
+                href={href(tenantId, propertyId, 'section=reservations')}
+              >
+                <ArrowLeft aria-hidden="true" className="size-3.5" /> Back to reservations
+              </a>
+              <p className="text-xs font-semibold text-muted-foreground">{booking.externalReference}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <BookingStatusBadge status={booking.status} />
+              <PaymentStatusBadge
+                status={booking.status}
+                paymentMethod={booking.paymentMethod}
+                total={booking.total.amount}
+                paid={booking.paidAmount}
+                refunded={booking.refundedAmount}
+              />
+              {hasClock ? (
+                <Badge variant="info" className="rounded-full px-2 py-0 text-[10px] font-semibold">
+                  Clock synced
+                </Badge>
+              ) : null}
+              <SourceBadge source={booking.source} />
+            </div>
           </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {booking.guestId ? (
-            <Button variant="outline" asChild>
-              <a href={href(tenantId, propertyId, `section=guests&guest=${booking.guestId}`)}>Open guest</a>
-            </Button>
-          ) : null}
-          <Button variant="outline" asChild>
-            <a href={href(tenantId, propertyId, `section=payments&payment=${booking.id}`)}>Open payment</a>
-          </Button>
-          {canCancel ? (
-            <Button variant="destructive" onClick={() => setCancelling(true)}>
-              <Ban aria-hidden="true" /> Cancel reservation
-            </Button>
-          ) : null}
-        </div>
-      </div>
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div className="space-y-1">
+              <h2 className="text-3xl font-extrabold tracking-tight">{guest}</h2>
+              <p className="text-sm text-muted-foreground">
+                {statusLabel} reservation
+                {sourceText ? ` · Created from ${sourceText.toLowerCase()}` : ''} · {dateTime(booking.createdAt)}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button disabled title="Editing a reservation is planned, not built yet">
+                <Pencil aria-hidden="true" /> Edit reservation
+              </Button>
+              {canCancel ? (
+                <Button variant="destructive" onClick={() => setCancelling(true)}>
+                  <Ban aria-hidden="true" /> Cancel reservation
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           {
-            label: 'Stay',
+            label: 'STAY',
             value: `${longDate(booking.startsOn)} – ${longDate(booking.endsOn)}`,
-            sub: `${nightsBetween(booking.startsOn, booking.endsOn)} nights`,
+            sub: `${nights} night${nights === 1 ? '' : 's'} · Check-in from ${CHECK_IN}`,
           },
           {
-            label: 'Room',
-            value: booking.roomName ?? 'Not assigned',
-            sub: booking.roomTypeName,
+            label: 'ACCOMMODATION',
+            value: propertyName ?? booking.roomTypeName,
+            sub: `${booking.roomTypeName} · ${booking.roomName ?? 'Room not assigned'}`,
           },
           {
-            label: 'Guests',
+            label: 'GUESTS',
             value: `${booking.adults} adult${booking.adults === 1 ? '' : 's'}${booking.children ? ` · ${booking.children} child${booking.children === 1 ? '' : 'ren'}` : ''}`,
-            sub: booking.ratePlanName,
+            sub: `Primary guest: ${guest}`,
           },
           {
-            label: 'Total',
+            label: 'TOTAL & PAYMENT',
             value: money(booking.total.amount, currency),
-            sub: due > 0 ? `${money(String(due), currency)} still due` : 'Nothing due',
+            sub: `${methodTitle} · ${paymentLabel}`,
           },
         ].map((tile) => (
           <Card key={tile.label}>
             <CardContent className="space-y-1 p-4">
-              <p className="text-xs font-semibold text-muted-foreground">{tile.label}</p>
-              <p className="text-base font-bold">{tile.value}</p>
+              <p className="text-[10px] font-bold tracking-wide text-muted-foreground">{tile.label}</p>
+              <p className="text-lg font-bold">{tile.value}</p>
               <p className="text-xs text-muted-foreground">{tile.sub}</p>
             </CardContent>
           </Card>
         ))}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Guest</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <DetailList
-              items={[
-                { label: 'Name', value: guest },
-                { label: 'Email', value: booking.guestEmail },
-                { label: 'Phone', value: booking.guestPhone },
-                { label: 'Address', value: address },
-              ]}
-            />
-            {booking.specialRequests ? (
-              <div className="mt-3 rounded-lg border p-3 text-sm">
-                <p className="mb-1 text-xs font-semibold text-muted-foreground">Special requests</p>
-                {booking.specialRequests}
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Reservation and stay</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Operational information used by staff, payments and provider synchronization.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="grid gap-x-8 gap-y-5 border-t pt-5 sm:grid-cols-2">
+                {field('Booking source', sourceText ?? 'Not recorded')}
+                {field('Booking mode', modeLabel)}
+                {field('Check-in', `${longDate(booking.startsOn)} · ${CHECK_IN}`)}
+                {field('Check-out', `${longDate(booking.endsOn)} · ${CHECK_OUT}`)}
+                {field('Room type', booking.roomTypeName)}
+                {field('Assigned unit', booking.roomName ?? 'Not assigned')}
+                {field(
+                  'Occupancy',
+                  `${booking.adults} adult${booking.adults === 1 ? '' : 's'} · ${booking.children} child${booking.children === 1 ? '' : 'ren'}`,
+                )}
+                {field('Rate plan', booking.ratePlanName)}
+                {field(
+                  'Cancellation policy',
+                  cancellation.isFree === null
+                    ? null
+                    : cancellation.isFree
+                      ? cancellation.cutoffAt
+                        ? `Free until ${dateTime(cancellation.cutoffAt)} · Non-refundable after`
+                        : 'Free cancellation'
+                      : 'Non-refundable',
+                )}
+                {field('Internal status', statusLabel)}
+                {field('Guest email', booking.guestEmail)}
+                {field('Guest phone', booking.guestPhone)}
+                {address ? field('Guest address', address) : null}
+                {field('Last updated', dateTime(booking.updatedAt))}
               </div>
-            ) : null}
-          </CardContent>
-        </Card>
+              {booking.specialRequests ? (
+                <div className="rounded-lg border p-3 text-sm">
+                  <p className="mb-1 text-xs font-semibold text-muted-foreground">Special requests</p>
+                  {booking.specialRequests}
+                </div>
+              ) : null}
+              <div className="flex flex-wrap gap-2 rounded-xl bg-primary/5 p-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled
+                  title="Moving a reservation to another room is planned, not built yet"
+                >
+                  <ArrowLeftRight aria-hidden="true" /> Move room
+                </Button>
+                <Button variant="ghost" size="sm" disabled title="Provider review is planned, not built yet">
+                  <Plug aria-hidden="true" /> Provider review
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {booking.nightlyRates && booking.nightlyRates.length > 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Nightly rates</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <DetailList
+                  items={[
+                    ...booking.nightlyRates.map((night) => ({
+                      label: longDate(night.date),
+                      value: money(night.amount, currency),
+                    })),
+                    { label: 'Total', value: money(booking.total.amount, currency) },
+                  ]}
+                />
+              </CardContent>
+            </Card>
+          ) : null}
+        </div>
 
         <Card>
           <CardHeader>
-            <CardTitle>Payment</CardTitle>
+            <CardTitle className="text-lg">Payment and provider</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <DetailList
-              items={[
-                { label: 'Total', value: money(booking.total.amount, currency) },
-                { label: 'Paid', value: money(booking.paidAmount, currency) },
-                Number(booking.refundedAmount) > 0
-                  ? { label: 'Refunded', value: money(booking.refundedAmount, currency) }
-                  : { label: 'Refunded', value: null },
-                { label: 'Balance due', value: money(String(due), currency) },
-                { label: 'Method', value: booking.paymentMethod.toLowerCase().replaceAll('_', ' ') },
-                {
-                  label: 'Cancellation',
-                  value:
-                    cancellation.isFree === null
-                      ? null
-                      : cancellation.isFree
-                        ? cancellation.cutoffAt
-                          ? `Free until ${dateTime(cancellation.cutoffAt)}`
-                          : 'Free cancellation'
-                        : 'Not refundable',
-                },
-              ]}
-            />
-            {ledger.data && ledger.data.length > 0 ? (
-              <div>
-                <p className="mb-1 text-xs font-semibold text-muted-foreground">Payments and refunds</p>
+          <CardContent className="space-y-5">
+            <section className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-bold tracking-wide text-muted-foreground">PAYMENT</p>
+                <PaymentStatusBadge
+                  status={booking.status}
+                  paymentMethod={booking.paymentMethod}
+                  total={booking.total.amount}
+                  paid={booking.paidAmount}
+                  refunded={booking.refundedAmount}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                {field(`${methodTitle} transaction`, firstCharge?.externalPaymentId ?? 'No online payment')}
+                {field('Amount received', money(String(received), currency))}
+                {field('Balance due', money(String(due), currency))}
+                {Number(booking.refundedAmount) > 0
+                  ? field('Refunded', money(booking.refundedAmount, currency))
+                  : null}
+              </div>
+              {ledger.data && ledger.data.length > 0 ? (
                 <ul className="divide-y rounded-lg border px-3 text-sm">
                   {ledger.data.map((entry) => (
                     <li key={entry.id} className="flex items-center justify-between gap-3 py-2">
                       <span>
-                        {entry.kind === 'REFUND' ? 'Refund' : 'Payment'} · {entry.provider.toLowerCase()} ·{' '}
+                        {entry.kind === 'REFUND' ? 'Refund' : 'Payment'} ·{' '}
                         <span className="text-muted-foreground">{dateTime(entry.createdAt)}</span>
                       </span>
                       <span className="font-medium">
@@ -359,55 +477,86 @@ export function ReservationDetail({
                     </li>
                   ))}
                 </ul>
-              </div>
+              ) : null}
+            </section>
+
+            {hasClock ? (
+              <section className="space-y-3 border-t pt-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-bold tracking-wide text-muted-foreground">CLOCK PMS</p>
+                  <Badge variant="info" className="rounded-full px-2 py-0 text-[10px] font-semibold">
+                    Synced
+                  </Badge>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  {field('Reservation ID', booking.externalBookingId)}
+                  {field('Last confirmation', lastClock ? dateTime(lastClock.createdAt) : null)}
+                </div>
+                {booking.clockFolios.length > 0 ? (
+                  <DetailList
+                    items={booking.clockFolios.map((folio) => ({
+                      label: `${folio.isDeposit ? 'Deposit folio' : 'Folio'} ${folio.id}`,
+                      value: `${folio.balance ?? '—'}${folio.closedAt ? ' · closed' : ''}`,
+                    }))}
+                  />
+                ) : null}
+              </section>
             ) : null}
-          </CardContent>
-        </Card>
 
-        {booking.nightlyRates && booking.nightlyRates.length > 0 ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Nightly rates</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <DetailList
-                items={booking.nightlyRates.map((night) => ({
-                  label: longDate(night.date),
-                  value: money(night.amount, currency),
-                }))}
-              />
-            </CardContent>
-          </Card>
-        ) : null}
+            <section className="space-y-3 border-t pt-4">
+              <p className="text-[10px] font-bold tracking-wide text-muted-foreground">LATEST ACTIVITY</p>
+              {booking.activity.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No activity has been recorded for this reservation.
+                </p>
+              ) : (
+                <ul className="list-none space-y-2">
+                  {booking.activity.slice(0, 8).map((event, index) => (
+                    <li
+                      key={`${event.action}-${event.createdAt}-${index}`}
+                      className="flex items-start gap-3 text-sm"
+                    >
+                      <span className="shrink-0 rounded-md border bg-card px-2 py-1 text-xs font-semibold">
+                        {clock(event.createdAt)}
+                      </span>
+                      <span className="pt-0.5">
+                        {activityLabel(event.action)}
+                        {activityDetail(event.details) ? (
+                          <span className="block text-xs text-muted-foreground">
+                            {activityDetail(event.details)}
+                          </span>
+                        ) : null}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
 
-        {booking.clockFolios.length > 0 || booking.externalBookingId ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Clock PMS</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <DetailList
-                items={[
-                  { label: 'Clock booking', value: booking.externalBookingId },
-                  ...booking.clockFolios.map((folio) => ({
-                    label: `${folio.isDeposit ? 'Deposit folio' : 'Folio'} ${folio.id}`,
-                    value: `${folio.balance ?? '—'}${folio.closedAt ? ' · closed' : ''}`,
-                  })),
-                ]}
-              />
-            </CardContent>
-          </Card>
-        ) : null}
-
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Activity</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Timeline items={timeline} empty="No activity has been recorded for this reservation." />
+            <div className="flex flex-wrap gap-2 rounded-xl bg-primary/5 p-2">
+              <Button variant="ghost" size="sm" asChild>
+                <a href={href(tenantId, propertyId, `section=payments&payment=${booking.id}`)}>
+                  <CreditCard aria-hidden="true" /> Open payment
+                </a>
+              </Button>
+              {booking.guestId ? (
+                <Button variant="outline" size="sm" asChild>
+                  <a href={href(tenantId, propertyId, `section=guests&guest=${booking.guestId}`)}>Open guest</a>
+                </Button>
+              ) : null}
+            </div>
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Full activity history</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Timeline items={timeline} empty="No activity has been recorded for this reservation." />
+        </CardContent>
+      </Card>
 
       <ConfirmDialog
         open={cancelling}
