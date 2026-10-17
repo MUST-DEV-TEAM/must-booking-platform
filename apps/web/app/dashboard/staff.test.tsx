@@ -1,155 +1,251 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
-import { describe, expect, it, vi, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('sonner', () => ({ toast }));
+
 import { DashboardStaff } from './staff';
 import { DashboardQueryProvider } from './query-provider';
+
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
 const base = '/api/tenants/t';
 const staff = [
-  { userId: 'u', email: 'staff@test', roleTemplateId: 'a', roleTemplateName: 'A', overrides: [] },
+  {
+    userId: 'u',
+    email: 'staff@test',
+    roleTemplateId: 'a',
+    roleTemplateName: 'Front Desk',
+    overrides: [],
+  },
 ];
 const templates = [
-  { id: 'a', name: 'A', capabilities: [{ key: 'payments.refund' }] },
-  { id: 'b', name: 'B', capabilities: [{ key: 'payments.refund' }] },
+  {
+    id: 'a',
+    name: 'Front Desk',
+    kind: 'BUILT_IN',
+    capabilities: [{ key: 'payments.refund', description: 'Refund payments' }],
+  },
+  {
+    id: 'b',
+    name: 'Finance',
+    kind: 'BUILT_IN',
+    capabilities: [{ key: 'payments.refund', description: 'Refund payments' }],
+  },
 ];
-afterEach(() => vi.unstubAllGlobals());
-describe('Staff', () => {
-  it('invites with selected template, assigns roles, and writes all override states', async () => {
-    const fetch = mock({ staffSeats: 1, maxStaffSeats: 2 });
-    const { c, r } = await mount(fetch);
-    await value(c.querySelector('input')!, 'x@test');
-    await value(c.querySelector('[aria-label="Invite role template"]')!, 'b');
-    await click(c, 'Invite staff');
-    expect(
-      JSON.parse(fetch.mock.calls.find((x) => String(x[0]).endsWith('staff-invitations'))![1].body)
-        .assignments[0].roleTemplateId,
-    ).toBe('b');
-    await value(c.querySelectorAll('select')[1], 'b');
-    expect(fetch).toHaveBeenCalledWith(
-      `${base}/properties/p/staff/u`,
-      expect.objectContaining({ method: 'PUT' }),
-    );
-    const o = c.querySelector('[aria-label="staff@test payments.refund"]')!;
-    await value(o, 'grant');
-    await value(o, 'revoke');
-    await value(o, 'default');
-    const calls = fetch.mock.calls.filter((x) =>
-      String(x[0]).includes('/capabilities/payments.refund'),
-    );
-    expect(calls.map((x) => x[1].method)).toEqual(['PUT', 'PUT', 'DELETE']);
-    expect(JSON.parse(calls[0][1].body)).toEqual({ granted: true });
-    expect(JSON.parse(calls[1][1].body)).toEqual({ granted: false });
-    expect(toast.success).toHaveBeenCalledWith('Capability override updated.');
-    await act(async () => r.unmount());
+const pointerMethods = ['setPointerCapture', 'releasePointerCapture', 'hasPointerCapture'] as const;
+const originalPointerMethods = new Map(
+  pointerMethods.map((method) => [
+    method,
+    Object.getOwnPropertyDescriptor(HTMLElement.prototype, method),
+  ]),
+);
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  'scrollIntoView',
+);
+
+beforeEach(() => {
+  toast.success.mockClear();
+  toast.error.mockClear();
+  window.history.replaceState(null, '', '/');
+  Object.defineProperty(HTMLElement.prototype, 'setPointerCapture', {
+    configurable: true,
+    value: () => undefined,
   });
-  it('creates a role template with a capability subset and assigning it takes effect exactly', async () => {
-    let currentStaff = [
-      {
-        userId: 'u',
-        email: 'staff@test',
-        roleTemplateId: 'a',
-        roleTemplateName: 'A',
-        overrides: [],
-      },
-    ];
-    let currentTemplates = [
-      { id: 'a', name: 'A', capabilities: [{ key: 'payments.refund' }] },
-      {
-        id: 'pm',
-        name: 'Property Manager',
-        capabilities: [
-          { key: 'guests.manage' },
-          { key: 'reports.view' },
-          { key: 'bookings.manage' },
-        ],
-      },
-    ];
+  Object.defineProperty(HTMLElement.prototype, 'releasePointerCapture', {
+    configurable: true,
+    value: () => undefined,
+  });
+  Object.defineProperty(HTMLElement.prototype, 'hasPointerCapture', {
+    configurable: true,
+    value: () => false,
+  });
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    configurable: true,
+    value: () => undefined,
+  });
+});
+
+afterEach(() => {
+  document.body.innerHTML = '';
+  vi.unstubAllGlobals();
+  for (const method of pointerMethods) {
+    const descriptor = originalPointerMethods.get(method);
+    if (descriptor) Object.defineProperty(HTMLElement.prototype, method, descriptor);
+    else Reflect.deleteProperty(HTMLElement.prototype, method);
+  }
+  if (originalScrollIntoView) {
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScrollIntoView);
+  } else {
+    Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+  }
+});
+
+describe('Staff', () => {
+  it('invites with the selected role template through the existing endpoint', async () => {
+    const fetch = mock({ staffSeats: 1, maxStaffSeats: 2 });
+    const { root } = await mount();
+
+    await clickButton('Invite staff');
+    const email = document.body.querySelector<HTMLInputElement>('#staff-invite-email')!;
+    await setValue(email, 'new@test');
+    await openSelect('Invite role template');
+    await chooseOption('Finance');
+    await clickButton('Send invitation');
+
+    const request = fetch.mock.calls.find((call) => String(call[0]).endsWith('staff-invitations'))!;
+    expect(request[1]).toEqual(expect.objectContaining({ method: 'POST', credentials: 'include' }));
+    expect(JSON.parse(request[1]?.body as string)).toEqual({
+      email: 'new@test',
+      assignments: [{ propertyId: 'p', roleTemplateId: 'b' }],
+    });
+    expect(toast.success).toHaveBeenCalledWith('Invitation sent.');
+    await unmount(root);
+  });
+
+  it('shows the shared table controls, row quick peek, selection and hidden role editor', async () => {
+    mock({ staffSeats: 1, maxStaffSeats: 2 });
+    const { container, root } = await mount();
+
+    expect(container.querySelector('[aria-label="Select all staff on this page"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Columns"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Compact rows"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Search staff"]')).not.toBeNull();
+    expect(container.textContent).not.toContain('Create role template');
+    expect(container.textContent).toContain('Export CSV');
+    expect((buttonWithText('Export CSV') as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[aria-label="Select staff@test"]')!.click();
+      await settle();
+    });
+    expect(container.textContent).toContain('1 staff selected');
+    expect(container.textContent).toContain('Copy emails');
+
+    await act(async () => {
+      container.querySelector<HTMLTableRowElement>('tbody tr')!.click();
+      await settle();
+    });
+    expect(document.body.textContent).toContain('Staff access for the selected hotel');
+    expect(document.body.querySelector('a[href*="staffUser=u"]')?.textContent).toContain(
+      'Open staff details',
+    );
+    await unmount(root);
+  });
+
+  it('assigns a role and writes grant, revoke and default overrides on the detail page', async () => {
+    window.history.replaceState(null, '', '/dashboard/t?propertyId=p&section=staff&staffUser=u');
+    let currentStaff = [...staff];
     const fetch = vi.fn((url: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET';
       const href = String(url);
-      if (method === 'POST' && href.endsWith('/role-templates')) {
-        const body = JSON.parse(init!.body as string) as { name: string; capabilityKeys: string[] };
-        currentTemplates = [
-          ...currentTemplates,
-          {
-            id: 'custom',
-            name: body.name,
-            capabilities: body.capabilityKeys.map((key) => ({ key })),
-          },
-        ];
-        return Promise.resolve(new Response(JSON.stringify({ ok: true })));
-      }
       if (method === 'PUT' && href.endsWith('/staff/u')) {
         const body = JSON.parse(init!.body as string) as { roleTemplateId: string };
-        currentStaff = [{ ...currentStaff[0], roleTemplateId: body.roleTemplateId }];
-        return Promise.resolve(new Response(JSON.stringify({ ok: true })));
+        currentStaff = [
+          { ...currentStaff[0]!, roleTemplateId: body.roleTemplateId, roleTemplateName: 'Finance' },
+        ];
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      if (href.includes('/capabilities/payments.refund')) {
+        if (method === 'DELETE') {
+          currentStaff = [
+            {
+              ...currentStaff[0]!,
+              overrides: currentStaff[0]!.overrides.filter(
+                (override) => override.capabilityKey !== 'payments.refund',
+              ),
+            },
+          ];
+        } else {
+          const body = JSON.parse(init!.body as string) as { granted: boolean };
+          currentStaff = [
+            {
+              ...currentStaff[0]!,
+              overrides: [{ capabilityKey: 'payments.refund', granted: body.granted }],
+            },
+          ];
+        }
+        return Promise.resolve(new Response(null, { status: 204 }));
       }
       if (href.endsWith('/staff'))
         return Promise.resolve(new Response(JSON.stringify(currentStaff)));
       if (href.endsWith('/role-templates'))
-        return Promise.resolve(new Response(JSON.stringify(currentTemplates)));
+        return Promise.resolve(new Response(JSON.stringify(templates)));
       if (href.endsWith('/plan-usage'))
         return Promise.resolve(
           new Response(JSON.stringify({ plan: { maxStaffSeats: 2 }, usage: { staffSeats: 1 } })),
         );
-      return Promise.resolve(new Response(JSON.stringify({ ok: true })));
+      return Promise.resolve(new Response(null, { status: 204 }));
     });
     vi.stubGlobal('fetch', fetch);
-    const { c, r } = await mount(fetch as never);
+    const { root } = await mount();
 
-    await value(c.querySelector('[placeholder="Template name"]')!, 'Finance');
-    const checkboxes = Array.from(c.querySelectorAll('input[type="checkbox"]'));
-    expect(checkboxes).toHaveLength(3);
-    await act(async () => {
-      checkboxes[0].click();
-      await Promise.resolve();
-    });
-    await act(async () => {
-      checkboxes[1].click();
-      await Promise.resolve();
-    });
-    await click(c, 'Create template');
-    expect(currentTemplates.find((t) => t.id === 'custom')).toEqual({
-      id: 'custom',
-      name: 'Finance',
-      capabilities: [{ key: 'guests.manage' }, { key: 'reports.view' }],
-    });
+    await openSelect('Role for staff@test');
+    await chooseOption('Finance');
+    expect(currentStaff[0]?.roleTemplateId).toBe('b');
+    expect(fetch).toHaveBeenCalledWith(
+      `${base}/properties/p/staff/u`,
+      expect.objectContaining({ method: 'PUT', credentials: 'include' }),
+    );
 
-    const assignSelect = c.querySelectorAll('select')[1] as HTMLSelectElement;
-    await value(assignSelect, 'custom');
-    expect(currentStaff[0].roleTemplateId).toBe('custom');
+    await clickTab('Access overrides');
+    const override = document.body.querySelector<HTMLElement>(
+      '[aria-label="staff@test payments.refund"]',
+    )!;
+    await openSelect('staff@test payments.refund');
+    await chooseOption('Explicitly granted');
+    await openSelect('staff@test payments.refund');
+    await chooseOption('Explicitly revoked');
+    await openSelect('staff@test payments.refund');
+    await chooseOption('Template default');
 
-    expect(c.querySelector('[aria-label="staff@test guests.manage"]')).not.toBeNull();
-    expect(c.querySelector('[aria-label="staff@test reports.view"]')).not.toBeNull();
-    expect(c.querySelector('[aria-label="staff@test bookings.manage"]')).toBeNull();
-    expect(c.querySelector('[aria-label="staff@test payments.refund"]')).toBeNull();
-
-    await act(async () => r.unmount());
+    const calls = fetch.mock.calls.filter((call) =>
+      String(call[0]).includes('/capabilities/payments.refund'),
+    );
+    expect(calls.map((call) => call[1]?.method)).toEqual(['PUT', 'PUT', 'DELETE']);
+    expect(JSON.parse(calls[0]?.[1]?.body as string)).toEqual({ granted: true });
+    expect(JSON.parse(calls[1]?.[1]?.body as string)).toEqual({ granted: false });
+    expect(override).toBeTruthy();
+    expect(toast.success).toHaveBeenCalledWith('Capability override updated.');
+    await unmount(root);
   });
-  it('disables invite at cap', async () => {
-    const { c, r } = await mount(mock({ staffSeats: 2, maxStaffSeats: 2 }));
-    expect(
-      Array.from(c.querySelectorAll('button')).find((x) => x.textContent === 'Invite staff')!
-        .disabled,
-    ).toBe(true);
-    expect(c.textContent).toContain('Upgrade to unlock more staff seats.');
-    await act(async () => r.unmount());
-  });
-  it('shows a retryable error when staff data cannot be loaded', async () => {
-    const fetch = vi.fn(() => Promise.resolve(new Response('Forbidden', { status: 403 })));
-    vi.stubGlobal('fetch', fetch);
-    const { c, r } = await mount(fetch as never);
 
-    expect(c.textContent).toContain('Unable to load staff management data.');
-    expect(c.textContent).toContain('Retry');
-    await act(async () => r.unmount());
+  it('opens a suspend dialog that explains the missing operation and cannot submit', async () => {
+    const fetch = mock({ staffSeats: 1, maxStaffSeats: 2 });
+    const { container, root } = await mount();
+    await act(async () => {
+      container.querySelector<HTMLTableRowElement>('tbody tr')!.click();
+      await settle();
+    });
+    await clickButton('Suspend access');
+
+    const dialog = document.body.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.textContent).toContain('cannot suspend accounts or revoke sessions');
+    expect(buttonWithText('Suspension unavailable')?.hasAttribute('disabled')).toBe(true);
+    expect(fetch.mock.calls.some((call) => String(call[0]).includes('/suspend'))).toBe(false);
+    await unmount(root);
+  });
+
+  it('disables invitation at the seat cap and shows a retryable load error', async () => {
+    const { container, root } = await mount(mock({ staffSeats: 2, maxStaffSeats: 2 }));
+    expect((buttonWithText('Invite staff') as HTMLButtonElement).disabled).toBe(true);
+    expect(container.textContent).toContain('staff-seat limit has been reached');
+    await unmount(root);
+
+    const failedFetch = vi.fn(() => Promise.resolve(new Response('Forbidden', { status: 403 })));
+    vi.stubGlobal('fetch', failedFetch);
+    const failed = await mount();
+    expect(failed.container.textContent).toContain('Staff could not be loaded');
+    expect(failed.container.textContent).toContain('Try again');
+    await unmount(failed.root);
   });
 });
-function mock(u: { staffSeats: number; maxStaffSeats: number }) {
-  const f = vi.fn((url: string) =>
+
+function mock(usage: { staffSeats: number; maxStaffSeats: number }) {
+  const fetch = vi.fn((url: string) =>
     Promise.resolve(
       new Response(
         JSON.stringify(
@@ -158,21 +254,25 @@ function mock(u: { staffSeats: number; maxStaffSeats: number }) {
             : url.endsWith('/role-templates')
               ? templates
               : url.endsWith('/plan-usage')
-                ? { plan: { maxStaffSeats: u.maxStaffSeats }, usage: { staffSeats: u.staffSeats } }
+                ? {
+                    plan: { maxStaffSeats: usage.maxStaffSeats },
+                    usage: { staffSeats: usage.staffSeats },
+                  }
                 : { ok: true },
         ),
       ),
     ),
   );
-  vi.stubGlobal('fetch', f);
-  return f;
+  vi.stubGlobal('fetch', fetch);
+  return fetch;
 }
-async function mount(f?: ReturnType<typeof mock>) {
-  if (!f) mock({ staffSeats: 1, maxStaffSeats: 2 });
-  const c = document.createElement('div');
-  const r = createRoot(c);
+
+async function mount() {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
   await act(async () => {
-    r.render(
+    root.render(
       createElement(
         DashboardQueryProvider,
         undefined,
@@ -180,32 +280,74 @@ async function mount(f?: ReturnType<typeof mock>) {
       ),
     );
   });
-  await act(async () => {
-    for (let iteration = 0; iteration < 4; iteration += 1) {
-      await new Promise((resolve) => window.setTimeout(resolve, 20));
-      await Promise.resolve();
-    }
-  });
-  return { c, r };
+  await act(async () => settle());
+  return { container, root };
 }
-async function value(e: HTMLInputElement | HTMLSelectElement, v: string) {
+
+async function unmount(root: ReturnType<typeof createRoot>) {
+  await act(async () => root.unmount());
+}
+
+async function settle() {
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    await Promise.resolve();
+  }
+}
+
+function buttonWithText(text: string) {
+  return Array.from(document.body.querySelectorAll<HTMLButtonElement>('button')).find(
+    (button) => button.textContent?.trim() === text,
+  );
+}
+
+async function clickButton(text: string) {
   await act(async () => {
-    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(e), 'value')!.set!.call(e, v);
-    e.dispatchEvent(new Event('change', { bubbles: true }));
-    for (let iteration = 0; iteration < 4; iteration += 1) {
-      await new Promise((resolve) => window.setTimeout(resolve, 20));
-      await Promise.resolve();
-    }
+    buttonWithText(text)!.click();
+    await settle();
   });
 }
-async function click(c: HTMLElement, t: string) {
+
+async function setValue(input: HTMLInputElement, value: string) {
   await act(async () => {
-    Array.from(c.querySelectorAll('button'))
-      .find((x) => x.textContent === t)!
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!.set!.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    await settle();
+  });
+}
+
+async function openSelect(label: string) {
+  await act(async () => {
+    const trigger = document.body.querySelector<HTMLElement>(`[aria-label="${label}"]`)!;
+    trigger.focus();
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    await settle();
+  });
+}
+
+async function chooseOption(text: string) {
+  await act(async () => {
+    const option = Array.from(document.body.querySelectorAll<HTMLElement>('[role="option"]')).find(
+      (candidate) => candidate.textContent?.trim() === text,
+    );
+    if (!option) throw new Error(`Option ${text} was not found.`);
+    option.dispatchEvent(
+      new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }),
+    );
+    option.dispatchEvent(
+      new MouseEvent('pointerup', { bubbles: true, cancelable: true, button: 0 }),
+    );
+    option.click();
+    await settle();
+  });
+}
+
+async function clickTab(text: string) {
+  await act(async () => {
+    Array.from(document.body.querySelectorAll<HTMLElement>('[role="tab"]'))
+      .find((tab) => tab.textContent?.includes(text))!
       .click();
-    for (let iteration = 0; iteration < 4; iteration += 1) {
-      await new Promise((resolve) => window.setTimeout(resolve, 20));
-      await Promise.resolve();
-    }
+    await settle();
   });
 }

@@ -1,0 +1,31 @@
+export type StaffTemplate = {
+  id: string;
+  name: string;
+  kind?: 'BUILT_IN' | 'CUSTOM';
+  capabilities: Array<{ key: string; description?: string | null }>;
+};
+
+export type StaffMember = {
+  userId: string;
+  email: string;
+  roleTemplateId: string;
+  roleTemplateName: string;
+  overrides: Array<{ capabilityKey: string; granted: boolean }>;
+};
+
+export type StaffStats = {
+  baseCapabilities: number;
+  overrides: number;
+  grantedOverrides: number;
+  revokedOverrides: number;
+};
+
+/** Figures shown for a staff account, derived from its existing role and override data. */
+export function staffStats(member: StaffMember, template?: StaffTemplate): StaffStats {
+  return {
+    baseCapabilities: template?.capabilities.length ?? 0,
+    overrides: member.overrides.length,
+    grantedOverrides: member.overrides.filter((override) => override.granted).length,
+    revokedOverrides: member.overrides.filter((override) => !override.granted).length,
+  };
+}
