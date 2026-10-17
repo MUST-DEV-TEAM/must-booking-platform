@@ -19,7 +19,9 @@ describe('staffStats', () => {
       id: 'role-1',
       name: 'Front Desk',
       kind: 'BUILT_IN',
+      description: null,
       capabilities: ['guests.manage', 'bookings.manage'],
+      memberCount: 3,
     };
 
     expect(staffStats(member, template)).toEqual({

@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback } from '../../components/ui/avatar';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Checkbox } from '../../components/ui/checkbox';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import {
   Dialog,
@@ -109,6 +110,7 @@ function formatLastActive(value: string | null): string {
 export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; propertyId: string }) {
   const base = `/api/tenants/${tenantId}`;
   const [search, setSearch] = useState('');
+  const [screen, setScreen] = useState<'staff' | 'roles'>('staff');
   const [view, setView] = useState<StaffView>('all');
   const [sort, setSort] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>({
     key: 'member',
@@ -186,6 +188,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
     setSelectedId(null);
     setTicked([]);
     setPage(1);
+    setScreen('staff');
     setView('all');
   }, [tenantId, propertyId]);
 
@@ -386,6 +389,29 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
     );
   }
 
+  if (screen === 'roles')
+    return (
+      <div className="space-y-5">
+        <TabBar
+          tabs={[
+            { id: 'staff', label: 'Staff', count: staff.length },
+            { id: 'roles', label: 'Roles', count: templates.length },
+          ]}
+          current={screen}
+          onSelect={(value) => setScreen(value as 'staff' | 'roles')}
+          label="Staff sections"
+        />
+        <RoleManagement
+          tenantId={tenantId}
+          propertyId={propertyId}
+          templates={templates}
+          catalog={catalog}
+          myCapabilities={myCapabilities}
+          onChanged={load}
+        />
+      </div>
+    );
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -409,6 +435,16 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
             </Button>
           </>
         }
+      />
+
+      <TabBar
+        tabs={[
+          { id: 'staff', label: 'Staff', count: staff.length },
+          { id: 'roles', label: 'Roles', count: templates.length },
+        ]}
+        current={screen}
+        onSelect={(value) => setScreen(value as 'staff' | 'roles')}
+        label="Staff sections"
       />
 
       {capped ? (
@@ -1109,6 +1145,263 @@ function AddStaffDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+function permissionDisabledReasons(catalog: PermissionCatalogItem[], myCapabilities: string[]) {
+  return Object.fromEntries(
+    catalog
+      .filter((permission) => !myCapabilities.includes(permission.key))
+      .map((permission) => [permission.key, 'You do not have this permission.']),
+  );
+}
+
+function RoleManagement({
+  tenantId,
+  propertyId,
+  templates,
+  catalog,
+  myCapabilities,
+  onChanged,
+}: {
+  tenantId: string;
+  propertyId: string;
+  templates: StaffTemplate[];
+  catalog: PermissionCatalogItem[];
+  myCapabilities: string[];
+  onChanged: () => void;
+}) {
+  const base = `/api/tenants/${tenantId}/properties/${propertyId}/role-templates`;
+  const [dialog, setDialog] = useState<
+    { mode: 'create'; copyFromId?: string } | { mode: 'edit'; role: StaffTemplate } | null
+  >(null);
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [capabilities, setCapabilities] = useState<string[]>([]);
+  const disabledReasons = permissionDisabledReasons(catalog, myCapabilities);
+  const lockedKeys = capabilities.filter((key) => !myCapabilities.includes(key));
+
+  const reset = () => {
+    setDialog(null);
+    setName('');
+    setDescription('');
+    setCapabilities([]);
+    saveMutation.reset();
+  };
+  const beginCreate = () => {
+    saveMutation.reset();
+    setName('');
+    setDescription('');
+    setCapabilities([]);
+    setDialog({ mode: 'create' });
+  };
+  const beginCopy = (role: StaffTemplate) => {
+    saveMutation.reset();
+    setName(`${role.name} copy`);
+    setDescription(role.description ?? '');
+    setCapabilities(role.capabilities.filter((key) => myCapabilities.includes(key)));
+    setDialog({ mode: 'create', copyFromId: role.id });
+  };
+  const beginEdit = (role: StaffTemplate) => {
+    saveMutation.reset();
+    setName(role.name);
+    setDescription(role.description ?? '');
+    setCapabilities(role.capabilities);
+    setDialog({ mode: 'edit', role });
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (!dialog) throw new Error('Choose a role to save.');
+      const body = {
+        name: name.trim(),
+        ...(description.trim() ? { description: description.trim() } : {}),
+        capabilities,
+        ...(dialog.mode === 'create' && dialog.copyFromId ? { copyFromId: dialog.copyFromId } : {}),
+      };
+      const response = await fetch(dialog.mode === 'edit' ? `${base}/${dialog.role.id}` : base, {
+        method: dialog.mode === 'edit' ? 'PUT' : 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) throw await contractError(response, 'Could not save the role.');
+    },
+    onSuccess: () => {
+      reset();
+      onChanged();
+      toast.success(dialog?.mode === 'edit' ? 'Role updated.' : 'Custom role created.');
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: async (roleId: string) => {
+      const response = await fetch(`${base}/${roleId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!response.ok) throw await contractError(response, 'Could not delete the role.');
+    },
+    onSuccess: () => {
+      onChanged();
+      toast.success('Custom role deleted.');
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  return (
+    <div className="space-y-4">
+      <PageHeader
+        title="Roles"
+        description="Roles belong to this hotel. Built-in roles stay locked; copy one to customize it."
+        actions={<Button onClick={beginCreate}>New custom role</Button>}
+      />
+      {deleteMutation.isError ? (
+        <p role="alert" className="m-0 text-sm text-destructive">
+          {deleteMutation.error.message}
+        </p>
+      ) : null}
+      {templates.length === 0 ? (
+        <div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
+          No roles are available for this hotel.
+        </div>
+      ) : (
+        <div className="grid gap-3 lg:grid-cols-2">
+          {templates.map((role) => {
+            const builtIn = role.kind === 'BUILT_IN';
+            const blocked = role.memberCount > 0;
+            return (
+              <Card key={role.id}>
+                <CardHeader className="flex-row items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <CardTitle className="text-base">{role.name}</CardTitle>
+                    {role.description ? (
+                      <p className="m-0 text-sm text-muted-foreground">{role.description}</p>
+                    ) : null}
+                  </div>
+                  <Badge variant={builtIn ? 'secondary' : 'info'}>
+                    {builtIn ? 'Built-in' : 'Custom'}
+                  </Badge>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    <span>{role.memberCount} staff members</span>
+                    <span aria-hidden="true">·</span>
+                    <span>{role.capabilities.length} permissions</span>
+                  </div>
+                  {blocked && !builtIn ? (
+                    <p className="m-0 text-xs text-warning">
+                      Cannot delete while {role.memberCount} staff member
+                      {role.memberCount === 1 ? '' : 's'} use this role.
+                    </p>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    {builtIn ? (
+                      <Button size="sm" variant="outline" onClick={() => beginCopy(role)}>
+                        Copy as custom role
+                      </Button>
+                    ) : (
+                      <>
+                        <Button size="sm" variant="outline" onClick={() => beginEdit(role)}>
+                          Edit role
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          disabled={blocked || deleteMutation.isPending}
+                          title={
+                            blocked
+                              ? `Cannot delete: ${role.memberCount} staff members use this role.`
+                              : undefined
+                          }
+                          onClick={() => deleteMutation.mutate(role.id)}
+                        >
+                          Delete role
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      <Dialog open={dialog !== null} onOpenChange={(open) => !open && reset()}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>
+              {dialog?.mode === 'edit'
+                ? 'Edit custom role'
+                : dialog?.copyFromId
+                  ? 'Copy as custom role'
+                  : 'Create custom role'}
+            </DialogTitle>
+            <DialogDescription>
+              Choose a name and the permissions this role grants.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <FormField label="Role name" htmlFor="staff-role-name" required>
+              <Input
+                id="staff-role-name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </FormField>
+            <FormField label="Description" htmlFor="staff-role-description">
+              <Input
+                id="staff-role-description"
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            </FormField>
+            <PermissionMatrix
+              catalog={catalog}
+              selectedKeys={capabilities}
+              onChange={setCapabilities}
+              disabledReasons={disabledReasons}
+              ariaLabel="Role permissions"
+            />
+            {lockedKeys.length ? (
+              <p role="alert" className="m-0 text-sm text-warning">
+                This role includes permissions you do not have. You cannot save it until those
+                permissions are removed or assigned to you.
+              </p>
+            ) : null}
+            {saveMutation.isError ? (
+              <p role="alert" className="m-0 text-sm text-destructive">
+                {saveMutation.error.message}
+              </p>
+            ) : null}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={reset}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                loading={saveMutation.isPending}
+                disabled={!name.trim() || lockedKeys.length > 0}
+                onClick={() => saveMutation.mutate()}
+              >
+                Save role
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+async function contractError(response: Response, fallback: string): Promise<Error> {
+  try {
+    const body = (await response.json()) as { message?: unknown };
+    if (typeof body.message === 'string' && body.message) return new Error(body.message);
+  } catch {
+    // Use the generic operation message when the server returns no JSON body.
+  }
+  return new Error(fallback);
 }
 
 function SuspendStaffDialog({

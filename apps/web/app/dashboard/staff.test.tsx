@@ -44,6 +44,14 @@ const templates = [
     description: null,
     memberCount: 0,
   },
+  {
+    id: 'c',
+    name: 'Weekend desk',
+    kind: 'CUSTOM',
+    capabilities: ['bookings.view'],
+    description: 'Limited booking access.',
+    memberCount: 2,
+  },
 ];
 const catalog = [
   {
@@ -179,6 +187,110 @@ describe('Staff', () => {
     expect(clipboard.writeText.mock.calls[0]?.[0] === password).toBe(true);
     expect(buttonWithText('Copy password once')).toBeUndefined();
     expect(document.body.textContent).not.toContain(password);
+    await unmount(root);
+  });
+
+  it('copies built-in roles, edits custom roles, and blocks deletion while members remain', async () => {
+    let roleRows = [...templates];
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      const href = String(url);
+      const method = init?.method ?? 'GET';
+      if (href.endsWith('/role-templates') && method === 'GET')
+        return Promise.resolve(new Response(JSON.stringify(roleRows)));
+      if (href.endsWith('/role-templates') && method === 'POST') {
+        const body = JSON.parse(init?.body as string) as {
+          name: string;
+          description?: string;
+          capabilities: string[];
+          copyFromId?: string;
+        };
+        roleRows = [
+          ...roleRows,
+          {
+            id: 'custom-1',
+            name: body.name,
+            kind: 'CUSTOM',
+            description: body.description ?? null,
+            capabilities: body.capabilities,
+            memberCount: 0,
+          },
+        ];
+        return Promise.resolve(new Response(JSON.stringify(roleRows.at(-1)), { status: 201 }));
+      }
+      if (href.endsWith('/role-templates/custom-1') && method === 'PUT') {
+        const body = JSON.parse(init?.body as string) as {
+          name: string;
+          description?: string;
+          capabilities: string[];
+        };
+        roleRows = roleRows.map((role) =>
+          role.id === 'custom-1'
+            ? { ...role, ...body, description: body.description ?? null }
+            : role,
+        );
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      if (href.endsWith('/role-templates/custom-1') && method === 'DELETE') {
+        roleRows = roleRows.filter((role) => role.id !== 'custom-1');
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      return responseFor(href);
+    });
+    vi.stubGlobal('fetch', fetch);
+    const { root } = await mount();
+
+    await clickTab('Roles');
+    expect(document.body.textContent).toContain('2 staff members');
+    const lockedRole = cardWithTitle('Front Desk');
+    expect(buttonInCard(lockedRole, 'Edit role')).toBeUndefined();
+    expect(buttonInCard(lockedRole, 'Copy as custom role')).toBeDefined();
+    expect(buttonInCard(cardWithTitle('Weekend desk'), 'Delete role')?.disabled).toBe(true);
+    expect(cardWithTitle('Weekend desk').textContent).toContain(
+      'Cannot delete while 2 staff members use this role.',
+    );
+
+    await clickButton('Copy as custom role');
+    await setValue(
+      document.body.querySelector<HTMLInputElement>('#staff-role-name')!,
+      'Front Desk custom',
+    );
+    await clickButton('Save role');
+    const createCall = fetch.mock.calls.find(
+      (call) => String(call[0]).endsWith('/role-templates') && call[1]?.method === 'POST',
+    );
+    const createBody = JSON.parse(createCall?.[1]?.body as string) as {
+      name: string;
+      capabilities: string[];
+      copyFromId?: string;
+    };
+    expect(createBody.name === 'Front Desk custom' && createBody.copyFromId === 'a').toBe(true);
+    expect(createBody.capabilities.includes('payments.refund')).toBe(true);
+
+    await openButtonInCard(cardWithTitle('Front Desk custom'), 'Edit role');
+    await setValue(
+      document.body.querySelector<HTMLInputElement>('#staff-role-name')!,
+      'Desk custom',
+    );
+    await clickButton('Save role');
+    const updateCall = fetch.mock.calls.find(
+      (call) => String(call[0]).endsWith('/role-templates/custom-1') && call[1]?.method === 'PUT',
+    );
+    const updateBody = JSON.parse(updateCall?.[1]?.body as string) as { name: string };
+    expect(updateCall).toBeDefined();
+    expect(updateBody.name === 'Desk custom').toBe(true);
+
+    await openButtonInCard(cardWithTitle('Desk custom'), 'Delete role');
+    expect(
+      fetch.mock.calls.some(
+        (call) => String(call[0]).endsWith('/role-templates/c') && call[1]?.method === 'DELETE',
+      ),
+    ).toBe(false);
+    expect(
+      fetch.mock.calls.some(
+        (call) =>
+          String(call[0]).endsWith('/role-templates/custom-1') && call[1]?.method === 'DELETE',
+      ),
+    ).toBe(true);
     await unmount(root);
   });
 
@@ -438,6 +550,25 @@ async function clickTab(text: string) {
     Array.from(document.body.querySelectorAll<HTMLElement>('[role="tab"]'))
       .find((tab) => tab.textContent?.includes(text))!
       .click();
+    await settle();
+  });
+}
+
+function cardWithTitle(text: string) {
+  return Array.from(document.body.querySelectorAll<HTMLElement>('[data-slot="card"]')).find(
+    (card) => card.textContent?.includes(text),
+  )!;
+}
+
+function buttonInCard(card: HTMLElement, text: string) {
+  return Array.from(card.querySelectorAll<HTMLButtonElement>('button')).find(
+    (button) => button.textContent?.trim() === text,
+  );
+}
+
+async function openButtonInCard(card: HTMLElement, text: string) {
+  await act(async () => {
+    buttonInCard(card, text)?.click();
     await settle();
   });
 }

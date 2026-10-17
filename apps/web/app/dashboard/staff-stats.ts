@@ -1,10 +1,10 @@
 export type StaffTemplate = {
   id: string;
   name: string;
-  kind?: 'BUILT_IN' | 'CUSTOM';
-  description?: string | null;
+  kind: 'BUILT_IN' | 'CUSTOM';
+  description: string | null;
   capabilities: string[];
-  memberCount?: number;
+  memberCount: number;
 };
 
 export type StaffMember = {
