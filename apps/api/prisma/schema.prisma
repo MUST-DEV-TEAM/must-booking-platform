@@ -357,6 +357,12 @@ model Notification {
   @@map("notifications")
 }
 
+enum RoomTypeStatus {
+  DRAFT
+  PUBLISHED
+  HIDDEN
+}
+
 model RoomType {
   id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId         String            @map("tenant_id") @db.Uuid
@@ -369,6 +375,7 @@ model RoomType {
   /// Compatibility projection of the canonical room_type_images collection.
   galleryImageUrls String[]          @default([]) @map("gallery_image_urls") @db.VarChar(2000)
   maxOccupancy     Int               @map("max_occupancy")
+  status           RoomTypeStatus    @default(PUBLISHED)
   createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   property         Property          @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
@@ -511,6 +518,7 @@ model Room {
   description    String?             @db.Text
   floor          Int?
   viewType       String?             @map("view_type") @db.VarChar(100)
+  isActive       Boolean             @default(true) @map("is_active")
   createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   property       Property            @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)

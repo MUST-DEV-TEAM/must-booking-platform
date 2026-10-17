@@ -345,6 +345,11 @@ describe('LocalPmsProvider', () => {
       .send({ name: 'Provider Suite', maxOccupancy: 2 })
       .expect(201);
     roomTypeId = roomType.body.id;
+    const assignableRoom = await request(app!.getHttpServer())
+      .post(`${propertyUrl}/room-types/${roomTypeId}/rooms`)
+      .set('Cookie', cookie)
+      .send({ name: 'Provider Room 101' })
+      .expect(201);
     const ratePlan = await request(app!.getHttpServer())
       .post(`${propertyUrl}/rate-plans`)
       .set('Cookie', cookie)
@@ -593,6 +598,49 @@ describe('LocalPmsProvider', () => {
       guestCount: 2,
       paymentMethod: 'stripe' as const,
     };
+    await admin.$executeRaw`
+      UPDATE properties SET booking_mode = 'MIXED', pay_at_hotel_enabled = true
+      WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
+    `;
+    await admin.$executeRaw`
+      UPDATE rooms SET is_active = false
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND id = ${assignableRoom.body.id}::uuid
+    `;
+    const inactiveAutoAssignment = await provider.createBooking(context, {
+      ...bookingRequest,
+      idempotencyKey: randomUUID(),
+      externalReference: `inactive-auto-${randomUUID()}`,
+      paymentMethod: 'pay_at_hotel',
+      staffActorId: userId,
+      skipQuoteValidation: true,
+    });
+    expect(inactiveAutoAssignment).toMatchObject({
+      ok: false,
+      error: { code: 'AUTO_ASSIGNMENT_UNAVAILABLE' },
+    });
+    const inactiveExplicitSelection = await provider.createBooking(context, {
+      ...bookingRequest,
+      idempotencyKey: randomUUID(),
+      externalReference: `inactive-explicit-${randomUUID()}`,
+      paymentMethod: 'pay_at_hotel',
+      roomId: assignableRoom.body.id,
+      staffActorId: userId,
+      skipQuoteValidation: true,
+    });
+    expect(inactiveExplicitSelection).toMatchObject({
+      ok: false,
+      error: { code: 'ROOM_NOT_FOUND' },
+    });
+    await admin.$executeRaw`
+      UPDATE rooms SET is_active = true
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND id = ${assignableRoom.body.id}::uuid
+    `;
+    await admin.$executeRaw`
+      UPDATE properties SET booking_mode = 'ROOM_TYPE_ONLY', pay_at_hotel_enabled = false
+      WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
+    `;
     await request(app!.getHttpServer())
       .post(`${propertyUrl}/bookings`)
       .set('Cookie', guestCookie)

@@ -21,6 +21,7 @@ function service() {
         description: 'A private sea-facing suite.',
         floor: 1,
         viewType: 'Sea view',
+        isActive: true,
       },
     ]);
   const database = {
@@ -57,7 +58,19 @@ describe('RoomsService room presentation validation', () => {
       description: 'A private sea-facing suite.',
       floor: 1,
       viewType: 'Sea view',
+      isActive: true,
     });
+  });
+
+  it('persists an inactive room when requested', async () => {
+    const { rooms, queryRaw } = service();
+
+    await rooms.create(tenantId, propertyId, roomTypeId, actorUserId, {
+      name: 'Maintenance room',
+      isActive: false,
+    });
+
+    expect(queryRaw.mock.calls[1]).toContain(false);
   });
 
   it.each([

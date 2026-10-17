@@ -26,6 +26,7 @@ function accommodationFetch() {
             mainImageUrl: null,
             galleryImageUrls: [],
             maxOccupancy: 2,
+            status: 'PUBLISHED',
           },
         ]),
       );
@@ -43,6 +44,7 @@ function accommodationFetch() {
             description: null,
             floor: 1,
             viewType: 'Garden view',
+            isActive: true,
           },
         ]),
       );
@@ -117,6 +119,48 @@ describe('RoomManagement', () => {
     await act(async () => (roomButton as HTMLButtonElement).click());
     expect(document.body.textContent).toContain('Room details');
     expect(document.body.textContent).toContain('Garden room');
+    await act(async () => root.unmount());
+  });
+
+  it('exposes an accommodations.manage active toggle in the room table', async () => {
+    const fetch = accommodationFetch();
+    vi.stubGlobal('fetch', fetch);
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    await act(async () =>
+      root.render(
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(RoomManagement, {
+            tenantId: 'tenant-1',
+            propertyId: 'property-1',
+            canManageAccommodations: true,
+          }),
+        ),
+      ),
+    );
+    await act(async () => {
+      await vi.waitFor(() => {
+        if (!container.textContent?.includes('Double'))
+          throw new Error('Room types have not finished loading yet.');
+      });
+    });
+    const roomsTab = [...container.querySelectorAll('[role="tab"]')].find((tab) =>
+      tab.textContent?.includes('Rooms'),
+    );
+    await act(async () => (roomsTab as HTMLElement).click());
+    const toggle = container.querySelector('[role="switch"][aria-label="Room 101 active"]');
+    expect(toggle).not.toBeNull();
+    await act(async () => (toggle as HTMLElement).click());
+    await vi.waitFor(() => {
+      const call = fetch.mock.calls.find(
+        ([url, init]) =>
+          String(url).endsWith('/room-types/room-type-1/rooms/room-1') && init?.method === 'PATCH',
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ isActive: false });
+    });
     await act(async () => root.unmount());
   });
 

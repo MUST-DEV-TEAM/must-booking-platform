@@ -16,6 +16,7 @@ export type Room = {
   viewType: string | null;
   images?: RoomTypeImage[];
   photoSource?: 'room' | 'room_type' | 'none';
+  isActive: boolean;
 };
 export type RoomType = {
   id: string;
@@ -25,6 +26,7 @@ export type RoomType = {
   mainImageUrl: string | null;
   galleryImageUrls: string[];
   maxOccupancy: number;
+  status: 'DRAFT' | 'PUBLISHED' | 'HIDDEN';
 };
 export type RoomTypeImage = { id: string; url: string; sortOrder: number; isPrimary: boolean };
 export type RoomManagementData = {
@@ -40,6 +42,7 @@ export type RoomTypeForm = {
   description: string;
   amenitiesIntro: string;
   maxOccupancy: string;
+  status: 'DRAFT' | 'PUBLISHED' | 'HIDDEN';
 };
 export type RoomForm = {
   name: string;
@@ -49,6 +52,7 @@ export type RoomForm = {
   description: string;
   floor: string;
   viewType: string;
+  isActive: boolean;
 };
 
 export const emptyRoomTypeForm: RoomTypeForm = {
@@ -56,6 +60,7 @@ export const emptyRoomTypeForm: RoomTypeForm = {
   description: '',
   amenitiesIntro: '',
   maxOccupancy: '2',
+  status: 'PUBLISHED',
 };
 export const emptyRoomForm: RoomForm = {
   name: '',
@@ -65,4 +70,5 @@ export const emptyRoomForm: RoomForm = {
   description: '',
   floor: '',
   viewType: '',
+  isActive: true,
 };

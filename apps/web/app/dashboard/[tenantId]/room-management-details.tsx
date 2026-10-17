@@ -9,6 +9,7 @@ import { Button } from '../../../components/ui/button';
 import { Card, CardContent } from '../../../components/ui/card';
 import { Checkbox } from '../../../components/ui/checkbox';
 import { TabBar } from '../../../components/ui/tab-bar';
+import { Switch } from '../../../components/ui/switch';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -195,6 +196,16 @@ export function RoomTypePeek({
       <Card className="gap-3 py-4">
         <CardContent className="flex flex-col gap-3 px-4">
           <h3 className="m-0 text-sm font-bold">Overview</h3>
+          <DetailLine
+            label="Publication status"
+            value={
+              roomType.status === 'PUBLISHED'
+                ? 'Published'
+                : roomType.status === 'HIDDEN'
+                  ? 'Hidden'
+                  : 'Draft'
+            }
+          />
           <DetailLine label="Maximum occupancy" value={`${roomType.maxOccupancy} guests`} />
           <DetailLine label="Physical rooms" value={String(rooms.length)} />
           {roomType.description ? (
@@ -321,6 +332,7 @@ export function RoomPeek({
   onToggleAmenity,
   onCustomize,
   onInherit,
+  onToggleActive,
 }: {
   tenantId: string;
   propertyId: string;
@@ -333,6 +345,7 @@ export function RoomPeek({
   onToggleAmenity: (roomId: string, amenityId: string) => void;
   onCustomize: (roomId: string, inherited: Amenity[]) => void;
   onInherit: (roomId: string) => void;
+  onToggleActive: (room: Room, active: boolean) => void;
 }) {
   const [tab, setTab] = useState<'overview' | 'photos'>('overview');
   const custom = data.roomAmenities[room.id] ?? [];
@@ -398,6 +411,17 @@ export function RoomPeek({
             <CardContent className="flex flex-col gap-3 px-4">
               <h3 className="m-0 text-sm font-bold">Room details</h3>
               <DetailLine label="Room type" value={roomType.name} />
+              <div className="flex items-center justify-between gap-3 border-b pb-2">
+                <span className="text-xs font-semibold text-muted-foreground">
+                  {room.isActive ? 'Active' : 'Inactive'}
+                </span>
+                <Switch
+                  aria-label={`Room ${room.name} active`}
+                  checked={room.isActive}
+                  disabled={!canManageAccommodations}
+                  onCheckedChange={(active) => onToggleActive(room, active)}
+                />
+              </div>
               {room.title ? <DetailLine label="Display title" value={room.title} /> : null}
               <DetailLine
                 label="Floor"

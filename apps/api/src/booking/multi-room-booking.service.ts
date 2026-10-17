@@ -404,6 +404,7 @@ export class MultiRoomBookingService {
         AND rp.id = ${room.ratePlanId}::uuid
         AND rp.is_active = true
         AND rp.currency = ${room.total.currency}
+        AND rt.status = 'PUBLISHED'::"RoomTypeStatus"
     `;
     if (!rows[0]) return false;
     if (!room.roomId) return true;
@@ -411,6 +412,7 @@ export class MultiRoomBookingService {
       SELECT id FROM rooms
       WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
         AND id = ${room.roomId}::uuid AND room_type_id = ${room.roomTypeId}::uuid
+        AND is_active = true
     `;
     return !!selected[0];
   }

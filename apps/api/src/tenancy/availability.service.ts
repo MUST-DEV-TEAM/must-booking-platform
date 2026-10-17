@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
 import { AuditLogService } from './audit-log.service';
@@ -86,7 +92,15 @@ export class AvailabilityService {
   ): Promise<Availability> {
     const input = this.input(query);
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      await this.requireRoomType(tx, tenantId, propertyId, input.roomTypeId);
+      const roomType = await this.requireRoomType(tx, tenantId, propertyId, input.roomTypeId);
+      if (roomType.status !== 'PUBLISHED')
+        return {
+          roomTypeId: input.roomTypeId,
+          startsOn: input.startsOn,
+          endsOn: input.endsOn,
+          availableUnits: 0,
+          isAvailable: false,
+        };
       const rows = await tx.$queryRaw<Array<{ availableUnits: number | null }>>`
         WITH requested_nights AS (
           SELECT generate_series(
@@ -196,6 +210,11 @@ export class AvailabilityService {
               WHERE ra.tenant_id = ${tenantId}::uuid AND ra.property_id = ${propertyId}::uuid
                 AND ra.room_id = ${query.roomId}::uuid AND ra.stays_on = month_days.stays_on
                 AND ra.is_available = false
+            )
+            AND EXISTS (
+              SELECT 1 FROM rooms r
+              WHERE r.tenant_id = ${tenantId}::uuid AND r.property_id = ${propertyId}::uuid
+                AND r.id = ${query.roomId}::uuid AND r.is_active = true
             )
             AND NOT EXISTS (
               SELECT 1 FROM bookings b
@@ -642,6 +661,15 @@ export class AvailabilityService {
     direction: 1 | -1,
   ): Promise<boolean> {
     const adjustment = this.bookedUnitsInput(input);
+    if (direction === 1) {
+      const typeRows = await tx.$queryRaw<Array<{ isPublished: boolean }>>`
+        SELECT status = 'PUBLISHED'::"RoomTypeStatus" AS "isPublished"
+        FROM room_types
+        WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+          AND id = ${adjustment.roomTypeId}::uuid
+      `;
+      if (!typeRows[0]?.isPublished) return false;
+    }
     await this.lockBookedUnits(tx, tenantId, propertyId, adjustment.roomTypeId);
     if (
       direction === 1 &&
@@ -704,7 +732,14 @@ export class AvailabilityService {
   ): Promise<boolean> {
     const rows = await tx.$queryRaw<Array<{ isAvailable: boolean }>>`
       SELECT
-        NOT EXISTS (
+        EXISTS (
+          SELECT 1 FROM rooms r
+          WHERE r.tenant_id = ${tenantId}::uuid
+            AND r.property_id = ${propertyId}::uuid
+            AND r.id = ${input.roomId}::uuid
+            AND r.is_active = true
+        )
+        AND NOT EXISTS (
           SELECT 1
           FROM room_availability
           WHERE tenant_id = ${tenantId}::uuid
@@ -818,12 +853,32 @@ export class AvailabilityService {
     tenantId: string,
     propertyId: string,
     roomTypeId: string,
-  ) {
-    const rows = await tx.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM room_types
+  ): Promise<{ id: string; status: string }> {
+    const rows = await tx.$queryRaw<Array<{ id: string; status: string }>>`
+      SELECT id, status::text AS status FROM room_types
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomTypeId}::uuid
     `;
     if (!rows[0]) throw new NotFoundException('Room type not found.');
+    return rows[0];
+  }
+
+  async assertBookableSelection(
+    tenantId: string,
+    propertyId: string,
+    roomTypeId: string,
+    roomId?: string,
+  ) {
+    await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const roomType = await this.requireRoomType(tx, tenantId, propertyId, roomTypeId);
+      if (roomType.status !== 'PUBLISHED') throw new NotFoundException('Room type not found.');
+      if (roomId) {
+        const rows = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM rooms WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+            AND id = ${roomId}::uuid AND room_type_id = ${roomTypeId}::uuid AND is_active = true
+        `;
+        if (!rows[0]) throw new NotFoundException('Room not found.');
+      }
+    });
   }
 
   private async requireRoom(

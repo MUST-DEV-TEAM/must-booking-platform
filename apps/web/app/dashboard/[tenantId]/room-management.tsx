@@ -170,6 +170,7 @@ export function RoomManagement({
           description: form.description,
           amenitiesIntro: form.amenitiesIntro,
           maxOccupancy: Number(form.maxOccupancy),
+          status: form.status,
         }),
       });
       if (!response.ok) throw new Error(await errorMessage(response, 'Unable to save room type.'));
@@ -272,6 +273,7 @@ export function RoomManagement({
             description: form.description.trim() || null,
             floor: form.floor === '' ? null : Number(form.floor),
             viewType: form.viewType.trim() || null,
+            isActive: form.isActive,
           }),
         },
       );
@@ -304,6 +306,85 @@ export function RoomManagement({
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : 'Unable to delete room.'),
+  });
+
+  const setRoomTypeStatusMutation = useMutation({
+    mutationFn: async ({
+      roomTypes,
+      status,
+    }: {
+      roomTypes: RoomType[];
+      status: RoomType['status'];
+    }) => {
+      requireAccommodationManagement();
+      const responses = await Promise.all(
+        roomTypes.map((roomType) =>
+          fetch(`${roomTypesUrl}/${roomType.id}`, {
+            method: 'PATCH',
+            credentials: 'include',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              name: roomType.name,
+              description: roomType.description,
+              amenitiesIntro: roomType.amenitiesIntro,
+              maxOccupancy: roomType.maxOccupancy,
+              status,
+            }),
+          }),
+        ),
+      );
+      const failed = responses.find((response) => !response.ok);
+      if (failed)
+        throw new Error(await errorMessage(failed, 'Unable to update publication status.'));
+    },
+    onSuccess: (_, { status, roomTypes }) => {
+      void queryClient.invalidateQueries({ queryKey: roomManagementQueryKey });
+      toast.success(
+        `${roomTypes.length} room type${roomTypes.length === 1 ? '' : 's'} set to ${status.toLowerCase()}.`,
+      );
+    },
+    onError: (error) => {
+      void queryClient.invalidateQueries({ queryKey: roomManagementQueryKey });
+      toast.error(error instanceof Error ? error.message : 'Unable to update publication status.');
+    },
+  });
+
+  const toggleRoomActiveMutation = useMutation({
+    mutationFn: async ({
+      roomType,
+      room,
+      isActive,
+    }: {
+      roomType: RoomType;
+      room: Room;
+      isActive: boolean;
+    }) => {
+      requireAccommodationManagement();
+      const response = await fetch(`${roomTypesUrl}/${roomType.id}/rooms/${room.id}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: room.name,
+          title: room.title,
+          roomSize: room.roomSize,
+          rules: room.rules,
+          description: room.description,
+          floor: room.floor,
+          viewType: room.viewType,
+          isActive,
+        }),
+      });
+      if (!response.ok)
+        throw new Error(await errorMessage(response, 'Unable to update room status.'));
+      return isActive;
+    },
+    onSuccess: (isActive) => {
+      void queryClient.invalidateQueries({ queryKey: roomManagementQueryKey });
+      toast.success(isActive ? 'Room activated.' : 'Room deactivated.');
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Unable to update room status.'),
   });
 
   const createAmenityMutation = useMutation({
@@ -544,6 +625,13 @@ export function RoomManagement({
             onEditRoom={editRoom}
             onDeleteRoom={(roomType, room) => {
               if (canManageAccommodations) deleteRoomMutation.mutate({ roomType, room });
+            }}
+            onToggleRoomActive={(roomType, room, isActive) => {
+              if (canManageAccommodations)
+                toggleRoomActiveMutation.mutate({ roomType, room, isActive });
+            }}
+            onSetRoomTypeStatus={(roomTypes, status) => {
+              if (canManageAccommodations) setRoomTypeStatusMutation.mutate({ roomTypes, status });
             }}
             onOpenCalendar={setCalendarTarget}
             onManageAmenities={() => {

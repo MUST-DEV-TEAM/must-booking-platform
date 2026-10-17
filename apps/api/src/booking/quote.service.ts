@@ -296,6 +296,14 @@ export class QuoteService {
     input: QuoteInput,
   ): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const catalog = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM room_types
+        WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+          AND id = ${input.roomTypeId}::uuid AND status = 'PUBLISHED'::"RoomTypeStatus"
+      `;
+      if (!catalog[0]) throw new NotFoundException('Room type not found.');
+      if (input.roomId)
+        await this.requireRoomForType(tx, tenantId, propertyId, input.roomId, input.roomTypeId);
       const properties = await tx.$queryRaw<
         Array<{
           minStayNights: number | null;
@@ -449,6 +457,7 @@ export class QuoteService {
         AND property_id = ${propertyId}::uuid
         AND id = ${roomId}::uuid
         AND room_type_id = ${roomTypeId}::uuid
+        AND is_active = true
     `;
     if (!rooms[0]) throw new NotFoundException('Room not found for this room type.');
   }

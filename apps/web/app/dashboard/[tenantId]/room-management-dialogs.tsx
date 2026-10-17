@@ -16,6 +16,7 @@ import {
 } from '../../../components/ui/dialog';
 import { FormField } from '../../../components/ui/form-field';
 import { Input, Textarea } from '../../../components/ui/input';
+import { Switch } from '../../../components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -116,6 +117,24 @@ export function RoomTypeEditorDialog({
               value={form.maxOccupancy}
               onChange={(event) => setForm({ ...form, maxOccupancy: event.target.value })}
             />
+          </FormField>
+          <FormField label="Publication status" htmlFor="room-type-status">
+            <Select
+              value={form.status}
+              onValueChange={(status) =>
+                setForm({ ...form, status: status as RoomTypeForm['status'] })
+              }
+              disabled={!canManageAccommodations}
+            >
+              <SelectTrigger id="room-type-status" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="PUBLISHED">Published</SelectItem>
+                <SelectItem value="HIDDEN">Hidden</SelectItem>
+                <SelectItem value="DRAFT">Draft</SelectItem>
+              </SelectContent>
+            </Select>
           </FormField>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
@@ -263,6 +282,20 @@ export function RoomEditorDialog({
               onChange={(event) => setForm({ ...form, viewType: event.target.value })}
             />
           </FormField>
+          <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 sm:col-span-2">
+            <div>
+              <p className="m-0 text-sm font-semibold">Room active</p>
+              <p className="m-0 text-xs text-muted-foreground">
+                Inactive rooms are excluded from new availability and bookings.
+              </p>
+            </div>
+            <Switch
+              aria-label="Room active"
+              checked={form.isActive}
+              disabled={!canManageAccommodations}
+              onCheckedChange={(isActive) => setForm({ ...form, isActive })}
+            />
+          </div>
           <div className="sm:col-span-2">
             <FormField
               label="Room rules override"
@@ -473,8 +506,9 @@ function roomTypeForm(roomType: RoomType | null): RoomTypeForm {
         description: roomType.description ?? '',
         amenitiesIntro: roomType.amenitiesIntro ?? '',
         maxOccupancy: String(roomType.maxOccupancy),
+        status: roomType.status,
       }
-    : { name: '', description: '', amenitiesIntro: '', maxOccupancy: '2' };
+    : { name: '', description: '', amenitiesIntro: '', maxOccupancy: '2', status: 'PUBLISHED' };
 }
 
 function roomForm(room: Room | null): RoomForm {
@@ -487,6 +521,16 @@ function roomForm(room: Room | null): RoomForm {
         description: room.description ?? '',
         floor: room.floor === null ? '' : String(room.floor),
         viewType: room.viewType ?? '',
+        isActive: room.isActive,
       }
-    : { name: '', title: '', roomSize: '', rules: '', description: '', floor: '', viewType: '' };
+    : {
+        name: '',
+        title: '',
+        roomSize: '',
+        rules: '',
+        description: '',
+        floor: '',
+        viewType: '',
+        isActive: true,
+      };
 }

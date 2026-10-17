@@ -89,10 +89,28 @@ export class ClockPmsProvider implements PmsProvider {
     };
   }
 
-  getAvailability(
+  async getAvailability(
     context: PmsProviderContext,
     query: AvailabilityQuery,
   ): Promise<Result<AvailabilityResult>> {
+    const roomTypes = await this.database.withTenantTransaction(
+      context,
+      (tx) =>
+        tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM room_types
+          WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+            AND id = ${query.roomTypeId}::uuid AND status = 'PUBLISHED'::"RoomTypeStatus"
+        `,
+    );
+    if (!roomTypes[0])
+      return {
+        ok: false,
+        error: {
+          code: 'ROOM_TYPE_NOT_AVAILABLE',
+          message: 'Room type is not published.',
+          retryable: false,
+        },
+      };
     return this.availability.getAvailability(context.tenantId, context.propertyId, query);
   }
 

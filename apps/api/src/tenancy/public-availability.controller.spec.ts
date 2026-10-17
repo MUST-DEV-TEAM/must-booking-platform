@@ -6,7 +6,10 @@ const request = { tenantContext: { tenantId: 'tenant-1', propertyId: 'property-1
 
 function makeController(availabilityResult: unknown) {
   const providers = { forProperty: vi.fn() };
-  const availability = { getCalendar: vi.fn() };
+  const availability = {
+    getCalendar: vi.fn(),
+    assertBookableSelection: vi.fn().mockResolvedValue(undefined),
+  };
   const clockAvailability = {
     isAvailableForBooking: vi.fn().mockResolvedValue(availabilityResult),
   };
@@ -22,7 +25,10 @@ describe('PublicAvailabilityController.getAvailability', () => {
   it('passes the requested occupancy through to the provider so the listing agrees with the Select-step check', async () => {
     const getAvailability = vi.fn().mockResolvedValue({ ok: true, value: { isAvailable: true } });
     const providers = { forProperty: vi.fn().mockResolvedValue({ getAvailability }) };
-    const availability = { getCalendar: vi.fn() };
+    const availability = {
+      getCalendar: vi.fn(),
+      assertBookableSelection: vi.fn().mockResolvedValue(undefined),
+    };
     const clockAvailability = { isAvailableForBooking: vi.fn() };
     const controller = new PublicAvailabilityController(
       providers as never,
@@ -54,7 +60,10 @@ describe('PublicAvailabilityController.getAvailability', () => {
 describe('PublicAvailabilityController.getCalendar', () => {
   it('passes the requested occupancy through to AvailabilityService.getCalendar', async () => {
     const providers = { forProperty: vi.fn() };
-    const availability = { getCalendar: vi.fn().mockResolvedValue({ days: [] }) };
+    const availability = {
+      getCalendar: vi.fn().mockResolvedValue({ days: [] }),
+      assertBookableSelection: vi.fn().mockResolvedValue(undefined),
+    };
     const clockAvailability = { isAvailableForBooking: vi.fn() };
     const controller = new PublicAvailabilityController(
       providers as never,
@@ -78,7 +87,10 @@ describe('PublicAvailabilityController.getCalendar', () => {
 
   it('passes the requested room count through so multi-room searches need enough free rooms', async () => {
     const providers = { forProperty: vi.fn() };
-    const availability = { getCalendar: vi.fn().mockResolvedValue({ days: [] }) };
+    const availability = {
+      getCalendar: vi.fn().mockResolvedValue({ days: [] }),
+      assertBookableSelection: vi.fn().mockResolvedValue(undefined),
+    };
     const clockAvailability = { isAvailableForBooking: vi.fn() };
     const controller = new PublicAvailabilityController(
       providers as never,
@@ -100,7 +112,10 @@ describe('PublicAvailabilityController.getCalendar', () => {
 
   it('allows a room-type-only calendar query with no roomId', async () => {
     const providers = { forProperty: vi.fn() };
-    const availability = { getCalendar: vi.fn().mockResolvedValue({ days: [] }) };
+    const availability = {
+      getCalendar: vi.fn().mockResolvedValue({ days: [] }),
+      assertBookableSelection: vi.fn().mockResolvedValue(undefined),
+    };
     const clockAvailability = { isAvailableForBooking: vi.fn() };
     const controller = new PublicAvailabilityController(
       providers as never,

@@ -19,7 +19,15 @@ import { EmptyPanel, NoResultsPanel } from '../../../components/ui/state-panel';
 import { Pagination } from '../../../components/ui/pagination';
 import { QuickPeek } from '../../../components/ui/quick-peek';
 import { SearchInput } from '../../../components/ui/search-input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../components/ui/select';
 import { SortableTableHead } from '../../../components/ui/sortable-table-head';
+import { Switch } from '../../../components/ui/switch';
 import { TabBar } from '../../../components/ui/tab-bar';
 import { BulkBar, ColumnChooser, DensityToggle } from '../../../components/ui/table-toolbar';
 import {
@@ -50,6 +58,7 @@ const columnLabels = {
   floor: 'Floor',
   view: 'View',
   size: 'Room size',
+  active: 'Room status',
 } as const;
 type ColumnKey = keyof typeof columnLabels;
 type SortKey =
@@ -67,6 +76,7 @@ const defaultColumns: Record<ColumnKey, boolean> = {
   floor: true,
   view: true,
   size: true,
+  active: true,
 };
 const pageSizes = [10, 25, 50] as const;
 
@@ -86,6 +96,8 @@ export function RoomManagementLists({
   onAddRoom,
   onEditRoom,
   onDeleteRoom,
+  onToggleRoomActive,
+  onSetRoomTypeStatus,
   onOpenCalendar,
   onManageAmenities,
   onToggleRoomTypeAmenity,
@@ -108,6 +120,8 @@ export function RoomManagementLists({
   onAddRoom: (roomType: RoomType) => void;
   onEditRoom: (roomType: RoomType, room: Room) => void;
   onDeleteRoom: (roomType: RoomType, room: Room) => void;
+  onToggleRoomActive: (roomType: RoomType, room: Room, isActive: boolean) => void;
+  onSetRoomTypeStatus: (roomTypes: RoomType[], status: RoomType['status']) => void;
   onOpenCalendar: (
     target:
       { kind: 'room-type'; roomType: RoomType } | { kind: 'room'; room: Room; roomType: RoomType },
@@ -121,6 +135,7 @@ export function RoomManagementLists({
 }) {
   const [view, setView] = useState<'room-types' | 'rooms'>('room-types');
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | RoomType['status']>('ALL');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [sort, setSort] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>({
@@ -146,9 +161,12 @@ export function RoomManagementLists({
       data.roomTypes.filter((roomType) => {
         const text =
           `${roomType.name} ${roomType.description ?? ''} ${(data.roomTypeAmenities[roomType.id] ?? []).map((item) => item.name).join(' ')}`.toLocaleLowerCase();
-        return text.includes(search.trim().toLocaleLowerCase());
+        return (
+          text.includes(search.trim().toLocaleLowerCase()) &&
+          (statusFilter === 'ALL' || roomType.status === statusFilter)
+        );
       }),
-    [data.roomTypes, data.roomTypeAmenities, search],
+    [data.roomTypes, data.roomTypeAmenities, search, statusFilter],
   );
   const filteredRooms = useMemo(
     () =>
@@ -191,6 +209,9 @@ export function RoomManagementLists({
       roomType,
     })),
   ].filter((row) => selected.includes(`${row.kind}:${row.id}`));
+  const selectedRoomTypes = selectedRows.flatMap((row) =>
+    row.kind === 'room-type' ? [row.item] : [],
+  );
 
   function selectView(nextView: string) {
     setView(nextView as 'room-types' | 'rooms');
@@ -304,6 +325,26 @@ export function RoomManagementLists({
                 }}
                 className="w-full sm:max-w-sm"
               />
+              {view === 'room-types' ? (
+                <Select
+                  value={statusFilter}
+                  onValueChange={(value) => {
+                    setStatusFilter(value as typeof statusFilter);
+                    setPage(1);
+                    setSelected([]);
+                  }}
+                >
+                  <SelectTrigger aria-label="Filter room types by status" className="w-44">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All statuses</SelectItem>
+                    <SelectItem value="PUBLISHED">Published</SelectItem>
+                    <SelectItem value="HIDDEN">Hidden</SelectItem>
+                    <SelectItem value="DRAFT">Draft</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : null}
               <Badge variant="muted">
                 {view === 'room-types'
                   ? `${data.roomTypes.length} room types`
@@ -344,18 +385,20 @@ export function RoomManagementLists({
                   />
                 )
               ) : (
-                <ColumnChooser<'roomType' | 'floor' | 'view' | 'size'>
+                <ColumnChooser<'roomType' | 'floor' | 'view' | 'size' | 'active'>
                   labels={{
                     roomType: columnLabels.roomType,
                     floor: columnLabels.floor,
                     view: columnLabels.view,
                     size: columnLabels.size,
+                    active: columnLabels.active,
                   }}
                   visible={{
                     roomType: columns.roomType,
                     floor: columns.floor,
                     view: columns.view,
                     size: columns.size,
+                    active: columns.active,
                   }}
                   onToggle={(column) => toggleColumn(column)}
                 />
@@ -415,6 +458,34 @@ export function RoomManagementLists({
             </div>
           </div>
           <BulkBar count={selectedRows.length} noun="selected" onClear={() => setSelected([])}>
+            {view === 'room-types' && canManageAccommodations ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!selectedRoomTypes.length}
+                  onClick={() => onSetRoomTypeStatus(selectedRoomTypes, 'PUBLISHED')}
+                >
+                  Publish
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!selectedRoomTypes.length}
+                  onClick={() => onSetRoomTypeStatus(selectedRoomTypes, 'HIDDEN')}
+                >
+                  Hide
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!selectedRoomTypes.length}
+                  onClick={() => onSetRoomTypeStatus(selectedRoomTypes, 'DRAFT')}
+                >
+                  Set to draft
+                </Button>
+              </>
+            ) : null}
             <Button variant="outline" size="sm" onClick={() => void copyRows()}>
               Copy names
             </Button>
@@ -427,7 +498,7 @@ export function RoomManagementLists({
             </Button>
           </BulkBar>
           {rows.length === 0 ? (
-            search ? (
+            search || (view === 'room-types' && statusFilter !== 'ALL') ? (
               <NoResultsPanel
                 onClear={() => {
                   setSearch('');
@@ -482,6 +553,7 @@ export function RoomManagementLists({
                     />
                     {view === 'room-types' ? (
                       <>
+                        <TableHead>Status</TableHead>
                         {columns.occupancy ? (
                           <SortableTableHead
                             label="Max guests"
@@ -520,6 +592,7 @@ export function RoomManagementLists({
                       </>
                     ) : (
                       <>
+                        {columns.active ? <TableHead>Active</TableHead> : null}
                         {columns.roomType ? (
                           <SortableTableHead
                             label="Room type"
@@ -628,6 +701,11 @@ export function RoomManagementLists({
                         </TableCell>
                         {type ? (
                           <>
+                            <TableCell className={rowPadding}>
+                              <Badge variant={type.status === 'PUBLISHED' ? 'success' : 'muted'}>
+                                {statusLabel(type.status)}
+                              </Badge>
+                            </TableCell>
                             {columns.occupancy ? (
                               <TableCell className={`${rowPadding} text-right tabular-nums`}>
                                 {type.maxOccupancy}
@@ -671,6 +749,23 @@ export function RoomManagementLists({
                           </>
                         ) : line ? (
                           <>
+                            {columns.active ? (
+                              <TableCell className={rowPadding}>
+                                <span className="inline-flex items-center gap-2">
+                                  <Switch
+                                    aria-label={`Room ${line.room.name} active`}
+                                    checked={line.room.isActive}
+                                    disabled={!canManageAccommodations}
+                                    onCheckedChange={(active) =>
+                                      onToggleRoomActive(line.roomType, line.room, active)
+                                    }
+                                  />
+                                  <span className="text-xs text-muted-foreground">
+                                    {line.room.isActive ? 'Active' : 'Inactive'}
+                                  </span>
+                                </span>
+                              </TableCell>
+                            ) : null}
                             {columns.roomType ? (
                               <TableCell className={rowPadding}>{line.roomType.name}</TableCell>
                             ) : null}
@@ -884,6 +979,7 @@ export function RoomManagementLists({
               (data.roomAmenities[peek.id] ?? []).length > 0
             }
             onToggleAmenity={onToggleRoomAmenity}
+            onToggleActive={(room, active) => onToggleRoomActive(peek.roomType, room, active)}
             onCustomize={onCustomizeRoomAmenities}
             onInherit={onInheritRoomAmenities}
           />
@@ -932,6 +1028,9 @@ function rowKey(row: RoomType | RoomLine, view: 'room-types' | 'rooms') {
   return view === 'room-types'
     ? `room-type:${(row as RoomType).id}`
     : `room:${(row as RoomLine).room.id}`;
+}
+function statusLabel(status: RoomType['status']) {
+  return status === 'PUBLISHED' ? 'Published' : status === 'HIDDEN' ? 'Hidden' : 'Draft';
 }
 function downloadCsv(headers: string[], rows: string[][], filename: string) {
   const csv = [headers, ...rows]

@@ -133,6 +133,37 @@ describe('room-level availability', () => {
       });
 
     await request(app.getHttpServer())
+      .get(`${individualUrl}/rooms/${room.body.id}/availability`)
+      .set('Cookie', cookie)
+      .query({ startsOn: '2035-08-12', endsOn: '2035-08-13' })
+      .expect(200, {
+        roomId: room.body.id,
+        startsOn: '2035-08-12',
+        endsOn: '2035-08-13',
+        isAvailable: true,
+      });
+    await request(app.getHttpServer())
+      .patch(`${individualUrl}/room-types/${individualRoomType.body.id}/rooms/${room.body.id}`)
+      .set('Cookie', cookie)
+      .send({ name: 'King 101', isActive: false })
+      .expect(200);
+    await request(app.getHttpServer())
+      .get(`${individualUrl}/rooms/${room.body.id}/availability`)
+      .set('Cookie', cookie)
+      .query({ startsOn: '2035-08-12', endsOn: '2035-08-13' })
+      .expect(200, {
+        roomId: room.body.id,
+        startsOn: '2035-08-12',
+        endsOn: '2035-08-13',
+        isAvailable: false,
+      });
+    await request(app.getHttpServer())
+      .patch(`${individualUrl}/room-types/${individualRoomType.body.id}/rooms/${room.body.id}`)
+      .set('Cookie', cookie)
+      .send({ name: 'King 101', isActive: true })
+      .expect(200);
+
+    await request(app.getHttpServer())
       .patch(individualUrl)
       .set('Cookie', cookie)
       .send({ bookingMode: 'MIXED' })

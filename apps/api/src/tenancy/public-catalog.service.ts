@@ -151,6 +151,7 @@ export class PublicCatalogService {
           ) AS "requiresRatePlanSelection"
         FROM room_types rt
         WHERE rt.tenant_id = ${tenantId}::uuid AND rt.property_id = ${propertyId}::uuid
+          AND rt.status = 'PUBLISHED'::"RoomTypeStatus"
         ORDER BY rt.created_at
       `;
       const roomTypes: PublicCatalogRoomType[] = roomTypeRows.map((roomType) => {
@@ -293,6 +294,7 @@ export class PublicCatalogService {
         JOIN properties p ON p.tenant_id = r.tenant_id AND p.id = r.property_id
         JOIN room_types rt ON rt.tenant_id = r.tenant_id AND rt.property_id = r.property_id AND rt.id = r.room_type_id
         WHERE r.tenant_id = ${tenantId}::uuid AND r.property_id = ${propertyId}::uuid
+          AND r.is_active = true AND rt.status = 'PUBLISHED'::"RoomTypeStatus"
         ORDER BY r.created_at
       `;
       const roomsByType = new Map<string, PublicCatalogRoom[]>();

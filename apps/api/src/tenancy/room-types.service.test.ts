@@ -16,6 +16,7 @@ function service(queryResults?: unknown[][]) {
       mainImageUrl: 'https://images.example.test/deluxe.jpg',
       galleryImageUrls: ['https://images.example.test/deluxe-1.jpg'],
       maxOccupancy: 2,
+      status: 'PUBLISHED',
     },
   ];
   const queryRaw = vi.fn();
@@ -36,6 +37,7 @@ function service(queryResults?: unknown[][]) {
   return {
     roomTypes: new RoomTypesService(database as never, audit as never, storage as never),
     queryRaw,
+    audit,
   };
 }
 
@@ -103,7 +105,22 @@ describe('RoomTypesService presentation-image validation', () => {
   });
 
   it('persists amenitiesIntro on update', async () => {
-    const { roomTypes, queryRaw } = service();
+    const { roomTypes, queryRaw } = service([
+      [{ status: 'PUBLISHED' }],
+      [
+        {
+          id: 'room-type-id',
+          name: 'Deluxe',
+          description: null,
+          amenitiesIntro: 'Amenities for every guest.',
+          mainImageUrl: null,
+          galleryImageUrls: [],
+          maxOccupancy: 2,
+          status: 'PUBLISHED',
+        },
+      ],
+      [],
+    ]);
 
     await roomTypes.update(tenantId, propertyId, 'room-type-id', actorUserId, {
       name: 'Deluxe',
@@ -111,7 +128,41 @@ describe('RoomTypesService presentation-image validation', () => {
       amenitiesIntro: 'Amenities for every guest.',
     });
 
-    expect(queryRaw.mock.calls[0]).toContain('Amenities for every guest.');
+    expect(queryRaw.mock.calls[1]).toContain('Amenities for every guest.');
+  });
+
+  it('accepts publication status changes and records the transition', async () => {
+    const { roomTypes, queryRaw, audit } = service([
+      [{ status: 'PUBLISHED' }],
+      [
+        {
+          id: 'room-type-id',
+          name: 'Deluxe',
+          description: null,
+          amenitiesIntro: null,
+          mainImageUrl: null,
+          galleryImageUrls: [],
+          maxOccupancy: 2,
+          status: 'HIDDEN',
+        },
+      ],
+      [],
+    ]);
+
+    await roomTypes.update(tenantId, propertyId, 'room-type-id', actorUserId, {
+      name: 'Deluxe',
+      maxOccupancy: 2,
+      status: 'HIDDEN',
+    });
+
+    expect(queryRaw.mock.calls[1]).toContain('HIDDEN');
+    expect(audit.recordInTransaction).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: 'room_type.status_changed',
+        details: { from: 'PUBLISHED', to: 'HIDDEN' },
+      }),
+    );
   });
 
   it.each(['mainImageUrl', 'galleryImageUrls'] as const)(
@@ -177,7 +228,9 @@ describe('RoomTypesService property image library', () => {
 
     await expect(
       roomTypes.removeLibraryImage(tenantId, propertyId, libraryId, actorUserId),
-    ).rejects.toThrow('This photo is used by a room type.');
+    ).rejects.toThrow(
+      'This photo is used by a room or room type. Remove it from every gallery first.',
+    );
     expect(executeRaw).not.toHaveBeenCalled();
     expect(storage.deleteObject).not.toHaveBeenCalled();
   });

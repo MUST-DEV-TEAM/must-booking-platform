@@ -162,11 +162,16 @@ describe('ClockPmsProvider.getAvailability', () => {
       },
     };
     const availability = { getAvailability: vi.fn().mockResolvedValue(availabilityResult) };
+    const database = {
+      withTenantTransaction: vi.fn((_ctx, callback) =>
+        callback({ $queryRaw: vi.fn().mockResolvedValue([{ id: 'rt-1' }]) }),
+      ),
+    };
     const provider = new ClockPmsProvider(
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
+      database as never,
       availability as never,
       {} as never,
     );
@@ -180,6 +185,32 @@ describe('ClockPmsProvider.getAvailability', () => {
       query,
     );
     expect(result).toEqual(availabilityResult);
+  });
+
+  it('does not ask Clock for availability when the room type is not published', async () => {
+    const availability = { getAvailability: vi.fn() };
+    const database = {
+      withTenantTransaction: vi.fn((_ctx, callback) =>
+        callback({ $queryRaw: vi.fn().mockResolvedValue([]) }),
+      ),
+    };
+    const provider = new ClockPmsProvider(
+      {} as never,
+      {} as never,
+      {} as never,
+      database as never,
+      availability as never,
+      {} as never,
+    );
+
+    await expect(
+      provider.getAvailability(context, {
+        roomTypeId: 'rt-draft',
+        startsOn: '2026-08-10',
+        endsOn: '2026-08-12',
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'ROOM_TYPE_NOT_AVAILABLE' } });
+    expect(availability.getAvailability).not.toHaveBeenCalled();
   });
 });
 

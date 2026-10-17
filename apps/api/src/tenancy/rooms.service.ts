@@ -26,6 +26,7 @@ type Room = {
   description: string | null;
   floor: number | null;
   viewType: string | null;
+  isActive: boolean;
   images?: Array<{ id: string; url: string; sortOrder: number; isPrimary: boolean }>;
   photoSource?: 'room' | 'room_type' | 'none';
 };
@@ -44,7 +45,7 @@ export class RoomsService {
   list(tenantId: string, propertyId: string, roomTypeId: string): Promise<Room[]> {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const rooms = await tx.$queryRaw<Array<Room & { roomTypeId: string }>>`
-        SELECT id, room_type_id AS "roomTypeId", name, title, room_size AS "roomSize", rules, description, floor, view_type AS "viewType"
+        SELECT id, room_type_id AS "roomTypeId", name, title, room_size AS "roomSize", rules, description, floor, view_type AS "viewType", is_active AS "isActive"
         FROM rooms
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND room_type_id = ${roomTypeId}::uuid
         ORDER BY created_at
@@ -59,7 +60,7 @@ export class RoomsService {
   listAll(tenantId: string, propertyId: string): Promise<RoomWithType[]> {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const rooms = await tx.$queryRaw<RoomWithType[]>`
-        SELECT r.id, r.name, r.title, r.room_size AS "roomSize", r.rules, r.description, r.floor, r.view_type AS "viewType", r.room_type_id AS "roomTypeId",
+        SELECT r.id, r.name, r.title, r.room_size AS "roomSize", r.rules, r.description, r.floor, r.view_type AS "viewType", r.is_active AS "isActive", r.room_type_id AS "roomTypeId",
           rt.name AS "roomTypeName"
         FROM rooms r
         JOIN room_types rt ON rt.tenant_id = r.tenant_id AND rt.id = r.room_type_id
@@ -87,12 +88,12 @@ export class RoomsService {
       if (!roomType[0]) throw new NotFoundException('Room type not found.');
       try {
         const rows = await tx.$queryRaw<Room[]>`
-          INSERT INTO rooms (id, tenant_id, property_id, room_type_id, name, title, room_size, rules, description, floor, view_type)
+          INSERT INTO rooms (id, tenant_id, property_id, room_type_id, name, title, room_size, rules, description, floor, view_type, is_active)
           VALUES (
             ${id}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${roomTypeId}::uuid,
-            ${input.name}, ${input.title}, ${input.roomSize}, ${input.rules}, ${input.description}, ${input.floor}, ${input.viewType}
+            ${input.name}, ${input.title}, ${input.roomSize}, ${input.rules}, ${input.description}, ${input.floor}, ${input.viewType}, COALESCE(${input.isActive ?? null}, true)
           )
-          RETURNING id, name, title, room_size AS "roomSize", rules, description, floor, view_type AS "viewType"
+          RETURNING id, name, title, room_size AS "roomSize", rules, description, floor, view_type AS "viewType", is_active AS "isActive"
         `;
         await this.audit.recordInTransaction(tx, {
           tenantId,
@@ -121,13 +122,18 @@ export class RoomsService {
     const input = this.input(body);
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       try {
+        const currentRows = await tx.$queryRaw<Array<{ isActive: boolean }>>`
+          SELECT is_active AS "isActive" FROM rooms
+          WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomId}::uuid
+        `;
         const rows = await tx.$queryRaw<Room[]>`
           UPDATE rooms
           SET name = ${input.name}, title = ${input.title}, room_size = ${input.roomSize}, rules = ${input.rules}, description = ${input.description},
             floor = ${input.floor}, view_type = ${input.viewType},
+            is_active = COALESCE(${input.isActive ?? null}, is_active),
             updated_at = CURRENT_TIMESTAMP
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomId}::uuid
-          RETURNING id, name, title, room_size AS "roomSize", rules, description, floor, view_type AS "viewType"
+          RETURNING id, name, title, room_size AS "roomSize", rules, description, floor, view_type AS "viewType", is_active AS "isActive"
         `;
         if (!rows[0]) throw new NotFoundException('Room not found.');
         await this.audit.recordInTransaction(tx, {
@@ -138,6 +144,21 @@ export class RoomsService {
           targetType: 'room',
           targetId: roomId,
         });
+        if (
+          currentRows[0] &&
+          input.isActive !== null &&
+          input.isActive !== currentRows[0].isActive
+        ) {
+          await this.audit.recordInTransaction(tx, {
+            tenantId,
+            propertyId,
+            actorUserId,
+            action: 'room.active_changed',
+            targetType: 'room',
+            targetId: roomId,
+            details: { from: currentRows[0].isActive, to: input.isActive },
+          });
+        }
         return rows[0];
       } catch (error: unknown) {
         if (this.isUniqueViolation(error))
@@ -641,6 +662,7 @@ export class RoomsService {
     description: string | null;
     floor: number | null;
     viewType: string | null;
+    isActive: boolean | null;
   } {
     const v = (body ?? {}) as Record<string, unknown>;
     const name = typeof v.name === 'string' ? v.name.trim() : '';
@@ -657,9 +679,20 @@ export class RoomsService {
       typeof v.description === 'string' && v.description.trim() ? v.description.trim() : null;
     const floor = this.floor(v.floor);
     const viewType = typeof v.viewType === 'string' && v.viewType.trim() ? v.viewType.trim() : null;
+    if (v.isActive !== undefined && typeof v.isActive !== 'boolean')
+      throw new BadRequestException('isActive must be a boolean.');
     if (viewType && viewType.length > 100)
       throw new BadRequestException('viewType must be at most 100 characters.');
-    return { name, title, roomSize, rules, description, floor, viewType };
+    return {
+      name,
+      title,
+      roomSize,
+      rules,
+      description,
+      floor,
+      viewType,
+      isActive: v.isActive ?? null,
+    };
   }
 
   private floor(value: unknown): number | null {

@@ -38,14 +38,17 @@ export class PublicAvailabilityController {
   @UseGuards(PublicRateLimitGuard)
   @PublicRateLimit(PUBLIC_READ_RATE_LIMIT)
   async getAvailability(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
+    const parsed = parseAvailabilityQuery(query);
+    await this.availability.assertBookableSelection(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      parsed.roomTypeId,
+    );
     const provider = await this.providers.forProperty(
       request.tenantContext.tenantId,
       request.tenantContext.propertyId,
     );
-    const result = await provider.getAvailability(
-      request.tenantContext,
-      parseAvailabilityQuery(query),
-    );
+    const result = await provider.getAvailability(request.tenantContext, parsed);
     if (!result.ok) throw new BadRequestException(result.error.message);
     return result.value;
   }
@@ -60,6 +63,12 @@ export class PublicAvailabilityController {
   @PublicRateLimit(PUBLIC_READ_RATE_LIMIT)
   async checkAvailability(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
     const parsed = parseBookingAvailabilityQuery(query);
+    await this.availability.assertBookableSelection(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      parsed.roomTypeId,
+      parsed.roomId,
+    );
     try {
       const result = await this.clockAvailability.isAvailableForBooking(
         request.tenantContext.tenantId,
@@ -83,8 +92,14 @@ export class PublicAvailabilityController {
   @PublicTenantScoped({ propertyParam: 'propertyId' })
   @UseGuards(PublicRateLimitGuard)
   @PublicRateLimit(PUBLIC_READ_RATE_LIMIT)
-  getCalendar(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
+  async getCalendar(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
     const parsed = parseAvailabilityCalendarQuery(query);
+    await this.availability.assertBookableSelection(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      parsed.roomTypeId,
+      parsed.roomId || undefined,
+    );
     return this.availability.getCalendar(
       request.tenantContext.tenantId,
       request.tenantContext.propertyId,

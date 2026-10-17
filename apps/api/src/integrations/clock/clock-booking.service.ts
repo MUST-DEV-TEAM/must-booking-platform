@@ -210,6 +210,22 @@ export class ClockBookingService {
       context,
       (tx) =>
         this.withIdempotency(tx, context, command.idempotencyKey, command, null, async () => {
+          const bookableRows = await tx.$queryRaw<Array<{ id: string }>>`
+            SELECT id FROM room_types
+            WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+              AND id = ${command.roomTypeId}::uuid AND status = 'PUBLISHED'::"RoomTypeStatus"
+          `;
+          if (!bookableRows[0])
+            return this.failure('ROOM_TYPE_NOT_AVAILABLE', 'Room type is not published.');
+          if (command.roomId) {
+            const roomRows = await tx.$queryRaw<Array<{ id: string }>>`
+              SELECT id FROM rooms
+              WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+                AND id = ${command.roomId}::uuid AND room_type_id = ${command.roomTypeId}::uuid
+                AND is_active = true
+            `;
+            if (!roomRows[0]) return this.failure('ROOM_NOT_AVAILABLE', 'Room is not active.');
+          }
           const externalRoomTypeId = await this.mappedExternalId(
             tx,
             context,

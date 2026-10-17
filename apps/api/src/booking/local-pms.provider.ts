@@ -1479,7 +1479,7 @@ export class LocalPmsProvider implements PmsProvider {
     const roomTypes = await tx.$queryRaw<Array<{ id: string }>>`
       SELECT id FROM room_types
       WHERE id = ${roomTypeId}::uuid AND tenant_id = ${context.tenantId}::uuid
-        AND property_id = ${context.propertyId}::uuid
+        AND property_id = ${context.propertyId}::uuid AND status = 'PUBLISHED'::"RoomTypeStatus"
     `;
     if (!roomTypes[0]) return this.failure('ROOM_TYPE_NOT_FOUND', 'Room type was not found.');
     const ratePlans = await tx.$queryRaw<Array<{ id: string; currency: string }>>`
@@ -1528,6 +1528,7 @@ export class LocalPmsProvider implements PmsProvider {
         AND property_id = ${context.propertyId}::uuid
         AND id = ${command.roomId}::uuid
         AND room_type_id = ${command.roomTypeId}::uuid
+        AND is_active = true
     `;
     return rooms[0]
       ? { autoAssign: false }
@@ -1546,6 +1547,7 @@ export class LocalPmsProvider implements PmsProvider {
       WHERE tenant_id = ${context.tenantId}::uuid
         AND property_id = ${context.propertyId}::uuid
         AND room_type_id = ${command.roomTypeId}::uuid
+        AND is_active = true
       ORDER BY created_at
     `;
     for (const room of rooms) {

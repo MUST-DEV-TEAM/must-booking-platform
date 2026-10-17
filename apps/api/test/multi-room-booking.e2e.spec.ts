@@ -379,6 +379,74 @@ describe('Multi-room booking orders', () => {
         },
       ],
     };
+    const physicalRoom = await request(app!.getHttpServer())
+      .post(`${propertyUrl}/room-types/${firstType.body.id}/rooms`)
+      .set('Cookie', cookie)
+      .send({ name: 'Inactive multi-room candidate' })
+      .expect(201);
+    // The eligibility checks below should stay on the local path. The Clock mock
+    // intentionally omits connection credentials because it only handles the later
+    // successful order.
+    clockConnected = false;
+    const physicalRoomQuote = await quotes.create(tenantId, propertyId, sessionId, {
+      roomTypeId: firstType.body.id,
+      roomId: physicalRoom.body.id,
+      ratePlanId: ratePlan.body.id,
+      startsOn,
+      endsOn,
+    });
+    await admin.$executeRaw`
+      UPDATE rooms SET is_active = false
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND id = ${physicalRoom.body.id}::uuid
+    `;
+    const inactiveRoomOrder = await orders.create(
+      { tenantId, propertyId },
+      {
+        ...heldCommand,
+        idempotencyKey: randomUUID(),
+        rooms: [
+          {
+            ...heldCommand.rooms[0]!,
+            roomId: physicalRoom.body.id,
+            total: physicalRoomQuote.total,
+            quoteToken: physicalRoomQuote.quoteToken,
+          },
+          heldCommand.rooms[1]!,
+        ],
+      },
+    );
+    expect(inactiveRoomOrder).toMatchObject({
+      ok: false,
+      error: { code: 'CATALOG_MISMATCH' },
+    });
+    await admin.$executeRaw`
+      UPDATE rooms SET is_active = true
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND id = ${physicalRoom.body.id}::uuid
+    `;
+    await admin.$executeRaw`
+      UPDATE room_types SET status = 'DRAFT'::"RoomTypeStatus"
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND id = ${secondType.body.id}::uuid
+    `;
+    const unpublishedRoomTypeOrder = await orders.create(
+      { tenantId, propertyId },
+      {
+        ...heldCommand,
+        idempotencyKey: randomUUID(),
+      },
+    );
+    expect(unpublishedRoomTypeOrder).toMatchObject({
+      ok: false,
+      error: { code: 'CATALOG_MISMATCH' },
+    });
+    await admin.$executeRaw`
+      UPDATE room_types SET status = 'PUBLISHED'::"RoomTypeStatus"
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND id = ${secondType.body.id}::uuid
+    `;
+    clockConnected = true;
     const held = await orders.create({ tenantId, propertyId }, heldCommand);
     expect(held.ok).toBe(true);
     if (!held.ok) return;

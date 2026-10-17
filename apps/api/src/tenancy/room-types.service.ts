@@ -24,6 +24,7 @@ type RoomType = {
   galleryImageUrls: string[];
   maxOccupancy: number;
   roomCount: number;
+  status: 'DRAFT' | 'PUBLISHED' | 'HIDDEN';
 };
 type RoomTypeImage = {
   id: string;
@@ -59,7 +60,7 @@ export class RoomTypesService {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const roomTypes = await tx.$queryRaw<RoomType[]>`
         SELECT rt.id, rt.name, rt.description, rt.amenities_intro AS "amenitiesIntro",
-          rt.max_occupancy AS "maxOccupancy", count(r.id)::int AS "roomCount"
+          rt.max_occupancy AS "maxOccupancy", rt.status::text AS status, count(r.id)::int AS "roomCount"
         FROM room_types rt
         LEFT JOIN rooms r ON r.tenant_id = rt.tenant_id AND r.room_type_id = rt.id
         WHERE rt.tenant_id = ${tenantId}::uuid AND rt.property_id = ${propertyId}::uuid
@@ -108,7 +109,7 @@ export class RoomTypesService {
             ${input.maxOccupancy}
           )
           RETURNING id, name, description, amenities_intro AS "amenitiesIntro", main_image_url AS "mainImageUrl",
-            gallery_image_urls AS "galleryImageUrls", max_occupancy AS "maxOccupancy"
+            gallery_image_urls AS "galleryImageUrls", max_occupancy AS "maxOccupancy", status::text AS status
         `;
         await this.audit.recordInTransaction(tx, {
           tenantId,
@@ -143,6 +144,11 @@ export class RoomTypesService {
     const input = this.input(body);
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       try {
+        const currentRows = await tx.$queryRaw<Array<{ status: string }>>`
+          SELECT status::text AS status FROM room_types
+          WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomTypeId}::uuid
+        `;
+        if (!currentRows[0]) throw new NotFoundException('Room type not found.');
         const rows = await tx.$queryRaw<RoomType[]>`
           UPDATE room_types
           SET
@@ -150,10 +156,11 @@ export class RoomTypesService {
             description = ${input.description},
             amenities_intro = ${input.amenitiesIntro},
             max_occupancy = ${input.maxOccupancy},
+            status = COALESCE(${input.status ?? null}::"RoomTypeStatus", status),
             updated_at = CURRENT_TIMESTAMP
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomTypeId}::uuid
           RETURNING id, name, description, amenities_intro AS "amenitiesIntro", main_image_url AS "mainImageUrl",
-            gallery_image_urls AS "galleryImageUrls", max_occupancy AS "maxOccupancy"
+            gallery_image_urls AS "galleryImageUrls", max_occupancy AS "maxOccupancy", status::text AS status
         `;
         if (!rows[0]) throw new NotFoundException('Room type not found.');
         await this.audit.recordInTransaction(tx, {
@@ -164,6 +171,17 @@ export class RoomTypesService {
           targetType: 'room_type',
           targetId: roomTypeId,
         });
+        if (input.status && input.status !== currentRows[0].status) {
+          await this.audit.recordInTransaction(tx, {
+            tenantId,
+            propertyId,
+            actorUserId,
+            action: 'room_type.status_changed',
+            targetType: 'room_type',
+            targetId: roomTypeId,
+            details: { from: currentRows[0].status, to: input.status },
+          });
+        }
         const images = await this.roomTypeImageRows(tx, tenantId, propertyId, roomTypeId);
         return {
           ...rows[0],
@@ -844,6 +862,7 @@ export class RoomTypesService {
     description: string | null;
     amenitiesIntro: string | null;
     maxOccupancy: number;
+    status?: 'DRAFT' | 'PUBLISHED' | 'HIDDEN';
   } {
     const v = (body ?? {}) as Record<string, unknown>;
     if (
@@ -861,6 +880,9 @@ export class RoomTypesService {
         ? v.amenitiesIntro.trim()
         : null;
     const maxOccupancy = typeof v.maxOccupancy === 'number' ? v.maxOccupancy : NaN;
+    const status = v.status;
+    if (status !== undefined && status !== 'DRAFT' && status !== 'PUBLISHED' && status !== 'HIDDEN')
+      throw new BadRequestException('status must be DRAFT, PUBLISHED, or HIDDEN.');
     if (!name) throw new BadRequestException('name is required.');
     if (name.length > 200) throw new BadRequestException('name must be at most 200 characters.');
     if (!Number.isInteger(maxOccupancy) || maxOccupancy <= 0)
@@ -870,6 +892,7 @@ export class RoomTypesService {
       description,
       amenitiesIntro,
       maxOccupancy,
+      ...(status ? { status } : {}),
     };
   }
 

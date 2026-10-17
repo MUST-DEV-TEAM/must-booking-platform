@@ -119,8 +119,27 @@ describe('rooms', () => {
       .set('Cookie', cookie)
       .expect(200);
     expect(list.body).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: roomId, name: 'Room 101' })]),
+      expect.arrayContaining([
+        expect.objectContaining({ id: roomId, name: 'Room 101', isActive: true }),
+      ]),
     );
+
+    await request(app.getHttpServer())
+      .patch(
+        `/tenants/${tenantId}/properties/${propertyId}/room-types/${roomTypeId}/rooms/${roomId}`,
+      )
+      .set('Cookie', cookie)
+      .send({ name: 'Room 101', isActive: false })
+      .expect(200)
+      .expect((response) => expect(response.body.isActive).toBe(false));
+    await request(app.getHttpServer())
+      .patch(
+        `/tenants/${tenantId}/properties/${propertyId}/room-types/${roomTypeId}/rooms/${roomId}`,
+      )
+      .set('Cookie', cookie)
+      .send({ name: 'Room 101', isActive: true })
+      .expect(200)
+      .expect((response) => expect(response.body.isActive).toBe(true));
 
     const roomImagesUrl = `/tenants/${tenantId}/properties/${propertyId}/rooms/${roomId}/images`;
     await request(app.getHttpServer()).get(roomImagesUrl).set('Cookie', cookie).expect(200, []);
