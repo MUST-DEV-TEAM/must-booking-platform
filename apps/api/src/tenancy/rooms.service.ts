@@ -176,10 +176,10 @@ export class RoomsService {
   ): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       try {
-        const rows = await tx.$queryRaw<Array<{ id: string }>>`
+        const rows = await tx.$queryRaw<Array<{ id: string; name: string }>>`
           DELETE FROM rooms
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomId}::uuid
-          RETURNING id
+          RETURNING id, name
         `;
         if (!rows[0]) throw new NotFoundException('Room not found.');
         await this.audit.recordInTransaction(tx, {
@@ -189,6 +189,7 @@ export class RoomsService {
           action: 'room.deleted',
           targetType: 'room',
           targetId: roomId,
+          details: { targetName: rows[0].name },
         });
       } catch (error: unknown) {
         if (this.isForeignKeyViolation(error))

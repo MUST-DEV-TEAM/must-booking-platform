@@ -108,6 +108,8 @@ export class AuditLogService {
       action: string;
       targetType: string;
       targetId: string;
+      targetName: string | null;
+      details: Record<string, unknown>;
       createdAt: Date;
     }>
   > {
@@ -117,15 +119,42 @@ export class AuditLogService {
         tx.$queryRaw`
         SELECT a.id, a.actor_user_id AS "actorUserId",
           COALESCE(NULLIF(BTRIM(CONCAT_WS(' ', u.first_name, u.last_name)), ''), u.email) AS "actorName",
-          a.action, a.target_type AS "targetType", a.target_id AS "targetId", a.created_at AS "createdAt"
+          a.action, a.target_type AS "targetType", a.target_id AS "targetId",
+          COALESCE(
+            NULLIF(a.details->>'targetName', ''),
+            room_type.name, room.name, category.name,
+            CASE a.target_type WHEN 'accommodation_import' THEN
+              CASE a.details->>'kind' WHEN 'room-types' THEN 'room types' WHEN 'rooms' THEN 'rooms' ELSE 'accommodation data' END
+            END
+          ) AS "targetName",
+          CASE WHEN a.action IN ('room_type.status_changed', 'room.active_changed')
+            THEN jsonb_build_object('to', a.details->'to') ELSE '{}'::jsonb END AS "details",
+          a.created_at AS "createdAt"
         FROM audit_logs a
         LEFT JOIN users u ON u.id = a.actor_user_id
+        LEFT JOIN room_type_images type_image ON type_image.tenant_id = a.tenant_id
+          AND type_image.property_id = a.property_id AND type_image.id::text = a.target_id
+        LEFT JOIN room_images room_image ON room_image.tenant_id = a.tenant_id
+          AND room_image.property_id = a.property_id AND room_image.id::text = a.target_id
+        LEFT JOIN room_types room_type ON room_type.tenant_id = a.tenant_id
+          AND room_type.property_id = a.property_id AND room_type.id::text = CASE
+            WHEN a.target_type = 'room_type' THEN a.target_id
+            WHEN a.target_type = 'room_type_image' THEN COALESCE(type_image.room_type_id::text, a.details->>'roomTypeId')
+          END
+        LEFT JOIN rooms room ON room.tenant_id = a.tenant_id
+          AND room.property_id = a.property_id AND room.id::text = CASE
+            WHEN a.target_type = 'room' THEN a.target_id
+            WHEN a.target_type = 'room_image' THEN COALESCE(room_image.room_id::text, a.details->>'roomId')
+          END
+        LEFT JOIN room_categories category ON a.target_type = 'room_category'
+          AND category.tenant_id = a.tenant_id
+          AND category.property_id = a.property_id AND category.id::text = a.target_id
         WHERE a.tenant_id = ${tenantId}::uuid AND a.property_id = ${propertyId}::uuid
           AND (a.action LIKE 'room_type.%' OR a.action LIKE 'room_type_image.%'
             OR a.action LIKE 'room_type_images.%' OR a.action LIKE 'room_category.%' OR a.action LIKE 'room.%'
             OR a.action = 'accommodation.imported')
         ORDER BY a.created_at DESC
-        LIMIT 20
+        LIMIT 100
       `,
     );
   }

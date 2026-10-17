@@ -131,9 +131,9 @@ export class RoomCategoriesService {
         UPDATE room_types SET category_id = NULL, updated_at = CURRENT_TIMESTAMP
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND category_id = ${categoryId}::uuid
       `;
-      const rows = await tx.$queryRaw<Array<{ id: string }>>`
+      const rows = await tx.$queryRaw<Array<{ id: string; name: string }>>`
         DELETE FROM room_categories WHERE tenant_id = ${tenantId}::uuid
-          AND property_id = ${propertyId}::uuid AND id = ${categoryId}::uuid RETURNING id
+          AND property_id = ${propertyId}::uuid AND id = ${categoryId}::uuid RETURNING id, name
       `;
       if (!rows[0]) throw new NotFoundException('Room category not found.');
       await this.audit.recordInTransaction(tx, {
@@ -143,6 +143,7 @@ export class RoomCategoriesService {
         action: 'room_category.deleted',
         targetType: 'room_category',
         targetId: categoryId,
+        details: { targetName: rows[0].name },
       });
     });
   }

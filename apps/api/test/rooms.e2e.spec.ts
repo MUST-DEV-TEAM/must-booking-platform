@@ -268,8 +268,13 @@ describe('rooms', () => {
         expect.objectContaining({
           action: 'room.created',
           actorName: email,
+          targetName: 'Room 101',
         }),
-        expect.objectContaining({ action: 'room.active_changed' }),
+        expect.objectContaining({
+          action: 'room.active_changed',
+          targetName: 'Room 101',
+          details: { to: true },
+        }),
         expect.objectContaining({
           action: 'accommodation.imported',
           targetType: 'accommodation_import',

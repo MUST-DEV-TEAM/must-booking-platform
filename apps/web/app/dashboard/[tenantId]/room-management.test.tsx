@@ -69,6 +69,8 @@ function accommodationFetch() {
             action: 'room_type.created',
             targetType: 'room_type',
             targetId: 'room-type-1',
+            targetName: 'Double',
+            details: {},
             createdAt: '2026-10-17T10:00:00.000Z',
           },
         ]),
@@ -473,7 +475,7 @@ describe('RoomManagement', () => {
     });
     expect(container.textContent).toContain('Setup readiness');
     expect(container.textContent).toContain('2 missing');
-    expect(container.textContent).toContain('Created a room type');
+    expect(container.textContent).toContain('Created Double');
 
     const fix = [...container.querySelectorAll('button')].find(
       (button) => button.textContent?.trim() === 'Add details',

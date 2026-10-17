@@ -291,10 +291,10 @@ export class RoomTypesService {
   ): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       try {
-        const rows = await tx.$queryRaw<Array<{ id: string }>>`
+        const rows = await tx.$queryRaw<Array<{ id: string; name: string }>>`
           DELETE FROM room_types
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomTypeId}::uuid
-          RETURNING id
+          RETURNING id, name
         `;
         if (!rows[0]) throw new NotFoundException('Room type not found.');
         await this.audit.recordInTransaction(tx, {
@@ -304,6 +304,7 @@ export class RoomTypesService {
           action: 'room_type.deleted',
           targetType: 'room_type',
           targetId: roomTypeId,
+          details: { targetName: rows[0].name },
         });
       } catch (error: unknown) {
         if (this.isForeignKeyViolation(error))
@@ -373,6 +374,7 @@ export class RoomTypesService {
         action: 'room_type_image.created',
         targetType: 'room_type_image',
         targetId: id,
+        details: { roomTypeId },
       });
 
       return { id, uploadUrl, publicUrl: this.storage.publicUrl(objectKey) };
@@ -458,6 +460,7 @@ export class RoomTypesService {
         action: 'room_type_image.created_from_url',
         targetType: 'room_type_image',
         targetId: id,
+        details: { roomTypeId },
       });
       return {
         id,
@@ -560,6 +563,7 @@ export class RoomTypesService {
         action: 'room_type_image.primary_changed',
         targetType: 'room_type_image',
         targetId: imageId,
+        details: { roomTypeId },
       });
     });
   }
@@ -648,6 +652,7 @@ export class RoomTypesService {
         action: 'room_type_image.deleted',
         targetType: 'room_type_image',
         targetId: imageId,
+        details: { roomTypeId },
       });
     });
   }

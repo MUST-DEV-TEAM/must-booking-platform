@@ -64,6 +64,8 @@ export type AccommodationActivity = {
   action: string;
   targetType: string;
   targetId: string;
+  targetName: string | null;
+  details: Record<string, unknown>;
   createdAt: string;
 };
 export type RoomTypeImage = { id: string; url: string; sortOrder: number; isPrimary: boolean };
