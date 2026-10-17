@@ -9,11 +9,15 @@ import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { DetailHeader } from '../../components/ui/detail-header';
 import { DetailList } from '../../components/ui/detail-list';
-import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
+import { MultiSelect } from '../../components/ui/multi-select';
 import {
-  PermissionMatrix,
+  effectivePermissionItems,
+  PermissionList,
+  permissionMultiSelectOptions,
+  type EffectivePermissionState,
   type PermissionCatalogItem,
-} from '../../components/ui/permission-matrix';
+} from '../../components/ui/permission-list';
+import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import {
   Select,
   SelectContent,
@@ -25,13 +29,8 @@ import { StatTile } from '../../components/ui/stat-tile';
 import { TabBar } from '../../components/ui/tab-bar';
 import { type StaffMember, type StaffTemplate } from './staff-stats';
 
-type OverrideValue = 'default' | 'grant' | 'revoke';
+export type OverrideValue = 'default' | 'grant' | 'revoke';
 type StaffDetailTab = 'overview' | 'permissions';
-type EffectiveCapability = {
-  key: string;
-  granted: boolean;
-  source: 'role' | 'extra' | 'denied' | 'none';
-};
 
 export function staffListHref(tenantId: string, propertyId: string) {
   return `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=staff`;
@@ -84,11 +83,10 @@ export function StaffDetail({
             : 'Effective permissions could not be loaded.',
         );
       }
-      return (await response.json()) as EffectiveCapability[];
+      return (await response.json()) as EffectivePermissionState[];
     },
   });
   const effective = effectiveQuery.data ?? [];
-  const byKey = new Map(effective.map((permission) => [permission.key, permission]));
   const grantedKeys = effective.filter((permission) => permission.granted).map((item) => item.key);
   const extraKeys = effective
     .filter((permission) => permission.source === 'extra')
@@ -96,34 +94,8 @@ export function StaffDetail({
   const deniedKeys = effective
     .filter((permission) => permission.source === 'denied')
     .map((item) => item.key);
-  const annotations = Object.fromEntries(
-    catalog.map((permission) => {
-      const state = byKey.get(permission.key) ?? {
-        key: permission.key,
-        granted: false,
-        source: 'none' as const,
-      };
-      const source =
-        state.source === 'role'
-          ? 'Role'
-          : state.source === 'extra'
-            ? 'Extra'
-            : state.source === 'denied'
-              ? 'Denied'
-              : 'None';
-      const access =
-        state.source === 'denied' ? 'Denied' : state.granted ? 'Granted' : 'Not granted';
-      return [permission.key, state.source === 'denied' ? access : `${access} · ${source}`];
-    }),
-  );
-  const extraDisabledReasons = Object.fromEntries(
-    catalog
-      .filter(
-        (permission) =>
-          !myCapabilities.includes(permission.key) && !extraKeys.includes(permission.key),
-      )
-      .map((permission) => [permission.key, 'You do not have this permission to grant.']),
-  );
+  const sourcedPermissions = effectivePermissionItems(catalog, effective);
+  const permissionOptions = permissionMultiSelectOptions(catalog, myCapabilities);
   const onExtraChange = (nextKeys: string[]) =>
     applyOverrideChanges(extraKeys, nextKeys, 'grant', onChangeOverride);
   const onDeniedChange = (nextKeys: string[]) =>
@@ -274,16 +246,12 @@ export function StaffDetail({
                     <div className="space-y-1">
                       <h3 className="m-0 text-sm font-semibold">Effective permissions</h3>
                       <p className="m-0 text-xs text-muted-foreground">
-                        Each permission shows whether access comes from the Role, an Extra grant, a
-                        Denied override, or no source.
+                        Grants show whether access comes from the Role or an Extra grant. Explicit
+                        denials are marked Denied.
                       </p>
                     </div>
-                    <PermissionMatrix
-                      catalog={catalog}
-                      selectedKeys={grantedKeys}
-                      annotations={annotations}
-                      onChange={() => undefined}
-                      readOnly
+                    <PermissionList
+                      permissions={sourcedPermissions}
                       ariaLabel="Effective permissions"
                     />
                   </section>
@@ -295,13 +263,13 @@ export function StaffDetail({
                         These grants add access to what the role already provides.
                       </p>
                     </div>
-                    <PermissionMatrix
-                      catalog={catalog}
-                      selectedKeys={extraKeys}
+                    <MultiSelect
+                      options={permissionOptions}
+                      value={extraKeys}
                       onChange={onExtraChange}
-                      disabledReasons={extraDisabledReasons}
-                      readOnly={pendingOverride !== undefined}
-                      ariaLabel="Extra permissions"
+                      placeholder="Choose extra permissions"
+                      disabled={pendingOverride !== undefined}
+                      label="Extra permissions"
                     />
                   </section>
 
@@ -312,12 +280,13 @@ export function StaffDetail({
                         A denial overrides a permission granted by the role.
                       </p>
                     </div>
-                    <PermissionMatrix
-                      catalog={catalog}
-                      selectedKeys={deniedKeys}
+                    <MultiSelect
+                      options={permissionOptions}
+                      value={deniedKeys}
                       onChange={onDeniedChange}
-                      readOnly={pendingOverride !== undefined}
-                      ariaLabel="Denied permissions"
+                      placeholder="Choose denied permissions"
+                      disabled={pendingOverride !== undefined}
+                      label="Denied permissions"
                     />
                   </section>
                   <p className="m-0 text-xs text-muted-foreground">
@@ -334,7 +303,7 @@ export function StaffDetail({
 }
 
 /** Writes one added or removed permission override through the existing per-key operation. */
-function applyOverrideChanges(
+export function applyOverrideChanges(
   current: string[],
   next: string[],
   addedValue: 'grant' | 'revoke',

@@ -6,19 +6,17 @@ import { Mail } from 'lucide-react';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { DetailList, SectionLabel } from '../../components/ui/detail-list';
+import { MultiSelect } from '../../components/ui/multi-select';
 import {
-  PermissionMatrix,
+  effectivePermissionItems,
+  PermissionList,
+  permissionMultiSelectOptions,
   type PermissionCatalogItem,
-} from '../../components/ui/permission-matrix';
+  type EffectivePermissionState,
+} from '../../components/ui/permission-list';
 import { QuickPeek } from '../../components/ui/quick-peek';
-import { staffHref } from './staff-detail';
+import { applyOverrideChanges, staffHref, type OverrideValue } from './staff-detail';
 import type { StaffMember, StaffTemplate } from './staff-stats';
-
-type EffectiveCapability = {
-  key: string;
-  granted: boolean;
-  source: 'role' | 'extra' | 'denied' | 'none';
-};
 
 /** The quick look at a staff member opened from the directory. */
 export function StaffSheet({
@@ -28,8 +26,10 @@ export function StaffSheet({
   propertyId,
   catalog,
   myCapabilities,
+  pendingOverride,
   statusPending = false,
   onClose,
+  onChangeOverride,
   onChangeStatus,
 }: {
   member: StaffMember | null;
@@ -38,8 +38,10 @@ export function StaffSheet({
   propertyId: string;
   catalog: PermissionCatalogItem[];
   myCapabilities: string[];
+  pendingOverride?: string;
   statusPending?: boolean;
   onClose: () => void;
+  onChangeOverride: (key: string, value: OverrideValue) => void;
   onChangeStatus: () => void;
 }) {
   const effectiveQuery = useQuery({
@@ -52,29 +54,22 @@ export function StaffSheet({
         { credentials: 'include' },
       );
       if (!response.ok) throw new Error('Effective permissions could not be loaded.');
-      return (await response.json()) as EffectiveCapability[];
+      return (await response.json()) as EffectivePermissionState[];
     },
   });
   const effective = effectiveQuery.data ?? [];
-  const granted = effective
-    .filter((permission) => permission.granted)
+  const sourcedPermissions = effectivePermissionItems(catalog, effective);
+  const permissionOptions = permissionMultiSelectOptions(catalog, myCapabilities);
+  const extraKeys = effective
+    .filter((permission) => permission.source === 'extra')
     .map((permission) => permission.key);
-  const annotations = Object.fromEntries(
-    catalog.map((permission) => {
-      const state = effective.find((item) => item.key === permission.key);
-      const source = state?.source ?? 'none';
-      const sourceLabel =
-        source === 'role'
-          ? 'Role'
-          : source === 'extra'
-            ? 'Extra'
-            : source === 'denied'
-              ? 'Denied'
-              : 'None';
-      const access = source === 'denied' ? 'Denied' : state?.granted ? 'Granted' : 'Not granted';
-      return [permission.key, source === 'denied' ? access : `${access} · ${sourceLabel}`];
-    }),
-  );
+  const deniedKeys = effective
+    .filter((permission) => permission.source === 'denied')
+    .map((permission) => permission.key);
+  const onExtraChange = (next: string[]) =>
+    applyOverrideChanges(extraKeys, next, 'grant', onChangeOverride);
+  const onDeniedChange = (next: string[]) =>
+    applyOverrideChanges(deniedKeys, next, 'revoke', onChangeOverride);
   const displayName = member
     ? [member.firstName, member.lastName].filter(Boolean).join(' ') || member.email
     : '';
@@ -144,15 +139,33 @@ export function StaffSheet({
                 {effectiveQuery.error.message}
               </p>
             ) : (
-              <PermissionMatrix
-                catalog={catalog}
-                selectedKeys={granted}
-                annotations={annotations}
-                onChange={() => undefined}
-                readOnly
+              <PermissionList
+                permissions={sourcedPermissions}
                 ariaLabel="Quick peek effective permissions"
               />
             )}
+          </div>
+          <div className="space-y-2">
+            <SectionLabel>Extra permissions</SectionLabel>
+            <MultiSelect
+              options={permissionOptions}
+              value={extraKeys}
+              onChange={onExtraChange}
+              placeholder="Choose extra permissions"
+              disabled={pendingOverride !== undefined}
+              label="Quick peek extra permissions"
+            />
+          </div>
+          <div className="space-y-2">
+            <SectionLabel>Denied permissions</SectionLabel>
+            <MultiSelect
+              options={permissionOptions}
+              value={deniedKeys}
+              onChange={onDeniedChange}
+              placeholder="Choose denied permissions"
+              disabled={pendingOverride !== undefined}
+              label="Quick peek denied permissions"
+            />
           </div>
         </>
       ) : null}

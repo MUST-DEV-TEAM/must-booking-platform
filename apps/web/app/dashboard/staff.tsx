@@ -31,10 +31,12 @@ import { Input } from '../../components/ui/input';
 import { PageHeader } from '../../components/ui/page-header';
 import { PasswordField } from '../../components/ui/password-field';
 import { Pagination } from '../../components/ui/pagination';
+import { MultiSelect } from '../../components/ui/multi-select';
 import {
-  PermissionMatrix,
+  PermissionList,
+  permissionMultiSelectOptions,
   type PermissionCatalogItem,
-} from '../../components/ui/permission-matrix';
+} from '../../components/ui/permission-list';
 import { SearchInput } from '../../components/ui/search-input';
 import { SortableTableHead } from '../../components/ui/sortable-table-head';
 import {
@@ -818,10 +820,18 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
         propertyId={propertyId}
         catalog={catalog}
         myCapabilities={myCapabilities}
+        pendingOverride={
+          overrideMutation.isPending && overrideMutation.variables?.userId === selected?.userId
+            ? overrideMutation.variables.key
+            : undefined
+        }
         statusPending={
           statusMutation.isPending && statusMutation.variables?.userId === selected?.userId
         }
         onClose={() => setSelectedId(null)}
+        onChangeOverride={(key, value) => {
+          if (selected) overrideMutation.mutate({ userId: selected.userId, key, value });
+        }}
         onChangeStatus={() => {
           if (selected) requestStatusChange(selected);
         }}
@@ -899,11 +909,7 @@ function AddStaffDialog({
   const base = `/api/tenants/${tenantId}`;
   const selectedCreateRole = createRoleId || templates[0]?.id || '';
   const selectedInviteRole = inviteRoleId || templates[0]?.id || '';
-  const disabledReasons = Object.fromEntries(
-    catalog
-      .filter((permission) => !myCapabilities.includes(permission.key))
-      .map((permission) => [permission.key, 'You do not have this permission.']),
-  );
+  const permissionOptions = permissionMultiSelectOptions(catalog, myCapabilities);
   const validPassword = password.length >= 12 && /[a-z]/i.test(password) && /\d/.test(password);
 
   const reset = () => {
@@ -1108,12 +1114,12 @@ function AddStaffDialog({
                       detail page.
                     </p>
                   </div>
-                  <PermissionMatrix
-                    catalog={catalog}
-                    selectedKeys={extraCapabilities}
+                  <MultiSelect
+                    options={permissionOptions}
+                    value={extraCapabilities}
                     onChange={setExtraCapabilities}
-                    disabledReasons={disabledReasons}
-                    ariaLabel="Extra permissions"
+                    placeholder="Choose extra permissions"
+                    label="Extra permissions"
                   />
                 </section>
                 {capped ? (
@@ -1216,14 +1222,6 @@ function AddStaffDialog({
   );
 }
 
-function permissionDisabledReasons(catalog: PermissionCatalogItem[], myCapabilities: string[]) {
-  return Object.fromEntries(
-    catalog
-      .filter((permission) => !myCapabilities.includes(permission.key))
-      .map((permission) => [permission.key, 'You do not have this permission.']),
-  );
-}
-
 function RoleManagement({
   tenantId,
   propertyId,
@@ -1246,7 +1244,8 @@ function RoleManagement({
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [capabilities, setCapabilities] = useState<string[]>([]);
-  const disabledReasons = permissionDisabledReasons(catalog, myCapabilities);
+  const [viewingRole, setViewingRole] = useState<StaffTemplate | null>(null);
+  const permissionOptions = permissionMultiSelectOptions(catalog, myCapabilities);
   const lockedKeys = capabilities.filter((key) => !myCapabilities.includes(key));
 
   const reset = () => {
@@ -1365,9 +1364,14 @@ function RoleManagement({
                   ) : null}
                   <div className="flex flex-wrap gap-2">
                     {builtIn ? (
-                      <Button size="sm" variant="outline" onClick={() => beginCopy(role)}>
-                        Copy as custom role
-                      </Button>
+                      <>
+                        <Button size="sm" variant="outline" onClick={() => setViewingRole(role)}>
+                          View permissions
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => beginCopy(role)}>
+                          Copy as custom role
+                        </Button>
+                      </>
                     ) : (
                       <>
                         <Button size="sm" variant="outline" onClick={() => beginEdit(role)}>
@@ -1425,12 +1429,12 @@ function RoleManagement({
                 onChange={(event) => setDescription(event.target.value)}
               />
             </FormField>
-            <PermissionMatrix
-              catalog={catalog}
-              selectedKeys={capabilities}
+            <MultiSelect
+              options={permissionOptions}
+              value={capabilities}
               onChange={setCapabilities}
-              disabledReasons={disabledReasons}
-              ariaLabel="Role permissions"
+              placeholder="Choose role permissions"
+              label="Role permissions"
             />
             {lockedKeys.length ? (
               <p role="alert" className="m-0 text-sm text-warning">
@@ -1457,6 +1461,42 @@ function RoleManagement({
               </Button>
             </DialogFooter>
           </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={viewingRole !== null} onOpenChange={(open) => !open && setViewingRole(null)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{viewingRole?.name} permissions</DialogTitle>
+            <DialogDescription>
+              Built-in roles are read-only. Copy this role to customize its permissions.
+            </DialogDescription>
+          </DialogHeader>
+          <PermissionList
+            ariaLabel={`${viewingRole?.name ?? 'Built-in role'} permissions`}
+            permissions={
+              viewingRole
+                ? catalog
+                    .filter((permission) => viewingRole.capabilities.includes(permission.key))
+                    .map((permission) => ({ ...permission, source: 'Role' as const }))
+                : []
+            }
+          />
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setViewingRole(null)}>
+              Close
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                if (!viewingRole) return;
+                const role = viewingRole;
+                setViewingRole(null);
+                beginCopy(role);
+              }}
+            >
+              Copy as custom role
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

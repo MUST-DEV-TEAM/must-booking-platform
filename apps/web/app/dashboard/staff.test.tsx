@@ -260,7 +260,17 @@ describe('Staff', () => {
       'Cannot delete while 2 staff members use this role.',
     );
 
+    await clickButton('View permissions');
+    expect(document.body.querySelector('[aria-label="Front Desk permissions"]')).not.toBeNull();
+    expect(document.body.textContent).toContain('Role');
+    expect(
+      document.body.querySelector('[role="combobox"][aria-label="Role permissions"]'),
+    ).toBeNull();
+    await clickButton('Close');
+
     await clickButton('Copy as custom role');
+    await openMultiSelect('Role permissions');
+    await clickPermission(document.body, 'Manage staff permissions');
     await setValue(
       document.body.querySelector<HTMLInputElement>('#staff-role-name')!,
       'Front Desk custom',
@@ -276,6 +286,7 @@ describe('Staff', () => {
     };
     expect(createBody.name === 'Front Desk custom' && createBody.copyFromId === 'a').toBe(true);
     expect(createBody.capabilities.includes('payments.refund')).toBe(true);
+    expect(createBody.capabilities.includes('staff.manage_permissions')).toBe(true);
 
     await openButtonInCard(cardWithTitle('Front Desk custom'), 'Edit role');
     await setValue(
@@ -338,8 +349,30 @@ describe('Staff', () => {
     expect(document.body.querySelector('a[href*="staffUser=u"]')?.textContent).toContain(
       'Open staff details',
     );
-    expect(document.body.textContent).toContain('Granted · Role');
-    expect(document.body.textContent).toContain('Not granted · None');
+    expect(
+      document.body.querySelector('[aria-label="Quick peek effective permissions"]'),
+    ).not.toBeNull();
+    expect(document.body.textContent).toContain('Role');
+    expect(document.body.textContent).not.toContain('Not granted · None');
+    expect(
+      document.body.querySelector('[aria-label="Quick peek extra permissions"]'),
+    ).not.toBeNull();
+    expect(
+      document.body.querySelector('[aria-label="Quick peek denied permissions"]'),
+    ).not.toBeNull();
+    await unmount(root);
+  });
+
+  it('uses the grouped multi-select for optional extra permissions in Add staff', async () => {
+    mock();
+    const { root } = await mount();
+    await clickButton('Add staff');
+    await openMultiSelect('Extra permissions');
+
+    expect(document.body.querySelector('section[aria-label="Payments"]')).not.toBeNull();
+    expect(document.body.querySelector('section[aria-label="Staff"]')).not.toBeNull();
+    expect(document.body.textContent).toContain('Issue payment refunds.');
+    expect(document.body.querySelector('[aria-label="Select all Payments"]')).not.toBeNull();
     await unmount(root);
   });
 
@@ -426,15 +459,11 @@ describe('Staff', () => {
     );
 
     await clickTab('Permissions');
-    const extraMatrix = document.body.querySelector<HTMLElement>(
-      '[aria-label="Extra permissions"]',
-    )!;
-    await clickPermission(extraMatrix, 'Manage staff permissions');
-    const deniedMatrix = document.body.querySelector<HTMLElement>(
-      '[aria-label="Denied permissions"]',
-    )!;
-    await clickPermission(deniedMatrix, 'Refund payments');
-    await clickPermission(deniedMatrix, 'Refund payments');
+    await openMultiSelect('Extra permissions');
+    await clickPermission(document.body, 'Manage staff permissions');
+    await openMultiSelect('Denied permissions');
+    await clickPermission(document.body, 'Refund payments');
+    await clickPermission(document.body, 'Refund payments');
 
     const calls = fetch.mock.calls.filter((call) =>
       String(call[0]).includes('/staff/u/capabilities/'),
@@ -451,6 +480,54 @@ describe('Staff', () => {
       source: 'role',
     });
     expect(toast.success).toHaveBeenCalledWith('Capability override updated.');
+    await unmount(root);
+  });
+
+  it('edits extra and denied permissions from the quick peek through existing override routes', async () => {
+    let currentEffective = [...effectiveCapabilities];
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      const href = String(url);
+      const method = init?.method ?? 'GET';
+      if (href.endsWith('/effective-capabilities'))
+        return Promise.resolve(new Response(JSON.stringify(currentEffective)));
+      if (href.includes('/staff/u/capabilities/')) {
+        const key = href.split('/capabilities/').at(-1)!;
+        if (method === 'DELETE') {
+          currentEffective = [
+            ...currentEffective.filter((permission) => permission.key !== key),
+            { key, granted: false, source: 'none' },
+          ];
+        } else {
+          const body = JSON.parse(init!.body as string) as { granted: boolean };
+          currentEffective = [
+            ...currentEffective.filter((permission) => permission.key !== key),
+            { key, granted: body.granted, source: body.granted ? 'extra' : 'denied' },
+          ];
+        }
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      return responseFor(href);
+    });
+    vi.stubGlobal('fetch', fetch);
+    const { container, root } = await mount();
+
+    await act(async () => {
+      container.querySelector<HTMLTableRowElement>('tbody tr')!.click();
+      await settle();
+    });
+    await openMultiSelect('Quick peek extra permissions');
+    await clickPermission(document.body, 'Manage staff permissions');
+    await openMultiSelect('Quick peek denied permissions');
+    await clickPermission(document.body, 'Refund payments');
+
+    const calls = fetch.mock.calls.filter((call) =>
+      String(call[0]).includes('/staff/u/capabilities/'),
+    );
+    expect(calls.map((call) => call[1]?.method)).toEqual(['PUT', 'PUT']);
+    expect(String(calls[0]?.[0])).toContain('/capabilities/staff.manage_permissions');
+    expect(JSON.parse(calls[0]?.[1]?.body as string)).toEqual({ granted: true });
+    expect(String(calls[1]?.[0])).toContain('/capabilities/payments.refund');
+    expect(JSON.parse(calls[1]?.[1]?.body as string)).toEqual({ granted: false });
     await unmount(root);
   });
 
@@ -648,6 +725,13 @@ async function clickPermission(matrix: HTMLElement, label: string) {
     ).find((candidate) => candidate.getAttribute('aria-label') === label);
     if (!checkbox) throw new Error(`Permission ${label} was not found.`);
     checkbox.click();
+    await settle();
+  });
+}
+
+async function openMultiSelect(label: string) {
+  await act(async () => {
+    document.body.querySelector<HTMLElement>(`[role="combobox"][aria-label="${label}"]`)!.click();
     await settle();
   });
 }
