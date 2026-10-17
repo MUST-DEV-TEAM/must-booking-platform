@@ -16,9 +16,15 @@ const staff = [
   {
     userId: 'u',
     email: 'staff@test',
+    firstName: 'Taylor',
+    lastName: 'Staff',
     roleTemplateId: 'a',
     roleTemplateName: 'Front Desk',
     overrides: [],
+    status: 'ACTIVE',
+    lastActiveAt: '2026-10-10T12:00:00.000Z',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    createdByEmail: 'owner@test',
   },
 ];
 const templates = [
@@ -26,13 +32,17 @@ const templates = [
     id: 'a',
     name: 'Front Desk',
     kind: 'BUILT_IN',
-    capabilities: [{ key: 'payments.refund', description: 'Refund payments' }],
+    capabilities: ['payments.refund'],
+    description: null,
+    memberCount: 1,
   },
   {
     id: 'b',
     name: 'Finance',
     kind: 'BUILT_IN',
-    capabilities: [{ key: 'payments.refund', description: 'Refund payments' }],
+    capabilities: ['payments.refund'],
+    description: null,
+    memberCount: 0,
   },
 ];
 const pointerMethods = ['setPointerCapture', 'releasePointerCapture', 'hasPointerCapture'] as const;
@@ -92,7 +102,7 @@ describe('Staff', () => {
     await clickButton('Invite staff');
     const email = document.body.querySelector<HTMLInputElement>('#staff-invite-email')!;
     await setValue(email, 'new@test');
-    await openSelect('Invite role template');
+    await openSelect('Invite role');
     await chooseOption('Finance');
     await clickButton('Send invitation');
 
@@ -106,7 +116,7 @@ describe('Staff', () => {
     await unmount(root);
   });
 
-  it('shows the shared table controls, row quick peek, selection and hidden role editor', async () => {
+  it('shows the shared table controls, status and last active, row quick peek and selection', async () => {
     mock({ staffSeats: 1, maxStaffSeats: 2 });
     const { container, root } = await mount();
 
@@ -114,6 +124,10 @@ describe('Staff', () => {
     expect(container.querySelector('[aria-label="Columns"]')).not.toBeNull();
     expect(container.querySelector('[aria-label="Compact rows"]')).not.toBeNull();
     expect(container.querySelector('[aria-label="Search staff"]')).not.toBeNull();
+    expect(container.textContent).toContain('Suspended');
+    expect(container.textContent).toContain('Last active');
+    expect(container.textContent).not.toContain('Hotel scope');
+    expect(container.textContent).not.toContain('Role template');
     expect(container.textContent).not.toContain('Create role template');
     expect(container.textContent).toContain('Export CSV');
     expect((buttonWithText('Export CSV') as HTMLButtonElement).disabled).toBe(true);
@@ -136,7 +150,7 @@ describe('Staff', () => {
     await unmount(root);
   });
 
-  it('assigns a role and writes grant, revoke and default overrides on the detail page', async () => {
+  it('assigns a role and writes grant, deny and default extra permissions on the detail page', async () => {
     window.history.replaceState(null, '', '/dashboard/t?propertyId=p&section=staff&staffUser=u');
     let currentStaff = [...staff];
     const fetch = vi.fn((url: string, init?: RequestInit) => {
@@ -191,7 +205,7 @@ describe('Staff', () => {
       expect.objectContaining({ method: 'PUT', credentials: 'include' }),
     );
 
-    await clickTab('Access overrides');
+    await clickTab('Extra permissions');
     const override = document.body.querySelector<HTMLElement>(
       '[aria-label="staff@test payments.refund"]',
     )!;

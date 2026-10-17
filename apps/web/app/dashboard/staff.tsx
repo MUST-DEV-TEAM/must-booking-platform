@@ -62,22 +62,42 @@ import { StaffSheet } from './staff-sheet';
 import { type StaffMember, type StaffTemplate } from './staff-stats';
 
 type Usage = { plan: { maxStaffSeats: number }; usage: { staffSeats: number } };
-type StaffView = 'all' | 'with-overrides' | 'without-overrides';
-type SortKey = 'member' | 'role' | 'overrides';
-type ColumnKey = 'role' | 'overrides' | 'scope';
+type StaffView = 'all' | 'active' | 'suspended' | 'with-extra' | 'without-extra';
+type SortKey = 'member' | 'role' | 'extra' | 'status' | 'last-active';
+type ColumnKey = 'role' | 'extra' | 'status' | 'lastActive';
 type OverrideValue = 'default' | 'grant' | 'revoke';
 
 const COLUMN_LABELS: Record<ColumnKey, string> = {
-  role: 'Role template',
-  overrides: 'Access overrides',
-  scope: 'Hotel scope',
+  role: 'Role',
+  extra: 'Extra permissions',
+  status: 'Status',
+  lastActive: 'Last active',
 };
 const DEFAULT_COLUMNS: Record<ColumnKey, boolean> = {
   role: true,
-  overrides: true,
-  scope: true,
+  extra: true,
+  status: true,
+  lastActive: true,
 };
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
+
+function sortValue(member: StaffMember, key: SortKey): string {
+  if (key === 'member')
+    return `${member.firstName ?? ''} ${member.lastName ?? ''} ${member.email}`.toLocaleLowerCase();
+  if (key === 'role') return member.roleTemplateName.toLocaleLowerCase();
+  if (key === 'extra')
+    return String(member.overrides.filter((item) => item.granted).length).padStart(6, '0');
+  if (key === 'status') return member.status;
+  return String(member.lastActiveAt ? Date.parse(member.lastActiveAt) || 0 : 0).padStart(16, '0');
+}
+
+function formatLastActive(value: string | null): string {
+  if (!value) return '—';
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp)
+    ? '—'
+    : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(timestamp);
+}
 
 /** Staff users for one selected property, using the existing staff and invitation endpoints. */
 export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; propertyId: string }) {
@@ -214,8 +234,10 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
   const counts = useMemo(
     () => ({
       all: staff.length,
-      'with-overrides': staff.filter((member) => member.overrides.length > 0).length,
-      'without-overrides': staff.filter((member) => member.overrides.length === 0).length,
+      active: staff.filter((member) => member.status === 'ACTIVE').length,
+      suspended: staff.filter((member) => member.status === 'SUSPENDED').length,
+      'with-extra': staff.filter((member) => member.overrides.some((item) => item.granted)).length,
+      'without-extra': staff.filter((member) => !member.overrides.some((item) => item.granted)).length,
     }),
     [staff],
   );
@@ -224,12 +246,18 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
       staff.filter((member) => {
         const matchesSearch =
           !normalizedSearch ||
-          `${member.email} ${member.roleTemplateName}`
+          `${member.firstName ?? ''} ${member.lastName ?? ''} ${member.email} ${member.roleTemplateName}`
             .toLocaleLowerCase()
             .includes(normalizedSearch);
         const matchesView =
           view === 'all' ||
-          (view === 'with-overrides' ? member.overrides.length > 0 : member.overrides.length === 0);
+          (view === 'active'
+            ? member.status === 'ACTIVE'
+            : view === 'suspended'
+              ? member.status === 'SUSPENDED'
+              : view === 'with-extra'
+                ? member.overrides.some((item) => item.granted)
+                : !member.overrides.some((item) => item.granted));
         return matchesSearch && matchesView;
       }),
     [normalizedSearch, staff, view],
@@ -237,18 +265,8 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
   const sortedStaff = useMemo(() => {
     const factor = sort.direction === 'asc' ? 1 : -1;
     return [...filteredStaff].sort((left, right) => {
-      const a =
-        sort.key === 'member'
-          ? left.email.toLocaleLowerCase()
-          : sort.key === 'role'
-            ? left.roleTemplateName.toLocaleLowerCase()
-            : left.overrides.length;
-      const b =
-        sort.key === 'member'
-          ? right.email.toLocaleLowerCase()
-          : sort.key === 'role'
-            ? right.roleTemplateName.toLocaleLowerCase()
-            : right.overrides.length;
+      const a = sortValue(left, sort.key);
+      const b = sortValue(right, sort.key);
       return (a < b ? -1 : a > b ? 1 : 0) * factor;
     });
   }, [filteredStaff, sort]);
@@ -263,7 +281,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
     setSort((current) =>
       current.key === key
         ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
-        : { key, direction: key === 'member' || key === 'role' ? 'asc' : 'desc' },
+        : { key, direction: key === 'extra' ? 'desc' : 'asc' },
     );
     setPage(1);
   };
@@ -403,12 +421,10 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
           <TabBar
             tabs={[
               { id: 'all', label: 'All staff', count: counts.all },
-              { id: 'with-overrides', label: 'With overrides', count: counts['with-overrides'] },
-              {
-                id: 'without-overrides',
-                label: 'No overrides',
-                count: counts['without-overrides'],
-              },
+              { id: 'active', label: 'Active', count: counts.active },
+              { id: 'suspended', label: 'Suspended', count: counts.suspended },
+              { id: 'with-extra', label: 'With extra permissions', count: counts['with-extra'] },
+              { id: 'without-extra', label: 'No extra permissions', count: counts['without-extra'] },
             ]}
             current={view}
             onSelect={selectView}
@@ -433,7 +449,8 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
                 : [
                     {
                       key: 'view',
-                      label: view === 'with-overrides' ? 'With overrides' : 'No overrides',
+                      label: view === 'active' ? 'Active' : view === 'suspended' ? 'Suspended' :
+                        view === 'with-extra' ? 'With extra permissions' : 'No extra permissions',
                     },
                   ]),
             ]}
@@ -512,25 +529,36 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
                   />
                   {columns.role ? (
                     <SortableTableHead
-                      label="Role template"
+                      label="Role"
                       active={sort.key === 'role'}
                       direction={sort.direction}
                       onSort={() => toggleSort('role')}
                     />
                   ) : null}
-                  {columns.overrides ? (
+                  {columns.extra ? (
                     <SortableTableHead
-                      label="Overrides"
-                      active={sort.key === 'overrides'}
+                      label="Extra permissions"
+                      active={sort.key === 'extra'}
                       direction={sort.direction}
-                      onSort={() => toggleSort('overrides')}
+                      onSort={() => toggleSort('extra')}
                       align="right"
                     />
                   ) : null}
-                  {columns.scope ? (
-                    <TableHead className="px-2 py-2 normal-case tracking-normal">
-                      Hotel scope
-                    </TableHead>
+                  {columns.status ? (
+                    <SortableTableHead
+                      label="Status"
+                      active={sort.key === 'status'}
+                      direction={sort.direction}
+                      onSort={() => toggleSort('status')}
+                    />
+                  ) : null}
+                  {columns.lastActive ? (
+                    <SortableTableHead
+                      label="Last active"
+                      active={sort.key === 'last-active'}
+                      direction={sort.direction}
+                      onSort={() => toggleSort('last-active')}
+                    />
                   ) : null}
                   <TableHead className="w-10 px-2 py-2 text-right">
                     <span className="sr-only">Actions</span>
@@ -572,7 +600,9 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
                         <div className="flex min-w-0 items-center gap-2.5">
                           <Avatar>
                             <AvatarFallback>
-                              {member.email.slice(0, 1).toLocaleUpperCase()}
+                              {(
+                                member.firstName?.slice(0, 1) || member.email.slice(0, 1)
+                              ).toLocaleUpperCase()}
                             </AvatarFallback>
                           </Avatar>
                           <span className="min-w-0">
@@ -582,12 +612,11 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
                               aria-label={`Show details for ${member.email}`}
                               className="block max-w-full truncate bg-transparent p-0 text-left text-[12px] font-semibold text-foreground hover:underline"
                             >
-                              {member.email}
+                              {[member.firstName, member.lastName].filter(Boolean).join(' ') ||
+                                member.email}
                             </button>
                             <span className="block truncate text-[10px] text-muted-foreground group-data-[density=compact]:hidden">
-                              {member.overrides.length > 0
-                                ? `${member.overrides.length} access override${member.overrides.length === 1 ? '' : 's'}`
-                                : 'No access overrides'}
+                              {member.email}
                             </span>
                           </span>
                         </div>
@@ -599,18 +628,27 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
                           </Badge>
                         </TableCell>
                       ) : null}
-                      {columns.overrides ? (
+                      {columns.extra ? (
                         <TableCell className="px-2 py-2 text-right tabular-nums">
-                          {member.overrides.length > 0 ? (
-                            <Badge variant="warning">{member.overrides.length}</Badge>
+                          {member.overrides.some((item) => item.granted) ? (
+                            <Badge variant="warning">
+                              {member.overrides.filter((item) => item.granted).length}
+                            </Badge>
                           ) : (
                             <span className="text-muted-foreground">None</span>
                           )}
                         </TableCell>
                       ) : null}
-                      {columns.scope ? (
+                      {columns.status ? (
                         <TableCell className="px-2 py-2">
-                          <span className="text-muted-foreground">This hotel</span>
+                          <Badge variant={member.status === 'ACTIVE' ? 'success' : 'danger'}>
+                            {member.status === 'ACTIVE' ? 'Active' : 'Suspended'}
+                          </Badge>
+                        </TableCell>
+                      ) : null}
+                      {columns.lastActive ? (
+                        <TableCell className="px-2 py-2 text-muted-foreground">
+                          {formatLastActive(member.lastActiveAt)}
                         </TableCell>
                       ) : null}
                       <TableCell className="px-2 py-2 text-right">
@@ -702,7 +740,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="staff-invite-role">Role template</Label>
+              <Label htmlFor="staff-invite-role">Role</Label>
               <Select
                 value={selectedInviteTemplate}
                 onValueChange={setInviteTemplateId}
@@ -710,7 +748,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
               >
                 <SelectTrigger
                   id="staff-invite-role"
-                  aria-label="Invite role template"
+                  aria-label="Invite role"
                   className="w-full"
                 >
                   <SelectValue placeholder="Choose a role template" />

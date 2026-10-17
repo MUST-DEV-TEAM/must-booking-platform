@@ -65,10 +65,10 @@ export function StaffSheet({
             className="rounded-lg border px-3"
             items={[
               { label: 'Email', value: member.email },
-              { label: 'Role template', value: template?.name ?? member.roleTemplateName },
+              { label: 'Role', value: template?.name ?? member.roleTemplateName },
               { label: 'Hotel scope', value: 'Current property' },
               { label: 'Base capabilities', value: stats.baseCapabilities },
-              { label: 'Access overrides', value: stats.overrides },
+              { label: 'Extra permissions', value: stats.overrides },
             ]}
           />
           <div className="space-y-2">

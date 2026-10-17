@@ -84,7 +84,7 @@ export function StaffDetail({
         role="group"
       >
         <StatTile
-          label="Role template"
+          label="Role"
           size="sm"
           value={template?.name ?? member.roleTemplateName}
         />
@@ -92,10 +92,10 @@ export function StaffDetail({
           label="Base capabilities"
           size="sm"
           value={stats.baseCapabilities}
-          note="From the selected role template"
+          note="From the assigned role"
         />
         <StatTile
-          label="Access overrides"
+          label="Extra permissions"
           size="sm"
           value={stats.overrides}
           note={`${stats.grantedOverrides} granted · ${stats.revokedOverrides} revoked`}
@@ -117,7 +117,7 @@ export function StaffDetail({
             <DetailList
               items={[
                 { label: 'Email', value: member.email },
-                { label: 'Role template', value: template?.name ?? member.roleTemplateName },
+                { label: 'Role', value: template?.name ?? member.roleTemplateName },
                 { label: 'Hotel scope', value: 'Current property' },
               ]}
             />
@@ -129,7 +129,7 @@ export function StaffDetail({
             <TabBar
               tabs={[
                 { id: 'overview', label: 'Overview' },
-                { id: 'overrides', label: 'Access overrides', count: stats.overrides },
+                { id: 'overrides', label: 'Extra permissions', count: stats.overrides },
               ]}
               current={tab}
               onSelect={(id) => setTab(id as StaffDetailTab)}
@@ -173,7 +173,9 @@ export function StaffDetail({
           ) : (
             <div className="space-y-4 p-4">
               <div className="space-y-1">
-                <h3 className="m-0 text-sm font-semibold">Overrides for this role</h3>
+                <h3 className="m-0 text-sm font-semibold">
+                  Extra permissions for this staff member
+                </h3>
                 <p className="m-0 text-sm text-muted-foreground">
                   Choose whether each capability follows the role template or has an explicit
                   override.
@@ -183,7 +185,7 @@ export function StaffDetail({
                 <div className="divide-y rounded-lg border">
                   {template.capabilities.map((capability) => {
                     const override = member.overrides.find(
-                      (candidate) => candidate.capabilityKey === capability.key,
+                      (candidate) => candidate.capabilityKey === capability,
                     );
                     const value: OverrideValue = !override
                       ? 'default'
@@ -192,26 +194,26 @@ export function StaffDetail({
                         : 'revoke';
                     return (
                       <div
-                        key={capability.key}
+                        key={capability}
                         className="flex flex-wrap items-center justify-between gap-3 px-3 py-3"
                       >
                         <div className="min-w-0 space-y-1">
                           <p className="m-0 text-sm font-semibold">
-                            {capability.description || capability.key}
+                            {capability}
                           </p>
                           <p className="m-0 font-mono text-xs text-muted-foreground">
-                            {capability.key}
+                            {capability}
                           </p>
                         </div>
                         <Select
                           value={value}
                           onValueChange={(next) =>
-                            onChangeOverride(capability.key, next as OverrideValue)
+                            onChangeOverride(capability, next as OverrideValue)
                           }
-                          disabled={pendingOverride === capability.key}
+                          disabled={pendingOverride === capability}
                         >
                           <SelectTrigger
-                            aria-label={`${member.email} ${capability.key}`}
+                            aria-label={`${member.email} ${capability}`}
                             className="w-full sm:w-52"
                           >
                             <SelectValue />
