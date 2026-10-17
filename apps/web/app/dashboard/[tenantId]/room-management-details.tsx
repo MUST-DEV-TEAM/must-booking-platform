@@ -1,12 +1,14 @@
 ﻿'use client';
 
 import { MoreHorizontal, Plus } from 'lucide-react';
+import { useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 
 import { Badge } from '../../../components/ui/badge';
 import { Button } from '../../../components/ui/button';
 import { Card, CardContent } from '../../../components/ui/card';
 import { Checkbox } from '../../../components/ui/checkbox';
+import { TabBar } from '../../../components/ui/tab-bar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,6 +18,7 @@ import {
 } from '../../../components/ui/dropdown-menu';
 import type { Amenity, Room, RoomManagementData, RoomType } from './room-management-types';
 import { amenityIconCatalog } from './amenity-icon-catalog';
+import { RoomTypePhotoGallery } from './room-type-photo-gallery';
 
 export function SummaryTile({
   icon: Icon,
@@ -307,93 +310,160 @@ export function RoomTypePeek({
 }
 
 export function RoomPeek({
+  tenantId,
+  propertyId,
   data,
   room,
   roomType,
   customizing,
   canManageAccommodations,
+  canManagePhotos,
   onToggleAmenity,
   onCustomize,
   onInherit,
 }: {
+  tenantId: string;
+  propertyId: string;
   data: RoomManagementData;
   room: Room;
   roomType: RoomType;
   customizing: boolean;
   canManageAccommodations: boolean;
+  canManagePhotos: boolean;
   onToggleAmenity: (roomId: string, amenityId: string) => void;
   onCustomize: (roomId: string, inherited: Amenity[]) => void;
   onInherit: (roomId: string) => void;
 }) {
+  const [tab, setTab] = useState<'overview' | 'photos'>('overview');
   const custom = data.roomAmenities[room.id] ?? [];
   const effective = customizing ? custom : (data.roomTypeAmenities[roomType.id] ?? []);
+  const images = room.images ?? [];
+  const photoSource = room.photoSource ?? (images.length ? 'room' : 'none');
   return (
     <div className="flex flex-col gap-4">
-      <Card className="gap-3 py-4">
-        <CardContent className="flex flex-col gap-3 px-4">
-          <h3 className="m-0 text-sm font-bold">Room details</h3>
-          <DetailLine label="Room type" value={roomType.name} />
-          {room.title ? <DetailLine label="Display title" value={room.title} /> : null}
-          <DetailLine label="Floor" value={room.floor === null ? 'Not set' : String(room.floor)} />
-          <DetailLine label="View" value={room.viewType || 'Not set'} />
-          <DetailLine label="Room size" value={room.roomSize || 'Not set'} />
-          {room.description ? (
-            <DetailLine label="Description override" value={room.description} />
-          ) : null}
-          {room.rules ? <DetailLine label="Rules override" value={room.rules} /> : null}
-        </CardContent>
-      </Card>
-      <Card className="gap-3 py-4">
-        <CardContent className="flex flex-col gap-3 px-4">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="m-0 text-sm font-bold">Amenities</h3>
-            <Badge variant={customizing ? 'info' : 'muted'}>
-              {customizing ? 'Custom' : 'Inherited'}
-            </Badge>
-          </div>
-          <p className="m-0 text-xs text-muted-foreground">
-            {customizing
-              ? 'This room has its own amenity selection.'
-              : `Using the amenities assigned to ${roomType.name}.`}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {effective.map((item) => (
-              <Badge key={item.id} variant="muted">
-                {item.name}
-              </Badge>
-            ))}
-            {effective.length === 0 ? (
-              <span className="text-sm text-muted-foreground">No amenities selected.</span>
-            ) : null}
-          </div>
-          {canManageAccommodations && customizing ? (
-            <>
-              <Button variant="outline" size="sm" onClick={() => onInherit(room.id)}>
-                Inherit room type amenities
-              </Button>
-              <div className="flex flex-col gap-2 border-t pt-3">
-                {data.amenities.map((amenity) => (
-                  <label key={amenity.id} className="flex items-center gap-2 text-sm">
-                    <Checkbox
-                      checked={custom.some((item) => item.id === amenity.id)}
-                      onCheckedChange={() => onToggleAmenity(room.id, amenity.id)}
-                    />
-                    {amenity.name}
-                  </label>
-                ))}
+      <TabBar
+        tabs={[
+          { id: 'overview', label: 'Overview' },
+          { id: 'photos', label: 'Photos', count: images.length },
+        ]}
+        current={tab}
+        onSelect={(value) => setTab(value as 'overview' | 'photos')}
+        label="Room details"
+      />
+      {tab === 'photos' ? (
+        canManagePhotos ? (
+          <RoomTypePhotoGallery
+            tenantId={tenantId}
+            propertyId={propertyId}
+            roomId={room.id}
+            images={photoSource === 'room' ? images : []}
+            inheritedImages={photoSource === 'room_type' ? images : []}
+            photoSource={photoSource}
+          />
+        ) : (
+          <Card className="gap-3 py-4">
+            <CardContent className="flex flex-col gap-3 px-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="m-0 text-sm font-bold">Room photos</h3>
+                <Badge variant={photoSource === 'room' ? 'success' : 'muted'}>
+                  {photoSource === 'room'
+                    ? 'Own photos'
+                    : photoSource === 'room_type'
+                      ? 'Using room type photos'
+                      : 'No photos'}
+                </Badge>
               </div>
-            </>
-          ) : canManageAccommodations ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onCustomize(room.id, data.roomTypeAmenities[roomType.id] ?? [])}
-            >
-              Customize amenities
-            </Button>
-          ) : null}
-        </CardContent>
-      </Card>
+              {images.length ? (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {images.map((image, index) => (
+                    <img
+                      key={image.id}
+                      src={image.url}
+                      alt={`Room photo ${index + 1}`}
+                      className="aspect-[4/3] size-full rounded-md object-cover"
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="m-0 text-sm text-muted-foreground">
+                  No photos are available for this room.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )
+      ) : (
+        <>
+          <Card className="gap-3 py-4">
+            <CardContent className="flex flex-col gap-3 px-4">
+              <h3 className="m-0 text-sm font-bold">Room details</h3>
+              <DetailLine label="Room type" value={roomType.name} />
+              {room.title ? <DetailLine label="Display title" value={room.title} /> : null}
+              <DetailLine
+                label="Floor"
+                value={room.floor === null ? 'Not set' : String(room.floor)}
+              />
+              <DetailLine label="View" value={room.viewType || 'Not set'} />
+              <DetailLine label="Room size" value={room.roomSize || 'Not set'} />
+              {room.description ? (
+                <DetailLine label="Description override" value={room.description} />
+              ) : null}
+              {room.rules ? <DetailLine label="Rules override" value={room.rules} /> : null}
+            </CardContent>
+          </Card>
+          <Card className="gap-3 py-4">
+            <CardContent className="flex flex-col gap-3 px-4">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="m-0 text-sm font-bold">Amenities</h3>
+                <Badge variant={customizing ? 'info' : 'muted'}>
+                  {customizing ? 'Custom' : 'Inherited'}
+                </Badge>
+              </div>
+              <p className="m-0 text-xs text-muted-foreground">
+                {customizing
+                  ? 'This room has its own amenity selection.'
+                  : `Using the amenities assigned to ${roomType.name}.`}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {effective.map((item) => (
+                  <Badge key={item.id} variant="muted">
+                    {item.name}
+                  </Badge>
+                ))}
+                {effective.length === 0 ? (
+                  <span className="text-sm text-muted-foreground">No amenities selected.</span>
+                ) : null}
+              </div>
+              {canManageAccommodations && customizing ? (
+                <>
+                  <Button variant="outline" size="sm" onClick={() => onInherit(room.id)}>
+                    Inherit room type amenities
+                  </Button>
+                  <div className="flex flex-col gap-2 border-t pt-3">
+                    {data.amenities.map((amenity) => (
+                      <label key={amenity.id} className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          checked={custom.some((item) => item.id === amenity.id)}
+                          onCheckedChange={() => onToggleAmenity(room.id, amenity.id)}
+                        />
+                        {amenity.name}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              ) : canManageAccommodations ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onCustomize(room.id, data.roomTypeAmenities[roomType.id] ?? [])}
+                >
+                  Customize amenities
+                </Button>
+              ) : null}
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   );
 }

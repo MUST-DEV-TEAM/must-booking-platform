@@ -186,4 +186,68 @@ describe('PublicCatalogService payment methods', () => {
       ],
     });
   });
+
+  it('returns room-owned images or the room type fallback in public physical-room responses', async () => {
+    await expect(
+      individualCatalogFor([
+        {
+          id: 'room-own',
+          name: '101',
+          roomTypeId: 'room-type-id',
+          isAvailable: true,
+          roomImageRecords: [
+            {
+              id: 'own-image',
+              sourceUrl: 'https://images.example.test/own.jpg',
+              objectKey: null,
+              sortOrder: 0,
+              isPrimary: true,
+            },
+          ],
+          roomTypeImageRecords: [
+            {
+              id: 'type-image',
+              sourceUrl: 'https://images.example.test/type.jpg',
+              objectKey: null,
+              sortOrder: 0,
+              isPrimary: true,
+            },
+          ],
+        },
+        {
+          id: 'room-inherited',
+          name: '102',
+          roomTypeId: 'room-type-id',
+          isAvailable: true,
+          roomImageRecords: [],
+          roomTypeImageRecords: [
+            {
+              id: 'type-image',
+              sourceUrl: 'https://images.example.test/type.jpg',
+              objectKey: null,
+              sortOrder: 0,
+              isPrimary: true,
+            },
+          ],
+        },
+      ]),
+    ).resolves.toMatchObject({
+      roomTypes: [
+        {
+          rooms: [
+            {
+              id: 'room-own',
+              photoSource: 'room',
+              images: [{ id: 'own-image', url: 'https://images.example.test/own.jpg' }],
+            },
+            {
+              id: 'room-inherited',
+              photoSource: 'room_type',
+              images: [{ id: 'type-image', url: 'https://images.example.test/type.jpg' }],
+            },
+          ],
+        },
+      ],
+    });
+  });
 });

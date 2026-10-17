@@ -572,6 +572,9 @@ export class RoomTypesService {
           l.created_at AS "createdAt",
           (SELECT COUNT(*)::int FROM room_type_images i
             WHERE i.tenant_id = l.tenant_id AND i.property_id = l.property_id
+              AND i.object_key = l.object_key)
+          + (SELECT COUNT(*)::int FROM room_images i
+            WHERE i.tenant_id = l.tenant_id AND i.property_id = l.property_id
               AND i.object_key = l.object_key) AS "usageCount"
         FROM property_library_images l
         WHERE l.tenant_id = ${tenantId}::uuid AND l.property_id = ${propertyId}::uuid
@@ -678,13 +681,18 @@ export class RoomTypesService {
         `;
         if (!rows[0]) throw new NotFoundException('Library photo not found.');
         const usage = await tx.$queryRaw<Array<{ count: number }>>`
-          SELECT COUNT(*)::int AS count FROM room_type_images
-          WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
-            AND object_key = ${rows[0].objectKey}
+          SELECT (
+            (SELECT COUNT(*)::int FROM room_type_images
+              WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+                AND object_key = ${rows[0].objectKey})
+            + (SELECT COUNT(*)::int FROM room_images
+              WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+                AND object_key = ${rows[0].objectKey})
+          ) AS count
         `;
         if (usage[0].count > 0)
           throw new ConflictException(
-            'This photo is used by a room type. Remove it from the room type first.',
+            'This photo is used by a room or room type. Remove it from every gallery first.',
           );
         await tx.$executeRaw`
           DELETE FROM property_library_images

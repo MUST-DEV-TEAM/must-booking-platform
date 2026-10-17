@@ -122,6 +122,67 @@ describe('rooms', () => {
       expect.arrayContaining([expect.objectContaining({ id: roomId, name: 'Room 101' })]),
     );
 
+    const roomImagesUrl = `/tenants/${tenantId}/properties/${propertyId}/rooms/${roomId}/images`;
+    await request(app.getHttpServer()).get(roomImagesUrl).set('Cookie', cookie).expect(200, []);
+    const roomImage = await request(app.getHttpServer())
+      .post(`${roomImagesUrl}/from-url`)
+      .set('Cookie', cookie)
+      .send({ url: 'https://images.example.test/room-101.jpg' })
+      .expect(201);
+    const imageId = roomImage.body.id as string;
+    expect(roomImage.body).toMatchObject({
+      sourceUrl: 'https://images.example.test/room-101.jpg',
+      sortOrder: 0,
+      isPrimary: true,
+    });
+    const listedImages = await request(app.getHttpServer())
+      .get(roomImagesUrl)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(listedImages.body).toContainEqual(
+      expect.objectContaining({
+        id: imageId,
+        sourceUrl: 'https://images.example.test/room-101.jpg',
+        url: 'https://images.example.test/room-101.jpg',
+        isPrimary: true,
+      }),
+    );
+    await request(app.getHttpServer())
+      .put(`${roomImagesUrl}/order`)
+      .set('Cookie', cookie)
+      .send({ imageIds: [imageId] })
+      .expect(200);
+    await request(app.getHttpServer())
+      .put(`${roomImagesUrl}/primary`)
+      .set('Cookie', cookie)
+      .send({ imageId })
+      .expect(200);
+    await request(app.getHttpServer())
+      .delete(`${roomImagesUrl}/${imageId}`)
+      .set('Cookie', cookie)
+      .expect(204);
+
+    const libraryObjectKey = `library/${tenantId}/${propertyId}/room-test.jpg`;
+    const libraryRows = await admin.$queryRaw<Array<{ id: string }>>`
+      INSERT INTO property_library_images (tenant_id, property_id, object_key, confirmed_at)
+      VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${libraryObjectKey}, CURRENT_TIMESTAMP)
+      RETURNING id
+    `;
+    await request(app.getHttpServer())
+      .post(`${roomImagesUrl}/from-library`)
+      .set('Cookie', cookie)
+      .send({ libraryImageIds: [libraryRows[0].id] })
+      .expect(201, { added: 1 });
+    const attachedRows = await admin.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM room_images
+      WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND room_id = ${roomId}::uuid AND object_key = ${libraryObjectKey}
+    `;
+    await request(app.getHttpServer())
+      .delete(`${roomImagesUrl}/${attachedRows[0].id}`)
+      .set('Cookie', cookie)
+      .expect(204);
+
     await request(app.getHttpServer())
       .patch(
         `/tenants/${tenantId}/properties/${propertyId}/room-types/${roomTypeId}/rooms/${roomId}`,

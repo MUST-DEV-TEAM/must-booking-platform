@@ -525,6 +525,8 @@ export function RoomManagement({
           />
         ) : (
           <RoomManagementLists
+            tenantId={tenantId}
+            propertyId={propertyId}
             data={data}
             canManageAccommodations={canManageAccommodations}
             canManagePhotos={canManagePhotos}

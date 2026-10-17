@@ -14,6 +14,8 @@ export type Room = {
   description: string | null;
   floor: number | null;
   viewType: string | null;
+  images?: RoomTypeImage[];
+  photoSource?: 'room' | 'room_type' | 'none';
 };
 export type RoomType = {
   id: string;

@@ -72,6 +72,8 @@ const pageSizes = [10, 25, 50] as const;
 
 /** Room type and physical room directories, composed from the shared dashboard table primitives. */
 export function RoomManagementLists({
+  tenantId,
+  propertyId,
   data,
   canManageAccommodations,
   canManagePhotos,
@@ -92,6 +94,8 @@ export function RoomManagementLists({
   onInheritRoomAmenities,
   customizingRoomAmenities,
 }: {
+  tenantId: string;
+  propertyId: string;
   data: RoomManagementData;
   canManageAccommodations: boolean;
   canManagePhotos: boolean;
@@ -868,10 +872,13 @@ export function RoomManagementLists({
         ) : null}
         {peek?.kind === 'room' ? (
           <RoomPeek
+            tenantId={tenantId}
+            propertyId={propertyId}
             data={data}
             room={peek.item}
             roomType={peek.roomType}
             canManageAccommodations={canManageAccommodations}
+            canManagePhotos={canManagePhotos}
             customizing={
               customizingRoomAmenities[peek.id] === true ||
               (data.roomAmenities[peek.id] ?? []).length > 0

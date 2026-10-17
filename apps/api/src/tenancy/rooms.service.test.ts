@@ -30,7 +30,8 @@ function service() {
     ) => callback({ $queryRaw: queryRaw }),
   };
   const audit = { recordInTransaction: vi.fn().mockResolvedValue(undefined) };
-  return { rooms: new RoomsService(database as never, audit as never), queryRaw };
+  const storage = { publicUrl: vi.fn((key: string) => `https://cdn.example.test/${key}`) };
+  return { rooms: new RoomsService(database as never, audit as never, storage as never), queryRaw };
 }
 
 describe('RoomsService room presentation validation', () => {
@@ -85,10 +86,128 @@ describe('RoomsService room presentation validation', () => {
       ) => callback({ $queryRaw: queryRaw }),
     };
     const audit = { recordInTransaction: vi.fn().mockResolvedValue(undefined) };
-    const rooms = new RoomsService(database as never, audit as never);
+    const storage = { publicUrl: vi.fn((key: string) => key) };
+    const rooms = new RoomsService(database as never, audit as never, storage as never);
 
     await expect(rooms.remove(tenantId, propertyId, 'room-id', actorUserId)).rejects.toThrow(
       'Cannot delete a room with assigned amenities or other dependent records.',
+    );
+  });
+
+  it('lists only a scoped room gallery and resolves stored objects to public URLs', async () => {
+    const queryRaw = vi
+      .fn()
+      .mockResolvedValueOnce([{ id: 'room-id' }])
+      .mockResolvedValueOnce([
+        {
+          id: 'photo-id',
+          sourceUrl: null,
+          objectKey: 'rooms/room-photo.jpg',
+          sortOrder: 0,
+          isPrimary: true,
+          createdAt: new Date('2026-10-17T00:00:00.000Z'),
+        },
+      ]);
+    const database = {
+      withTenantTransaction: async (
+        context: unknown,
+        callback: (tx: { $queryRaw: typeof queryRaw }) => Promise<unknown>,
+      ) => {
+        expect(context).toEqual({ tenantId, propertyId });
+        return callback({ $queryRaw: queryRaw });
+      },
+    };
+    const rooms = new RoomsService(
+      database as never,
+      { recordInTransaction: vi.fn() } as never,
+      { publicUrl: vi.fn((key: string) => `https://cdn.example.test/${key}`) } as never,
+    );
+
+    await expect(rooms.listImages(tenantId, propertyId, 'room-id')).resolves.toMatchObject([
+      { id: 'photo-id', url: 'https://cdn.example.test/rooms/room-photo.jpg', isPrimary: true },
+    ]);
+    expect(queryRaw).toHaveBeenCalledTimes(2);
+  });
+
+  it('adds a validated URL as the first primary room photo and records the change', async () => {
+    const queryRaw = vi
+      .fn()
+      .mockResolvedValueOnce([{ id: 'room-id' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ count: 0, nextOrder: 0 }]);
+    const executeRaw = vi.fn().mockResolvedValue(1);
+    const database = {
+      withTenantTransaction: async (
+        _context: unknown,
+        callback: (tx: {
+          $queryRaw: typeof queryRaw;
+          $executeRaw: typeof executeRaw;
+        }) => Promise<unknown>,
+      ) => callback({ $queryRaw: queryRaw, $executeRaw: executeRaw }),
+    };
+    const audit = { recordInTransaction: vi.fn().mockResolvedValue(undefined) };
+    const rooms = new RoomsService(
+      database as never,
+      audit as never,
+      { publicUrl: vi.fn((key: string) => key) } as never,
+    );
+
+    await expect(
+      rooms.createImageFromUrl(tenantId, propertyId, 'room-id', actorUserId, {
+        url: 'https://images.example.test/room.jpg',
+      }),
+    ).resolves.toMatchObject({
+      sourceUrl: 'https://images.example.test/room.jpg',
+      sortOrder: 0,
+      isPrimary: true,
+    });
+    expect(executeRaw).toHaveBeenCalledTimes(1);
+    expect(audit.recordInTransaction).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: 'room_image.created_from_url', targetType: 'room_image' }),
+    );
+  });
+
+  it('creates a scoped presigned room photo upload and library entry', async () => {
+    const queryRaw = vi
+      .fn()
+      .mockResolvedValueOnce([{ id: 'room-id' }])
+      .mockResolvedValueOnce([{ count: 0 }])
+      .mockResolvedValueOnce([{ nextOrder: 0 }]);
+    const executeRaw = vi.fn().mockResolvedValue(1);
+    const database = {
+      withTenantTransaction: async (
+        context: unknown,
+        callback: (tx: {
+          $queryRaw: typeof queryRaw;
+          $executeRaw: typeof executeRaw;
+        }) => Promise<unknown>,
+      ) => {
+        expect(context).toEqual({ tenantId, propertyId });
+        return callback({ $queryRaw: queryRaw, $executeRaw: executeRaw });
+      },
+    };
+    const storage = {
+      createPresignedUpload: vi
+        .fn()
+        .mockResolvedValue({ uploadUrl: 'https://upload.example.test/photo' }),
+      publicUrl: vi.fn((key: string) => `https://cdn.example.test/${key}`),
+    };
+    const audit = { recordInTransaction: vi.fn().mockResolvedValue(undefined) };
+    const rooms = new RoomsService(database as never, audit as never, storage as never);
+
+    await expect(
+      rooms.createImageUpload(tenantId, propertyId, 'room-id', actorUserId, {
+        contentType: 'image/png',
+        contentLength: 100,
+      }),
+    ).resolves.toMatchObject({
+      uploadUrl: 'https://upload.example.test/photo',
+      publicUrl: expect.stringMatching(/^https:\/\/cdn\.example\.test\/rooms\//),
+    });
+    expect(executeRaw).toHaveBeenCalledTimes(2);
+    expect(storage.createPresignedUpload).toHaveBeenCalledWith(
+      expect.objectContaining({ contentType: 'image/png', contentLength: 100 }),
     );
   });
 });

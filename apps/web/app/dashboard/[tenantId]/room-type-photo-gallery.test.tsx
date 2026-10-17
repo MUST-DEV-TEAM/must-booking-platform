@@ -30,7 +30,12 @@ function responseFor(status = 200, body: unknown = {}) {
       });
 }
 
-async function renderGallery(images: RoomTypeImage[], fetchMock: ReturnType<typeof vi.fn>) {
+async function renderGallery(
+  images: RoomTypeImage[],
+  fetchMock: ReturnType<typeof vi.fn>,
+  roomId?: string,
+  inheritedImages: RoomTypeImage[] = [],
+) {
   vi.stubGlobal('fetch', fetchMock);
   const container = document.createElement('div');
   const root = createRoot(container);
@@ -42,8 +47,17 @@ async function renderGallery(images: RoomTypeImage[], fetchMock: ReturnType<type
         createElement(RoomTypePhotoGallery, {
           tenantId: 'tenant-1',
           propertyId: 'property-1',
-          roomTypeId: 'room-type-1',
+          roomTypeId: roomId ? undefined : 'room-type-1',
+          roomId,
           images,
+          inheritedImages,
+          photoSource: roomId
+            ? inheritedImages.length
+              ? 'room_type'
+              : images.length
+                ? 'room'
+                : 'none'
+            : undefined,
         }),
       ),
     );
@@ -262,6 +276,21 @@ describe('RoomTypePhotoGallery', () => {
           expect.objectContaining({ method: 'DELETE' }),
         ),
       ),
+    );
+    await act(async () => root.unmount());
+  });
+
+  it('targets room image routes and labels inherited room type photos', async () => {
+    const fetchMock = vi.fn(async () => responseFor(200));
+    const { container, root } = await renderGallery([], fetchMock, 'room-1', [twoImages[0]]);
+    expect(container.textContent).toContain('Using room type photos');
+    expect(container.querySelector('[aria-label="Room type photos in use"] img')).not.toBeNull();
+    await chooseFile(container);
+    await click(container, 'Upload 1 photo');
+    await act(async () => vi.waitFor(() => expect(fetchMock).toHaveBeenCalled()));
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${base}/rooms/room-1/images`,
+      expect.objectContaining({ method: 'POST' }),
     );
     await act(async () => root.unmount());
   });

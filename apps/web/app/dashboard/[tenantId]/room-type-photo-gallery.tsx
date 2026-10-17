@@ -34,12 +34,18 @@ export function RoomTypePhotoGallery({
   tenantId,
   propertyId,
   roomTypeId,
+  roomId,
   images,
+  inheritedImages = [],
+  photoSource = 'room',
 }: {
   tenantId: string;
   propertyId: string;
-  roomTypeId: string;
+  roomTypeId?: string;
+  roomId?: string;
   images: RoomTypeImage[];
+  inheritedImages?: RoomTypeImage[];
+  photoSource?: 'room' | 'room_type' | 'none';
 }) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -54,6 +60,9 @@ export function RoomTypePhotoGallery({
     null,
   );
   const roomTypesUrl = `/api/tenants/${tenantId}/properties/${propertyId}/room-types`;
+  const photoOwnerUrl = roomId
+    ? `/api/tenants/${tenantId}/properties/${propertyId}/rooms/${roomId}`
+    : `${roomTypesUrl}/${roomTypeId}`;
   const queryKey = ['dashboard', 'room-management', tenantId, propertyId] as const;
   const remainingSlots = maxImages - images.length - staged.length;
 
@@ -72,7 +81,7 @@ export function RoomTypePhotoGallery({
       setUploadProgress({ uploaded: 0, total: photos.length });
       for (const photo of photos) {
         try {
-          const authorization = await fetch(`${roomTypesUrl}/${roomTypeId}/images`, {
+          const authorization = await fetch(`${photoOwnerUrl}/images`, {
             method: 'POST',
             credentials: 'include',
             headers: { 'content-type': 'application/json' },
@@ -97,7 +106,7 @@ export function RoomTypePhotoGallery({
             body: photo.file,
           });
           if (!response.ok) {
-            await fetch(`${roomTypesUrl}/${roomTypeId}/images/${id}`, {
+            await fetch(`${photoOwnerUrl}/images/${id}`, {
               method: 'DELETE',
               credentials: 'include',
             }).catch(() => undefined);
@@ -135,7 +144,7 @@ export function RoomTypePhotoGallery({
 
   const attachMutation = useMutation({
     mutationFn: async (libraryImageIds: string[]) => {
-      const response = await fetch(`${roomTypesUrl}/${roomTypeId}/images/from-library`, {
+      const response = await fetch(`${photoOwnerUrl}/images/from-library`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'content-type': 'application/json' },
@@ -159,7 +168,7 @@ export function RoomTypePhotoGallery({
 
   const reorderMutation = useMutation({
     mutationFn: async (imageIds: string[]) => {
-      const response = await fetch(`${roomTypesUrl}/${roomTypeId}/images/order`, {
+      const response = await fetch(`${photoOwnerUrl}/images/order`, {
         method: 'PUT',
         credentials: 'include',
         headers: { 'content-type': 'application/json' },
@@ -176,7 +185,7 @@ export function RoomTypePhotoGallery({
 
   const setPrimaryMutation = useMutation({
     mutationFn: async (imageId: string) => {
-      const response = await fetch(`${roomTypesUrl}/${roomTypeId}/images/primary`, {
+      const response = await fetch(`${photoOwnerUrl}/images/primary`, {
         method: 'PUT',
         credentials: 'include',
         headers: { 'content-type': 'application/json' },
@@ -197,7 +206,7 @@ export function RoomTypePhotoGallery({
 
   const removeMutation = useMutation({
     mutationFn: async (imageId: string) => {
-      const response = await fetch(`${roomTypesUrl}/${roomTypeId}/images/${imageId}`, {
+      const response = await fetch(`${photoOwnerUrl}/images/${imageId}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -214,7 +223,7 @@ export function RoomTypePhotoGallery({
 
   const addUrlMutation = useMutation({
     mutationFn: async (imageUrl: string) => {
-      const response = await fetch(`${roomTypesUrl}/${roomTypeId}/images/from-url`, {
+      const response = await fetch(`${photoOwnerUrl}/images/from-url`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'content-type': 'application/json' },
@@ -240,7 +249,9 @@ export function RoomTypePhotoGallery({
     const files = Array.from(fileList);
     if (!files.length) return;
     if (files.length > remainingSlots) {
-      toast.error(`You can add ${Math.max(remainingSlots, 0)} more photos to this room type.`);
+      toast.error(
+        `You can add ${Math.max(remainingSlots, 0)} more photos to this ${roomId ? 'room' : 'room type'}.`,
+      );
       return;
     }
     const problem = await checkImageFiles(files);
@@ -298,6 +309,33 @@ export function RoomTypePhotoGallery({
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4 px-0">
+        {roomId && photoSource === 'room_type' ? (
+          <Alert variant="info">
+            <AlertDescription>
+              Using room type photos. Add a room photo to create a room-specific gallery.
+            </AlertDescription>
+          </Alert>
+        ) : roomId && photoSource === 'room' ? (
+          <Badge variant="success" className="w-fit">
+            Own photos
+          </Badge>
+        ) : null}
+        {roomId && photoSource === 'room_type' && inheritedImages.length ? (
+          <div
+            className="grid grid-cols-2 gap-3 sm:grid-cols-3"
+            aria-label="Room type photos in use"
+          >
+            {inheritedImages.map((image, index) => (
+              <div key={image.id} className="overflow-hidden rounded-md border">
+                <img
+                  src={image.url}
+                  alt={`Room type photo ${index + 1}`}
+                  className="aspect-[4/3] size-full object-cover"
+                />
+              </div>
+            ))}
+          </div>
+        ) : null}
         <div
           className={`flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed px-4 py-7 text-center transition-colors ${dragActive ? 'border-primary bg-primary/5' : 'bg-muted/20'}`}
           aria-label="Photo upload area"

@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 
 import { TenantDatabaseService } from './tenant-database.service';
+import { roomImagePresentation, type RoomImageProjectionRow } from './room-image-projection';
 import { roomTypeImagePresentation } from './room-type-image-projection';
 import { STORAGE_PROVIDER, type StorageProvider } from '../storage/storage.provider';
 
@@ -15,6 +16,8 @@ type PublicCatalogRoom = {
   floor: number | null;
   viewType: string | null;
   isAvailable: boolean;
+  images: Array<{ id: string; url: string; sortOrder: number; isPrimary: boolean }>;
+  photoSource: 'room' | 'room_type' | 'none';
 };
 
 type PublicCatalogRoomType = {
@@ -179,7 +182,15 @@ export class PublicCatalogService {
         return { roomTypes, paymentMethods };
 
       const range = this.availabilityRange(query);
-      const rooms = await tx.$queryRaw<Array<PublicCatalogRoom & { roomTypeId: string }>>`
+      const roomRows = await tx.$queryRaw<
+        Array<
+          Omit<PublicCatalogRoom, 'images' | 'photoSource'> & {
+            roomTypeId: string;
+            roomImageRecords: RoomImageProjectionRow[];
+            roomTypeImageRecords: RoomImageProjectionRow[];
+          }
+        >
+      >`
         SELECT r.id, r.name, r.title, r.room_size AS "roomSize",
           COALESCE(NULLIF(BTRIM(r.rules), ''), NULLIF(BTRIM(p.rules), '')) AS rules,
           COALESCE(NULLIF(BTRIM(r.description), ''), NULLIF(BTRIM(rt.description), '')) AS description,
@@ -203,6 +214,24 @@ export class PublicCatalogService {
             '[]'::json
           ) AS amenities,
           r.floor, r.view_type AS "viewType", r.room_type_id AS "roomTypeId",
+          COALESCE((
+            SELECT json_agg(json_build_object(
+              'id', images.id, 'sourceUrl', images.source_url, 'objectKey', images.object_key,
+              'sortOrder', images.sort_order, 'isPrimary', images.is_primary, 'createdAt', images.created_at
+            ) ORDER BY images.sort_order, images.created_at, images.id)
+            FROM room_images images
+            WHERE images.tenant_id = ${tenantId}::uuid AND images.property_id = ${propertyId}::uuid
+              AND images.room_id = r.id
+          ), '[]'::json) AS "roomImageRecords",
+          COALESCE((
+            SELECT json_agg(json_build_object(
+              'id', images.id, 'sourceUrl', images.source_url, 'objectKey', images.object_key,
+              'sortOrder', images.sort_order, 'isPrimary', images.is_primary, 'createdAt', images.created_at
+            ) ORDER BY images.sort_order, images.created_at, images.id)
+            FROM room_type_images images
+            WHERE images.tenant_id = ${tenantId}::uuid AND images.property_id = ${propertyId}::uuid
+              AND images.room_type_id = r.room_type_id
+          ), '[]'::json) AS "roomTypeImageRecords",
           NOT EXISTS (
             SELECT 1
             FROM room_availability ra
@@ -267,8 +296,15 @@ export class PublicCatalogService {
         ORDER BY r.created_at
       `;
       const roomsByType = new Map<string, PublicCatalogRoom[]>();
-      for (const { roomTypeId, ...room } of rooms)
-        roomsByType.set(roomTypeId, [...(roomsByType.get(roomTypeId) ?? []), room]);
+      for (const { roomTypeId, roomImageRecords, roomTypeImageRecords, ...room } of roomRows) {
+        const presentation = roomImagePresentation(
+          roomImageRecords ?? [],
+          roomTypeImageRecords ?? [],
+          (key) => this.storage.publicUrl(key),
+        );
+        const publicRoom = { ...room, ...presentation };
+        roomsByType.set(roomTypeId, [...(roomsByType.get(roomTypeId) ?? []), publicRoom]);
+      }
       return {
         bookingMode: property.bookingMode,
         roomTypes: roomTypes.map((roomType) => ({
