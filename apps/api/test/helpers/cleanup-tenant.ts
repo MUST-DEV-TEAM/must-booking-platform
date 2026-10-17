@@ -46,6 +46,7 @@ export async function cleanupTenant(
   await admin.$executeRaw`DELETE FROM rooms WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM guests WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM room_types WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM room_categories WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM capabilities WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM property_role_templates WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM amenities WHERE tenant_id = ${tenantId}::uuid`;

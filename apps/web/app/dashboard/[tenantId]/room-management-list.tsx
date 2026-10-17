@@ -1,7 +1,15 @@
 ﻿'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { BedDouble, DoorOpen, Download, Image as ImageIcon, Plus, Sparkles } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  BedDouble,
+  DoorOpen,
+  Download,
+  Image as ImageIcon,
+  Plus,
+  Sparkles,
+  Upload,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Avatar, AvatarFallback, AvatarImage } from '../../../components/ui/avatar';
@@ -39,6 +47,9 @@ import {
   TableRow,
 } from '../../../components/ui/table';
 import { useTablePreferences } from '../../../lib/use-table-preferences';
+import { RoomManagementImportDialog } from './room-management-import-dialog';
+import { accommodationCsv, parseAccommodationCsv } from './room-management-csv';
+import type { AccommodationCsvKind, AccommodationCsvRow } from './room-management-csv';
 import type { Amenity, Room, RoomManagementData, RoomType } from './room-management-types';
 import {
   CompactAmenities,
@@ -104,6 +115,7 @@ export function RoomManagementLists({
   onToggleRoomAmenity,
   onCustomizeRoomAmenities,
   onInheritRoomAmenities,
+  onImportComplete,
   customizingRoomAmenities,
 }: {
   tenantId: string;
@@ -131,6 +143,7 @@ export function RoomManagementLists({
   onToggleRoomAmenity: (roomId: string, amenityId: string) => void;
   onCustomizeRoomAmenities: (roomId: string, inherited: Amenity[]) => void;
   onInheritRoomAmenities: (roomId: string) => void;
+  onImportComplete: () => void;
   customizingRoomAmenities: Record<string, boolean>;
 }) {
   const [view, setView] = useState<'room-types' | 'rooms'>('room-types');
@@ -145,6 +158,11 @@ export function RoomManagementLists({
   });
   const [selected, setSelected] = useState<string[]>([]);
   const [peek, setPeek] = useState<PickedRow | null>(null);
+  const [importSelection, setImportSelection] = useState<{
+    kind: AccommodationCsvKind;
+    rows: AccommodationCsvRow[];
+  } | null>(null);
+  const csvInput = useRef<HTMLInputElement>(null);
   const { columns, density, toggleColumn, toggleDensity } = useTablePreferences(
     'must.accommodations.table',
     defaultColumns,
@@ -257,22 +275,21 @@ export function RoomManagementLists({
     );
   }
   function exportRows(rowsToExport: PickedRow[], filename: string) {
-    const lines = rowsToExport.map((row) =>
-      row.kind === 'room-type'
-        ? [
-            row.item.name,
-            'Room type',
-            String(row.item.maxOccupancy),
-            String((data.rooms[row.id] ?? []).length),
-            '',
-          ]
-        : [row.item.name, 'Physical room', '', '', row.roomType.name],
+    const kind = rowsToExport[0]?.kind === 'room' ? 'rooms' : 'room-types';
+    const items = rowsToExport.map((row) =>
+      row.kind === 'room-type' ? row.item : { room: row.item, roomType: row.roomType },
     );
-    downloadCsv(
-      ['Name', 'Kind', 'Maximum occupancy', 'Physical rooms', 'Room type'],
-      lines,
-      filename,
-    );
+    downloadCsv(accommodationCsv(kind, items), filename);
+  }
+  async function readImportFile(file: File | undefined) {
+    if (!file) return;
+    try {
+      const kind: AccommodationCsvKind = view === 'room-types' ? 'room-types' : 'rooms';
+      const rows = parseAccommodationCsv(kind, await file.text());
+      setImportSelection({ kind, rows });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to read this CSV file.');
+    }
   }
   async function copyRows() {
     const names = selectedRows.map((row) => row.item.name).join('\n');
@@ -454,6 +471,24 @@ export function RoomManagementLists({
               >
                 <Download aria-hidden="true" /> Export CSV
               </Button>
+              {canManageAccommodations ? (
+                <>
+                  <input
+                    ref={csvInput}
+                    type="file"
+                    accept=".csv,text/csv"
+                    aria-label="Choose accommodation CSV file"
+                    className="sr-only"
+                    onChange={(event) => {
+                      void readImportFile(event.currentTarget.files?.[0]);
+                      event.currentTarget.value = '';
+                    }}
+                  />
+                  <Button variant="outline" onClick={() => csvInput.current?.click()}>
+                    <Upload aria-hidden="true" /> Import CSV
+                  </Button>
+                </>
+              ) : null}
               {canManageAccommodations ? (
                 <Button variant="outline" onClick={onManageAmenities}>
                   Manage amenities
@@ -1032,6 +1067,20 @@ export function RoomManagementLists({
           />
         ) : null}
       </QuickPeek>
+      <RoomManagementImportDialog
+        tenantId={tenantId}
+        propertyId={propertyId}
+        kind={importSelection?.kind ?? null}
+        rows={importSelection?.rows ?? []}
+        onOpenChange={(open) => {
+          if (!open) setImportSelection(null);
+        }}
+        onImported={() => {
+          setImportSelection(null);
+          setSelected([]);
+          onImportComplete();
+        }}
+      />
     </div>
   );
 }
@@ -1079,10 +1128,7 @@ function rowKey(row: RoomType | RoomLine, view: 'room-types' | 'rooms') {
 function statusLabel(status: RoomType['status']) {
   return status === 'PUBLISHED' ? 'Published' : status === 'HIDDEN' ? 'Hidden' : 'Draft';
 }
-function downloadCsv(headers: string[], rows: string[][], filename: string) {
-  const csv = [headers, ...rows]
-    .map((row) => row.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(','))
-    .join('\r\n');
+function downloadCsv(csv: string, filename: string) {
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   const anchor = document.createElement('a');
   anchor.href = url;

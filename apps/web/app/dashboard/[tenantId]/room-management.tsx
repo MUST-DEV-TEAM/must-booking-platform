@@ -813,6 +813,10 @@ export function RoomManagement({
                 onToggleRoomAmenity={toggleRoomAmenity}
                 onCustomizeRoomAmenities={customizeRoomAmenities}
                 onInheritRoomAmenities={inheritRoomAmenities}
+                onImportComplete={() => {
+                  void queryClient.invalidateQueries({ queryKey: roomManagementQueryKey });
+                  toast.success('Accommodation CSV imported.');
+                }}
                 customizingRoomAmenities={customizingRoomAmenities}
               />
             )}

@@ -184,6 +184,64 @@ describe('rooms', () => {
       ]),
     );
 
+    const importUrl = `/tenants/${tenantId}/properties/${propertyId}/accommodations/import`;
+    const roomImport = {
+      kind: 'rooms',
+      rows: [
+        {
+          id: roomId,
+          roomTypeId,
+          roomTypeName: 'Standard Room',
+          name: 'Room 101',
+          title: 'CSV-updated title',
+          isActive: 'true',
+        },
+        {
+          roomTypeId,
+          roomTypeName: 'Standard Room',
+          name: 'Room 103',
+          title: 'New room from CSV',
+          isActive: 'false',
+        },
+      ],
+    };
+    await request(app.getHttpServer())
+      .post(`${importUrl}/preview`)
+      .set('Cookie', cookie)
+      .send(roomImport)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toMatchObject({
+          kind: 'rooms',
+          summary: { create: 1, update: 1, errors: 0 },
+          canConfirm: true,
+        });
+      });
+    await request(app.getHttpServer())
+      .post(`${importUrl}/confirm`)
+      .set('Cookie', cookie)
+      .send(roomImport)
+      .expect(201, { create: 1, update: 1, errors: 0 });
+    const importedRooms = await request(app.getHttpServer())
+      .get(`/tenants/${tenantId}/properties/${propertyId}/room-types/${roomTypeId}/rooms`)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(importedRooms.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: roomId, title: 'CSV-updated title', isActive: true }),
+        expect.objectContaining({ name: 'Room 103', title: 'New room from CSV', isActive: false }),
+      ]),
+    );
+    const importedRoomId = importedRooms.body.find(
+      (room: { name: string }) => room.name === 'Room 103',
+    )?.id as string;
+    await request(app.getHttpServer())
+      .delete(
+        `/tenants/${tenantId}/properties/${propertyId}/room-types/${roomTypeId}/rooms/${importedRoomId}`,
+      )
+      .set('Cookie', cookie)
+      .expect(204);
+
     await request(app.getHttpServer())
       .patch(
         `/tenants/${tenantId}/properties/${propertyId}/room-types/${roomTypeId}/rooms/${roomId}`,
@@ -212,6 +270,10 @@ describe('rooms', () => {
           actorName: email,
         }),
         expect.objectContaining({ action: 'room.active_changed' }),
+        expect.objectContaining({
+          action: 'accommodation.imported',
+          targetType: 'accommodation_import',
+        }),
       ]),
     );
 
