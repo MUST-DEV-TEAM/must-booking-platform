@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, MoreHorizontal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -28,7 +28,6 @@ import {
 import { FilterChips } from '../../components/ui/filter-chips';
 import { FormField } from '../../components/ui/form-field';
 import { Input } from '../../components/ui/input';
-import { Label } from '../../components/ui/label';
 import { PageHeader } from '../../components/ui/page-header';
 import { PasswordField } from '../../components/ui/password-field';
 import { Pagination } from '../../components/ui/pagination';
@@ -36,7 +35,6 @@ import {
   PermissionMatrix,
   type PermissionCatalogItem,
 } from '../../components/ui/permission-matrix';
-import { QuickPeek } from '../../components/ui/quick-peek';
 import { SearchInput } from '../../components/ui/search-input';
 import { SortableTableHead } from '../../components/ui/sortable-table-head';
 import {
@@ -109,6 +107,7 @@ function formatLastActive(value: string | null): string {
 /** Staff users for one selected property. */
 export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; propertyId: string }) {
   const base = `/api/tenants/${tenantId}`;
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [screen, setScreen] = useState<'staff' | 'roles'>('staff');
   const [view, setView] = useState<StaffView>('all');
@@ -202,8 +201,17 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
       });
       if (!response.ok) throw new Error('Unable to update staff role.');
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       load();
+      void queryClient.invalidateQueries({
+        queryKey: [
+          'dashboard',
+          'staff-effective-capabilities',
+          tenantId,
+          propertyId,
+          variables.userId,
+        ],
+      });
       toast.success('Staff role updated.');
     },
     onError: () => toast.error('Unable to update staff role.'),
@@ -229,11 +237,38 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
       );
       if (!response.ok) throw new Error('Unable to update capability override.');
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       load();
+      void queryClient.invalidateQueries({
+        queryKey: [
+          'dashboard',
+          'staff-effective-capabilities',
+          tenantId,
+          propertyId,
+          variables.userId,
+        ],
+      });
       toast.success('Capability override updated.');
     },
     onError: () => toast.error('Unable to update capability override.'),
+  });
+  const statusMutation = useMutation({
+    mutationFn: async ({ userId, status }: { userId: string; status: 'ACTIVE' | 'SUSPENDED' }) => {
+      const response = await fetch(`${base}/properties/${propertyId}/staff/${userId}/status`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      if (!response.ok) throw await contractError(response, 'Unable to update staff status.');
+    },
+    onSuccess: (_data, variables) => {
+      load();
+      setSuspendTarget(null);
+      toast.success(
+        variables.status === 'SUSPENDED' ? 'Staff access suspended.' : 'Staff access reactivated.',
+      );
+    },
   });
 
   const normalizedSearch = search.trim().toLocaleLowerCase();
@@ -319,7 +354,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
       setNotice('Could not copy. Select the emails manually.');
     }
   };
-  const requestSuspend = (member: StaffMember) => {
+  const requestStatusChange = (member: StaffMember) => {
     setSelectedId(null);
     window.setTimeout(() => setSuspendTarget(member), 0);
   };
@@ -368,6 +403,8 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
           propertyId={propertyId}
           member={detailMember}
           templates={templates}
+          catalog={catalog}
+          myCapabilities={myCapabilities}
           roleChangePending={
             assignMutation.isPending && assignMutation.variables?.userId === detailMember.userId
           }
@@ -376,15 +413,29 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
               ? overrideMutation.variables.key
               : undefined
           }
+          statusPending={
+            statusMutation.isPending && statusMutation.variables?.userId === detailMember.userId
+          }
           onChangeRole={(roleTemplateId) =>
             assignMutation.mutate({ userId: detailMember.userId, roleTemplateId })
           }
           onChangeOverride={(key, value) =>
             overrideMutation.mutate({ userId: detailMember.userId, key, value })
           }
-          onSuspend={() => requestSuspend(detailMember)}
+          onChangeStatus={() => requestStatusChange(detailMember)}
         />
-        <SuspendStaffDialog target={suspendTarget} onClose={() => setSuspendTarget(null)} />
+        <StaffStatusDialog
+          target={suspendTarget}
+          pending={statusMutation.isPending}
+          onClose={() => setSuspendTarget(null)}
+          onConfirm={async () => {
+            if (!suspendTarget) return;
+            await statusMutation.mutateAsync({
+              userId: suspendTarget.userId,
+              status: suspendTarget.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE',
+            });
+          }}
+        />
       </>
     );
   }
@@ -725,10 +776,12 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
                               Copy email
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              variant="destructive"
-                              onSelect={() => requestSuspend(member)}
+                              variant={member.status === 'ACTIVE' ? 'destructive' : 'default'}
+                              onSelect={() => requestStatusChange(member)}
                             >
-                              Suspend access…
+                              {member.status === 'ACTIVE'
+                                ? 'Suspend access…'
+                                : 'Reactivate access…'}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -763,9 +816,14 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
         }
         tenantId={tenantId}
         propertyId={propertyId}
+        catalog={catalog}
+        myCapabilities={myCapabilities}
+        statusPending={
+          statusMutation.isPending && statusMutation.variables?.userId === selected?.userId
+        }
         onClose={() => setSelectedId(null)}
-        onSuspend={() => {
-          if (selected) requestSuspend(selected);
+        onChangeStatus={() => {
+          if (selected) requestStatusChange(selected);
         }}
       />
 
@@ -788,7 +846,18 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
         }}
       />
 
-      <SuspendStaffDialog target={suspendTarget} onClose={() => setSuspendTarget(null)} />
+      <StaffStatusDialog
+        target={suspendTarget}
+        pending={statusMutation.isPending}
+        onClose={() => setSuspendTarget(null)}
+        onConfirm={async () => {
+          if (!suspendTarget) return;
+          await statusMutation.mutateAsync({
+            userId: suspendTarget.userId,
+            status: suspendTarget.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE',
+          });
+        }}
+      />
     </div>
   );
 }
@@ -1404,35 +1473,42 @@ async function contractError(response: Response, fallback: string): Promise<Erro
   return new Error(fallback);
 }
 
-function SuspendStaffDialog({
+function StaffStatusDialog({
   target,
+  pending,
   onClose,
+  onConfirm,
 }: {
   target: StaffMember | null;
+  pending: boolean;
   onClose: () => void;
+  onConfirm: () => Promise<void>;
 }) {
+  const suspending = target?.status === 'ACTIVE';
   return (
     <ConfirmDialog
       open={target !== null}
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
-      title="Suspend staff access"
+      title={suspending ? 'Suspend staff access' : 'Reactivate staff access'}
       description={
         target ? (
           <>
-            Suspend access for <strong>{target.email}</strong>?
+            {suspending ? 'Suspend access for ' : 'Reactivate access for '}
+            <strong>{target.email}</strong>?
           </>
         ) : null
       }
-      confirmLabel="Suspension unavailable"
-      destructive
-      confirmDisabled
-      onConfirm={async () => undefined}
+      confirmLabel={suspending ? 'Suspend staff' : 'Reactivate staff'}
+      destructive={suspending}
+      confirmDisabled={pending}
+      onConfirm={onConfirm}
     >
-      <p className="m-0 rounded-md border border-warning/30 bg-warning-surface p-3 text-sm text-warning">
-        The current staff API cannot suspend accounts or revoke sessions. Nothing will change. This
-        action is disabled until that support is built (G157).
+      <p className="m-0 rounded-md border bg-muted p-3 text-sm text-muted-foreground">
+        {suspending
+          ? 'Suspending blocks sign-in and ends active sessions. Staff history stays available.'
+          : 'The staff account can sign in again after it is reactivated.'}
       </p>
     </ConfirmDialog>
   );

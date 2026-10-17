@@ -66,6 +66,17 @@ const catalog = [
     label: 'Manage staff permissions',
     description: 'Manage staff access.',
   },
+  {
+    group: 'Staff',
+    key: 'staff.suspend',
+    label: 'Suspend staff',
+    description: 'Suspend or reactivate staff access.',
+  },
+];
+const effectiveCapabilities = [
+  { key: 'payments.refund', granted: true, source: 'role' },
+  { key: 'staff.manage_permissions', granted: false, source: 'none' },
+  { key: 'staff.suspend', granted: true, source: 'role' },
 ];
 const pointerMethods = ['setPointerCapture', 'releasePointerCapture', 'hasPointerCapture'] as const;
 const originalPointerMethods = new Map(
@@ -117,7 +128,7 @@ afterEach(() => {
 });
 
 describe('Staff', () => {
-  it('invites with the selected role template through the existing endpoint', async () => {
+  it('invites with the selected role through the existing endpoint', async () => {
     const fetch = mock({ staffSeats: 1, maxStaffSeats: 2 });
     const { root } = await mount();
 
@@ -304,6 +315,8 @@ describe('Staff', () => {
     expect(container.querySelector('[aria-label="Search staff"]')).not.toBeNull();
     expect(container.textContent).toContain('Suspended');
     expect(container.textContent).toContain('Last active');
+    expect(container.textContent).toContain('Role');
+    expect(container.textContent).toContain('Extra permissions');
     expect(container.textContent).not.toContain('Hotel scope');
     expect(container.textContent).not.toContain('Role template');
     expect(container.textContent).not.toContain('Create role template');
@@ -321,16 +334,19 @@ describe('Staff', () => {
       container.querySelector<HTMLTableRowElement>('tbody tr')!.click();
       await settle();
     });
-    expect(document.body.textContent).toContain('Staff access for the selected hotel');
+    expect(document.body.textContent).toContain('Selected hotel');
     expect(document.body.querySelector('a[href*="staffUser=u"]')?.textContent).toContain(
       'Open staff details',
     );
+    expect(document.body.textContent).toContain('Granted · Role');
+    expect(document.body.textContent).toContain('Not granted · None');
     await unmount(root);
   });
 
-  it('assigns a role and writes grant, deny and default extra permissions on the detail page', async () => {
+  it('assigns a role and edits extra and denied permissions from the catalog', async () => {
     window.history.replaceState(null, '', '/dashboard/t?propertyId=p&section=staff&staffUser=u');
     let currentStaff = [...staff];
+    let currentEffective = [...effectiveCapabilities];
     const fetch = vi.fn((url: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET';
       const href = String(url);
@@ -341,22 +357,44 @@ describe('Staff', () => {
         ];
         return Promise.resolve(new Response(null, { status: 204 }));
       }
-      if (href.includes('/capabilities/payments.refund')) {
+      if (href.endsWith('/effective-capabilities'))
+        return Promise.resolve(new Response(JSON.stringify(currentEffective)));
+      if (href.includes('/staff/u/capabilities/')) {
+        const key = href.split('/capabilities/').at(-1)!;
         if (method === 'DELETE') {
           currentStaff = [
             {
               ...currentStaff[0]!,
               overrides: currentStaff[0]!.overrides.filter(
-                (override) => override.capabilityKey !== 'payments.refund',
+                (override) => override.capabilityKey !== key,
               ),
             },
+          ];
+          const roleGranted =
+            templates
+              .find((template) => template.id === currentStaff[0]!.roleTemplateId)
+              ?.capabilities.includes(key) ?? false;
+          currentEffective = [
+            ...currentEffective.filter((permission) => permission.key !== key),
+            { key, granted: roleGranted, source: roleGranted ? 'role' : 'none' },
           ];
         } else {
           const body = JSON.parse(init!.body as string) as { granted: boolean };
           currentStaff = [
             {
               ...currentStaff[0]!,
-              overrides: [{ capabilityKey: 'payments.refund', granted: body.granted }],
+              overrides: [
+                ...currentStaff[0]!.overrides.filter((override) => override.capabilityKey !== key),
+                { capabilityKey: key, granted: body.granted },
+              ],
+            },
+          ];
+          currentEffective = [
+            ...currentEffective.filter((permission) => permission.key !== key),
+            {
+              key,
+              granted: body.granted,
+              source: body.granted ? 'extra' : 'denied',
             },
           ];
         }
@@ -387,30 +425,51 @@ describe('Staff', () => {
       expect.objectContaining({ method: 'PUT', credentials: 'include' }),
     );
 
-    await clickTab('Extra permissions');
-    const override = document.body.querySelector<HTMLElement>(
-      '[aria-label="staff@test payments.refund"]',
+    await clickTab('Permissions');
+    const extraMatrix = document.body.querySelector<HTMLElement>(
+      '[aria-label="Extra permissions"]',
     )!;
-    await openSelect('staff@test payments.refund');
-    await chooseOption('Explicitly granted');
-    await openSelect('staff@test payments.refund');
-    await chooseOption('Explicitly revoked');
-    await openSelect('staff@test payments.refund');
-    await chooseOption('Template default');
+    await clickPermission(extraMatrix, 'Manage staff permissions');
+    const deniedMatrix = document.body.querySelector<HTMLElement>(
+      '[aria-label="Denied permissions"]',
+    )!;
+    await clickPermission(deniedMatrix, 'Refund payments');
+    await clickPermission(deniedMatrix, 'Refund payments');
 
     const calls = fetch.mock.calls.filter((call) =>
-      String(call[0]).includes('/capabilities/payments.refund'),
+      String(call[0]).includes('/staff/u/capabilities/'),
     );
     expect(calls.map((call) => call[1]?.method)).toEqual(['PUT', 'PUT', 'DELETE']);
+    expect(String(calls[0]?.[0])).toContain('/capabilities/staff.manage_permissions');
     expect(JSON.parse(calls[0]?.[1]?.body as string)).toEqual({ granted: true });
+    expect(String(calls[1]?.[0])).toContain('/capabilities/payments.refund');
     expect(JSON.parse(calls[1]?.[1]?.body as string)).toEqual({ granted: false });
-    expect(override).toBeTruthy();
+    expect(String(calls[2]?.[0])).toContain('/capabilities/payments.refund');
+    expect(currentEffective).toContainEqual({
+      key: 'payments.refund',
+      granted: true,
+      source: 'role',
+    });
     expect(toast.success).toHaveBeenCalledWith('Capability override updated.');
     await unmount(root);
   });
 
-  it('opens a suspend dialog that explains the missing operation and cannot submit', async () => {
-    const fetch = mock({ staffSeats: 1, maxStaffSeats: 2 });
+  it('confirms suspension and reactivation through the staff status contract', async () => {
+    let status: 'ACTIVE' | 'SUSPENDED' = 'ACTIVE';
+    let currentStaff = [...staff];
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      const href = String(url);
+      if (href.endsWith('/status') && init?.method === 'PATCH') {
+        const body = JSON.parse(init.body as string) as { status: 'ACTIVE' | 'SUSPENDED' };
+        status = body.status;
+        currentStaff = [{ ...currentStaff[0]!, status }];
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      if (href.endsWith('/staff'))
+        return Promise.resolve(new Response(JSON.stringify(currentStaff)));
+      return responseFor(url);
+    });
+    vi.stubGlobal('fetch', fetch);
     const { container, root } = await mount();
     await act(async () => {
       container.querySelector<HTMLTableRowElement>('tbody tr')!.click();
@@ -419,9 +478,35 @@ describe('Staff', () => {
     await clickButton('Suspend access');
 
     const dialog = document.body.querySelector<HTMLElement>('[role="dialog"]')!;
-    expect(dialog.textContent).toContain('cannot suspend accounts or revoke sessions');
-    expect(buttonWithText('Suspension unavailable')?.hasAttribute('disabled')).toBe(true);
-    expect(fetch.mock.calls.some((call) => String(call[0]).includes('/suspend'))).toBe(false);
+    expect(dialog.textContent).toContain('Suspend access for staff@test?');
+    expect(fetch.mock.calls.some((call) => call[1]?.method === 'PATCH')).toBe(false);
+    await clickButton('Suspend staff');
+    expect(status).toBe('SUSPENDED');
+    expect(fetch).toHaveBeenCalledWith(
+      `${base}/properties/p/staff/u/status`,
+      expect.objectContaining({
+        method: 'PATCH',
+        credentials: 'include',
+        body: JSON.stringify({ status: 'SUSPENDED' }),
+      }),
+    );
+
+    await clickTab('Suspended');
+    expect(container.textContent).toContain('staff@test');
+    await act(async () => {
+      container.querySelector<HTMLTableRowElement>('tbody tr')!.click();
+      await settle();
+    });
+    await clickButton('Reactivate access');
+    expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain(
+      'Reactivate access for staff@test?',
+    );
+    await clickButton('Reactivate staff');
+    expect(status).toBe('ACTIVE');
+    expect(fetch).toHaveBeenCalledWith(
+      `${base}/properties/p/staff/u/status`,
+      expect.objectContaining({ body: JSON.stringify({ status: 'ACTIVE' }) }),
+    );
     await unmount(root);
   });
 
@@ -463,7 +548,9 @@ function responseFor(url: string, usage = { staffSeats: 1, maxStaffSeats: 2 }) {
                 ? catalog
                 : url.endsWith('/capabilities/mine')
                   ? catalog.map((item) => item.key)
-                  : { ok: true },
+                  : url.endsWith('/effective-capabilities')
+                    ? effectiveCapabilities
+                    : { ok: true },
       ),
     ),
   );
@@ -550,6 +637,17 @@ async function clickTab(text: string) {
     Array.from(document.body.querySelectorAll<HTMLElement>('[role="tab"]'))
       .find((tab) => tab.textContent?.includes(text))!
       .click();
+    await settle();
+  });
+}
+
+async function clickPermission(matrix: HTMLElement, label: string) {
+  await act(async () => {
+    const checkbox = Array.from(
+      matrix.querySelectorAll<HTMLButtonElement>('[role="checkbox"]'),
+    ).find((candidate) => candidate.getAttribute('aria-label') === label);
+    if (!checkbox) throw new Error(`Permission ${label} was not found.`);
+    checkbox.click();
     await settle();
   });
 }

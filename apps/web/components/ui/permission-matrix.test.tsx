@@ -56,12 +56,23 @@ describe('PermissionMatrix', () => {
     expect(readOnly.container.querySelectorAll('[data-disabled=""]')).toHaveLength(3);
     await unmount(readOnly.root);
   });
+
+  it('shows source annotations next to effective permissions', async () => {
+    const { container, root } = mount({
+      readOnly: true,
+      annotations: { 'bookings.view': 'Granted · Role', 'bookings.cancel': 'Denied' },
+    });
+    expect(container.textContent).toContain('Granted · Role');
+    expect(container.textContent).toContain('Denied');
+    await unmount(root);
+  });
 });
 
 function mount(
   options: {
     onChange?: (keys: string[]) => void;
     disabledReasons?: Record<string, string>;
+    annotations?: Record<string, string>;
     readOnly?: boolean;
   } = {},
 ) {
@@ -75,6 +86,7 @@ function mount(
         selectedKeys: [],
         onChange: options.onChange ?? (() => undefined),
         disabledReasons: options.disabledReasons,
+        annotations: options.annotations,
         readOnly: options.readOnly,
       }),
     ),

@@ -16,6 +16,7 @@ export function PermissionMatrix({
   onChange,
   readOnly = false,
   disabledReasons = {},
+  annotations = {},
   ariaLabel = 'Permissions',
 }: {
   catalog: readonly PermissionCatalogItem[];
@@ -23,6 +24,7 @@ export function PermissionMatrix({
   onChange: (keys: string[]) => void;
   readOnly?: boolean;
   disabledReasons?: Readonly<Record<string, string>>;
+  annotations?: Readonly<Record<string, string>>;
   ariaLabel?: string;
 }) {
   const groups = new Map<string, PermissionCatalogItem[]>();
@@ -41,6 +43,7 @@ export function PermissionMatrix({
           <div className="grid gap-2 sm:grid-cols-2">
             {permissions.map((permission) => {
               const reason = disabledReasons[permission.key];
+              const annotation = annotations[permission.key];
               const id = `${ariaLabel}-${permission.key}`;
               return (
                 <div key={permission.key} className="min-w-0 rounded-md border p-3">
@@ -68,6 +71,11 @@ export function PermissionMatrix({
                   {permission.description ? (
                     <p className="m-0 mt-2 text-xs text-muted-foreground">
                       {permission.description}
+                    </p>
+                  ) : null}
+                  {annotation ? (
+                    <p className="m-0 mt-2 text-xs font-semibold text-muted-foreground">
+                      {annotation}
                     </p>
                   ) : null}
                   {reason ? (

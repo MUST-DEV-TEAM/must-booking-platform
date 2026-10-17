@@ -14,7 +14,7 @@ const member: StaffMember = {
 };
 
 describe('staffStats', () => {
-  it('derives role capability and override counts from the loaded staff data', () => {
+  it('derives role capability and extra-permission counts from the loaded staff data', () => {
     const template: StaffTemplate = {
       id: 'role-1',
       name: 'Front Desk',
@@ -32,7 +32,7 @@ describe('staffStats', () => {
     });
   });
 
-  it('keeps the override totals when the role template is unavailable', () => {
+  it('keeps extra-permission totals when the assigned role is unavailable', () => {
     expect(staffStats(member)).toEqual({
       baseCapabilities: 0,
       overrides: 2,
