@@ -27,10 +27,50 @@ export type RoomType = {
   galleryImageUrls: string[];
   maxOccupancy: number;
   status: 'DRAFT' | 'PUBLISHED' | 'HIDDEN';
+  categoryId?: string | null;
+  categoryName?: string | null;
+  readiness?: {
+    checks: Array<{
+      key:
+        | 'basicInfo'
+        | 'occupancy'
+        | 'rateRule'
+        | 'rooms'
+        | 'availabilitySource'
+        | 'photos'
+        | 'inventoryConflict';
+      label: string;
+      complete: boolean;
+      fixLabel: string;
+    }>;
+    completeCount: number;
+    missingCount: number;
+    isComplete: boolean;
+    firstFix: { key: string; label: string } | null;
+  };
+};
+export type RoomCategory = {
+  id: string;
+  name: string;
+  description: string | null;
+  sortOrder: number;
+  storefrontVisible: boolean;
+  roomCount: number;
+};
+export type AccommodationActivity = {
+  id: string;
+  actorUserId: string | null;
+  actorName: string | null;
+  action: string;
+  targetType: string;
+  targetId: string;
+  createdAt: string;
 };
 export type RoomTypeImage = { id: string; url: string; sortOrder: number; isPrimary: boolean };
 export type RoomManagementData = {
   roomTypes: RoomType[];
+  categories: RoomCategory[];
+  activity: AccommodationActivity[];
   amenities: Amenity[];
   rooms: Record<string, Room[]>;
   images: Record<string, RoomTypeImage[]>;
@@ -43,6 +83,7 @@ export type RoomTypeForm = {
   amenitiesIntro: string;
   maxOccupancy: string;
   status: 'DRAFT' | 'PUBLISHED' | 'HIDDEN';
+  categoryId: string;
 };
 export type RoomForm = {
   name: string;
@@ -61,6 +102,7 @@ export const emptyRoomTypeForm: RoomTypeForm = {
   amenitiesIntro: '',
   maxOccupancy: '2',
   status: 'PUBLISHED',
+  categoryId: '',
 };
 export const emptyRoomForm: RoomForm = {
   name: '',

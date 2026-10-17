@@ -30,6 +30,7 @@ import {
   type Amenity,
   type AmenityIcon,
   type Room,
+  type RoomCategory,
   type RoomForm,
   type RoomType,
   type RoomTypeForm,
@@ -46,6 +47,7 @@ export function RoomTypeEditorDialog({
   propertyId,
   roomType,
   images,
+  categories,
   canManageAccommodations,
   canManagePhotos,
   open,
@@ -57,6 +59,7 @@ export function RoomTypeEditorDialog({
   propertyId: string;
   roomType: RoomType | null;
   images: RoomTypeImage[];
+  categories: RoomCategory[];
   canManageAccommodations: boolean;
   canManagePhotos: boolean;
   open: boolean;
@@ -117,6 +120,27 @@ export function RoomTypeEditorDialog({
               value={form.maxOccupancy}
               onChange={(event) => setForm({ ...form, maxOccupancy: event.target.value })}
             />
+          </FormField>
+          <FormField label="Category" htmlFor="room-type-category">
+            <Select
+              value={form.categoryId || 'none'}
+              onValueChange={(categoryId) =>
+                setForm({ ...form, categoryId: categoryId === 'none' ? '' : categoryId })
+              }
+              disabled={!canManageAccommodations}
+            >
+              <SelectTrigger id="room-type-category" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Uncategorized</SelectItem>
+                {categories.map((category) => (
+                  <SelectItem key={category.id} value={category.id}>
+                    {category.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </FormField>
           <FormField label="Publication status" htmlFor="room-type-status">
             <Select
@@ -507,8 +531,16 @@ function roomTypeForm(roomType: RoomType | null): RoomTypeForm {
         amenitiesIntro: roomType.amenitiesIntro ?? '',
         maxOccupancy: String(roomType.maxOccupancy),
         status: roomType.status,
+        categoryId: roomType.categoryId ?? '',
       }
-    : { name: '', description: '', amenitiesIntro: '', maxOccupancy: '2', status: 'PUBLISHED' };
+    : {
+        name: '',
+        description: '',
+        amenitiesIntro: '',
+        maxOccupancy: '2',
+        status: 'PUBLISHED',
+        categoryId: '',
+      };
 }
 
 function roomForm(room: Room | null): RoomForm {

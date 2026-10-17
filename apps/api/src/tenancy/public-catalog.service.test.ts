@@ -113,6 +113,12 @@ describe('PublicCatalogService payment methods', () => {
             amenities: [{ id: 'amenity-id', name: 'Beach access', icon: 'BEACH' }],
             ratePlans: [],
             requiresRatePlanSelection: true,
+            category: {
+              id: 'category-id',
+              name: 'Suites',
+              description: 'Large rooms',
+              sortOrder: 0,
+            },
           },
         ],
       ),
@@ -123,6 +129,7 @@ describe('PublicCatalogService payment methods', () => {
           amenitiesIntro: 'Everything needed for a comfortable stay.',
           galleryImageUrls: ['https://images.example.test/deluxe-1.jpg'],
           amenities: [{ icon: 'BEACH' }],
+          category: { id: 'category-id', name: 'Suites', description: 'Large rooms', sortOrder: 0 },
         },
       ],
     });

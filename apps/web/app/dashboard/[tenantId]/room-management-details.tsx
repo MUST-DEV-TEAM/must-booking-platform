@@ -207,6 +207,17 @@ export function RoomTypePeek({
             }
           />
           <DetailLine label="Maximum occupancy" value={`${roomType.maxOccupancy} guests`} />
+          <DetailLine
+            label="Setup readiness"
+            value={
+              roomType.readiness
+                ? roomType.readiness.isComplete
+                  ? 'Complete'
+                  : `${roomType.readiness.missingCount} missing`
+                : 'Not available'
+            }
+          />
+          <DetailLine label="Category" value={roomType.categoryName || 'Uncategorized'} />
           <DetailLine label="Physical rooms" value={String(rooms.length)} />
           {roomType.description ? (
             <DetailLine label="Description" value={roomType.description} />

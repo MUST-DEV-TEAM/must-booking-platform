@@ -72,6 +72,9 @@ import { R2StorageProvider } from './storage/r2-storage.provider';
 import { RoomTypesController } from './tenancy/room-types.controller';
 import { PropertyImageLibraryController } from './tenancy/property-image-library.controller';
 import { RoomTypesService } from './tenancy/room-types.service';
+import { RoomCategoriesController } from './tenancy/room-categories.controller';
+import { RoomCategoriesService } from './tenancy/room-categories.service';
+import { AccommodationsAuditController } from './tenancy/accommodations-audit.controller';
 import { RoomsController } from './tenancy/rooms.controller';
 import { PropertyRoomsController } from './tenancy/property-rooms.controller';
 import { RoomsService } from './tenancy/rooms.service';
@@ -205,6 +208,8 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     EmailSenderController,
     ReviewLinksController,
     RoomTypesController,
+    RoomCategoriesController,
+    AccommodationsAuditController,
     PropertyImageLibraryController,
     RoomsController,
     PropertyRoomsController,
@@ -263,6 +268,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     EmailActivityService,
     ReviewLinksService,
     RoomTypesService,
+    RoomCategoriesService,
     RoomsService,
     RatePlansService,
     AmenitiesService,

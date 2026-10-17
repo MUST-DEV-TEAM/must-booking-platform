@@ -11,7 +11,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(() => vi.unstubAllGlobals());
 
 function accommodationFetch() {
-  return vi.fn(async (input: RequestInfo | URL) => {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith('/properties'))
       return new Response(JSON.stringify([{ id: 'property-1', name: 'Hotel' }]));
@@ -27,9 +27,54 @@ function accommodationFetch() {
             galleryImageUrls: [],
             maxOccupancy: 2,
             status: 'PUBLISHED',
+            categoryId: 'category-1',
+            categoryName: 'Suites',
+            readiness: {
+              checks: [
+                {
+                  key: 'basicInfo',
+                  label: 'Basic information',
+                  complete: false,
+                  fixLabel: 'Add details',
+                },
+              ],
+              completeCount: 5,
+              missingCount: 2,
+              isComplete: false,
+              firstFix: { key: 'basicInfo', label: 'Add details' },
+            },
           },
         ]),
       );
+    if (url.endsWith('/room-categories') && !init?.method)
+      return new Response(
+        JSON.stringify([
+          {
+            id: 'category-1',
+            name: 'Suites',
+            description: 'Large rooms',
+            sortOrder: 0,
+            storefrontVisible: true,
+            roomCount: 1,
+          },
+        ]),
+      );
+    if (url.endsWith('/audit-logs'))
+      return new Response(
+        JSON.stringify([
+          {
+            id: 'audit-1',
+            actorUserId: 'user-1',
+            actorName: 'Hotel Owner',
+            action: 'room_type.created',
+            targetType: 'room_type',
+            targetId: 'room-type-1',
+            createdAt: '2026-10-17T10:00:00.000Z',
+          },
+        ]),
+      );
+    if (url.endsWith('/room-categories') && init?.method === 'POST')
+      return new Response(JSON.stringify({ id: 'category-2' }), { status: 201 });
     if (url.endsWith('/properties/property-1/amenities'))
       return new Response(JSON.stringify([{ id: 'amenity-1', name: 'Wi-Fi', icon: 'WIFI' }]));
     if (url.endsWith('/room-types/room-type-1/rooms'))
@@ -385,6 +430,7 @@ describe('RoomManagement', () => {
       description: 'A quiet double room',
       amenitiesIntro: null,
       maxOccupancy: 2,
+      categoryId: 'category-1',
     });
     const amenityCall = fetch.mock.calls.find(
       ([url, init]) =>
@@ -397,6 +443,84 @@ describe('RoomManagement', () => {
     expect(
       fetch.mock.calls.some(([url]) => String(url).endsWith('/room-types/room-type-copy/images')),
     ).toBe(false);
+    await act(async () => root.unmount());
+  });
+
+  it('shows server readiness and accommodation activity with a working first-fix action', async () => {
+    const fetch = accommodationFetch();
+    vi.stubGlobal('fetch', fetch);
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    await act(async () =>
+      root.render(
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(RoomManagement, {
+            tenantId: 'tenant-1',
+            propertyId: 'property-1',
+            canManageAccommodations: true,
+            canManagePhotos: true,
+          }),
+        ),
+      ),
+    );
+    await act(async () => {
+      await vi.waitFor(() => {
+        if (!container.textContent?.includes('Hotel Owner'))
+          throw new Error('Setup or activity information has not finished loading.');
+      });
+    });
+    expect(container.textContent).toContain('Setup readiness');
+    expect(container.textContent).toContain('2 missing');
+    expect(container.textContent).toContain('Created a room type');
+
+    const fix = [...container.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'Add details',
+    );
+    expect(fix).toBeDefined();
+    await act(async () => (fix as HTMLButtonElement).click());
+    expect(document.body.textContent).toContain('Edit room type');
+    await act(async () => root.unmount());
+  });
+
+  it('opens the Categories tab with counts, ordering and storefront visibility controls', async () => {
+    const fetch = accommodationFetch();
+    vi.stubGlobal('fetch', fetch);
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    await act(async () =>
+      root.render(
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(RoomManagement, {
+            tenantId: 'tenant-1',
+            propertyId: 'property-1',
+            canManageAccommodations: true,
+          }),
+        ),
+      ),
+    );
+    await act(async () => {
+      await vi.waitFor(() => {
+        if (!container.textContent?.includes('Double'))
+          throw new Error('Room types have not finished loading yet.');
+      });
+    });
+
+    const categoriesTab = [...container.querySelectorAll('[role="tab"]')].find(
+      (tab) => tab.textContent?.trim() === 'Categories1',
+    );
+    expect(categoriesTab).toBeDefined();
+    await act(async () => (categoriesTab as HTMLElement).click());
+    expect(container.textContent).toContain('Room categories');
+    expect(container.textContent).toContain('Suites');
+    expect(container.textContent).toContain('1 room types');
+    expect(
+      container.querySelector('[role="switch"][aria-label="Suites visible in storefront"]'),
+    ).not.toBeNull();
+    expect(container.querySelector('button[aria-label="Move Suites up"]')).not.toBeNull();
     await act(async () => root.unmount());
   });
 });

@@ -136,6 +136,7 @@ export function RoomManagementLists({
   const [view, setView] = useState<'room-types' | 'rooms'>('room-types');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | RoomType['status']>('ALL');
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [sort, setSort] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>({
@@ -163,10 +164,14 @@ export function RoomManagementLists({
           `${roomType.name} ${roomType.description ?? ''} ${(data.roomTypeAmenities[roomType.id] ?? []).map((item) => item.name).join(' ')}`.toLocaleLowerCase();
         return (
           text.includes(search.trim().toLocaleLowerCase()) &&
-          (statusFilter === 'ALL' || roomType.status === statusFilter)
+          (statusFilter === 'ALL' || roomType.status === statusFilter) &&
+          (categoryFilter === 'ALL' ||
+            (categoryFilter === 'uncategorized'
+              ? !roomType.categoryId
+              : roomType.categoryId === categoryFilter))
         );
       }),
-    [data.roomTypes, data.roomTypeAmenities, search, statusFilter],
+    [data.roomTypes, data.roomTypeAmenities, search, statusFilter, categoryFilter],
   );
   const filteredRooms = useMemo(
     () =>
@@ -326,24 +331,47 @@ export function RoomManagementLists({
                 className="w-full sm:max-w-sm"
               />
               {view === 'room-types' ? (
-                <Select
-                  value={statusFilter}
-                  onValueChange={(value) => {
-                    setStatusFilter(value as typeof statusFilter);
-                    setPage(1);
-                    setSelected([]);
-                  }}
-                >
-                  <SelectTrigger aria-label="Filter room types by status" className="w-44">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ALL">All statuses</SelectItem>
-                    <SelectItem value="PUBLISHED">Published</SelectItem>
-                    <SelectItem value="HIDDEN">Hidden</SelectItem>
-                    <SelectItem value="DRAFT">Draft</SelectItem>
-                  </SelectContent>
-                </Select>
+                <>
+                  <Select
+                    value={statusFilter}
+                    onValueChange={(value) => {
+                      setStatusFilter(value as typeof statusFilter);
+                      setPage(1);
+                      setSelected([]);
+                    }}
+                  >
+                    <SelectTrigger aria-label="Filter room types by status" className="w-44">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ALL">All statuses</SelectItem>
+                      <SelectItem value="PUBLISHED">Published</SelectItem>
+                      <SelectItem value="HIDDEN">Hidden</SelectItem>
+                      <SelectItem value="DRAFT">Draft</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={categoryFilter}
+                    onValueChange={(value) => {
+                      setCategoryFilter(value);
+                      setPage(1);
+                      setSelected([]);
+                    }}
+                  >
+                    <SelectTrigger aria-label="Filter room types by category" className="w-44">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ALL">All categories</SelectItem>
+                      {data.categories.map((category) => (
+                        <SelectItem key={category.id} value={category.id}>
+                          {category.name}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="uncategorized">Uncategorized</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </>
               ) : null}
               <Badge variant="muted">
                 {view === 'room-types'
@@ -498,10 +526,13 @@ export function RoomManagementLists({
             </Button>
           </BulkBar>
           {rows.length === 0 ? (
-            search || (view === 'room-types' && statusFilter !== 'ALL') ? (
+            search ||
+            (view === 'room-types' && (statusFilter !== 'ALL' || categoryFilter !== 'ALL')) ? (
               <NoResultsPanel
                 onClear={() => {
                   setSearch('');
+                  setStatusFilter('ALL');
+                  setCategoryFilter('ALL');
                   setPage(1);
                 }}
               />
@@ -554,6 +585,8 @@ export function RoomManagementLists({
                     {view === 'room-types' ? (
                       <>
                         <TableHead>Status</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Setup</TableHead>
                         {columns.occupancy ? (
                           <SortableTableHead
                             label="Max guests"
@@ -705,6 +738,20 @@ export function RoomManagementLists({
                               <Badge variant={type.status === 'PUBLISHED' ? 'success' : 'muted'}>
                                 {statusLabel(type.status)}
                               </Badge>
+                            </TableCell>
+                            <TableCell className={rowPadding}>
+                              {type.categoryName || 'Uncategorized'}
+                            </TableCell>
+                            <TableCell className={rowPadding}>
+                              {type.readiness ? (
+                                <Badge variant={type.readiness.isComplete ? 'success' : 'warning'}>
+                                  {type.readiness.isComplete
+                                    ? 'Complete'
+                                    : `${type.readiness.missingCount} missing`}
+                                </Badge>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">Not available</span>
+                              )}
                             </TableCell>
                             {columns.occupancy ? (
                               <TableCell className={`${rowPadding} text-right tabular-nums`}>

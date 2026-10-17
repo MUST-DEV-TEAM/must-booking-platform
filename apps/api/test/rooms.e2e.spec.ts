@@ -94,6 +94,66 @@ describe('rooms', () => {
       .expect(201);
     roomTypeId = roomType.body.id;
 
+    const categoriesUrl = `/tenants/${tenantId}/properties/${propertyId}/room-categories`;
+    const category = await request(app.getHttpServer())
+      .post(categoriesUrl)
+      .set('Cookie', cookie)
+      .send({ name: 'Suites', description: 'Large guest rooms.' })
+      .expect(201);
+    const categoryId = category.body.id as string;
+    await request(app.getHttpServer())
+      .patch(`/tenants/${tenantId}/properties/${propertyId}/room-types/${roomTypeId}`)
+      .set('Cookie', cookie)
+      .send({ name: 'Standard Room', maxOccupancy: 2, categoryId })
+      .expect(200);
+    const typeList = await request(app.getHttpServer())
+      .get(`/tenants/${tenantId}/properties/${propertyId}/room-types`)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(typeList.body[0]).toMatchObject({
+      categoryId,
+      categoryName: 'Suites',
+      readiness: {
+        missingCount: 4,
+        firstFix: { key: 'basicInfo', label: 'Add details' },
+      },
+    });
+    const categoryList = await request(app.getHttpServer())
+      .get(categoriesUrl)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(categoryList.body).toContainEqual(
+      expect.objectContaining({ id: categoryId, roomCount: 1, storefrontVisible: true }),
+    );
+    await request(app.getHttpServer())
+      .put(`${categoriesUrl}/order`)
+      .set('Cookie', cookie)
+      .send({ categoryIds: [categoryId] })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .patch(`${categoriesUrl}/${categoryId}`)
+      .set('Cookie', cookie)
+      .send({ storefrontVisible: false })
+      .expect(200);
+    const hiddenCategoryCatalog = await request(app.getHttpServer())
+      .get(`/tenants/${tenantId}/properties/${propertyId}/public/catalog`)
+      .expect(200);
+    expect(hiddenCategoryCatalog.body.roomTypes[0].category).toBeNull();
+    await request(app.getHttpServer())
+      .patch(`${categoriesUrl}/${categoryId}`)
+      .set('Cookie', cookie)
+      .send({ storefrontVisible: true })
+      .expect(200);
+    const visibleCategoryCatalog = await request(app.getHttpServer())
+      .get(`/tenants/${tenantId}/properties/${propertyId}/public/catalog`)
+      .expect(200);
+    expect(visibleCategoryCatalog.body.roomTypes[0].category).toMatchObject({
+      id: categoryId,
+      name: 'Suites',
+      sortOrder: 0,
+    });
+
     // A room-type ID that doesn't belong to this property is rejected with 404, not a raw DB error.
     await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/room-types/${randomUUID()}/rooms`)
@@ -140,6 +200,20 @@ describe('rooms', () => {
       .send({ name: 'Room 101', isActive: true })
       .expect(200)
       .expect((response) => expect(response.body.isActive).toBe(true));
+
+    const accommodationActivity = await request(app.getHttpServer())
+      .get(`/tenants/${tenantId}/properties/${propertyId}/audit-logs`)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(accommodationActivity.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'room.created',
+          actorName: email,
+        }),
+        expect.objectContaining({ action: 'room.active_changed' }),
+      ]),
+    );
 
     const roomImagesUrl = `/tenants/${tenantId}/properties/${propertyId}/rooms/${roomId}/images`;
     await request(app.getHttpServer()).get(roomImagesUrl).set('Cookie', cookie).expect(200, []);
@@ -224,6 +298,15 @@ describe('rooms', () => {
       )
       .set('Cookie', cookie)
       .expect(204);
+
+    await request(app.getHttpServer())
+      .delete(`${categoriesUrl}/${categoryId}`)
+      .set('Cookie', cookie)
+      .expect(204);
+    await request(app.getHttpServer())
+      .get(`/tenants/${tenantId}/properties/${propertyId}/room-types`)
+      .set('Cookie', cookie)
+      .expect((response) => expect(response.body[0].categoryId).toBeNull());
 
     // Now the room type can be deleted since it has no remaining rooms.
     await request(app.getHttpServer())

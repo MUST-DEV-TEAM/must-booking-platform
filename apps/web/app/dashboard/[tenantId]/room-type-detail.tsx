@@ -30,6 +30,7 @@ export function RoomTypeDetail({
   propertyId,
   data,
   roomType,
+  initialTab = 'overview',
   canManageAccommodations,
   canManagePhotos,
   onBack,
@@ -42,6 +43,7 @@ export function RoomTypeDetail({
   propertyId: string;
   data: RoomManagementData;
   roomType: RoomType;
+  initialTab?: DetailTab;
   canManageAccommodations: boolean;
   canManagePhotos: boolean;
   onBack: () => void;
@@ -50,7 +52,7 @@ export function RoomTypeDetail({
   onEditRoom: (roomType: RoomType, room: Room) => void;
   onToggleAmenity: (roomTypeId: string, amenityId: string) => void;
 }) {
-  const [tab, setTab] = useState<DetailTab>('overview');
+  const [tab, setTab] = useState<DetailTab>(initialTab);
   const rooms = data.rooms[roomType.id] ?? [];
   const images = data.images[roomType.id] ?? [];
   const amenities = data.roomTypeAmenities[roomType.id] ?? [];

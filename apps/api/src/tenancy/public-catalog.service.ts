@@ -43,6 +43,7 @@ type PublicCatalogRoomType = {
   // empty array there means the property is missing pricing configuration,
   // not that none is needed.
   requiresRatePlanSelection: boolean;
+  category: { id: string; name: string; description: string | null; sortOrder: number } | null;
 };
 
 type PublicCatalogRoomTypeRow = PublicCatalogRoomType & {
@@ -105,6 +106,10 @@ export class PublicCatalogService {
           rt.description,
           rt.amenities_intro AS "amenitiesIntro",
           rt.max_occupancy AS "maxOccupancy",
+          CASE WHEN category.id IS NULL THEN NULL ELSE json_build_object(
+            'id', category.id, 'name', category.name, 'description', category.description,
+            'sortOrder', category.sort_order
+          ) END AS category,
           COALESCE((
             SELECT json_agg(json_build_object(
               'sourceUrl', images.source_url,
@@ -150,6 +155,9 @@ export class PublicCatalogService {
               AND shadow.clock_shadow_room_type_id = rt.id
           ) AS "requiresRatePlanSelection"
         FROM room_types rt
+        LEFT JOIN room_categories category ON category.tenant_id = rt.tenant_id
+          AND category.property_id = rt.property_id AND category.id = rt.category_id
+          AND category.storefront_visible = true
         WHERE rt.tenant_id = ${tenantId}::uuid AND rt.property_id = ${propertyId}::uuid
           AND rt.status = 'PUBLISHED'::"RoomTypeStatus"
         ORDER BY rt.created_at
@@ -160,7 +168,11 @@ export class PublicCatalogService {
           imageRecords.map((image, sortOrder) => ({ ...image, sortOrder })),
           (key) => this.storage.publicUrl(key),
         );
-        const publicRoomType = { ...roomType, ...presentation };
+        const publicRoomType = {
+          ...roomType,
+          category: roomType.category ?? null,
+          ...presentation,
+        };
         delete publicRoomType.imageRecords;
         return publicRoomType;
       });

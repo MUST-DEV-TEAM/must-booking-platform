@@ -42,6 +42,74 @@ function service(queryResults?: unknown[][]) {
 }
 
 describe('RoomTypesService presentation-image validation', () => {
+  it('returns server-computed readiness checks and the first fix', async () => {
+    const { roomTypes } = service([
+      [
+        {
+          id: 'room-type-id',
+          name: 'Deluxe',
+          description: null,
+          amenitiesIntro: null,
+          maxOccupancy: 0,
+          roomCount: 0,
+          status: 'DRAFT',
+          categoryId: null,
+          categoryName: null,
+          hasBasicInfo: false,
+          hasOccupancy: false,
+          hasRateRule: true,
+          hasRooms: false,
+          hasAvailabilitySource: true,
+          hasPhotos: false,
+          hasInventoryConflict: false,
+        },
+      ],
+      [],
+    ]);
+
+    await expect(roomTypes.list(tenantId, propertyId)).resolves.toMatchObject([
+      {
+        readiness: {
+          completeCount: 3,
+          missingCount: 4,
+          isComplete: false,
+          firstFix: { key: 'basicInfo', label: 'Add details' },
+        },
+      },
+    ]);
+  });
+
+  it('assigns only a category that belongs to this property', async () => {
+    const categoryId = 'd4444444-4444-4444-8444-444444444444';
+    const { roomTypes, queryRaw } = service([
+      [{ status: 'PUBLISHED' }],
+      [{ id: categoryId }],
+      [
+        {
+          id: 'room-type-id',
+          name: 'Deluxe',
+          description: null,
+          amenitiesIntro: null,
+          mainImageUrl: null,
+          galleryImageUrls: [],
+          maxOccupancy: 2,
+          status: 'PUBLISHED',
+          categoryId,
+          categoryName: null,
+        },
+      ],
+      [],
+    ]);
+
+    await roomTypes.update(tenantId, propertyId, 'room-type-id', actorUserId, {
+      name: 'Deluxe',
+      maxOccupancy: 2,
+      categoryId,
+    });
+
+    expect(queryRaw.mock.calls[2]).toContain(categoryId);
+  });
+
   it('projects room type URLs from the canonical image rows rather than the legacy columns', async () => {
     const { roomTypes } = service([
       [

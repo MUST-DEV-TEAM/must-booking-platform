@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 
 import { EmptyPanel, ErrorPanel, ListSkeleton } from '../../../components/ui/state-panel';
 import { PageHeader } from '../../../components/ui/page-header';
+import { TabBar } from '../../../components/ui/tab-bar';
 import { FormField } from '../../../components/ui/form-field';
 import {
   Select,
@@ -17,6 +18,8 @@ import {
 import { AmenitiesDialog, RoomEditorDialog, RoomTypeEditorDialog } from './room-management-dialogs';
 import { RoomManagementLists } from './room-management-list';
 import { RoomTypeDetail } from './room-type-detail';
+import { RoomCategoriesPanel } from './room-categories-panel';
+import { AccommodationOverview } from './accommodation-overview';
 import { AvailabilityCalendarDialog } from './availability-calendar-dialog';
 import type { AvailabilityCalendarTarget } from './availability-calendar-dialog';
 import {
@@ -28,6 +31,7 @@ import {
   type RoomManagementData,
   type RoomType,
   type RoomTypeForm,
+  type RoomCategory,
 } from './room-management-types';
 
 /** Property room types and physical rooms, backed by the existing accommodation APIs. */
@@ -38,6 +42,9 @@ export function RoomManagement({
   canManagePhotos = false,
   canViewCalendar = false,
   canBlockCalendar = false,
+  canManageRates = false,
+  canManageInventorySource = false,
+  onNavigateSection,
 }: {
   tenantId: string;
   propertyId?: string;
@@ -45,6 +52,9 @@ export function RoomManagement({
   canManagePhotos?: boolean;
   canViewCalendar?: boolean;
   canBlockCalendar?: boolean;
+  canManageRates?: boolean;
+  canManageInventorySource?: boolean;
+  onNavigateSection?: (section: string) => void;
 }) {
   const queryClient = useQueryClient();
   const [propertyId, setPropertyId] = useState('');
@@ -59,6 +69,8 @@ export function RoomManagement({
   const [customizingRoomAmenities, setCustomizingRoomAmenities] = useState<Record<string, boolean>>(
     {},
   );
+  const [accommodationTab, setAccommodationTab] = useState<'lists' | 'categories'>('lists');
+  const [roomTypeDetailTab, setRoomTypeDetailTab] = useState<'overview' | 'photos'>('overview');
 
   const propertiesQuery = useQuery({
     queryKey: ['dashboard', 'properties', tenantId] as const,
@@ -85,13 +97,25 @@ export function RoomManagement({
   const roomManagementQuery = useQuery({
     queryKey: roomManagementQueryKey,
     queryFn: async (): Promise<RoomManagementData> => {
-      const [roomTypeResponse, amenityResponse] = await Promise.all([
-        fetch(roomTypesUrl, { credentials: 'include' }),
-        fetch(`${propertyUrl}/amenities`, { credentials: 'include' }),
-      ]);
+      const [roomTypeResponse, amenityResponse, categoryResponse, activityResponse] =
+        await Promise.all([
+          fetch(roomTypesUrl, { credentials: 'include' }),
+          fetch(`${propertyUrl}/amenities`, { credentials: 'include' }),
+          fetch(`${propertyUrl}/room-categories`, { credentials: 'include' }),
+          canManageAccommodations
+            ? fetch(`${propertyUrl}/audit-logs`, { credentials: 'include' })
+            : Promise.resolve(null),
+        ]);
       if (!roomTypeResponse.ok) throw new Error('Unable to load room types.');
       const roomTypes = (await roomTypeResponse.json()) as RoomType[];
       const amenities = amenityResponse.ok ? ((await amenityResponse.json()) as Amenity[]) : [];
+      const categories = categoryResponse.ok
+        ? ((await categoryResponse.json()) as RoomCategory[])
+        : [];
+      const activity =
+        activityResponse?.ok === true
+          ? ((await activityResponse.json()) as RoomManagementData['activity'])
+          : [];
       const details = await Promise.all(
         roomTypes.map(async (roomType) => {
           const [roomResponse, imageResponse, roomTypeAmenityResponse] = await Promise.all([
@@ -131,6 +155,8 @@ export function RoomManagement({
       );
       return {
         roomTypes,
+        categories,
+        activity,
         amenities,
         rooms: Object.fromEntries(details.map((detail) => [detail.roomTypeId, detail.rooms])),
         images: Object.fromEntries(details.map((detail) => [detail.roomTypeId, detail.images])),
@@ -147,6 +173,8 @@ export function RoomManagement({
 
   const data = roomManagementQuery.data ?? {
     roomTypes: [],
+    categories: [],
+    activity: [],
     amenities: [],
     rooms: {},
     images: {},
@@ -157,6 +185,78 @@ export function RoomManagement({
   function requireAccommodationManagement() {
     if (!canManageAccommodations) throw new Error('You do not hold accommodations.manage.');
   }
+
+  const createCategoryMutation = useMutation({
+    mutationFn: async (input: { name: string; description: string }) => {
+      requireAccommodationManagement();
+      const response = await fetch(`${propertyUrl}/room-categories`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      if (!response.ok) throw new Error(await errorMessage(response, 'Unable to add category.'));
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: roomManagementQueryKey });
+      toast.success('Category added.');
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Unable to add category.'),
+  });
+
+  const updateCategoryMutation = useMutation({
+    mutationFn: async ({ id, value }: { id: string; value: Partial<RoomCategory> }) => {
+      requireAccommodationManagement();
+      const response = await fetch(`${propertyUrl}/room-categories/${id}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(value),
+      });
+      if (!response.ok) throw new Error(await errorMessage(response, 'Unable to update category.'));
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: roomManagementQueryKey });
+      toast.success('Category updated.');
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Unable to update category.'),
+  });
+
+  const deleteCategoryMutation = useMutation({
+    mutationFn: async (category: RoomCategory) => {
+      requireAccommodationManagement();
+      const response = await fetch(`${propertyUrl}/room-categories/${category.id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error(await errorMessage(response, 'Unable to delete category.'));
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: roomManagementQueryKey });
+      toast.success('Category deleted. Room types are now uncategorized.');
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Unable to delete category.'),
+  });
+
+  const reorderCategoriesMutation = useMutation({
+    mutationFn: async (categoryIds: string[]) => {
+      requireAccommodationManagement();
+      const response = await fetch(`${propertyUrl}/room-categories/order`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ categoryIds }),
+      });
+      if (!response.ok)
+        throw new Error(await errorMessage(response, 'Unable to reorder categories.'));
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: roomManagementQueryKey }),
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Unable to reorder categories.'),
+  });
 
   const saveRoomTypeMutation = useMutation({
     mutationFn: async ({ roomType, form }: { roomType: RoomType | null; form: RoomTypeForm }) => {
@@ -171,6 +271,7 @@ export function RoomManagement({
           amenitiesIntro: form.amenitiesIntro,
           maxOccupancy: Number(form.maxOccupancy),
           status: form.status,
+          categoryId: form.categoryId || null,
         }),
       });
       if (!response.ok) throw new Error(await errorMessage(response, 'Unable to save room type.'));
@@ -198,6 +299,7 @@ export function RoomManagement({
           description: roomType.description,
           amenitiesIntro: roomType.amenitiesIntro,
           maxOccupancy: roomType.maxOccupancy,
+          categoryId: roomType.categoryId,
         }),
       });
       if (!response.ok)
@@ -514,6 +616,31 @@ export function RoomManagement({
       : [...current.map((item) => item.id), amenityId];
     toggleRoomTypeAmenityMutation.mutate({ roomTypeId, amenityIds });
   }
+
+  function fixReadiness(
+    roomType: RoomType,
+    key:
+      | 'basicInfo'
+      | 'occupancy'
+      | 'rateRule'
+      | 'rooms'
+      | 'availabilitySource'
+      | 'photos'
+      | 'inventoryConflict',
+  ) {
+    if (key === 'basicInfo' || key === 'occupancy') {
+      editRoomType(roomType);
+    } else if (key === 'rooms') {
+      addRoom(roomType);
+    } else if (key === 'photos') {
+      setRoomTypeDetailTab('photos');
+      setRoomTypeDetailId(roomType.id);
+    } else if (key === 'rateRule') {
+      onNavigateSection?.('rates-pricing');
+    } else {
+      onNavigateSection?.('hotels');
+    }
+  }
   function setRoomAmenities(roomId: string, amenityIds: string[]) {
     if (!canManageAccommodations) return;
     setRoomAmenitiesMutation.mutate({ roomId, amenityIds });
@@ -598,6 +725,7 @@ export function RoomManagement({
             roomType={data.roomTypes.find((roomType) => roomType.id === roomTypeDetailId)!}
             canManageAccommodations={canManageAccommodations}
             canManagePhotos={canManagePhotos}
+            initialTab={roomTypeDetailTab}
             onBack={() => setRoomTypeDetailId(null)}
             onEdit={editRoomType}
             onAddRoom={addRoom}
@@ -605,44 +733,90 @@ export function RoomManagement({
             onToggleAmenity={toggleTypeAmenity}
           />
         ) : (
-          <RoomManagementLists
-            tenantId={tenantId}
-            propertyId={propertyId}
-            data={data}
-            canManageAccommodations={canManageAccommodations}
-            canManagePhotos={canManagePhotos}
-            canViewCalendar={canViewCalendar}
-            onAddRoomType={addRoomType}
-            onEditRoomType={editRoomType}
-            onOpenRoomTypeDetail={(roomType) => setRoomTypeDetailId(roomType.id)}
-            onDeleteRoomType={(roomType) => {
-              if (canManageAccommodations) deleteRoomTypeMutation.mutate(roomType.id);
-            }}
-            onDuplicateRoomType={(roomType) => {
-              if (canManageAccommodations) duplicateRoomTypeMutation.mutate(roomType);
-            }}
-            onAddRoom={addRoom}
-            onEditRoom={editRoom}
-            onDeleteRoom={(roomType, room) => {
-              if (canManageAccommodations) deleteRoomMutation.mutate({ roomType, room });
-            }}
-            onToggleRoomActive={(roomType, room, isActive) => {
-              if (canManageAccommodations)
-                toggleRoomActiveMutation.mutate({ roomType, room, isActive });
-            }}
-            onSetRoomTypeStatus={(roomTypes, status) => {
-              if (canManageAccommodations) setRoomTypeStatusMutation.mutate({ roomTypes, status });
-            }}
-            onOpenCalendar={setCalendarTarget}
-            onManageAmenities={() => {
-              if (canManageAccommodations) setAmenitiesDialogOpen(true);
-            }}
-            onToggleRoomTypeAmenity={toggleTypeAmenity}
-            onToggleRoomAmenity={toggleRoomAmenity}
-            onCustomizeRoomAmenities={customizeRoomAmenities}
-            onInheritRoomAmenities={inheritRoomAmenities}
-            customizingRoomAmenities={customizingRoomAmenities}
-          />
+          <>
+            <AccommodationOverview
+              roomTypes={data.roomTypes}
+              activity={data.activity}
+              canFix={(key) =>
+                key === 'photos'
+                  ? canManagePhotos
+                  : key === 'rateRule'
+                    ? canManageRates
+                    : key === 'availabilitySource' || key === 'inventoryConflict'
+                      ? canManageInventorySource
+                      : canManageAccommodations
+              }
+              onFix={fixReadiness}
+            />
+            <TabBar
+              label="Accommodation views"
+              current={accommodationTab}
+              onSelect={(tab) => setAccommodationTab(tab as typeof accommodationTab)}
+              tabs={[
+                { id: 'lists', label: 'Room types and rooms' },
+                { id: 'categories', label: 'Categories', count: data.categories.length },
+              ]}
+            />
+            {accommodationTab === 'categories' ? (
+              <RoomCategoriesPanel
+                categories={data.categories}
+                canManage={canManageAccommodations}
+                saving={
+                  createCategoryMutation.isPending ||
+                  updateCategoryMutation.isPending ||
+                  deleteCategoryMutation.isPending ||
+                  reorderCategoriesMutation.isPending
+                }
+                onCreate={(value) => createCategoryMutation.mutate(value)}
+                onUpdate={(id, value) => updateCategoryMutation.mutate({ id, value })}
+                onDelete={(category) => deleteCategoryMutation.mutate(category)}
+                onReorder={(categoryIds) => reorderCategoriesMutation.mutate(categoryIds)}
+              />
+            ) : (
+              <RoomManagementLists
+                tenantId={tenantId}
+                propertyId={propertyId}
+                data={data}
+                canManageAccommodations={canManageAccommodations}
+                canManagePhotos={canManagePhotos}
+                canViewCalendar={canViewCalendar}
+                onAddRoomType={addRoomType}
+                onEditRoomType={editRoomType}
+                onOpenRoomTypeDetail={(roomType) => {
+                  setRoomTypeDetailTab('overview');
+                  setRoomTypeDetailId(roomType.id);
+                }}
+                onDeleteRoomType={(roomType) => {
+                  if (canManageAccommodations) deleteRoomTypeMutation.mutate(roomType.id);
+                }}
+                onDuplicateRoomType={(roomType) => {
+                  if (canManageAccommodations) duplicateRoomTypeMutation.mutate(roomType);
+                }}
+                onAddRoom={addRoom}
+                onEditRoom={editRoom}
+                onDeleteRoom={(roomType, room) => {
+                  if (canManageAccommodations) deleteRoomMutation.mutate({ roomType, room });
+                }}
+                onToggleRoomActive={(roomType, room, isActive) => {
+                  if (canManageAccommodations)
+                    toggleRoomActiveMutation.mutate({ roomType, room, isActive });
+                }}
+                onSetRoomTypeStatus={(roomTypes, status) => {
+                  if (canManageAccommodations)
+                    setRoomTypeStatusMutation.mutate({ roomTypes, status });
+                }}
+                onOpenCalendar={setCalendarTarget}
+                onManageAmenities={() => {
+                  if (canManageAccommodations) setAmenitiesDialogOpen(true);
+                }}
+                onToggleRoomTypeAmenity={toggleTypeAmenity}
+                onToggleRoomAmenity={toggleRoomAmenity}
+                onCustomizeRoomAmenities={customizeRoomAmenities}
+                onInheritRoomAmenities={inheritRoomAmenities}
+                customizingRoomAmenities={customizingRoomAmenities}
+              />
+            )}
+          </>
         )
       ) : null}
       <AvailabilityCalendarDialog
@@ -661,6 +835,7 @@ export function RoomManagement({
         propertyId={propertyId}
         roomType={editingRoomType}
         images={editingRoomType ? (data.images[editingRoomType.id] ?? []) : []}
+        categories={data.categories}
         canManageAccommodations={canManageAccommodations}
         canManagePhotos={canManagePhotos}
         open={roomTypeDialogOpen && canManageAccommodations}
