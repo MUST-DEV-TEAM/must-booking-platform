@@ -3,8 +3,6 @@
 import {
   Card,
   Heading,
-  NavigationSectionTabBar,
-  NavigationSectionTabItem,
   Stack,
   StatePanel,
   StatusBadge,
@@ -521,6 +519,7 @@ export function DashboardShell({
             bookingMode={selectedProperty.bookingMode}
             canCancelBooking={hasCapability('bookings.cancel')}
             canRefundPayment={hasCapability('payments.refund')}
+            canEditBooking={hasCapability('bookings.edit')}
           />
         ) : (
           <ReservationsPage tenantId={tenantId} propertyId={selectedProperty.id} canCreateBooking={hasCapability('bookings.create')} />
@@ -564,7 +563,12 @@ export function DashboardShell({
         <NotificationsInbox tenantId={tenantId} propertyId={selectedProperty.id} />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'accommodations' ? (
-        <RoomManagement propertyId={selectedProperty.id} tenantId={tenantId} canManagePhotos={hasCapability('photos.manage')} />
+        <RoomManagement
+          propertyId={selectedProperty.id}
+          tenantId={tenantId}
+          canManageAccommodations={hasCapability('accommodations.manage')}
+          canManagePhotos={hasCapability('photos.manage')}
+        />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'photos' ? (
         <PhotosManagement propertyId={selectedProperty.id} tenantId={tenantId} />

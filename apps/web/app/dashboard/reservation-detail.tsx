@@ -179,8 +179,9 @@ export function ReservationDetail({
   bookingMode,
   checkInTime,
   checkOutTime,
-  canCancelBooking = true,
-  canRefundPayment = true,
+  canCancelBooking = false,
+  canRefundPayment = false,
+  canEditBooking = false,
 }: {
   tenantId: string;
   propertyId: string;
@@ -191,6 +192,7 @@ export function ReservationDetail({
   checkOutTime?: string | null;
   canCancelBooking?: boolean;
   canRefundPayment?: boolean;
+  canEditBooking?: boolean;
 }) {
   const CHECK_IN = /^\d{2}:\d{2}/.test(checkInTime ?? '') ? checkInTime!.slice(0, 5) : DEFAULT_CHECK_IN;
   const CHECK_OUT = /^\d{2}:\d{2}/.test(checkOutTime ?? '') ? checkOutTime!.slice(0, 5) : DEFAULT_CHECK_OUT;
@@ -203,7 +205,6 @@ export function ReservationDetail({
   // Opening a reservation clears its "new" dot and lowers the count on the Bookings item.
   useEffect(() => {
     if (wasNew) unseen.markSeen(bookingId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wasNew, bookingId]);
   const [refundPick, setRefundPick] = useState<RefundChoiceValue | null>(null);
   const [refundOn, setRefundOn] = useState<boolean | null>(null);
@@ -429,9 +430,11 @@ export function ReservationDetail({
         }
         actions={
           <>
-            <Button disabled title="Editing a reservation is planned, not built yet">
-              <Pencil aria-hidden="true" /> Edit reservation
-            </Button>
+            {canEditBooking ? (
+              <Button disabled title="Editing a reservation is planned, not built yet">
+                <Pencil aria-hidden="true" /> Edit reservation
+              </Button>
+            ) : null}
             {canRefundPayment && refundable ? (
               <Button
                 variant="outline"

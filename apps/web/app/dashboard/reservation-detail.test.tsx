@@ -77,8 +77,6 @@ describe('ReservationDetail permissions', () => {
             tenantId: 't',
             propertyId: 'p',
             bookingId: 'booking-1',
-            canCancelBooking: false,
-            canRefundPayment: false,
           }),
         ),
       );
@@ -92,6 +90,7 @@ describe('ReservationDetail permissions', () => {
 
     expect(container.textContent).not.toContain('Cancel reservation');
     expect(container.textContent).not.toContain('Refund');
+    expect(container.textContent).not.toContain('Edit reservation');
     await act(async () => root.unmount());
   });
 });

@@ -73,6 +73,7 @@ const pageSizes = [10, 25, 50] as const;
 /** Room type and physical room directories, composed from the shared dashboard table primitives. */
 export function RoomManagementLists({
   data,
+  canManageAccommodations,
   canManagePhotos,
   onAddRoomType,
   onEditRoomType,
@@ -88,6 +89,7 @@ export function RoomManagementLists({
   customizingRoomAmenities,
 }: {
   data: RoomManagementData;
+  canManageAccommodations: boolean;
   canManagePhotos: boolean;
   onAddRoomType: () => void;
   onEditRoomType: (roomType: RoomType) => void;
@@ -366,14 +368,16 @@ export function RoomManagementLists({
               >
                 <Download aria-hidden="true" /> Export CSV
               </Button>
-              <Button variant="outline" onClick={onManageAmenities}>
-                Manage amenities
-              </Button>
-              {view === 'room-types' ? (
+              {canManageAccommodations ? (
+                <Button variant="outline" onClick={onManageAmenities}>
+                  Manage amenities
+                </Button>
+              ) : null}
+              {canManageAccommodations && view === 'room-types' ? (
                 <Button onClick={onAddRoomType}>
                   <Plus aria-hidden="true" /> Add room type
                 </Button>
-              ) : (
+              ) : canManageAccommodations ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button>
@@ -392,7 +396,7 @@ export function RoomManagementLists({
                     )}
                   </DropdownMenuContent>
                 </DropdownMenu>
-              )}
+              ) : null}
             </div>
           </div>
           <BulkBar count={selectedRows.length} noun="selected" onClear={() => setSelected([])}>
@@ -420,9 +424,11 @@ export function RoomManagementLists({
                 title="No room types yet"
                 description="Create the sellable room types offered by this property."
                 action={
-                  <Button onClick={onAddRoomType}>
-                    <Plus aria-hidden="true" /> Add room type
-                  </Button>
+                  canManageAccommodations ? (
+                    <Button onClick={onAddRoomType}>
+                      <Plus aria-hidden="true" /> Add room type
+                    </Button>
+                  ) : undefined
                 }
               />
             ) : (
@@ -637,6 +643,7 @@ export function RoomManagementLists({
                                 onEdit={() => onEditRoomType(type)}
                                 onDelete={() => onDeleteRoomType(type)}
                                 onAddRoom={() => onAddRoom(type)}
+                                canManageAccommodations={canManageAccommodations}
                                 canManagePhotos={canManagePhotos}
                               />
                             </TableCell>
@@ -674,6 +681,7 @@ export function RoomManagementLists({
                                 }
                                 onEdit={() => onEditRoom(line.roomType, line.room)}
                                 onDelete={() => onDeleteRoom(line.roomType, line.room)}
+                                canManageAccommodations={canManageAccommodations}
                               />
                             </TableCell>
                           </>
@@ -731,14 +739,16 @@ export function RoomManagementLists({
         actions={
           peek?.kind === 'room-type' ? (
             <>
-              <Button
-                onClick={() => {
-                  onEditRoomType(peek.item);
-                  setPeek(null);
-                }}
-              >
-                Edit details
-              </Button>
+              {canManageAccommodations ? (
+                <Button
+                  onClick={() => {
+                    onEditRoomType(peek.item);
+                    setPeek(null);
+                  }}
+                >
+                  Edit details
+                </Button>
+              ) : null}
               {canManagePhotos ? (
                 <Button
                   variant="outline"
@@ -750,35 +760,41 @@ export function RoomManagementLists({
                   Manage photos
                 </Button>
               ) : null}
-              <Button
-                variant="outline"
-                onClick={() => {
-                  onAddRoom(peek.item);
-                  setPeek(null);
-                }}
-              >
-                Add physical room
-              </Button>
+              {canManageAccommodations ? (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    onAddRoom(peek.item);
+                    setPeek(null);
+                  }}
+                >
+                  Add physical room
+                </Button>
+              ) : null}
             </>
           ) : peek?.kind === 'room' ? (
             <>
-              <Button
-                onClick={() => {
-                  onEditRoom(peek.roomType, peek.item);
-                  setPeek(null);
-                }}
-              >
-                Edit room
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  onDeleteRoom(peek.roomType, peek.item);
-                  setPeek(null);
-                }}
-              >
-                Delete room
-              </Button>
+              {canManageAccommodations ? (
+                <Button
+                  onClick={() => {
+                    onEditRoom(peek.roomType, peek.item);
+                    setPeek(null);
+                  }}
+                >
+                  Edit room
+                </Button>
+              ) : null}
+              {canManageAccommodations ? (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    onDeleteRoom(peek.roomType, peek.item);
+                    setPeek(null);
+                  }}
+                >
+                  Delete room
+                </Button>
+              ) : null}
             </>
           ) : undefined
         }
@@ -787,6 +803,7 @@ export function RoomManagementLists({
           <RoomTypePeek
             data={data}
             roomType={peek.item}
+            canManageAccommodations={canManageAccommodations}
             canManagePhotos={canManagePhotos}
             onAddRoom={onAddRoom}
             onEditRoom={onEditRoom}
@@ -798,6 +815,7 @@ export function RoomManagementLists({
             data={data}
             room={peek.item}
             roomType={peek.roomType}
+            canManageAccommodations={canManageAccommodations}
             customizing={
               customizingRoomAmenities[peek.id] === true ||
               (data.roomAmenities[peek.id] ?? []).length > 0

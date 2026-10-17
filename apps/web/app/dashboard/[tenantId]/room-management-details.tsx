@@ -63,12 +63,14 @@ export function RowActions({
   onEdit,
   onDelete,
   onAddRoom,
+  canManageAccommodations,
   canManagePhotos,
 }: {
   onPeek: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onAddRoom: () => void;
+  canManageAccommodations: boolean;
   canManagePhotos: boolean;
 }) {
   return (
@@ -80,15 +82,23 @@ export function RowActions({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={onPeek}>View details</DropdownMenuItem>
-        <DropdownMenuItem onSelect={onEdit}>Edit details</DropdownMenuItem>
-        <DropdownMenuItem onSelect={onAddRoom}>Add physical room</DropdownMenuItem>
+        {canManageAccommodations ? (
+          <DropdownMenuItem onSelect={onEdit}>Edit details</DropdownMenuItem>
+        ) : null}
+        {canManageAccommodations ? (
+          <DropdownMenuItem onSelect={onAddRoom}>Add physical room</DropdownMenuItem>
+        ) : null}
         {canManagePhotos ? (
           <DropdownMenuItem onSelect={onEdit}>Manage photos</DropdownMenuItem>
         ) : null}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onSelect={onDelete}>
-          Delete room type
-        </DropdownMenuItem>
+        {canManageAccommodations ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+              Delete room type
+            </DropdownMenuItem>
+          </>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -98,11 +108,13 @@ export function RoomRowActions({
   onPeek,
   onEdit,
   onDelete,
+  canManageAccommodations,
 }: {
   room: Room;
   onPeek: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  canManageAccommodations: boolean;
 }) {
   return (
     <DropdownMenu>
@@ -113,11 +125,15 @@ export function RoomRowActions({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={onPeek}>View details</DropdownMenuItem>
-        <DropdownMenuItem onSelect={onEdit}>Edit room</DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onSelect={onDelete}>
-          Delete room
-        </DropdownMenuItem>
+        {canManageAccommodations ? (
+          <>
+            <DropdownMenuItem onSelect={onEdit}>Edit room</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+              Delete room
+            </DropdownMenuItem>
+          </>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -126,6 +142,7 @@ export function RoomRowActions({
 export function RoomTypePeek({
   data,
   roomType,
+  canManageAccommodations,
   canManagePhotos,
   onAddRoom,
   onEditRoom,
@@ -133,6 +150,7 @@ export function RoomTypePeek({
 }: {
   data: RoomManagementData;
   roomType: RoomType;
+  canManageAccommodations: boolean;
   canManagePhotos: boolean;
   onAddRoom: (roomType: RoomType) => void;
   onEditRoom: (roomType: RoomType, room: Room) => void;
@@ -203,26 +221,30 @@ export function RoomTypePeek({
           ) : (
             <p className="m-0 text-sm text-muted-foreground">No amenities selected.</p>
           )}
-          <div className="flex flex-col gap-2 border-t pt-3">
-            {data.amenities.map((amenity) => (
-              <label key={amenity.id} className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={assigned.some((item) => item.id === amenity.id)}
-                  onCheckedChange={() => onToggleAmenity(roomType.id, amenity.id)}
-                />
-                {amenity.name}
-              </label>
-            ))}
-          </div>
+          {canManageAccommodations ? (
+            <div className="flex flex-col gap-2 border-t pt-3">
+              {data.amenities.map((amenity) => (
+                <label key={amenity.id} className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={assigned.some((item) => item.id === amenity.id)}
+                    onCheckedChange={() => onToggleAmenity(roomType.id, amenity.id)}
+                  />
+                  {amenity.name}
+                </label>
+              ))}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
       <Card className="gap-3 py-4">
         <CardContent className="flex flex-col gap-3 px-4">
           <div className="flex items-center justify-between gap-2">
             <h3 className="m-0 text-sm font-bold">Physical rooms</h3>
-            <Button size="sm" variant="outline" onClick={() => onAddRoom(roomType)}>
-              <Plus aria-hidden="true" /> Add
-            </Button>
+            {canManageAccommodations ? (
+              <Button size="sm" variant="outline" onClick={() => onAddRoom(roomType)}>
+                <Plus aria-hidden="true" /> Add
+              </Button>
+            ) : null}
           </div>
           {rooms.length ? (
             <ul className="m-0 flex flex-col gap-2 p-0">
@@ -239,9 +261,11 @@ export function RoomTypePeek({
                         .join(' Â· ') || 'Details not set'}
                     </span>
                   </span>
-                  <Button size="sm" variant="ghost" onClick={() => onEditRoom(roomType, room)}>
-                    Edit
-                  </Button>
+                  {canManageAccommodations ? (
+                    <Button size="sm" variant="ghost" onClick={() => onEditRoom(roomType, room)}>
+                      Edit
+                    </Button>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -259,6 +283,7 @@ export function RoomPeek({
   room,
   roomType,
   customizing,
+  canManageAccommodations,
   onToggleAmenity,
   onCustomize,
   onInherit,
@@ -267,6 +292,7 @@ export function RoomPeek({
   room: Room;
   roomType: RoomType;
   customizing: boolean;
+  canManageAccommodations: boolean;
   onToggleAmenity: (roomId: string, amenityId: string) => void;
   onCustomize: (roomId: string, inherited: Amenity[]) => void;
   onInherit: (roomId: string) => void;
@@ -312,7 +338,7 @@ export function RoomPeek({
               <span className="text-sm text-muted-foreground">No amenities selected.</span>
             ) : null}
           </div>
-          {customizing ? (
+          {canManageAccommodations && customizing ? (
             <>
               <Button variant="outline" size="sm" onClick={() => onInherit(room.id)}>
                 Inherit room type amenities
@@ -329,7 +355,7 @@ export function RoomPeek({
                 ))}
               </div>
             </>
-          ) : (
+          ) : canManageAccommodations ? (
             <Button
               variant="outline"
               size="sm"
@@ -337,7 +363,7 @@ export function RoomPeek({
             >
               Customize amenities
             </Button>
-          )}
+          ) : null}
         </CardContent>
       </Card>
     </div>

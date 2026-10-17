@@ -8,7 +8,7 @@ import { Avatar, AvatarFallback } from '../../components/ui/avatar';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Checkbox } from '../../components/ui/checkbox';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { Card } from '../../components/ui/card';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import {
   DropdownMenu,
@@ -89,18 +89,6 @@ type MergeCandidate = {
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
 
-function formatDay(value: string | undefined, withYear: boolean) {
-  if (!value) return '';
-  const date = new Date(`${value}T00:00:00Z`);
-  if (Number.isNaN(date.valueOf())) return value;
-  return date.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    ...(withYear ? { year: 'numeric' } : {}),
-    timeZone: 'UTC',
-  });
-}
-
 function guestName(guest: Pick<Guest, 'firstName' | 'lastName' | 'email'>) {
   return [guest.firstName, guest.lastName].filter(Boolean).join(' ') || guest.email;
 }
@@ -116,7 +104,7 @@ function guestInitials(guest: Pick<Guest, 'firstName' | 'lastName' | 'email'>) {
 export function DashboardGuests({
   tenantId,
   propertyId,
-  canMergeGuests = true,
+  canMergeGuests = false,
 }: {
   tenantId: string;
   propertyId: string;

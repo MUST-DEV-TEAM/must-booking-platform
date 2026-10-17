@@ -146,9 +146,9 @@ export function AddReservation({
   bookingMode,
   paymentGateways,
   checkInTime,
-  canRecordPayment = true,
-  canCheckPayment = true,
-  canViewBooking = true,
+  canRecordPayment = false,
+  canCheckPayment = false,
+  canViewBooking = false,
 }: {
   tenantId: string;
   propertyId: string;

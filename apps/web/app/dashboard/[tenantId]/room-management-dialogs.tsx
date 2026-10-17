@@ -44,6 +44,7 @@ export function RoomTypeEditorDialog({
   propertyId,
   roomType,
   images,
+  canManageAccommodations,
   canManagePhotos,
   open,
   saving,
@@ -54,6 +55,7 @@ export function RoomTypeEditorDialog({
   propertyId: string;
   roomType: RoomType | null;
   images: RoomTypeImage[];
+  canManageAccommodations: boolean;
   canManagePhotos: boolean;
   open: boolean;
   saving: boolean;
@@ -82,6 +84,7 @@ export function RoomTypeEditorDialog({
             <Input
               id="room-type-name"
               required
+              disabled={!canManageAccommodations}
               value={form.name}
               onChange={(event) => setForm({ ...form, name: event.target.value })}
             />
@@ -89,6 +92,7 @@ export function RoomTypeEditorDialog({
           <FormField label="Description" htmlFor="room-type-description">
             <Textarea
               id="room-type-description"
+              disabled={!canManageAccommodations}
               value={form.description}
               onChange={(event) => setForm({ ...form, description: event.target.value })}
             />
@@ -96,6 +100,7 @@ export function RoomTypeEditorDialog({
           <FormField label="Amenities introduction" htmlFor="room-type-amenities-intro">
             <Textarea
               id="room-type-amenities-intro"
+              disabled={!canManageAccommodations}
               value={form.amenitiesIntro}
               onChange={(event) => setForm({ ...form, amenitiesIntro: event.target.value })}
             />
@@ -106,6 +111,7 @@ export function RoomTypeEditorDialog({
               required
               min="1"
               type="number"
+              disabled={!canManageAccommodations}
               value={form.maxOccupancy}
               onChange={(event) => setForm({ ...form, maxOccupancy: event.target.value })}
             />
@@ -114,15 +120,17 @@ export function RoomTypeEditorDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" loading={saving}>
-              {roomType ? (
-                'Save room type'
-              ) : (
-                <>
-                  <Plus aria-hidden="true" /> Add room type
-                </>
-              )}
-            </Button>
+            {canManageAccommodations ? (
+              <Button type="submit" loading={saving}>
+                {roomType ? (
+                  'Save room type'
+                ) : (
+                  <>
+                    <Plus aria-hidden="true" /> Add room type
+                  </>
+                )}
+              </Button>
+            ) : null}
           </DialogFooter>
         </form>
         {roomType && canManagePhotos ? (
@@ -176,6 +184,7 @@ export function RoomTypeEditorDialog({
 export function RoomEditorDialog({
   roomType,
   room,
+  canManageAccommodations,
   open,
   saving,
   onOpenChange,
@@ -183,6 +192,7 @@ export function RoomEditorDialog({
 }: {
   roomType: RoomType | null;
   room: Room | null;
+  canManageAccommodations: boolean;
   open: boolean;
   saving: boolean;
   onOpenChange: (open: boolean) => void;
@@ -206,6 +216,7 @@ export function RoomEditorDialog({
             <Input
               id="physical-room-name"
               required
+              disabled={!canManageAccommodations}
               value={form.name}
               onChange={(event) => setForm({ ...form, name: event.target.value })}
             />
@@ -213,6 +224,7 @@ export function RoomEditorDialog({
           <FormField label="Display title" htmlFor="physical-room-title">
             <Input
               id="physical-room-title"
+              disabled={!canManageAccommodations}
               maxLength={200}
               placeholder="e.g. Deluxe Sea Suite"
               value={form.title}
@@ -222,6 +234,7 @@ export function RoomEditorDialog({
           <FormField label="Room size" htmlFor="physical-room-size">
             <Input
               id="physical-room-size"
+              disabled={!canManageAccommodations}
               maxLength={50}
               placeholder="e.g. 70m²"
               value={form.roomSize}
@@ -232,6 +245,7 @@ export function RoomEditorDialog({
             <Input
               id="physical-room-floor"
               type="number"
+              disabled={!canManageAccommodations}
               min="-10"
               max="200"
               value={form.floor}
@@ -241,6 +255,7 @@ export function RoomEditorDialog({
           <FormField label="View type" htmlFor="physical-room-view">
             <Input
               id="physical-room-view"
+              disabled={!canManageAccommodations}
               maxLength={100}
               placeholder="e.g. Sea view"
               value={form.viewType}
@@ -255,6 +270,7 @@ export function RoomEditorDialog({
             >
               <Textarea
                 id="physical-room-rules"
+                disabled={!canManageAccommodations}
                 value={form.rules}
                 onChange={(event) => setForm({ ...form, rules: event.target.value })}
               />
@@ -268,6 +284,7 @@ export function RoomEditorDialog({
             >
               <Textarea
                 id="room-type-description"
+                disabled={!canManageAccommodations}
                 value={form.description}
                 onChange={(event) => setForm({ ...form, description: event.target.value })}
               />
@@ -277,15 +294,17 @@ export function RoomEditorDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" loading={saving}>
-              {room ? (
-                'Save room'
-              ) : (
-                <>
-                  <Plus aria-hidden="true" /> Add physical room
-                </>
-              )}
-            </Button>
+            {canManageAccommodations ? (
+              <Button type="submit" loading={saving}>
+                {room ? (
+                  'Save room'
+                ) : (
+                  <>
+                    <Plus aria-hidden="true" /> Add physical room
+                  </>
+                )}
+              </Button>
+            ) : null}
           </DialogFooter>
         </form>
       </DialogContent>
@@ -296,6 +315,7 @@ export function RoomEditorDialog({
 /** Dialog for creating and removing the property's existing amenity records. */
 export function AmenitiesDialog({
   amenities,
+  canManageAccommodations,
   open,
   saving,
   onOpenChange,
@@ -303,6 +323,7 @@ export function AmenitiesDialog({
   onDelete,
 }: {
   amenities: Amenity[];
+  canManageAccommodations: boolean;
   open: boolean;
   saving: boolean;
   onOpenChange: (open: boolean) => void;
@@ -336,13 +357,18 @@ export function AmenitiesDialog({
             <Input
               id="amenity-name"
               required
+              disabled={!canManageAccommodations}
               maxLength={100}
               value={name}
               onChange={(event) => setName(event.target.value)}
             />
           </FormField>
           <FormField label="Icon" htmlFor="amenity-icon">
-            <Select value={icon} onValueChange={(value) => setIcon(value as AmenityIcon)}>
+            <Select
+              value={icon}
+              onValueChange={(value) => setIcon(value as AmenityIcon)}
+              disabled={!canManageAccommodations}
+            >
               <SelectTrigger id="amenity-icon" className="w-full">
                 <SelectValue />
               </SelectTrigger>
@@ -355,9 +381,11 @@ export function AmenitiesDialog({
               </SelectContent>
             </Select>
           </FormField>
-          <Button type="submit" loading={saving}>
-            <Plus aria-hidden="true" /> Add
-          </Button>
+          {canManageAccommodations ? (
+            <Button type="submit" loading={saving}>
+              <Plus aria-hidden="true" /> Add
+            </Button>
+          ) : null}
         </form>
         <ul className="m-0 flex flex-col gap-2 p-0">
           {amenities.map((amenity) => (
@@ -371,15 +399,17 @@ export function AmenitiesDialog({
                   {amenity.icon ? amenityIconLabel(amenity.icon) : 'No icon'}
                 </Badge>
               </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                aria-label={`Delete ${amenity.name}`}
-                onClick={() => onDelete(amenity.id)}
-              >
-                <Trash2 aria-hidden="true" /> Delete
-              </Button>
+              {canManageAccommodations ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-label={`Delete ${amenity.name}`}
+                  onClick={() => onDelete(amenity.id)}
+                >
+                  <Trash2 aria-hidden="true" /> Delete
+                </Button>
+              ) : null}
             </li>
           ))}
         </ul>

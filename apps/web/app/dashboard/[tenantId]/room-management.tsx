@@ -31,10 +31,12 @@ import {
 export function RoomManagement({
   tenantId,
   propertyId: selectedPropertyId,
-  canManagePhotos = true,
+  canManageAccommodations = false,
+  canManagePhotos = false,
 }: {
   tenantId: string;
   propertyId?: string;
+  canManageAccommodations?: boolean;
   canManagePhotos?: boolean;
 }) {
   const queryClient = useQueryClient();
@@ -142,8 +144,13 @@ export function RoomManagement({
     roomAmenities: {},
   };
 
+  function requireAccommodationManagement() {
+    if (!canManageAccommodations) throw new Error('You do not hold accommodations.manage.');
+  }
+
   const saveRoomTypeMutation = useMutation({
     mutationFn: async ({ roomType, form }: { roomType: RoomType | null; form: RoomTypeForm }) => {
+      requireAccommodationManagement();
       const response = await fetch(roomType ? `${roomTypesUrl}/${roomType.id}` : roomTypesUrl, {
         method: roomType ? 'PATCH' : 'POST',
         credentials: 'include',
@@ -170,6 +177,7 @@ export function RoomManagement({
 
   const deleteRoomTypeMutation = useMutation({
     mutationFn: async (roomTypeId: string) => {
+      requireAccommodationManagement();
       const response = await fetch(`${roomTypesUrl}/${roomTypeId}`, {
         method: 'DELETE',
         credentials: 'include',
@@ -195,6 +203,7 @@ export function RoomManagement({
       room: Room | null;
       form: RoomForm;
     }) => {
+      requireAccommodationManagement();
       const response = await fetch(
         room
           ? `${roomTypesUrl}/${roomType.id}/rooms/${room.id}`
@@ -230,6 +239,7 @@ export function RoomManagement({
 
   const deleteRoomMutation = useMutation({
     mutationFn: async ({ roomType, room }: { roomType: RoomType; room: Room }) => {
+      requireAccommodationManagement();
       const response = await fetch(`${roomTypesUrl}/${roomType.id}/rooms/${room.id}`, {
         method: 'DELETE',
         credentials: 'include',
@@ -246,6 +256,7 @@ export function RoomManagement({
 
   const createAmenityMutation = useMutation({
     mutationFn: async ({ name, icon }: { name: string; icon: AmenityIcon }) => {
+      requireAccommodationManagement();
       const response = await fetch(`${propertyUrl}/amenities`, {
         method: 'POST',
         credentials: 'include',
@@ -264,6 +275,7 @@ export function RoomManagement({
 
   const deleteAmenityMutation = useMutation({
     mutationFn: async (amenityId: string) => {
+      requireAccommodationManagement();
       const response = await fetch(`${propertyUrl}/amenities/${amenityId}`, {
         method: 'DELETE',
         credentials: 'include',
@@ -286,6 +298,7 @@ export function RoomManagement({
       roomTypeId: string;
       amenityIds: string[];
     }) => {
+      requireAccommodationManagement();
       const response = await fetch(`${roomTypesUrl}/${roomTypeId}/amenities`, {
         method: 'PUT',
         credentials: 'include',
@@ -313,6 +326,7 @@ export function RoomManagement({
 
   const setRoomAmenitiesMutation = useMutation({
     mutationFn: async ({ roomId, amenityIds }: { roomId: string; amenityIds: string[] }) => {
+      requireAccommodationManagement();
       const response = await fetch(`${propertyUrl}/rooms/${roomId}/amenities`, {
         method: 'PUT',
         credentials: 'include',
@@ -338,24 +352,29 @@ export function RoomManagement({
   });
 
   function addRoomType() {
+    if (!canManageAccommodations) return;
     setEditingRoomType(null);
     setRoomTypeDialogOpen(true);
   }
   function editRoomType(roomType: RoomType) {
+    if (!canManageAccommodations) return;
     setEditingRoomType(roomType);
     setRoomTypeDialogOpen(true);
   }
   function addRoom(roomType: RoomType) {
+    if (!canManageAccommodations) return;
     setRoomTargetType(roomType);
     setEditingRoom(null);
     setRoomDialogOpen(true);
   }
   function editRoom(roomType: RoomType, room: Room) {
+    if (!canManageAccommodations) return;
     setRoomTargetType(roomType);
     setEditingRoom(room);
     setRoomDialogOpen(true);
   }
   function toggleTypeAmenity(roomTypeId: string, amenityId: string) {
+    if (!canManageAccommodations) return;
     const current = data.roomTypeAmenities[roomTypeId] ?? [];
     const amenityIds = current.some((item) => item.id === amenityId)
       ? current.filter((item) => item.id !== amenityId).map((item) => item.id)
@@ -363,9 +382,11 @@ export function RoomManagement({
     toggleRoomTypeAmenityMutation.mutate({ roomTypeId, amenityIds });
   }
   function setRoomAmenities(roomId: string, amenityIds: string[]) {
+    if (!canManageAccommodations) return;
     setRoomAmenitiesMutation.mutate({ roomId, amenityIds });
   }
   function customizeRoomAmenities(roomId: string, inherited: Amenity[]) {
+    if (!canManageAccommodations) return;
     setCustomizingRoomAmenities((current) => ({ ...current, [roomId]: true }));
     setRoomAmenities(
       roomId,
@@ -373,6 +394,7 @@ export function RoomManagement({
     );
   }
   function toggleRoomAmenity(roomId: string, amenityId: string) {
+    if (!canManageAccommodations) return;
     const current = data.roomAmenities[roomId] ?? [];
     const amenityIds = current.some((item) => item.id === amenityId)
       ? current.filter((item) => item.id !== amenityId).map((item) => item.id)
@@ -382,6 +404,7 @@ export function RoomManagement({
     setRoomAmenities(roomId, amenityIds);
   }
   function inheritRoomAmenities(roomId: string) {
+    if (!canManageAccommodations) return;
     setCustomizingRoomAmenities((current) => ({ ...current, [roomId]: false }));
     setRoomAmenities(roomId, []);
   }
@@ -436,14 +459,21 @@ export function RoomManagement({
       {propertyId && !roomManagementQuery.isError && roomManagementQuery.data ? (
         <RoomManagementLists
           data={data}
+          canManageAccommodations={canManageAccommodations}
           canManagePhotos={canManagePhotos}
           onAddRoomType={addRoomType}
           onEditRoomType={editRoomType}
-          onDeleteRoomType={(roomType) => deleteRoomTypeMutation.mutate(roomType.id)}
+          onDeleteRoomType={(roomType) => {
+            if (canManageAccommodations) deleteRoomTypeMutation.mutate(roomType.id);
+          }}
           onAddRoom={addRoom}
           onEditRoom={editRoom}
-          onDeleteRoom={(roomType, room) => deleteRoomMutation.mutate({ roomType, room })}
-          onManageAmenities={() => setAmenitiesDialogOpen(true)}
+          onDeleteRoom={(roomType, room) => {
+            if (canManageAccommodations) deleteRoomMutation.mutate({ roomType, room });
+          }}
+          onManageAmenities={() => {
+            if (canManageAccommodations) setAmenitiesDialogOpen(true);
+          }}
           onToggleRoomTypeAmenity={toggleTypeAmenity}
           onToggleRoomAmenity={toggleRoomAmenity}
           onCustomizeRoomAmenities={customizeRoomAmenities}
@@ -457,8 +487,9 @@ export function RoomManagement({
         propertyId={propertyId}
         roomType={editingRoomType}
         images={editingRoomType ? (data.images[editingRoomType.id] ?? []) : []}
+        canManageAccommodations={canManageAccommodations}
         canManagePhotos={canManagePhotos}
-        open={roomTypeDialogOpen}
+        open={roomTypeDialogOpen && canManageAccommodations}
         saving={saveRoomTypeMutation.isPending}
         onOpenChange={(open) => {
           setRoomTypeDialogOpen(open);
@@ -470,7 +501,8 @@ export function RoomManagement({
         key={`${roomTargetType?.id ?? 'none'}-${editingRoom?.id ?? 'new'}-${roomDialogOpen ? 'open' : 'closed'}`}
         roomType={roomTargetType}
         room={editingRoom}
-        open={roomDialogOpen}
+        canManageAccommodations={canManageAccommodations}
+        open={roomDialogOpen && canManageAccommodations}
         saving={saveRoomMutation.isPending}
         onOpenChange={(open) => {
           setRoomDialogOpen(open);
@@ -487,7 +519,8 @@ export function RoomManagement({
       />
       <AmenitiesDialog
         amenities={data.amenities}
-        open={amenitiesDialogOpen}
+        canManageAccommodations={canManageAccommodations}
+        open={amenitiesDialogOpen && canManageAccommodations}
         saving={createAmenityMutation.isPending}
         onOpenChange={setAmenitiesDialogOpen}
         onCreate={(name, icon) =>

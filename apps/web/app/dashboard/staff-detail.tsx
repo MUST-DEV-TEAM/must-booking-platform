@@ -97,6 +97,7 @@ export function StaffDetail({
   const sourcedPermissions = effectivePermissionItems(catalog, effective);
   const permissionOptions = permissionMultiSelectOptions(catalog, myCapabilities);
   const canManagePermissions = myCapabilities.includes('staff.manage_permissions');
+  const canManageRoles = myCapabilities.includes('staff.manage_roles');
   const onExtraChange = (nextKeys: string[]) =>
     applyOverrideChanges(extraKeys, nextKeys, 'grant', onChangeOverride);
   const onDeniedChange = (nextKeys: string[]) =>
@@ -202,7 +203,7 @@ export function StaffDetail({
                   shown in the Permissions tab.
                 </p>
               </div>
-              {canManagePermissions && templates.length > 0 ? (
+              {canManageRoles && templates.length > 0 ? (
                 <Select
                   value={member.roleTemplateId}
                   onValueChange={onChangeRole}
@@ -219,7 +220,7 @@ export function StaffDetail({
                     ))}
                   </SelectContent>
                 </Select>
-              ) : canManagePermissions ? (
+              ) : canManageRoles ? (
                 <p className="m-0 text-sm text-muted-foreground">No roles are available.</p>
               ) : (
                 <p className="m-0 text-sm text-muted-foreground">Current role: {template?.name ?? member.roleTemplateName}</p>

@@ -141,7 +141,10 @@ describe('DashboardOverview', () => {
   it('uses supplied overview data without an additional request', async () => {
     const fetch = vi.fn();
     vi.stubGlobal('fetch', fetch);
-    const { container, root } = await mount({ initialOverview: overview });
+    const { container, root } = await mount({
+      initialOverview: overview,
+      canManageQuickBooking: true,
+    });
 
     expect(container.textContent).toContain('Ada Guest');
     expect(container.textContent).toContain('Ana Arrival booked');
@@ -178,9 +181,22 @@ describe('DashboardOverview', () => {
     expect(fetch).not.toHaveBeenCalled();
     await act(async () => root.unmount());
   });
+
+  it('hides booking creation when the capability prop is omitted', async () => {
+    vi.stubGlobal('fetch', vi.fn());
+    const { container, root } = await mount({ initialOverview: overview });
+    expect(container.querySelector('a[href*="tab=quick-booking"]')).toBeNull();
+    await act(async () => root.unmount());
+  });
 });
 
-async function mount({ initialOverview }: { initialOverview?: typeof overview } = {}) {
+async function mount({
+  initialOverview,
+  canManageQuickBooking,
+}: {
+  initialOverview?: typeof overview;
+  canManageQuickBooking?: boolean;
+} = {}) {
   const container = document.createElement('div');
   const root = createRoot(container);
   await act(async () => {
@@ -193,6 +209,7 @@ async function mount({ initialOverview }: { initialOverview?: typeof overview } 
           propertyId: 'property-1',
           role: 'OWNER',
           initialOverview,
+          ...(canManageQuickBooking === undefined ? {} : { canManageQuickBooking }),
         }),
       ),
     );

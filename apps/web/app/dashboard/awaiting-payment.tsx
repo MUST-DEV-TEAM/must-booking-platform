@@ -27,8 +27,8 @@ export function AwaitingPayment({
   checkoutUrl,
   providerName,
   reservationHref,
-  canCheckPayment = true,
-  canViewBooking = true,
+  canCheckPayment = false,
+  canViewBooking = false,
   onStartOver,
 }: {
   tenantId: string;
@@ -76,7 +76,6 @@ export function AwaitingPayment({
       }
     };
     return () => channel.close();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending, bookingId]);
 
   useEffect(() => {
@@ -87,7 +86,6 @@ export function AwaitingPayment({
       window.clearInterval(clock);
       window.clearInterval(sweep);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending]);
 
   if (current === 'CONFIRMED')

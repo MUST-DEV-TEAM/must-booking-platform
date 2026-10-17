@@ -178,7 +178,10 @@ describe('Staff', () => {
 
     await clickButton('Add staff');
     await clickTab('Send invitation');
-    await setValue(document.body.querySelector<HTMLInputElement>('#staff-invite-email')!, 'new@test');
+    await setValue(
+      document.body.querySelector<HTMLInputElement>('#staff-invite-email')!,
+      'new@test',
+    );
     await openMultiSelect('Invitation extra permissions');
     await clickPermission(document.body, 'Manage staff permissions');
     await clickButton('Send invitation');
@@ -545,6 +548,19 @@ describe('Staff', () => {
       source: 'role',
     });
     expect(toast.success).toHaveBeenCalledWith('Capability override updated.');
+    await unmount(root);
+  });
+
+  it('requires staff.manage_roles to change roles while staff.manage_permissions controls overrides', async () => {
+    window.history.replaceState(null, '', '/dashboard/t?propertyId=p&section=staff&staffUser=u');
+    actorCapabilities = ['staff.manage_permissions'];
+    mock({ staffSeats: 1, maxStaffSeats: 2 });
+    const { root } = await mount();
+
+    expect(document.body.querySelector('[aria-label="Role for staff@test"]')).toBeNull();
+    await clickTab('Permissions');
+    expect(document.body.querySelector('[aria-label="Extra permissions"]')).not.toBeNull();
+    expect(document.body.querySelector('[aria-label="Denied permissions"]')).not.toBeNull();
     await unmount(root);
   });
 

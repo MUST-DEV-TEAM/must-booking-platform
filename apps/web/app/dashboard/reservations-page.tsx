@@ -294,7 +294,7 @@ function dashboardHref(tenantId: string, propertyId: string, extra: string) {
 export function ReservationsPage({
   tenantId,
   propertyId,
-  canCreateBooking = true,
+  canCreateBooking = false,
 }: {
   tenantId: string;
   propertyId: string;

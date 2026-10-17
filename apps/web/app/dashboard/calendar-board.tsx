@@ -94,7 +94,7 @@ export function CalendarBoard({
   propertyId,
   bookingMode,
   canManageAvailability = false,
-  canCreateBooking = true,
+  canCreateBooking = false,
 }: {
   tenantId: string;
   propertyId: string;

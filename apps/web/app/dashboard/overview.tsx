@@ -24,7 +24,7 @@ import { Button } from '../../components/ui/button';
 import { ListCard, ListRow } from '../../components/ui/list-card';
 import { PageHero } from '../../components/ui/page-hero';
 import { StatTile } from '../../components/ui/stat-tile';
-import { EmptyPanel, ErrorPanel } from '../../components/ui/state-panel';
+import { ErrorPanel } from '../../components/ui/state-panel';
 import { Skeleton } from '../../components/ui/skeleton';
 import { bookingStatusDisplay } from '../../lib/reservation-display';
 
@@ -127,7 +127,7 @@ export function DashboardOverview({
   tenantId,
   propertyId,
   role,
-  canManageQuickBooking,
+  canManageQuickBooking = false,
   initialOverview,
 }: {
   tenantId: string;
@@ -137,7 +137,7 @@ export function DashboardOverview({
   initialOverview?: Overview;
 }) {
   const overviewQuery = useOverviewQuery(tenantId, propertyId, initialOverview);
-  const canShowQuickBooking = canManageQuickBooking ?? role !== 'STAFF';
+  const canShowQuickBooking = canManageQuickBooking;
   const link = (section: string, extra?: string) => dashboardHref(tenantId, propertyId, section, extra);
   const reservation = (id: string) => link('reservations', `reservation=${id}`);
 

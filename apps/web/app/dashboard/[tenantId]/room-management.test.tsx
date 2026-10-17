@@ -95,6 +95,8 @@ describe('RoomManagement', () => {
     expect(container.textContent).toContain('Accommodations');
     expect(container.textContent).toContain('Room types');
     expect(container.textContent).toContain('2');
+    expect(container.textContent).not.toContain('Add room type');
+    expect(container.textContent).not.toContain('Manage amenities');
     expect(container.textContent).not.toContain('Manage photos');
     expect(
       fetch.mock.calls.some(([url]) => String(url).endsWith('/room-types/room-type-1/images')),
