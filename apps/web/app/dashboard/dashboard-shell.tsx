@@ -1,14 +1,6 @@
 'use client';
 
-import {
-  Card,
-  Heading,
-  Stack,
-  StatePanel,
-  StatusBadge,
-  Text,
-  type NavigationItem,
-} from '@must/ui';
+import { Card, Heading, Stack, StatePanel, StatusBadge, Text, type NavigationItem } from '@must/ui';
 import {
   CalendarDays,
   ClipboardList,
@@ -32,7 +24,13 @@ import { useEffect, useState } from 'react';
 import { Chip } from '../../components/ui/chip';
 import { TabBar } from '../../components/ui/tab-bar';
 import { AppShell, type AppNavigationItem } from '../../components/app-shell';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../components/ui/select';
 import { fetchSessionUser, type SessionUser } from '../auth-routing';
 import styles from './dashboard-shell.module.css';
 import { NeedsAttentionTab } from './needs-attention';
@@ -126,9 +124,19 @@ const operationalNavigation = [
 const managementNavigation = [
   // Inventory and Settings stay owner/admin-only -- see ownerAdminOnlySections below -- so they
   // intentionally carry no `capabilities` entry here.
-  { section: 'accommodations', label: 'Accommodations', icon: IconHotel, capabilities: ['accommodations.manage'] },
+  {
+    section: 'accommodations',
+    label: 'Accommodations',
+    icon: IconHotel,
+    capabilities: ['accommodations.manage'],
+  },
   { section: 'photos', label: 'Photos', icon: Images, capabilities: ['photos.manage'] },
-  { section: 'rates-pricing', label: 'Rates & Pricing', icon: Tags, capabilities: ['rates.manage'] },
+  {
+    section: 'rates-pricing',
+    label: 'Rates & Pricing',
+    icon: Tags,
+    capabilities: ['rates.manage'],
+  },
   { section: 'staff', label: 'Staff', icon: Users, capabilities: ['staff.view'] },
   { section: 'reports', label: 'Reports', icon: FileChartColumn, capabilities: ['reports.view'] },
   { section: 'settings', label: 'Settings', icon: Settings },
@@ -212,7 +220,10 @@ function DashboardSectionTabs({
   // Approvals and System health are planned features; they stay out of the live tab bar until built.
   const attention = useOverviewQuery(tenantId, propertyId).data?.needsAttentionCount;
   const tabs = dashboardTabs
-    .filter((tab) => tab.key === 'overview' || tab.key === 'needs-attention' || tab.key === 'quick-booking')
+    .filter(
+      (tab) =>
+        tab.key === 'overview' || tab.key === 'needs-attention' || tab.key === 'quick-booking',
+    )
     .filter((tab) => tab.key !== 'quick-booking' || canAccessQuickBooking)
     .map((tab) => ({
       id: tab.key,
@@ -386,7 +397,11 @@ export function DashboardShell({
   const canSeeBookings =
     !!role && (role !== 'STAFF' || capabilities?.includes('bookings.view') === true);
   // New reservations this person has not opened yet show as a count on the Bookings item.
-  const unseen = useUnseenBookings(tenantId, selectedProperty?.id, !!selectedProperty && canSeeBookings);
+  const unseen = useUnseenBookings(
+    tenantId,
+    selectedProperty?.id,
+    !!selectedProperty && canSeeBookings,
+  );
   const navigation =
     selectedProperty && role
       ? dashboardNavigation(tenantId, selectedProperty.id, role, section, capabilities ?? [], {
@@ -396,12 +411,12 @@ export function DashboardShell({
   const sectionLabel =
     section === 'account'
       ? 'My account'
-      : (dashboardSections.find((candidate) => candidate.section === section)?.label ?? 'Dashboard');
+      : (dashboardSections.find((candidate) => candidate.section === section)?.label ??
+        'Dashboard');
   const canViewSection = role ? canAccessSection(role, capabilities ?? [], section) : false;
   const hasCapability = (capability: string) =>
     role !== 'STAFF' || capabilities?.includes(capability) === true;
-  const canAccessQuickBooking =
-    hasCapability('bookings.create');
+  const canAccessQuickBooking = hasCapability('bookings.create');
   const visibleDashboardTab = tab === 'quick-booking' && !canAccessQuickBooking ? 'overview' : tab;
 
   return (
@@ -522,7 +537,11 @@ export function DashboardShell({
             canEditBooking={hasCapability('bookings.edit')}
           />
         ) : (
-          <ReservationsPage tenantId={tenantId} propertyId={selectedProperty.id} canCreateBooking={hasCapability('bookings.create')} />
+          <ReservationsPage
+            tenantId={tenantId}
+            propertyId={selectedProperty.id}
+            canCreateBooking={hasCapability('bookings.create')}
+          />
         )
       ) : null}
       {selectedProperty && role && canViewSection && section === 'calendar' ? (
@@ -549,7 +568,11 @@ export function DashboardShell({
         guestId ? (
           <GuestDetail tenantId={tenantId} propertyId={selectedProperty.id} guestId={guestId} />
         ) : (
-          <DashboardGuests tenantId={tenantId} propertyId={selectedProperty.id} canMergeGuests={hasCapability('guests.merge')} />
+          <DashboardGuests
+            tenantId={tenantId}
+            propertyId={selectedProperty.id}
+            canMergeGuests={hasCapability('guests.merge')}
+          />
         )
       ) : null}
       {selectedProperty && role && canViewSection && section === 'account' ? (
@@ -568,6 +591,8 @@ export function DashboardShell({
           tenantId={tenantId}
           canManageAccommodations={hasCapability('accommodations.manage')}
           canManagePhotos={hasCapability('photos.manage')}
+          canViewCalendar={hasCapability('calendar.view')}
+          canBlockCalendar={hasCapability('calendar.block')}
         />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'photos' ? (

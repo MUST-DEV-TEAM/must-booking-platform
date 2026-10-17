@@ -63,6 +63,46 @@ describe('AmenitiesService icon validation', () => {
     'DRYER',
     'STREAMING',
     'SAFETY_DEPOSIT_BOX',
+    'HAIR_DRYER',
+    'KETTLE_COFFEE',
+    'MINIBAR',
+    'BALCONY',
+    'SEA_VIEW',
+    'SAFE',
+    'IRON',
+    'WORK_DESK',
+    'BATHTUB',
+    'SHOWER',
+    'TOWELS',
+    'SLIPPERS',
+    'BATHROBE',
+    'CRIB',
+    'WHEELCHAIR_ACCESS',
+    'ELEVATOR',
+    'SPA',
+    'GYM',
+    'SAUNA',
+    'RESTAURANT',
+    'BAR',
+    'ROOM_SERVICE',
+    'LAUNDRY',
+    'SHUTTLE',
+    'EV_CHARGING',
+    'PETS_ALLOWED',
+    'NON_SMOKING',
+    'SOUNDPROOF',
+    'HEATING',
+    'FAN',
+    'SOFA_BED',
+    'KITCHENETTE',
+    'MICROWAVE',
+    'WASHING_MACHINE',
+    'GARDEN',
+    'TERRACE',
+    'BBQ',
+    'CHILDREN_PLAY',
+    'BEACH_ACCESS',
+    'SMART_TV',
   ])('accepts the extended canonical icon %s', async (icon) => {
     const { amenities } = service();
 
@@ -75,10 +115,8 @@ describe('AmenitiesService icon validation', () => {
     const { amenities, queryRaw } = service();
 
     await expect(
-      amenities.create(tenantId, propertyId, actorUserId, { name: 'Lift', icon: 'ELEVATOR' }),
-    ).rejects.toThrow(
-      'icon must be one of: WIFI, BREAKFAST, POOL, PARKING, AIR_CONDITIONING, BEACH, CABLE_CHANNELS, REFRIGERATOR, FLAT_SCREEN_TV, LINEN, TELEPHONE, DRYER, STREAMING, SAFETY_DEPOSIT_BOX.',
-    );
+      amenities.create(tenantId, propertyId, actorUserId, { name: 'Unknown icon', icon: 'LIFT' }),
+    ).rejects.toThrow(/icon must be one of:.*SMART_TV\./);
     expect(queryRaw).not.toHaveBeenCalled();
   });
 });

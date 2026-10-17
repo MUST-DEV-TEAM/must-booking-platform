@@ -1,23 +1,9 @@
-﻿export type Property = { id: string; name: string };
+import { amenityIcons, amenityIconLabel } from './amenity-icon-catalog';
+import type { AmenityIcon } from './amenity-icon-catalog';
 
-export const amenityIcons = [
-  'WIFI',
-  'BREAKFAST',
-  'POOL',
-  'PARKING',
-  'AIR_CONDITIONING',
-  'BEACH',
-  'CABLE_CHANNELS',
-  'REFRIGERATOR',
-  'FLAT_SCREEN_TV',
-  'LINEN',
-  'TELEPHONE',
-  'DRYER',
-  'STREAMING',
-  'SAFETY_DEPOSIT_BOX',
-] as const;
-
-export type AmenityIcon = (typeof amenityIcons)[number];
+export type Property = { id: string; name: string };
+export { amenityIcons, amenityIconLabel };
+export type { AmenityIcon };
 export type Amenity = { id: string; name: string; icon: AmenityIcon | null };
 export type Room = {
   id: string;
@@ -78,10 +64,3 @@ export const emptyRoomForm: RoomForm = {
   floor: '',
   viewType: '',
 };
-
-export function amenityIconLabel(icon: AmenityIcon): string {
-  return icon
-    .split('_')
-    .map((word) => word[0] + word.slice(1).toLowerCase())
-    .join(' ');
-}

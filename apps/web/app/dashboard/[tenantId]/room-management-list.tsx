@@ -75,12 +75,16 @@ export function RoomManagementLists({
   data,
   canManageAccommodations,
   canManagePhotos,
+  canViewCalendar,
   onAddRoomType,
   onEditRoomType,
+  onOpenRoomTypeDetail,
   onDeleteRoomType,
+  onDuplicateRoomType,
   onAddRoom,
   onEditRoom,
   onDeleteRoom,
+  onOpenCalendar,
   onManageAmenities,
   onToggleRoomTypeAmenity,
   onToggleRoomAmenity,
@@ -91,12 +95,19 @@ export function RoomManagementLists({
   data: RoomManagementData;
   canManageAccommodations: boolean;
   canManagePhotos: boolean;
+  canViewCalendar: boolean;
   onAddRoomType: () => void;
   onEditRoomType: (roomType: RoomType) => void;
+  onOpenRoomTypeDetail: (roomType: RoomType) => void;
   onDeleteRoomType: (roomType: RoomType) => void;
+  onDuplicateRoomType: (roomType: RoomType) => void;
   onAddRoom: (roomType: RoomType) => void;
   onEditRoom: (roomType: RoomType, room: Room) => void;
   onDeleteRoom: (roomType: RoomType, room: Room) => void;
+  onOpenCalendar: (
+    target:
+      { kind: 'room-type'; roomType: RoomType } | { kind: 'room'; room: Room; roomType: RoomType },
+  ) => void;
   onManageAmenities: () => void;
   onToggleRoomTypeAmenity: (roomTypeId: string, amenityId: string) => void;
   onToggleRoomAmenity: (roomId: string, amenityId: string) => void;
@@ -561,7 +572,7 @@ export function RoomManagementLists({
                         onClick={(event) => {
                           if (
                             event.target instanceof HTMLElement &&
-                            event.target.closest('button,[role=checkbox]')
+                            event.target.closest('button,[role=checkbox],[role=menuitem]')
                           )
                             return;
                           openPeek(row);
@@ -640,11 +651,17 @@ export function RoomManagementLists({
                                 onPeek={() =>
                                   setPeek({ kind: 'room-type', id: type.id, item: type })
                                 }
+                                onDetails={() => onOpenRoomTypeDetail(type)}
+                                onCalendar={() =>
+                                  onOpenCalendar({ kind: 'room-type', roomType: type })
+                                }
                                 onEdit={() => onEditRoomType(type)}
                                 onDelete={() => onDeleteRoomType(type)}
+                                onDuplicate={() => onDuplicateRoomType(type)}
                                 onAddRoom={() => onAddRoom(type)}
                                 canManageAccommodations={canManageAccommodations}
                                 canManagePhotos={canManagePhotos}
+                                canViewCalendar={canViewCalendar}
                               />
                             </TableCell>
                           </>
@@ -679,9 +696,17 @@ export function RoomManagementLists({
                                     roomType: line.roomType,
                                   })
                                 }
+                                onCalendar={() =>
+                                  onOpenCalendar({
+                                    kind: 'room',
+                                    room: line.room,
+                                    roomType: line.roomType,
+                                  })
+                                }
                                 onEdit={() => onEditRoom(line.roomType, line.room)}
                                 onDelete={() => onDeleteRoom(line.roomType, line.room)}
                                 canManageAccommodations={canManageAccommodations}
+                                canViewCalendar={canViewCalendar}
                               />
                             </TableCell>
                           </>
@@ -749,6 +774,26 @@ export function RoomManagementLists({
                   Edit details
                 </Button>
               ) : null}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  onOpenRoomTypeDetail(peek.item);
+                  setPeek(null);
+                }}
+              >
+                Open full details
+              </Button>
+              {canViewCalendar ? (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    onOpenCalendar({ kind: 'room-type', roomType: peek.item });
+                    setPeek(null);
+                  }}
+                >
+                  Calendar
+                </Button>
+              ) : null}
               {canManagePhotos ? (
                 <Button
                   variant="outline"
@@ -782,6 +827,17 @@ export function RoomManagementLists({
                   }}
                 >
                   Edit room
+                </Button>
+              ) : null}
+              {canViewCalendar ? (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    onOpenCalendar({ kind: 'room', room: peek.item, roomType: peek.roomType });
+                    setPeek(null);
+                  }}
+                >
+                  Calendar
                 </Button>
               ) : null}
               {canManageAccommodations ? (

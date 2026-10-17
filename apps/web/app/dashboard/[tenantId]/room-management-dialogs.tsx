@@ -33,6 +33,7 @@ import {
   type RoomType,
   type RoomTypeForm,
 } from './room-management-types';
+import { amenityIconCatalog } from './amenity-icon-catalog';
 import { PropertyImageLibraryDialog } from './property-image-library';
 import { RoomTypeMainImageSelector } from './room-type-main-image-selector';
 import { RoomTypePhotoGallery } from './room-type-photo-gallery';
@@ -332,6 +333,20 @@ export function AmenitiesDialog({
 }) {
   const [name, setName] = useState('');
   const [icon, setIcon] = useState<AmenityIcon>('WIFI');
+  const suggestions: Array<{ name: string; icon: AmenityIcon }> = [
+    { name: 'Hair dryer', icon: 'HAIR_DRYER' },
+    { name: 'Kettle and coffee', icon: 'KETTLE_COFFEE' },
+    { name: 'Minibar', icon: 'MINIBAR' },
+    { name: 'Balcony', icon: 'BALCONY' },
+    { name: 'Sea view', icon: 'SEA_VIEW' },
+    { name: 'Safe', icon: 'SAFE' },
+    { name: 'Bathrobe', icon: 'BATHROBE' },
+    { name: 'Crib', icon: 'CRIB' },
+    { name: 'Room service', icon: 'ROOM_SERVICE' },
+    { name: 'Pets allowed', icon: 'PETS_ALLOWED' },
+    { name: 'EV charging', icon: 'EV_CHARGING' },
+    { name: 'Smart TV', icon: 'SMART_TV' },
+  ];
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!name.trim()) return;
@@ -375,7 +390,13 @@ export function AmenitiesDialog({
               <SelectContent>
                 {amenityIcons.map((item) => (
                   <SelectItem key={item} value={item}>
-                    {amenityIconLabel(item)}
+                    <span className="flex items-center gap-2">
+                      {(() => {
+                        const Icon = amenityIconCatalog[item].icon;
+                        return <Icon aria-hidden="true" className="size-4" />;
+                      })()}
+                      {amenityIconLabel(item)}
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -387,6 +408,33 @@ export function AmenitiesDialog({
             </Button>
           ) : null}
         </form>
+        <section aria-label="Suggested amenities" className="flex flex-col gap-2">
+          <h3 className="m-0 text-sm font-semibold">Suggested amenities</h3>
+          <div className="flex flex-wrap gap-2">
+            {suggestions.map((suggestion) => {
+              const Icon = amenityIconCatalog[suggestion.icon].icon;
+              const alreadyAdded = amenities.some(
+                (amenity) => amenity.name.toLowerCase() === suggestion.name.toLowerCase(),
+              );
+              return (
+                <Button
+                  key={suggestion.icon}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={!canManageAccommodations || saving || alreadyAdded}
+                  onClick={() =>
+                    void onCreate(suggestion.name, suggestion.icon).catch(() => undefined)
+                  }
+                >
+                  <Icon aria-hidden="true" className="size-4" />
+                  {suggestion.name}
+                  {alreadyAdded ? ' · Added' : ''}
+                </Button>
+              );
+            })}
+          </div>
+        </section>
         <ul className="m-0 flex flex-col gap-2 p-0">
           {amenities.map((amenity) => (
             <li

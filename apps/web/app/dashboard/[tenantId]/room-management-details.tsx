@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from '../../../components/ui/dropdown-menu';
 import type { Amenity, Room, RoomManagementData, RoomType } from './room-management-types';
+import { amenityIconCatalog } from './amenity-icon-catalog';
 
 export function SummaryTile({
   icon: Icon,
@@ -48,11 +49,16 @@ export function SummaryTile({
 export function CompactAmenities({ amenities }: { amenities: Amenity[] }) {
   if (!amenities.length) return <span className="text-xs text-muted-foreground">None</span>;
   return (
-    <span className="text-xs">
-      {amenities
-        .slice(0, 2)
-        .map((item) => item.name)
-        .join(', ')}
+    <span className="flex flex-wrap gap-2 text-xs">
+      {amenities.slice(0, 2).map((item) => {
+        const Icon = item.icon ? amenityIconCatalog[item.icon].icon : null;
+        return (
+          <span key={item.id} className="inline-flex items-center gap-1">
+            {Icon ? <Icon aria-hidden="true" className="size-3.5" /> : null}
+            {item.name}
+          </span>
+        );
+      })}
       {amenities.length > 2 ? ` +${amenities.length - 2}` : ''}
     </span>
   );
@@ -60,18 +66,26 @@ export function CompactAmenities({ amenities }: { amenities: Amenity[] }) {
 
 export function RowActions({
   onPeek,
+  onDetails,
+  onCalendar,
   onEdit,
   onDelete,
+  onDuplicate,
   onAddRoom,
   canManageAccommodations,
   canManagePhotos,
+  canViewCalendar,
 }: {
   onPeek: () => void;
+  onDetails: () => void;
+  onCalendar: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onDuplicate: () => void;
   onAddRoom: () => void;
   canManageAccommodations: boolean;
   canManagePhotos: boolean;
+  canViewCalendar: boolean;
 }) {
   return (
     <DropdownMenu>
@@ -82,11 +96,18 @@ export function RowActions({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={onPeek}>View details</DropdownMenuItem>
+        <DropdownMenuItem onSelect={onDetails}>Open full details</DropdownMenuItem>
+        {canViewCalendar ? (
+          <DropdownMenuItem onSelect={onCalendar}>Calendar</DropdownMenuItem>
+        ) : null}
         {canManageAccommodations ? (
           <DropdownMenuItem onSelect={onEdit}>Edit details</DropdownMenuItem>
         ) : null}
         {canManageAccommodations ? (
           <DropdownMenuItem onSelect={onAddRoom}>Add physical room</DropdownMenuItem>
+        ) : null}
+        {canManageAccommodations ? (
+          <DropdownMenuItem onSelect={onDuplicate}>Duplicate room type</DropdownMenuItem>
         ) : null}
         {canManagePhotos ? (
           <DropdownMenuItem onSelect={onEdit}>Manage photos</DropdownMenuItem>
@@ -106,15 +127,19 @@ export function RowActions({
 export function RoomRowActions({
   room,
   onPeek,
+  onCalendar,
   onEdit,
   onDelete,
   canManageAccommodations,
+  canViewCalendar,
 }: {
   room: Room;
   onPeek: () => void;
+  onCalendar: () => void;
   onEdit: () => void;
   onDelete: () => void;
   canManageAccommodations: boolean;
+  canViewCalendar: boolean;
 }) {
   return (
     <DropdownMenu>
@@ -125,6 +150,9 @@ export function RoomRowActions({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={onPeek}>View details</DropdownMenuItem>
+        {canViewCalendar ? (
+          <DropdownMenuItem onSelect={onCalendar}>Calendar</DropdownMenuItem>
+        ) : null}
         {canManageAccommodations ? (
           <>
             <DropdownMenuItem onSelect={onEdit}>Edit room</DropdownMenuItem>

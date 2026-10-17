@@ -16,6 +16,9 @@ import {
 } from '../../../components/ui/select';
 import { AmenitiesDialog, RoomEditorDialog, RoomTypeEditorDialog } from './room-management-dialogs';
 import { RoomManagementLists } from './room-management-list';
+import { RoomTypeDetail } from './room-type-detail';
+import { AvailabilityCalendarDialog } from './availability-calendar-dialog';
+import type { AvailabilityCalendarTarget } from './availability-calendar-dialog';
 import {
   type Amenity,
   type AmenityIcon,
@@ -33,11 +36,15 @@ export function RoomManagement({
   propertyId: selectedPropertyId,
   canManageAccommodations = false,
   canManagePhotos = false,
+  canViewCalendar = false,
+  canBlockCalendar = false,
 }: {
   tenantId: string;
   propertyId?: string;
   canManageAccommodations?: boolean;
   canManagePhotos?: boolean;
+  canViewCalendar?: boolean;
+  canBlockCalendar?: boolean;
 }) {
   const queryClient = useQueryClient();
   const [propertyId, setPropertyId] = useState('');
@@ -47,6 +54,8 @@ export function RoomManagement({
   const [roomTargetType, setRoomTargetType] = useState<RoomType | null>(null);
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
   const [amenitiesDialogOpen, setAmenitiesDialogOpen] = useState(false);
+  const [roomTypeDetailId, setRoomTypeDetailId] = useState<string | null>(null);
+  const [calendarTarget, setCalendarTarget] = useState<AvailabilityCalendarTarget | null>(null);
   const [customizingRoomAmenities, setCustomizingRoomAmenities] = useState<Record<string, boolean>>(
     {},
   );
@@ -68,6 +77,7 @@ export function RoomManagement({
   useEffect(() => {
     if (selectedPropertyId) setPropertyId(selectedPropertyId);
   }, [selectedPropertyId]);
+  useEffect(() => setRoomTypeDetailId(null), [propertyId]);
 
   const propertyUrl = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const roomTypesUrl = `${propertyUrl}/room-types`;
@@ -173,6 +183,48 @@ export function RoomManagement({
     },
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : 'Unable to save room type.'),
+  });
+
+  const duplicateRoomTypeMutation = useMutation({
+    mutationFn: async (roomType: RoomType) => {
+      requireAccommodationManagement();
+      const response = await fetch(roomTypesUrl, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: uniqueRoomTypeCopyName(roomType.name, data.roomTypes),
+          description: roomType.description,
+          amenitiesIntro: roomType.amenitiesIntro,
+          maxOccupancy: roomType.maxOccupancy,
+        }),
+      });
+      if (!response.ok)
+        throw new Error(await errorMessage(response, 'Unable to duplicate room type.'));
+      const created = (await response.json()) as RoomType;
+      const amenityResponse = await fetch(`${roomTypesUrl}/${created.id}/amenities`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          amenityIds: (data.roomTypeAmenities[roomType.id] ?? []).map((amenity) => amenity.id),
+        }),
+      });
+      if (!amenityResponse.ok) {
+        await fetch(`${roomTypesUrl}/${created.id}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        });
+        throw new Error(await errorMessage(amenityResponse, 'Unable to copy room type amenities.'));
+      }
+      return created;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: roomManagementQueryKey });
+      toast.success('Room type duplicated.');
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Unable to duplicate room type.'),
   });
 
   const deleteRoomTypeMutation = useMutation({
@@ -457,30 +509,62 @@ export function RoomManagement({
         />
       ) : null}
       {propertyId && !roomManagementQuery.isError && roomManagementQuery.data ? (
-        <RoomManagementLists
-          data={data}
-          canManageAccommodations={canManageAccommodations}
-          canManagePhotos={canManagePhotos}
-          onAddRoomType={addRoomType}
-          onEditRoomType={editRoomType}
-          onDeleteRoomType={(roomType) => {
-            if (canManageAccommodations) deleteRoomTypeMutation.mutate(roomType.id);
-          }}
-          onAddRoom={addRoom}
-          onEditRoom={editRoom}
-          onDeleteRoom={(roomType, room) => {
-            if (canManageAccommodations) deleteRoomMutation.mutate({ roomType, room });
-          }}
-          onManageAmenities={() => {
-            if (canManageAccommodations) setAmenitiesDialogOpen(true);
-          }}
-          onToggleRoomTypeAmenity={toggleTypeAmenity}
-          onToggleRoomAmenity={toggleRoomAmenity}
-          onCustomizeRoomAmenities={customizeRoomAmenities}
-          onInheritRoomAmenities={inheritRoomAmenities}
-          customizingRoomAmenities={customizingRoomAmenities}
-        />
+        roomTypeDetailId && data.roomTypes.some((roomType) => roomType.id === roomTypeDetailId) ? (
+          <RoomTypeDetail
+            tenantId={tenantId}
+            propertyId={propertyId}
+            data={data}
+            roomType={data.roomTypes.find((roomType) => roomType.id === roomTypeDetailId)!}
+            canManageAccommodations={canManageAccommodations}
+            canManagePhotos={canManagePhotos}
+            onBack={() => setRoomTypeDetailId(null)}
+            onEdit={editRoomType}
+            onAddRoom={addRoom}
+            onEditRoom={editRoom}
+            onToggleAmenity={toggleTypeAmenity}
+          />
+        ) : (
+          <RoomManagementLists
+            data={data}
+            canManageAccommodations={canManageAccommodations}
+            canManagePhotos={canManagePhotos}
+            canViewCalendar={canViewCalendar}
+            onAddRoomType={addRoomType}
+            onEditRoomType={editRoomType}
+            onOpenRoomTypeDetail={(roomType) => setRoomTypeDetailId(roomType.id)}
+            onDeleteRoomType={(roomType) => {
+              if (canManageAccommodations) deleteRoomTypeMutation.mutate(roomType.id);
+            }}
+            onDuplicateRoomType={(roomType) => {
+              if (canManageAccommodations) duplicateRoomTypeMutation.mutate(roomType);
+            }}
+            onAddRoom={addRoom}
+            onEditRoom={editRoom}
+            onDeleteRoom={(roomType, room) => {
+              if (canManageAccommodations) deleteRoomMutation.mutate({ roomType, room });
+            }}
+            onOpenCalendar={setCalendarTarget}
+            onManageAmenities={() => {
+              if (canManageAccommodations) setAmenitiesDialogOpen(true);
+            }}
+            onToggleRoomTypeAmenity={toggleTypeAmenity}
+            onToggleRoomAmenity={toggleRoomAmenity}
+            onCustomizeRoomAmenities={customizeRoomAmenities}
+            onInheritRoomAmenities={inheritRoomAmenities}
+            customizingRoomAmenities={customizingRoomAmenities}
+          />
+        )
       ) : null}
+      <AvailabilityCalendarDialog
+        tenantId={tenantId}
+        propertyId={propertyId}
+        target={calendarTarget}
+        open={calendarTarget !== null && canViewCalendar}
+        canBlock={canBlockCalendar}
+        onOpenChange={(open) => {
+          if (!open) setCalendarTarget(null);
+        }}
+      />
       <RoomTypeEditorDialog
         key={`${editingRoomType?.id ?? 'new'}-${roomTypeDialogOpen ? 'open' : 'closed'}`}
         tenantId={tenantId}
@@ -535,4 +619,17 @@ export function RoomManagement({
 async function errorMessage(response: Response, fallback: string): Promise<string> {
   const body = (await response.json().catch(() => null)) as { message?: string } | null;
   return typeof body?.message === 'string' ? body.message : fallback;
+}
+
+function uniqueRoomTypeCopyName(name: string, roomTypes: RoomType[]): string {
+  const existingNames = new Set(
+    roomTypes.map((roomType) => roomType.name.trim().toLocaleLowerCase()),
+  );
+  let suffix = 1;
+  let candidate = `${name} (copy)`;
+  while (existingNames.has(candidate.toLocaleLowerCase())) {
+    suffix += 1;
+    candidate = `${name} (copy ${suffix})`;
+  }
+  return candidate;
 }
