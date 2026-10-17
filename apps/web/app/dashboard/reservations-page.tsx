@@ -294,9 +294,11 @@ function dashboardHref(tenantId: string, propertyId: string, extra: string) {
 export function ReservationsPage({
   tenantId,
   propertyId,
+  canCreateBooking = true,
 }: {
   tenantId: string;
   propertyId: string;
+  canCreateBooking?: boolean;
 }) {
   const [filters, setFilters] = useState<Filters>(initialFilters);
   const [searchText, setSearchText] = useState('');
@@ -497,11 +499,13 @@ export function ReservationsPage({
                 <CalendarDays /> Calendar view
               </a>
             </Button>
-            <Button asChild>
-              <a href={addHref}>
-                <CirclePlus /> Add reservation
-              </a>
-            </Button>
+            {canCreateBooking ? (
+              <Button asChild>
+                <a href={addHref}>
+                  <CirclePlus /> Add reservation
+                </a>
+              </Button>
+            ) : null}
           </>
         }
       />
@@ -701,13 +705,13 @@ export function ReservationsPage({
               <EmptyPanel
                 title="No reservations yet"
                 description="Reservations made by guests on your website or entered by your team will appear here."
-                action={
+                action={canCreateBooking ? (
                   <Button asChild>
                     <a href={addHref}>
                       <CirclePlus /> Add the first reservation
                     </a>
                   </Button>
-                }
+                ) : undefined}
               />
             ) : (
               <NoResultsPanel onClear={filtered ? clearAll : undefined} />

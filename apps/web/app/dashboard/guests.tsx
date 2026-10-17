@@ -116,9 +116,11 @@ function guestInitials(guest: Pick<Guest, 'firstName' | 'lastName' | 'email'>) {
 export function DashboardGuests({
   tenantId,
   propertyId,
+  canMergeGuests = true,
 }: {
   tenantId: string;
   propertyId: string;
+  canMergeGuests?: boolean;
 }) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const [search, setSearch] = useState('');
@@ -488,6 +490,8 @@ export function DashboardGuests({
                 </p>
               ) : null}
               <div className="flex flex-wrap items-center gap-2">
+                {canMergeGuests ? (
+                  <>
                 <Button
                   variant="destructive"
                   size="sm"
@@ -510,6 +514,8 @@ export function DashboardGuests({
                 >
                   Not a duplicate
                 </Button>
+                  </>
+                ) : null}
                 {reviewMutation.error && reviewMutation.variables?.guestId === pair.guest.id ? (
                   <span role="alert" className="text-sm text-destructive">
                     {reviewMutation.error.message}

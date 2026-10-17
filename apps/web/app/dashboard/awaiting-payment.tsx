@@ -27,6 +27,8 @@ export function AwaitingPayment({
   checkoutUrl,
   providerName,
   reservationHref,
+  canCheckPayment = true,
+  canViewBooking = true,
   onStartOver,
 }: {
   tenantId: string;
@@ -36,6 +38,8 @@ export function AwaitingPayment({
   checkoutUrl?: string;
   providerName: string;
   reservationHref: string;
+  canCheckPayment?: boolean;
+  canViewBooking?: boolean;
   onStartOver: () => void;
 }) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
@@ -43,6 +47,7 @@ export function AwaitingPayment({
 
   const status = useQuery({
     queryKey: ['dashboard', 'awaiting-payment', tenantId, propertyId, bookingId],
+    enabled: canViewBooking,
     queryFn: async (): Promise<string> => {
       const response = await fetch(`${base}/bookings/${bookingId}`, { credentials: 'include' });
       if (!response.ok) throw new Error('Could not read the reservation.');
@@ -62,7 +67,7 @@ export function AwaitingPayment({
 
   // The payment tab tells this one when the guest comes back from paying: check straight away.
   useEffect(() => {
-    if (!pending || typeof BroadcastChannel === 'undefined') return;
+    if (!pending || !canCheckPayment || typeof BroadcastChannel === 'undefined') return;
     const channel = new BroadcastChannel('must-payment');
     channel.onmessage = (event: MessageEvent<{ bookingId?: string }>) => {
       if (event.data?.bookingId === bookingId) {
@@ -75,7 +80,7 @@ export function AwaitingPayment({
   }, [pending, bookingId]);
 
   useEffect(() => {
-    if (!pending) return;
+    if (!pending || !canCheckPayment) return;
     const clock = window.setInterval(() => setWaited((seconds) => seconds + 1), 1_000);
     const sweep = window.setInterval(() => check.mutate(), POLL_PAYMENT_MS);
     return () => {
@@ -145,6 +150,7 @@ export function AwaitingPayment({
         <p className="m-0 max-w-md text-sm text-muted-foreground">
           Reservation {reference} is held but not confirmed. Complete the payment in the {providerName} window. It
           confirms by itself as soon as {providerName} reports the payment as paid. Do not close this page.
+          {!canViewBooking ? ' Your role cannot view the payment status for this reservation.' : ''}
         </p>
         <p aria-live="polite" className="m-0 text-xs text-muted-foreground">
           Waiting {Math.floor(waited / 60)}:{String(waited % 60).padStart(2, '0')}
@@ -162,12 +168,16 @@ export function AwaitingPayment({
               Reopen payment window <ExternalLink aria-hidden="true" />
             </Button>
           ) : null}
-          <Button variant="outline" onClick={() => check.mutate()} loading={check.isPending}>
-            <RefreshCw aria-hidden="true" /> Check payment now
-          </Button>
-          <Button variant="ghost" asChild>
-            <a href={reservationHref}>Open reservation</a>
-          </Button>
+          {canCheckPayment ? (
+            <Button variant="outline" onClick={() => check.mutate()} loading={check.isPending}>
+              <RefreshCw aria-hidden="true" /> Check payment now
+            </Button>
+          ) : null}
+          {canViewBooking ? (
+            <Button variant="ghost" asChild>
+              <a href={reservationHref}>Open reservation</a>
+            </Button>
+          ) : null}
         </div>
       </CardContent>
     </Card>

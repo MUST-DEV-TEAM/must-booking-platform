@@ -87,6 +87,13 @@ async function renderPayments(bookings: Reservation[], capabilities = ['payments
 }
 
 describe('Payments', () => {
+  it('hides manual payment methods without payments.record', async () => {
+    const { unmount } = await renderPayments([booking], ['payments.refund']);
+    expect(await menuHas(rows()[0]!, 'Cash')).toBe(false);
+    expect(await menuHas(rows()[0]!, 'Card in person')).toBe(false);
+    await unmount();
+  });
+
   it('hides refund without capability', async () => {
     const { unmount } = await renderPayments([{ ...booking, paidAmount: '100.00' }], []);
     expect(await menuHas(rows()[0]!, 'Refund…')).toBe(false);
@@ -110,7 +117,7 @@ describe('Payments', () => {
         ),
       ),
     );
-    const { unmount } = await renderPayments([booking]);
+    const { unmount } = await renderPayments([booking], ['payments.refund', 'payments.record']);
     await openMenu(rows()[0]!);
     await act(async () => {
       byText('Card in person')!.click();

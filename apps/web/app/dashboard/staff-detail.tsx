@@ -96,6 +96,7 @@ export function StaffDetail({
     .map((item) => item.key);
   const sourcedPermissions = effectivePermissionItems(catalog, effective);
   const permissionOptions = permissionMultiSelectOptions(catalog, myCapabilities);
+  const canManagePermissions = myCapabilities.includes('staff.manage_permissions');
   const onExtraChange = (nextKeys: string[]) =>
     applyOverrideChanges(extraKeys, nextKeys, 'grant', onChangeOverride);
   const onDeniedChange = (nextKeys: string[]) =>
@@ -125,17 +126,12 @@ export function StaffDetail({
                 <Mail aria-hidden="true" /> Email
               </a>
             </Button>
-            <Button
+            {canChangeStatus ? <Button
               variant={member.status === 'ACTIVE' ? 'destructive' : 'success'}
               size="sm"
-              disabled={!canChangeStatus || statusPending}
-              title={
-                !canChangeStatus ? 'You do not have permission to manage staff status.' : undefined
-              }
+              disabled={statusPending}
               onClick={onChangeStatus}
-            >
-              {member.status === 'ACTIVE' ? 'Suspend access' : 'Reactivate access'}
-            </Button>
+            >{member.status === 'ACTIVE' ? 'Suspend access' : 'Reactivate access'}</Button> : null}
           </>
         }
       />
@@ -206,7 +202,7 @@ export function StaffDetail({
                   shown in the Permissions tab.
                 </p>
               </div>
-              {templates.length > 0 ? (
+              {canManagePermissions && templates.length > 0 ? (
                 <Select
                   value={member.roleTemplateId}
                   onValueChange={onChangeRole}
@@ -223,8 +219,10 @@ export function StaffDetail({
                     ))}
                   </SelectContent>
                 </Select>
-              ) : (
+              ) : canManagePermissions ? (
                 <p className="m-0 text-sm text-muted-foreground">No roles are available.</p>
+              ) : (
+                <p className="m-0 text-sm text-muted-foreground">Current role: {template?.name ?? member.roleTemplateName}</p>
               )}
               <p className="m-0 text-xs text-muted-foreground">
                 Role-change impact preview is not available yet (G158).
@@ -256,7 +254,7 @@ export function StaffDetail({
                     />
                   </section>
 
-                  <section className="space-y-3 border-t pt-4">
+                  {canManagePermissions ? <section className="space-y-3 border-t pt-4">
                     <div className="space-y-1">
                       <h3 className="m-0 text-sm font-semibold">Extra permissions</h3>
                       <p className="m-0 text-xs text-muted-foreground">
@@ -271,9 +269,9 @@ export function StaffDetail({
                       disabled={pendingOverride !== undefined}
                       label="Extra permissions"
                     />
-                  </section>
+                  </section> : null}
 
-                  <section className="space-y-3 border-t pt-4">
+                  {canManagePermissions ? <section className="space-y-3 border-t pt-4">
                     <div className="space-y-1">
                       <h3 className="m-0 text-sm font-semibold">Denied permissions</h3>
                       <p className="m-0 text-xs text-muted-foreground">
@@ -288,7 +286,7 @@ export function StaffDetail({
                       disabled={pendingOverride !== undefined}
                       label="Denied permissions"
                     />
-                  </section>
+                  </section> : null}
                   <p className="m-0 text-xs text-muted-foreground">
                     Override reasons and expiry dates are not available yet (G156).
                   </p>

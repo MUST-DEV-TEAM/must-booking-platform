@@ -146,6 +146,9 @@ export function AddReservation({
   bookingMode,
   paymentGateways,
   checkInTime,
+  canRecordPayment = true,
+  canCheckPayment = true,
+  canViewBooking = true,
 }: {
   tenantId: string;
   propertyId: string;
@@ -153,6 +156,9 @@ export function AddReservation({
   paymentGateways?: PaymentGateways;
   /** The hotel's check-in time ("HH:MM"); the arrival time starts here and can be changed. */
   checkInTime?: string | null;
+  canRecordPayment?: boolean;
+  canCheckPayment?: boolean;
+  canViewBooking?: boolean;
 }) {
   const hotelCheckIn = /^\d{2}:\d{2}/.test(checkInTime ?? '') ? checkInTime!.slice(0, 5) : '';
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
@@ -442,6 +448,8 @@ export function AddReservation({
           checkoutUrl={created.checkoutUrl}
           providerName={created.gateway === 'stripe' ? 'Stripe' : 'PokPay'}
           reservationHref={href(tenantId, propertyId, `section=reservations&reservation=${created.id}`)}
+          canCheckPayment={canCheckPayment}
+          canViewBooking={canViewBooking}
           onStartOver={reset}
         />
       </div>
@@ -984,7 +992,7 @@ export function AddReservation({
                     </Alert>
                   ) : null}
 
-                  {gateway === 'pay_at_hotel' ? (
+                  {gateway === 'pay_at_hotel' && canRecordPayment ? (
                     <div className="space-y-2 rounded-xl border p-4">
                       <SectionLabel>Record a payment now</SectionLabel>
                       <p className="m-0 text-xs text-muted-foreground">

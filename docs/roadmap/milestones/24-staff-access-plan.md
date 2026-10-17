@@ -71,4 +71,4 @@ The Add staff dialog uses the hotel-scoped invitation route above. The legacy in
 
 Backend built and verified by Claude: migration applied locally, `StaffAccessService`, capability-based routes, 6 new end-to-end tests (create with chosen password and sign-in, roles, effective permissions, suspend, the grant-only-what-you-hold rule) and the existing staff, capability and page-visibility tests updated. Codex's C4 screens run against it without changes; checked in a browser: Add staff with a generated password, one-time copy, and the new person signing in to a Front Desk dashboard.
 
-Known gaps: "Last active" counts audited actions only; the Payments page still shows "Mark as paid" to people without `payments.record` (the server refuses); direct creation refuses an email that already has an account (use an invitation).
+Known gaps: "Last active" counts audited actions only; direct creation refuses an email that already has an account (use an invitation).

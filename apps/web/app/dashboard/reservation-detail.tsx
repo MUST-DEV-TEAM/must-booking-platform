@@ -179,6 +179,8 @@ export function ReservationDetail({
   bookingMode,
   checkInTime,
   checkOutTime,
+  canCancelBooking = true,
+  canRefundPayment = true,
 }: {
   tenantId: string;
   propertyId: string;
@@ -187,6 +189,8 @@ export function ReservationDetail({
   bookingMode?: string;
   checkInTime?: string | null;
   checkOutTime?: string | null;
+  canCancelBooking?: boolean;
+  canRefundPayment?: boolean;
 }) {
   const CHECK_IN = /^\d{2}:\d{2}/.test(checkInTime ?? '') ? checkInTime!.slice(0, 5) : DEFAULT_CHECK_IN;
   const CHECK_OUT = /^\d{2}:\d{2}/.test(checkOutTime ?? '') ? checkOutTime!.slice(0, 5) : DEFAULT_CHECK_OUT;
@@ -279,7 +283,7 @@ export function ReservationDetail({
     .filter(Boolean)
     .join(', ');
   const cancellation = booking.cancellation;
-  const canCancel = !CANCELLED_LIKE.has(booking.status);
+  const canCancel = canCancelBooking && !CANCELLED_LIKE.has(booking.status);
   const neighbours = readNeighbours();
   const at = neighbours.indexOf(booking.id);
   const pageHref = (id: string) => href(tenantId, propertyId, `section=reservations&reservation=${id}`);
@@ -308,18 +312,18 @@ export function ReservationDetail({
 
   // Money still refundable: offer a refund, and start from "full" when the guest cancels for free.
   const refundable = Number(booking.paidAmount) - Number(booking.refundedAmount) > 0;
-  const refundWanted = refundOn ?? (refundable && freeWindowOpen);
+  const refundWanted = canRefundPayment && (refundOn ?? (refundable && freeWindowOpen));
   const refundChoice: RefundChoiceValue = refundWanted
     ? (refundPick ?? { ...noRefund, mode: 'full' })
     : noRefund;
-  const refundProblem = refundable ? refundChoiceError(refundChoice, booking) : null;
+  const refundProblem = canRefundPayment && refundable ? refundChoiceError(refundChoice, booking) : null;
   // A cancelled reservation can be refunded from here for 24 hours after it was cancelled.
   const cancelledEvent = booking.activity.find((event) => event.action === 'booking.cancelled');
   const refundWindowClosed =
     booking.status === 'CANCELLED' &&
     cancelledEvent !== undefined &&
     Date.now() - new Date(cancelledEvent.createdAt).getTime() > 24 * 60 * 60 * 1000;
-  const canRefundHere = refundable && !refundWindowClosed && booking.status !== 'EXPIRED';
+  const canRefundHere = canRefundPayment && refundable && !refundWindowClosed && booking.status !== 'EXPIRED';
 
   const refundOnly = async (note: string) => {
     const body = refundRequestBody(refundOnlyPick, booking);
@@ -348,7 +352,7 @@ export function ReservationDetail({
       body: JSON.stringify({
         expectedVersion: booking.version,
         reason,
-        ...(refundable ? { refund: refundPayload(refundChoice, booking) } : {}),
+        ...(canRefundPayment && refundable ? { refund: refundPayload(refundChoice, booking) } : {}),
       }),
     });
     const body = (await response.json().catch(() => null)) as {
@@ -428,7 +432,7 @@ export function ReservationDetail({
             <Button disabled title="Editing a reservation is planned, not built yet">
               <Pencil aria-hidden="true" /> Edit reservation
             </Button>
-            {refundable ? (
+            {canRefundPayment && refundable ? (
               <Button
                 variant="outline"
                 disabled={!canRefundHere}
@@ -696,7 +700,7 @@ export function ReservationDetail({
             {hasClockLink ? <span>The reservation is also cancelled in Clock.</span> : null}
           </AlertDescription>
         </Alert>
-        {refundable ? (
+        {canRefundPayment && refundable ? (
           <div className="space-y-3 rounded-xl border p-4">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-0.5">
@@ -734,7 +738,7 @@ export function ReservationDetail({
       </ConfirmDialog>
 
       <ConfirmDialog
-        open={refunding}
+        open={canRefundPayment && refunding}
         onOpenChange={setRefunding}
         title={`Refund ${booking.externalReference}`}
         description={`${guest}. The money goes back to the guest through ${methodTitle}.`}

@@ -131,4 +131,28 @@ describe('AddReservation', () => {
     });
     await act(async () => root.unmount());
   });
+
+  it('hides payment recording choices without payments.record', async () => {
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      if (url.endsWith('/pms-connection-status')) return json({ provider: 'LOCAL' });
+      if (url.endsWith('/room-types')) return json([{ id: 'rt', name: 'Double', roomCount: 2 }]);
+      if (url.endsWith('/rooms')) return json([]);
+      if (url.endsWith('/rate-plans')) return json([{ id: 'rp', name: 'Flexible', currency: 'EUR' }]);
+      return json({});
+    }));
+    const { container, root } = await render(createElement(DashboardQueryProvider, undefined,
+      createElement(AddReservation, {
+        tenantId: 't', propertyId: 'p',
+        paymentGateways: { stripe: false, pokpay: false, payAtHotel: true },
+        canRecordPayment: false,
+      }),
+    ));
+    await act(async () => {
+      await vi.waitFor(() => {
+        if (!container.textContent?.includes('Choose dates to see rooms')) throw new Error('Add reservation has not finished loading yet.');
+      });
+    });
+    expect(container.textContent).not.toContain('Record a payment now');
+    await act(async () => root.unmount());
+  });
 });

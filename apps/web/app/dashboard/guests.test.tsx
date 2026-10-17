@@ -240,6 +240,17 @@ describe('Dashboard guests', () => {
     await act(async () => root.unmount());
   });
 
+  it('hides duplicate merge and dismiss actions without guests.merge', async () => {
+    mockFetch(suspectedDuplicates);
+    const { container, root } = await mount({ canMergeGuests: false });
+    await click(tab(container, 'Suspected duplicates'));
+    expect(container.textContent).toContain('ada+old@test');
+    expect(Array.from(container.querySelectorAll('button')).some((button) =>
+      ['Merge profiles', 'Not a duplicate'].includes(button.textContent?.trim() ?? ''),
+    )).toBe(false);
+    await act(async () => root.unmount());
+  });
+
   it('explains why a phone-matched pair was flagged, highlights the differing field, and previews the merge result', async () => {
     const phoneMatchPair = [
       {
@@ -314,7 +325,7 @@ function mockFetch(duplicates: typeof suspectedDuplicates = []) {
   );
 }
 
-async function mount({ settle = true }: { settle?: boolean } = {}) {
+async function mount({ settle = true, canMergeGuests = true }: { settle?: boolean; canMergeGuests?: boolean } = {}) {
   const container = document.createElement('div');
   const root = createRoot(container);
   await act(async () => {
@@ -322,7 +333,7 @@ async function mount({ settle = true }: { settle?: boolean } = {}) {
       createElement(
         DashboardQueryProvider,
         undefined,
-        createElement(DashboardGuests, { tenantId: 't', propertyId: 'p' }),
+        createElement(DashboardGuests, { tenantId: 't', propertyId: 'p', canMergeGuests }),
       ),
     );
   });

@@ -62,6 +62,24 @@ const catalog = [
   },
   {
     group: 'Staff',
+    key: 'staff.view',
+    label: 'View staff',
+    description: 'View staff access.',
+  },
+  {
+    group: 'Staff',
+    key: 'staff.create',
+    label: 'Create staff',
+    description: 'Create staff accounts and invitations.',
+  },
+  {
+    group: 'Staff',
+    key: 'staff.manage_roles',
+    label: 'Manage staff roles',
+    description: 'Create and update hotel roles.',
+  },
+  {
+    group: 'Staff',
     key: 'staff.manage_permissions',
     label: 'Manage staff permissions',
     description: 'Manage staff access.',
@@ -73,6 +91,8 @@ const catalog = [
     description: 'Suspend or reactivate staff access.',
   },
 ];
+const allCapabilities = catalog.map((item) => item.key);
+let actorCapabilities = [...allCapabilities];
 const effectiveCapabilities = [
   { key: 'payments.refund', granted: true, source: 'role' },
   { key: 'staff.manage_permissions', granted: false, source: 'none' },
@@ -91,6 +111,7 @@ const originalScrollIntoView = Object.getOwnPropertyDescriptor(
 );
 
 beforeEach(() => {
+  actorCapabilities = [...allCapabilities];
   toast.success.mockClear();
   toast.error.mockClear();
   window.history.replaceState(null, '', '/');
@@ -385,6 +406,28 @@ describe('Staff', () => {
     await unmount(root);
   });
 
+  it('hides staff actions when the actor lacks the matching capabilities', async () => {
+    actorCapabilities = ['staff.view'];
+    mock({ staffSeats: 1, maxStaffSeats: 2 });
+    const first = await mount();
+    expect(buttonWithText('Add staff')).toBeUndefined();
+    await clickTab('Roles');
+    expect(buttonWithText('New custom role')).toBeUndefined();
+    expect(buttonInCard(cardWithTitle('Front Desk'), 'Copy as custom role')).toBeUndefined();
+    expect(buttonInCard(cardWithTitle('Weekend desk'), 'Edit role')).toBeUndefined();
+    expect(buttonInCard(cardWithTitle('Weekend desk'), 'Delete role')).toBeUndefined();
+    await unmount(first.root);
+
+    window.history.replaceState(null, '', '?staffUser=u');
+    mock({ staffSeats: 1, maxStaffSeats: 2 });
+    const detail = await mount();
+    expect(detail.container.textContent).toContain('Current role: Front Desk');
+    expect(detail.container.querySelector('[aria-label="Role for staff@test"]')).toBeNull();
+    expect(detail.container.querySelector('[aria-label="Extra permissions"]')).toBeNull();
+    expect(buttonWithText('Suspend access')).toBeUndefined();
+    await unmount(detail.root);
+  });
+
   it('uses the grouped multi-select for optional extra permissions in Add staff', async () => {
     mock();
     const { root } = await mount();
@@ -646,7 +689,7 @@ function responseFor(url: string, usage = { staffSeats: 1, maxStaffSeats: 2 }) {
               : url.endsWith('/capabilities/catalog')
                 ? catalog
                 : url.endsWith('/capabilities/mine')
-                  ? catalog.map((item) => item.key)
+                  ? actorCapabilities
                   : url.endsWith('/effective-capabilities')
                     ? effectiveCapabilities
                     : { ok: true },

@@ -360,6 +360,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
     setSelectedId(null);
     window.setTimeout(() => setSuspendTarget(member), 0);
   };
+  const canCreateStaff = myCapabilities.includes('staff.create');
 
   if (staffQuery.isPending)
     return (
@@ -479,13 +480,11 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
             >
               Export CSV
             </Button>
-            <Button
+            {canCreateStaff ? <Button
               onClick={() => setAddStaffOpen(true)}
               disabled={capped || templates.length === 0}
               title={capped ? 'The staff seat limit has been reached.' : undefined}
-            >
-              Add staff
-            </Button>
+            >Add staff</Button> : null}
           </>
         }
       />
@@ -588,7 +587,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
             <EmptyPanel
               title="No staff assigned yet"
               description="Staff accounts appear here after an invitation is accepted and assigned to this hotel."
-              action={
+              action={canCreateStaff ? (
                 <Button
                   size="sm"
                   onClick={() => setAddStaffOpen(true)}
@@ -596,7 +595,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
                 >
                   Add staff
                 </Button>
-              }
+              ) : undefined}
             />
           </div>
         ) : sortedStaff.length === 0 ? (
@@ -777,14 +776,14 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
                             <DropdownMenuItem onSelect={() => void copyEmails([member])}>
                               Copy email
                             </DropdownMenuItem>
-                            <DropdownMenuItem
+                            {myCapabilities.includes('staff.suspend') ? <DropdownMenuItem
                               variant={member.status === 'ACTIVE' ? 'destructive' : 'default'}
                               onSelect={() => requestStatusChange(member)}
                             >
                               {member.status === 'ACTIVE'
                                 ? 'Suspend access…'
                                 : 'Reactivate access…'}
-                            </DropdownMenuItem>
+                            </DropdownMenuItem> : null}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -1339,7 +1338,7 @@ function RoleManagement({
       <PageHeader
         title="Roles"
         description="Roles belong to this hotel. Built-in roles stay locked; copy one to customize it."
-        actions={<Button onClick={beginCreate}>New custom role</Button>}
+        actions={myCapabilities.includes('staff.manage_roles') ? <Button onClick={beginCreate}>New custom role</Button> : undefined}
       />
       {deleteMutation.isError ? (
         <p role="alert" className="m-0 text-sm text-destructive">
@@ -1386,16 +1385,16 @@ function RoleManagement({
                         <Button size="sm" variant="outline" onClick={() => setViewingRole(role)}>
                           View permissions
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => beginCopy(role)}>
+                        {myCapabilities.includes('staff.manage_roles') ? <Button size="sm" variant="outline" onClick={() => beginCopy(role)}>
                           Copy as custom role
-                        </Button>
+                        </Button> : null}
                       </>
                     ) : (
                       <>
-                        <Button size="sm" variant="outline" onClick={() => beginEdit(role)}>
+                        {myCapabilities.includes('staff.manage_roles') ? <Button size="sm" variant="outline" onClick={() => beginEdit(role)}>
                           Edit role
-                        </Button>
-                        <Button
+                        </Button> : null}
+                        {myCapabilities.includes('staff.manage_roles') ? <Button
                           size="sm"
                           variant="destructive"
                           disabled={blocked || deleteMutation.isPending}
@@ -1407,7 +1406,7 @@ function RoleManagement({
                           onClick={() => deleteMutation.mutate(role.id)}
                         >
                           Delete role
-                        </Button>
+                        </Button> : null}
                       </>
                     )}
                   </div>
@@ -1503,7 +1502,7 @@ function RoleManagement({
             <Button type="button" variant="outline" onClick={() => setViewingRole(null)}>
               Close
             </Button>
-            <Button
+            {myCapabilities.includes('staff.manage_roles') ? <Button
               type="button"
               onClick={() => {
                 if (!viewingRole) return;
@@ -1513,7 +1512,7 @@ function RoleManagement({
               }}
             >
               Copy as custom role
-            </Button>
+            </Button> : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>

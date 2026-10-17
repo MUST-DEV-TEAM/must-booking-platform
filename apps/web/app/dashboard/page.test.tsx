@@ -119,6 +119,19 @@ describe('Tenant dashboard shell', () => {
       expect(markup).not.toContain(`>${label}</a>`);
   });
 
+  it('keeps Payments hidden unless staff can also view its booking rows', () => {
+    const markup = renderToStaticMarkup(createElement(DashboardQueryProvider, undefined,
+      createElement(DashboardShell, {
+        tenantId: 'tenant-1',
+        initialData: {
+          user, role: 'STAFF', properties: [{ id: 'property-1', name: 'Grand Hotel' }],
+          capabilities: ['payments.view'],
+        },
+      }),
+    ));
+    expect(markup).not.toContain('>Payments</a>');
+  });
+
   it('shows Photos to staff granted photos.manage but not Accommodations', () => {
     const markup = renderToStaticMarkup(
       createElement(
@@ -268,7 +281,7 @@ describe('Tenant dashboard shell', () => {
     ]);
   });
 
-  it('shows a Finance property-staff session only Overview, Payments, and Reports', () => {
+  it('shows a Finance property-staff session with its required booking access', () => {
     const markup = renderToStaticMarkup(
       createElement(
         DashboardQueryProvider,
@@ -279,7 +292,7 @@ describe('Tenant dashboard shell', () => {
             user: { ...user, email: 'finance@example.test' },
             role: 'STAFF',
             properties: [{ id: 'property-1', name: 'Grand Hotel' }],
-            capabilities: ['payments.view', 'payments.refund', 'reports.view'],
+            capabilities: ['bookings.view', 'payments.view', 'payments.refund', 'reports.view'],
           },
         }),
       ),
@@ -289,9 +302,8 @@ describe('Tenant dashboard shell', () => {
     // no aria-label; sidebar destinations (NavigationLinks) wrap the label in a span for
     // accessible-name/truncation purposes and carry an aria-label on the anchor itself.
     expect(markup).toContain('Overview');
-    for (const label of ['Payments', 'Reports']) expect(markup).toContain(`aria-label="${label}"`);
+    for (const label of ['Bookings', 'Payments', 'Reports']) expect(markup).toContain(`aria-label="${label}"`);
     for (const label of [
-      'Bookings',
       'Calendar',
       'Guests',
       'Inventory',

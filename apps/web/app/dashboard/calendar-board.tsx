@@ -94,11 +94,13 @@ export function CalendarBoard({
   propertyId,
   bookingMode,
   canManageAvailability = false,
+  canCreateBooking = true,
 }: {
   tenantId: string;
   propertyId: string;
   bookingMode?: BookingMode;
   canManageAvailability?: boolean;
+  canCreateBooking?: boolean;
 }) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const today = todayIso();
@@ -409,11 +411,13 @@ export function CalendarBoard({
           <IconButton label="Refresh" onClick={() => void board.refetch()}>
             <RefreshCw aria-hidden="true" />
           </IconButton>
-          <Button asChild>
-            <a href={href(tenantId, propertyId, 'section=overview&tab=quick-booking')}>
-              <CirclePlus aria-hidden="true" /> Add reservation
-            </a>
-          </Button>
+          {canCreateBooking ? (
+            <Button asChild>
+              <a href={href(tenantId, propertyId, 'section=overview&tab=quick-booking')}>
+                <CirclePlus aria-hidden="true" /> Add reservation
+              </a>
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -676,17 +680,11 @@ export function CalendarBoard({
                   <Lock aria-hidden="true" /> Block these nights
                 </Button>
               ) : null}
-              {cell.day < today ? (
-                <Button size="sm" disabled>
-                  <CirclePlus aria-hidden="true" /> Add reservation
-                </Button>
+              {canCreateBooking ? (cell.day < today ? (
+                <Button size="sm" disabled><CirclePlus aria-hidden="true" /> Add reservation</Button>
               ) : (
-                <Button size="sm" asChild>
-                  <a href={dayHref(cell.day, cell.nights, cell.room)}>
-                    <CirclePlus aria-hidden="true" /> Add reservation
-                  </a>
-                </Button>
-              )}
+                <Button size="sm" asChild><a href={dayHref(cell.day, cell.nights, cell.room)}><CirclePlus aria-hidden="true" /> Add reservation</a></Button>
+              )) : null}
             </div>
             {cell.day < today ? (
               <p className="m-0 w-full text-xs text-muted-foreground">This day has passed, so a reservation cannot start on it.</p>

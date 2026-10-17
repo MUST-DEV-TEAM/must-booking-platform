@@ -17,11 +17,13 @@ export function CalendarPage({
   propertyId,
   bookingMode,
   canManageAvailability,
+  canCreateBooking,
 }: {
   tenantId: string;
   propertyId: string;
   bookingMode?: BookingMode;
   canManageAvailability: boolean;
+  canCreateBooking: boolean;
 }) {
   const [view, setView] = useState<'reservations' | 'availability'>('reservations');
   return (
@@ -41,6 +43,7 @@ export function CalendarPage({
           propertyId={propertyId}
           bookingMode={bookingMode}
           canManageAvailability={canManageAvailability}
+          canCreateBooking={canCreateBooking}
         />
       ) : (
         <DashboardCalendar

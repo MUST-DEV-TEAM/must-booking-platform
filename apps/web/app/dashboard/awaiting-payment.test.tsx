@@ -10,7 +10,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 afterEach(() => vi.unstubAllGlobals());
 
-async function mount() {
+async function mount({ canCheckPayment = true, canViewBooking = true } = {}) {
   const container = document.createElement('div');
   const root = createRoot(container);
   await act(async () => {
@@ -26,6 +26,8 @@ async function mount() {
           checkoutUrl: 'https://pay.example.test/checkout',
           providerName: 'PokPay',
           reservationHref: '/dashboard/t?propertyId=p&section=reservations&reservation=b',
+          canCheckPayment,
+          canViewBooking,
           onStartOver: () => undefined,
         }),
       ),
@@ -90,6 +92,16 @@ describe('AwaitingPayment', () => {
 
     expect(container.textContent).toContain('The payment did not complete');
     expect(container.textContent).toContain('Start a new reservation');
+    await act(async () => root.unmount());
+  });
+
+  it('does not offer or poll the check-payment action without bookings.edit', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ status: 'PAYMENT_PENDING' })));
+    vi.stubGlobal('fetch', fetch);
+    const { container, root } = await mount({ canCheckPayment: false });
+    await settle();
+    expect(container.textContent).not.toContain('Check payment now');
+    expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
     await act(async () => root.unmount());
   });
 });

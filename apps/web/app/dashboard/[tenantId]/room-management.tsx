@@ -95,9 +95,11 @@ const emptyRoomForm: RoomForm = {
 export function RoomManagement({
   tenantId,
   propertyId: selectedPropertyId,
+  canManagePhotos = true,
 }: {
   tenantId: string;
   propertyId?: string;
+  canManagePhotos?: boolean;
 }) {
   const queryClient = useQueryClient();
   const [propertyId, setPropertyId] = useState('');
@@ -156,7 +158,9 @@ export function RoomManagement({
         roomTypes.map(async (roomType) => {
           const [roomResponse, imageResponse, roomTypeAmenityResponse] = await Promise.all([
             fetch(`${roomTypesUrl()}/${roomType.id}/rooms`, { credentials: 'include' }),
-            fetch(`${roomTypesUrl()}/${roomType.id}/images`, { credentials: 'include' }),
+            canManagePhotos
+              ? fetch(`${roomTypesUrl()}/${roomType.id}/images`, { credentials: 'include' })
+              : Promise.resolve(null),
             fetch(`${roomTypesUrl()}/${roomType.id}/amenities`, { credentials: 'include' }),
           ]);
           const rooms = roomResponse.ok ? ((await roomResponse.json()) as Room[]) : [];
@@ -176,7 +180,7 @@ export function RoomManagement({
           return {
             roomTypeId: roomType.id,
             rooms,
-            images: imageResponse.ok ? ((await imageResponse.json()) as RoomTypeImage[]) : [],
+            images: imageResponse?.ok === true ? ((await imageResponse.json()) as RoomTypeImage[]) : [],
             roomTypeAmenities: roomTypeAmenityResponse.ok
               ? ((await roomTypeAmenityResponse.json()) as Amenity[])
               : [],
@@ -657,7 +661,7 @@ export function RoomManagement({
                 </button>
               ) : null}
             </form>
-            {editingRoomTypeId ? (
+            {editingRoomTypeId && canManagePhotos ? (
               <div className={styles.galleryEditor}>
                 <RoomTypeMainImageSelector
                   tenantId={tenantId}
@@ -677,7 +681,7 @@ export function RoomManagement({
               </div>
             ) : null}
           </Card>
-          <div className={styles.libraryBar}>
+          {canManagePhotos ? <div className={styles.libraryBar}>
             <div>
               <Heading level={2}>Photo library</Heading>
               <Text tone="secondary">
@@ -691,8 +695,8 @@ export function RoomManagement({
             >
               <Images aria-hidden="true" size={16} /> Manage library
             </button>
-          </div>
-          {libraryOpen ? (
+          </div> : null}
+          {canManagePhotos && libraryOpen ? (
             <PropertyImageLibraryDialog
               tenantId={tenantId}
               propertyId={propertyId}
@@ -729,7 +733,7 @@ export function RoomManagement({
                       <div className={styles.metadata}>
                         <span>{roomType.maxOccupancy} guests</span>
                         <span>{physicalRooms.length} physical rooms</span>
-                        <span>{roomImages.length} photos</span>
+                        {canManagePhotos ? <span>{roomImages.length} photos</span> : null}
                       </div>
                       <p className={styles.amenitySummary}>
                         {assignedAmenities.length
@@ -761,7 +765,7 @@ export function RoomManagement({
                   </div>
 
                   <div className={styles.detailSections}>
-                    <details className={styles.detailSection}>
+                    {canManagePhotos ? <details className={styles.detailSection}>
                       <summary>
                         <span>Photos</span>
                         <span className={styles.sectionCount}>{roomImages.length}</span>
@@ -790,7 +794,7 @@ export function RoomManagement({
                           Manage photos
                         </button>
                       </div>
-                    </details>
+                    </details> : null}
 
                     <details className={styles.detailSection}>
                       <summary>

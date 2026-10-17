@@ -116,7 +116,12 @@ const operationalNavigation = [
     capabilities: ['bookings.view'],
   },
   { section: 'calendar', label: 'Calendar', icon: CalendarDays, capabilities: ['calendar.view'] },
-  { section: 'payments', label: 'Payments', icon: CreditCard, capabilities: ['payments.view'] },
+  {
+    section: 'payments',
+    label: 'Payments',
+    icon: CreditCard,
+    capabilities: ['payments.view', 'bookings.view'],
+  },
   { section: 'guests', label: 'Guests', icon: UserRound, capabilities: ['guests.view'] },
 ] as const;
 
@@ -179,7 +184,7 @@ function canAccessSection(role: TenantRole, capabilities: readonly string[], sec
     return true;
   if (ownerAdminOnlySections.has(section)) return false;
   const item = dashboardSections.find((candidate) => candidate.section === section);
-  return !!item?.capabilities?.some((capability) => capabilities.includes(capability));
+  return !!item?.capabilities?.every((capability) => capabilities.includes(capability));
 }
 
 // Approvals and System health are planned; their URLs fall back to Overview until they exist.
@@ -395,8 +400,10 @@ export function DashboardShell({
       ? 'My account'
       : (dashboardSections.find((candidate) => candidate.section === section)?.label ?? 'Dashboard');
   const canViewSection = role ? canAccessSection(role, capabilities ?? [], section) : false;
+  const hasCapability = (capability: string) =>
+    role !== 'STAFF' || capabilities?.includes(capability) === true;
   const canAccessQuickBooking =
-    role !== 'STAFF' || capabilities?.includes('bookings.create') === true;
+    hasCapability('bookings.create');
   const visibleDashboardTab = tab === 'quick-booking' && !canAccessQuickBooking ? 'overview' : tab;
 
   return (
@@ -487,6 +494,9 @@ export function DashboardShell({
               bookingMode={selectedProperty.bookingMode}
               paymentGateways={selectedProperty.paymentGateways}
               checkInTime={selectedProperty.checkInTime}
+              canRecordPayment={hasCapability('payments.record')}
+              canCheckPayment={hasCapability('bookings.edit')}
+              canViewBooking={hasCapability('bookings.view')}
             />
           ) : (
             <DashboardTabPlaceholder tab={visibleDashboardTab} />
@@ -509,9 +519,11 @@ export function DashboardShell({
             checkInTime={selectedProperty.checkInTime}
             checkOutTime={selectedProperty.checkOutTime}
             bookingMode={selectedProperty.bookingMode}
+            canCancelBooking={hasCapability('bookings.cancel')}
+            canRefundPayment={hasCapability('payments.refund')}
           />
         ) : (
-          <ReservationsPage tenantId={tenantId} propertyId={selectedProperty.id} />
+          <ReservationsPage tenantId={tenantId} propertyId={selectedProperty.id} canCreateBooking={hasCapability('bookings.create')} />
         )
       ) : null}
       {selectedProperty && role && canViewSection && section === 'calendar' ? (
@@ -519,7 +531,8 @@ export function DashboardShell({
           tenantId={tenantId}
           propertyId={selectedProperty.id}
           bookingMode={selectedProperty.bookingMode}
-          canManageAvailability={role === 'OWNER' || role === 'ADMIN'}
+          canManageAvailability={hasCapability('calendar.block')}
+          canCreateBooking={hasCapability('bookings.create')}
         />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'payments' ? (
@@ -537,7 +550,7 @@ export function DashboardShell({
         guestId ? (
           <GuestDetail tenantId={tenantId} propertyId={selectedProperty.id} guestId={guestId} />
         ) : (
-          <DashboardGuests tenantId={tenantId} propertyId={selectedProperty.id} />
+          <DashboardGuests tenantId={tenantId} propertyId={selectedProperty.id} canMergeGuests={hasCapability('guests.merge')} />
         )
       ) : null}
       {selectedProperty && role && canViewSection && section === 'account' ? (
@@ -551,7 +564,7 @@ export function DashboardShell({
         <NotificationsInbox tenantId={tenantId} propertyId={selectedProperty.id} />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'accommodations' ? (
-        <RoomManagement propertyId={selectedProperty.id} tenantId={tenantId} />
+        <RoomManagement propertyId={selectedProperty.id} tenantId={tenantId} canManagePhotos={hasCapability('photos.manage')} />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'photos' ? (
         <PhotosManagement propertyId={selectedProperty.id} tenantId={tenantId} />

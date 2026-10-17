@@ -194,6 +194,7 @@ export function DashboardPayments({
   const capabilities = capabilitiesQuery.data ?? [];
   const busyBookingId = actionMutation.isPending ? actionMutation.variables?.bookingId : null;
   const canRefund = capabilities.includes('payments.refund');
+  const canRecord = capabilities.includes('payments.record');
 
   function openRefundDialog(booking: Reservation) {
     setRefundBooking(booking);
@@ -468,7 +469,7 @@ export function DashboardPayments({
                             {refundable ? (
                               <DropdownMenuItem onSelect={() => openRefundDialog(booking)}>Refund…</DropdownMenuItem>
                             ) : null}
-                            {unpaid ? (
+                            {unpaid && canRecord ? (
                               <>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuLabel>Mark as paid by</DropdownMenuLabel>
