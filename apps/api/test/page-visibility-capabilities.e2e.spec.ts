@@ -123,14 +123,21 @@ describe('page-visibility capabilities', () => {
       .set('Cookie', financeCookie)
       .expect(200)
       .expect((response) => {
-        expect(response.body.sort()).toEqual(['payments.refund', 'reports.view']);
+        expect(response.body.sort()).toEqual([
+          'bookings.view',
+          'payments.refund',
+          'payments.view',
+          'reports.view',
+        ]);
       });
     await request(app.getHttpServer())
       .get(`${propertyUrl}/reports?from=2040-01-01&to=2040-01-01`)
       .set('Cookie', financeCookie)
       .expect(200);
+    // Finance reads bookings because the payments screen is built from them; guests and the
+    // availability grid stay closed to it.
+    await request(app.getHttpServer()).get(`${propertyUrl}/bookings`).set('Cookie', financeCookie).expect(200);
     for (const path of [
-      `${propertyUrl}/bookings`,
       `${propertyUrl}/availability?roomTypeId=${roomTypeId}&startsOn=2040-01-01&endsOn=2040-01-02`,
       `${propertyUrl}/guests`,
     ]) {
@@ -142,7 +149,16 @@ describe('page-visibility capabilities', () => {
       .set('Cookie', frontDeskCookie)
       .expect(200)
       .expect((response) => {
-        expect(response.body.sort()).toEqual(['bookings.manage', 'calendar.view', 'guests.manage']);
+        expect(response.body.sort()).toEqual([
+          'bookings.cancel',
+          'bookings.create',
+          'bookings.edit',
+          'bookings.view',
+          'calendar.view',
+          'guests.merge',
+          'guests.view',
+          'payments.record',
+        ]);
       });
     await request(app.getHttpServer())
       .get(`${propertyUrl}/bookings`)

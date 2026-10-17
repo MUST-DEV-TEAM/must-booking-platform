@@ -113,21 +113,20 @@ const operationalNavigation = [
     section: 'reservations',
     label: 'Bookings',
     icon: ClipboardList,
-    capabilities: ['bookings.manage'],
+    capabilities: ['bookings.view'],
   },
   { section: 'calendar', label: 'Calendar', icon: CalendarDays, capabilities: ['calendar.view'] },
-  { section: 'payments', label: 'Payments', icon: CreditCard, capabilities: ['payments.refund'] },
-  { section: 'guests', label: 'Guests', icon: UserRound, capabilities: ['guests.manage'] },
+  { section: 'payments', label: 'Payments', icon: CreditCard, capabilities: ['payments.view'] },
+  { section: 'guests', label: 'Guests', icon: UserRound, capabilities: ['guests.view'] },
 ] as const;
 
 const managementNavigation = [
-  // Accommodations/Rates & Pricing/Staff/Settings are owner/admin-only regardless of
-  // capability -- see ownerAdminOnlySections below -- so they intentionally carry no
-  // `capabilities` entry here.
-  { section: 'accommodations', label: 'Accommodations', icon: IconHotel },
+  // Inventory and Settings stay owner/admin-only -- see ownerAdminOnlySections below -- so they
+  // intentionally carry no `capabilities` entry here.
+  { section: 'accommodations', label: 'Accommodations', icon: IconHotel, capabilities: ['accommodations.manage'] },
   { section: 'photos', label: 'Photos', icon: Images, capabilities: ['photos.manage'] },
-  { section: 'rates-pricing', label: 'Rates & Pricing', icon: Tags },
-  { section: 'staff', label: 'Staff', icon: Users },
+  { section: 'rates-pricing', label: 'Rates & Pricing', icon: Tags, capabilities: ['rates.manage'] },
+  { section: 'staff', label: 'Staff', icon: Users, capabilities: ['staff.view'] },
   { section: 'reports', label: 'Reports', icon: FileChartColumn, capabilities: ['reports.view'] },
   { section: 'settings', label: 'Settings', icon: Settings },
 ] as const;
@@ -167,13 +166,7 @@ const unavailableDashboardTabCopy: Record<UnavailableDashboardTab, string> = {
 // grant, regardless of what a custom template happens to include. Matches this milestone's
 // established scoping (tasks 16/18/20/21) and the backend's unconditional @Roles(Owner, Admin)
 // on every one of these sections' endpoints.
-const ownerAdminOnlySections = new Set([
-  'accommodations',
-  'rates-pricing',
-  'inventory',
-  'staff',
-  'settings',
-]);
+const ownerAdminOnlySections = new Set(['inventory', 'settings']);
 
 function canAccessSection(role: TenantRole, capabilities: readonly string[], section: string) {
   if (
@@ -388,7 +381,7 @@ export function DashboardShell({
   }, [role, selectedProperty?.id, tenantId]);
 
   const canSeeBookings =
-    !!role && (role !== 'STAFF' || capabilities?.includes('bookings.manage') === true);
+    !!role && (role !== 'STAFF' || capabilities?.includes('bookings.view') === true);
   // New reservations this person has not opened yet show as a count on the Bookings item.
   const unseen = useUnseenBookings(tenantId, selectedProperty?.id, !!selectedProperty && canSeeBookings);
   const navigation =
@@ -403,7 +396,7 @@ export function DashboardShell({
       : (dashboardSections.find((candidate) => candidate.section === section)?.label ?? 'Dashboard');
   const canViewSection = role ? canAccessSection(role, capabilities ?? [], section) : false;
   const canAccessQuickBooking =
-    role !== 'STAFF' || capabilities?.includes('bookings.manage') === true;
+    role !== 'STAFF' || capabilities?.includes('bookings.create') === true;
   const visibleDashboardTab = tab === 'quick-booking' && !canAccessQuickBooking ? 'overview' : tab;
 
   return (

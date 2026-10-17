@@ -113,6 +113,8 @@ model User {
   emailVerifiedAt   DateTime?          @map("email_verified_at") @db.Timestamptz(6)
   isPlatformAdmin   Boolean            @default(false) @map("is_platform_admin")
   isAutoProvisioned Boolean            @default(false) @map("is_auto_provisioned")
+  firstName         String?            @map("first_name") @db.VarChar(100)
+  lastName          String?            @map("last_name") @db.VarChar(100)
   createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   memberships       TenantMembership[]
@@ -221,6 +223,7 @@ model PropertyRoleTemplate {
   propertyId       String                           @map("property_id") @db.Uuid
   name             String                           @db.VarChar(100)
   kind             PropertyRoleTemplateKind
+  description      String?                          @db.VarChar(300)
   createdAt        DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime                         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   property         Property                         @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)
@@ -254,6 +257,8 @@ model PropertyStaffAssignment {
   propertyId     String               @map("property_id") @db.Uuid
   userId         String               @map("user_id") @db.Uuid
   roleTemplateId String               @map("role_template_id") @db.Uuid
+  suspendedAt    DateTime?            @map("suspended_at") @db.Timestamptz(6)
+  createdByUserId String?             @map("created_by_user_id") @db.Uuid
   createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   property       Property             @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict, map: "property_staff_assignments_property_fkey")

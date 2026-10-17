@@ -55,7 +55,7 @@ export class BookingController {
   @Get()
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
-  @RequiresCapability('bookings.manage')
+  @RequiresCapability('bookings.view')
   list(@Req() request: { tenantContext: { tenantId: string; propertyId: string } }) {
     return this.projections.list(request.tenantContext.tenantId, request.tenantContext.propertyId);
   }
@@ -63,7 +63,7 @@ export class BookingController {
   @Get('search')
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
-  @RequiresCapability('bookings.manage')
+  @RequiresCapability('bookings.view')
   search(
     @Query() query: Record<string, unknown>,
     @Req() request: { tenantContext: { tenantId: string; propertyId: string } },
@@ -97,7 +97,7 @@ export class BookingController {
   @Get('unseen')
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
-  @RequiresCapability('bookings.manage')
+  @RequiresCapability('bookings.view')
   unseen(
     @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
   ) {
@@ -112,7 +112,7 @@ export class BookingController {
   @HttpCode(200)
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
-  @RequiresCapability('bookings.manage')
+  @RequiresCapability('bookings.view')
   async seen(
     @Param('bookingId') bookingId: string,
     @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
@@ -129,7 +129,7 @@ export class BookingController {
   @Get(':bookingId')
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
-  @RequiresCapability('bookings.manage')
+  @RequiresCapability('bookings.view')
   async detail(
     @Param('bookingId') bookingId: string,
     @Req() request: { tenantContext: { tenantId: string; propertyId: string } },

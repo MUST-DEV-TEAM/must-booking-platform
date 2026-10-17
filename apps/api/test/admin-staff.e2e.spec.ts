@@ -154,13 +154,14 @@ describe('tenant staff administration', () => {
       .set('Cookie', adminCookie)
       .expect(200);
     expect(assignments.body).toEqual([
-      {
+      expect.objectContaining({
         userId: targetId,
         email: targetEmail,
         roleTemplateId: frontDeskId,
         roleTemplateName: 'Front Desk',
+        status: 'ACTIVE',
         overrides: [],
-      },
+      }),
     ]);
 
     await request(app.getHttpServer())

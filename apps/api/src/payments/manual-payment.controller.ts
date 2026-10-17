@@ -32,7 +32,7 @@ export class ManualPaymentController {
   @HttpCode(200)
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
-  @RequiresCapability('bookings.manage')
+  @RequiresCapability('bookings.edit')
   async checkPayment(
     @Param('bookingId') bookingId: string,
     @Req() request: { tenantContext: { tenantId: string; propertyId: string } },
@@ -49,7 +49,7 @@ export class ManualPaymentController {
   @HttpCode(200)
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
-  @RequiresCapability('bookings.manage')
+  @RequiresCapability('bookings.edit')
   @RequiresVerifiedEmail()
   async resendPokPayCheckout(
     @Param('bookingId') bookingId: string,
@@ -72,7 +72,7 @@ export class ManualPaymentController {
   @HttpCode(200)
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
-  @RequiresCapability('bookings.manage')
+  @RequiresCapability('payments.record')
   @RequiresVerifiedEmail()
   async record(
     @Param('bookingId') bookingId: string,

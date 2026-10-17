@@ -13,7 +13,7 @@ export class GuestsController {
   @Get()
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
-  @RequiresCapability('guests.manage')
+  @RequiresCapability('guests.view')
   list(
     @Query('search') search: string | undefined,
     @Req() request: { tenantContext: { tenantId: string; propertyId: string } },
@@ -28,7 +28,7 @@ export class GuestsController {
   @Get('suspected-duplicates')
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
-  @RequiresCapability('guests.manage')
+  @RequiresCapability('guests.view')
   listSuspectedDuplicates(
     @Req() request: { tenantContext: { tenantId: string; propertyId: string } },
   ) {
@@ -41,7 +41,7 @@ export class GuestsController {
   @Post(':guestId/dismiss-duplicate')
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
-  @RequiresCapability('guests.manage')
+  @RequiresCapability('guests.merge')
   @RequiresVerifiedEmail()
   @HttpCode(204)
   async dismissSuspectedDuplicate(
@@ -59,7 +59,7 @@ export class GuestsController {
   @Post(':guestId/merge')
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
-  @RequiresCapability('guests.manage')
+  @RequiresCapability('guests.merge')
   @RequiresVerifiedEmail()
   mergeSuspectedDuplicate(
     @Param('guestId') guestId: string,

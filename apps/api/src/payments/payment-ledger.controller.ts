@@ -13,7 +13,7 @@ export class PaymentLedgerController {
   @Get('bookings/:bookingId')
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
-  @RequiresCapability('payments.refund')
+  @RequiresCapability('payments.view')
   async ledger(
     @Param('bookingId') bookingId: string,
     @Req() request: { tenantContext: { tenantId: string; propertyId: string } },

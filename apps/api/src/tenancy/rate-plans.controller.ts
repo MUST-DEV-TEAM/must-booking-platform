@@ -13,6 +13,7 @@ import {
 
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 import { TenantScoped } from './tenant-context.decorator';
+import { RequiresCapability } from './capabilities.decorator';
 import { Role, Roles } from './roles.decorator';
 import { RatePlansService } from './rate-plans.service';
 
@@ -30,7 +31,8 @@ export class RatePlansController {
 
   @Post()
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('rates.manage')
   @RequiresVerifiedEmail()
   create(
     @Body() body: unknown,
@@ -46,7 +48,8 @@ export class RatePlansController {
 
   @Patch(':ratePlanId')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('rates.manage')
   @RequiresVerifiedEmail()
   update(
     @Param('ratePlanId') ratePlanId: string,
@@ -65,7 +68,8 @@ export class RatePlansController {
   @Delete(':ratePlanId')
   @HttpCode(204)
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('rates.manage')
   @RequiresVerifiedEmail()
   remove(
     @Param('ratePlanId') ratePlanId: string,
@@ -94,7 +98,8 @@ export class RatePlansController {
 
   @Patch(':ratePlanId/rooms/:roomId/price-override')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('rates.manage')
   @RequiresVerifiedEmail()
   setRoomPriceOverride(
     @Param('ratePlanId') ratePlanId: string,
@@ -115,7 +120,8 @@ export class RatePlansController {
   @Delete(':ratePlanId/rooms/:roomId/price-override')
   @HttpCode(204)
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('rates.manage')
   @RequiresVerifiedEmail()
   removeRoomPriceOverride(
     @Param('ratePlanId') ratePlanId: string,
@@ -143,7 +149,8 @@ export class RatePlansController {
 
   @Post(':ratePlanId/rules')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('rates.manage')
   @RequiresVerifiedEmail()
   createRule(
     @Param('ratePlanId') ratePlanId: string,
@@ -161,7 +168,8 @@ export class RatePlansController {
 
   @Patch(':ratePlanId/rules/:rateRuleId')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('rates.manage')
   @RequiresVerifiedEmail()
   updateRule(
     @Param('ratePlanId') ratePlanId: string,
@@ -182,7 +190,8 @@ export class RatePlansController {
   @Delete(':ratePlanId/rules/:rateRuleId')
   @HttpCode(204)
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('rates.manage')
   @RequiresVerifiedEmail()
   removeRule(
     @Param('ratePlanId') ratePlanId: string,

@@ -33,7 +33,7 @@ export class StaffBookingController {
   @HttpCode(200)
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
-  @RequiresCapability('bookings.manage')
+  @RequiresCapability('bookings.cancel')
   @RequiresVerifiedEmail()
   async cancel(
     @Param('bookingId') bookingId: string,
@@ -80,7 +80,7 @@ export class StaffBookingController {
   @HttpCode(201)
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
-  @RequiresCapability('bookings.manage')
+  @RequiresCapability('bookings.create')
   @RequiresVerifiedEmail()
   async create(
     @Body() body: unknown,

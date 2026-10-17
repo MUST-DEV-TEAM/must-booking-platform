@@ -72,6 +72,7 @@ export class RolesGuard implements CanActivate {
           WHERE "tenant_id" = ${context.tenantId}::uuid
             AND "property_id" = ${context.propertyId}::uuid
             AND "user_id" = ${context.userId}::uuid
+            AND "suspended_at" IS NULL
         `;
         if (staff.length > 0) roles.add(Role.PropertyStaff);
       }

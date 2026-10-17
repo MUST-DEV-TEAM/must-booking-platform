@@ -76,7 +76,7 @@ describe('Tenant dashboard shell', () => {
     expect(markup).toContain('aria-selected="true"');
   });
 
-  it('hides Quick Booking from staff without bookings.manage', () => {
+  it('hides Quick Booking from staff without bookings.create', () => {
     const markup = renderToStaticMarkup(
       createElement(
         DashboardQueryProvider,
@@ -107,7 +107,7 @@ describe('Tenant dashboard shell', () => {
             user,
             role: 'STAFF',
             properties: [{ id: 'property-1', name: 'Grand Hotel' }],
-            capabilities: ['bookings.manage', 'calendar.view', 'payments.refund', 'guests.manage'],
+            capabilities: ['bookings.view', 'calendar.view', 'payments.view', 'guests.view'],
           },
         }),
       ),
@@ -185,7 +185,7 @@ describe('Tenant dashboard shell', () => {
               { id: 'property-1', name: 'Grand Hotel' },
               { id: 'property-2', name: 'Coast Hotel' },
             ],
-            capabilities: ['bookings.manage'],
+            capabilities: ['bookings.view'],
           },
         }),
       ),
@@ -253,10 +253,10 @@ describe('Tenant dashboard shell', () => {
     );
 
     const staffItems = dashboardNavigation('tenant-1', 'property-1', 'STAFF', 'overview', [
-      'bookings.manage',
+      'bookings.view',
       'calendar.view',
-      'payments.refund',
-      'guests.manage',
+      'payments.view',
+      'guests.view',
     ]);
     expect(staffItems.map((item) => item.label)).toEqual([
       'Dashboard',
@@ -279,7 +279,7 @@ describe('Tenant dashboard shell', () => {
             user: { ...user, email: 'finance@example.test' },
             role: 'STAFF',
             properties: [{ id: 'property-1', name: 'Grand Hotel' }],
-            capabilities: ['payments.refund', 'reports.view'],
+            capabilities: ['payments.view', 'payments.refund', 'reports.view'],
           },
         }),
       ),
@@ -303,7 +303,7 @@ describe('Tenant dashboard shell', () => {
       expect(markup).not.toContain(`aria-label="${label}"`);
   });
 
-  it('hides tenant-administration destinations from staff even if a misconfigured template grants their capability keys', () => {
+  it('shows staff the management destinations their permissions open, but never Inventory or Settings', () => {
     const markup = renderToStaticMarkup(
       createElement(
         DashboardQueryProvider,
@@ -314,19 +314,15 @@ describe('Tenant dashboard shell', () => {
             user,
             role: 'STAFF',
             properties: [{ id: 'property-1', name: 'Grand Hotel' }],
-            capabilities: [
-              'accommodations.manage',
-              'rates.manage',
-              'staff.invite',
-              'staff.manage_permissions',
-              'settings.manage',
-            ],
+            capabilities: ['accommodations.manage', 'rates.manage', 'staff.view', 'settings.manage'],
           },
         }),
       ),
     );
 
-    for (const label of ['Accommodations', 'Rates &amp; Pricing', 'Inventory', 'Staff', 'Settings'])
-      expect(markup).not.toContain(`>${label}</a>`);
+    for (const label of ['Accommodations', 'Rates &amp; Pricing', 'Staff'])
+      expect(markup).toContain(`aria-label="${label}"`);
+    for (const label of ['Inventory', 'Settings'])
+      expect(markup).not.toContain(`aria-label="${label}"`);
   });
 });

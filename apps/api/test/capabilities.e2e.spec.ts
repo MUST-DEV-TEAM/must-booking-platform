@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { CapabilitiesGuard } from '../src/tenancy/capabilities.guard';
+import { CAPABILITY_KEYS } from '../src/tenancy/capability-catalog';
 import { CapabilitiesService } from '../src/tenancy/capabilities.service';
 import { PropertyRoleTemplatesService } from '../src/tenancy/property-role-templates.service';
 import { TenantDatabaseService } from '../src/tenancy/tenant-database.service';
@@ -78,27 +79,24 @@ describe('property staff capabilities', () => {
     expect(seededCapabilities).toEqual([
       {
         name: 'Finance',
-        capabilities: ['payments.refund', 'reports.view'],
+        capabilities: ['bookings.view', 'payments.refund', 'payments.view', 'reports.view'],
       },
       {
         name: 'Front Desk',
-        capabilities: ['bookings.manage', 'calendar.view', 'guests.manage'],
+        capabilities: [
+          'bookings.cancel',
+          'bookings.create',
+          'bookings.edit',
+          'bookings.view',
+          'calendar.view',
+          'guests.merge',
+          'guests.view',
+          'payments.record',
+        ],
       },
       {
         name: 'Property Manager',
-        capabilities: [
-          'accommodations.manage',
-          'bookings.manage',
-          'calendar.view',
-          'guests.manage',
-          'payments.refund',
-          'photos.manage',
-          'rates.manage',
-          'reports.view',
-          'settings.manage',
-          'staff.invite',
-          'staff.manage_permissions',
-        ],
+        capabilities: [...CAPABILITY_KEYS].sort(),
       },
     ]);
     const template = await migrationPrisma.$queryRaw<

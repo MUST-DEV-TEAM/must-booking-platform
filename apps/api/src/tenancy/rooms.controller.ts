@@ -13,6 +13,7 @@ import {
 
 import { TenantScoped } from './tenant-context.decorator';
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
+import { RequiresCapability } from './capabilities.decorator';
 import { Role, Roles } from './roles.decorator';
 import { RoomsService } from './rooms.service';
 
@@ -34,7 +35,8 @@ export class RoomsController {
 
   @Post()
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('accommodations.manage')
   @RequiresVerifiedEmail()
   create(
     @Param('roomTypeId') roomTypeId: string,
@@ -52,7 +54,8 @@ export class RoomsController {
 
   @Patch(':roomId')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('accommodations.manage')
   @RequiresVerifiedEmail()
   update(
     @Param('roomId') roomId: string,
@@ -71,7 +74,8 @@ export class RoomsController {
   @Delete(':roomId')
   @HttpCode(204)
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('accommodations.manage')
   @RequiresVerifiedEmail()
   remove(
     @Param('roomId') roomId: string,

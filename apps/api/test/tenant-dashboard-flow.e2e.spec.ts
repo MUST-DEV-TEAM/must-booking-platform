@@ -244,7 +244,7 @@ describe('tenant dashboard end-to-end flow', () => {
     await request(app.getHttpServer())
       .post(`${propertyUrl}/role-templates`)
       .set('Cookie', ownerCookie)
-      .send({ name: templateName, capabilityKeys: ['bookings.manage'] })
+      .send({ name: templateName, capabilities: ['bookings.view', 'bookings.create'] })
       .expect(201);
     const templates = await request(app.getHttpServer())
       .get(`${propertyUrl}/role-templates`)
@@ -252,8 +252,8 @@ describe('tenant dashboard end-to-end flow', () => {
       .expect(200);
     const bookingsOnlyTemplate = templates.body.find(
       (template: { name: string }) => template.name === templateName,
-    ) as { id?: string; capabilities?: Array<{ key: string }> } | undefined;
-    expect(bookingsOnlyTemplate).toMatchObject({ capabilities: [{ key: 'bookings.manage' }] });
+    ) as { id?: string; capabilities?: string[] } | undefined;
+    expect(bookingsOnlyTemplate).toMatchObject({ capabilities: ['bookings.create', 'bookings.view'] });
     if (!bookingsOnlyTemplate?.id) throw new Error('Expected the custom role template.');
     const frontDeskTemplate = templates.body.find(
       (template: { name: string }) => template.name === 'Front Desk',
@@ -304,7 +304,7 @@ describe('tenant dashboard end-to-end flow', () => {
       .get(`${propertyUrl}/capabilities/mine`)
       .set('Cookie', staffCookie)
       .expect(200)
-      .expect(['bookings.manage']);
+      .expect((response) => expect([...response.body].sort()).toEqual(['bookings.create', 'bookings.view']));
     const staffBooking = await request(app.getHttpServer())
       .post(`${propertyUrl}/staff-bookings`)
       .set('Cookie', staffCookie)

@@ -26,6 +26,7 @@ import { StaffInviteService } from './tenancy/staff-invite.service';
 import { StaffInviteController } from './tenancy/staff-invite.controller';
 import { AdminStaffController } from './tenancy/admin-staff.controller';
 import { AdminStaffService } from './tenancy/admin-staff.service';
+import { StaffAccessService } from './tenancy/staff-access.service';
 import { GuestsController } from './tenancy/guests.controller';
 import { GuestsService } from './tenancy/guests.service';
 import { ReportsController } from './tenancy/reports.controller';
@@ -248,6 +249,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PropertyRoleTemplatesService,
     StaffInviteService,
     AdminStaffService,
+    StaffAccessService,
     GuestsService,
     ReportsService,
     OverviewService,

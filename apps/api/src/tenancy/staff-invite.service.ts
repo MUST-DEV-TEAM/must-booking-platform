@@ -72,6 +72,94 @@ export class StaffInviteService implements OnModuleDestroy {
     return token;
   }
 
+  /**
+   * Creates the account right away, for a hotel manager who chose the password himself. The
+   * address counts as verified because the person adding the account vouches for it. An email that
+   * already has an account is refused: setting someone else's password is not allowed, and a
+   * person who already has an account joins another hotel through an invitation instead.
+   */
+  async createDirect(command: {
+    tenantId: string;
+    propertyId: string;
+    actorUserId: string;
+    firstName: string;
+    lastName: string | null;
+    email: string;
+    password: string;
+    roleTemplateId: string;
+    extraCapabilities: string[];
+    deniedCapabilities: string[];
+  }): Promise<{ userId: string }> {
+    const userId = randomUUID();
+    const passwordHash = await bcrypt.hash(command.password, 12);
+    try {
+      await this.database.withTenantTransaction(
+        { tenantId: command.tenantId, propertyId: command.propertyId },
+        async (tx) => {
+          await this.ensureStaffSeatAvailable(tx, command.tenantId, { email: command.email });
+          const existing = await tx.$queryRaw<Array<{ found: number }>>`
+            SELECT 1 AS found FROM "users" WHERE "email" = ${command.email}
+          `;
+          if (existing[0])
+            throw new ConflictException(
+              'That email already has an account. Send an invitation instead so they can join this hotel.',
+            );
+          await tx.$executeRaw`
+            INSERT INTO "users" ("id", "email", "password_hash", "email_verified_at", "is_auto_provisioned", "first_name", "last_name")
+            VALUES (${userId}::uuid, ${command.email}, ${passwordHash}, CURRENT_TIMESTAMP, false, ${command.firstName}, ${command.lastName})
+          `;
+          await tx.$executeRaw`
+            INSERT INTO "tenant_memberships" ("tenant_id", "user_id", "role", "is_auto_provisioned")
+            VALUES (${command.tenantId}::uuid, ${userId}::uuid, 'STAFF', false)
+          `;
+          const template = await tx.$queryRaw<Array<{ found: number }>>`
+            SELECT 1 AS found FROM "property_role_templates"
+            WHERE "tenant_id" = ${command.tenantId}::uuid AND "property_id" = ${command.propertyId}::uuid
+              AND "id" = ${command.roleTemplateId}::uuid
+          `;
+          if (!template[0]) throw new BadRequestException('The role does not exist at this hotel.');
+          await tx.$executeRaw`
+            INSERT INTO "property_staff_assignments" ("tenant_id", "property_id", "user_id", "role_template_id", "created_by_user_id")
+            VALUES (${command.tenantId}::uuid, ${command.propertyId}::uuid, ${userId}::uuid, ${command.roleTemplateId}::uuid, ${command.actorUserId}::uuid)
+          `;
+          for (const [keys, granted] of [
+            [command.extraCapabilities, true],
+            [command.deniedCapabilities, false],
+          ] as const) {
+            for (const key of keys) {
+              await tx.$executeRaw`
+                INSERT INTO "property_staff_capability_overrides" ("tenant_id", "property_id", "user_id", "capability_id", "granted")
+                SELECT ${command.tenantId}::uuid, ${command.propertyId}::uuid, ${userId}::uuid, "id", ${granted}
+                FROM "capabilities" WHERE "tenant_id" = ${command.tenantId}::uuid AND "key" = ${key}
+              `;
+            }
+          }
+          await this.auditLogs.recordInTransaction(tx, {
+            tenantId: command.tenantId,
+            propertyId: command.propertyId,
+            actorUserId: command.actorUserId,
+            action: 'staff.created',
+            targetType: 'user',
+            targetId: userId,
+            details: { email: command.email, roleTemplateId: command.roleTemplateId },
+          });
+        },
+      );
+    } catch (error) {
+      if (this.isUniqueEmailViolation(error))
+        throw new ConflictException(
+          'That email already has an account. Send an invitation instead so they can join this hotel.',
+        );
+      if (error instanceof StaffSeatLimitReachedError)
+        await this.notifications.record(command.tenantId, command.propertyId, 'STAFF_SEAT_CAP_REACHED', {
+          maxStaffSeats: error.maxStaffSeats,
+          staffSeats: error.staffSeats,
+        });
+      throw error;
+    }
+    return { userId };
+  }
+
   async accept(token: string, userId: string): Promise<void> {
     const invite = await this.consumeInvite(token);
     await this.database.withTenantTransaction({ tenantId: invite.tenantId }, async (tx) => {

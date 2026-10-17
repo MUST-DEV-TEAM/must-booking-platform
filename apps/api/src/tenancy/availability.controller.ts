@@ -119,7 +119,8 @@ export class AvailabilityController {
 
   @Post('availability-blocks')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('calendar.block')
   @RequiresVerifiedEmail()
   createAvailabilityBlock(
     @Body() body: unknown,
@@ -145,7 +146,8 @@ export class AvailabilityController {
   @Delete('availability-blocks/:availabilityBlockId')
   @HttpCode(204)
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('calendar.block')
   @RequiresVerifiedEmail()
   removeAvailabilityBlock(
     @Param('availabilityBlockId') availabilityBlockId: string,

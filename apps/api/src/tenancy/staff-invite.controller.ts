@@ -18,7 +18,7 @@ export class StaffInviteController {
   @Post('tenants/:tenantId/staff-invitations')
   @TenantScoped()
   @Roles(Role.TenantOwner, Role.TenantAdmin)
-  @RequiresCapability('staff.invite')
+  @RequiresCapability('staff.create')
   @RequiresVerifiedEmail()
   async invite(
     @Body() body: Omit<StaffInvite, 'tenantId'>,

@@ -8,23 +8,27 @@ Decisions by the owner: (1) the hotel owner, and later a manager, creates staff 
 - API: `GET/POST properties/:id/role-templates`, `PUT properties/:id/staff/:userId`, `PUT/DELETE .../staff/:userId/capabilities/:key`, `POST tenants/:id/staff-invitations`.
 - All of it is guarded by the roles Owner and Admin, not by capabilities. Only 11 coarse capabilities exist.
 
-## Permission catalog (target)
+## Permission catalog (built 2026-10-17, 21 permissions)
 
-Grouped by area. Each key is `area.action`. Legacy keys stay until the migration maps them.
+Only permissions that something enforces are listed; a permission that did nothing would mislead. Source of truth: `apps/api/src/tenancy/capability-catalog.ts`.
 
-| Area | Keys |
-| --- | --- |
-| Bookings | `bookings.view`, `bookings.create`, `bookings.edit`, `bookings.cancel` |
-| Calendar | `calendar.view`, `calendar.block` |
-| Guests | `guests.view`, `guests.edit`, `guests.merge`, `guests.export` |
-| Payments | `payments.view`, `payments.record`, `payments.refund` |
-| Accommodations | `accommodations.view`, `accommodations.manage`, `photos.manage` |
-| Rates | `rates.view`, `rates.manage` |
-| Reports | `reports.view`, `reports.export` |
-| Settings | `settings.view`, `settings.manage` |
-| Staff | `staff.view`, `staff.create`, `staff.manage_roles`, `staff.manage_permissions`, `staff.suspend` |
+| Area | Keys | Enforced on |
+| --- | --- | --- |
+| Bookings | `bookings.view`, `bookings.create`, `bookings.edit`, `bookings.cancel` | list, search, detail; staff-created bookings; check/resend payment link; cancel |
+| Calendar | `calendar.view`, `calendar.block` | availability and board reads; creating and removing blocks |
+| Guests | `guests.view`, `guests.merge` | directory and duplicates; dismiss and merge |
+| Payments | `payments.view`, `payments.record`, `payments.refund` | payment history; marking paid at the hotel; refunds |
+| Accommodations | `accommodations.manage`, `photos.manage` | room types, rooms, amenities (changes); photos |
+| Rates | `rates.manage` | rate plans and rules (changes) |
+| Reports | `reports.view` | reports |
+| Settings | `settings.manage` | hotel emails, notifications, review links and other settings routes that already allow staff |
+| Staff | `staff.view`, `staff.create`, `staff.manage_roles`, `staff.manage_permissions`, `staff.suspend` | staff list, add staff, roles, a person's role and extras, suspend |
 
-Legacy mapping: `bookings.manage` becomes `bookings.create` + `.edit` + `.cancel`; `guests.manage` becomes `guests.edit` + `.merge`; `staff.invite` becomes `staff.create`.
+Left out until a feature exists: guest editing and export, report export, view-only settings, rooms and rates (reading rooms and rates stays open to any staff because booking needs it). Inventory and Settings pages stay Owner/Admin only in the menu.
+
+Migration `20261017100000_staff_access` turns the old coarse permissions into these without changing anyone's access (`bookings.manage` became view, create, edit, cancel and record payments; `guests.manage` view and merge; `staff.invite` view and add; and so on) and deletes the old keys.
+
+Built-in roles for new hotels: **Property Manager** all 21; **Front Desk** bookings (all four), calendar view, guests view and merge, record payments; **Finance** payments view and refund, bookings view (the payments screen is built from bookings), reports view.
 
 ## Rules (enforced by the server, shown by the UI)
 
@@ -32,7 +36,7 @@ Legacy mapping: `bookings.manage` becomes `bookings.create` + `.edit` + `.cancel
 2. Built-in roles cannot be edited or deleted; custom roles can be copied from any role.
 3. A role that has members cannot be deleted (409 with the member count).
 4. Only the Owner can create or change an Admin; the Owner cannot be removed, suspended or downgraded.
-5. Suspending a person ends their sessions and blocks login; their history stays.
+5. Suspending a person blocks their access to this hotel immediately (their other hotels and their account stay); their history stays.
 6. Every create, role change, permission change and suspend is written to the audit log with who did it.
 7. Passwords: at least 12 characters, one letter and one digit; the server stores only a hash; the password is never logged or returned.
 
@@ -49,7 +53,7 @@ All under `/api/tenants/:tenantId/properties/:propertyId`. Errors are `{ message
 | `DELETE role-templates/:id` | none | 204; 409 if built-in or has members |
 | `POST staff` | `{ firstName, lastName?, email, password, roleTemplateId, extraCapabilities?: string[], deniedCapabilities?: string[] }` | 201 `{ userId }`; 409 if the email already belongs to staff of this hotel |
 | `PATCH staff/:userId/status` | `{ status: 'ACTIVE'\|'SUSPENDED' }` | 204 |
-| `GET staff` | none | existing list, each item gains `firstName`, `lastName`, `status`, `lastActiveAt`, `createdAt`, `createdByEmail` (nullable) |
+| `GET staff` | none | existing list, each item gains `firstName`, `lastName`, `status`, `lastActiveAt` (latest audited action by that person), `createdAt`, `createdByEmail` (nullable) |
 | `GET staff/:userId/effective-capabilities` | none | `[{ key, granted: boolean, source: 'role'\|'extra'\|'denied'\|'none' }]` |
 
 Not changed: invitation by email (`POST tenants/:tenantId/staff-invitations`) stays as the second way to add staff.
@@ -61,3 +65,9 @@ Not changed: invitation by email (`POST tenants/:tenantId/staff-invitations`) st
 - **Roles** tab: list of roles with member counts; role editor as a permissions matrix grouped by area (checkboxes), built-in locked with a "Copy as custom role" action; delete blocked with the member count shown.
 - Staff detail: effective permissions grouped by area with the source of each (Role / Extra / Denied), an editor for extras and denials, hotels, recent activity (audit), Suspend / Reactivate.
 - New shared components as needed (`PasswordField` with generator, `PermissionMatrix`), built in `components/ui`.
+
+## Status (2026-10-17)
+
+Backend built and verified by Claude: migration applied locally, `StaffAccessService`, capability-based routes, 6 new end-to-end tests (create with chosen password and sign-in, roles, effective permissions, suspend, the grant-only-what-you-hold rule) and the existing staff, capability and page-visibility tests updated. Codex's C4 screens run against it without changes; checked in a browser: Add staff with a generated password, one-time copy, and the new person signing in to a Front Desk dashboard.
+
+Known gaps: the invitation route (`POST tenants/:id/staff-invitations`) is still Owner/Admin only because it is not scoped to one hotel; "Last active" counts audited actions only; the Payments page still shows "Mark as paid" to people without `payments.record` (the server refuses); direct creation refuses an email that already has an account (use an invitation).
