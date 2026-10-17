@@ -155,7 +155,7 @@ export function RoomTypeMainImageSelector({
             </Button>
             <Input
               ref={fileInputRef}
-              className="sr-only"
+              className="sr-only w-px h-px"
               type="file"
               accept="image/jpeg,image/png,image/webp"
               aria-label="Upload a new main photo"

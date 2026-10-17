@@ -359,7 +359,7 @@ export function RoomTypePhotoGallery({
           </div>
           <Input
             ref={fileInputRef}
-            className="sr-only"
+            className="sr-only w-px h-px"
             type="file"
             accept="image/jpeg,image/png,image/webp"
             multiple
@@ -584,13 +584,17 @@ export function RoomTypePhotoGallery({
             Add a photo by URL instead
           </summary>
           <form
-            className="flex flex-col items-end gap-3 pt-3 sm:flex-row"
+            className="flex w-full min-w-0 flex-col items-end gap-3 pt-3 sm:flex-row"
             onSubmit={(event) => {
               event.preventDefault();
               if (url.trim()) addUrlMutation.mutate(url.trim());
             }}
           >
-            <FormField className="w-full" label="Photo URL" htmlFor={`photo-url-${roomTypeId}`}>
+            <FormField
+              className="min-w-0 flex-1"
+              label="Photo URL"
+              htmlFor={`photo-url-${roomTypeId}`}
+            >
               <Input
                 id={`photo-url-${roomTypeId}`}
                 type="url"

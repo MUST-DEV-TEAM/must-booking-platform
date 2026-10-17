@@ -58,7 +58,7 @@ export function RoomTypeDetail({
   const amenities = data.roomTypeAmenities[roomType.id] ?? [];
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         title={roomType.name}
         description="Room type profile and guest-facing setup."

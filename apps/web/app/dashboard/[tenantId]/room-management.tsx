@@ -671,7 +671,7 @@ export function RoomManagement({
 
   if (propertiesQuery.isPending || (!!propertyId && roomManagementQuery.isPending))
     return (
-      <div className="flex flex-col gap-5">
+      <div className="flex min-w-0 flex-col gap-5">
         <PageHeader
           title="Accommodations"
           description="Room types and physical rooms for this property."
@@ -681,7 +681,7 @@ export function RoomManagement({
     );
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         title="Accommodations"
         description="Manage room types, physical rooms, photos, and amenities for this property."
