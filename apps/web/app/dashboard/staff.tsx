@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { MoreHorizontal } from 'lucide-react';
+import { Copy, MoreHorizontal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -25,10 +25,16 @@ import {
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu';
 import { FilterChips } from '../../components/ui/filter-chips';
+import { FormField } from '../../components/ui/form-field';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { PageHeader } from '../../components/ui/page-header';
+import { PasswordField } from '../../components/ui/password-field';
 import { Pagination } from '../../components/ui/pagination';
+import {
+  PermissionMatrix,
+  type PermissionCatalogItem,
+} from '../../components/ui/permission-matrix';
 import { QuickPeek } from '../../components/ui/quick-peek';
 import { SearchInput } from '../../components/ui/search-input';
 import { SortableTableHead } from '../../components/ui/sortable-table-head';
@@ -99,7 +105,7 @@ function formatLastActive(value: string | null): string {
     : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(timestamp);
 }
 
-/** Staff users for one selected property, using the existing staff and invitation endpoints. */
+/** Staff users for one selected property. */
 export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; propertyId: string }) {
   const base = `/api/tenants/${tenantId}`;
   const [search, setSearch] = useState('');
@@ -114,9 +120,7 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
   const [detailId, setDetailId] = useState<string | null>(null);
   const [ticked, setTicked] = useState<string[]>([]);
   const [notice, setNotice] = useState('');
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [email, setEmail] = useState('');
-  const [inviteTemplateId, setInviteTemplateId] = useState('');
+  const [addStaffOpen, setAddStaffOpen] = useState(false);
   const [suspendTarget, setSuspendTarget] = useState<StaffMember | null>(null);
   const { columns, density, toggleColumn, toggleDensity } = useTablePreferences(
     'must.staff.table',
@@ -126,29 +130,49 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
   const staffQuery = useQuery({
     queryKey: ['dashboard', 'staff', tenantId, propertyId],
     queryFn: async () => {
-      const [staffResponse, templatesResponse, usageResponse] = await Promise.all([
-        fetch(`${base}/properties/${propertyId}/staff`, { credentials: 'include' }),
-        fetch(`${base}/properties/${propertyId}/role-templates`, { credentials: 'include' }),
-        fetch(`${base}/plan-usage`, { credentials: 'include' }),
-      ]);
-      if (!staffResponse.ok || !templatesResponse.ok || !usageResponse.ok)
+      const [staffResponse, templatesResponse, usageResponse, catalogResponse, mineResponse] =
+        await Promise.all([
+          fetch(`${base}/properties/${propertyId}/staff`, { credentials: 'include' }),
+          fetch(`${base}/properties/${propertyId}/role-templates`, { credentials: 'include' }),
+          fetch(`${base}/plan-usage`, { credentials: 'include' }),
+          fetch(`${base}/properties/${propertyId}/capabilities/catalog`, {
+            credentials: 'include',
+          }),
+          fetch(`${base}/properties/${propertyId}/capabilities/mine`, { credentials: 'include' }),
+        ]);
+      if (
+        !staffResponse.ok ||
+        !templatesResponse.ok ||
+        !usageResponse.ok ||
+        !catalogResponse.ok ||
+        !mineResponse.ok
+      )
         throw new Error('Unable to load staff management data.');
-      const [staff, templates, usage] = (await Promise.all([
+      const [staff, templates, usage, catalog, myCapabilities] = (await Promise.all([
         staffResponse.json(),
         templatesResponse.json(),
         usageResponse.json(),
-      ])) as [StaffMember[], StaffTemplate[], Usage];
+        catalogResponse.json(),
+        mineResponse.json(),
+      ])) as [StaffMember[], StaffTemplate[], Usage, PermissionCatalogItem[], string[]];
       return {
         staff: staff.map((member) => ({ ...member, overrides: member.overrides ?? [] })),
         templates,
         usage,
+        catalog,
+        myCapabilities,
       };
     },
   });
   const load = () => void staffQuery.refetch();
-  const { staff = [], templates = [], usage } = staffQuery.data ?? {};
+  const {
+    staff = [],
+    templates = [],
+    usage,
+    catalog = [],
+    myCapabilities = [],
+  } = staffQuery.data ?? {};
   const capped = usage ? usage.usage.staffSeats >= usage.plan.maxStaffSeats : false;
-  const selectedInviteTemplate = inviteTemplateId || templates[0]?.id || '';
 
   useEffect(() => {
     const readDetail = () =>
@@ -163,29 +187,8 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
     setTicked([]);
     setPage(1);
     setView('all');
-    setInviteTemplateId('');
   }, [tenantId, propertyId]);
 
-  const inviteMutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(`${base}/staff-invitations`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email,
-          assignments: [{ propertyId, roleTemplateId: selectedInviteTemplate }],
-        }),
-      });
-      if (!response.ok) throw new Error('Unable to send invitation.');
-    },
-    onSuccess: () => {
-      setInviteOpen(false);
-      setEmail('');
-      toast.success('Invitation sent.');
-    },
-    onError: () => toast.error('Unable to send invitation.'),
-  });
   const assignMutation = useMutation({
     mutationFn: async ({ userId, roleTemplateId }: { userId: string; roleTemplateId: string }) => {
       const response = await fetch(`${base}/properties/${propertyId}/staff/${userId}`, {
@@ -237,7 +240,8 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
       active: staff.filter((member) => member.status === 'ACTIVE').length,
       suspended: staff.filter((member) => member.status === 'SUSPENDED').length,
       'with-extra': staff.filter((member) => member.overrides.some((item) => item.granted)).length,
-      'without-extra': staff.filter((member) => !member.overrides.some((item) => item.granted)).length,
+      'without-extra': staff.filter((member) => !member.overrides.some((item) => item.granted))
+        .length,
     }),
     [staff],
   );
@@ -397,11 +401,11 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
               Export CSV
             </Button>
             <Button
-              onClick={() => setInviteOpen(true)}
+              onClick={() => setAddStaffOpen(true)}
               disabled={capped || templates.length === 0}
               title={capped ? 'The staff seat limit has been reached.' : undefined}
             >
-              Invite staff
+              Add staff
             </Button>
           </>
         }
@@ -424,7 +428,11 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
               { id: 'active', label: 'Active', count: counts.active },
               { id: 'suspended', label: 'Suspended', count: counts.suspended },
               { id: 'with-extra', label: 'With extra permissions', count: counts['with-extra'] },
-              { id: 'without-extra', label: 'No extra permissions', count: counts['without-extra'] },
+              {
+                id: 'without-extra',
+                label: 'No extra permissions',
+                count: counts['without-extra'],
+              },
             ]}
             current={view}
             onSelect={selectView}
@@ -449,8 +457,14 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
                 : [
                     {
                       key: 'view',
-                      label: view === 'active' ? 'Active' : view === 'suspended' ? 'Suspended' :
-                        view === 'with-extra' ? 'With extra permissions' : 'No extra permissions',
+                      label:
+                        view === 'active'
+                          ? 'Active'
+                          : view === 'suspended'
+                            ? 'Suspended'
+                            : view === 'with-extra'
+                              ? 'With extra permissions'
+                              : 'No extra permissions',
                     },
                   ]),
             ]}
@@ -488,10 +502,10 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
               action={
                 <Button
                   size="sm"
-                  onClick={() => setInviteOpen(true)}
+                  onClick={() => setAddStaffOpen(true)}
                   disabled={capped || templates.length === 0}
                 >
-                  Invite staff
+                  Add staff
                 </Button>
               }
             />
@@ -719,82 +733,381 @@ export function DashboardStaff({ tenantId, propertyId }: { tenantId: string; pro
         }}
       />
 
-      <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Invite staff member</DialogTitle>
-            <DialogDescription>
-              Send a single-use invitation for this hotel. The link expires after seven days.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="staff-invite-email">Work email</Label>
-              <Input
-                id="staff-invite-email"
-                type="email"
-                autoComplete="email"
-                placeholder="name@example.com"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="staff-invite-role">Role</Label>
-              <Select
-                value={selectedInviteTemplate}
-                onValueChange={setInviteTemplateId}
-                disabled={templates.length === 0}
-              >
-                <SelectTrigger
-                  id="staff-invite-role"
-                  aria-label="Invite role"
-                  className="w-full"
-                >
-                  <SelectValue placeholder="Choose a role template" />
-                </SelectTrigger>
-                <SelectContent>
-                  {templates.map((template) => (
-                    <SelectItem key={template.id} value={template.id}>
-                      {template.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <p className="m-0 text-xs text-muted-foreground">
-              The invitation accepts an email, role template and hotel assignment. Staff profile
-              fields are not collected here.
-            </p>
-            {capped ? (
-              <p role="alert" className="m-0 text-sm text-warning">
-                This plan has reached its staff-seat limit.
-              </p>
-            ) : null}
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setInviteOpen(false)}
-              disabled={inviteMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              disabled={
-                capped || !email.trim() || !selectedInviteTemplate || inviteMutation.isPending
-              }
-              loading={inviteMutation.isPending}
-              onClick={() => inviteMutation.mutate()}
-            >
-              Send invitation
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AddStaffDialog
+        open={addStaffOpen}
+        onOpenChange={setAddStaffOpen}
+        tenantId={tenantId}
+        propertyId={propertyId}
+        templates={templates}
+        catalog={catalog}
+        myCapabilities={myCapabilities}
+        capped={capped}
+        onCreated={() => {
+          load();
+          toast.success('Staff account created.');
+        }}
+        onInvited={() => {
+          load();
+          toast.success('Invitation sent.');
+        }}
+      />
 
       <SuspendStaffDialog target={suspendTarget} onClose={() => setSuspendTarget(null)} />
     </div>
+  );
+}
+
+function AddStaffDialog({
+  open,
+  onOpenChange,
+  tenantId,
+  propertyId,
+  templates,
+  catalog,
+  myCapabilities,
+  capped,
+  onCreated,
+  onInvited,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  tenantId: string;
+  propertyId: string;
+  templates: StaffTemplate[];
+  catalog: PermissionCatalogItem[];
+  myCapabilities: string[];
+  capped: boolean;
+  onCreated: () => void;
+  onInvited: () => void;
+}) {
+  const [tab, setTab] = useState<'create' | 'invite'>('create');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [createEmail, setCreateEmail] = useState('');
+  const [createRoleId, setCreateRoleId] = useState('');
+  const [password, setPassword] = useState('');
+  const [extraCapabilities, setExtraCapabilities] = useState<string[]>([]);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRoleId, setInviteRoleId] = useState('');
+  const [created, setCreated] = useState<{ email: string; password: string | null } | null>(null);
+  const [copyStatus, setCopyStatus] = useState('');
+  const base = `/api/tenants/${tenantId}`;
+  const selectedCreateRole = createRoleId || templates[0]?.id || '';
+  const selectedInviteRole = inviteRoleId || templates[0]?.id || '';
+  const disabledReasons = Object.fromEntries(
+    catalog
+      .filter((permission) => !myCapabilities.includes(permission.key))
+      .map((permission) => [permission.key, 'You do not have this permission.']),
+  );
+  const validPassword = password.length >= 12 && /[a-z]/i.test(password) && /\d/.test(password);
+
+  const reset = () => {
+    setTab('create');
+    setFirstName('');
+    setLastName('');
+    setCreateEmail('');
+    setCreateRoleId('');
+    setPassword('');
+    setExtraCapabilities([]);
+    setInviteEmail('');
+    setInviteRoleId('');
+    setCreated(null);
+    setCopyStatus('');
+  };
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const email = createEmail.trim();
+      const ownerChosenPassword = password;
+      const response = await fetch(`${base}/properties/${propertyId}/staff`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          firstName: firstName.trim(),
+          ...(lastName.trim() ? { lastName: lastName.trim() } : {}),
+          email,
+          password: ownerChosenPassword,
+          roleTemplateId: selectedCreateRole,
+          ...(extraCapabilities.length ? { extraCapabilities } : {}),
+        }),
+      });
+      if (!response.ok) {
+        if (response.status === 409)
+          throw new Error('That email already belongs to staff at this hotel.');
+        throw new Error('Could not create this staff account.');
+      }
+      const result = (await response.json()) as { userId?: string };
+      if (!result.userId) throw new Error('Could not create this staff account.');
+      setCreated({ email, password: ownerChosenPassword });
+      setPassword('');
+      setFirstName('');
+      setLastName('');
+      setCreateEmail('');
+      setExtraCapabilities([]);
+      return result.userId;
+    },
+    onSuccess: onCreated,
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const inviteMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`${base}/staff-invitations`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: inviteEmail.trim(),
+          assignments: [{ propertyId, roleTemplateId: selectedInviteRole }],
+        }),
+      });
+      if (!response.ok) throw new Error('Could not send the invitation.');
+    },
+    onSuccess: () => {
+      onInvited();
+      reset();
+      onOpenChange(false);
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && (createMutation.isPending || inviteMutation.isPending)) return;
+    if (!nextOpen) reset();
+    onOpenChange(nextOpen);
+  };
+
+  const copyCreatedPassword = async () => {
+    if (!created?.password) return;
+    try {
+      await navigator.clipboard.writeText(created.password);
+      setCreated({ email: created.email, password: null });
+      setCopyStatus('Password copied once and cleared from this screen.');
+    } catch {
+      setCopyStatus('Could not copy the password. You can try again.');
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>{created ? 'Staff account created' : 'Add staff'}</DialogTitle>
+          <DialogDescription>
+            {created
+              ? 'The password is shown only as a one-time copy action.'
+              : 'Create a staff account now or send an invitation for this hotel.'}
+          </DialogDescription>
+        </DialogHeader>
+        {created ? (
+          <div className="space-y-4">
+            <p className="m-0 text-sm">
+              Account created for <strong>{created.email}</strong>.
+            </p>
+            <p className="m-0 text-sm text-muted-foreground">
+              Copy the password now. It will not be shown or returned by the server.
+            </p>
+            {created.password ? (
+              <Button type="button" onClick={() => void copyCreatedPassword()}>
+                <Copy aria-hidden="true" /> Copy password once
+              </Button>
+            ) : (
+              <p role="status" className="m-0 text-sm text-success">
+                {copyStatus || 'Password copied once and cleared from this screen.'}
+              </p>
+            )}
+            {copyStatus && created.password ? (
+              <p role="status" className="m-0 text-xs text-muted-foreground">
+                {copyStatus}
+              </p>
+            ) : null}
+            <DialogFooter>
+              <Button onClick={() => handleOpenChange(false)}>Done</Button>
+            </DialogFooter>
+          </div>
+        ) : (
+          <>
+            <TabBar
+              tabs={[
+                { id: 'create', label: 'Create account' },
+                { id: 'invite', label: 'Send invitation' },
+              ]}
+              current={tab}
+              onSelect={(value) => setTab(value as 'create' | 'invite')}
+              label="Add staff options"
+            />
+            {tab === 'create' ? (
+              <div className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <FormField label="First name" htmlFor="staff-create-first-name" required>
+                    <Input
+                      id="staff-create-first-name"
+                      autoComplete="given-name"
+                      value={firstName}
+                      onChange={(event) => setFirstName(event.target.value)}
+                    />
+                  </FormField>
+                  <FormField label="Last name" htmlFor="staff-create-last-name">
+                    <Input
+                      id="staff-create-last-name"
+                      autoComplete="family-name"
+                      value={lastName}
+                      onChange={(event) => setLastName(event.target.value)}
+                    />
+                  </FormField>
+                </div>
+                <FormField label="Email" htmlFor="staff-create-email" required>
+                  <Input
+                    id="staff-create-email"
+                    type="email"
+                    autoComplete="email"
+                    value={createEmail}
+                    onChange={(event) => setCreateEmail(event.target.value)}
+                  />
+                </FormField>
+                <FormField label="Role" htmlFor="staff-create-role" required>
+                  <Select
+                    value={selectedCreateRole}
+                    onValueChange={setCreateRoleId}
+                    disabled={templates.length === 0}
+                  >
+                    <SelectTrigger
+                      id="staff-create-role"
+                      aria-label="Create staff role"
+                      className="w-full"
+                    >
+                      <SelectValue placeholder="Choose a role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {templates.map((template) => (
+                        <SelectItem key={template.id} value={template.id}>
+                          {template.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FormField>
+                <FormField label="Password" htmlFor="staff-create-password" required>
+                  <PasswordField
+                    id="staff-create-password"
+                    value={password}
+                    onChange={setPassword}
+                  />
+                </FormField>
+                <section className="space-y-2">
+                  <div className="space-y-1">
+                    <h3 className="m-0 text-sm font-semibold">Optional extra permissions</h3>
+                    <p className="m-0 text-xs text-muted-foreground">
+                      Extra permissions add to the selected role. Denials can be set on the staff
+                      detail page.
+                    </p>
+                  </div>
+                  <PermissionMatrix
+                    catalog={catalog}
+                    selectedKeys={extraCapabilities}
+                    onChange={setExtraCapabilities}
+                    disabledReasons={disabledReasons}
+                    ariaLabel="Extra permissions"
+                  />
+                </section>
+                {capped ? (
+                  <p role="alert" className="m-0 text-sm text-warning">
+                    This plan has reached its staff-seat limit.
+                  </p>
+                ) : null}
+                {createMutation.isError ? (
+                  <p role="alert" className="m-0 text-sm text-destructive">
+                    {createMutation.error.message}
+                  </p>
+                ) : null}
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    loading={createMutation.isPending}
+                    disabled={
+                      capped ||
+                      !firstName.trim() ||
+                      !createEmail.trim() ||
+                      !selectedCreateRole ||
+                      !validPassword
+                    }
+                    onClick={() => createMutation.mutate()}
+                  >
+                    Create account
+                  </Button>
+                </DialogFooter>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <FormField label="Work email" htmlFor="staff-invite-email" required>
+                  <Input
+                    id="staff-invite-email"
+                    type="email"
+                    autoComplete="email"
+                    placeholder="name@example.com"
+                    value={inviteEmail}
+                    onChange={(event) => setInviteEmail(event.target.value)}
+                  />
+                </FormField>
+                <FormField label="Role" htmlFor="staff-invite-role" required>
+                  <Select
+                    value={selectedInviteRole}
+                    onValueChange={setInviteRoleId}
+                    disabled={templates.length === 0}
+                  >
+                    <SelectTrigger
+                      id="staff-invite-role"
+                      aria-label="Invite role"
+                      className="w-full"
+                    >
+                      <SelectValue placeholder="Choose a role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {templates.map((template) => (
+                        <SelectItem key={template.id} value={template.id}>
+                          {template.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FormField>
+                <p className="m-0 text-xs text-muted-foreground">
+                  The invitation link expires after seven days. Staff set their password when they
+                  accept.
+                </p>
+                {capped ? (
+                  <p role="alert" className="m-0 text-sm text-warning">
+                    This plan has reached its staff-seat limit.
+                  </p>
+                ) : null}
+                {inviteMutation.isError ? (
+                  <p role="alert" className="m-0 text-sm text-destructive">
+                    {inviteMutation.error.message}
+                  </p>
+                ) : null}
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    loading={inviteMutation.isPending}
+                    disabled={capped || !inviteEmail.trim() || !selectedInviteRole}
+                    onClick={() => inviteMutation.mutate()}
+                  >
+                    Send invitation
+                  </Button>
+                </DialogFooter>
+              </div>
+            )}
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

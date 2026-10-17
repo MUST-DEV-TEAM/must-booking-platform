@@ -45,6 +45,20 @@ const templates = [
     memberCount: 0,
   },
 ];
+const catalog = [
+  {
+    group: 'Payments',
+    key: 'payments.refund',
+    label: 'Refund payments',
+    description: 'Issue payment refunds.',
+  },
+  {
+    group: 'Staff',
+    key: 'staff.manage_permissions',
+    label: 'Manage staff permissions',
+    description: 'Manage staff access.',
+  },
+];
 const pointerMethods = ['setPointerCapture', 'releasePointerCapture', 'hasPointerCapture'] as const;
 const originalPointerMethods = new Map(
   pointerMethods.map((method) => [
@@ -99,7 +113,8 @@ describe('Staff', () => {
     const fetch = mock({ staffSeats: 1, maxStaffSeats: 2 });
     const { root } = await mount();
 
-    await clickButton('Invite staff');
+    await clickButton('Add staff');
+    await clickTab('Send invitation');
     const email = document.body.querySelector<HTMLInputElement>('#staff-invite-email')!;
     await setValue(email, 'new@test');
     await openSelect('Invite role');
@@ -113,6 +128,57 @@ describe('Staff', () => {
       assignments: [{ propertyId: 'p', roleTemplateId: 'b' }],
     });
     expect(toast.success).toHaveBeenCalledWith('Invitation sent.');
+    await unmount(root);
+  });
+
+  it('creates an account from the contract and offers one copy of the chosen password', async () => {
+    const password = 'OwnerChosenPass9!';
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/properties/p/staff') && init?.method === 'POST')
+        return Promise.resolve(
+          new Response(JSON.stringify({ userId: 'new-user' }), { status: 201 }),
+        );
+      return responseFor(url);
+    });
+    vi.stubGlobal('fetch', fetch);
+    const clipboard = { writeText: vi.fn().mockResolvedValue(undefined) };
+    vi.stubGlobal('navigator', { clipboard });
+    const { root } = await mount();
+
+    await clickButton('Add staff');
+    await setValue(
+      document.body.querySelector<HTMLInputElement>('#staff-create-first-name')!,
+      'Jordan',
+    );
+    await setValue(
+      document.body.querySelector<HTMLInputElement>('#staff-create-last-name')!,
+      'Lee',
+    );
+    await setValue(
+      document.body.querySelector<HTMLInputElement>('#staff-create-email')!,
+      'jordan@test',
+    );
+    await setValue(
+      document.body.querySelector<HTMLInputElement>('#staff-create-password')!,
+      password,
+    );
+    await clickButton('Create account');
+
+    const request = fetch.mock.calls.find(
+      (call) => String(call[0]).endsWith('/properties/p/staff') && call[1]?.method === 'POST',
+    );
+    const body = JSON.parse(request?.[1]?.body as string) as Record<string, unknown>;
+    expect(
+      body.firstName === 'Jordan' && body.lastName === 'Lee' && body.email === 'jordan@test',
+    ).toBe(true);
+    expect(body.roleTemplateId === 'a' && body.password === password).toBe(true);
+    expect(Array.isArray(body.extraCapabilities)).toBe(false);
+    expect(document.body.textContent).toContain('Account created for jordan@test.');
+    await clickButton('Copy password once');
+    expect(clipboard.writeText.mock.calls.length === 1).toBe(true);
+    expect(clipboard.writeText.mock.calls[0]?.[0] === password).toBe(true);
+    expect(buttonWithText('Copy password once')).toBeUndefined();
+    expect(document.body.textContent).not.toContain(password);
     await unmount(root);
   });
 
@@ -192,6 +258,10 @@ describe('Staff', () => {
         return Promise.resolve(
           new Response(JSON.stringify({ plan: { maxStaffSeats: 2 }, usage: { staffSeats: 1 } })),
         );
+      if (href.endsWith('/capabilities/catalog'))
+        return Promise.resolve(new Response(JSON.stringify(catalog)));
+      if (href.endsWith('/capabilities/mine'))
+        return Promise.resolve(new Response(JSON.stringify(catalog.map((item) => item.key))));
       return Promise.resolve(new Response(null, { status: 204 }));
     });
     vi.stubGlobal('fetch', fetch);
@@ -245,7 +315,7 @@ describe('Staff', () => {
 
   it('disables invitation at the seat cap and shows a retryable load error', async () => {
     const { container, root } = await mount(mock({ staffSeats: 2, maxStaffSeats: 2 }));
-    expect((buttonWithText('Invite staff') as HTMLButtonElement).disabled).toBe(true);
+    expect((buttonWithText('Add staff') as HTMLButtonElement).disabled).toBe(true);
     expect(container.textContent).toContain('staff-seat limit has been reached');
     await unmount(root);
 
@@ -259,26 +329,32 @@ describe('Staff', () => {
 });
 
 function mock(usage: { staffSeats: number; maxStaffSeats: number }) {
-  const fetch = vi.fn((url: string) =>
-    Promise.resolve(
-      new Response(
-        JSON.stringify(
-          url.endsWith('/staff')
-            ? staff
-            : url.endsWith('/role-templates')
-              ? templates
-              : url.endsWith('/plan-usage')
-                ? {
-                    plan: { maxStaffSeats: usage.maxStaffSeats },
-                    usage: { staffSeats: usage.staffSeats },
-                  }
-                : { ok: true },
-        ),
+  const fetch = vi.fn((url: string) => responseFor(url, usage));
+  vi.stubGlobal('fetch', fetch);
+  return fetch;
+}
+
+function responseFor(url: string, usage = { staffSeats: 1, maxStaffSeats: 2 }) {
+  return Promise.resolve(
+    new Response(
+      JSON.stringify(
+        url.endsWith('/staff')
+          ? staff
+          : url.endsWith('/role-templates')
+            ? templates
+            : url.endsWith('/plan-usage')
+              ? {
+                  plan: { maxStaffSeats: usage.maxStaffSeats },
+                  usage: { staffSeats: usage.staffSeats },
+                }
+              : url.endsWith('/capabilities/catalog')
+                ? catalog
+                : url.endsWith('/capabilities/mine')
+                  ? catalog.map((item) => item.key)
+                  : { ok: true },
       ),
     ),
   );
-  vi.stubGlobal('fetch', fetch);
-  return fetch;
 }
 
 async function mount() {
@@ -311,7 +387,7 @@ async function settle() {
 
 function buttonWithText(text: string) {
   return Array.from(document.body.querySelectorAll<HTMLButtonElement>('button')).find(
-    (button) => button.textContent?.trim() === text,
+    (button) => button.getAttribute('role') !== 'tab' && button.textContent?.trim() === text,
   );
 }
 
