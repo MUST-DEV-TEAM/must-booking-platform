@@ -6,8 +6,8 @@ const tenantId = 'a1111111-1111-4111-8111-111111111111';
 const propertyId = 'b2222222-2222-4222-8222-222222222222';
 const actorUserId = 'c3333333-3333-4333-8333-333333333333';
 
-function service() {
-  const queryRaw = vi.fn().mockResolvedValue([
+function service(queryResults?: unknown[][]) {
+  const defaultRoomType = [
     {
       id: 'room-type-id',
       name: 'Deluxe',
@@ -17,7 +17,11 @@ function service() {
       galleryImageUrls: ['https://images.example.test/deluxe-1.jpg'],
       maxOccupancy: 2,
     },
-  ]);
+  ];
+  const queryRaw = vi.fn();
+  for (const result of queryResults ?? [defaultRoomType, []])
+    queryRaw.mockResolvedValueOnce(result);
+  queryRaw.mockResolvedValue([]);
   const database = {
     withTenantTransaction: async (
       _context: unknown,
@@ -25,7 +29,10 @@ function service() {
     ) => callback({ $queryRaw: queryRaw }),
   };
   const audit = { recordInTransaction: vi.fn().mockResolvedValue(undefined) };
-  const storage = { createPresignedUpload: vi.fn(), publicUrl: vi.fn() };
+  const storage = {
+    createPresignedUpload: vi.fn(),
+    publicUrl: vi.fn((key: string) => `https://cdn.example.test/${key}`),
+  };
   return {
     roomTypes: new RoomTypesService(database as never, audit as never, storage as never),
     queryRaw,
@@ -33,6 +40,44 @@ function service() {
 }
 
 describe('RoomTypesService presentation-image validation', () => {
+  it('projects room type URLs from the canonical image rows rather than the legacy columns', async () => {
+    const { roomTypes } = service([
+      [
+        {
+          id: 'room-type-id',
+          name: 'Deluxe',
+          description: null,
+          amenitiesIntro: null,
+          maxOccupancy: 2,
+          roomCount: 0,
+        },
+      ],
+      [
+        {
+          roomTypeId: 'room-type-id',
+          sourceUrl: 'https://images.example.test/gallery.jpg',
+          objectKey: null,
+          sortOrder: 0,
+          isPrimary: false,
+        },
+        {
+          roomTypeId: 'room-type-id',
+          sourceUrl: 'https://images.example.test/cover.jpg',
+          objectKey: null,
+          sortOrder: 1,
+          isPrimary: true,
+        },
+      ],
+    ]);
+
+    await expect(roomTypes.list(tenantId, propertyId)).resolves.toMatchObject([
+      {
+        mainImageUrl: 'https://images.example.test/cover.jpg',
+        galleryImageUrls: ['https://images.example.test/gallery.jpg'],
+      },
+    ]);
+  });
+
   it('trims amenitiesIntro like description and persists it on create', async () => {
     const { roomTypes, queryRaw } = service();
 
@@ -69,52 +114,31 @@ describe('RoomTypesService presentation-image validation', () => {
     expect(queryRaw.mock.calls[0]).toContain('Amenities for every guest.');
   });
 
-  it('accepts http(s) main and gallery image URLs', async () => {
-    const { roomTypes } = service();
+  it.each(['mainImageUrl', 'galleryImageUrls'] as const)(
+    'keeps %s out of room type create/update writes',
+    async (field) => {
+      const { roomTypes } = service();
+      const value =
+        field === 'mainImageUrl'
+          ? { mainImageUrl: 'https://images.example.test/deluxe.jpg' }
+          : { galleryImageUrls: ['https://images.example.test/deluxe-1.jpg'] };
 
-    await expect(
-      roomTypes.create(tenantId, propertyId, actorUserId, {
-        name: 'Deluxe',
-        maxOccupancy: 2,
-        mainImageUrl: ' https://images.example.test/deluxe.jpg ',
-        galleryImageUrls: ['https://images.example.test/deluxe-1.jpg'],
-      }),
-    ).resolves.toMatchObject({
-      mainImageUrl: 'https://images.example.test/deluxe.jpg',
-      galleryImageUrls: ['https://images.example.test/deluxe-1.jpg'],
-    });
-  });
-
-  it.each([
-    [
-      { mainImageUrl: 'ftp://images.example.test/deluxe.jpg' },
-      'mainImageUrl must be an http(s) URL.',
-    ],
-    [
-      { galleryImageUrls: 'https://images.example.test/deluxe.jpg' },
-      'galleryImageUrls must be an array of image URLs.',
-    ],
-    [
-      {
-        galleryImageUrls: [
-          'https://images.example.test/duplicate.jpg',
-          'https://images.example.test/duplicate.jpg',
-        ],
-      },
-      'galleryImageUrls must not contain duplicates.',
-    ],
-  ])('rejects invalid image input %#', async (presentation, message) => {
-    const { roomTypes, queryRaw } = service();
-
-    await expect(
-      roomTypes.create(tenantId, propertyId, actorUserId, {
-        name: 'Deluxe',
-        maxOccupancy: 2,
-        ...presentation,
-      }),
-    ).rejects.toThrow(message);
-    expect(queryRaw).not.toHaveBeenCalled();
-  });
+      await expect(
+        roomTypes.create(tenantId, propertyId, actorUserId, {
+          name: 'Deluxe',
+          maxOccupancy: 2,
+          ...value,
+        }),
+      ).rejects.toThrow('Manage room type photos through the photos.manage image routes.');
+      await expect(
+        roomTypes.update(tenantId, propertyId, 'room-type-id', actorUserId, {
+          name: 'Deluxe',
+          maxOccupancy: 2,
+          ...value,
+        }),
+      ).rejects.toThrow('Manage room type photos through the photos.manage image routes.');
+    },
+  );
 });
 
 describe('RoomTypesService property image library', () => {

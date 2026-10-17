@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 
 import { TenantDatabaseService } from './tenant-database.service';
+import { roomTypeImagePresentation } from './room-type-image-projection';
 import { STORAGE_PROVIDER, type StorageProvider } from '../storage/storage.provider';
 
 type PublicCatalogRoom = {
@@ -100,8 +101,6 @@ export class PublicCatalogService {
           rt.name,
           rt.description,
           rt.amenities_intro AS "amenitiesIntro",
-          rt.main_image_url AS "mainImageUrl",
-          rt.gallery_image_urls AS "galleryImageUrls",
           rt.max_occupancy AS "maxOccupancy",
           COALESCE((
             SELECT json_agg(json_build_object(
@@ -153,17 +152,11 @@ export class PublicCatalogService {
       `;
       const roomTypes: PublicCatalogRoomType[] = roomTypeRows.map((roomType) => {
         const imageRecords = roomType.imageRecords ?? [];
-        const managedUrls = imageRecords.map(
-          (image) => image.sourceUrl ?? this.storage.publicUrl(image.objectKey!),
+        const presentation = roomTypeImagePresentation(
+          imageRecords.map((image, sortOrder) => ({ ...image, sortOrder })),
+          (key) => this.storage.publicUrl(key),
         );
-        const primaryIndex = imageRecords.findIndex((image) => image.isPrimary);
-        const coverIndex = primaryIndex >= 0 ? primaryIndex : 0;
-        const mainImageUrl = managedUrls[coverIndex] ?? roomType.mainImageUrl;
-        const galleryImageUrls = [
-          ...managedUrls.filter((_, index) => index !== coverIndex),
-          ...(roomType.galleryImageUrls ?? []),
-        ].filter((url, index, urls) => url !== mainImageUrl && urls.indexOf(url) === index);
-        const publicRoomType = { ...roomType, mainImageUrl, galleryImageUrls };
+        const publicRoomType = { ...roomType, ...presentation };
         delete publicRoomType.imageRecords;
         return publicRoomType;
       });

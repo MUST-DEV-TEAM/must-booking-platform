@@ -109,16 +109,18 @@ describe('public catalog individual rooms', () => {
     const pooledRoomType = await request(app.getHttpServer())
       .post(`${pooledUrl}/room-types`)
       .set('Cookie', cookie)
-      .send({
-        name: 'Pooled Classic',
-        maxOccupancy: 2,
-        mainImageUrl: 'https://images.example.test/pooled-classic.jpg',
-        galleryImageUrls: [
-          'https://images.example.test/pooled-classic-1.jpg',
-          'https://images.example.test/pooled-classic-2.jpg',
-        ],
-      })
+      .send({ name: 'Pooled Classic', maxOccupancy: 2 })
       .expect(201);
+    for (const url of [
+      'https://images.example.test/pooled-classic.jpg',
+      'https://images.example.test/pooled-classic-1.jpg',
+      'https://images.example.test/pooled-classic-2.jpg',
+    ])
+      await request(app.getHttpServer())
+        .post(`${pooledUrl}/room-types/${pooledRoomType.body.id}/images/from-url`)
+        .set('Cookie', cookie)
+        .send({ url })
+        .expect(201);
     const beachAmenity = await request(app.getHttpServer())
       .post(`${pooledUrl}/amenities`)
       .set('Cookie', cookie)

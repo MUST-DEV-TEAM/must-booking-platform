@@ -97,8 +97,18 @@ describe('PublicCatalogService payment methods', () => {
             name: 'Deluxe',
             description: 'Sea-facing suite',
             amenitiesIntro: 'Everything needed for a comfortable stay.',
-            mainImageUrl: 'https://images.example.test/deluxe.jpg',
-            galleryImageUrls: ['https://images.example.test/deluxe-1.jpg'],
+            imageRecords: [
+              {
+                sourceUrl: 'https://images.example.test/deluxe.jpg',
+                objectKey: null,
+                isPrimary: true,
+              },
+              {
+                sourceUrl: 'https://images.example.test/deluxe-1.jpg',
+                objectKey: null,
+                isPrimary: false,
+              },
+            ],
             maxOccupancy: 2,
             amenities: [{ id: 'amenity-id', name: 'Beach access', icon: 'BEACH' }],
             ratePlans: [],
@@ -115,6 +125,31 @@ describe('PublicCatalogService payment methods', () => {
           amenities: [{ icon: 'BEACH' }],
         },
       ],
+    });
+  });
+
+  it('uses only the managed image collection when legacy URL columns disagree', async () => {
+    await expect(
+      catalogFor(
+        [],
+        [
+          {
+            id: 'room-type-id',
+            name: 'Deluxe',
+            description: null,
+            amenitiesIntro: null,
+            mainImageUrl: 'https://images.example.test/stale-main.jpg',
+            galleryImageUrls: ['https://images.example.test/stale-gallery.jpg'],
+            imageRecords: [],
+            maxOccupancy: 2,
+            amenities: [],
+            ratePlans: [],
+            requiresRatePlanSelection: true,
+          },
+        ],
+      ),
+    ).resolves.toMatchObject({
+      roomTypes: [{ mainImageUrl: null, galleryImageUrls: [] }],
     });
   });
 

@@ -324,7 +324,9 @@ model RoomType {
   name             String            @db.VarChar(200)
   description      String?
   amenitiesIntro   String?           @map("amenities_intro")
+  /// Compatibility projection of the canonical room_type_images collection.
   mainImageUrl     String?           @map("main_image_url") @db.VarChar(2000)
+  /// Compatibility projection of the canonical room_type_images collection.
   galleryImageUrls String[]          @default([]) @map("gallery_image_urls") @db.VarChar(2000)
   maxOccupancy     Int               @map("max_occupancy")
   createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)

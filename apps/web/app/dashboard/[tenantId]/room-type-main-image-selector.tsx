@@ -2,18 +2,26 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Image as ImageIcon, ImagePlus, Images } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { Button } from '../../../components/ui/button';
 import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../../../components/ui/card';
+import { Input } from '../../../components/ui/input';
+import {
+  checkImageFiles,
   errorMessage,
   libraryQueryKey,
   PropertyImageLibraryDialog,
   uploadToLibrary,
-  checkImageFiles,
 } from './property-image-library';
 import type { RoomTypeImage } from './room-type-photo-gallery';
-import styles from './room-type-main-image-selector.module.css';
 
 const maxImages = 21;
 
@@ -31,12 +39,14 @@ export function RoomTypeMainImageSelector({
   images: RoomTypeImage[];
 }) {
   const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const roomTypesUrl = `/api/tenants/${tenantId}/properties/${propertyId}/room-types`;
   const queryKey = ['dashboard', 'room-management', tenantId, propertyId] as const;
   const primaryImage = images.find((image) => image.isPrimary);
+  const hasRoom = images.length < maxImages;
 
-  // Adds the chosen library photo to the room type (if needed) and makes it the main image.
+  // Adds the chosen library photo to this gallery and selects it as the cover.
   const chooseMutation = useMutation({
     mutationFn: async (libraryImageId: string) => {
       const response = await fetch(`${roomTypesUrl}/${roomTypeId}/images/from-library`, {
@@ -99,69 +109,78 @@ export function RoomTypeMainImageSelector({
   const busy = chooseMutation.isPending || uploadMutation.isPending;
 
   return (
-    <section className={styles.selector} aria-labelledby={`main-image-title-${roomTypeId}`}>
-      <div className={styles.heading}>
-        <div>
-          <h3 id={`main-image-title-${roomTypeId}`}>Main image</h3>
-          <p>The single photo guests see first. Upload a new one or pick it from the library.</p>
-        </div>
-      </div>
-      <div className={styles.content}>
-        <div className={styles.preview}>
+    <Card className="gap-4 border-primary/15 bg-primary/5 p-4 sm:p-5">
+      <CardHeader className="px-0 py-0">
+        <CardTitle>Main image</CardTitle>
+        <CardDescription>The primary photo guests see first.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4 px-0 md:grid-cols-[minmax(0,10rem)_1fr] md:items-center">
+        <div className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-lg border bg-muted">
           {primaryImage ? (
-            <img src={primaryImage.url} alt={`Current main image for ${roomTypeName}`} />
+            <img
+              src={primaryImage.url}
+              alt={`Current main image for ${roomTypeName}`}
+              className="size-full object-cover"
+            />
           ) : (
-            <span className={styles.placeholder}>
-              <ImageIcon aria-hidden="true" size={28} />
+            <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
+              <ImageIcon aria-hidden="true" className="size-7" />
               <span>No main image yet</span>
-            </span>
+            </div>
           )}
         </div>
-        <div className={styles.control}>
-          <div className={styles.actions}>
-            <button
-              className={styles.actionButton}
-              type="button"
-              disabled={busy}
-              onClick={() => setLibraryOpen(true)}
-            >
-              <Images aria-hidden="true" size={16} />
-              <span>{primaryImage ? 'Change from library' : 'Choose from library'}</span>
-            </button>
-            <label
-              className={styles.actionButton}
-              aria-disabled={busy || images.length >= maxImages}
-            >
-              <ImagePlus aria-hidden="true" size={16} />
-              <span>{uploadMutation.isPending ? 'Uploading…' : 'Upload a new photo'}</span>
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                disabled={busy || (!primaryImage && images.length >= maxImages)}
-                onChange={(event) => {
-                  void chooseUpload(event.target.files?.[0]);
-                  event.target.value = '';
-                }}
-              />
-            </label>
-          </div>
-          <p className={styles.hint}>
-            The main image is also part of the room’s gallery. New uploads are saved to the property
+        <div className="flex flex-col items-start gap-3">
+          <p className="m-0 text-sm text-muted-foreground">
+            The main image is part of the room type gallery. New uploads are saved to the property
             library.
           </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy || !hasRoom}
+              onClick={() => setLibraryOpen(true)}
+            >
+              <Images aria-hidden="true" />
+              {primaryImage ? 'Change from library' : 'Choose from library'}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={busy || !hasRoom}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <ImagePlus aria-hidden="true" />
+              {busy ? 'Uploading…' : 'Upload a new photo'}
+            </Button>
+            <Input
+              ref={fileInputRef}
+              className="sr-only"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              aria-label="Upload a new main photo"
+              disabled={busy || !hasRoom}
+              onChange={(event) => {
+                void chooseUpload(event.target.files?.[0]);
+                event.target.value = '';
+              }}
+            />
+          </div>
         </div>
-      </div>
+      </CardContent>
       {libraryOpen ? (
         <PropertyImageLibraryDialog
           tenantId={tenantId}
           propertyId={propertyId}
           mode="single"
           title="Choose the main image"
+          attachedUrls={new Set(images.map((image) => image.url))}
+          maxSelectable={hasRoom ? 1 : 0}
           busy={chooseMutation.isPending}
           onConfirm={([libraryImageId]) => chooseMutation.mutate(libraryImageId)}
           onClose={() => setLibraryOpen(false)}
         />
       ) : null}
-    </section>
+    </Card>
   );
 }
