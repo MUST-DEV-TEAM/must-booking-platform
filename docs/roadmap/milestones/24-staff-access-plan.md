@@ -5,8 +5,8 @@ Decisions by the owner: (1) the hotel owner, and later a manager, creates staff 
 ## What exists (verified in code)
 
 - `PropertyRoleTemplate` (BUILT_IN or CUSTOM, per hotel) with a list of capabilities; `PropertyStaffAssignment` (one role per person per hotel); `PropertyStaffCapabilityOverride` (grant or deny one capability for one person).
-- API: `GET/POST properties/:id/role-templates`, `PUT properties/:id/staff/:userId`, `PUT/DELETE .../staff/:userId/capabilities/:key`, `POST tenants/:id/staff-invitations`.
-- All of it is guarded by the roles Owner and Admin, not by capabilities. Only 11 coarse capabilities exist.
+- API: `GET/POST properties/:id/role-templates`, `PUT properties/:id/staff/:userId`, `PUT/DELETE .../staff/:userId/capabilities/:key`, the legacy `POST tenants/:id/staff-invitations`, and the hotel-scoped `POST tenants/:tenantId/properties/:propertyId/staff-invitations`.
+- The legacy invitation route remains Owner/Admin-only. Hotel-scoped staff and role routes use the capability checks in the contract below, and all routes retain their role guards.
 
 ## Permission catalog (built 2026-10-17, 21 permissions)
 
@@ -52,16 +52,17 @@ All under `/api/tenants/:tenantId/properties/:propertyId`. Errors are `{ message
 | `PUT role-templates/:id` | `{ name?, description?, capabilities?: string[] }` | the updated role; 409 for built-in |
 | `DELETE role-templates/:id` | none | 204; 409 if built-in or has members |
 | `POST staff` | `{ firstName, lastName?, email, password, roleTemplateId, extraCapabilities?: string[], deniedCapabilities?: string[] }` | 201 `{ userId }`; 409 if the email already belongs to staff of this hotel |
+| `POST staff-invitations` | `{ email, roleTemplateId, capabilityKeys?: string[] }` | 201 `{ token }`; requires `staff.create`, accepts only a role in this hotel, and rejects permissions the actor does not hold |
 | `PATCH staff/:userId/status` | `{ status: 'ACTIVE'\|'SUSPENDED' }` | 204 |
 | `GET staff` | none | existing list, each item gains `firstName`, `lastName`, `status`, `lastActiveAt` (latest audited action by that person), `createdAt`, `createdByEmail` (nullable) |
 | `GET staff/:userId/effective-capabilities` | none | `[{ key, granted: boolean, source: 'role'\|'extra'\|'denied'\|'none' }]` |
 
-Not changed: invitation by email (`POST tenants/:tenantId/staff-invitations`) stays as the second way to add staff.
+The Add staff dialog uses the hotel-scoped invitation route above. The legacy invitation route (`POST tenants/:tenantId/staff-invitations`) remains unchanged for Owner/Admin callers and continues to accept its existing multi-property assignment body.
 
 ## Screens (Codex, after reading this file)
 
 - Staff list: remove the "Hotel scope" column; rename "Role template" to **Role** and "Overrides" to **Extra permissions**; add Status and Last active columns and a Suspended tab; keep selector, bulk bar, quick peek.
-- **Add staff** button opens a dialog with two tabs: **Create account** (name, email, role, password with show/hide, **Generate strong password**, copy, strength hint, optional extra permissions) and **Send invitation** (the existing invite). After creating, show a confirmation with the email and a Copy button for the password, once.
+- **Add staff** button opens a dialog with two tabs: **Create account** (name, email, role, password with show/hide, **Generate strong password**, copy, strength hint, optional extra permissions) and **Send invitation** (email, role, and optional extra permissions through the hotel-scoped route). After creating, show a confirmation with the email and a Copy button for the password, once.
 - **Roles** tab: list of roles with member counts; role editor as a permissions matrix grouped by area (checkboxes), built-in locked with a "Copy as custom role" action; delete blocked with the member count shown.
 - Staff detail: effective permissions grouped by area with the source of each (Role / Extra / Denied), an editor for extras and denials, hotels, recent activity (audit), Suspend / Reactivate.
 - New shared components as needed (`PasswordField` with generator, `PermissionMatrix`), built in `components/ui`.
@@ -70,4 +71,4 @@ Not changed: invitation by email (`POST tenants/:tenantId/staff-invitations`) st
 
 Backend built and verified by Claude: migration applied locally, `StaffAccessService`, capability-based routes, 6 new end-to-end tests (create with chosen password and sign-in, roles, effective permissions, suspend, the grant-only-what-you-hold rule) and the existing staff, capability and page-visibility tests updated. Codex's C4 screens run against it without changes; checked in a browser: Add staff with a generated password, one-time copy, and the new person signing in to a Front Desk dashboard.
 
-Known gaps: the invitation route (`POST tenants/:id/staff-invitations`) is still Owner/Admin only because it is not scoped to one hotel; "Last active" counts audited actions only; the Payments page still shows "Mark as paid" to people without `payments.record` (the server refuses); direct creation refuses an email that already has an account (use an invitation).
+Known gaps: "Last active" counts audited actions only; the Payments page still shows "Mark as paid" to people without `payments.record` (the server refuses); direct creation refuses an email that already has an account (use an invitation).

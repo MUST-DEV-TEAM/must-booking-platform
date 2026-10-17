@@ -21,6 +21,8 @@ import { TenantScoped } from './tenant-context.decorator';
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 import { CapabilitiesService } from './capabilities.service';
 import { StaffAccessService, type RoleInput } from './staff-access.service';
+import { CAPABILITY_CATALOG } from './capability-catalog';
+import { StaffInviteService } from './staff-invite.service';
 
 @Controller('tenants/:tenantId')
 export class AdminStaffController {
@@ -28,6 +30,7 @@ export class AdminStaffController {
     @Inject(AdminStaffService) private readonly staff: AdminStaffService,
     @Inject(StaffAccessService) private readonly access: StaffAccessService,
     @Inject(CapabilitiesService) private readonly capabilities: CapabilitiesService,
+    @Inject(StaffInviteService) private readonly invites: StaffInviteService,
   ) {}
 
   @Get('memberships')
@@ -111,6 +114,52 @@ export class AdminStaffController {
         deniedCapabilities: list('deniedCapabilities'),
       },
     );
+  }
+
+  @Post('properties/:propertyId/staff-invitations')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('staff.create')
+  @RequiresVerifiedEmail()
+  async invitePropertyStaff(
+    @Body() body: unknown,
+    @Req() request: ActorRequest,
+  ): Promise<{ token: string }> {
+    const value = (body ?? {}) as Record<string, unknown>;
+    const email = value.email;
+    const roleTemplateId = value.roleTemplateId;
+    if (typeof email !== 'string' || !email.trim())
+      throw new BadRequestException('email is required.');
+    if (typeof roleTemplateId !== 'string' || !roleTemplateId.trim())
+      throw new BadRequestException('roleTemplateId is required.');
+    if (value.capabilityKeys !== undefined && !Array.isArray(value.capabilityKeys))
+      throw new BadRequestException('capabilityKeys must be an array.');
+    const capabilityKeys = (value.capabilityKeys ?? []) as unknown[];
+    if (capabilityKeys.some((key) => typeof key !== 'string'))
+      throw new BadRequestException('capabilityKeys must contain permission keys.');
+
+    const keys = capabilityKeys as string[];
+    const knownKeys = new Set(CAPABILITY_CATALOG.map((entry) => entry.key));
+    const unknownKey = keys.find((key) => !knownKeys.has(key));
+    if (unknownKey) throw new BadRequestException(`Unknown permission key: ${unknownKey}.`);
+
+    const { tenantId, propertyId, userId } = request.tenantContext;
+    const actorCapabilities = await this.actorCapabilities(request);
+    const role = (await this.access.listRoles(tenantId, propertyId)).find(
+      (entry) => entry.id === roleTemplateId,
+    );
+    if (!role) throw new NotFoundException('Role not found.');
+    this.access.assertCanGrant(actorCapabilities, [...role.capabilities, ...keys]);
+
+    const token = await this.invites.invite(
+      {
+        tenantId,
+        email,
+        assignments: [{ propertyId, roleTemplateId: role.id, capabilityKeys: keys }],
+      },
+      userId,
+    );
+    return { token };
   }
 
   @Patch('properties/:propertyId/staff/:userId/status')

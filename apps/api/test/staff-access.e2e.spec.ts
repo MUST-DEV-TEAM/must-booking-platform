@@ -8,6 +8,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { PropertyRoleTemplatesService } from '../src/tenancy/property-role-templates.service';
+import { MailDeliveryService } from '../src/mail/mail-delivery.service';
 
 const migrationPrisma = new PrismaClient({
   datasources: {
@@ -23,16 +24,25 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
   let managerId: string;
   const tenantId = randomUUID();
   const propertyId = randomUUID();
+  const otherPropertyId = randomUUID();
   const adminId = randomUUID();
+  const ownerId = randomUUID();
   const leadId = randomUUID();
+  const noCreateId = randomUUID();
   const adminEmail = `access-admin-${randomUUID()}@example.test`;
+  const ownerEmail = `access-owner-${randomUUID()}@example.test`;
   const leadEmail = `access-lead-${randomUUID()}@example.test`;
+  const noCreateEmail = `access-no-create-${randomUUID()}@example.test`;
   const newEmail = `access-new-${randomUUID()}@example.test`;
   const password = 'correct-horse-battery-staple';
   const chosenPassword = 'My-Own-Password-2026';
   let adminCookie: string;
+  let ownerCookie: string;
   let leadCookie: string;
+  let noCreateCookie: string;
   let createdUserId: string;
+  let inviteableRoleId: string;
+  let foreignRoleId: string;
   const base = `/tenants/${tenantId}/properties/${propertyId}`;
 
   const login = async (email: string, pass: string) =>
@@ -43,17 +53,33 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
     const passwordHash = await bcrypt.hash(password, 12);
     await migrationPrisma.$executeRaw`INSERT INTO "organizations" ("id", "name") VALUES (${tenantId}::uuid, 'Staff access tenant')`;
     await migrationPrisma.$executeRaw`
+      UPDATE "organizations" SET "plan_id" = '00000000-0000-0000-0000-000000000099'::uuid
+      WHERE "id" = ${tenantId}::uuid
+    `;
+    await migrationPrisma.$executeRaw`
       INSERT INTO "properties" ("id", "tenant_id", "name", "slug")
       VALUES (${propertyId}::uuid, ${tenantId}::uuid, 'Access property', ${`access-${propertyId}`})
+    `;
+    await migrationPrisma.$executeRaw`
+      INSERT INTO "properties" ("id", "tenant_id", "name", "slug")
+      VALUES (${otherPropertyId}::uuid, ${tenantId}::uuid, 'Other access property', ${`access-${otherPropertyId}`})
     `;
     await migrationPrisma.$executeRaw`
       INSERT INTO "users" ("id", "email", "password_hash", "email_verified_at") VALUES
         (${adminId}::uuid, ${adminEmail}, ${passwordHash}, CURRENT_TIMESTAMP),
         (${leadId}::uuid, ${leadEmail}, ${passwordHash}, CURRENT_TIMESTAMP)
     `;
+    const additionalPasswordHash = await bcrypt.hash(chosenPassword, 4);
+    await migrationPrisma.$executeRaw`
+      INSERT INTO "users" ("id", "email", "password_hash", "email_verified_at") VALUES
+        (${ownerId}::uuid, ${ownerEmail}, ${additionalPasswordHash}, CURRENT_TIMESTAMP),
+        (${noCreateId}::uuid, ${noCreateEmail}, ${additionalPasswordHash}, CURRENT_TIMESTAMP)
+    `;
     await migrationPrisma.$executeRaw`
       INSERT INTO "tenant_memberships" ("tenant_id", "user_id", "role") VALUES
         (${tenantId}::uuid, ${adminId}::uuid, 'ADMIN'),
+        (${tenantId}::uuid, ${ownerId}::uuid, 'OWNER'),
+        (${tenantId}::uuid, ${noCreateId}::uuid, 'STAFF'),
         (${tenantId}::uuid, ${leadId}::uuid, 'STAFF')
     `;
     process.env.APP_PORT = '3000';
@@ -61,15 +87,26 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
     process.env.REDIS_URL = 'redis://localhost:6379';
     process.env.WEB_APP_URL = 'http://localhost:3001';
     const { AppModule } = await import('../src/app.module');
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(MailDeliveryService)
+      .useValue({ async dispatch() {} })
+      .compile();
     app = moduleRef.createNestApplication();
     await app.init();
     await moduleRef.get(PropertyRoleTemplatesService).ensureBuiltInTemplates(tenantId, propertyId);
+    await moduleRef.get(PropertyRoleTemplatesService).ensureBuiltInTemplates(tenantId, otherPropertyId);
     const roles = await migrationPrisma.$queryRaw<Array<{ id: string; name: string }>>`
       SELECT "id", "name" FROM "property_role_templates" WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid
     `;
     frontDeskId = roles.find((role) => role.name === 'Front Desk')!.id;
     managerId = roles.find((role) => role.name === 'Property Manager')!.id;
+    const foreignRoles = await migrationPrisma.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "property_role_templates"
+      WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${otherPropertyId}::uuid AND "name" = 'Front Desk'
+    `;
+    foreignRoleId = foreignRoles[0]!.id;
+    ownerCookie = await login(ownerEmail, chosenPassword);
+    noCreateCookie = await login(noCreateEmail, chosenPassword);
     adminCookie = await login(adminEmail, password);
     // A lead who may see staff, add staff and manage roles, and nothing else.
     const leadRole = await request(app.getHttpServer())
@@ -80,6 +117,21 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
     await migrationPrisma.$executeRaw`
       INSERT INTO "property_staff_assignments" ("tenant_id", "property_id", "user_id", "role_template_id")
       VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${leadId}::uuid, ${leadRole.body.id as string}::uuid)
+    `;
+    const inviteableRole = await request(app.getHttpServer())
+      .post(`${base}/role-templates`)
+      .set('Cookie', adminCookie)
+      .send({ name: 'Inviteable', capabilities: ['bookings.view'] })
+      .expect(201);
+    inviteableRoleId = inviteableRole.body.id as string;
+    const noCreateRole = await request(app.getHttpServer())
+      .post(`${base}/role-templates`)
+      .set('Cookie', adminCookie)
+      .send({ name: 'Staff viewer', capabilities: ['staff.view'] })
+      .expect(201);
+    await migrationPrisma.$executeRaw`
+      INSERT INTO "property_staff_assignments" ("tenant_id", "property_id", "user_id", "role_template_id")
+      VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${noCreateId}::uuid, ${noCreateRole.body.id as string}::uuid)
     `;
     leadCookie = await login(leadEmail, password);
   });
@@ -92,8 +144,10 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
     await migrationPrisma.$executeRaw`DELETE FROM "property_role_templates" WHERE "tenant_id" = ${tenantId}::uuid`;
     await migrationPrisma.$executeRaw`DELETE FROM "capabilities" WHERE "tenant_id" = ${tenantId}::uuid`;
     await migrationPrisma.$executeRaw`DELETE FROM "tenant_memberships" WHERE "tenant_id" = ${tenantId}::uuid`;
+    await migrationPrisma.$executeRaw`DELETE FROM "notifications" WHERE "tenant_id" = ${tenantId}::uuid`;
     await migrationPrisma.$executeRaw`DELETE FROM "properties" WHERE "id" = ${propertyId}::uuid`;
-    await migrationPrisma.$executeRaw`DELETE FROM "users" WHERE "email" IN (${adminEmail}, ${leadEmail}, ${newEmail})`;
+    await migrationPrisma.$executeRaw`DELETE FROM "properties" WHERE "id" = ${otherPropertyId}::uuid`;
+    await migrationPrisma.$executeRaw`DELETE FROM "users" WHERE "email" IN (${adminEmail}, ${ownerEmail}, ${leadEmail}, ${noCreateEmail}, ${newEmail})`;
     await migrationPrisma.$executeRaw`DELETE FROM "organizations" WHERE "id" = ${tenantId}::uuid`;
     await app.close();
     await migrationPrisma.$disconnect();
@@ -105,6 +159,60 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
     expect(keys).toContain('bookings.cancel');
     expect(keys).toContain('staff.suspend');
     expect(response.body[0]).toMatchObject({ group: 'Bookings', key: 'bookings.view' });
+  });
+
+  it('lets a team lead invite only roles and extra permissions they hold', async () => {
+    await request(app.getHttpServer())
+      .post(`${base}/staff-invitations`)
+      .set('Cookie', leadCookie)
+      .send({ email: `lead-invite-${randomUUID()}@example.test`, roleTemplateId: inviteableRoleId })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`${base}/staff-invitations`)
+      .set('Cookie', leadCookie)
+      .send({ email: `lead-forbidden-role-${randomUUID()}@example.test`, roleTemplateId: frontDeskId })
+      .expect(403);
+    await request(app.getHttpServer())
+      .post(`${base}/staff-invitations`)
+      .set('Cookie', leadCookie)
+      .send({
+        email: `lead-forbidden-extra-${randomUUID()}@example.test`,
+        roleTemplateId: inviteableRoleId,
+        capabilityKeys: ['payments.refund'],
+      })
+      .expect(403);
+    await request(app.getHttpServer())
+      .post(`${base}/staff-invitations`)
+      .set('Cookie', leadCookie)
+      .send({
+        email: `lead-unknown-${randomUUID()}@example.test`,
+        roleTemplateId: inviteableRoleId,
+        capabilityKeys: ['not.a.permission'],
+      })
+      .expect(400);
+    await request(app.getHttpServer())
+      .post(`${base}/staff-invitations`)
+      .set('Cookie', leadCookie)
+      .send({ email: `lead-foreign-role-${randomUUID()}@example.test`, roleTemplateId: foreignRoleId })
+      .expect(404);
+    await request(app.getHttpServer())
+      .post(`${base}/staff-invitations`)
+      .set('Cookie', noCreateCookie)
+      .send({ email: `no-create-${randomUUID()}@example.test`, roleTemplateId: inviteableRoleId })
+      .expect(403);
+  });
+
+  it('allows Owners and Admins to use the hotel-scoped invitation route', async () => {
+    for (const [cookie, email] of [
+      [adminCookie, `admin-invite-${randomUUID()}@example.test`],
+      [ownerCookie, `owner-invite-${randomUUID()}@example.test`],
+    ]) {
+      await request(app.getHttpServer())
+        .post(`${base}/staff-invitations`)
+        .set('Cookie', cookie)
+        .send({ email, roleTemplateId: inviteableRoleId })
+        .expect(201);
+    }
   });
 
   it('creates a staff account with the password the hotel chose, who can then sign in', async () => {

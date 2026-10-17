@@ -128,7 +128,7 @@ afterEach(() => {
 });
 
 describe('Staff', () => {
-  it('invites with the selected role through the existing endpoint', async () => {
+  it('invites with the selected role through the hotel-scoped endpoint', async () => {
     const fetch = mock({ staffSeats: 1, maxStaffSeats: 2 });
     const { root } = await mount();
 
@@ -141,12 +141,34 @@ describe('Staff', () => {
     await clickButton('Send invitation');
 
     const request = fetch.mock.calls.find((call) => String(call[0]).endsWith('staff-invitations'))!;
+    expect(String(request[0])).toBe(`${base}/properties/p/staff-invitations`);
     expect(request[1]).toEqual(expect.objectContaining({ method: 'POST', credentials: 'include' }));
     expect(JSON.parse(request[1]?.body as string)).toEqual({
       email: 'new@test',
-      assignments: [{ propertyId: 'p', roleTemplateId: 'b' }],
+      roleTemplateId: 'b',
     });
     expect(toast.success).toHaveBeenCalledWith('Invitation sent.');
+    await unmount(root);
+  });
+
+  it('sends optional extra permissions with a hotel-scoped invitation', async () => {
+    const fetch = mock({ staffSeats: 1, maxStaffSeats: 2 });
+    const { root } = await mount();
+
+    await clickButton('Add staff');
+    await clickTab('Send invitation');
+    await setValue(document.body.querySelector<HTMLInputElement>('#staff-invite-email')!, 'new@test');
+    await openMultiSelect('Invitation extra permissions');
+    await clickPermission(document.body, 'Manage staff permissions');
+    await clickButton('Send invitation');
+
+    const request = fetch.mock.calls.find((call) => String(call[0]).endsWith('staff-invitations'))!;
+    expect(String(request[0])).toBe(`${base}/properties/p/staff-invitations`);
+    expect(JSON.parse(request[1]?.body as string)).toEqual({
+      email: 'new@test',
+      roleTemplateId: 'a',
+      capabilityKeys: ['staff.manage_permissions'],
+    });
     await unmount(root);
   });
 

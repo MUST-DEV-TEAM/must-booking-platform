@@ -904,6 +904,7 @@ function AddStaffDialog({
   const [extraCapabilities, setExtraCapabilities] = useState<string[]>([]);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRoleId, setInviteRoleId] = useState('');
+  const [inviteExtraCapabilities, setInviteExtraCapabilities] = useState<string[]>([]);
   const [created, setCreated] = useState<{ email: string; password: string | null } | null>(null);
   const [copyStatus, setCopyStatus] = useState('');
   const base = `/api/tenants/${tenantId}`;
@@ -922,6 +923,7 @@ function AddStaffDialog({
     setExtraCapabilities([]);
     setInviteEmail('');
     setInviteRoleId('');
+    setInviteExtraCapabilities([]);
     setCreated(null);
     setCopyStatus('');
   };
@@ -964,13 +966,14 @@ function AddStaffDialog({
 
   const inviteMutation = useMutation({
     mutationFn: async () => {
-      const response = await fetch(`${base}/staff-invitations`, {
+      const response = await fetch(`${base}/properties/${propertyId}/staff-invitations`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: inviteEmail.trim(),
-          assignments: [{ propertyId, roleTemplateId: selectedInviteRole }],
+          roleTemplateId: selectedInviteRole,
+          ...(inviteExtraCapabilities.length ? { capabilityKeys: inviteExtraCapabilities } : {}),
         }),
       });
       if (!response.ok) throw new Error('Could not send the invitation.');
@@ -1186,6 +1189,21 @@ function AddStaffDialog({
                     </SelectContent>
                   </Select>
                 </FormField>
+                <section className="space-y-2">
+                  <div className="space-y-1">
+                    <h3 className="m-0 text-sm font-semibold">Optional extra permissions</h3>
+                    <p className="m-0 text-xs text-muted-foreground">
+                      Extra permissions add to the selected role.
+                    </p>
+                  </div>
+                  <MultiSelect
+                    options={permissionOptions}
+                    value={inviteExtraCapabilities}
+                    onChange={setInviteExtraCapabilities}
+                    placeholder="Choose extra permissions"
+                    label="Invitation extra permissions"
+                  />
+                </section>
                 <p className="m-0 text-xs text-muted-foreground">
                   The invitation link expires after seven days. Staff set their password when they
                   accept.
