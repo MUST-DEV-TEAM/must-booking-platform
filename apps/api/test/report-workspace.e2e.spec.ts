@@ -7,6 +7,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { PropertyRoleTemplatesService } from '../src/tenancy/property-role-templates.service';
+import { ReportViewsService } from '../src/tenancy/report-views.service';
 import { ReportWorkspaceService } from '../src/tenancy/report-workspace.service';
 import { AuditLogService } from '../src/tenancy/audit-log.service';
 import { TenantDatabaseService } from '../src/tenancy/tenant-database.service';
@@ -665,5 +666,186 @@ describe('Reports R2 real scoped projections, cache and export audit', () => {
       { report: 'sql' },
     ])
       await get(extra).expect(400);
+  });
+  const viewBody = (visibility = 'private', name = 'Daily review') => ({
+    name,
+    visibility,
+    configuration: {
+      query,
+      columns: ['reference', 'status'],
+      metrics: ['bookings', 'occupancy'],
+      display: 'table',
+      chartMetric: 'bookings',
+    },
+  });
+  const viewWrite = (
+    method: 'post' | 'patch' | 'delete',
+    path: string,
+    body: Record<string, unknown>,
+    key = randomUUID(),
+    cookie = ownerCookie,
+  ) =>
+    request(app.getHttpServer())
+      [method](`${root()}/views${path}`)
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', key)
+      .send(body);
+  it('R3 keeps private views private, shares team configurations, duplicates privately and gates edits', async () => {
+    const privateView = (await viewWrite('post', '', viewBody()).expect(201)).body;
+    const team = (await viewWrite('post', '', viewBody('team', 'Team report')).expect(201)).body;
+    const list = await request(app.getHttpServer())
+      .get(`${root()}/views`)
+      .set('Cookie', staffCookie)
+      .expect(200);
+    expect(list.body.views.map((v: { id: string }) => v.id)).not.toContain(privateView.id);
+    expect(list.body.views.find((v: { id: string }) => v.id === team.id).canEdit).toBe(false);
+    await request(app.getHttpServer())
+      .get(`${root()}/views/${privateView.id}/workspace`)
+      .set('Cookie', staffCookie)
+      .expect(404);
+    await viewWrite(
+      'patch',
+      `/${team.id}`,
+      { ...viewBody('team'), version: 1 },
+      randomUUID(),
+      staffCookie,
+    ).expect(403);
+    const copy = (
+      await viewWrite(
+        'post',
+        `/${team.id}/duplicate`,
+        { version: 1 },
+        randomUUID(),
+        staffCookie,
+      ).expect(201)
+    ).body;
+    expect(copy).toMatchObject({ ownerUserId: staff, visibility: 'private', version: 1 });
+    const changed = (
+      await viewWrite('patch', `/${privateView.id}`, {
+        ...viewBody('team', 'Renamed'),
+        version: 1,
+      }).expect(200)
+    ).body;
+    expect(changed).toMatchObject({ version: 2, name: 'Renamed', visibility: 'team' });
+    await viewWrite('delete', `/${privateView.id}`, { version: 1 }).expect(409);
+    await viewWrite('delete', `/${privateView.id}`, { version: 2 }).expect(200);
+    await request(app.getHttpServer())
+      .get(`${root()}/views/${privateView.id}/workspace`)
+      .set('Cookie', ownerCookie)
+      .expect(404);
+  });
+  it('R3 returns one durable result and audit for simultaneous idempotent creates and rejects key reuse', async () => {
+    const key = randomUUID();
+    const results = await Promise.all([
+      viewWrite('post', '', viewBody(), key),
+      viewWrite('post', '', viewBody(), key),
+    ]);
+    expect(results.map((r) => r.status)).toEqual([201, 201]);
+    expect(results[0]!.body).toEqual(results[1]!.body);
+    const id = results[0]!.body.id;
+    const audit = await admin.$queryRaw<
+      Array<{ count: number }>
+    >`SELECT count(*)::int AS count FROM audit_logs WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND action='report.view.create' AND target_id=${id}`;
+    expect(audit[0]!.count).toBe(1);
+    await viewWrite('post', '', viewBody('private', 'Different'), key).expect(409);
+    await viewWrite('post', '', viewBody(), key, staffCookie).expect(409);
+  });
+  it('R3 rejects a real lost update and stale duplicate/delete without losing the winning configuration', async () => {
+    const first = (await viewWrite('post', '', viewBody()).expect(201)).body;
+    const responses = await Promise.all(
+      ['First', 'Second'].map((n) =>
+        viewWrite('patch', `/${first.id}`, { ...viewBody('private', n), version: 1 }),
+      ),
+    );
+    expect(responses.map((r) => r.status).sort()).toEqual([200, 409]);
+    const winner = responses.find((r) => r.status === 200)!.body;
+    const read = await request(app.getHttpServer())
+      .get(`${root()}/views/${first.id}/workspace`)
+      .set('Cookie', ownerCookie)
+      .expect(200);
+    expect(read.body.view).toMatchObject({ name: winner.name, version: 2 });
+    await viewWrite('post', `/${first.id}/duplicate`, { version: 1 }).expect(409);
+    await viewWrite('delete', `/${first.id}`, { version: 1 }).expect(409);
+  });
+  it('R3 enforces actual RLS scope and rechecks money permissions on shared execution', async () => {
+    const body = viewBody('team', 'Money view');
+    body.configuration.columns.push('value');
+    body.configuration.metrics.push('roomRevenue');
+    Object.assign(body.configuration.query, { sort: 'value' });
+    const saved = (await viewWrite('post', '', body).expect(201)).body;
+    const result = await request(app.getHttpServer())
+      .get(`${root()}/views/${saved.id}/workspace`)
+      .set('Cookie', staffCookie)
+      .expect(200);
+    expect(result.body.workspace.columns.some((c: { money?: boolean }) => c.money)).toBe(false);
+    expect(result.body.workspace.summary.financial).toBeUndefined();
+    await request(app.getHttpServer())
+      .get(`${root(otherProperty)}/views/${saved.id}/workspace`)
+      .set('Cookie', ownerCookie)
+      .expect(404);
+    await request(app.getHttpServer())
+      .get(`${root(foreignProperty, foreignTenant)}/views`)
+      .set('Cookie', ownerCookie)
+      .expect(403);
+    const db = app.get(TenantDatabaseService);
+    const scoped = await db.withTenantTransaction(
+      { tenantId: tenant, propertyId: otherProperty },
+      (tx) =>
+        tx.$queryRaw<
+          Array<{ id: string }>
+        >`SELECT id FROM report_views WHERE tenant_id=${tenant}::uuid AND id=${saved.id}::uuid`,
+    );
+    expect(scoped).toEqual([]);
+    await expect(
+      db.withTenantTransaction(
+        { tenantId: tenant, propertyId: otherProperty },
+        (tx) =>
+          tx.$executeRaw`INSERT INTO report_views(tenant_id,property_id,owner_user_id,name,visibility,configuration) VALUES(${tenant}::uuid,${property}::uuid,${owner}::uuid,'bad','team','{}'::jsonb)`,
+      ),
+    ).rejects.toThrow();
+    const flags = await admin.$queryRaw<
+      Array<{ relrowsecurity: boolean; relforcerowsecurity: boolean }>
+    >`SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE relname IN ('report_views','report_view_operations')`;
+    expect(flags).toHaveLength(2);
+    expect(flags.every((f) => f.relrowsecurity && f.relforcerowsecurity)).toBe(true);
+  });
+  it('R3 rolls back configuration and receipt if audit fails, validates inputs and denies revoked access', async () => {
+    const audit = app.get(AuditLogService),
+      key = randomUUID();
+    const failure = vi
+      .spyOn(audit, 'recordInTransaction')
+      .mockRejectedValueOnce(new Error('test audit unavailable'));
+    await viewWrite('post', '', viewBody('private', 'Must rollback'), key).expect(500);
+    failure.mockRestore();
+    const rows = await admin.$queryRaw<
+      Array<{ id: string }>
+    >`SELECT id FROM report_views WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND name='Must rollback'`;
+    expect(rows).toEqual([]);
+    await viewWrite('post', '', viewBody('private', 'Must rollback'), key).expect(201);
+    await request(app.getHttpServer())
+      .post(`${root()}/views`)
+      .set('Cookie', ownerCookie)
+      .send(viewBody())
+      .expect(400);
+    await viewWrite('post', '', {
+      ...viewBody(),
+      configuration: { ...viewBody().configuration, columns: ['password_hash'] },
+    }).expect(400);
+    await viewWrite('post', '', {
+      ...viewBody(),
+      configuration: { ...viewBody().configuration, metrics: ['sql()'] },
+    }).expect(400);
+    await viewWrite('post', '', viewBody('role-default')).expect(400);
+    await request(app.getHttpServer()).get(`${root()}/views`).expect(401);
+    await admin.$executeRaw`INSERT INTO property_staff_capability_overrides(tenant_id,property_id,user_id,capability_id,granted) SELECT ${tenant}::uuid,${property}::uuid,${staff}::uuid,id,false FROM capabilities WHERE tenant_id=${tenant}::uuid AND key='reports.view' ON CONFLICT(tenant_id,property_id,user_id,capability_id) DO UPDATE SET granted=false`;
+    try {
+      await request(app.getHttpServer())
+        .get(`${root()}/views`)
+        .set('Cookie', staffCookie)
+        .expect(403);
+    } finally {
+      await admin.$executeRaw`DELETE FROM property_staff_capability_overrides WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND user_id=${staff}::uuid`;
+    }
+    expect(app.get(ReportViewsService)).toBeDefined();
   });
 });

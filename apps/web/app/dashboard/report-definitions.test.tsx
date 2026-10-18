@@ -37,6 +37,14 @@ async function click(button: Element) {
     await settle();
   });
 }
+async function rendered(text: string) {
+  await vi.waitFor(async () => {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+    expect(document.body.textContent).toContain(text);
+  });
+}
 const data = { timezone: 'Europe/Tirane', basis: 'MUST locally stored records', definitions: [] };
 
 describe('Reports Definitions dialog', () => {
@@ -49,6 +57,7 @@ describe('Reports Definitions dialog', () => {
     expect(fetch).toHaveBeenCalledWith('/api/tenants/t/properties/p/reports/definitions', {
       credentials: 'include',
     });
+    await rendered('Europe/Tirane');
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Europe/Tirane');
     expect(document.body.textContent).toContain('No metric definitions available');
     await click(document.querySelector('[role="dialog"] button')!);
@@ -61,7 +70,7 @@ describe('Reports Definitions dialog', () => {
     );
     const host = await mount();
     await click(host.querySelector('button')!);
-    expect(document.body.textContent).toContain('Reports permission is required');
+    await rendered('Reports permission is required');
     expect(document.body.textContent).not.toContain('Room revenue');
   });
   it('shows a reference and retries a failed request', async () => {
@@ -74,12 +83,12 @@ describe('Reports Definitions dialog', () => {
     vi.stubGlobal('fetch', fetch);
     const host = await mount();
     await click(host.querySelector('button')!);
-    expect(document.body.textContent).toContain('reports-test-ref');
+    await rendered('reports-test-ref');
     const retry = [...document.querySelectorAll('button')].find(
       (b) => b.textContent === 'Try again',
     )!;
     await click(retry);
-    expect(document.body.textContent).toContain('Europe/Tirane');
+    await rendered('Europe/Tirane');
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
