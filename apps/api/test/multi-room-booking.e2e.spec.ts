@@ -243,8 +243,11 @@ describe('Multi-room booking orders', () => {
     expect(firstType.status).toBe(201);
     expect(secondType.status).toBe(201);
     expect(ratePlan.status).toBe(201);
-    const startsOn = '2026-11-01';
-    const endsOn = '2026-11-03';
+    // Relative dates keep the cancellation window open no matter when the suite runs.
+    const day = (offset: number) =>
+      new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+    const startsOn = day(90);
+    const endsOn = day(92);
     await Promise.all([
       request(app!.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
