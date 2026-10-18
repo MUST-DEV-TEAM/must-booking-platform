@@ -23,9 +23,16 @@ type ImportPreview = {
 type CurrentRoomType = {
   id: string;
   name: string;
+  rules: string | null;
   status: 'DRAFT' | 'PUBLISHED' | 'HIDDEN';
 };
-type CurrentRoom = { id: string; name: string; roomTypeId: string; isActive: boolean };
+type CurrentRoom = {
+  id: string;
+  name: string;
+  rules: string | null;
+  roomTypeId: string;
+  isActive: boolean;
+};
 type CurrentCategory = { id: string; name: string };
 type RoomTypeImport = {
   id: string | null;
@@ -161,23 +168,23 @@ export class AccommodationImportService {
   ): Promise<ImportPlan> {
     const roomTypes = lockRows
       ? await tx.$queryRaw<CurrentRoomType[]>`
-          SELECT id, name, status::text AS status FROM room_types
+          SELECT id, name, rules, status::text AS status FROM room_types
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
           ORDER BY name FOR UPDATE
         `
       : await tx.$queryRaw<CurrentRoomType[]>`
-          SELECT id, name, status::text AS status FROM room_types
+          SELECT id, name, rules, status::text AS status FROM room_types
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
           ORDER BY name
         `;
     const rooms = lockRows
       ? await tx.$queryRaw<CurrentRoom[]>`
-          SELECT id, name, room_type_id AS "roomTypeId", is_active AS "isActive" FROM rooms
+          SELECT id, name, rules, room_type_id AS "roomTypeId", is_active AS "isActive" FROM rooms
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
           ORDER BY name FOR UPDATE
         `
       : await tx.$queryRaw<CurrentRoom[]>`
-          SELECT id, name, room_type_id AS "roomTypeId", is_active AS "isActive" FROM rooms
+          SELECT id, name, rules, room_type_id AS "roomTypeId", is_active AS "isActive" FROM rooms
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
           ORDER BY name
         `;
@@ -257,7 +264,7 @@ export class AccommodationImportService {
         name,
         description: optionalText(source.description),
         amenitiesIntro: optionalText(source.amenitiesIntro),
-        rules: optionalText(source.rules),
+        rules: importedRules(source, existing?.rules),
         maxOccupancy: maxOccupancy ?? 0,
         status: status as RoomTypeImport['status'],
         categoryId,
@@ -344,7 +351,7 @@ export class AccommodationImportService {
         name,
         title,
         roomSize,
-        rules: optionalText(source.rules),
+        rules: importedRules(source, existing?.rules),
         description: optionalText(source.description),
         floor,
         viewType,
@@ -388,6 +395,11 @@ function text(value: unknown): string {
 function optionalText(value: unknown): string | null {
   const normalized = text(value).trim();
   return normalized || null;
+}
+
+/** A CSV without a rules column must keep the stored rules; a present, blank cell clears them. */
+function importedRules(source: Record<string, unknown>, current: string | null | undefined) {
+  return source.rules === undefined ? (current ?? null) : optionalText(source.rules);
 }
 
 function integer(value: string): number | null {

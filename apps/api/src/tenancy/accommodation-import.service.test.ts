@@ -10,8 +10,12 @@ const categoryId = 'e5555555-5555-4555-8555-555555555555';
 const roomId = 'f6666666-6666-4666-8666-666666666666';
 
 function harness() {
-  const types = [{ id: roomTypeId, name: 'Double', status: 'PUBLISHED' as const }];
-  const rooms = [{ id: roomId, name: '101', roomTypeId, isActive: false }];
+  const types = [
+    { id: roomTypeId, name: 'Double', rules: 'Stored type rules.', status: 'PUBLISHED' as const },
+  ];
+  const rooms = [
+    { id: roomId, name: '101', rules: 'Stored room rules.', roomTypeId, isActive: false },
+  ];
   const categories = [{ id: categoryId, name: 'Suites' }];
   const queryRaw = vi
     .fn()
@@ -46,6 +50,21 @@ describe('AccommodationImportService', () => {
       rows: [{ name: 'Suite', maxOccupancy: '2', rules: 'No smoking.\nQuiet after 10pm.' }],
     });
     expect(executeRaw.mock.calls[0]).toContain('No smoking.\nQuiet after 10pm.');
+  });
+
+  it('keeps stored rules when the CSV has no rules column, and clears them when the cell is blank', async () => {
+    const kept = harness();
+    await kept.imports.confirm(tenantId, propertyId, actorUserId, {
+      kind: 'room-types',
+      rows: [{ id: roomTypeId, name: 'Double', maxOccupancy: '2' }],
+    });
+    expect(kept.executeRaw.mock.calls[0]).toContain('Stored type rules.');
+    const cleared = harness();
+    await cleared.imports.confirm(tenantId, propertyId, actorUserId, {
+      kind: 'room-types',
+      rows: [{ id: roomTypeId, name: 'Double', maxOccupancy: '2', rules: '' }],
+    });
+    expect(cleared.executeRaw.mock.calls[0]).not.toContain('Stored type rules.');
   });
 
   it('previews creates and updates, validating category references in the same property', async () => {
