@@ -87,4 +87,47 @@ describe('AvailabilityGrid', () => {
     expect(html).toContain('Managed in Clock');
     expect(html).not.toContain('0 stock');
   });
+  it('expands read-only room rows and preserves the room-type total', async () => {
+    const div = document.createElement('div');
+    document.body.append(div);
+    root = createRoot(div);
+    await act(async () =>
+      root!.render(
+        <AvailabilityGrid
+          rows={[
+            {
+              id: 'type',
+              label: 'King',
+              days: [{ date: '2035-03-30', capacity: 2, available: 1 }],
+              children: [
+                {
+                  id: 'room',
+                  label: '101',
+                  unit: true,
+                  days: [
+                    {
+                      date: '2035-03-30',
+                      capacity: 1,
+                      available: 0,
+                      note: 'Unavailable for this date',
+                    },
+                  ],
+                },
+              ],
+            },
+          ]}
+        />,
+      ),
+    );
+    expect(document.body.textContent).not.toContain('Room 101');
+    const toggle = document.querySelector<HTMLButtonElement>('[aria-label="Show rooms for King"]')!;
+    await act(async () => toggle.click());
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(document.body.textContent).toContain('Room 101');
+    expect(document.body.textContent).toContain('Unavailable');
+    expect(document.body.textContent).toContain('1/2');
+    expect(document.querySelector('[aria-pressed]')).toBeNull();
+    await act(async () => toggle.click());
+    expect(document.body.textContent).not.toContain('Room 101');
+  });
 });

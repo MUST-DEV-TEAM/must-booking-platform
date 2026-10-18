@@ -1,5 +1,6 @@
 'use client';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Badge } from './badge';
 import { Button } from './button';
 import { Checkbox } from './checkbox';
@@ -8,6 +9,8 @@ export type AvailabilityGridCell = { rowId: string; date: string };
 export type AvailabilityGridRow = {
   id: string;
   label: string;
+  children?: readonly AvailabilityGridRow[];
+  unit?: boolean;
   days: readonly {
     date: string;
     capacity: number | null;
@@ -30,6 +33,11 @@ export function AvailabilityGrid({
   onSelectionChange?: (cells: AvailabilityGridCell[]) => void;
   stock?: boolean;
 }) {
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const visibleRows = rows.flatMap((row) => [
+    row,
+    ...(expanded.has(row.id) ? (row.children ?? []) : []),
+  ]);
   const anchor = useRef<AvailabilityGridCell | null>(null);
   const key = (c: AvailabilityGridCell) => c.rowId + ':' + c.date;
   const chosen = new Set(selected.map(key));
@@ -76,7 +84,7 @@ export function AvailabilityGrid({
                   onCheckedChange={() => toggle(all)}
                 />
               ) : null}{' '}
-              Room type
+              {rows.some((row) => row.children?.length) ? 'Room type / room' : 'Room type'}
             </TableHead>
             {rows[0]?.days.map((day) => (
               <TableHead key={day.date} className="min-w-28 text-center">
@@ -97,10 +105,10 @@ export function AvailabilityGrid({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((row) => (
+          {visibleRows.map((row) => (
             <TableRow key={row.id}>
               <TableCell className="sticky left-0 bg-card font-semibold">
-                {onSelectionChange ? (
+                {onSelectionChange && !row.unit ? (
                   <Checkbox
                     aria-label={`Select row ${row.label}`}
                     disabled={!all.some((c) => c.rowId === row.id)}
@@ -111,7 +119,34 @@ export function AvailabilityGrid({
                     onCheckedChange={() => toggle(all.filter((c) => c.rowId === row.id))}
                   />
                 ) : null}{' '}
-                {row.label}
+                {row.children?.length ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto max-w-44 justify-start whitespace-normal p-0 text-left sm:max-w-none sm:whitespace-nowrap"
+                    aria-label={`${expanded.has(row.id) ? 'Hide' : 'Show'} rooms for ${row.label}`}
+                    aria-expanded={expanded.has(row.id)}
+                    onClick={() =>
+                      setExpanded((current) => {
+                        const next = new Set(current);
+                        if (next.has(row.id)) next.delete(row.id);
+                        else next.add(row.id);
+                        return next;
+                      })
+                    }
+                  >
+                    {expanded.has(row.id) ? (
+                      <ChevronDown aria-hidden className="size-4 shrink-0" />
+                    ) : (
+                      <ChevronRight aria-hidden className="size-4 shrink-0" />
+                    )}{' '}
+                    {row.label} ({row.children.length} rooms)
+                  </Button>
+                ) : row.unit ? (
+                  <span className="pl-5 font-normal">Room {row.label}</span>
+                ) : (
+                  row.label
+                )}
               </TableCell>
               {row.days.map((day) => {
                 const cell = { rowId: row.id, date: day.date },
@@ -136,7 +171,19 @@ export function AvailabilityGrid({
                     </span>
                   ) : (
                     <Badge variant={(day.available ?? 0) > 0 ? 'success' : 'secondary'}>
-                      {day.available}/{day.capacity}
+                      {row.unit ? (
+                        day.available === null ? (
+                          'Unknown'
+                        ) : day.available > 0 ? (
+                          'Available'
+                        ) : (
+                          'Unavailable'
+                        )
+                      ) : (
+                        <>
+                          {day.available}/{day.capacity}
+                        </>
+                      )}
                     </Badge>
                   );
                 return (
@@ -145,7 +192,7 @@ export function AvailabilityGrid({
                     className={day.marked ? 'bg-warning/10 text-center' : 'text-center'}
                     title={day.note ?? `${day.available} available of ${day.capacity}`}
                   >
-                    {onSelectionChange ? (
+                    {onSelectionChange && !row.unit ? (
                       <Button
                         variant={chosen.has(key(cell)) ? 'secondary' : 'ghost'}
                         className="h-auto min-h-20 w-full px-2 py-2"

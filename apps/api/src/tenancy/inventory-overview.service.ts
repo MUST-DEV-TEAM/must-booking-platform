@@ -102,8 +102,8 @@ export class InventoryOverviewService {
           Array<{ id: string; name: string }>
         >`SELECT id,name FROM room_types WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND status='PUBLISHED' ORDER BY name,id`;
         const rooms = await tx.$queryRaw<
-          Array<{ id: string; roomTypeId: string }>
-        >`SELECT id,room_type_id AS "roomTypeId" FROM rooms WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND is_active ORDER BY id`;
+          Array<{ id: string; name: string; roomTypeId: string }>
+        >`SELECT id,name,room_type_id AS "roomTypeId" FROM rooms WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND is_active ORDER BY name,id`;
         const pool = await tx.$queryRaw<
           Array<{ roomTypeId: string; date: string; capacity: number; available: number }>
         >`SELECT room_type_id AS "roomTypeId",stays_on::text AS date,available_units AS capacity,GREATEST(available_units-booked_units,0)::int AS available FROM inventory_units WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND stays_on>=${today}::date AND stays_on<${end}::date`;
@@ -115,6 +115,15 @@ export class InventoryOverviewService {
     const coverage: Array<{
       roomTypeId: string;
       name: string;
+      rooms: Array<{
+        id: string;
+        name: string;
+        days: Array<{
+          date: string;
+          available: boolean | null;
+          restrictionErrors: Array<{ code: string; message: string }>;
+        }>;
+      }>;
       days: Array<{
         date: string;
         capacity: number;
@@ -168,7 +177,19 @@ export class InventoryOverviewService {
           .filter((error, i, all) => all.findIndex((e) => e.code === error.code) === i);
         return { date, capacity, available: Math.min(capacity, available), restrictionErrors };
       });
-      coverage.push({ roomTypeId: type.id, name: type.name, days });
+      const roomCoverage =
+        catalog.bookingMode === 'ROOM_TYPE_ONLY'
+          ? []
+          : physical.map((room) => ({
+              id: room.id,
+              name: room.name,
+              days: dates.map((date) => ({
+                date,
+                available: calendars.get(room.id)?.get(date)?.isAvailable ?? null,
+                restrictionErrors: calendars.get(room.id)?.get(date)?.restrictionErrors ?? [],
+              })),
+            }));
+      coverage.push({ roomTypeId: type.id, name: type.name, days, rooms: roomCoverage });
     }
     const totalNights = coverage.reduce(
         (sum, t) => sum + t.days.reduce((n, d) => n + d.capacity, 0),

@@ -50,7 +50,7 @@ export type InventoryList = {
   items: InventoryRecord[];
   baseRestrictions?: { id: string; type: string; value: number }[];
 };
-export type CatalogItem = { id: string; name: string; roomTypeId?: string };
+export type CatalogItem = { id: string; name: string; status?: string; roomTypeId?: string };
 export type StaffChoice = {
   userId: string;
   email: string;
@@ -77,6 +77,15 @@ export type InventoryOverview = {
     | {
         roomTypeId: string;
         name: string;
+        rooms?: {
+          id: string;
+          name: string;
+          days: {
+            date: string;
+            available: boolean | null;
+            restrictionErrors: { code: string; message: string }[];
+          }[];
+        }[];
         days: {
           date: string;
           capacity: number;

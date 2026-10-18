@@ -427,14 +427,43 @@ export function InventorySection({
                 <CardTitle>Upcoming availability</CardTitle>
                 <CardDescription>
                   Free room nights, not a guarantee a full stay is bookable. Use preview for
-                  stay-specific rules.
+                  stay-specific rules.{' '}
+                  {bookingMode === 'ROOM_TYPE_ONLY'
+                    ? 'Individual rooms are not assigned in room-type mode.'
+                    : 'Expand a room type to see active rooms. A free room still needs room-type stock and a valid stay.'}
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex flex-col gap-3">
+                {catalog.some((type) => type.status === 'DRAFT') ? (
+                  <Alert>
+                    <AlertTitle>Only published room types are shown</AlertTitle>
+                    <AlertDescription>
+                      Draft room types hidden:{' '}
+                      {catalog
+                        .filter((type) => type.status === 'DRAFT')
+                        .map((type) => type.name)
+                        .join(', ')}
+                      . Review them in Accommodations before publishing.
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
                 <AvailabilityGrid
                   rows={overview.coverage.map((t) => ({
                     id: t.roomTypeId,
                     label: t.name,
+                    children: t.rooms?.map((room) => ({
+                      id: room.id,
+                      label: room.name,
+                      unit: true,
+                      days: room.days.map((day) => ({
+                        date: day.date,
+                        capacity: 1,
+                        available: day.available === null ? null : day.available ? 1 : 0,
+                        note:
+                          day.restrictionErrors.map((error) => error.message).join(' ') ||
+                          undefined,
+                      })),
+                    })),
                     days: t.days.map((d) => ({
                       ...d,
                       note: d.restrictionErrors.map((e) => e.message).join(' ') || undefined,

@@ -148,6 +148,51 @@ const editorProps = {
   onSaved: vi.fn(),
 };
 describe('Inventory screens', () => {
+  it('explains hidden draft types and renders physical room calendars beneath a published type', async () => {
+    const fetch = fixture();
+    const original = fetch.getMockImplementation()!;
+    fetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/room-types'))
+        return Response.json([
+          { id: 'type', name: 'King', status: 'PUBLISHED' },
+          { id: 'draft', name: 'Family suite', status: 'DRAFT' },
+        ]);
+      if (url.endsWith('/inventory/overview'))
+        return Response.json({
+          ...overview,
+          coverage: [
+            {
+              roomTypeId: 'type',
+              name: 'King',
+              days: [{ date: list.today, capacity: 2, available: 1, restrictionErrors: [] }],
+              rooms: [
+                {
+                  id: 'room',
+                  name: '101',
+                  days: [{ date: list.today, available: true, restrictionErrors: [] }],
+                },
+              ],
+            },
+          ],
+        });
+      return original(url, init);
+    });
+    await render(
+      createElement(InventorySection, {
+        tenantId: 'tenant',
+        propertyId: 'property',
+        emailVerified: true,
+        bookingMode: 'MIXED',
+      }),
+    );
+    await wait('Only published room types are shown');
+    expect(document.body.textContent).toContain('Family suite');
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('[aria-label="Show rooms for King"]')!.click(),
+    );
+    expect(document.body.textContent).toContain('Room 101');
+    expect(document.body.textContent).toContain('Available');
+  });
   it('fails closed before loading inventory if calendar viewing is absent', async () => {
     const fetch = fixture([]);
     await render(

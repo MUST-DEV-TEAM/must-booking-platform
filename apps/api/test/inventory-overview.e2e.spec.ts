@@ -190,5 +190,53 @@ describe('Inventory overview I3', () => {
       .set('Cookie', cookie)
       .expect(200);
     expect(conflicts.body).toMatchObject({ available: false, readOnly: true, items: null });
+    expect(overview.body.coverage[0].rooms).toEqual([]);
+    await admin.$executeRaw`UPDATE properties SET booking_mode='MIXED' WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid`;
+    for (const name of ['101', '102', '103'])
+      await request(app.getHttpServer())
+        .post(`${root}/room-types/${roomTypeId}/rooms`)
+        .set('Cookie', cookie)
+        .send({ name })
+        .expect(201);
+    await admin.$executeRaw`UPDATE rooms SET is_active=false WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND name='103'`;
+    const physical = await request(app.getHttpServer())
+      .get(`${url}/overview`)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(physical.body.coverage[0].rooms.map((room: { name: string }) => room.name)).toEqual([
+      '101',
+      '102',
+    ]);
+    const firstRoom = physical.body.coverage[0].rooms[0];
+    expect(firstRoom.days).toHaveLength(30);
+    expect(firstRoom.days[5]).toMatchObject({ date: add(5), available: false });
+    expect(firstRoom.days[10]).toMatchObject({ date: add(10), available: false });
+    const calendar = await request(app.getHttpServer())
+      .get(`${root}/availability-calendar`)
+      .set('Cookie', cookie)
+      .query({ roomTypeId, roomId: firstRoom.id, month: today.slice(0, 7) })
+      .expect(200);
+    expect(firstRoom.days[0].available).toBe(
+      calendar.body.days.find((day: { date: string }) => day.date === today).isAvailable,
+    );
+    const draft = await request(app.getHttpServer())
+      .post(`${root}/room-types`)
+      .set('Cookie', cookie)
+      .send({ name: 'Unpublished family', maxOccupancy: 2, status: 'DRAFT' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .patch(`${root}/room-types/${draft.body.id}`)
+      .set('Cookie', cookie)
+      .send({ name: 'Unpublished family', maxOccupancy: 2, status: 'DRAFT' })
+      .expect(200);
+    const afterDraft = await request(app.getHttpServer())
+      .get(`${url}/overview`)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(
+      afterDraft.body.coverage.some(
+        (type: { roomTypeId: string }) => type.roomTypeId === draft.body.id,
+      ),
+    ).toBe(false);
   });
 });
