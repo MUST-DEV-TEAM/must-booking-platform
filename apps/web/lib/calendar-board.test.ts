@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { addDays, barGeometry, blockGeometry, diffDays, occupiesNight, packLanes, windowDays } from './calendar-board';
+import {
+  addDays,
+  barGeometry,
+  blockGeometry,
+  diffDays,
+  occupiesNight,
+  packLanes,
+  windowDays,
+} from './calendar-board';
 
 describe('calendar board dates', () => {
   it('adds and measures days across month ends', () => {
@@ -64,7 +72,12 @@ describe('occupiesNight', () => {
 import { stayState } from './calendar-board';
 
 describe('stayState', () => {
-  const base = { status: 'CONFIRMED', pmsStayStatus: null as string | null, startsOn: '2026-10-20', endsOn: '2026-10-23' };
+  const base = {
+    status: 'CONFIRMED',
+    pmsStayStatus: null as string | null,
+    startsOn: '2026-10-20',
+    endsOn: '2026-10-23',
+  };
   it('uses the hotel system stay status when there is one', () => {
     expect(stayState({ ...base, pmsStayStatus: 'checked_in' }, '2026-10-01')).toBe('in_house');
     expect(stayState({ ...base, pmsStayStatus: 'no_show' }, '2026-10-01')).toBe('no_show');
@@ -72,7 +85,9 @@ describe('stayState', () => {
     expect(stayState({ ...base, pmsStayStatus: 'expected' }, '2026-10-22')).toBe('expected');
   });
   it('lets payment and attention states win over the stay status', () => {
-    expect(stayState({ ...base, status: 'PAYMENT_PENDING' }, '2026-10-01')).toBe('awaiting_payment');
+    expect(stayState({ ...base, status: 'PAYMENT_PENDING' }, '2026-10-01')).toBe(
+      'awaiting_payment',
+    );
     expect(stayState({ ...base, status: 'PAYMENT_FAILED' }, '2026-10-01')).toBe('needs_attention');
     expect(stayState({ ...base, status: 'CANCELLED' }, '2026-10-01')).toBe('cancelled');
   });
@@ -84,13 +99,25 @@ describe('stayState', () => {
 });
 
 describe('blockGeometry', () => {
-  it('covers whole days up to the day it is available again', () => {
+  it('aligns block edges with the midpoints of the start and available-again dates', () => {
     const bar = blockGeometry('2026-10-12', '2026-10-14', '2026-10-10', 10)!;
-    expect(bar.left).toBeCloseTo(2 / 10);
+    expect(bar.left).toBeCloseTo(2.5 / 10);
     expect(bar.width).toBeCloseTo(2 / 10);
   });
   it('is clipped to the window and null outside it', () => {
-    expect(blockGeometry('2026-10-01', '2026-10-12', '2026-10-10', 10)).toEqual({ left: 0, width: 0.2 });
+    expect(blockGeometry('2026-10-01', '2026-10-12', '2026-10-10', 10)).toEqual({
+      left: 0,
+      width: 0.25,
+    });
     expect(blockGeometry('2026-10-01', '2026-10-05', '2026-10-10', 10)).toBeNull();
+    expect(blockGeometry('2026-10-20', '2026-10-22', '2026-10-10', 10)).toBeNull();
+    expect(blockGeometry('2026-10-08', '2026-10-10', '2026-10-10', 10)).toEqual({
+      left: 0,
+      width: 0.05,
+    });
+    expect(blockGeometry('2026-10-19', '2026-10-22', '2026-10-10', 10)).toEqual({
+      left: 0.95,
+      width: 0.05,
+    });
   });
 });

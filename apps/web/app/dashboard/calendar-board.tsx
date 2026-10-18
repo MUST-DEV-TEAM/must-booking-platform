@@ -538,7 +538,7 @@ export function CalendarBoard({
   };
 
   return (
-    <div className="min-w-0 space-y-4">
+    <div className="flex min-w-0 flex-col gap-4">
       {!embedded ? (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -589,22 +589,24 @@ export function CalendarBoard({
           />
         </section>
       ) : null}
-      <p className="m-0 text-sm text-muted-foreground">
-        Stay rules: minimum{' '}
-        {selectedRules.data?.minStayNights ?? rules.data?.minStayNights ?? 'not set'} nights;
-        maximum {selectedRules.data?.maxStayNights ?? rules.data?.maxStayNights ?? 'not set'}{' '}
-        nights.
-      </p>
-      {rules.isError ? (
-        <p role="alert" className="m-0 text-sm text-destructive">
-          {rules.error.message}
+      <div className="flex flex-col gap-2" aria-label="Calendar booking rules">
+        <p className="m-0 text-sm text-muted-foreground">
+          Stay rules: minimum{' '}
+          {selectedRules.data?.minStayNights ?? rules.data?.minStayNights ?? 'not set'} nights;
+          maximum {selectedRules.data?.maxStayNights ?? rules.data?.maxStayNights ?? 'not set'}{' '}
+          nights.
         </p>
-      ) : null}
-      {disabledDates.size > 0 && rules.data?.pastDateMessage ? (
-        <p className="m-0 text-xs text-muted-foreground">
-          {rules.data.pastDateMessage} Past dates are disabled.
-        </p>
-      ) : null}
+        {rules.isError ? (
+          <p role="alert" className="m-0 text-sm text-destructive">
+            {rules.error.message}
+          </p>
+        ) : null}
+        {disabledDates.size > 0 && rules.data?.pastDateMessage ? (
+          <p className="m-0 text-xs text-muted-foreground">
+            {rules.data.pastDateMessage} Past dates are disabled.
+          </p>
+        ) : null}
+      </div>
       <Card className="min-w-0 gap-0 overflow-hidden py-0">
         <div className="flex flex-wrap items-center gap-2 border-b p-3">
           <Button variant="outline" size="sm" onClick={() => setStart(addDays(todayIso(), -1))}>

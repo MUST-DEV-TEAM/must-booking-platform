@@ -57,8 +57,8 @@ export function barGeometry(
 }
 
 /**
- * Where a block (whole days out of sale) is drawn: from the start of its first day to the start of
- * the day it is available again. Null when it does not touch the window.
+ * Draws a block between the midpoints of its start and available-again dates, matching stay bars.
+ * This is presentation only; blocked nights still use an exclusive available-again date.
  */
 export function blockGeometry(
   startsOn: string,
@@ -66,10 +66,8 @@ export function blockGeometry(
   windowStart: string,
   dayCount: number,
 ): { left: number; width: number } | null {
-  const from = Math.max(diffDays(windowStart, startsOn), 0);
-  const to = Math.min(diffDays(windowStart, endsOn), dayCount);
-  if (to <= from) return null;
-  return { left: from / dayCount, width: (to - from) / dayCount };
+  const geometry = barGeometry(startsOn, endsOn, windowStart, dayCount);
+  return geometry ? { left: geometry.left, width: geometry.width } : null;
 }
 
 /**
