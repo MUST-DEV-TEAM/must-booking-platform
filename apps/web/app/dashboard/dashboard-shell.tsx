@@ -1,5 +1,7 @@
 'use client';
 
+import { InventorySection } from './inventory';
+
 import { Card, Heading, Stack, StatePanel, StatusBadge, Text, type NavigationItem } from '@must/ui';
 import {
   CalendarDays,
@@ -122,8 +124,7 @@ const operationalNavigation = [
 ] as const;
 
 const managementNavigation = [
-  // Inventory and Settings stay owner/admin-only -- see ownerAdminOnlySections below -- so they
-  // intentionally carry no `capabilities` entry here.
+  // Inventory uses calendar permissions; Settings remains owner/admin-only.
   {
     section: 'accommodations',
     label: 'Accommodations',
@@ -144,7 +145,12 @@ const managementNavigation = [
 
 const hotelNavigation = [
   { section: 'hotels', label: 'Hotels', icon: IconHotel },
-  { section: 'inventory', label: 'Inventory', icon: IconInventory },
+  {
+    section: 'inventory',
+    label: 'Inventory',
+    icon: IconInventory,
+    capabilities: ['calendar.view'],
+  },
 ] as const;
 
 const dashboardSections: readonly DashboardNavigationDefinition[] = [
@@ -177,7 +183,7 @@ const unavailableDashboardTabCopy: Record<UnavailableDashboardTab, string> = {
 // grant, regardless of what a custom template happens to include. Matches this milestone's
 // established scoping (tasks 16/18/20/21) and the backend's unconditional @Roles(Owner, Admin)
 // on every one of these sections' endpoints.
-const ownerAdminOnlySections = new Set(['inventory', 'settings']);
+const ownerAdminOnlySections = new Set(['settings']);
 
 function canAccessSection(role: TenantRole, capabilities: readonly string[], section: string) {
   if (
@@ -258,15 +264,6 @@ function DashboardTabPlaceholder({ tab }: { tab: UnavailableDashboardTab }) {
     <UnavailableDashboardPanel
       body={unavailableDashboardTabCopy[tab]}
       title={dashboardTabs.find((item) => item.key === tab)?.label ?? tab}
-    />
-  );
-}
-
-function InventorySection() {
-  return (
-    <UnavailableDashboardPanel
-      body="Inventory is not available yet; availability restrictions and manual blocks are planned for a future dashboard update."
-      title="Inventory"
     />
   );
 }
@@ -522,7 +519,14 @@ export function DashboardShell({
         <HotelsSection tenantId={tenantId} properties={properties} />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'inventory' ? (
-        <InventorySection />
+        <InventorySection
+          key={selectedProperty.id}
+          tenantId={tenantId}
+          propertyId={selectedProperty.id}
+          emailVerified={user?.emailVerified === true}
+          currentUser={user ?? undefined}
+          bookingMode={selectedProperty.bookingMode}
+        />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'reservations' ? (
         reservationId ? (

@@ -1,0 +1,78 @@
+// @vitest-environment jsdom
+import { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { RecordDirectory } from './record-directory';
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+afterEach(() => {
+  document.body.replaceChildren();
+  localStorage.clear();
+  vi.unstubAllGlobals();
+});
+describe('RecordDirectory', () => {
+  it('sorts, selects, copies and opens rows without selector clicks opening them', async () => {
+    const onRow = vi.fn(),
+      writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const root = createRoot(document.body.appendChild(document.createElement('div')));
+    try {
+      await act(async () =>
+        root.render(
+          createElement(RecordDirectory, {
+            rows: [
+              { id: 'b', name: 'Beta', n: 2 },
+              { id: 'a', name: 'Alpha', n: 1 },
+            ],
+            columns: [
+              { id: 'name', label: 'Name', value: (r) => r.name },
+              { id: 'n', label: 'Count', value: (r) => r.n },
+            ],
+            storageKey: 'test.directory',
+            onRow,
+          }),
+        ),
+      );
+      expect(document.querySelector('tbody tr')?.textContent).toContain('Alpha');
+      await act(async () =>
+        document.querySelector<HTMLButtonElement>('[aria-label="Select Alpha"]')!.click(),
+      );
+      expect(onRow).not.toHaveBeenCalled();
+      const button = (text: string) =>
+        [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+          (b) => b.textContent === text,
+        )!;
+      await act(async () => button('Copy selected').click());
+      expect(writeText).toHaveBeenCalledWith('"Name","Count"\r\n"Alpha","1"');
+      await act(async () => button('Name').click());
+      expect(document.querySelector('tbody tr')?.textContent).toContain('Beta');
+      await act(async () => button('Alpha').click());
+      expect(onRow).toHaveBeenCalledWith({ id: 'a', name: 'Alpha', n: 1 });
+      await act(async () =>
+        document.querySelector<HTMLButtonElement>('[aria-label="Compact rows"]')!.click(),
+      );
+      expect(JSON.parse(localStorage.getItem('test.directory')!).density).toBe('compact');
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+  it('shows its empty state without a dead table', async () => {
+    const root = createRoot(document.body.appendChild(document.createElement('div')));
+    try {
+      await act(async () =>
+        root.render(
+          createElement(RecordDirectory<{ id: string }>, {
+            rows: [],
+            columns: [{ id: 'id', label: 'ID', value: (r) => r.id }],
+            storageKey: 'empty',
+            onRow: () => {},
+            emptyTitle: 'No restrictions yet',
+          }),
+        ),
+      );
+      expect(document.body.textContent).toContain('No restrictions yet');
+      expect(document.querySelector('table')).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+});

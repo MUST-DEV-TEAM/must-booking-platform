@@ -280,6 +280,7 @@ describe('Tenant dashboard shell', () => {
       'Bookings',
       'Calendar',
       'Hotels',
+      'Inventory',
       'Payments',
       'Guests',
     ]);
@@ -320,7 +321,7 @@ describe('Tenant dashboard shell', () => {
       expect(markup).not.toContain(`aria-label="${label}"`);
   });
 
-  it('shows staff the management destinations their permissions open, but never Inventory or Settings', () => {
+  it('shows staff the management destinations their permissions open, and gates Inventory by calendar.view while keeping Settings private', () => {
     const markup = renderToStaticMarkup(
       createElement(
         DashboardQueryProvider,
@@ -336,15 +337,15 @@ describe('Tenant dashboard shell', () => {
               'rates.manage',
               'staff.view',
               'settings.manage',
+              'calendar.view',
             ],
           },
         }),
       ),
     );
 
-    for (const label of ['Accommodations', 'Rates &amp; Pricing', 'Staff'])
+    for (const label of ['Accommodations', 'Rates &amp; Pricing', 'Staff', 'Inventory'])
       expect(markup).toContain(`aria-label="${label}"`);
-    for (const label of ['Inventory', 'Settings'])
-      expect(markup).not.toContain(`aria-label="${label}"`);
+    for (const label of ['Settings']) expect(markup).not.toContain(`aria-label="${label}"`);
   });
 });

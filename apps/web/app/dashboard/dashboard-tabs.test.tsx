@@ -159,7 +159,7 @@ describe('Dashboard section tabs', () => {
     await act(async () => root.unmount());
   });
 
-  it('renders Inventory as an unavailable owner section from its direct URL', async () => {
+  it('renders the Inventory workspace from its direct URL', async () => {
     window.history.pushState({}, '', '/dashboard/t?propertyId=p&section=inventory');
     const fetch = vi.fn((url: string) => {
       if (url === '/api/auth/session')
@@ -183,6 +183,41 @@ describe('Dashboard section tabs', () => {
         return Promise.resolve(new Response(JSON.stringify([{ id: 'p', name: 'Grand Hotel' }])));
       if (url === '/api/tenants/t/properties/p/notifications?page=1&pageSize=20')
         return Promise.resolve(new Response(JSON.stringify({ items: [] })));
+      if (url.endsWith('/capabilities/mine'))
+        return Promise.resolve(new Response(JSON.stringify(['calendar.view', 'calendar.block'])));
+      if (url.endsWith('/inventory/restrictions') || url.endsWith('/inventory/blocks'))
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              source: 'LOCAL',
+              readOnly: false,
+              today: '2026-10-18',
+              timezone: 'UTC',
+              items: [],
+              baseRestrictions: [],
+            }),
+          ),
+        );
+      if (url.endsWith('/inventory/overview'))
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              source: 'LOCAL',
+              today: '2026-10-18',
+              timezone: 'UTC',
+              activeRestrictions: 0,
+              activeBlocks: 0,
+              countsByType: {},
+              needsAttention: [],
+              totalNights: 0,
+              sellableNights: 0,
+              sellablePercentage: null,
+              coverage: [],
+            }),
+          ),
+        );
+      if (url.endsWith('/room-types') || url.endsWith('/rooms') || url.endsWith('/room-categories'))
+        return Promise.resolve(new Response(JSON.stringify([])));
       return Promise.resolve(new Response(JSON.stringify({})));
     });
     vi.stubGlobal('fetch', fetch);
@@ -201,7 +236,7 @@ describe('Dashboard section tabs', () => {
 
     await act(async () => {
       await vi.waitFor(() => {
-        if (!container.textContent?.includes('Inventory unavailable'))
+        if (!container.textContent?.includes('Available room nights'))
           throw new Error('Inventory section has not finished loading yet.');
       });
     });
@@ -211,10 +246,8 @@ describe('Dashboard section tabs', () => {
       (link) => link.textContent === 'Inventory',
     );
     expect(inventoryLink?.getAttribute('href')).toBe('/dashboard/t?propertyId=p&section=inventory');
-    expect(container.querySelector('.must-state-panel--not-available')).not.toBeNull();
-    expect(container.textContent).toContain(
-      'availability restrictions and manual blocks are planned for a future dashboard update',
-    );
+    expect(container.textContent).toContain('Booking effect preview');
+    expect(container.textContent).not.toContain('Inventory unavailable');
 
     await act(async () => root.unmount());
   });
@@ -404,74 +437,78 @@ describe('Dashboard section tabs', () => {
   it.each(['approvals', 'system-health'] as const)(
     'does not offer the planned %s tab and falls back to Overview from its direct URL',
     async (tab) => {
-    window.history.pushState({}, '', `/dashboard/t?propertyId=p&section=overview&tab=${tab}`);
-    const fetch = vi.fn((url: string) => {
-      if (url === '/api/auth/session')
+      window.history.pushState({}, '', `/dashboard/t?propertyId=p&section=overview&tab=${tab}`);
+      const fetch = vi.fn((url: string) => {
+        if (url === '/api/auth/session')
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                user: {
+                  id: 'u',
+                  email: 'owner@example.test',
+                  emailVerified: true,
+                  isPlatformAdmin: false,
+                },
+              }),
+            ),
+          );
+        if (url === '/api/auth/memberships')
+          return Promise.resolve(
+            new Response(JSON.stringify({ memberships: [{ tenantId: 't', role: 'OWNER' }] })),
+          );
+        if (url === '/api/tenants/t/properties')
+          return Promise.resolve(new Response(JSON.stringify([{ id: 'p', name: 'Grand Hotel' }])));
+        if (url === '/api/tenants/t/properties/p/notifications?page=1&pageSize=20')
+          return Promise.resolve(new Response(JSON.stringify({ items: [] })));
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              user: {
-                id: 'u',
-                email: 'owner@example.test',
-                emailVerified: true,
-                isPlatformAdmin: false,
+              kpis: {
+                date: '2026-08-24',
+                arrivals: 0,
+                departures: 0,
+                inHouse: 0,
+                bookedRoomNights: 0,
+                availableRoomNights: 0,
+                occupancyRate: null,
               },
+              needsAttention: [],
+              recentActivity: [],
             }),
           ),
         );
-      if (url === '/api/auth/memberships')
-        return Promise.resolve(
-          new Response(JSON.stringify({ memberships: [{ tenantId: 't', role: 'OWNER' }] })),
-        );
-      if (url === '/api/tenants/t/properties')
-        return Promise.resolve(new Response(JSON.stringify([{ id: 'p', name: 'Grand Hotel' }])));
-      if (url === '/api/tenants/t/properties/p/notifications?page=1&pageSize=20')
-        return Promise.resolve(new Response(JSON.stringify({ items: [] })));
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            kpis: {
-              date: '2026-08-24',
-              arrivals: 0,
-              departures: 0,
-              inHouse: 0,
-              bookedRoomNights: 0,
-              availableRoomNights: 0,
-              occupancyRate: null,
-            },
-            needsAttention: [],
-            recentActivity: [],
-          }),
-        ),
-      );
-    });
-    vi.stubGlobal('fetch', fetch);
-
-    const container = document.createElement('div');
-    const root = createRoot(container);
-    await act(async () => {
-      root.render(
-        createElement(
-          DashboardQueryProvider,
-          undefined,
-          createElement(DashboardShell, { tenantId: 't' }),
-        ),
-      );
-    });
-
-    await act(async () => {
-      await vi.waitFor(() => {
-        if (!container.textContent?.includes('Today at a glance'))
-          throw new Error('Overview has not finished loading yet.');
       });
-    });
+      vi.stubGlobal('fetch', fetch);
 
-    const labels = Array.from(container.querySelectorAll('[role="tab"]')).map((item) => item.textContent);
-    expect(labels.some((label) => label?.includes('Approvals'))).toBe(false);
-    expect(labels.some((label) => label?.includes('System health'))).toBe(false);
-    expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain('Overview');
+      const container = document.createElement('div');
+      const root = createRoot(container);
+      await act(async () => {
+        root.render(
+          createElement(
+            DashboardQueryProvider,
+            undefined,
+            createElement(DashboardShell, { tenantId: 't' }),
+          ),
+        );
+      });
 
-    await act(async () => root.unmount());
+      await act(async () => {
+        await vi.waitFor(() => {
+          if (!container.textContent?.includes('Today at a glance'))
+            throw new Error('Overview has not finished loading yet.');
+        });
+      });
+
+      const labels = Array.from(container.querySelectorAll('[role="tab"]')).map(
+        (item) => item.textContent,
+      );
+      expect(labels.some((label) => label?.includes('Approvals'))).toBe(false);
+      expect(labels.some((label) => label?.includes('System health'))).toBe(false);
+      expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain(
+        'Overview',
+      );
+
+      await act(async () => root.unmount());
     },
   );
 });
