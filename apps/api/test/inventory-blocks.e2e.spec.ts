@@ -105,7 +105,7 @@ describe('Inventory blocks I2', () => {
       roomIds: [],
       responsibleStaffId: userId,
     };
-    const create = (key: string, body: unknown = input) =>
+    const create = (key: string, body: Record<string, unknown> = input) =>
       request(app.getHttpServer())
         .post(url)
         .set('Cookie', cookie)

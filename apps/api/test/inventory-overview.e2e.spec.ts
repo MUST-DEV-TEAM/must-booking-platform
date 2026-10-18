@@ -87,7 +87,7 @@ describe('Inventory overview I3', () => {
       .expect(204);
     const root = `/tenants/${tenantId}/properties/${propertyId}`,
       url = `${root}/inventory`;
-    const send = (path: string, body: unknown) =>
+    const send = (path: string, body: Record<string, unknown>) =>
       request(app.getHttpServer())
         .post(`${url}/${path}`)
         .set('Cookie', cookie)
