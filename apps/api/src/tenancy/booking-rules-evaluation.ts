@@ -31,6 +31,9 @@ export async function evaluatePropertyBookingRules(
   query: unknown,
 ) {
   const value = (query ?? {}) as Record<string, unknown>;
+  const channel = value.channel ?? 'staff';
+  if (channel !== 'staff' && channel !== 'guest')
+    throw new BadRequestException('Choose staff or guest channel.');
   const startsOn = typeof value.startsOn === 'string' ? value.startsOn : '';
   const endsOn = typeof value.endsOn === 'string' ? value.endsOn : '';
   const roomId = typeof value.roomId === 'string' ? value.roomId : '';
@@ -136,7 +139,7 @@ export async function evaluatePropertyBookingRules(
   };
   const bookingConflicts = [...context.blocks, ...(roomId ? context.reservations : [])];
   let booking = hasRange
-    ? evaluateBookingRules({ ...facts, channel: 'staff', conflicts: bookingConflicts })
+    ? evaluateBookingRules({ ...facts, channel, conflicts: bookingConflicts })
     : empty;
   let block = hasRange
     ? evaluateBookingRules({ ...facts, channel: 'block', conflicts: context.reservations })
@@ -166,7 +169,7 @@ export async function evaluatePropertyBookingRules(
       );
       booking = evaluateBookingRules({
         ...facts,
-        channel: 'staff',
+        channel,
         availableUnits: available.availableUnits,
         conflicts: bookingConflicts,
       });

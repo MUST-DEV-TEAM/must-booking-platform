@@ -1,3 +1,5 @@
+import { InventoryOverviewController } from './tenancy/inventory-overview.controller';
+import { InventoryOverviewService } from './tenancy/inventory-overview.service';
 import { InventoryBlocksController } from './tenancy/inventory-blocks.controller';
 import { InventoryBlocksService } from './tenancy/inventory-blocks.service';
 import { InventoryRestrictionsController } from './tenancy/inventory-restrictions.controller';
@@ -218,6 +220,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     RoomCategoriesController,
     InventoryRestrictionsController,
     InventoryBlocksController,
+    InventoryOverviewController,
     AccommodationsAuditController,
     PropertyImageLibraryController,
     RoomsController,
@@ -281,6 +284,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     RoomCategoriesService,
     InventoryRestrictionsService,
     InventoryBlocksService,
+    InventoryOverviewService,
     RoomsService,
     RatePlansService,
     AmenitiesService,
