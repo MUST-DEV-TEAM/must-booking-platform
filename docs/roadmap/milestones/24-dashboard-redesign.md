@@ -2522,3 +2522,5 @@ T01 to T04 (a thin set of the components Reservations needs), B01, then **S01 Re
 - New backend features (trend history, approvals, events, block reasons) unless the owner funds them as separate tasks.
 - Native PMS features — Milestone 25.
 - Platform billing — Milestone 15.
+
+| 2026-10-18 | Design test maintenance (owner authorized) | Updated the two stale showcase tests to open Preview settings, change viewport and navigate with sidebar buttons. Kept the tests and their coverage; no product code changed. Focused 3/3 and full web suite 388/388 passed (80 files), exact web type-check passed. Historical failure records above remain unchanged. |

@@ -1,33 +1,57 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+// @vitest-environment jsdom
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mockedNavigation = vi.hoisted(() => ({ usePathname: vi.fn(() => '/design'), useRouter: () => ({}) }));
+const mockedNavigation = vi.hoisted(() => ({ usePathname: vi.fn(() => '/design'), push: vi.fn() }));
 
-vi.mock('next/navigation', () => mockedNavigation);
+vi.mock('next/navigation', () => ({
+  ...mockedNavigation,
+  useRouter: () => ({ push: mockedNavigation.push }),
+}));
 
 import { DesignShell } from './design-shell';
 import DesignShowcasePage, { DesignShowcaseContent } from './page';
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+afterEach(() => document.body.replaceChildren());
 
 describe('Design showcase', () => {
   beforeEach(() => {
     mockedNavigation.usePathname.mockReturnValue('/design');
   });
 
-  it('renders device controls around the single responsive design shell', () => {
-    const markup = renderToStaticMarkup(
-      <DesignShell>
-        <DesignShowcasePage />
-      </DesignShell>,
-    );
-
-    expect(markup).toContain('Desktop</button>');
-    expect(markup).toContain('Tablet</button>');
-    expect(markup).toContain('Mobile</button>');
-    expect(markup).toContain('data-preview-viewport="desktop"');
-    expect(markup).toContain('aria-label="Preview area"');
-    expect(markup).not.toContain('<iframe');
-    expect(markup).not.toContain('previewFrame');
-    expect(markup.match(/class="[^"]*ui-root/g)).toHaveLength(1);
+  it('changes viewport through the Preview settings popover', async () => {
+    const root = createRoot(document.body.appendChild(document.createElement('div')));
+    try {
+      await act(async () =>
+        root.render(
+          <DesignShell>
+            <DesignShowcasePage />
+          </DesignShell>,
+        ),
+      );
+      await act(async () =>
+        document.querySelector<HTMLButtonElement>('[aria-label="Preview settings"]')!.click(),
+      );
+      for (const label of ['Desktop', 'Tablet', 'Mobile']) {
+        expect(
+          [...document.querySelectorAll('[role="tab"]')].some((tab) => tab.textContent === label),
+        ).toBe(true);
+      }
+      const mobile = [...document.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+        (tab) => tab.textContent === 'Mobile',
+      )!;
+      await act(async () =>
+        mobile.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })),
+      );
+      expect(document.querySelector('[data-preview-viewport="mobile"]')).not.toBeNull();
+      expect(document.querySelectorAll('.ui-root')).toHaveLength(1);
+      expect(document.querySelector('iframe')).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
   });
 
   it('renders the neutral palette and organized status examples with demo data only', () => {
@@ -76,19 +100,27 @@ describe('Design showcase', () => {
     expect(markup).not.toContain('EBR-');
   });
 
-  it('links only to ready preview pages and leaves the live app with a full page load', () => {
+  it('navigates to ready preview pages using sidebar controls', async () => {
     mockedNavigation.usePathname.mockReturnValue('/design/navigation');
-    const markup = renderToStaticMarkup(
-      <DesignShell>
-        <p>child</p>
-      </DesignShell>,
-    );
-
-    expect(markup).toContain('href="/design"');
-    expect(markup).toContain('aria-current="page"');
-    expect(markup).toContain('href="/design/overview"');
-    expect(markup).not.toContain('href="/dashboard');
-    expect(markup).not.toContain('href="/platform"');
-    expect(markup).toContain('<p>child</p>');
+    const root = createRoot(document.body.appendChild(document.createElement('div')));
+    try {
+      await act(async () =>
+        root.render(
+          <DesignShell>
+            <p>child</p>
+          </DesignShell>,
+        ),
+      );
+      const components = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) => button.textContent === 'Components',
+      )!;
+      await act(async () => components.click());
+      expect(mockedNavigation.push).toHaveBeenCalledWith('/design');
+      expect(document.querySelector('[aria-current="page"]')?.textContent).toContain('Navigation');
+      expect(document.body.textContent).toContain('child');
+      expect(document.querySelector('a[href^="/dashboard"], a[href="/platform"]')).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
   });
 });

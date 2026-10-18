@@ -43,7 +43,7 @@ Copy `guests.tsx`, `guest-sheet.tsx`, `guest-detail.tsx` and `guest-stats.ts` as
 7. **Verify (all must pass, report real output):**
    - Type-check: `cd apps/web && node --max-old-space-size=3500 ../../node_modules/typescript/bin/tsc --noEmit -p .`
    - Tests of what you touched, one worker: `NODE_OPTIONS=--max-old-space-size=3000 npx vitest run --pool=forks --poolOptions.forks.singleFork <paths>`
-   - Then the whole web suite the same way. Known failing, unrelated: 2 stale `/design` tests. Report anything else that fails.
+   - Then the whole web suite the same way. The two formerly stale `/design` tests were updated on 2026-10-18 to exercise the Preview settings popover and sidebar navigation; no failures are currently exempted. Report any failure.
    - Look at the page in a browser with the local Playwright scripts in `.local/` (login, then screenshot) and attach what you saw. A page can use only real components and still look wrong.
 8. **Docs.** Add one row to the Progress log in `24-dashboard-redesign.md`: what is done, what is not, gaps found. Be factual; do not write "complete" for anything not verified.
 9. **Git.** Commit with explicit pathspecs only (`git commit -m "..." -- path1 path2`); the index is shared. Read `git show --stat` after. **Do not push, do not deploy.**
