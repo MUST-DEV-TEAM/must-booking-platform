@@ -38,7 +38,6 @@ describe('Tenant dashboard shell', () => {
       'Payments',
       'Guests',
       'Accommodations',
-      'Photos',
       'Rates &amp; Pricing',
       'Staff',
       'Reports',
@@ -120,19 +119,25 @@ describe('Tenant dashboard shell', () => {
   });
 
   it('keeps Payments hidden unless staff can also view its booking rows', () => {
-    const markup = renderToStaticMarkup(createElement(DashboardQueryProvider, undefined,
-      createElement(DashboardShell, {
-        tenantId: 'tenant-1',
-        initialData: {
-          user, role: 'STAFF', properties: [{ id: 'property-1', name: 'Grand Hotel' }],
-          capabilities: ['payments.view'],
-        },
-      }),
-    ));
+    const markup = renderToStaticMarkup(
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(DashboardShell, {
+          tenantId: 'tenant-1',
+          initialData: {
+            user,
+            role: 'STAFF',
+            properties: [{ id: 'property-1', name: 'Grand Hotel' }],
+            capabilities: ['payments.view'],
+          },
+        }),
+      ),
+    );
     expect(markup).not.toContain('>Payments</a>');
   });
 
-  it('shows Photos to staff granted photos.manage but not Accommodations', () => {
+  it('shows Accommodations (no separate Photos item) to staff granted only photos.manage', () => {
     const markup = renderToStaticMarkup(
       createElement(
         DashboardQueryProvider,
@@ -149,8 +154,8 @@ describe('Tenant dashboard shell', () => {
       ),
     );
 
-    expect(markup).toContain('Photos');
-    expect(markup).not.toContain(`>Accommodations</a>`);
+    expect(markup).toContain('Accommodations');
+    expect(markup).not.toContain('>Photos</a>');
   });
 
   it('only renders the property switcher when a non-staff user has more than one property', () => {
@@ -255,7 +260,6 @@ describe('Tenant dashboard shell', () => {
       'Payments',
       'Guests',
       'Accommodations',
-      'Photos',
       'Rates & Pricing',
       'Staff',
       'Reports',
@@ -302,7 +306,8 @@ describe('Tenant dashboard shell', () => {
     // no aria-label; sidebar destinations (NavigationLinks) wrap the label in a span for
     // accessible-name/truncation purposes and carry an aria-label on the anchor itself.
     expect(markup).toContain('Overview');
-    for (const label of ['Bookings', 'Payments', 'Reports']) expect(markup).toContain(`aria-label="${label}"`);
+    for (const label of ['Bookings', 'Payments', 'Reports'])
+      expect(markup).toContain(`aria-label="${label}"`);
     for (const label of [
       'Calendar',
       'Guests',
@@ -326,7 +331,12 @@ describe('Tenant dashboard shell', () => {
             user,
             role: 'STAFF',
             properties: [{ id: 'property-1', name: 'Grand Hotel' }],
-            capabilities: ['accommodations.manage', 'rates.manage', 'staff.view', 'settings.manage'],
+            capabilities: [
+              'accommodations.manage',
+              'rates.manage',
+              'staff.view',
+              'settings.manage',
+            ],
           },
         }),
       ),

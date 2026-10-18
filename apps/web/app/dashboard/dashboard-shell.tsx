@@ -8,7 +8,6 @@ import {
   CreditCard,
   FileChartColumn,
   Hotel as IconHotel,
-  Images,
   Layers,
   LayoutDashboard,
   LoaderCircle,
@@ -51,7 +50,6 @@ import { DashboardSettings, isSettingsArea, SettingsHub, type SettingsArea } fro
 import { DashboardNotifications, NotificationsInbox } from './notifications';
 import { DashboardReports } from './reports';
 import { RoomManagement } from './[tenantId]/room-management';
-import { PhotosManagement } from './[tenantId]/photos-management';
 import { RateManagement } from './[tenantId]/rate-management';
 import { IntegrationsManagement } from './[tenantId]/integrations-management';
 import { PropertyManagement } from './[tenantId]/property-management';
@@ -101,6 +99,8 @@ type DashboardNavigationDefinition = {
   label: string;
   icon: NavigationItem['icon'];
   capabilities?: readonly string[];
+  /** Visible when the user holds at least one of these (in addition to `capabilities`). */
+  anyCapabilities?: readonly string[];
 };
 
 const operationalNavigation = [
@@ -128,9 +128,9 @@ const managementNavigation = [
     section: 'accommodations',
     label: 'Accommodations',
     icon: IconHotel,
-    capabilities: ['accommodations.manage'],
+    // Photos live in the listing editor; photos-only staff reach them through this entry.
+    anyCapabilities: ['accommodations.manage', 'photos.manage'],
   },
-  { section: 'photos', label: 'Photos', icon: Images, capabilities: ['photos.manage'] },
   {
     section: 'rates-pricing',
     label: 'Rates & Pricing',
@@ -190,6 +190,8 @@ function canAccessSection(role: TenantRole, capabilities: readonly string[], sec
     return true;
   if (ownerAdminOnlySections.has(section)) return false;
   const item = dashboardSections.find((candidate) => candidate.section === section);
+  if (item?.anyCapabilities)
+    return item.anyCapabilities.some((capability) => capabilities.includes(capability));
   return !!item?.capabilities?.every((capability) => capabilities.includes(capability));
 }
 
@@ -598,9 +600,6 @@ export function DashboardShell({
           canManageInventorySource={role === 'OWNER' || role === 'ADMIN'}
           onNavigateSection={setSection}
         />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'photos' ? (
-        <PhotosManagement propertyId={selectedProperty.id} tenantId={tenantId} />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'rates-pricing' ? (
         <RateManagement propertyId={selectedProperty.id} tenantId={tenantId} />
