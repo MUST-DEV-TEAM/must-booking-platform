@@ -6,6 +6,7 @@ import { InventoryStock, type StockGrid } from './inventory-stock';
 import { DashboardQueryProvider } from './query-provider';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | undefined;
+const onCreate = vi.fn();
 const data: StockGrid = {
   source: 'LOCAL',
   readOnly: false,
@@ -90,6 +91,7 @@ async function render(grid = data, write = true, valid = true, failWrite = false
         createElement(InventoryStock, {
           base: '/api/tenants/a/properties/b/inventory',
           canWrite: write,
+          onCreate,
         }),
       ),
     ),
@@ -181,6 +183,8 @@ describe('Inventory Stock', () => {
     await render(grid);
     expect(document.querySelector('button[aria-pressed]')).toBeNull();
     expect(document.body.textContent).toContain(grid.explanation);
+    expect(document.body.textContent).not.toContain('Block these dates');
+    expect(document.body.textContent).not.toContain('Close dates / set a rule');
     if (grid.source === 'CLOCK_PMS') expect(document.body.textContent).not.toContain('Restricted');
   });
   it('fails closed without calendar.block and handles empty catalog', async () => {
@@ -202,7 +206,7 @@ describe('Inventory Stock', () => {
       document.querySelector<HTMLButtonElement>('[aria-label="Stock operation"]')!.click(),
     );
     await settle();
-    await click('Reset to default (0)');
+    await click('Reset stock to 0');
     await click('Preview changes');
     expect(
       JSON.parse(String(calls.find((c) => c.url.endsWith('/stock/preview'))?.init?.body)),
@@ -246,5 +250,25 @@ describe('Inventory Stock', () => {
     );
     await settle();
     expect(document.body.textContent).not.toContain('Save stock changes');
+  });
+  it('opens both existing create flows from the selected cells', async () => {
+    onCreate.mockClear();
+    await render();
+    await select();
+    await click('Close dates / set a rule');
+    expect(onCreate).toHaveBeenLastCalledWith(
+      'restrictions',
+      expect.objectContaining({
+        scope: 'room_type',
+        targetIds: ['t'],
+        startsOn: '2035-03-30',
+        endsOn: '2035-03-30',
+      }),
+    );
+    await click('Block these dates');
+    expect(onCreate).toHaveBeenLastCalledWith(
+      'blocks',
+      expect.objectContaining({ roomTypeIds: ['t'], startsOn: '2035-03-30', endsOn: '2035-03-31' }),
+    );
   });
 });

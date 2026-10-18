@@ -1,4 +1,5 @@
 'use client';
+import type { InventoryPrefill } from './inventory-selection';
 import { useRef, useState } from 'react';
 import { Button } from '../../components/ui/button';
 import {
@@ -27,6 +28,7 @@ import {
 export function InventoryEditor({
   kind,
   record,
+  initial,
   base,
   today,
   timezone,
@@ -40,6 +42,7 @@ export function InventoryEditor({
 }: {
   kind: 'restrictions' | 'blocks';
   record?: InventoryRecord;
+  initial?: InventoryPrefill;
   base: string;
   today: string;
   timezone: string;
@@ -54,16 +57,20 @@ export function InventoryEditor({
   const rule = kind === 'restrictions';
   const [saved, setSaved] = useState(record),
     [name, setName] = useState(record?.name ?? record?.title ?? ''),
-    [type, setType] = useState(record?.type ?? 'minimum_stay'),
+    [type, setType] = useState(record?.type ?? initial?.type ?? 'minimum_stay'),
     [value, setValue] = useState(record?.value ?? 1),
     [scope, setScope] = useState(
-      rule ? (record?.scope ?? 'property') : record?.all === false ? 'targets' : 'property',
+      rule
+        ? (record?.scope ?? initial?.scope ?? 'property')
+        : record?.all === false || initial?.all === false
+          ? 'targets'
+          : 'property',
     ),
-    [targetIds, setTargets] = useState(record?.targetIds ?? []),
-    [roomTypeIds, setTypes] = useState(record?.roomTypeIds ?? []),
+    [targetIds, setTargets] = useState(record?.targetIds ?? initial?.targetIds ?? []),
+    [roomTypeIds, setTypes] = useState(record?.roomTypeIds ?? initial?.roomTypeIds ?? []),
     [roomIds, setRooms] = useState(record?.roomIds ?? []),
-    [startsOn, setStart] = useState(record?.startsOn ?? today),
-    [endsOn, setEnd] = useState(record?.endsOn ?? ''),
+    [startsOn, setStart] = useState(record?.startsOn ?? initial?.startsOn ?? today),
+    [endsOn, setEnd] = useState(record?.endsOn ?? initial?.endsOn ?? ''),
     [weekdays, setWeekdays] = useState((record?.weekdays ?? [1, 2, 3, 4, 5, 6, 7]).map(String)),
     [priority, setPriority] = useState(record?.priority ?? 50),
     [note, setNote] = useState(record?.internalReason ?? record?.note ?? ''),
@@ -158,6 +165,9 @@ export function InventoryEditor({
             {saved ? 'Edit' : 'Create'} {rule ? 'restriction' : 'manual block'}
           </DialogTitle>
           <DialogDescription>
+            {initial
+              ? 'Prefilled from the selected room types and earliest through latest date. Gaps inside this range are included; review scope and dates before saving. '
+              : null}
             {timezone}.{' '}
             {rule
               ? 'Restrictions do not change existing bookings or prices.'

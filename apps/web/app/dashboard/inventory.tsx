@@ -34,6 +34,7 @@ import {
   type CatalogItem,
   type StaffChoice,
 } from './inventory-types';
+import type { InventoryPrefill } from './inventory-selection';
 import { InventoryStock } from './inventory-stock';
 import { InventoryEditor } from './inventory-editor';
 import { InventoryPreview } from './inventory-preview';
@@ -100,6 +101,7 @@ export function InventorySection({
     [editor, setEditor] = useState<{
       kind: 'restrictions' | 'blocks';
       record?: InventoryRecord;
+      initial?: InventoryPrefill;
     } | null>(null),
     [confirmation, setConfirmation] = useState<{
       kind: 'restrictions' | 'blocks';
@@ -387,7 +389,13 @@ export function InventorySection({
           </AlertDescription>
         </Alert>
       ) : null}
-      {tab === 'stock' ? <InventoryStock base={base} canWrite={canWrite} /> : null}
+      {tab === 'stock' ? (
+        <InventoryStock
+          base={base}
+          canWrite={canWrite}
+          onCreate={(kind, initial) => setEditor({ kind, initial })}
+        />
+      ) : null}
       {tab === 'overview' ? (
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

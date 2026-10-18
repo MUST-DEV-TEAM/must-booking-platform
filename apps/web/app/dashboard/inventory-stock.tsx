@@ -1,4 +1,5 @@
 'use client';
+import { inventorySelection, type InventoryPrefill } from './inventory-selection';
 import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AvailabilityGrid, type AvailabilityGridCell } from '../../components/ui/availability-grid';
@@ -68,7 +69,15 @@ const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satur
   (label, i) => ({ label, value: String(i + 1) }),
 );
 /** Bulk pool-stock editing with server preview, atomic confirmation and explicit source/mode boundaries. */
-export function InventoryStock({ base, canWrite }: { base: string; canWrite: boolean }) {
+export function InventoryStock({
+  base,
+  canWrite,
+  onCreate,
+}: {
+  base: string;
+  canWrite: boolean;
+  onCreate?: (kind: 'restrictions' | 'blocks', initial: InventoryPrefill) => void;
+}) {
   const revision = useRef(0);
   const client = useQueryClient(),
     writer = useRef(createInventoryWriter());
@@ -248,9 +257,27 @@ export function InventoryStock({ base, canWrite }: { base: string; canWrite: boo
       {editable && selected.length > 0 ? (
         <Card>
           <CardHeader>
+            {onCreate ? (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    onCreate('restrictions', inventorySelection(selected, 'restrictions')!)
+                  }
+                >
+                  Close dates / set a rule
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => onCreate('blocks', inventorySelection(selected, 'blocks')!)}
+                >
+                  Block these dates
+                </Button>
+              </div>
+            ) : null}
             <CardTitle>Edit stock - {selected.length} cells selected</CardTitle>
             <CardDescription>
-              One change is applied atomically to all matching cells. Reset restores 0 and is
+              One change is applied atomically to all matching cells. Reset sets stock to 0 and is
               rejected if rooms are sold or held.
             </CardDescription>
           </CardHeader>
@@ -268,7 +295,7 @@ export function InventoryStock({ base, canWrite }: { base: string; canWrite: boo
                     { value: 'set', label: 'Set stock to' },
                     { value: 'add', label: 'Add to stock' },
                     { value: 'subtract', label: 'Subtract from stock' },
-                    { value: 'reset', label: 'Reset to default (0)' },
+                    { value: 'reset', label: 'Reset stock to 0' },
                   ]}
                 />
               </FormField>

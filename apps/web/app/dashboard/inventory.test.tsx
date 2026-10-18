@@ -3,6 +3,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { InventorySection, inventoryActions } from './inventory';
+import { inventorySelection } from './inventory-selection';
 import { InventoryEditor } from './inventory-editor';
 import { InventoryPreview } from './inventory-preview';
 import { DashboardQueryProvider } from './query-provider';
@@ -358,4 +359,38 @@ describe('Inventory editors and preview', () => {
       channel: 'staff',
     });
   });
+  it.each(['restrictions', 'blocks'] as const)(
+    'submits Stock-prefilled %s as a new scoped draft',
+    async (kind) => {
+      const fetch = fixture();
+      await render(
+        createElement(InventoryEditor, {
+          ...editorProps,
+          kind,
+          initial: inventorySelection(
+            [
+              { rowId: 'type', date: '2036-02-29' },
+              { rowId: 'type', date: '2036-03-01' },
+            ],
+            kind,
+          )!,
+        }),
+      );
+      await fill(kind === 'restrictions' ? 'inventory-name' : 'inventory-name', 'Grid selection');
+      await click('Save draft');
+      const call = fetch.mock.calls.find(
+        ([url, init]) => String(url) === `/inventory/${kind}` && init?.method === 'POST',
+      );
+      expect(call).toBeTruthy();
+      const init = call![1]!;
+      expect(init.headers).toHaveProperty('Idempotency-Key');
+      expect(JSON.parse(String(init.body))).toMatchObject({
+        startsOn: '2036-02-29',
+        endsOn: kind === 'blocks' ? '2036-03-02' : '2036-03-01',
+        ...(kind === 'blocks'
+          ? { roomTypeIds: ['type'], all: false }
+          : { scope: 'room_type', targetIds: ['type'], type: 'stop_sell' }),
+      });
+    },
+  );
 });
