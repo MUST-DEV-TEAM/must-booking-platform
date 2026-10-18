@@ -47,11 +47,15 @@ async function mount({
   canBlock = true,
   canCreateBooking = true,
   violation,
+  scopedLimits,
+  bookingOnly = false,
 }: {
   single?: boolean;
   canBlock?: boolean;
   canCreateBooking?: boolean;
   violation?: { code: string; message: string };
+  scopedLimits?: { min: number; max: number };
+  bookingOnly?: boolean;
 } = {}) {
   vi.stubGlobal(
     'ResizeObserver',
@@ -72,12 +76,12 @@ async function mount({
       };
       return json({
         today,
-        minStayNights: 2,
-        maxStayNights: 5,
+        minStayNights: selected && scopedLimits ? scopedLimits.min : 2,
+        maxStayNights: selected && scopedLimits ? scopedLimits.max : 5,
         disabledDates: [addDays(today, -1)],
         pastDateMessage: 'Check-in cannot be in the past.',
         booking: result,
-        block: result,
+        block: bookingOnly ? { valid: selected, errors: [] } : result,
       });
     }
     if (url.includes('/bookings/board')) return json({ items: [], truncated: false });
@@ -165,6 +169,63 @@ describe('AvailabilityCalendarDialog shared board', () => {
           String(url).includes('roomId=room-1') && String(url).includes('booking-rules/evaluate'),
       ),
     ).toBe(true);
+  });
+  it('uses the server-selected stay limits for the header and night stepper', async () => {
+    await mount({ scopedLimits: { min: 1, max: 7 } });
+    await select(today);
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(document.body.textContent).toContain('minimum 1 nights; maximum 7 nights'),
+      );
+    });
+    for (let i = 0; i < 6; i++) {
+      await act(async () =>
+        document.body.querySelector<HTMLButtonElement>('[aria-label="More nights"]')!.click(),
+      );
+      await act(async () => {
+        await vi.waitFor(() =>
+          expect(
+            document.body.querySelector(`a[href*="end=${addDays(today, i + 2)}"]`),
+          ).not.toBeNull(),
+        );
+      });
+    }
+    expect(
+      document.body.querySelector<HTMLButtonElement>('[aria-label="More nights"]')!.disabled,
+    ).toBe(true);
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(document.body.querySelector(`a[href*="end=${addDays(today, 7)}"]`)).not.toBeNull(),
+      );
+    });
+  });
+  it.each([
+    'MIN_STAY',
+    'MAX_STAY',
+    'CLOSED_TO_ARRIVAL',
+    'CLOSED_TO_DEPARTURE',
+    'STOP_SELL',
+    'MINIMUM_ADVANCE',
+    'RESTRICTION_PRIORITY_CONFLICT',
+  ])('keeps blocking available when only booking is rejected by %s', async (code) => {
+    await mount({
+      violation: { code, message: `Restriction rejected: ${code}` },
+      bookingOnly: true,
+    });
+    await select(today);
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(document.body.querySelector('[role="alert"]')?.textContent).toContain(code),
+      );
+    });
+    const booking = [...document.body.querySelectorAll('button')].find(
+      (b) => b.textContent === 'New booking',
+    )!;
+    const block = [...document.body.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === 'Block these nights',
+    )!;
+    expect(booking.disabled).toBe(true);
+    expect(block.disabled).toBe(false);
   });
   it.each([
     ['MIN_STAY', 'A minimum stay of 2 nights is required.'],

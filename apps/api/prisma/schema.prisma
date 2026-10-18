@@ -195,6 +195,9 @@ model Property {
   staffAssignments                  PropertyStaffAssignment[]
   roomTypes                         RoomType[]
   roomCategories                   RoomCategory[]
+  inventoryRestrictions InventoryRestriction[]
+  inventoryRestrictionSequences InventoryRestrictionSequence[]
+  inventoryRestrictionOperations InventoryRestrictionOperation[]
   rooms                             Room[]
   roomAvailability                  RoomAvailability[]
   inventoryUnits                    InventoryUnit[]
@@ -1216,4 +1219,52 @@ model EmailMessage {
   @@unique([tenantId, idempotencyKey], map: "email_messages_tenant_idempotency_key")
   @@index([tenantId, propertyId, createdAt(sort: Desc)], map: "email_messages_tenant_property_created_idx")
   @@map("email_messages")
+}
+
+model InventoryRestriction {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  propertyId String @map("property_id") @db.Uuid
+  reference String @db.VarChar(32)
+  name String @db.VarChar(200)
+  type String @db.Text
+  value Int
+  scope String @db.Text
+  targetIds String[] @default([]) @map("target_ids") @db.Uuid
+  startsOn DateTime @map("starts_on") @db.Date
+  endsOn DateTime? @map("ends_on") @db.Date
+  weekdays Int[] @default([1,2,3,4,5,6,7])
+  priority Int @default(50)
+  lifecycle String @default("Draft") @db.Text
+  internalReason String @default("") @map("internal_reason") @db.Text
+  version Int @default(1)
+  createdByUserId String @map("created_by_user_id") @db.Uuid
+  updatedByUserId String @map("updated_by_user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  property Property @relation(fields: [tenantId, propertyId], references: [tenantId,id], onDelete: Restrict)
+  @@unique([tenantId,propertyId,id])
+  @@unique([tenantId,propertyId,reference])
+  @@index([tenantId,propertyId,lifecycle,startsOn,endsOn])
+  @@map("inventory_restrictions")
+}
+model InventoryRestrictionSequence {
+  tenantId String @map("tenant_id") @db.Uuid
+  propertyId String @map("property_id") @db.Uuid
+  year Int
+  lastValue Int @map("last_value")
+  property Property @relation(fields: [tenantId,propertyId], references: [tenantId,id], onDelete: Restrict)
+  @@id([tenantId,propertyId,year])
+  @@map("inventory_restriction_sequences")
+}
+model InventoryRestrictionOperation {
+  tenantId String @map("tenant_id") @db.Uuid
+  propertyId String @map("property_id") @db.Uuid
+  idempotencyKey String @map("idempotency_key") @db.VarChar(128)
+  requestHash String @map("request_hash") @db.Char(64)
+  response Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  property Property @relation(fields: [tenantId,propertyId], references: [tenantId,id], onDelete: Restrict)
+  @@id([tenantId,propertyId,idempotencyKey])
+  @@map("inventory_restriction_operations")
 }

@@ -14,6 +14,9 @@ export async function cleanupTenant(
   admin: PrismaClient | Prisma.TransactionClient,
   tenantId: string,
 ): Promise<void> {
+  await admin.$executeRaw`DELETE FROM inventory_restriction_operations WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM inventory_restriction_sequences WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM inventory_restrictions WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM email_templates WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM notification_recipient_rules WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM notification_topic_settings WHERE tenant_id = ${tenantId}::uuid`;

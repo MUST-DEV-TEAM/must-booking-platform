@@ -1,3 +1,4 @@
+import { applicableRestrictions } from './inventory-restrictions.repository';
 import {
   BadRequestException,
   ConflictException,
@@ -23,6 +24,7 @@ type Availability = {
   endsOn: string;
   isAvailable: boolean;
   availableUnits: number;
+  restrictionErrors?: Array<{ code: string; message: string }>;
 };
 type RoomAvailability = {
   roomId: string;
@@ -187,13 +189,21 @@ export class AvailabilityService {
           AND inventory_units.room_type_id = ${input.roomTypeId}::uuid
           AND inventory_units.stays_on = requested_nights.stays_on
       `;
-      const availableUnits = rows[0]?.availableUnits ?? 0;
+      const restrictions = await this.restrictionCheck(
+        tx,
+        tenantId,
+        propertyId,
+        input.roomTypeId,
+        input,
+      );
+      const availableUnits = restrictions.valid ? (rows[0]?.availableUnits ?? 0) : 0;
       return {
         roomTypeId: input.roomTypeId,
         startsOn: input.startsOn,
         endsOn: input.endsOn,
         availableUnits,
         isAvailable: availableUnits > 0,
+        ...(restrictions.errors.length ? { restrictionErrors: restrictions.errors } : {}),
       };
     });
   }
@@ -245,7 +255,7 @@ export class AvailabilityService {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       await this.requireRoomType(tx, tenantId, propertyId, query.roomTypeId);
       if (query.roomId) {
-        await this.requireIndividualRoomMode(tx, propertyId);
+        await this.requireIndividualRoomMode(tx, tenantId, propertyId);
         await this.requireRoom(tx, tenantId, propertyId, query.roomId);
         const days = await tx.$queryRaw<Array<{ date: string; isAvailable: boolean }>>`
           WITH month_days AS (
@@ -299,7 +309,15 @@ export class AvailabilityService {
           FROM month_days
           ORDER BY month_days.stays_on
         `;
-        return { days: days.map(localCalendarDay) };
+        return {
+          days: await this.restrictionCalendarDays(
+            tx,
+            tenantId,
+            propertyId,
+            query.roomTypeId,
+            days,
+          ),
+        };
       }
 
       const days = await tx.$queryRaw<Array<{ date: string; isAvailable: boolean }>>`
@@ -330,7 +348,68 @@ export class AvailabilityService {
           AND inventory_units.stays_on = month_days.stays_on
         ORDER BY month_days.stays_on
       `;
-      return { days: days.map(localCalendarDay) };
+      return {
+        days: await this.restrictionCalendarDays(tx, tenantId, propertyId, query.roomTypeId, days),
+      };
+    });
+  }
+
+  private async restrictionCheck(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    roomTypeId: string,
+    range: { startsOn: string; endsOn: string },
+  ) {
+    const restrictions = await applicableRestrictions(tx, tenantId, propertyId, roomTypeId);
+    return restrictions.length
+      ? evaluateBookingRules({
+          ...range,
+          channel: 'staff',
+          policy: { timezone: restrictions[0].timezone },
+          restrictions,
+        })
+      : { valid: true, errors: [] };
+  }
+  private async roomRestrictionCheck(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    range: RoomBookedInput,
+  ) {
+    const rooms = await tx.$queryRaw<
+      Array<{ roomTypeId: string }>
+    >`SELECT room_type_id AS "roomTypeId" FROM rooms WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${range.roomId}::uuid`;
+    if (!rooms[0]) return { valid: false, errors: [] };
+    return this.restrictionCheck(tx, tenantId, propertyId, rooms[0].roomTypeId, range);
+  }
+  private async restrictionCalendarDays(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    roomTypeId: string,
+    days: Array<{ date: string; isAvailable: boolean }>,
+  ) {
+    const restrictions = await applicableRestrictions(tx, tenantId, propertyId, roomTypeId);
+    return days.map((day) => {
+      const next = new Date(`${day.date}T00:00:00Z`);
+      next.setUTCDate(next.getUTCDate() + 1);
+      const evaluation = evaluateBookingRules({
+        channel: 'staff',
+        startsOn: day.date,
+        endsOn: next.toISOString().slice(0, 10),
+        restrictions,
+        policy: { timezone: restrictions[0]?.timezone },
+      });
+      // A day cell has no selected departure. Keep length/departure messages as metadata;
+      // only night-sale/arrival closures change its coverage status. Full stays use evaluateRules.
+      const closed = evaluation.errors.some((error) =>
+        ['STOP_SELL', 'CLOSED_TO_ARRIVAL', 'RESTRICTION_PRIORITY_CONFLICT'].includes(error.code),
+      );
+      return {
+        ...localCalendarDay({ ...day, isAvailable: day.isAvailable && !closed }),
+        ...(restrictions.length ? { restrictionErrors: evaluation.errors } : {}),
+      };
     });
   }
 
@@ -386,13 +465,19 @@ export class AvailabilityService {
   ): Promise<RoomAvailability> {
     const input = this.rangeInput(query);
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      await this.requireIndividualRoomMode(tx, propertyId);
+      await this.requireIndividualRoomMode(tx, tenantId, propertyId);
       await this.requireRoom(tx, tenantId, propertyId, roomId);
+      const restrictions = await this.roomRestrictionCheck(tx, tenantId, propertyId, {
+        roomId,
+        ...input,
+      });
       return {
         roomId,
         startsOn: input.startsOn,
         endsOn: input.endsOn,
-        isAvailable: await this.roomIsAvailable(tx, tenantId, propertyId, { roomId, ...input }),
+        isAvailable:
+          restrictions.valid &&
+          (await this.roomIsAvailable(tx, tenantId, propertyId, { roomId, ...input })),
       };
     });
   }
@@ -406,7 +491,7 @@ export class AvailabilityService {
   ): Promise<void> {
     const input = this.roomAvailabilityInput(body);
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      await this.requireIndividualRoomMode(tx, propertyId);
+      await this.requireIndividualRoomMode(tx, tenantId, propertyId);
       await this.requireRoom(tx, tenantId, propertyId, roomId);
       await tx.$executeRaw`
         INSERT INTO room_availability (tenant_id, property_id, room_id, stays_on, is_available)
@@ -456,7 +541,7 @@ export class AvailabilityService {
         policy: properties[0],
       });
       if (!rangeRules.valid) throw new BadRequestException(rangeRules.errors[0]);
-      if (input.roomIds.length > 0) await this.requireIndividualRoomMode(tx, propertyId);
+      if (input.roomIds.length > 0) await this.requireIndividualRoomMode(tx, tenantId, propertyId);
       for (const roomTypeId of input.roomTypeIds)
         await this.requireRoomType(tx, tenantId, propertyId, roomTypeId);
       for (const roomId of input.roomIds) await this.requireRoom(tx, tenantId, propertyId, roomId);
@@ -594,6 +679,8 @@ export class AvailabilityService {
     propertyId: string,
     input: InventoryBookedUnitsInput,
   ): Promise<boolean> {
+    const rules = await this.restrictionCheck(tx, tenantId, propertyId, input.roomTypeId, input);
+    if (!rules.valid) return false;
     return this.adjustBookedUnits(tx, tenantId, propertyId, input, 1);
   }
 
@@ -617,7 +704,8 @@ export class AvailabilityService {
   ): Promise<boolean> {
     const reservation = this.roomBookedInput(input);
     await this.lockRoom(tx, tenantId, propertyId, reservation.roomId);
-    return this.roomIsAvailable(tx, tenantId, propertyId, reservation);
+    const rules = await this.roomRestrictionCheck(tx, tenantId, propertyId, reservation);
+    return rules.valid && this.roomIsAvailable(tx, tenantId, propertyId, reservation);
   }
 
   async lockRoom(
@@ -958,9 +1046,13 @@ export class AvailabilityService {
     if (!rows[0]) throw new NotFoundException('Room not found.');
   }
 
-  private async requireIndividualRoomMode(tx: TenantTransaction, propertyId: string) {
+  private async requireIndividualRoomMode(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+  ) {
     const rows = await tx.$queryRaw<Array<{ bookingMode: string }>>`
-      SELECT booking_mode AS "bookingMode" FROM properties WHERE id = ${propertyId}::uuid
+      SELECT booking_mode AS "bookingMode" FROM properties WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
     `;
     if (!rows[0]) throw new NotFoundException('Property not found.');
     if (rows[0].bookingMode === 'ROOM_TYPE_ONLY')

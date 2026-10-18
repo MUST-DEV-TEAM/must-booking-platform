@@ -59,6 +59,7 @@ function individualCatalogFor(rooms: unknown[]) {
         requiresRatePlanSelection: true,
       },
     ])
+    .mockResolvedValueOnce([]) // No local inventory restrictions for this fixture.
     .mockResolvedValueOnce(rooms);
   const database = {
     withTenantTransaction: async (

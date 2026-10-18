@@ -1,3 +1,4 @@
+import { applicableRestrictions } from './inventory-restrictions.repository';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 import {
@@ -91,7 +92,11 @@ export async function evaluatePropertyBookingRules(
               AND r.property_id = ab.property_id AND r.block_id = ab.id AND r.room_id = ${roomId || null}::uuid))
       `;
     }
-    return { policy: policies[0], roomType, roomActive, reservations, blocks };
+    const restrictions =
+      roomTypeId && hasRange
+        ? await applicableRestrictions(tx, tenantId, propertyId, roomTypeId)
+        : [];
+    return { policy: policies[0], roomType, roomActive, reservations, blocks, restrictions };
   });
   const today = propertyClock(context.policy.timezone).date;
   const disabledDates: string[] = [];
@@ -117,7 +122,7 @@ export async function evaluatePropertyBookingRules(
         disabledDates.push(day);
     }
   }
-  const empty = { valid: false, errors: [] as Array<{ code: string; message: string }> };
+  const empty: ReturnType<typeof evaluateBookingRules> = { valid: false, errors: [] };
   const facts = {
     startsOn,
     endsOn,
@@ -127,6 +132,7 @@ export async function evaluatePropertyBookingRules(
     maxOccupancy: context.roomType?.maxOccupancy,
     roomTypeStatus: context.roomType?.status,
     roomActive: context.roomActive,
+    restrictions: context.restrictions,
   };
   const bookingConflicts = [...context.blocks, ...(roomId ? context.reservations : [])];
   let booking = hasRange
@@ -179,8 +185,8 @@ export async function evaluatePropertyBookingRules(
   return {
     today,
     pastDateMessage: CHECK_IN_PAST_MESSAGE,
-    minStayNights: context.policy.minStayNights ?? null,
-    maxStayNights: context.policy.maxStayNights ?? null,
+    minStayNights: booking.effectiveMinStayNights ?? context.policy.minStayNights ?? null,
+    maxStayNights: booking.effectiveMaxStayNights ?? context.policy.maxStayNights ?? null,
     disabledDates,
     booking,
     block,

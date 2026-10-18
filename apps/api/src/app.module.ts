@@ -1,3 +1,5 @@
+import { InventoryRestrictionsController } from './tenancy/inventory-restrictions.controller';
+import { InventoryRestrictionsService } from './tenancy/inventory-restrictions.service';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
@@ -212,6 +214,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     RoomTypesController,
     AccommodationImportController,
     RoomCategoriesController,
+    InventoryRestrictionsController,
     AccommodationsAuditController,
     PropertyImageLibraryController,
     RoomsController,
@@ -273,6 +276,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     RoomTypesService,
     AccommodationImportService,
     RoomCategoriesService,
+    InventoryRestrictionsService,
     RoomsService,
     RatePlansService,
     AmenitiesService,

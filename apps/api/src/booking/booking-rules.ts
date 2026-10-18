@@ -1,3 +1,10 @@
+import { evaluateRestrictions, type BookingRestriction } from './inventory-restriction-rules';
+export { restrictionLifecycle, restrictionConflicts } from './inventory-restriction-rules';
+export type {
+  BookingRestriction,
+  RestrictionType,
+  RestrictionLifecycle,
+} from './inventory-restriction-rules';
 export type BookingRuleChannel = 'guest' | 'staff' | 'block';
 export type BookingRuleViolation = { code: string; message: string };
 export const CHECK_IN_PAST_MESSAGE = 'Check-in cannot be in the past.';
@@ -59,11 +66,17 @@ export function evaluateBookingRules(input: {
   roomTypeStatus?: string;
   availableUnits?: number;
   conflicts?: RuleConflict[];
-}): { valid: boolean; errors: BookingRuleViolation[] } {
+  restrictions?: BookingRestriction[];
+}): {
+  valid: boolean;
+  errors: BookingRuleViolation[];
+  effectiveMinStayNights?: number | null;
+  effectiveMaxStayNights?: number | null;
+} {
   const invalid = rangeViolation(input.startsOn, input.endsOn);
   if (invalid) return { valid: false, errors: [invalid] };
   const errors: BookingRuleViolation[] = [];
-  const policy = input.policy ?? {};
+  let policy = input.policy ?? {};
   const today = propertyClock(policy.timezone, input.now).date;
   const nights = ruleNights(input.startsOn, input.endsOn);
   if (input.startsOn < today)
@@ -73,6 +86,18 @@ export function evaluateBookingRules(input: {
         input.channel === 'block' ? 'A block cannot start in the past.' : CHECK_IN_PAST_MESSAGE,
     });
   if (input.channel !== 'block') {
+    const restrictions = evaluateRestrictions(
+      input.restrictions ?? [],
+      input.startsOn,
+      input.endsOn,
+      today,
+    );
+    errors.push(...restrictions.errors);
+    policy = {
+      ...policy,
+      minStayNights: restrictions.minimumStay ?? policy.minStayNights,
+      maxStayNights: restrictions.maximumStay ?? policy.maxStayNights,
+    };
     if (policy.minStayNights != null && nights < policy.minStayNights)
       errors.push({
         code: 'MIN_STAY',
@@ -131,7 +156,16 @@ export function evaluateBookingRules(input: {
         message: 'The selected range overlaps an availability block.',
       });
   }
-  return { valid: errors.length === 0, errors };
+  return {
+    valid: errors.length === 0,
+    errors,
+    ...(input.restrictions?.length && input.channel !== 'block'
+      ? {
+          effectiveMinStayNights: policy.minStayNights ?? null,
+          effectiveMaxStayNights: policy.maxStayNights ?? null,
+        }
+      : {}),
+  };
 }
 
 /** Today's date and minutes-since-midnight on the property's own clock (UTC when unset/invalid). */

@@ -1,3 +1,5 @@
+import { applicableRestrictions } from '../tenancy/inventory-restrictions.repository';
+import type { BookingRestriction } from './booking-rules';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { Money, NightlyRate } from '@must/domain-contracts';
@@ -319,10 +321,12 @@ export class QuoteService {
       >`
         SELECT min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           advance_booking_days AS "advanceBookingDays", timezone
-        FROM properties WHERE id = ${propertyId}::uuid
+        FROM properties WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
       `;
       if (!properties[0]) throw new NotFoundException('Property was not found.');
+      const restrictions = await applicableRestrictions(tx, tenantId, propertyId, input.roomTypeId);
       this.validateBookingRules(input, {
+        restrictions,
         ...properties[0],
         maxOccupancy: catalog[0].maxOccupancy,
         roomTypeStatus: catalog[0].status,
@@ -524,7 +528,7 @@ export class QuoteService {
       >`
         SELECT timezone, same_day_booking_allowed AS "sameDayBookingAllowed",
           same_day_cutoff_time AS "sameDayCutoffTime"
-        FROM properties WHERE id = ${propertyId}::uuid
+        FROM properties WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
       `;
       return rows[0];
     });
@@ -543,6 +547,7 @@ export class QuoteService {
       maxOccupancy?: number;
       roomTypeStatus?: string;
       roomActive?: boolean;
+      restrictions?: BookingRestriction[];
     },
   ): void {
     const occupancy = resolveBookingOccupancy(input);
@@ -551,6 +556,7 @@ export class QuoteService {
       startsOn: input.startsOn,
       endsOn: input.endsOn,
       policy: rules,
+      restrictions: rules.restrictions,
       adults: occupancy.adults,
       children: occupancy.children,
       maxOccupancy: rules.maxOccupancy,

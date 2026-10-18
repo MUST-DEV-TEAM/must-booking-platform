@@ -588,8 +588,10 @@ export function CalendarBoard({
         </section>
       ) : null}
       <p className="m-0 text-sm text-muted-foreground">
-        Stay rules: minimum {rules.data?.minStayNights ?? 'not set'} nights; maximum{' '}
-        {rules.data?.maxStayNights ?? 'not set'} nights.
+        Stay rules: minimum{' '}
+        {selectedRules.data?.minStayNights ?? rules.data?.minStayNights ?? 'not set'} nights;
+        maximum {selectedRules.data?.maxStayNights ?? rules.data?.maxStayNights ?? 'not set'}{' '}
+        nights.
       </p>
       {rules.isError ? (
         <p role="alert" className="m-0 text-sm text-destructive">
@@ -868,7 +870,7 @@ export function CalendarBoard({
             <NumberStepper
               label="Nights"
               min={1}
-              max={rules.data?.maxStayNights ?? undefined}
+              max={selectedRules.data?.maxStayNights ?? rules.data?.maxStayNights ?? undefined}
               value={cell.nights}
               onChange={(nights) => setCell({ ...cell, nights })}
               className="w-32"

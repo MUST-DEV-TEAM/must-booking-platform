@@ -1,3 +1,5 @@
+import { applicableRestrictions } from './inventory-restrictions.repository';
+import { evaluateBookingRules } from '../booking/booking-rules';
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 
 import { TenantDatabaseService } from './tenant-database.service';
@@ -167,7 +169,7 @@ export class PublicCatalogService {
           AND rt.status = 'PUBLISHED'::"RoomTypeStatus"
         ORDER BY rt.created_at
       `;
-      const roomTypes: PublicCatalogRoomType[] = roomTypeRows.map((roomType) => {
+      let roomTypes: PublicCatalogRoomType[] = roomTypeRows.map((roomType) => {
         const imageRecords = roomType.imageRecords ?? [];
         const presentation = roomTypeImagePresentation(
           imageRecords.map((image, sortOrder) => ({ ...image, sortOrder })),
@@ -185,6 +187,26 @@ export class PublicCatalogService {
         return publicRoomType;
       });
       const property = properties[0];
+      const requested = (query ?? {}) as Record<string, unknown>;
+      if (requested.startsOn !== undefined || requested.endsOn !== undefined) {
+        const stay = this.availabilityRange(query);
+        const permitted: PublicCatalogRoomType[] = [];
+        for (const type of roomTypes) {
+          const restrictions = await applicableRestrictions(tx, tenantId, propertyId, type.id);
+          if (
+            !restrictions.length ||
+            evaluateBookingRules({
+              channel: 'guest',
+              ...stay,
+              restrictions,
+              policy: { timezone: restrictions[0].timezone },
+            }).valid
+          )
+            permitted.push(type);
+        }
+        roomTypes = permitted;
+      }
+
       const connectedPaymentProviders = new Set(
         connectedPaymentConnections.map((connection) => connection.provider),
       );

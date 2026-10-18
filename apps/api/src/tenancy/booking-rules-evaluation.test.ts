@@ -8,7 +8,7 @@ const propertyId = 'b2222222-2222-4222-8222-222222222222';
 const roomTypeId = 'c3333333-3333-4333-8333-333333333333';
 afterEach(() => vi.useRealTimers());
 function database(results: unknown[][]) {
-  const queryRaw = vi.fn();
+  const queryRaw = vi.fn().mockResolvedValue([]);
   results.forEach((result) => queryRaw.mockResolvedValueOnce(result));
   const executeRaw = vi.fn();
   return {
