@@ -43,6 +43,17 @@ export class AvailabilityController {
     return { provider: connection?.provider === 'CLOCK_PMS' ? 'CLOCK_PMS' : 'LOCAL' };
   }
 
+  @Get('booking-rules/evaluate')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('calendar.view')
+  evaluateRules(@Query() query: unknown, @Req() request: TenantPropertyRequest) {
+    return this.availability.evaluateRules(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      query,
+    );
+  }
+
   @Get('availability')
   @TenantScoped({ propertyParam: 'propertyId' })
   @RequiresCapability('calendar.view')

@@ -70,10 +70,20 @@ describe('AddReservation', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((url: string) => {
+        if (url.includes('/booking-rules/evaluate'))
+          return json({
+            today: '2026-10-18',
+            disabledDates: [],
+            minStayNights: null,
+            maxStayNights: null,
+            booking: { valid: false, errors: [] },
+            block: { valid: false, errors: [] },
+          });
         if (url.endsWith('/pms-connection-status')) return json({ provider: 'LOCAL' });
         if (url.endsWith('/room-types')) return json([{ id: 'rt', name: 'Double', roomCount: 2 }]);
         if (url.endsWith('/rooms')) return json([]);
-        if (url.endsWith('/rate-plans')) return json([{ id: 'rp', name: 'Flexible', currency: 'EUR' }]);
+        if (url.endsWith('/rate-plans'))
+          return json([{ id: 'rp', name: 'Flexible', currency: 'EUR' }]);
         return json({});
       }),
     );
@@ -97,7 +107,9 @@ describe('AddReservation', () => {
     });
 
     expect(container.textContent).toContain('Add reservation');
-    expect(container.querySelector('li[aria-current="step"]')?.textContent).toContain('Stay details');
+    expect(container.querySelector('li[aria-current="step"]')?.textContent).toContain(
+      'Stay details',
+    );
     const next = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Continue to guest information'),
     );
@@ -133,23 +145,42 @@ describe('AddReservation', () => {
   });
 
   it('hides payment recording choices without payments.record', async () => {
-    vi.stubGlobal('fetch', vi.fn((url: string) => {
-      if (url.endsWith('/pms-connection-status')) return json({ provider: 'LOCAL' });
-      if (url.endsWith('/room-types')) return json([{ id: 'rt', name: 'Double', roomCount: 2 }]);
-      if (url.endsWith('/rooms')) return json([]);
-      if (url.endsWith('/rate-plans')) return json([{ id: 'rp', name: 'Flexible', currency: 'EUR' }]);
-      return json({});
-    }));
-    const { container, root } = await render(createElement(DashboardQueryProvider, undefined,
-      createElement(AddReservation, {
-        tenantId: 't', propertyId: 'p',
-        paymentGateways: { stripe: false, pokpay: false, payAtHotel: true },
-        canRecordPayment: false,
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.includes('/booking-rules/evaluate'))
+          return json({
+            today: '2026-10-18',
+            disabledDates: [],
+            minStayNights: null,
+            maxStayNights: null,
+            booking: { valid: false, errors: [] },
+            block: { valid: false, errors: [] },
+          });
+        if (url.endsWith('/pms-connection-status')) return json({ provider: 'LOCAL' });
+        if (url.endsWith('/room-types')) return json([{ id: 'rt', name: 'Double', roomCount: 2 }]);
+        if (url.endsWith('/rooms')) return json([]);
+        if (url.endsWith('/rate-plans'))
+          return json([{ id: 'rp', name: 'Flexible', currency: 'EUR' }]);
+        return json({});
       }),
-    ));
+    );
+    const { container, root } = await render(
+      createElement(
+        DashboardQueryProvider,
+        undefined,
+        createElement(AddReservation, {
+          tenantId: 't',
+          propertyId: 'p',
+          paymentGateways: { stripe: false, pokpay: false, payAtHotel: true },
+          canRecordPayment: false,
+        }),
+      ),
+    );
     await act(async () => {
       await vi.waitFor(() => {
-        if (!container.textContent?.includes('Choose dates to see rooms')) throw new Error('Add reservation has not finished loading yet.');
+        if (!container.textContent?.includes('Choose dates to see rooms'))
+          throw new Error('Add reservation has not finished loading yet.');
       });
     });
     expect(container.textContent).not.toContain('Record a payment now');

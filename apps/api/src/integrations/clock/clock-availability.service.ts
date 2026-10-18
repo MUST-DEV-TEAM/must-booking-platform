@@ -11,6 +11,7 @@ import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
 import { IntegrationConnectionsService } from '../integration-connections.service';
 import { ClockCircuitBreakerService, CircuitOpenError } from './clock-circuit-breaker';
 import { parseClockCredentials } from './clock-credentials';
+import { minimumStayForOpenRates } from '../../booking/booking-rules';
 import {
   classifyClockClientFailure,
   classifyClockHttpResponse,
@@ -984,7 +985,7 @@ export class ClockAvailabilityService {
           (cell) =>
             cell.rate_restriction?.min_stay_on_arrival ?? cell.rate_restriction?.min_stay ?? 0,
         );
-        const minStay = Math.min(...minStays);
+        const minStay = minimumStayForOpenRates(minStays) ?? 0;
         if (minStay > 1) day.minStay = minStay;
         return day;
       }

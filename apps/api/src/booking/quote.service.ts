@@ -9,6 +9,8 @@ import {
   type ClockStayQuoteQuery,
 } from '../integrations/clock/clock-availability.service';
 import { resolveBookingOccupancy, validBookingOccupancy } from './booking-occupancy';
+import { evaluateBookingRules, sameDayBookingViolation, rangeViolation } from './booking-rules';
+export { propertyClock, isSameDayBookingClosed } from './booking-rules';
 
 export type QuoteInput = {
   roomTypeId: string;
@@ -296,14 +298,17 @@ export class QuoteService {
     input: QuoteInput,
   ): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      const catalog = await tx.$queryRaw<Array<{ id: string }>>`
-        SELECT id FROM room_types
+      const catalog = await tx.$queryRaw<
+        Array<{ id: string; maxOccupancy: number; status: string }>
+      >`
+        SELECT id, max_occupancy AS "maxOccupancy", status::text AS status FROM room_types
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
-          AND id = ${input.roomTypeId}::uuid AND status = 'PUBLISHED'::"RoomTypeStatus"
+          AND id = ${input.roomTypeId}::uuid
       `;
       if (!catalog[0]) throw new NotFoundException('Room type not found.');
-      if (input.roomId)
-        await this.requireRoomForType(tx, tenantId, propertyId, input.roomId, input.roomTypeId);
+      const room = input.roomId
+        ? await this.requireRoomForType(tx, tenantId, propertyId, input.roomId, input.roomTypeId)
+        : undefined;
       const properties = await tx.$queryRaw<
         Array<{
           minStayNights: number | null;
@@ -317,7 +322,12 @@ export class QuoteService {
         FROM properties WHERE id = ${propertyId}::uuid
       `;
       if (!properties[0]) throw new NotFoundException('Property was not found.');
-      this.validateBookingRules(input, properties[0]);
+      this.validateBookingRules(input, {
+        ...properties[0],
+        maxOccupancy: catalog[0].maxOccupancy,
+        roomTypeStatus: catalog[0].status,
+        roomActive: room?.isActive,
+      });
     });
   }
 
@@ -438,7 +448,7 @@ export class QuoteService {
       throw new BadRequestException(
         'adults must be a positive integer and children must be a non-negative integer.',
       );
-    if (!this.date(input.startsOn) || !this.date(input.endsOn) || input.endsOn <= input.startsOn)
+    if (rangeViolation(input.startsOn, input.endsOn))
       throw new BadRequestException(
         'startsOn and endsOn must be a valid, non-empty ISO date range.',
       );
@@ -450,16 +460,16 @@ export class QuoteService {
     propertyId: string,
     roomId: string,
     roomTypeId: string,
-  ): Promise<void> {
-    const rooms = await tx.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM rooms
+  ): Promise<{ isActive: boolean }> {
+    const rooms = await tx.$queryRaw<Array<{ id: string; isActive: boolean }>>`
+      SELECT id, is_active AS "isActive" FROM rooms
       WHERE tenant_id = ${tenantId}::uuid
         AND property_id = ${propertyId}::uuid
         AND id = ${roomId}::uuid
         AND room_type_id = ${roomTypeId}::uuid
-        AND is_active = true
     `;
     if (!rooms[0]) throw new NotFoundException('Room not found for this room type.');
+    return rooms[0];
   }
 
   private date(value: string): boolean {
@@ -519,10 +529,8 @@ export class QuoteService {
       return rows[0];
     });
     if (!rule) throw new NotFoundException('Property was not found.');
-    if (!isSameDayBookingClosed(startsOn, rule)) return;
-    throw new BadRequestException(
-      'Same-day bookings are closed for today. Please choose a later check-in date.',
-    );
+    const violation = sameDayBookingViolation(startsOn, rule);
+    if (violation) throw new BadRequestException(violation);
   }
 
   private validateBookingRules(
@@ -532,64 +540,32 @@ export class QuoteService {
       maxStayNights: number | null;
       advanceBookingDays: number | null;
       timezone?: string | null;
+      maxOccupancy?: number;
+      roomTypeStatus?: string;
+      roomActive?: boolean;
     },
   ): void {
-    const nights = this.nightCount(input.startsOn, input.endsOn);
-    if (rules.minStayNights !== null && nights < rules.minStayNights)
-      throw new BadRequestException(`A minimum stay of ${rules.minStayNights} nights is required.`);
-    if (rules.maxStayNights !== null && nights > rules.maxStayNights)
-      throw new BadRequestException(`A maximum stay of ${rules.maxStayNights} nights is allowed.`);
-    if (rules.advanceBookingDays !== null) {
-      const today = propertyClock(rules.timezone).date;
-      const daysAhead = this.nightCount(today, input.startsOn);
-      if (daysAhead > rules.advanceBookingDays)
-        throw new BadRequestException(
-          `Bookings can be made at most ${rules.advanceBookingDays} days in advance.`,
-        );
-    }
+    const occupancy = resolveBookingOccupancy(input);
+    const result = evaluateBookingRules({
+      channel: 'staff',
+      startsOn: input.startsOn,
+      endsOn: input.endsOn,
+      policy: rules,
+      adults: occupancy.adults,
+      children: occupancy.children,
+      maxOccupancy: rules.maxOccupancy,
+      roomTypeStatus: rules.roomTypeStatus,
+      roomActive: rules.roomActive,
+    });
+    const unavailable = result.errors.find(
+      (error) => error.code === 'ROOM_TYPE_NOT_AVAILABLE' || error.code === 'ROOM_NOT_AVAILABLE',
+    );
+    if (unavailable)
+      throw new NotFoundException(
+        unavailable.code === 'ROOM_TYPE_NOT_AVAILABLE'
+          ? 'Room type not found.'
+          : 'Room not found for this room type.',
+      );
+    if (!result.valid) throw new BadRequestException(result.errors[0]);
   }
-}
-
-/** Today's date and minutes-since-midnight on the property's own clock (UTC when unset/invalid). */
-export function propertyClock(
-  timezone: string | null | undefined,
-  now: Date = new Date(),
-): { date: string; minutes: number } {
-  try {
-    const parts = Object.fromEntries(
-      new Intl.DateTimeFormat('en-CA', {
-        timeZone: timezone || 'UTC',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hourCycle: 'h23',
-      })
-        .formatToParts(now)
-        .map((part) => [part.type, part.value]),
-    ) as Record<string, string>;
-    return {
-      date: `${parts.year}-${parts.month}-${parts.day}`,
-      minutes: (Number(parts.hour) % 24) * 60 + Number(parts.minute),
-    };
-  } catch {
-    return propertyClock('UTC', now);
-  }
-}
-
-export function isSameDayBookingClosed(
-  startsOn: string,
-  rule: {
-    timezone: string | null;
-    sameDayBookingAllowed: boolean;
-    sameDayCutoffTime: string | null;
-  },
-  now: Date = new Date(),
-): boolean {
-  const clock = propertyClock(rule.timezone, now);
-  if (startsOn !== clock.date) return false;
-  if (!rule.sameDayBookingAllowed) return true;
-  const cutoff = /^(\d{1,2}):(\d{2})$/.exec(rule.sameDayCutoffTime ?? '');
-  return cutoff !== null && clock.minutes >= Number(cutoff[1]) * 60 + Number(cutoff[2]);
 }

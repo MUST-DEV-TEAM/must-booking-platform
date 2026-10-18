@@ -6,6 +6,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { evaluateBookingRules, rangeViolation } from '../booking/booking-rules';
+import { evaluatePropertyBookingRules } from './booking-rules-evaluation';
 
 import { AuditLogService } from './audit-log.service';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
@@ -84,6 +86,51 @@ export class AvailabilityService {
     private readonly connections: IntegrationConnectionsService,
     @Inject(ClockAvailabilityService) private readonly clockAvailability: ClockAvailabilityService,
   ) {}
+
+  evaluateRules(tenantId: string, propertyId: string, query: unknown) {
+    return evaluatePropertyBookingRules(
+      this.database,
+      async (input) => {
+        const connection = await this.connections.activePmsConnectionCredentials(
+          tenantId,
+          propertyId,
+        );
+        if (connection?.provider === 'CLOCK_PMS') {
+          const calendar = await this.getCalendar(tenantId, propertyId, {
+            roomTypeId: input.roomTypeId,
+            month: input.startsOn.slice(0, 7),
+            adultCount: input.adults,
+            childrenCount: input.children,
+          });
+          const result = await this.clockAvailability.isAvailableForBooking(tenantId, propertyId, {
+            ...input,
+            adultCount: input.adults,
+            childrenCount: input.children,
+          });
+          if (!result.ok) throw new Error(result.error.message);
+          return {
+            availableUnits: result.value ? 1 : 0,
+            minimumStay: calendar.days.find((day) => day.date === input.startsOn)?.minStay,
+          };
+        }
+        if (input.roomId) {
+          const roomAvailable = (
+            await this.getRoomAvailability(tenantId, propertyId, input.roomId, input)
+          ).isAvailable;
+          const poolAvailable =
+            input.bookingMode !== 'MIXED' ||
+            (await this.getAvailability(tenantId, propertyId, input)).availableUnits > 0;
+          return { availableUnits: roomAvailable && poolAvailable ? 1 : 0 };
+        }
+        return {
+          availableUnits: (await this.getAvailability(tenantId, propertyId, input)).availableUnits,
+        };
+      },
+      tenantId,
+      propertyId,
+      query,
+    );
+  }
 
   async getAvailability(
     tenantId: string,
@@ -398,6 +445,17 @@ export class AvailabilityService {
     const input = this.availabilityBlockInput(body);
     const id = randomUUID();
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const properties = await tx.$queryRaw<Array<{ timezone: string | null }>>`
+        SELECT timezone FROM properties WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
+      `;
+      if (!properties[0]) throw new NotFoundException('Property was not found.');
+      const rangeRules = evaluateBookingRules({
+        channel: 'block',
+        startsOn: input.startsOn,
+        endsOn: input.endsOn,
+        policy: properties[0],
+      });
+      if (!rangeRules.valid) throw new BadRequestException(rangeRules.errors[0]);
       if (input.roomIds.length > 0) await this.requireIndividualRoomMode(tx, propertyId);
       for (const roomTypeId of input.roomTypeIds)
         await this.requireRoomType(tx, tenantId, propertyId, roomTypeId);
@@ -432,12 +490,17 @@ export class AvailabilityService {
         ORDER BY b.starts_on
         LIMIT 20
       `;
-      if (conflicts.length > 0)
-        throw new ConflictException({
-          message:
-            'Reservations are already booked on these dates. Move or cancel them first; a block never cancels a reservation.',
-          conflicts,
-        });
+      const conflictRules = evaluateBookingRules({
+        channel: 'block',
+        startsOn: input.startsOn,
+        endsOn: input.endsOn,
+        policy: properties[0],
+        conflicts: conflicts.map((conflict) => ({ ...conflict, kind: 'booking' as const })),
+      });
+      const conflict = conflictRules.errors.find(
+        (error) => error.code === 'BLOCK_RESERVATION_CONFLICT',
+      );
+      if (conflict) throw new ConflictException({ ...conflict, conflicts });
 
       await tx.$executeRaw`
         INSERT INTO availability_blocks (id, tenant_id, property_id, starts_on, ends_on, blocks_all,
@@ -590,7 +653,8 @@ export class AvailabilityService {
     const value = (query ?? {}) as Record<string, unknown>;
     const startsOn = this.date(value.startsOn, 'startsOn');
     const endsOn = this.date(value.endsOn, 'endsOn');
-    if (endsOn <= startsOn) throw new BadRequestException('endsOn must be after startsOn.');
+    const invalidRange = rangeViolation(startsOn, endsOn);
+    if (invalidRange) throw new BadRequestException(invalidRange);
     return { startsOn, endsOn };
   }
 

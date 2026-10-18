@@ -42,6 +42,7 @@ export function RoomManagement({
   canManagePhotos = false,
   canViewCalendar = false,
   canBlockCalendar = false,
+  canCreateBooking = false,
   canManageRates = false,
   canManageInventorySource = false,
   onNavigateSection,
@@ -52,6 +53,7 @@ export function RoomManagement({
   canManagePhotos?: boolean;
   canViewCalendar?: boolean;
   canBlockCalendar?: boolean;
+  canCreateBooking?: boolean;
   canManageRates?: boolean;
   canManageInventorySource?: boolean;
   onNavigateSection?: (section: string) => void;
@@ -826,6 +828,7 @@ export function RoomManagement({
         target={calendarTarget}
         open={calendarTarget !== null && canViewCalendar}
         canBlock={canBlockCalendar}
+        canCreateBooking={canCreateBooking}
         onOpenChange={(open) => {
           if (!open) setCalendarTarget(null);
         }}

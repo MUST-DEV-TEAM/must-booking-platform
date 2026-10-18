@@ -1,7 +1,17 @@
 'use client';
 
+import { useBookingRulesEvaluation } from './booking-rules';
+
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, Building2, CalendarDays, CircleCheck, CreditCard, Loader2 } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  Building2,
+  CalendarDays,
+  CircleCheck,
+  CreditCard,
+  Loader2,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { ActionBar } from '../../components/ui/action-bar';
@@ -18,13 +28,24 @@ import { DetailList, SectionLabel } from '../../components/ui/detail-list';
 import { FormField } from '../../components/ui/form-field';
 import { Checkbox } from '../../components/ui/checkbox';
 import { Input, Textarea } from '../../components/ui/input';
-import { parsePhone, PhoneInput, phoneToString, type PhoneValue } from '../../components/ui/phone-input';
+import {
+  parsePhone,
+  PhoneInput,
+  phoneToString,
+  type PhoneValue,
+} from '../../components/ui/phone-input';
 import { TimeField } from '../../components/ui/time-field';
 import { TabBar } from '../../components/ui/tab-bar';
 import { NumberStepper } from '../../components/ui/number-stepper';
 import { OptionCard } from '../../components/ui/option-card';
 import { PageHero } from '../../components/ui/page-hero';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../components/ui/select';
 import { EmptyPanel } from '../../components/ui/state-panel';
 import { SegmentedControl } from '../../components/ui/segmented-control';
 import { Stepper } from '../../components/ui/stepper';
@@ -120,15 +141,13 @@ const gatewayLabels: Record<GatewayMethod, { title: string; description: string 
 };
 
 const money = (value: Money) =>
-  new Intl.NumberFormat(undefined, { style: 'currency', currency: value.currency }).format(Number(value.amount));
+  new Intl.NumberFormat(undefined, { style: 'currency', currency: value.currency }).format(
+    Number(value.amount),
+  );
 const longDate = (iso: string) =>
   new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(
     new Date(`${iso}T00:00:00`),
   );
-const todayIso = () => {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-};
 
 function href(tenantId: string, propertyId: string, extra: string) {
   return `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&${extra}`;
@@ -164,21 +183,24 @@ export function AddReservation({
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const [step, setStep] = useState(0);
   // The calendar can send people here with a day (and a room) already chosen.
-  const prefill = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search);
+  const prefill =
+    typeof window === 'undefined' ? null : new URLSearchParams(window.location.search);
   const prefillStart = prefill?.get('start') ?? '';
   const prefillEnd = prefill?.get('end') ?? '';
   const [dates, setDates] = useState<CalendarSelection>(() =>
-    /^\d{4}-\d{2}-\d{2}$/.test(prefillStart) && /^\d{4}-\d{2}-\d{2}$/.test(prefillEnd) && prefillStart >= todayIso()
+    /^\d{4}-\d{2}-\d{2}$/.test(prefillStart) && /^\d{4}-\d{2}-\d{2}$/.test(prefillEnd)
       ? { start: prefillStart, end: prefillEnd }
       : { start: null, end: null },
   );
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
   const [ratePlanId, setRatePlanId] = useState('');
-  const [roomTypeId, setRoomTypeId] = useState(() => prefill?.get('roomId') ? (prefill.get('roomTypeId') ?? '') : '');
+  const [roomTypeId, setRoomTypeId] = useState(() => prefill?.get('roomTypeId') ?? '');
   const [roomId, setRoomId] = useState(() => prefill?.get('roomId') ?? '');
   const [chooseBy, setChooseBy] = useState<'type' | 'room'>(
-    bookingMode === 'INDIVIDUAL_ROOM_ONLY' || (bookingMode === 'MIXED' && prefill?.get('roomId')) ? 'room' : 'type',
+    bookingMode === 'INDIVIDUAL_ROOM_ONLY' || (bookingMode === 'MIXED' && prefill?.get('roomId'))
+      ? 'room'
+      : 'type',
   );
   const [guest, setGuest] = useState<Guest>({ ...emptyGuest, arrivalTime: hotelCheckIn });
   const [touched, setTouched] = useState(false);
@@ -234,7 +256,13 @@ export function AddReservation({
   useEffect(() => {
     if (!gateway && paymentGateways) {
       setGateway(
-        paymentGateways.payAtHotel ? 'pay_at_hotel' : paymentGateways.stripe ? 'stripe' : paymentGateways.pokpay ? 'pokpay' : '',
+        paymentGateways.payAtHotel
+          ? 'pay_at_hotel'
+          : paymentGateways.stripe
+            ? 'stripe'
+            : paymentGateways.pokpay
+              ? 'pokpay'
+              : '',
       );
     }
   }, [gateway, paymentGateways]);
@@ -242,29 +270,56 @@ export function AddReservation({
   const startsOn = dates.start ?? '';
   const endsOn = dates.end ?? '';
   const nights = startsOn && endsOn ? nightsBetween(startsOn, endsOn) : 0;
-  const pastStart = !!startsOn && startsOn < todayIso();
+  const stayRules = useBookingRulesEvaluation(tenantId, propertyId, {
+    startsOn,
+    endsOn,
+    roomTypeId,
+    roomId: roomId || undefined,
+    adults,
+    children,
+  });
+  const stayRuleError = stayRules.data?.booking.errors[0]?.message;
   const stayReady =
-    nights >= 1 && !pastStart && adults >= 1 && (isClock || !!ratePlanId) && roomTypes.length > 0;
+    Boolean(stayRules.data?.booking.valid) &&
+    adults >= 1 &&
+    (isClock || !!ratePlanId) &&
+    roomTypes.length > 0;
   const showRoomPick = bookingMode === 'INDIVIDUAL_ROOM_ONLY' || bookingMode === 'MIXED';
   const mustPickRoom = bookingMode === 'INDIVIDUAL_ROOM_ONLY';
   // Hotels that book specific rooms list rooms; mixed hotels can switch between the two views.
-  const byRoom = bookingMode === 'INDIVIDUAL_ROOM_ONLY' || (bookingMode === 'MIXED' && chooseBy === 'room');
-  const bookableRooms = rooms.filter((room) => roomTypes.some((type) => type.id === room.roomTypeId));
+  const byRoom =
+    bookingMode === 'INDIVIDUAL_ROOM_ONLY' || (bookingMode === 'MIXED' && chooseBy === 'room');
+  const bookableRooms = rooms.filter((room) =>
+    roomTypes.some((type) => type.id === room.roomTypeId),
+  );
 
   // Search every room type for the chosen stay once the form is complete.
   const [searchKey, setSearchKey] = useState('');
-  const currentKey = stayReady ? `${startsOn}|${endsOn}|${adults}|${children}|${ratePlanId}|${isClock}|${byRoom}` : '';
+  const currentKey = stayReady
+    ? `${startsOn}|${endsOn}|${adults}|${children}|${ratePlanId}|${isClock}|${byRoom}`
+    : '';
   useEffect(() => {
     const timer = window.setTimeout(() => setSearchKey(currentKey), 400);
     return () => window.clearTimeout(timer);
   }, [currentKey]);
 
   const offersQuery = useQuery({
-    queryKey: ['dashboard', 'add-reservation-offers', tenantId, propertyId, searchKey, roomTypes.map((type) => type.id).join(',')],
+    queryKey: [
+      'dashboard',
+      'add-reservation-offers',
+      tenantId,
+      propertyId,
+      searchKey,
+      roomTypes.map((type) => type.id).join(','),
+    ],
     enabled: searchKey !== '' && searchKey === currentKey,
     queryFn: async (): Promise<Record<string, Offer>> => {
       const targets = byRoom
-        ? bookableRooms.map((room) => ({ key: room.id, roomTypeId: room.roomTypeId, roomId: room.id }))
+        ? bookableRooms.map((room) => ({
+            key: room.id,
+            roomTypeId: room.roomTypeId,
+            roomId: room.id,
+          }))
         : roomTypes.map((type) => ({ key: type.id, roomTypeId: type.id, roomId: undefined }));
       // The hotel system limits how fast it can be asked, so ask a few at a time and retry
       // politely when it says "too many requests" (otherwise rooms look unavailable by mistake).
@@ -288,12 +343,22 @@ export function AddReservation({
                 await new Promise((resolve) => window.setTimeout(resolve, 1200 * (attempt + 1)));
                 continue;
               }
-              return [target.key, { ok: false, reason: 'The hotel system is busy. Check again in a moment.', transient: true }];
+              return [
+                target.key,
+                {
+                  ok: false,
+                  reason: 'The hotel system is busy. Check again in a moment.',
+                  transient: true,
+                },
+              ];
             }
             return [target.key, { ok: false, reason }];
           }
         }
-        return [target.key, { ok: false, reason: 'Could not check availability.', transient: true }];
+        return [
+          target.key,
+          { ok: false, reason: 'Could not check availability.', transient: true },
+        ];
       };
       const results: Array<[string, Offer]> = [];
       let next = 0;
@@ -311,7 +376,13 @@ export function AddReservation({
   const offers = offersQuery.data ?? {};
   const searching = stayReady && (searchKey !== currentKey || offersQuery.isFetching);
   const selectedType = roomTypes.find((type) => type.id === roomTypeId) ?? null;
-  const selectedOffer = byRoom ? (roomId ? offers[roomId] : undefined) : roomTypeId ? offers[roomTypeId] : undefined;
+  const selectedOffer = byRoom
+    ? roomId
+      ? offers[roomId]
+      : undefined
+    : roomTypeId
+      ? offers[roomTypeId]
+      : undefined;
   const total = selectedOffer?.ok ? selectedOffer.total : null;
   const roomOptions = rooms.filter((room) => room.roomTypeId === roomTypeId);
   const selectedRoom = rooms.find((room) => room.id === roomId) ?? null;
@@ -330,34 +401,36 @@ export function AddReservation({
   // Problems show once a field has been left, or after trying to continue.
   const [left, setLeft] = useState<ReadonlySet<string>>(new Set());
   const leave = (field: string) => setLeft((current) => new Set(current).add(field));
-  const shown = (field: keyof typeof guestErrors) => (touched || left.has(field) ? guestErrors[field] : null);
+  const shown = (field: keyof typeof guestErrors) =>
+    touched || left.has(field) ? guestErrors[field] : null;
 
   const create = useMutation({
     mutationFn: async (): Promise<Created> => {
       const payload = {
-          roomTypeId,
-          roomId: showRoomPick && roomId ? roomId : undefined,
-          ratePlanId: isClock ? undefined : ratePlanId,
-          startsOn,
-          endsOn,
-          adults,
-          children,
-          guest: {
-            firstName: guest.firstName.trim(),
-            lastName: guest.lastName.trim(),
-            email: guest.email.trim(),
-            phone: phoneToString(guest.phone) || undefined,
-            streetAddress: guest.streetAddress.trim() || undefined,
-            addressLine2: guest.addressLine2.trim() || undefined,
-            city: guest.city.trim() || undefined,
-            county: guest.county.trim() || undefined,
-            postcode: guest.postcode.trim() || undefined,
-            specialRequests: requestsText(guest),
-          },
-          paymentMethod: gateway,
-        };
+        roomTypeId,
+        roomId: showRoomPick && roomId ? roomId : undefined,
+        ratePlanId: isClock ? undefined : ratePlanId,
+        startsOn,
+        endsOn,
+        adults,
+        children,
+        guest: {
+          firstName: guest.firstName.trim(),
+          lastName: guest.lastName.trim(),
+          email: guest.email.trim(),
+          phone: phoneToString(guest.phone) || undefined,
+          streetAddress: guest.streetAddress.trim() || undefined,
+          addressLine2: guest.addressLine2.trim() || undefined,
+          city: guest.city.trim() || undefined,
+          county: guest.county.trim() || undefined,
+          postcode: guest.postcode.trim() || undefined,
+          specialRequests: requestsText(guest),
+        },
+        paymentMethod: gateway,
+      };
       const signature = JSON.stringify(payload);
-      if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() };
+      if (attempt.current?.signature !== signature)
+        attempt.current = { signature, key: crypto.randomUUID() };
       const result = await post(`${base}/staff-bookings`, payload, attempt.current.key);
       if (!result.ok) throw new Error(result.error?.message ?? 'Unable to create the reservation.');
       const id = String(result.value.id);
@@ -379,9 +452,15 @@ export function AddReservation({
         };
       }
       if (settle) {
-        const paid = await post(`${base}/bookings/${id}/manual-payment`, { method: settle }, crypto.randomUUID());
+        const paid = await post(
+          `${base}/bookings/${id}/manual-payment`,
+          { method: settle },
+          crypto.randomUUID(),
+        );
         if (!paid.ok)
-          throw new Error(paid.error?.message ?? 'Reservation created, but the payment could not be recorded.');
+          throw new Error(
+            paid.error?.message ?? 'Reservation created, but the payment could not be recorded.',
+          );
         return { id, reference, outcome: 'settled' };
       }
       return { id, reference, outcome: 'pay-at-hotel' };
@@ -430,7 +509,9 @@ export function AddReservation({
         <Alert variant="destructive">
           <AlertTitle>Rooms and rates could not be loaded</AlertTitle>
           <AlertDescription>
-            {catalogQuery.error instanceof Error ? catalogQuery.error.message : 'Try again in a moment.'}
+            {catalogQuery.error instanceof Error
+              ? catalogQuery.error.message
+              : 'Try again in a moment.'}
           </AlertDescription>
         </Alert>
       </div>
@@ -447,7 +528,11 @@ export function AddReservation({
           reference={created.reference}
           checkoutUrl={created.checkoutUrl}
           providerName={created.gateway === 'stripe' ? 'Stripe' : 'PokPay'}
-          reservationHref={href(tenantId, propertyId, `section=reservations&reservation=${created.id}`)}
+          reservationHref={href(
+            tenantId,
+            propertyId,
+            `section=reservations&reservation=${created.id}`,
+          )}
           canCheckPayment={canCheckPayment}
           canViewBooking={canViewBooking}
           onStartOver={reset}
@@ -458,7 +543,8 @@ export function AddReservation({
 
   if (created) {
     const messages: Record<Created['outcome'], string> = {
-      checkout: 'Complete the payment in the new window. The reservation confirms automatically once it is paid.',
+      checkout:
+        'Complete the payment in the new window. The reservation confirms automatically once it is paid.',
       settled: 'The reservation is confirmed and the payment is recorded.',
       'pay-at-hotel': 'The reservation is confirmed. The guest pays at the hotel.',
     };
@@ -476,7 +562,13 @@ export function AddReservation({
             </p>
             <div className="flex flex-wrap justify-center gap-2">
               <Button asChild>
-                <a href={href(tenantId, propertyId, `section=reservations&reservation=${created.id}`)}>
+                <a
+                  href={href(
+                    tenantId,
+                    propertyId,
+                    `section=reservations&reservation=${created.id}`,
+                  )}
+                >
                   Open reservation <ArrowRight aria-hidden="true" />
                 </a>
               </Button>
@@ -499,12 +591,30 @@ export function AddReservation({
       <CardContent className="space-y-3">
         <DetailList
           items={[
-            { label: 'Dates', value: startsOn && endsOn ? formatCalendarSelection(dates, 'range') : null },
-            { label: 'Length', value: nights > 0 ? `${nights} night${nights === 1 ? '' : 's'}` : null },
-            { label: 'Guests', value: `${adults} adult${adults === 1 ? '' : 's'}${children ? ` · ${children} child${children === 1 ? '' : 'ren'}` : ''}` },
+            {
+              label: 'Dates',
+              value: startsOn && endsOn ? formatCalendarSelection(dates, 'range') : null,
+            },
+            {
+              label: 'Length',
+              value: nights > 0 ? `${nights} night${nights === 1 ? '' : 's'}` : null,
+            },
+            {
+              label: 'Guests',
+              value: `${adults} adult${adults === 1 ? '' : 's'}${children ? ` · ${children} child${children === 1 ? '' : 'ren'}` : ''}`,
+            },
             { label: 'Room type', value: selectedType?.name },
-            { label: 'Room', value: selectedRoom?.name ?? (selectedType && showRoomPick ? 'Auto-assign' : null) },
-            { label: 'Guest', value: guest.firstName || guest.lastName ? `${guest.firstName} ${guest.lastName}`.trim() : null },
+            {
+              label: 'Room',
+              value: selectedRoom?.name ?? (selectedType && showRoomPick ? 'Auto-assign' : null),
+            },
+            {
+              label: 'Guest',
+              value:
+                guest.firstName || guest.lastName
+                  ? `${guest.firstName} ${guest.lastName}`.trim()
+                  : null,
+            },
           ]}
         />
         <div className="flex items-center justify-between border-t pt-3">
@@ -539,14 +649,18 @@ export function AddReservation({
                     <FormField
                       label="Stay dates"
                       required
-                      error={pastStart ? 'Check-in cannot be in the past.' : null}
-                      hint={nights > 0 ? `${nights} night${nights === 1 ? '' : 's'}` : 'Pick check-in and check-out.'}
+                      error={stayRuleError ?? (stayRules.isError ? stayRules.error.message : null)}
+                      hint={
+                        nights > 0
+                          ? `${nights} night${nights === 1 ? '' : 's'}`
+                          : 'Pick check-in and check-out.'
+                      }
                     >
                       <CalendarPicker
                         label="Stay dates"
                         mode="range"
                         months={2}
-                        minDate={todayIso()}
+                        minDate={stayRules.data?.today}
                         value={dates}
                         onChange={(next) => {
                           setDates(next);
@@ -573,10 +687,22 @@ export function AddReservation({
                       </FormField>
                     ) : null}
                     <FormField label="Adults" required>
-                      <NumberStepper label="Adults" min={1} max={20} value={adults} onChange={setAdults} />
+                      <NumberStepper
+                        label="Adults"
+                        min={1}
+                        max={20}
+                        value={adults}
+                        onChange={setAdults}
+                      />
                     </FormField>
                     <FormField label="Children">
-                      <NumberStepper label="Children" min={0} max={20} value={children} onChange={setChildren} />
+                      <NumberStepper
+                        label="Children"
+                        min={0}
+                        max={20}
+                        value={children}
+                        onChange={setChildren}
+                      />
                     </FormField>
                   </div>
                   <p className="m-0 text-xs text-muted-foreground">
@@ -589,8 +715,13 @@ export function AddReservation({
                 <CardHeader>
                   <div className="flex items-center justify-between gap-2">
                     <CardTitle className="text-lg">Available rooms</CardTitle>
-                    {!searching && Object.values(offers).some((offer) => !offer.ok && offer.transient) ? (
-                      <Button variant="outline" size="sm" onClick={() => void offersQuery.refetch()}>
+                    {!searching &&
+                    Object.values(offers).some((offer) => !offer.ok && offer.transient) ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void offersQuery.refetch()}
+                      >
                         Check again
                       </Button>
                     ) : searching ? (
@@ -635,7 +766,9 @@ export function AddReservation({
                   ) : byRoom ? (
                     <div role="radiogroup" aria-label="Rooms" className="space-y-5">
                       {roomTypes.map((type) => {
-                        const typeRooms = bookableRooms.filter((room) => room.roomTypeId === type.id);
+                        const typeRooms = bookableRooms.filter(
+                          (room) => room.roomTypeId === type.id,
+                        );
                         if (typeRooms.length === 0) return null;
                         return (
                           <div key={type.id} className="space-y-2">
@@ -648,17 +781,31 @@ export function AddReservation({
                                   key={room.id}
                                   title={room.name}
                                   badges={
-                                    <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px]">
+                                    <Badge
+                                      variant="secondary"
+                                      className="rounded-full px-2 py-0 text-[10px]"
+                                    >
                                       {type.name}
                                     </Badge>
                                   }
-                                  description={offer && !offer.ok ? offer.reason : `${nights} night${nights === 1 ? '' : 's'}`}
+                                  description={
+                                    offer && !offer.ok
+                                      ? offer.reason
+                                      : `${nights} night${nights === 1 ? '' : 's'}`
+                                  }
                                   aside={
                                     ok ? (
-                                      <span className="block text-base font-extrabold">{money(offer.total)}</span>
+                                      <span className="block text-base font-extrabold">
+                                        {money(offer.total)}
+                                      </span>
                                     ) : offer ? (
-                                      <Badge variant="muted" className="rounded-full px-2 py-0 text-[10px]">
-                                        {offer && !offer.ok && offer.transient ? 'Busy' : 'Not available'}
+                                      <Badge
+                                        variant="muted"
+                                        className="rounded-full px-2 py-0 text-[10px]"
+                                      >
+                                        {offer && !offer.ok && offer.transient
+                                          ? 'Busy'
+                                          : 'Not available'}
                                       </Badge>
                                     ) : null
                                   }
@@ -685,21 +832,33 @@ export function AddReservation({
                             key={type.id}
                             title={type.name}
                             badges={
-                              <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px]">
+                              <Badge
+                                variant="secondary"
+                                className="rounded-full px-2 py-0 text-[10px]"
+                              >
                                 {type.roomCount} room{type.roomCount === 1 ? '' : 's'}
                               </Badge>
                             }
                             description={
-                              offer && !offer.ok ? offer.reason : `${nights} night${nights === 1 ? '' : 's'} · ${adults} adult${adults === 1 ? '' : 's'}${children ? ` · ${children} child${children === 1 ? '' : 'ren'}` : ''}`
+                              offer && !offer.ok
+                                ? offer.reason
+                                : `${nights} night${nights === 1 ? '' : 's'} · ${adults} adult${adults === 1 ? '' : 's'}${children ? ` · ${children} child${children === 1 ? '' : 'ren'}` : ''}`
                             }
                             aside={
                               ok ? (
                                 <span className="block">
-                                  <span className="block text-base font-extrabold">{money(offer.total)}</span>
-                                  <span className="block text-xs text-muted-foreground">for the stay</span>
+                                  <span className="block text-base font-extrabold">
+                                    {money(offer.total)}
+                                  </span>
+                                  <span className="block text-xs text-muted-foreground">
+                                    for the stay
+                                  </span>
                                 </span>
                               ) : offer ? (
-                                <Badge variant="muted" className="rounded-full px-2 py-0 text-[10px]">
+                                <Badge
+                                  variant="muted"
+                                  className="rounded-full px-2 py-0 text-[10px]"
+                                >
                                   {offer && !offer.ok && offer.transient ? 'Busy' : 'Not available'}
                                 </Badge>
                               ) : null
@@ -720,7 +879,11 @@ export function AddReservation({
                       <FormField
                         label="Individual room"
                         required={mustPickRoom}
-                        hint={mustPickRoom ? 'This hotel books specific rooms.' : 'Leave on auto-assign to let the hotel choose.'}
+                        hint={
+                          mustPickRoom
+                            ? 'This hotel books specific rooms.'
+                            : 'Leave on auto-assign to let the hotel choose.'
+                        }
                       >
                         <Select
                           value={roomId || (mustPickRoom ? '' : 'auto')}
@@ -730,7 +893,9 @@ export function AddReservation({
                             <SelectValue placeholder="Select a room" />
                           </SelectTrigger>
                           <SelectContent>
-                            {mustPickRoom ? null : <SelectItem value="auto">Auto-assign</SelectItem>}
+                            {mustPickRoom ? null : (
+                              <SelectItem value="auto">Auto-assign</SelectItem>
+                            )}
                             {roomOptions.map((room) => (
                               <SelectItem key={room.id} value={room.id}>
                                 {room.name}
@@ -752,8 +917,8 @@ export function AddReservation({
                 <CardHeader>
                   <CardTitle className="text-lg">Lead guest</CardTitle>
                   <p className="m-0 text-xs text-muted-foreground">
-                    The person the reservation is for. The confirmation goes to this email, and the hotel system
-                    receives the name and email.
+                    The person the reservation is for. The confirmation goes to this email, and the
+                    hotel system receives the name and email.
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -779,24 +944,38 @@ export function AddReservation({
                     }}
                   />
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <FormField label="First name" htmlFor="guest-first" required error={shown('firstName')}>
+                    <FormField
+                      label="First name"
+                      htmlFor="guest-first"
+                      required
+                      error={shown('firstName')}
+                    >
                       <Input
                         id="guest-first"
                         autoComplete="given-name"
                         maxLength={LIMITS.name}
                         value={guest.firstName}
                         onBlur={() => leave('firstName')}
-                        onChange={(event) => setGuest({ ...guest, firstName: cleanName(event.target.value) })}
+                        onChange={(event) =>
+                          setGuest({ ...guest, firstName: cleanName(event.target.value) })
+                        }
                       />
                     </FormField>
-                    <FormField label="Last name" htmlFor="guest-last" required error={shown('lastName')}>
+                    <FormField
+                      label="Last name"
+                      htmlFor="guest-last"
+                      required
+                      error={shown('lastName')}
+                    >
                       <Input
                         id="guest-last"
                         autoComplete="family-name"
                         maxLength={LIMITS.name}
                         value={guest.lastName}
                         onBlur={() => leave('lastName')}
-                        onChange={(event) => setGuest({ ...guest, lastName: cleanName(event.target.value) })}
+                        onChange={(event) =>
+                          setGuest({ ...guest, lastName: cleanName(event.target.value) })
+                        }
                       />
                     </FormField>
                     <FormField label="Email" htmlFor="guest-email" required error={shown('email')}>
@@ -810,7 +989,9 @@ export function AddReservation({
                         maxLength={LIMITS.email}
                         value={guest.email}
                         onBlur={() => leave('email')}
-                        onChange={(event) => setGuest({ ...guest, email: cleanEmail(event.target.value) })}
+                        onChange={(event) =>
+                          setGuest({ ...guest, email: cleanEmail(event.target.value) })
+                        }
                       />
                     </FormField>
                     <FormField
@@ -842,22 +1023,34 @@ export function AddReservation({
                 </CardHeader>
                 <CardContent>
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <FormField label="Street address" htmlFor="guest-street" className="sm:col-span-2">
+                    <FormField
+                      label="Street address"
+                      htmlFor="guest-street"
+                      className="sm:col-span-2"
+                    >
                       <Input
                         id="guest-street"
                         autoComplete="address-line1"
                         maxLength={LIMITS.street}
                         value={guest.streetAddress}
-                        onChange={(event) => setGuest({ ...guest, streetAddress: cleanAddress(event.target.value) })}
+                        onChange={(event) =>
+                          setGuest({ ...guest, streetAddress: cleanAddress(event.target.value) })
+                        }
                       />
                     </FormField>
-                    <FormField label="Address line 2" htmlFor="guest-line2" className="sm:col-span-2">
+                    <FormField
+                      label="Address line 2"
+                      htmlFor="guest-line2"
+                      className="sm:col-span-2"
+                    >
                       <Input
                         id="guest-line2"
                         autoComplete="address-line2"
                         maxLength={LIMITS.street}
                         value={guest.addressLine2}
-                        onChange={(event) => setGuest({ ...guest, addressLine2: cleanAddress(event.target.value) })}
+                        onChange={(event) =>
+                          setGuest({ ...guest, addressLine2: cleanAddress(event.target.value) })
+                        }
                       />
                     </FormField>
                     <FormField label="City" htmlFor="guest-city">
@@ -866,7 +1059,9 @@ export function AddReservation({
                         autoComplete="address-level2"
                         maxLength={LIMITS.city}
                         value={guest.city}
-                        onChange={(event) => setGuest({ ...guest, city: cleanName(event.target.value) })}
+                        onChange={(event) =>
+                          setGuest({ ...guest, city: cleanName(event.target.value) })
+                        }
                       />
                     </FormField>
                     <FormField label="County / region" htmlFor="guest-county">
@@ -875,7 +1070,9 @@ export function AddReservation({
                         autoComplete="address-level1"
                         maxLength={LIMITS.city}
                         value={guest.county}
-                        onChange={(event) => setGuest({ ...guest, county: cleanName(event.target.value) })}
+                        onChange={(event) =>
+                          setGuest({ ...guest, county: cleanName(event.target.value) })
+                        }
                       />
                     </FormField>
                     <FormField label="Postcode" htmlFor="guest-postcode">
@@ -884,7 +1081,9 @@ export function AddReservation({
                         autoComplete="postal-code"
                         maxLength={LIMITS.postcode}
                         value={guest.postcode}
-                        onChange={(event) => setGuest({ ...guest, postcode: cleanPostcode(event.target.value) })}
+                        onChange={(event) =>
+                          setGuest({ ...guest, postcode: cleanPostcode(event.target.value) })
+                        }
                       />
                     </FormField>
                   </div>
@@ -895,7 +1094,8 @@ export function AddReservation({
                 <CardHeader>
                   <CardTitle className="text-lg">Stay preferences</CardTitle>
                   <p className="m-0 text-xs text-muted-foreground">
-                    Optional. Shown at the top of the reservation so the desk and housekeeping can see them.
+                    Optional. Shown at the top of the reservation so the desk and housekeeping can
+                    see them.
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -903,7 +1103,11 @@ export function AddReservation({
                     <FormField
                       label="Estimated arrival time"
                       htmlFor="guest-arrival"
-                      hint={hotelCheckIn ? `Starts at the hotel check-in time (${hotelCheckIn}).` : 'Optional.'}
+                      hint={
+                        hotelCheckIn
+                          ? `Starts at the hotel check-in time (${hotelCheckIn}).`
+                          : 'Optional.'
+                      }
                     >
                       <TimeField
                         id="guest-arrival"
@@ -918,16 +1122,24 @@ export function AddReservation({
                   <label className="flex items-center gap-2 text-sm font-medium">
                     <Checkbox
                       checked={guest.accessibility}
-                      onCheckedChange={(value) => setGuest({ ...guest, accessibility: value === true })}
+                      onCheckedChange={(value) =>
+                        setGuest({ ...guest, accessibility: value === true })
+                      }
                     />
                     Needs an accessible room
                   </label>
-                  <FormField label="Special requests" htmlFor="guest-requests" hint="Anything else the hotel should know.">
+                  <FormField
+                    label="Special requests"
+                    htmlFor="guest-requests"
+                    hint="Anything else the hotel should know."
+                  >
                     <Textarea
                       id="guest-requests"
                       maxLength={LIMITS.note}
                       value={guest.specialRequests}
-                      onChange={(event) => setGuest({ ...guest, specialRequests: event.target.value })}
+                      onChange={(event) =>
+                        setGuest({ ...guest, specialRequests: event.target.value })
+                      }
                     />
                   </FormField>
                 </CardContent>
@@ -940,7 +1152,9 @@ export function AddReservation({
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg">Payment</CardTitle>
-                  <p className="m-0 text-xs text-muted-foreground">Only the options this hotel has enabled are listed.</p>
+                  <p className="m-0 text-xs text-muted-foreground">
+                    Only the options this hotel has enabled are listed.
+                  </p>
                 </CardHeader>
                 <CardContent className="space-y-5">
                   <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-muted/60 px-4 py-3">
@@ -948,17 +1162,25 @@ export function AddReservation({
                       <p className="m-0 text-[10px] font-bold tracking-wide text-muted-foreground uppercase">
                         Amount to collect
                       </p>
-                      <p className="m-0 text-2xl font-extrabold tracking-tight">{total ? money(total) : '—'}</p>
+                      <p className="m-0 text-2xl font-extrabold tracking-tight">
+                        {total ? money(total) : '—'}
+                      </p>
                     </div>
                     <p className="m-0 text-xs text-muted-foreground">
                       {nights} night{nights === 1 ? '' : 's'} · {selectedType?.name}
                     </p>
                   </div>
 
-                  <div role="radiogroup" aria-label="Payment method" className="grid gap-3 sm:grid-cols-2">
+                  <div
+                    role="radiogroup"
+                    aria-label="Payment method"
+                    className="grid gap-3 sm:grid-cols-2"
+                  >
                     {(['pay_at_hotel', 'stripe', 'pokpay'] as const)
                       .filter((method) =>
-                        method === 'pay_at_hotel' ? paymentGateways?.payAtHotel : paymentGateways?.[method],
+                        method === 'pay_at_hotel'
+                          ? paymentGateways?.payAtHotel
+                          : paymentGateways?.[method],
                       )
                       .map((method) => (
                         <OptionCard
@@ -967,7 +1189,10 @@ export function AddReservation({
                           title={gatewayLabels[method].title}
                           badges={
                             method === 'pay_at_hotel' ? (
-                              <Badge variant="success" className="rounded-full px-2 py-0 text-[10px]">
+                              <Badge
+                                variant="success"
+                                className="rounded-full px-2 py-0 text-[10px]"
+                              >
                                 Confirmed now
                               </Badge>
                             ) : (
@@ -985,10 +1210,14 @@ export function AddReservation({
                         />
                       ))}
                   </div>
-                  {!paymentGateways?.payAtHotel && !paymentGateways?.stripe && !paymentGateways?.pokpay ? (
+                  {!paymentGateways?.payAtHotel &&
+                  !paymentGateways?.stripe &&
+                  !paymentGateways?.pokpay ? (
                     <Alert variant="warning">
                       <AlertTitle>No payment method is enabled</AlertTitle>
-                      <AlertDescription>Enable one in Settings before creating reservations here.</AlertDescription>
+                      <AlertDescription>
+                        Enable one in Settings before creating reservations here.
+                      </AlertDescription>
                     </Alert>
                   ) : null}
 
@@ -1015,8 +1244,14 @@ export function AddReservation({
                       <p className="m-0 font-bold">How the card payment works</p>
                       <ol className="m-0 list-decimal space-y-1 pl-5 text-foreground">
                         <li>The reservation is created and the room is held, but not confirmed.</li>
-                        <li>A secure {gateway === 'stripe' ? 'Stripe' : 'PokPay'} window opens for the guest to pay.</li>
-                        <li>This page watches the payment and confirms the reservation only when the provider says it is paid.</li>
+                        <li>
+                          A secure {gateway === 'stripe' ? 'Stripe' : 'PokPay'} window opens for the
+                          guest to pay.
+                        </li>
+                        <li>
+                          This page watches the payment and confirms the reservation only when the
+                          provider says it is paid.
+                        </li>
                       </ol>
                     </div>
                   ) : null}
@@ -1032,10 +1267,19 @@ export function AddReservation({
                     <SectionLabel>Stay</SectionLabel>
                     <DetailList
                       items={[
-                        { label: 'Dates', value: `${longDate(startsOn)} – ${longDate(endsOn)} (${nights} nights)` },
+                        {
+                          label: 'Dates',
+                          value: `${longDate(startsOn)} – ${longDate(endsOn)} (${nights} nights)`,
+                        },
                         { label: 'Room type', value: selectedType?.name },
-                        { label: 'Room', value: selectedRoom?.name ?? (showRoomPick ? 'Auto-assign' : null) },
-                        { label: 'Guests', value: `${adults} adult${adults === 1 ? '' : 's'}${children ? ` · ${children} child${children === 1 ? '' : 'ren'}` : ''}` },
+                        {
+                          label: 'Room',
+                          value: selectedRoom?.name ?? (showRoomPick ? 'Auto-assign' : null),
+                        },
+                        {
+                          label: 'Guests',
+                          value: `${adults} adult${adults === 1 ? '' : 's'}${children ? ` · ${children} child${children === 1 ? '' : 'ren'}` : ''}`,
+                        },
                       ]}
                     />
                   </div>
@@ -1048,7 +1292,13 @@ export function AddReservation({
                         { label: 'Phone', value: phoneToString(guest.phone) },
                         {
                           label: 'Address',
-                          value: [guest.streetAddress, guest.addressLine2, guest.city, guest.county, guest.postcode]
+                          value: [
+                            guest.streetAddress,
+                            guest.addressLine2,
+                            guest.city,
+                            guest.county,
+                            guest.postcode,
+                          ]
                             .map((part) => part.trim())
                             .filter(Boolean)
                             .join(', '),
@@ -1091,7 +1341,11 @@ export function AddReservation({
           <ActionBar className="justify-between">
             <div className="flex gap-2">
               {step > 0 ? (
-                <Button variant="ghost" onClick={() => setStep(step - 1)} disabled={create.isPending}>
+                <Button
+                  variant="ghost"
+                  onClick={() => setStep(step - 1)}
+                  disabled={create.isPending}
+                >
                   <ArrowLeft aria-hidden="true" /> Back
                 </Button>
               ) : (

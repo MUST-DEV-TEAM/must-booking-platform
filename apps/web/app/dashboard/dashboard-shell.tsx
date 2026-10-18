@@ -593,6 +593,7 @@ export function DashboardShell({
           canManagePhotos={hasCapability('photos.manage')}
           canViewCalendar={hasCapability('calendar.view')}
           canBlockCalendar={hasCapability('calendar.block')}
+          canCreateBooking={hasCapability('bookings.create')}
           canManageRates={hasCapability('rates.manage')}
           canManageInventorySource={role === 'OWNER' || role === 'ADMIN'}
           onNavigateSection={setSection}

@@ -13,6 +13,17 @@ afterEach(() => vi.unstubAllGlobals());
 describe('CalendarBoard permissions', () => {
   it('hides booking and block actions when the actor lacks their capabilities', async () => {
     const fetch = vi.fn(async (url: string) => {
+      if (url.includes('/booking-rules/evaluate'))
+        return new Response(
+          JSON.stringify({
+            today: '2026-10-18',
+            disabledDates: [],
+            minStayNights: null,
+            maxStayNights: null,
+            booking: { valid: false, errors: [] },
+            block: { valid: false, errors: [] },
+          }),
+        );
       if (url.includes('/bookings/board'))
         return new Response(JSON.stringify({ items: [], truncated: false }));
       if (url.endsWith('/room-types'))
@@ -47,7 +58,7 @@ describe('CalendarBoard permissions', () => {
     });
 
     expect(container.textContent).not.toContain('Add reservation');
-    expect(fetch.mock.calls.some(([url]) => url.includes('/availability-blocks'))).toBe(false);
+    expect(fetch.mock.calls.some(([url]) => url.includes('/availability-blocks'))).toBe(true);
     await act(async () => {
       const cell = container.querySelector<HTMLElement>('.cursor-cell')!;
       cell.getBoundingClientRect = () => ({

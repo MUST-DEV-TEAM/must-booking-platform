@@ -26,6 +26,31 @@ Local pricing resolves each night from a rate plan: nullable-date base rule, dat
 
 QuoteService creates a signed, session-bound snapshot (default 15 minutes) of scope, stay, selection, amount, nightly breakdown and normalized occupancy. Adults/children are primary; `guestCount` is a compatibility total. Validation checks expiry, signature, session binding and input consistency. Display-price caches are advisory and do not replace a quote or the final check.
 
+## Shared booking and block rules
+
+`apps/api/src/booking/booking-rules.ts` owns pure policy decisions. Quote validation, availability preflight, Clock minimum-stay projection and manual block validation call it; database inventory claims and reservation locks remain the final concurrency safeguards. The dashboard consumes evaluated results instead of reimplementing date or stay rules.
+
+| Rule | Applies to | Source | Error code |
+| --- | --- | --- | --- |
+| Valid dates; checkout after check-in | Guest, staff, block | Requested ISO dates; half-open nights | `INVALID_DATE`, `INVALID_RANGE` |
+| Start cannot be before today | Guest, staff, block | Property timezone, UTC fallback | `CHECK_IN_PAST`, `BLOCK_IN_PAST` |
+| Minimum stay, inclusive boundary | Guest, staff | Property minimum; stricter Clock arrival minimum when available | `MIN_STAY` |
+| Maximum stay, inclusive boundary | Guest, staff | Property maximum | `MAX_STAY` |
+| Advance-booking limit, inclusive boundary | Guest, staff | Property advance days | `ADVANCE_BOOKING_LIMIT` |
+| Same-day booking enabled and before cutoff | Guest only; staff exempt | Property timezone, enabled flag and cutoff time | `SAME_DAY_CLOSED` |
+| Published type and active physical room | Guest and staff, preserving existing creation safety gates | Scoped catalog facts | `ROOM_TYPE_NOT_AVAILABLE`, `ROOM_NOT_AVAILABLE` |
+| Adults plus children within occupancy | Guest, staff | Room type max occupancy | `CAPACITY_EXCEEDED` |
+| Inventory remains available | Guest, staff | Local room stock and pooled stock in MIXED; Clock availability result | `NO_AVAILABILITY` |
+| No assigned-room reservation overlap | Guest, staff | Active reservations; checkout equal to next check-in is permitted | `BOOKING_CONFLICT` |
+| No applicable availability-block overlap | Guest, staff | Property/type/room blocks | `AVAILABILITY_BLOCK_CONFLICT` |
+| Block never cancels a reservation | Block | Overlapping scoped reservations | `BLOCK_RESERVATION_CONFLICT` (HTTP 409) |
+
+Pooled room-type reservations may overlap while inventory remains. Assigned-room reservations conflict directly. Existing overlapping manual blocks remain permitted; booking against them is rejected. Blocks do not apply booking stay length, advance, occupancy or publication rules. Local room types have no persisted individual minimum/maximum fields (G183); property rules apply. Unassigned pooled reservations are displayed in a ?Not assigned? calendar lane instead of being assigned to a physical room by the UI.
+
+### Dashboard rule evaluation contract
+
+`GET /tenants/:tenantId/properties/:propertyId/booking-rules/evaluate` is read-only, requires `calendar.view`, and is tenant/property scoped. Optional query fields: `roomTypeId`, `roomId`, `startsOn`, `endsOn`, `adults` (default 1), `children` (default 0), `from`, `to` (disabled-day projection, at most 92 days). Response: `{ today, minStayNights, maxStayNights, pastDateMessage, disabledDates, booking: { valid, errors: [{ code, message }] }, block: { valid, errors: [{ code, message }] } }`. Without a selected range both results have `valid: false` and empty errors. Failed inventory verification returns `AVAILABILITY_UNVERIFIED` and disables booking. Physical-room actions under `ROOM_TYPE_ONLY` return `ROOM_ID_NOT_ALLOWED` and stay disabled (G184). Evaluation does not reserve stock; existing create routes revalidate and enforce their own capabilities. Manual block creation now rejects past or invalid ranges with HTTP 400. Reservation conflicts retain HTTP 409 and the existing conflict payload. No public endpoint or WordPress change is needed for this dashboard-only contract.
+
 ## Creation and payment lifecycle
 
 ```mermaid

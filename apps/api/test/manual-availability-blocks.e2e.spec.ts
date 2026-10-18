@@ -157,6 +157,22 @@ describe('manual availability blocks', () => {
         .set('Cookie', cookie)
         .send(body);
 
+    await block({ startsOn: '2000-01-01', endsOn: '2000-01-02', all: true })
+      .expect(400)
+      .expect((response) => expect(response.body.code).toBe('BLOCK_IN_PAST'));
+    await block({ startsOn: '2036-10-12', endsOn: '2036-10-10', all: true })
+      .expect(400)
+      .expect((response) => expect(response.body.code).toBe('INVALID_RANGE'));
+    await request(app.getHttpServer())
+      .get(`${propertyUrl}/booking-rules/evaluate`)
+      .set('Cookie', cookie)
+      .query({ startsOn: '2000-01-01', endsOn: '2000-01-02' })
+      .expect(200)
+      .expect((response) => {
+        expect(response.body.booking.errors[0].code).toBe('CHECK_IN_PAST');
+        expect(response.body.block.errors[0].code).toBe('BLOCK_IN_PAST');
+      });
+
     await block({
       startsOn: '2036-10-10',
       endsOn: '2036-10-12',
