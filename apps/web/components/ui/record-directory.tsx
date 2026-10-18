@@ -32,6 +32,7 @@ export function RecordDirectory<T extends { id: string }>({
   onRow,
   actions,
   emptyTitle = 'No records yet',
+  exportable = true,
 }: {
   rows: readonly T[];
   columns: readonly RecordColumn<T>[];
@@ -39,6 +40,8 @@ export function RecordDirectory<T extends { id: string }>({
   onRow: (row: T) => void;
   actions?: (row: T) => RecordAction[];
   emptyTitle?: string;
+  /** Disable local exports when the caller requires a dedicated audited export flow. */
+  exportable?: boolean;
 }) {
   const defaults = Object.fromEntries(columns.slice(1).map((c) => [c.id, true]));
   const preferences = useTablePreferences(storageKey, defaults);
@@ -114,34 +117,38 @@ export function RecordDirectory<T extends { id: string }>({
           compact={preferences.density === 'compact'}
           onToggle={preferences.toggleDensity}
         />
-        <Button variant="outline" size="sm" onClick={() => download(filtered)}>
-          Export CSV
-        </Button>
+        {exportable ? (
+          <Button variant="outline" size="sm" onClick={() => download(filtered)}>
+            Export CSV
+          </Button>
+        ) : null}
       </div>
       {error ? (
         <p role="alert" className="m-0 text-sm text-destructive">
           {error}
         </p>
       ) : null}
-      <BulkBar count={selectedRows.length} onClear={() => setSelected([])}>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(csv(selectedRows));
-              setError('');
-            } catch {
-              setError('Copy could not complete. Use Export selected.');
-            }
-          }}
-        >
-          Copy selected
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => download(selectedRows)}>
-          Export selected
-        </Button>
-      </BulkBar>
+      {exportable ? (
+        <BulkBar count={selectedRows.length} onClear={() => setSelected([])}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(csv(selectedRows));
+                setError('');
+              } catch {
+                setError('Copy could not complete. Use Export selected.');
+              }
+            }}
+          >
+            Copy selected
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => download(selectedRows)}>
+            Export selected
+          </Button>
+        </BulkBar>
+      ) : null}
       {!rows.length ? (
         <EmptyPanel title={emptyTitle} />
       ) : !filtered.length ? (
@@ -152,19 +159,23 @@ export function RecordDirectory<T extends { id: string }>({
             <Table className="group" data-density={preferences.density}>
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
-                  <TableHead>
-                    <Checkbox
-                      aria-label="Select all visible records"
-                      checked={visible.length > 0 && visible.every((r) => selected.includes(r.id))}
-                      onCheckedChange={(checked) =>
-                        setSelected(
-                          checked
-                            ? [...new Set([...selected, ...visible.map((r) => r.id)])]
-                            : selected.filter((id) => !visible.some((r) => r.id === id)),
-                        )
-                      }
-                    />
-                  </TableHead>
+                  {exportable ? (
+                    <TableHead>
+                      <Checkbox
+                        aria-label="Select all visible records"
+                        checked={
+                          visible.length > 0 && visible.every((r) => selected.includes(r.id))
+                        }
+                        onCheckedChange={(checked) =>
+                          setSelected(
+                            checked
+                              ? [...new Set([...selected, ...visible.map((r) => r.id)])]
+                              : selected.filter((id) => !visible.some((r) => r.id === id)),
+                          )
+                        }
+                      />
+                    </TableHead>
+                  ) : null}
                   {shown.map((c) => (
                     <SortableTableHead
                       key={c.id}
@@ -190,17 +201,19 @@ export function RecordDirectory<T extends { id: string }>({
               <TableBody>
                 {visible.map((r) => (
                   <TableRow key={r.id} onClick={() => onRow(r)} className="cursor-pointer">
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <Checkbox
-                        aria-label={`Select ${columns[0].value(r)}`}
-                        checked={selected.includes(r.id)}
-                        onCheckedChange={(checked) =>
-                          setSelected(
-                            checked ? [...selected, r.id] : selected.filter((id) => id !== r.id),
-                          )
-                        }
-                      />
-                    </TableCell>
+                    {exportable ? (
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          aria-label={`Select ${columns[0].value(r)}`}
+                          checked={selected.includes(r.id)}
+                          onCheckedChange={(checked) =>
+                            setSelected(
+                              checked ? [...selected, r.id] : selected.filter((id) => id !== r.id),
+                            )
+                          }
+                        />
+                      </TableCell>
+                    ) : null}
                     {shown.map((c, i) => (
                       <TableCell
                         key={c.id}

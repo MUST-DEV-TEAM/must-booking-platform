@@ -1,123 +1,205 @@
 // @vitest-environment jsdom
-import 'vitest-canvas-mock';
 import { act, createElement } from 'react';
-import { createRoot } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { dashboardNavigation } from './dashboard-shell';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { DashboardReports } from './reports';
 import { DashboardQueryProvider } from './query-provider';
-
+import type { ReportWorkspace } from '../../lib/report-types';
+vi.mock('../../components/ui/echart', () => ({
+  EChart: () => createElement('div', { 'data-testid': 'chart' }),
+}));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-
-class ResizeObserver {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-
-beforeEach(() => vi.stubGlobal('ResizeObserver', ResizeObserver));
-
-const report = {
-  from: '2026-08-01',
-  to: '2026-08-02',
-  occupancy: [
-    { date: '2026-08-01', bookedRoomNights: 3, availableRoomNights: 4, rate: 75.1234 },
-    { date: '2026-08-02', bookedRoomNights: 0, availableRoomNights: 0, rate: null },
-  ],
-  bookingsCreated: [
-    { date: '2026-08-01', count: 2 },
-    { date: '2026-08-02', count: 1 },
-  ],
-  revenue: [
-    { date: '2026-08-01', currency: 'EUR', amount: '125.50' },
-    { date: '2026-08-01', currency: 'USD', amount: '10.00' },
-    { date: '2026-08-02', currency: 'EUR', amount: '0' },
-    { date: '2026-08-02', currency: 'USD', amount: '15.25' },
-  ],
-  cancellationRate: { createdBookings: 3, cancelledBookings: 1, rate: 33.3333 },
-};
-
-afterEach(() => vi.unstubAllGlobals());
-
-describe('DashboardReports', () => {
-  it('keeps Reports available to owners and admins, not property staff', () => {
-    expect(dashboardNavigation('t', 'p', 'OWNER').some((item) => item.label === 'Reports')).toBe(
-      true,
-    );
-    expect(dashboardNavigation('t', 'p', 'ADMIN').some((item) => item.label === 'Reports')).toBe(
-      true,
-    );
-    expect(dashboardNavigation('t', 'p', 'STAFF').some((item) => item.label === 'Reports')).toBe(
-      false,
-    );
-  });
-
-  it('renders fetched report data and refetches with the selected date range', async () => {
-    const fetch = vi.fn(async () => new Response(JSON.stringify(report)));
-    vi.stubGlobal('fetch', fetch);
-    const { container, root } = await mount();
-
-    expect(fetch).toHaveBeenCalledWith('/api/tenants/t/properties/p/reports', {
-      credentials: 'include',
-    });
-    expect(container.textContent).toContain('75.1%');
-    expect(container.textContent).toContain('33.3%');
-    expect(container.textContent).toContain('EUR 125.50');
-    expect(container.textContent).toContain('USD 15.25');
-    expect(container.querySelectorAll('.echart')).toHaveLength(4);
-
-    await value(container.querySelector('[aria-label="Report start date"]')!, '2026-07-01');
-    await value(container.querySelector('[aria-label="Report end date"]')!, '2026-07-31');
-    await submit(container);
-
-    expect(fetch).toHaveBeenLastCalledWith(
-      '/api/tenants/t/properties/p/reports?from=2026-07-01&to=2026-07-31',
-      { credentials: 'include' },
-    );
-    await act(async () => root.unmount());
-  });
+let root: Root | undefined;
+afterEach(async () => {
+  if (root) await act(async () => root!.unmount());
+  root = undefined;
+  document.body.replaceChildren();
+  localStorage.clear();
+  vi.unstubAllGlobals();
 });
-
-async function mount() {
-  const container = document.createElement('div');
-  const root = createRoot(container);
-  await act(async () => {
-    root.render(
+const fixture = (): ReportWorkspace => ({
+  meta: {
+    tenantId: 't',
+    propertyId: 'p',
+    source: 'LOCAL',
+    timezone: 'Europe/Tirane',
+    today: '2026-10-19',
+    asOf: '2026-10-19T12:00:00Z',
+    fingerprint: 'f'.repeat(64),
+    basis: 'MUST locally stored records',
+    moneyVisible: true,
+    staffActivityVisible: false,
+    hasData: true,
+    warnings: ['Current on-the-books state'],
+    dateBases: {},
+    coverage: { supplyKnown: true, unknownNightlyBookings: 0, invalidStays: 0 },
+    definitions: [],
+    drilldowns: { bookings: { report: 'reservations', rowBasis: 'created' } },
+  },
+  query: { report: 'overview', from: '2026-10-01', to: '2026-10-19', page: 1, pageSize: 25 },
+  summary: {
+    bookings: 3,
+    cancelled: 1,
+    occupancy: 75.1,
+    soldNights: 3,
+    arrivals: 1,
+    departures: 0,
+    financial: [
+      {
+        currency: 'EUR',
+        roomRevenue: '125.50',
+        collected: '100.00',
+        refunded: '0.00',
+        netCollected: '100.00',
+        adr: '41.83',
+        revpar: '31.38',
+        outstanding: '25.50',
+        collectionRate: 80,
+      },
+    ],
+  },
+  series: [{ id: 'day', date: '2026-10-01', bookings: 3, currency: 'EUR', roomRevenue: '125.50' }],
+  seriesColumns: [
+    { key: 'date', label: 'Period', type: 'date' },
+    { key: 'bookings', label: 'Bookings created', type: 'number' },
+    { key: 'roomRevenue', label: 'Room revenue', type: 'money', money: true },
+  ],
+  columns: [
+    { key: 'reference', label: 'Reservation', type: 'text' },
+    { key: 'status', label: 'Status', type: 'text' },
+  ],
+  rows: [{ id: 'b1', reference: 'Test reservation', status: 'CONFIRMED' }],
+  pagination: { page: 1, pageSize: 25, total: 1, pages: 1 },
+  comparison: null,
+  facets: {
+    roomTypes: [],
+    rooms: [],
+    ratePlans: [],
+    currencies: ['EUR'],
+    sources: ['DIRECT', 'WEBSITE', 'UNKNOWN'],
+    bookingMode: 'ROOM_TYPE_ONLY',
+  },
+});
+async function mount(data = fixture(), status = 200) {
+  const fetch = vi.fn(async (url: string) => {
+    if (url.endsWith('/views')) return new Response('{"views":[]}');
+    if (url.endsWith('/exports'))
+      return new Response(JSON.stringify({ content: '{}', rowCount: 0 }), { status: 409 });
+    const u = new URL(url, 'http://test');
+    const next = structuredClone(data);
+    Object.assign(next.query, Object.fromEntries(u.searchParams));
+    return new Response(JSON.stringify(status === 200 ? next : { message: 'Unavailable' }), {
+      status,
+      headers: { 'x-request-id': 'test-report-ref' },
+    });
+  });
+  vi.stubGlobal('fetch', fetch);
+  const host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
       createElement(
         DashboardQueryProvider,
         undefined,
         createElement(DashboardReports, { tenantId: 't', propertyId: 'p' }),
       ),
+    ),
+  );
+  return { host, fetch };
+}
+async function rendered(text: string) {
+  await vi.waitFor(async () => {
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 5));
+    });
+    expect(document.body.textContent).toContain(text);
+  });
+}
+async function click(text: string) {
+  const button = [...document.querySelectorAll('button')].find((b) => b.textContent === text)!;
+  expect(button).toBeTruthy();
+  await act(async () => button.click());
+}
+async function value(label: string, value: string) {
+  const input = document.querySelector(`[aria-label="${label}"]`) as HTMLInputElement;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+describe('Reports workspace', () => {
+  it('renders exact currencies, date basis, last-updated and tab-specific queries', async () => {
+    const { fetch } = await mount();
+    await rendered('EUR 125.50');
+    expect(document.body.textContent).toContain('75.1%');
+    expect(document.body.textContent).toContain('Europe/Tirane');
+    expect(document.body.textContent).toContain('Last updated');
+    await click('Reservations');
+    await rendered('Reservation date basis');
+    expect(fetch.mock.calls.some(([url]) => url.includes('report=reservations'))).toBe(true);
+    expect(document.body.textContent).not.toContain('Staff activity');
+  });
+  it('validates the date range then refetches the exact selected dates', async () => {
+    const { fetch } = await mount();
+    await rendered('EUR 125.50');
+    await value('Report start date', '2026-11-01');
+    await value('Report end date', '2026-10-01');
+    await click('Apply range');
+    await rendered('Choose a valid range');
+    await value('Report start date', '2026-09-01');
+    await value('Report end date', '2026-09-30');
+    await click('Apply range');
+    await vi.waitFor(() =>
+      expect(fetch.mock.calls.some(([url]) => url.includes('from=2026-09-01&to=2026-09-30'))).toBe(
+        true,
+      ),
     );
   });
-  await act(async () => {
-    await settleQueries();
+  it('shows Clock Unknown and incomplete/no-comparison evidence without money', async () => {
+    const data = fixture();
+    data.meta.source = 'CLOCK';
+    data.meta.basis = 'Synced from Clock';
+    data.meta.moneyVisible = false;
+    data.meta.coverage = { supplyKnown: false, unknownNightlyBookings: 2, invalidStays: 0 };
+    delete data.summary.financial;
+    data.summary.occupancy = null;
+    data.comparison = {
+      from: '2025-10-01',
+      to: '2025-10-19',
+      hasData: false,
+      summary: null,
+      series: [],
+    };
+    await mount(data);
+    await rendered('Incomplete stored evidence');
+    expect(document.body.textContent).toContain('Inventory is Unknown');
+    expect(document.body.textContent).toContain('No data for comparison');
+    expect(document.body.textContent).not.toContain('EUR 125.50');
   });
-  return { container, root };
-}
-
-async function value(element: Element, next: string) {
-  await act(async () => {
-    const input = element as HTMLInputElement;
-    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!.set!.call(input, next);
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    await Promise.resolve();
+  it('uses shared empty, denied and error-with-reference states', async () => {
+    await mount(fixture(), 403);
+    await rendered('Report access unavailable');
+    expect(document.body.textContent).toContain('test-report-ref');
+    expect(document.body.textContent).not.toContain('EUR 125.50');
   });
-}
-
-async function submit(container: HTMLElement) {
-  await act(async () => {
-    container
-      .querySelector('form')!
-      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    await settleQueries();
+  it('shows genuine empty reports and an empty saved-view directory', async () => {
+    const data = fixture();
+    data.meta.hasData = false;
+    data.rows = [];
+    data.pagination.total = 0;
+    await mount(data);
+    await rendered('No recorded activity for this report');
+    await click('Custom views');
+    await rendered('No saved views yet');
+    expect(document.body.textContent).not.toContain('Export CSV');
   });
-}
-
-async function settleQueries() {
-  for (let iteration = 0; iteration < 4; iteration += 1) {
-    await new Promise((resolve) => window.setTimeout(resolve, 20));
-    await Promise.resolve();
-  }
-}
+  it('retains the report when an audited print request fails', async () => {
+    await mount();
+    await rendered('EUR 125.50');
+    await click('Print report');
+    await rendered('Action unavailable');
+    expect(document.querySelector('[data-report-print]')).toBeNull();
+    expect(document.body.textContent).toContain('EUR 125.50');
+  });
+});
