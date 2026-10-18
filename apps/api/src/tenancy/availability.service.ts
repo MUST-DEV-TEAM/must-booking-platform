@@ -2,6 +2,7 @@ import { applicableRestrictions } from './inventory-restrictions.repository';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -46,6 +47,9 @@ type RoomAvailabilityInput = {
 export const BLOCK_REASONS = [
   'maintenance',
   'renovation',
+  'safety_inspection',
+  'deep_cleaning',
+  'out_of_service',
   'owner_use',
   'house_use',
   'event',
@@ -162,7 +166,7 @@ export class AvailabilityService {
           WHEN EXISTS (
             SELECT 1
             FROM availability_blocks ab
-            WHERE ab.tenant_id = ${tenantId}::uuid
+            WHERE ab.lifecycle IN ('Active','Scheduled') AND ab.tenant_id = ${tenantId}::uuid
               AND ab.property_id = ${propertyId}::uuid
               AND ab.starts_on < ${input.endsOn}::date
               AND ab.ends_on > ${input.startsOn}::date
@@ -288,7 +292,7 @@ export class AvailabilityService {
             )
             AND NOT EXISTS (
               SELECT 1 FROM availability_blocks ab
-              WHERE ab.tenant_id = ${tenantId}::uuid AND ab.property_id = ${propertyId}::uuid
+              WHERE ab.lifecycle IN ('Active','Scheduled') AND ab.tenant_id = ${tenantId}::uuid AND ab.property_id = ${propertyId}::uuid
                 AND ab.starts_on <= month_days.stays_on AND ab.ends_on > month_days.stays_on
                 AND (
                   ab.blocks_all
@@ -327,7 +331,7 @@ export class AvailabilityService {
         SELECT month_days.stays_on::text AS date,
           (CASE WHEN EXISTS (
             SELECT 1 FROM availability_blocks ab
-            WHERE ab.tenant_id = ${tenantId}::uuid AND ab.property_id = ${propertyId}::uuid
+            WHERE ab.lifecycle IN ('Active','Scheduled') AND ab.tenant_id = ${tenantId}::uuid AND ab.property_id = ${propertyId}::uuid
               AND ab.starts_on <= month_days.stays_on AND ab.ends_on > month_days.stays_on
               AND (
                 ab.blocks_all
@@ -531,9 +535,13 @@ export class AvailabilityService {
     const id = randomUUID();
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const properties = await tx.$queryRaw<Array<{ timezone: string | null }>>`
-        SELECT timezone FROM properties WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
+        SELECT timezone FROM properties WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid FOR UPDATE
       `;
       if (!properties[0]) throw new NotFoundException('Property was not found.');
+      const external = await tx.$queryRaw<
+        Array<{ id: string }>
+      >`SELECT pc.id FROM property_integration_connections pc JOIN integration_connections c ON c.tenant_id=pc.tenant_id AND c.id=pc.connection_id WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.enabled AND pc.kind='PMS' AND c.provider='CLOCK_PMS'`;
+      if (external.length) throw new ForbiddenException('Clock inventory is read-only.');
       const rangeRules = evaluateBookingRules({
         channel: 'block',
         startsOn: input.startsOn,
@@ -632,7 +640,7 @@ export class AvailabilityService {
       (tx) =>
         tx.$queryRaw<AvailabilityBlock[]>`
         SELECT ab.id, ab.starts_on::text AS "startsOn", ab.ends_on::text AS "endsOn",
-          ab.blocks_all AS "all", ab.reason, ab.note, ab.reference, u.email AS "createdByEmail",
+          ab.blocks_all AS "all", ab.reason, ab.note, ab.reference, ab.inventory_reference AS "inventoryReference", ab.version, ab.lifecycle, u.email AS "createdByEmail",
           COALESCE(ARRAY_AGG(DISTINCT abrt.room_type_id::text) FILTER (WHERE abrt.room_type_id IS NOT NULL), ARRAY[]::text[]) AS "roomTypeIds",
           COALESCE(ARRAY_AGG(DISTINCT abr.room_id::text) FILTER (WHERE abr.room_id IS NOT NULL), ARRAY[]::text[]) AS "roomIds"
         FROM availability_blocks ab
@@ -641,7 +649,7 @@ export class AvailabilityService {
         LEFT JOIN availability_block_rooms abr
           ON abr.tenant_id = ab.tenant_id AND abr.property_id = ab.property_id AND abr.block_id = ab.id
         LEFT JOIN users u ON u.id = ab.created_by_user_id
-        WHERE ab.tenant_id = ${tenantId}::uuid AND ab.property_id = ${propertyId}::uuid
+        WHERE ab.tenant_id = ${tenantId}::uuid AND ab.property_id = ${propertyId}::uuid AND ab.lifecycle IN ('Active','Scheduled')
         GROUP BY ab.id, u.email
         ORDER BY ab.starts_on ASC, ab.created_at ASC, ab.id ASC
       `,
@@ -655,10 +663,15 @@ export class AvailabilityService {
     actorUserId: string,
   ): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
+      const external = await tx.$queryRaw<
+        Array<{ id: string }>
+      >`SELECT pc.id FROM property_integration_connections pc JOIN integration_connections c ON c.tenant_id=pc.tenant_id AND c.id=pc.connection_id WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.enabled AND pc.kind='PMS' AND c.provider='CLOCK_PMS'`;
+      if (external.length) throw new ForbiddenException('Clock inventory is read-only.');
       const removed = await tx.$queryRaw<Array<{ id: string }>>`
         DELETE FROM availability_blocks
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
-          AND id = ${availabilityBlockId}::uuid
+          AND id = ${availabilityBlockId}::uuid AND inventory_reference IS NULL
         RETURNING id
       `;
       if (!removed[0]) throw new NotFoundException('Availability block not found.');
@@ -679,6 +692,7 @@ export class AvailabilityService {
     propertyId: string,
     input: InventoryBookedUnitsInput,
   ): Promise<boolean> {
+    await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
     const rules = await this.restrictionCheck(tx, tenantId, propertyId, input.roomTypeId, input);
     if (!rules.valid) return false;
     return this.adjustBookedUnits(tx, tenantId, propertyId, input, 1);
@@ -690,6 +704,7 @@ export class AvailabilityService {
     propertyId: string,
     roomTypeId: string,
   ): Promise<void> {
+    await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
     const inventoryLockKey = `${tenantId}:${propertyId}:${roomTypeId}`;
     await tx.$executeRaw`
       SELECT pg_advisory_xact_lock(hashtextextended(${inventoryLockKey}, 0))
@@ -714,6 +729,7 @@ export class AvailabilityService {
     propertyId: string,
     roomId: string,
   ): Promise<void> {
+    await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
     const roomLockKey = `${tenantId}:${propertyId}:${roomId}`;
     await tx.$executeRaw`
       SELECT pg_advisory_xact_lock(hashtextextended(${roomLockKey}, 0))
@@ -924,7 +940,7 @@ export class AvailabilityService {
         AND NOT EXISTS (
           SELECT 1
           FROM availability_blocks ab
-          WHERE ab.tenant_id = ${tenantId}::uuid
+          WHERE ab.lifecycle IN ('Active','Scheduled') AND ab.tenant_id = ${tenantId}::uuid
             AND ab.property_id = ${propertyId}::uuid
             AND ab.starts_on < ${input.endsOn}::date
             AND ab.ends_on > ${input.startsOn}::date
@@ -967,7 +983,7 @@ export class AvailabilityService {
       SELECT EXISTS (
         SELECT 1
         FROM availability_blocks ab
-        WHERE ab.tenant_id = ${tenantId}::uuid
+        WHERE ab.lifecycle IN ('Active','Scheduled') AND ab.tenant_id = ${tenantId}::uuid
           AND ab.property_id = ${propertyId}::uuid
           AND ab.starts_on < ${range.endsOn}::date
           AND ab.ends_on > ${range.startsOn}::date

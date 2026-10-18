@@ -412,7 +412,7 @@ export class OverviewService {
          SELECT r.id AS "roomId", r.name AS "roomName", rt.name AS "roomTypeName",
            CASE WHEN EXISTS (
              SELECT 1 FROM availability_blocks ab CROSS JOIN property_today
-             WHERE ab.tenant_id = r.tenant_id AND ab.property_id = r.property_id
+             WHERE ab.lifecycle IN ('Active','Scheduled') AND ab.tenant_id = r.tenant_id AND ab.property_id = r.property_id
                AND ab.starts_on <= property_today.date AND ab.ends_on > property_today.date
                AND (
                  ab.blocks_all
@@ -446,7 +446,7 @@ export class OverviewService {
              )
              OR EXISTS (
                SELECT 1 FROM availability_blocks ab
-               WHERE ab.tenant_id = r.tenant_id AND ab.property_id = r.property_id
+               WHERE ab.lifecycle IN ('Active','Scheduled') AND ab.tenant_id = r.tenant_id AND ab.property_id = r.property_id
                  AND ab.starts_on <= property_today.date AND ab.ends_on > property_today.date
                  AND (
                    ab.blocks_all

@@ -147,6 +147,7 @@ export class AvailabilityController {
 
   @Get('availability-blocks')
   @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('calendar.view')
   listAvailabilityBlocks(@Req() request: TenantPropertyRequest) {
     return this.availability.listAvailabilityBlocks(
       request.tenantContext.tenantId,

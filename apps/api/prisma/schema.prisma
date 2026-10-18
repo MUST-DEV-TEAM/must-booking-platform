@@ -589,6 +589,16 @@ model AvailabilityBlock {
   reference       String? @db.VarChar(80)
   createdByUserId String? @map("created_by_user_id") @db.Uuid
 
+  title String @default("Manual block") @db.VarChar(200)
+  lifecycle String @default("Active")
+  responsibleStaffId String? @map("responsible_staff_id") @db.Uuid
+  endReason String? @map("end_reason") @db.VarChar(4000)
+  version Int @default(1)
+  scopeLocked Boolean @default(true) @map("scope_locked")
+  updatedByUserId String? @map("updated_by_user_id") @db.Uuid
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  inventoryReference String? @map("inventory_reference") @db.VarChar(40)
+
   @@unique([tenantId, propertyId, id])
   @@index([tenantId, propertyId, startsOn, endsOn])
   @@map("availability_blocks")
@@ -1267,4 +1277,23 @@ model InventoryRestrictionOperation {
   property Property @relation(fields: [tenantId,propertyId], references: [tenantId,id], onDelete: Restrict)
   @@id([tenantId,propertyId,idempotencyKey])
   @@map("inventory_restriction_operations")
+}
+
+model InventoryBlockOperation {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ idempotencyKey String @map("idempotency_key") @db.VarChar(128)
+ requestHash String @map("request_hash") @db.Char(64)
+ response Json
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+ @@id([tenantId, propertyId, idempotencyKey])
+ @@map("inventory_block_operations")
+}
+model InventoryBlockSequence {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ year Int
+ lastValue Int @map("last_value")
+ @@id([tenantId, propertyId, year])
+ @@map("inventory_block_sequences")
 }

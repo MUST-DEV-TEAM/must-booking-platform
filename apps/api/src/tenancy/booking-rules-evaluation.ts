@@ -84,7 +84,7 @@ export async function evaluatePropertyBookingRules(
       `;
       blocks = await tx.$queryRaw<RuleConflict[]>`
         SELECT ab.starts_on::text AS "startsOn", ab.ends_on::text AS "endsOn", 'block'::text AS kind
-        FROM availability_blocks ab WHERE ab.tenant_id = ${tenantId}::uuid AND ab.property_id = ${propertyId}::uuid
+        FROM availability_blocks ab WHERE ab.lifecycle IN ('Active','Scheduled') AND ab.tenant_id = ${tenantId}::uuid AND ab.property_id = ${propertyId}::uuid
           AND ab.starts_on < ${endsOn}::date AND ab.ends_on > ${startsOn}::date
           AND (ab.blocks_all OR EXISTS (SELECT 1 FROM availability_block_room_types t
             WHERE t.tenant_id = ab.tenant_id AND t.property_id = ab.property_id AND t.block_id = ab.id AND t.room_type_id = ${roomTypeId}::uuid)

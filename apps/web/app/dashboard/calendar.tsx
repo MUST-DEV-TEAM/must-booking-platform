@@ -31,6 +31,9 @@ export type AvailabilityBlock = {
   note?: string | null;
   reference?: string | null;
   createdByEmail?: string | null;
+  inventoryReference?: string | null;
+  version?: number;
+  lifecycle?: string;
 };
 // A single grid row: one physical room when the property tracks individual
 // rooms (INDIVIDUAL_ROOM_ONLY/MIXED), or one room type when it doesn't

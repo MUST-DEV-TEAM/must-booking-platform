@@ -107,6 +107,7 @@ describe('property booking rules evaluation', () => {
   it('keeps reservation conflicts as 409 and never cancels or changes a reservation', async () => {
     const db = database([
       [{ timezone: 'UTC' }],
+      [], // No external PMS assignment.
       [{ id: 'booking', startsOn: '2035-10-19', endsOn: '2035-10-21' }],
     ]);
     const service = new AvailabilityService(db as never, {} as never, {} as never, {} as never);

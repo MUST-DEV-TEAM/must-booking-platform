@@ -16,22 +16,40 @@ import {
 } from '../../components/ui/dialog';
 import { FormField } from '../../components/ui/form-field';
 import { Input, Textarea } from '../../components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../components/ui/select';
 
 export const BLOCK_REASON_LABELS = {
   maintenance: 'Maintenance',
   renovation: 'Renovation',
+  safety_inspection: 'Safety inspection',
+  deep_cleaning: 'Deep cleaning',
+  out_of_service: 'Out of service',
   owner_use: 'Owner use',
-  house_use: 'House use',
+  house_use: 'House or staff use',
   event: 'Event',
   other: 'Other',
 } as const;
 export type BlockReason = keyof typeof BLOCK_REASON_LABELS;
 
-type Conflict = { id: string; externalReference: string; startsOn: string; endsOn: string; guestName: string | null; roomName: string | null };
+type Conflict = {
+  id: string;
+  externalReference: string;
+  startsOn: string;
+  endsOn: string;
+  guestName: string | null;
+  roomName: string | null;
+};
 
 const longDate = (iso: string) =>
-  new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${iso}T00:00:00`));
+  new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(
+    new Date(`${iso}T00:00:00`),
+  );
 
 /**
  * Takes a room (or a whole room type) out of sale for some nights, with a reason. A block never
@@ -63,24 +81,36 @@ export function BlockDialog({
   const create = useMutation({
     mutationFn: async () => {
       setConflicts([]);
-      const response = await fetch(`/api/tenants/${tenantId}/properties/${propertyId}/availability-blocks`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          startsOn,
-          endsOn,
-          all: false,
-          ...(target.roomId ? { roomIds: [target.roomId] } : { roomTypeIds: [target.roomTypeId] }),
-          reason,
-          reference: reference.trim() || undefined,
-          note: note.trim() || undefined,
-        }),
-      });
+      const response = await fetch(
+        `/api/tenants/${tenantId}/properties/${propertyId}/availability-blocks`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            startsOn,
+            endsOn,
+            all: false,
+            ...(target.roomId
+              ? { roomIds: [target.roomId] }
+              : { roomTypeIds: [target.roomTypeId] }),
+            reason,
+            reference: reference.trim() || undefined,
+            note: note.trim() || undefined,
+          }),
+        },
+      );
       if (response.ok) return;
-      const body = (await response.json().catch(() => null)) as { message?: string | string[]; conflicts?: Conflict[] } | null;
+      const body = (await response.json().catch(() => null)) as {
+        message?: string | string[];
+        conflicts?: Conflict[];
+      } | null;
       if (body?.conflicts?.length) setConflicts(body.conflicts);
-      throw new Error(Array.isArray(body?.message) ? body.message.join(' ') : (body?.message ?? 'The block could not be saved.'));
+      throw new Error(
+        Array.isArray(body?.message)
+          ? body.message.join(' ')
+          : (body?.message ?? 'The block could not be saved.'),
+      );
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
@@ -91,7 +121,10 @@ export function BlockDialog({
     },
   });
 
-  const nights = Math.round((new Date(`${endsOn}T00:00:00Z`).getTime() - new Date(`${startsOn}T00:00:00Z`).getTime()) / 86_400_000);
+  const nights = Math.round(
+    (new Date(`${endsOn}T00:00:00Z`).getTime() - new Date(`${startsOn}T00:00:00Z`).getTime()) /
+      86_400_000,
+  );
 
   return (
     <Dialog
@@ -135,11 +168,25 @@ export function BlockDialog({
             </SelectContent>
           </Select>
         </FormField>
-        <FormField label="Reference" htmlFor="block-reference" hint="Optional, for example a work-order number.">
-          <Input id="block-reference" maxLength={80} value={reference} onChange={(event) => setReference(event.target.value)} />
+        <FormField
+          label="Reference"
+          htmlFor="block-reference"
+          hint="Optional, for example a work-order number."
+        >
+          <Input
+            id="block-reference"
+            maxLength={80}
+            value={reference}
+            onChange={(event) => setReference(event.target.value)}
+          />
         </FormField>
         <FormField label="Internal note" htmlFor="block-note" hint="Optional. Only staff see it.">
-          <Textarea id="block-note" maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} />
+          <Textarea
+            id="block-note"
+            maxLength={500}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
         </FormField>
         {create.isError ? (
           <Alert variant="destructive">
@@ -151,7 +198,8 @@ export function BlockDialog({
                   {conflicts.map((conflict) => (
                     <li key={conflict.id}>
                       {conflict.externalReference} · {conflict.guestName ?? 'Guest'}
-                      {conflict.roomName ? ` · ${conflict.roomName}` : ''} · {longDate(conflict.startsOn)} – {longDate(conflict.endsOn)}
+                      {conflict.roomName ? ` · ${conflict.roomName}` : ''} ·{' '}
+                      {longDate(conflict.startsOn)} – {longDate(conflict.endsOn)}
                     </li>
                   ))}
                 </ul>

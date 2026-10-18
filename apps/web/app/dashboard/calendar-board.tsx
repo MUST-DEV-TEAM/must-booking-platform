@@ -977,14 +977,31 @@ export function CalendarBoard({
         }}
         title="This block"
         description="Rooms covered by it can be sold again once it is removed."
-        confirmLabel="Remove block"
+        confirmLabel={openBlock?.inventoryReference ? 'End or cancel block' : 'Remove block'}
+        reasonLabel={openBlock?.inventoryReference ? 'Reason for reopening' : undefined}
+        reasonRequired={Boolean(openBlock?.inventoryReference)}
         destructive
-        onConfirm={async () => {
+        onConfirm={async (endReason) => {
           if (!openBlock) return;
-          const response = await fetch(`${base}/availability-blocks/${openBlock.id}`, {
-            method: 'DELETE',
-            credentials: 'include',
-          });
+          const isV2 = Boolean(openBlock.inventoryReference);
+          const response = await fetch(
+            isV2
+              ? `${base}/inventory/blocks/${openBlock.id}/${openBlock.startsOn > today ? 'cancel' : 'end'}`
+              : `${base}/availability-blocks/${openBlock.id}`,
+            {
+              method: isV2 ? 'POST' : 'DELETE',
+              credentials: 'include',
+              ...(isV2
+                ? {
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Idempotency-Key': crypto.randomUUID(),
+                    },
+                    body: JSON.stringify({ version: openBlock.version, endReason }),
+                  }
+                : {}),
+            },
+          );
           if (!response.ok) throw new Error('The block could not be removed.');
           await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
         }}

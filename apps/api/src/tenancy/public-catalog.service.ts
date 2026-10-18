@@ -309,7 +309,7 @@ export class PublicCatalogService {
           AND NOT EXISTS (
             SELECT 1
             FROM availability_blocks ab
-            WHERE ab.tenant_id = ${tenantId}::uuid
+            WHERE ab.lifecycle IN ('Active','Scheduled') AND ab.tenant_id = ${tenantId}::uuid
               AND ab.property_id = ${propertyId}::uuid
               AND ab.starts_on < ${range.endsOn}::date
               AND ab.ends_on > ${range.startsOn}::date
