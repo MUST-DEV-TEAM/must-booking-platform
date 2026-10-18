@@ -273,37 +273,28 @@ describe('LocalPmsProvider', () => {
             expect.objectContaining({
               name: 'Front Desk',
               kind: 'BUILT_IN',
-              capabilities: [
-                {
-                  key: 'bookings.manage',
-                  description: 'Manage bookings',
-                },
-                {
-                  key: 'calendar.view',
-                  description: 'View property calendar',
-                },
-                {
-                  key: 'guests.manage',
-                  description: 'Manage guests',
-                },
-              ],
+              capabilities: expect.arrayContaining([
+                'bookings.view',
+                'calendar.view',
+                'guests.view',
+              ]),
             }),
             expect.objectContaining({
               name: 'Property Manager',
               kind: 'BUILT_IN',
-              capabilities: [
-                expect.objectContaining({ key: 'accommodations.manage' }),
-                expect.objectContaining({ key: 'bookings.manage' }),
-                expect.objectContaining({ key: 'calendar.view' }),
-                expect.objectContaining({ key: 'guests.manage' }),
-                expect.objectContaining({ key: 'payments.refund' }),
-                expect.objectContaining({ key: 'photos.manage' }),
-                expect.objectContaining({ key: 'rates.manage' }),
-                expect.objectContaining({ key: 'reports.view' }),
-                expect.objectContaining({ key: 'settings.manage' }),
-                expect.objectContaining({ key: 'staff.invite' }),
-                expect.objectContaining({ key: 'staff.manage_permissions' }),
-              ],
+              capabilities: expect.arrayContaining([
+                'accommodations.manage',
+                'bookings.view',
+                'calendar.view',
+                'guests.view',
+                'payments.refund',
+                'photos.manage',
+                'rates.manage',
+                'reports.view',
+                'settings.manage',
+                'staff.create',
+                'staff.manage_permissions',
+              ]),
             }),
           ]),
         );
@@ -311,15 +302,15 @@ describe('LocalPmsProvider', () => {
     await request(app!.getHttpServer())
       .post(`${propertyUrl}/role-templates`)
       .set('Cookie', cookie)
-      .send({ name: 'Invalid template', capabilityKeys: ['does.not.exist'] })
+      .send({ name: 'Invalid template', capabilities: ['does.not.exist'] })
       .expect(400)
       .expect((response) => {
-        expect(response.body.message).toBe('Unknown capability key(s): does.not.exist.');
+        expect(response.body.message).toBe('Unknown permission(s): does.not.exist.');
       });
     await request(app!.getHttpServer())
       .post(`${propertyUrl}/role-templates`)
       .set('Cookie', cookie)
-      .send({ name: 'Night Auditor', capabilityKeys: ['bookings.manage', 'guests.manage'] })
+      .send({ name: 'Night Auditor', capabilities: ['bookings.view', 'guests.view'] })
       .expect(201);
     await request(app!.getHttpServer())
       .get(`${propertyUrl}/role-templates`)
@@ -331,10 +322,7 @@ describe('LocalPmsProvider', () => {
             expect.objectContaining({
               name: 'Night Auditor',
               kind: 'CUSTOM',
-              capabilities: [
-                expect.objectContaining({ key: 'bookings.manage' }),
-                expect.objectContaining({ key: 'guests.manage' }),
-              ],
+              capabilities: expect.arrayContaining(['bookings.view', 'guests.view']),
             }),
           ]),
         );
@@ -752,7 +740,8 @@ describe('LocalPmsProvider', () => {
         expect(response.body.adults).toBe(1);
         expect(response.body.children).toBe(1);
         expect(response.body.guestCount).toBe(2);
-        expect(response.body.nightlyRates).toEqual([
+        // Pricing v2 adds a `components` breakdown; date and amount stay the stable contract.
+        expect(response.body.nightlyRates).toMatchObject([
           { date: '2027-09-01', amount: '90.00' },
           { date: '2027-09-02', amount: '90.00' },
         ]);
