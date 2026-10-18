@@ -1,7 +1,7 @@
 'use client';
 
 import { Check, ChevronDown, Search, X } from 'lucide-react';
-import { useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import { Badge } from './badge';
 import { Popover, PopoverContent, PopoverTrigger } from './popover';
@@ -14,6 +14,7 @@ export type MultiSelectOption = {
   group?: string;
   disabled?: boolean;
   disabledReason?: string;
+  icon?: ReactNode;
 };
 
 /** A searchable, grouped multi-select with removable chips and checkbox options. */
@@ -27,6 +28,8 @@ export function MultiSelect({
   disabled = false,
   searchable,
   emptyText = 'No options match your search.',
+  onCreateOption,
+  footer,
 }: {
   options: readonly MultiSelectOption[];
   value: string[];
@@ -39,9 +42,13 @@ export function MultiSelect({
   /** Defaults to true when there are more than eight options. */
   searchable?: boolean;
   emptyText?: string;
+  onCreateOption?: (name: string) => Promise<void>;
+  footer?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string>();
   const controlId = useId();
   const searchRef = useRef<HTMLInputElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -181,7 +188,10 @@ export function MultiSelect({
           {checked ? <Check className="size-3 stroke-[3]" /> : null}
         </span>
         <span className="min-w-0 flex-1 space-y-0.5">
-          <span className="block text-sm font-medium">{option.label}</span>
+          <span className="flex items-center gap-2 text-sm font-medium">
+            {option.icon}
+            {option.label}
+          </span>
           {option.description ? (
             <span className="block text-xs text-muted-foreground">{option.description}</span>
           ) : null}
@@ -224,6 +234,7 @@ export function MultiSelect({
                   variant="secondary"
                   className="max-w-full min-w-0 shrink gap-1 px-1.5 py-0.5 text-[10px] font-medium"
                 >
+                  {option.icon}
                   <span className="min-w-0 truncate">{option.label}</span>
                   <button
                     type="button"
@@ -336,6 +347,39 @@ export function MultiSelect({
                 })}
               </div>
             )}
+            {onCreateOption &&
+            query.trim() &&
+            !options.some(
+              (option) => option.label.toLocaleLowerCase() === query.trim().toLocaleLowerCase(),
+            ) ? (
+              <button
+                type="button"
+                disabled={creating || disabled}
+                className="w-full rounded-md bg-transparent p-2 text-left text-sm font-medium text-primary hover:bg-accent disabled:opacity-50"
+                onClick={async () => {
+                  setCreating(true);
+                  setCreateError(undefined);
+                  try {
+                    await onCreateOption(query.trim());
+                    setQuery('');
+                  } catch (error) {
+                    setCreateError(
+                      error instanceof Error ? error.message : 'Unable to create option.',
+                    );
+                  } finally {
+                    setCreating(false);
+                  }
+                }}
+              >
+                {creating ? 'Creating…' : `Create '${query.trim()}'`}
+              </button>
+            ) : null}
+            {createError ? (
+              <p role="alert" className="m-0 px-2 text-xs text-destructive">
+                {createError}
+              </p>
+            ) : null}
+            {!query.trim() ? footer : null}
           </div>
         </PopoverContent>
       </Popover>

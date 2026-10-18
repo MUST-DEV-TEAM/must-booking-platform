@@ -492,7 +492,7 @@ export function RoomManagement({
   });
 
   const createAmenityMutation = useMutation({
-    mutationFn: async ({ name, icon }: { name: string; icon: AmenityIcon }) => {
+    mutationFn: async ({ name, icon }: { name: string; icon: AmenityIcon | null }) => {
       requireAccommodationManagement();
       const response = await fetch(`${propertyUrl}/amenities`, {
         method: 'POST',
@@ -501,6 +501,7 @@ export function RoomManagement({
         body: JSON.stringify({ name, icon }),
       });
       if (!response.ok) throw new Error(await errorMessage(response, 'Unable to create amenity.'));
+      return (await response.json()) as Amenity;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: roomManagementQueryKey });
@@ -610,13 +611,11 @@ export function RoomManagement({
     setEditingRoom(room);
     setRoomDialogOpen(true);
   }
-  function toggleTypeAmenity(roomTypeId: string, amenityId: string) {
+  function setTypeAmenities(roomTypeId: string, amenityIds: string[]) {
     if (!canManageAccommodations) return;
-    const current = data.roomTypeAmenities[roomTypeId] ?? [];
-    const amenityIds = current.some((item) => item.id === amenityId)
-      ? current.filter((item) => item.id !== amenityId).map((item) => item.id)
-      : [...current.map((item) => item.id), amenityId];
-    toggleRoomTypeAmenityMutation.mutate({ roomTypeId, amenityIds });
+    return toggleRoomTypeAmenityMutation
+      .mutateAsync({ roomTypeId, amenityIds })
+      .then(() => undefined);
   }
 
   function fixReadiness(
@@ -643,32 +642,26 @@ export function RoomManagement({
       onNavigateSection?.('hotels');
     }
   }
-  function setRoomAmenities(roomId: string, amenityIds: string[]) {
+  async function setRoomAmenities(roomId: string, amenityIds: string[]) {
     if (!canManageAccommodations) return;
-    setRoomAmenitiesMutation.mutate({ roomId, amenityIds });
+    await setRoomAmenitiesMutation.mutateAsync({ roomId, amenityIds });
+    if (!amenityIds.length)
+      setCustomizingRoomAmenities((current) => ({ ...current, [roomId]: false }));
   }
   function customizeRoomAmenities(roomId: string, inherited: Amenity[]) {
     if (!canManageAccommodations) return;
     setCustomizingRoomAmenities((current) => ({ ...current, [roomId]: true }));
-    setRoomAmenities(
+    void setRoomAmenities(
       roomId,
       inherited.map((item) => item.id),
-    );
-  }
-  function toggleRoomAmenity(roomId: string, amenityId: string) {
-    if (!canManageAccommodations) return;
-    const current = data.roomAmenities[roomId] ?? [];
-    const amenityIds = current.some((item) => item.id === amenityId)
-      ? current.filter((item) => item.id !== amenityId).map((item) => item.id)
-      : [...current.map((item) => item.id), amenityId];
-    if (!amenityIds.length)
-      setCustomizingRoomAmenities((customizing) => ({ ...customizing, [roomId]: false }));
-    setRoomAmenities(roomId, amenityIds);
+    ).catch(() => setCustomizingRoomAmenities((current) => ({ ...current, [roomId]: false })));
   }
   function inheritRoomAmenities(roomId: string) {
     if (!canManageAccommodations) return;
     setCustomizingRoomAmenities((current) => ({ ...current, [roomId]: false }));
-    setRoomAmenities(roomId, []);
+    void setRoomAmenities(roomId, []).catch(() =>
+      setCustomizingRoomAmenities((current) => ({ ...current, [roomId]: true })),
+    );
   }
 
   if (propertiesQuery.isPending || (!!propertyId && roomManagementQuery.isPending))
@@ -732,7 +725,8 @@ export function RoomManagement({
             onEdit={editRoomType}
             onAddRoom={addRoom}
             onEditRoom={editRoom}
-            onToggleAmenity={toggleTypeAmenity}
+            onSetAmenities={setTypeAmenities}
+            onCreateAmenity={(name, icon) => createAmenityMutation.mutateAsync({ name, icon })}
           />
         ) : (
           <>
@@ -811,8 +805,9 @@ export function RoomManagement({
                 onManageAmenities={() => {
                   if (canManageAccommodations) setAmenitiesDialogOpen(true);
                 }}
-                onToggleRoomTypeAmenity={toggleTypeAmenity}
-                onToggleRoomAmenity={toggleRoomAmenity}
+                onSetRoomTypeAmenities={setTypeAmenities}
+                onCreateAmenity={(name, icon) => createAmenityMutation.mutateAsync({ name, icon })}
+                onSetRoomAmenities={setRoomAmenities}
                 onCustomizeRoomAmenities={customizeRoomAmenities}
                 onInheritRoomAmenities={inheritRoomAmenities}
                 onImportComplete={() => {
@@ -878,10 +873,8 @@ export function RoomManagement({
         open={amenitiesDialogOpen && canManageAccommodations}
         saving={createAmenityMutation.isPending}
         onOpenChange={setAmenitiesDialogOpen}
-        onCreate={(name, icon) =>
-          createAmenityMutation.mutateAsync({ name, icon }).then(() => undefined)
-        }
-        onDelete={(amenityId) => deleteAmenityMutation.mutate(amenityId)}
+        onCreate={(name, icon) => createAmenityMutation.mutateAsync({ name, icon })}
+        onDelete={(amenityId) => deleteAmenityMutation.mutateAsync(amenityId)}
       />
     </div>
   );

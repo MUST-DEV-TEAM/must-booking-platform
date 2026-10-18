@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { ImageIcon, Plus, Trash2 } from 'lucide-react';
+import { ImageIcon, Plus } from 'lucide-react';
 
-import { Badge } from '../../../components/ui/badge';
+import { AmenityMultiSelect } from '../../../components/ui/amenity-multi-select';
+import { amenitySelectOptions, suggestedAmenityOptions } from './amenity-select-options';
 import { Button } from '../../../components/ui/button';
 import {
   Dialog,
@@ -28,6 +29,7 @@ import {
   amenityIconLabel,
   amenityIcons,
   type Amenity,
+  type CreateAmenity,
   type AmenityIcon,
   type Room,
   type RoomCategory,
@@ -406,12 +408,11 @@ export function RoomEditorDialog({
   );
 }
 
-/** Dialog for creating and removing the property's existing amenity records. */
+/** Dialog for managing the property's reusable amenity catalog. */
 export function AmenitiesDialog({
   amenities,
   canManageAccommodations,
   open,
-  saving,
   onOpenChange,
   onCreate,
   onDelete,
@@ -421,139 +422,56 @@ export function AmenitiesDialog({
   open: boolean;
   saving: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (name: string, icon: AmenityIcon) => Promise<void>;
-  onDelete: (amenityId: string) => void;
+  onCreate: CreateAmenity;
+  onDelete: (amenityId: string) => void | Promise<void>;
 }) {
-  const [name, setName] = useState('');
   const [icon, setIcon] = useState<AmenityIcon>('WIFI');
-  const suggestions: Array<{ name: string; icon: AmenityIcon }> = [
-    { name: 'Hair dryer', icon: 'HAIR_DRYER' },
-    { name: 'Kettle and coffee', icon: 'KETTLE_COFFEE' },
-    { name: 'Minibar', icon: 'MINIBAR' },
-    { name: 'Balcony', icon: 'BALCONY' },
-    { name: 'Sea view', icon: 'SEA_VIEW' },
-    { name: 'Safe', icon: 'SAFE' },
-    { name: 'Bathrobe', icon: 'BATHROBE' },
-    { name: 'Crib', icon: 'CRIB' },
-    { name: 'Room service', icon: 'ROOM_SERVICE' },
-    { name: 'Pets allowed', icon: 'PETS_ALLOWED' },
-    { name: 'EV charging', icon: 'EV_CHARGING' },
-    { name: 'Smart TV', icon: 'SMART_TV' },
-  ];
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!name.trim()) return;
-    try {
-      await onCreate(name.trim(), icon);
-      setName('');
-      setIcon('WIFI');
-    } catch {
-      // The mutation reports the failure to the user.
-    }
-  }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[34rem]">
         <DialogHeader>
           <DialogTitle>Property amenities</DialogTitle>
           <DialogDescription>
-            Create amenities, then assign them to room types or rooms.
+            Create amenities in the search box, then assign them to room types or rooms. Remove a
+            chip and save to delete an unused property amenity.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-          <FormField label="Amenity name" htmlFor="amenity-name" required>
-            <Input
-              id="amenity-name"
-              required
-              disabled={!canManageAccommodations}
-              maxLength={100}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </FormField>
-          <FormField label="Icon" htmlFor="amenity-icon">
-            <Select
-              value={icon}
-              onValueChange={(value) => setIcon(value as AmenityIcon)}
-              disabled={!canManageAccommodations}
-            >
+        {canManageAccommodations ? (
+          <FormField label="Icon for a custom amenity" htmlFor="amenity-icon">
+            <Select value={icon} onValueChange={(value) => setIcon(value as AmenityIcon)}>
               <SelectTrigger id="amenity-icon" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {amenityIcons.map((item) => (
-                  <SelectItem key={item} value={item}>
-                    <span className="flex items-center gap-2">
-                      {(() => {
-                        const Icon = amenityIconCatalog[item].icon;
-                        return <Icon aria-hidden="true" className="size-4" />;
-                      })()}
-                      {amenityIconLabel(item)}
-                    </span>
-                  </SelectItem>
-                ))}
+                {amenityIcons.map((item) => {
+                  const Icon = amenityIconCatalog[item].icon;
+                  return (
+                    <SelectItem key={item} value={item}>
+                      <span className="flex items-center gap-2">
+                        <Icon aria-hidden="true" className="size-4" />
+                        {amenityIconLabel(item)}
+                      </span>
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </FormField>
-          {canManageAccommodations ? (
-            <Button type="submit" loading={saving}>
-              <Plus aria-hidden="true" /> Add
-            </Button>
-          ) : null}
-        </form>
-        <section aria-label="Suggested amenities" className="flex flex-col gap-2">
-          <h3 className="m-0 text-sm font-semibold">Suggested amenities</h3>
-          <div className="flex flex-wrap gap-2">
-            {suggestions.map((suggestion) => {
-              const Icon = amenityIconCatalog[suggestion.icon].icon;
-              const alreadyAdded = amenities.some(
-                (amenity) => amenity.name.toLowerCase() === suggestion.name.toLowerCase(),
-              );
-              return (
-                <Button
-                  key={suggestion.icon}
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={!canManageAccommodations || saving || alreadyAdded}
-                  onClick={() =>
-                    void onCreate(suggestion.name, suggestion.icon).catch(() => undefined)
-                  }
-                >
-                  <Icon aria-hidden="true" className="size-4" />
-                  {suggestion.name}
-                  {alreadyAdded ? ' · Added' : ''}
-                </Button>
-              );
-            })}
-          </div>
-        </section>
-        <ul className="m-0 flex flex-col gap-2 p-0">
-          {amenities.map((amenity) => (
-            <li
-              key={amenity.id}
-              className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
-            >
-              <span className="flex min-w-0 items-center gap-2">
-                <span className="truncate text-sm font-semibold">{amenity.name}</span>
-                <Badge variant="muted">
-                  {amenity.icon ? amenityIconLabel(amenity.icon) : 'No icon'}
-                </Badge>
-              </span>
-              {canManageAccommodations ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  aria-label={`Delete ${amenity.name}`}
-                  onClick={() => onDelete(amenity.id)}
-                >
-                  <Trash2 aria-hidden="true" /> Delete
-                </Button>
-              ) : null}
-            </li>
-          ))}
-        </ul>
+        ) : null}
+        <AmenityMultiSelect
+          options={amenitySelectOptions(amenities)}
+          value={amenities.map((item) => item.id)}
+          onChange={async (ids) => {
+            await Promise.all(
+              amenities.filter((item) => !ids.includes(item.id)).map((item) => onDelete(item.id)),
+            );
+          }}
+          readOnly={!canManageAccommodations}
+          suggestions={suggestedAmenityOptions}
+          onCreate={(name, suggestion) =>
+            onCreate(name, (suggestion as AmenityIcon) ?? icon).then((item) => item.id)
+          }
+        />
       </DialogContent>
     </Dialog>
   );

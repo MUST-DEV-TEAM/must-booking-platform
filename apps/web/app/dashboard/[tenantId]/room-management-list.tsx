@@ -111,8 +111,9 @@ export function RoomManagementLists({
   onSetRoomTypeStatus,
   onOpenCalendar,
   onManageAmenities,
-  onToggleRoomTypeAmenity,
-  onToggleRoomAmenity,
+  onCreateAmenity,
+  onSetRoomTypeAmenities,
+  onSetRoomAmenities,
   onCustomizeRoomAmenities,
   onInheritRoomAmenities,
   onImportComplete,
@@ -139,8 +140,9 @@ export function RoomManagementLists({
       { kind: 'room-type'; roomType: RoomType } | { kind: 'room'; room: Room; roomType: RoomType },
   ) => void;
   onManageAmenities: () => void;
-  onToggleRoomTypeAmenity: (roomTypeId: string, amenityId: string) => void;
-  onToggleRoomAmenity: (roomId: string, amenityId: string) => void;
+  onCreateAmenity?: import('./room-management-types').CreateAmenity;
+  onSetRoomTypeAmenities: (roomTypeId: string, amenityIds: string[]) => void | Promise<void>;
+  onSetRoomAmenities: (roomId: string, amenityIds: string[]) => void | Promise<void>;
   onCustomizeRoomAmenities: (roomId: string, inherited: Amenity[]) => void;
   onInheritRoomAmenities: (roomId: string) => void;
   onImportComplete: () => void;
@@ -1044,7 +1046,8 @@ export function RoomManagementLists({
             canManagePhotos={canManagePhotos}
             onAddRoom={onAddRoom}
             onEditRoom={onEditRoom}
-            onToggleAmenity={onToggleRoomTypeAmenity}
+            onSetAmenities={onSetRoomTypeAmenities}
+            onCreateAmenity={onCreateAmenity}
           />
         ) : null}
         {peek?.kind === 'room' ? (
@@ -1060,7 +1063,8 @@ export function RoomManagementLists({
               customizingRoomAmenities[peek.id] === true ||
               (data.roomAmenities[peek.id] ?? []).length > 0
             }
-            onToggleAmenity={onToggleRoomAmenity}
+            onSetAmenities={onSetRoomAmenities}
+            onCreateAmenity={onCreateAmenity}
             onToggleActive={(room, active) => onToggleRoomActive(peek.roomType, room, active)}
             onCustomize={onCustomizeRoomAmenities}
             onInherit={onInheritRoomAmenities}

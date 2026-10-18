@@ -12,7 +12,8 @@ import {
   CardHeader,
   CardTitle,
 } from '../../../components/ui/card';
-import { Checkbox } from '../../../components/ui/checkbox';
+import { AmenityMultiSelect } from '../../../components/ui/amenity-multi-select';
+import { amenitySelectOptions, suggestedAmenityOptions } from './amenity-select-options';
 import { EmptyPanel } from '../../../components/ui/state-panel';
 import { PageHeader } from '../../../components/ui/page-header';
 import { StatTile } from '../../../components/ui/stat-tile';
@@ -20,7 +21,14 @@ import { TabBar } from '../../../components/ui/tab-bar';
 import { amenityIconCatalog } from './amenity-icon-catalog';
 import { RoomTypeMainImageSelector } from './room-type-main-image-selector';
 import { RoomTypePhotoGallery } from './room-type-photo-gallery';
-import type { Amenity, Room, RoomManagementData, RoomType } from './room-management-types';
+import type {
+  Amenity,
+  AmenityIcon,
+  CreateAmenity,
+  Room,
+  RoomManagementData,
+  RoomType,
+} from './room-management-types';
 
 type DetailTab = 'overview' | 'rooms' | 'photos' | 'amenities';
 
@@ -37,7 +45,8 @@ export function RoomTypeDetail({
   onEdit,
   onAddRoom,
   onEditRoom,
-  onToggleAmenity,
+  onSetAmenities,
+  onCreateAmenity,
 }: {
   tenantId: string;
   propertyId: string;
@@ -50,7 +59,8 @@ export function RoomTypeDetail({
   onEdit: (roomType: RoomType) => void;
   onAddRoom: (roomType: RoomType) => void;
   onEditRoom: (roomType: RoomType, room: Room) => void;
-  onToggleAmenity: (roomTypeId: string, amenityId: string) => void;
+  onCreateAmenity?: CreateAmenity;
+  onSetAmenities: (roomTypeId: string, amenityIds: string[]) => void | Promise<void>;
 }) {
   const [tab, setTab] = useState<DetailTab>(initialTab);
   const rooms = data.rooms[roomType.id] ?? [];
@@ -244,30 +254,19 @@ export function RoomTypeDetail({
             <CardDescription>Features shown with this room type.</CardDescription>
           </CardHeader>
           <CardContent>
-            {data.amenities.length ? (
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {data.amenities.map((amenity) => (
-                  <label
-                    key={amenity.id}
-                    className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
-                  >
-                    {canManageAccommodations ? (
-                      <Checkbox
-                        checked={amenities.some((item) => item.id === amenity.id)}
-                        onCheckedChange={() => onToggleAmenity(roomType.id, amenity.id)}
-                        aria-label={amenity.name}
-                      />
-                    ) : null}
-                    <AmenityBadge amenity={amenity} />
-                  </label>
-                ))}
-              </div>
-            ) : (
-              <EmptyPanel
-                title="No property amenities"
-                description="Add amenities in the accommodation list first."
-              />
-            )}
+            <AmenityMultiSelect
+              options={amenitySelectOptions(data.amenities)}
+              value={amenities.map((item) => item.id)}
+              onChange={(ids) => onSetAmenities(roomType.id, ids)}
+              readOnly={!canManageAccommodations}
+              suggestions={suggestedAmenityOptions}
+              onCreate={
+                onCreateAmenity
+                  ? (name, icon) =>
+                      onCreateAmenity(name, (icon as AmenityIcon) ?? null).then((item) => item.id)
+                  : undefined
+              }
+            />
           </CardContent>
         </Card>
       ) : null}

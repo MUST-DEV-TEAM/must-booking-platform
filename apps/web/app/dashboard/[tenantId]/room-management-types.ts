@@ -5,6 +5,7 @@ export type Property = { id: string; name: string };
 export { amenityIcons, amenityIconLabel };
 export type { AmenityIcon };
 export type Amenity = { id: string; name: string; icon: AmenityIcon | null };
+export type CreateAmenity = (name: string, icon: AmenityIcon | null) => Promise<Amenity>;
 export type Room = {
   id: string;
   name: string;

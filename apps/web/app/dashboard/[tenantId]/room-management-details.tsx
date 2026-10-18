@@ -7,7 +7,8 @@ import type { LucideIcon } from 'lucide-react';
 import { Badge } from '../../../components/ui/badge';
 import { Button } from '../../../components/ui/button';
 import { Card, CardContent } from '../../../components/ui/card';
-import { Checkbox } from '../../../components/ui/checkbox';
+import { AmenityMultiSelect } from '../../../components/ui/amenity-multi-select';
+import { amenitySelectOptions, suggestedAmenityOptions } from './amenity-select-options';
 import { TabBar } from '../../../components/ui/tab-bar';
 import { Switch } from '../../../components/ui/switch';
 import {
@@ -17,7 +18,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../../../components/ui/dropdown-menu';
-import type { Amenity, Room, RoomManagementData, RoomType } from './room-management-types';
+import type {
+  Amenity,
+  AmenityIcon,
+  CreateAmenity,
+  Room,
+  RoomManagementData,
+  RoomType,
+} from './room-management-types';
 import { amenityIconCatalog } from './amenity-icon-catalog';
 import { RoomTypePhotoGallery } from './room-type-photo-gallery';
 
@@ -178,7 +186,8 @@ export function RoomTypePeek({
   canManagePhotos,
   onAddRoom,
   onEditRoom,
-  onToggleAmenity,
+  onSetAmenities,
+  onCreateAmenity,
 }: {
   data: RoomManagementData;
   roomType: RoomType;
@@ -186,7 +195,8 @@ export function RoomTypePeek({
   canManagePhotos: boolean;
   onAddRoom: (roomType: RoomType) => void;
   onEditRoom: (roomType: RoomType, room: Room) => void;
-  onToggleAmenity: (roomTypeId: string, amenityId: string) => void;
+  onCreateAmenity?: CreateAmenity;
+  onSetAmenities: (roomTypeId: string, amenityIds: string[]) => void | Promise<void>;
 }) {
   const assigned = data.roomTypeAmenities[roomType.id] ?? [];
   const rooms = data.rooms[roomType.id] ?? [];
@@ -267,30 +277,19 @@ export function RoomTypePeek({
       <Card className="gap-3 py-4">
         <CardContent className="flex flex-col gap-3 px-4">
           <h3 className="m-0 text-sm font-bold">Amenities</h3>
-          {assigned.length ? (
-            <div className="flex flex-wrap gap-2">
-              {assigned.map((item) => (
-                <Badge key={item.id} variant="muted">
-                  {item.name}
-                </Badge>
-              ))}
-            </div>
-          ) : (
-            <p className="m-0 text-sm text-muted-foreground">No amenities selected.</p>
-          )}
-          {canManageAccommodations ? (
-            <div className="flex flex-col gap-2 border-t pt-3">
-              {data.amenities.map((amenity) => (
-                <label key={amenity.id} className="flex items-center gap-2 text-sm">
-                  <Checkbox
-                    checked={assigned.some((item) => item.id === amenity.id)}
-                    onCheckedChange={() => onToggleAmenity(roomType.id, amenity.id)}
-                  />
-                  {amenity.name}
-                </label>
-              ))}
-            </div>
-          ) : null}
+          <AmenityMultiSelect
+            options={amenitySelectOptions(data.amenities)}
+            value={assigned.map((item) => item.id)}
+            onChange={(ids) => onSetAmenities(roomType.id, ids)}
+            readOnly={!canManageAccommodations}
+            suggestions={suggestedAmenityOptions}
+            onCreate={
+              onCreateAmenity
+                ? (name, icon) =>
+                    onCreateAmenity(name, (icon as AmenityIcon) ?? null).then((item) => item.id)
+                : undefined
+            }
+          />
         </CardContent>
       </Card>
       <Card className="gap-3 py-4">
@@ -344,7 +343,8 @@ export function RoomPeek({
   customizing,
   canManageAccommodations,
   canManagePhotos,
-  onToggleAmenity,
+  onSetAmenities,
+  onCreateAmenity,
   onCustomize,
   onInherit,
   onToggleActive,
@@ -357,7 +357,8 @@ export function RoomPeek({
   customizing: boolean;
   canManageAccommodations: boolean;
   canManagePhotos: boolean;
-  onToggleAmenity: (roomId: string, amenityId: string) => void;
+  onCreateAmenity?: CreateAmenity;
+  onSetAmenities: (roomId: string, amenityIds: string[]) => void | Promise<void>;
   onCustomize: (roomId: string, inherited: Amenity[]) => void;
   onInherit: (roomId: string) => void;
   onToggleActive: (room: Room, active: boolean) => void;
@@ -478,41 +479,33 @@ export function RoomPeek({
                   ? 'This room has its own amenity selection.'
                   : `Using the amenities assigned to ${roomType.name}.`}
               </p>
-              <div className="flex flex-wrap gap-2">
-                {effective.map((item) => (
-                  <Badge key={item.id} variant="muted">
-                    {item.name}
-                  </Badge>
-                ))}
-                {effective.length === 0 ? (
-                  <span className="text-sm text-muted-foreground">No amenities selected.</span>
-                ) : null}
-              </div>
-              {canManageAccommodations && customizing ? (
-                <>
+              <AmenityMultiSelect
+                options={amenitySelectOptions(data.amenities)}
+                value={effective.map((item) => item.id)}
+                onChange={(ids) => onSetAmenities(room.id, ids)}
+                readOnly={!canManageAccommodations || !customizing}
+                suggestions={suggestedAmenityOptions}
+                onCreate={
+                  onCreateAmenity
+                    ? (name, icon) =>
+                        onCreateAmenity(name, (icon as AmenityIcon) ?? null).then((item) => item.id)
+                    : undefined
+                }
+              />
+              {canManageAccommodations ? (
+                customizing ? (
                   <Button variant="outline" size="sm" onClick={() => onInherit(room.id)}>
-                    Inherit room type amenities
+                    Use room type amenities
                   </Button>
-                  <div className="flex flex-col gap-2 border-t pt-3">
-                    {data.amenities.map((amenity) => (
-                      <label key={amenity.id} className="flex items-center gap-2 text-sm">
-                        <Checkbox
-                          checked={custom.some((item) => item.id === amenity.id)}
-                          onCheckedChange={() => onToggleAmenity(room.id, amenity.id)}
-                        />
-                        {amenity.name}
-                      </label>
-                    ))}
-                  </div>
-                </>
-              ) : canManageAccommodations ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onCustomize(room.id, data.roomTypeAmenities[roomType.id] ?? [])}
-                >
-                  Customize amenities
-                </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onCustomize(room.id, data.roomTypeAmenities[roomType.id] ?? [])}
+                  >
+                    Customize amenities
+                  </Button>
+                )
               ) : null}
             </CardContent>
           </Card>

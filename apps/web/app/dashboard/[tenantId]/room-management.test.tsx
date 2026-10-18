@@ -338,6 +338,13 @@ describe('RoomManagement', () => {
     expect(manageAmenities).toBeDefined();
     await act(async () => (manageAmenities as HTMLButtonElement).click());
     await act(async () => {
+      const control = document.body.querySelector<HTMLElement>(
+        '[role="combobox"][aria-label="Amenities"]',
+      );
+      if (!control) throw new Error('Amenity selector has not opened yet.');
+      control.click();
+    });
+    await act(async () => {
       await vi.waitFor(() => {
         if (!document.body.textContent?.includes('Suggested amenities'))
           throw new Error('Amenity dialog has not opened yet.');
