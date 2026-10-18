@@ -6,6 +6,7 @@ import { LoaderCircle } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 
 import { EChart, type ChartOption } from './echart';
+import { ReportDefinitions } from './report-definitions';
 import styles from './reports.module.css';
 
 type PropertyReports = {
@@ -100,6 +101,7 @@ export function DashboardReports({
             PERFORMANCE REPORTING
           </Text>
           <Heading>Reports</Heading>
+          <ReportDefinitions tenantId={tenantId} propertyId={propertyId} />
           <Text tone="secondary">
             Occupancy, booking activity, and payment revenue from {reports.from} to {reports.to}.
           </Text>
