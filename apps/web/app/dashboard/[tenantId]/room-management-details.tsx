@@ -6,6 +6,7 @@ import type { LucideIcon } from 'lucide-react';
 
 import { Badge } from '../../../components/ui/badge';
 import { Button } from '../../../components/ui/button';
+import { PrimaryPhotoBadge } from '../../../components/ui/photo-primary';
 import { Card, CardContent } from '../../../components/ui/card';
 import { AmenityMultiSelect } from '../../../components/ui/amenity-multi-select';
 import { amenitySelectOptions, suggestedAmenityOptions } from './amenity-select-options';
@@ -261,9 +262,7 @@ export function RoomTypePeek({
                       className="size-full object-cover"
                     />
                     {photo.isPrimary ? (
-                      <Badge className="absolute top-1 left-1" variant="success">
-                        Main
-                      </Badge>
+                      <PrimaryPhotoBadge className="absolute top-1 left-1" />
                     ) : null}
                   </div>
                 ))}
@@ -405,12 +404,16 @@ export function RoomPeek({
               {images.length ? (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   {images.map((image, index) => (
-                    <img
-                      key={image.id}
-                      src={image.url}
-                      alt={`Room photo ${index + 1}`}
-                      className="aspect-[4/3] size-full rounded-md object-cover"
-                    />
+                    <div key={image.id} className="relative">
+                      <img
+                        src={image.url}
+                        alt={`Room photo ${index + 1}`}
+                        className="aspect-[4/3] size-full rounded-md object-cover"
+                      />
+                      {image.isPrimary ? (
+                        <PrimaryPhotoBadge className="absolute top-1 left-1" />
+                      ) : null}
+                    </div>
                   ))}
                 </div>
               ) : (

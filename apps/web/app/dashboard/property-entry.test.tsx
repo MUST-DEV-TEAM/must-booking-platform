@@ -43,6 +43,7 @@ async function mount(
   properties: Array<{ id: string; name: string }>,
   role: 'OWNER' | 'STAFF' = 'STAFF',
 ) {
+  window.history.replaceState({}, '', '/');
   const fetch = vi.fn((url: string) => {
     if (url === '/api/auth/session')
       return Promise.resolve(

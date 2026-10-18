@@ -250,7 +250,7 @@ describe('RoomTypePhotoGallery', () => {
   it('selects a primary photo', async () => {
     const fetchMock = vi.fn(async () => responseFor(200));
     const { container, root } = await renderGallery(twoImages, fetchMock);
-    await click(container, 'Set photo 2 as primary');
+    await click(container, 'Set photo 2 as primary photo');
     await act(async () =>
       vi.waitFor(() =>
         expect(fetchMock).toHaveBeenCalledWith(

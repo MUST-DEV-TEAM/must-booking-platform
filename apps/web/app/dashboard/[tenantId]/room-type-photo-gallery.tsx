@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, ImagePlus, Images, Star, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ImagePlus, Images, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, DragEvent } from 'react';
 import { toast } from 'sonner';
@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { Alert, AlertDescription } from '../../../components/ui/alert';
 import { Badge } from '../../../components/ui/badge';
 import { Button } from '../../../components/ui/button';
+import { PrimaryPhotoBadge, PrimaryPhotoButton } from '../../../components/ui/photo-primary';
 import {
   Card,
   CardContent,
@@ -326,12 +327,13 @@ export function RoomTypePhotoGallery({
             aria-label="Room type photos in use"
           >
             {inheritedImages.map((image, index) => (
-              <div key={image.id} className="overflow-hidden rounded-md border">
+              <div key={image.id} className="relative overflow-hidden rounded-md border">
                 <img
                   src={image.url}
                   alt={`Room type photo ${index + 1}`}
                   className="aspect-[4/3] size-full object-cover"
                 />
+                {image.isPrimary ? <PrimaryPhotoBadge className="absolute top-2 left-2" /> : null}
               </div>
             ))}
           </div>
@@ -416,29 +418,16 @@ export function RoomTypePhotoGallery({
                     alt={`Room photo ${index + 1}`}
                     className="size-full object-cover"
                   />
-                  {image.isPrimary ? (
-                    <Badge className="absolute top-2 left-2" variant="success">
-                      <Star aria-hidden="true" fill="currentColor" /> Primary
-                    </Badge>
-                  ) : null}
+                  {image.isPrimary ? <PrimaryPhotoBadge className="absolute top-2 left-2" /> : null}
                 </div>
                 <CardContent className="flex flex-col gap-2 p-3">
                   <div className="flex flex-wrap items-center gap-1">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={image.isPrimary ? 'secondary' : 'outline'}
-                      aria-label={
-                        image.isPrimary
-                          ? `Photo ${index + 1} is primary`
-                          : `Set photo ${index + 1} as primary`
-                      }
-                      disabled={image.isPrimary || setPrimaryMutation.isPending}
-                      onClick={() => setPrimaryMutation.mutate(image.id)}
-                    >
-                      <Star aria-hidden="true" fill={image.isPrimary ? 'currentColor' : 'none'} />
-                      {image.isPrimary ? 'Primary' : 'Set primary'}
-                    </Button>
+                    <PrimaryPhotoButton
+                      primary={image.isPrimary}
+                      photoNumber={index + 1}
+                      pending={setPrimaryMutation.isPending}
+                      onSelect={() => setPrimaryMutation.mutate(image.id)}
+                    />
                     <Button
                       type="button"
                       variant="ghost"
