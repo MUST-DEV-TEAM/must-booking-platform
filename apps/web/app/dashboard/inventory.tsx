@@ -34,6 +34,7 @@ import {
   type CatalogItem,
   type StaffChoice,
 } from './inventory-types';
+import { InventoryStock } from './inventory-stock';
 import { InventoryEditor } from './inventory-editor';
 import { InventoryPreview } from './inventory-preview';
 import { InventorySheet, type InventoryAction } from './inventory-sheet';
@@ -136,8 +137,12 @@ export function InventorySection({
     enabled: canView && tab === 'conflicts' && data.data?.restrictions.source === 'CLOCK_PMS',
     queryFn: () => inventoryRequest<{ reason: string }>(`${base}/conflicts`),
   });
-  const refresh = () =>
-    client.invalidateQueries({ queryKey: ['dashboard', 'inventory', tenantId, propertyId] });
+  const refresh = async () => {
+    await Promise.all([
+      client.invalidateQueries({ queryKey: ['dashboard', 'inventory', tenantId, propertyId] }),
+      client.invalidateQueries({ queryKey: ['dashboard', 'inventory-stock', base] }),
+    ]);
+  };
   if (permissions.isPending) return <ListSkeleton />;
   if (permissions.error)
     return (
@@ -350,6 +355,7 @@ export function InventorySection({
         onSelect={chooseTab}
         tabs={[
           { id: 'overview', label: 'Overview' },
+          { id: 'stock', label: 'Stock' },
           {
             id: 'restrictions',
             label: 'Restrictions',
@@ -381,6 +387,7 @@ export function InventorySection({
           </AlertDescription>
         </Alert>
       ) : null}
+      {tab === 'stock' ? <InventoryStock base={base} canWrite={canWrite} /> : null}
       {tab === 'overview' ? (
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

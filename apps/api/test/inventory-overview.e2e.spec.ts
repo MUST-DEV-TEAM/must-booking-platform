@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -115,6 +116,7 @@ describe('Inventory overview I3', () => {
       new Date(Date.parse(today) + n * 86400000).toISOString().slice(0, 10);
     await request(app.getHttpServer())
       .put(`${root}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn: today, endsOn: add(30), availableUnits: 3 })
       .expect(204);

@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 
 import { INestApplication } from '@nestjs/common';
@@ -115,6 +116,7 @@ describe('Milestone 10 individual-room booking integration', () => {
 
     await request(app.getHttpServer())
       .put(`${pooled.url}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ ...pooledDates, roomTypeId: pooled.standard.id, availableUnits: 3 })
       .expect(204);
@@ -238,6 +240,7 @@ describe('Milestone 10 individual-room booking integration', () => {
     const pooledBlockDates = { startsOn: '2040-09-13', endsOn: '2040-09-15' };
     await request(app.getHttpServer())
       .put(`${pooled.url}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ ...pooledBlockDates, roomTypeId: pooled.standard.id, availableUnits: 3 })
       .expect(204);

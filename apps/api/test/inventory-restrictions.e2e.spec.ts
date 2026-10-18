@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { QuoteService } from '../src/booking/quote.service';
 import { AvailabilityService } from '../src/tenancy/availability.service';
 import { TenantDatabaseService } from '../src/tenancy/tenant-database.service';
@@ -108,6 +109,7 @@ describe('Inventory restrictions I1', () => {
       .expect(200);
     await request(app.getHttpServer())
       .put(`${root}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn: '2035-11-01', endsOn: '2035-12-01', availableUnits: 2 })
       .expect(204);

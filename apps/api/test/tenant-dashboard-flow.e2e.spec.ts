@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 
 import { INestApplication } from '@nestjs/common';
@@ -127,16 +128,19 @@ describe('tenant dashboard end-to-end flow', () => {
       .expect(201);
     await request(app.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', ownerCookie)
       .send({ roomTypeId, startsOn: today, endsOn: dateFromToday(1), availableUnits: 2 })
       .expect(204);
     await request(app.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', ownerCookie)
       .send({ roomTypeId, startsOn, endsOn, availableUnits: 2 })
       .expect(204);
     await request(app.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', ownerCookie)
       .send({ roomTypeId, startsOn: staffStartsOn, endsOn: staffEndsOn, availableUnits: 1 })
       .expect(204);
@@ -253,7 +257,9 @@ describe('tenant dashboard end-to-end flow', () => {
     const bookingsOnlyTemplate = templates.body.find(
       (template: { name: string }) => template.name === templateName,
     ) as { id?: string; capabilities?: string[] } | undefined;
-    expect(bookingsOnlyTemplate).toMatchObject({ capabilities: ['bookings.create', 'bookings.view'] });
+    expect(bookingsOnlyTemplate).toMatchObject({
+      capabilities: ['bookings.create', 'bookings.view'],
+    });
     if (!bookingsOnlyTemplate?.id) throw new Error('Expected the custom role template.');
     const frontDeskTemplate = templates.body.find(
       (template: { name: string }) => template.name === 'Front Desk',
@@ -304,7 +310,9 @@ describe('tenant dashboard end-to-end flow', () => {
       .get(`${propertyUrl}/capabilities/mine`)
       .set('Cookie', staffCookie)
       .expect(200)
-      .expect((response) => expect([...response.body].sort()).toEqual(['bookings.create', 'bookings.view']));
+      .expect((response) =>
+        expect([...response.body].sort()).toEqual(['bookings.create', 'bookings.view']),
+      );
     const staffBooking = await request(app.getHttpServer())
       .post(`${propertyUrl}/staff-bookings`)
       .set('Cookie', staffCookie)

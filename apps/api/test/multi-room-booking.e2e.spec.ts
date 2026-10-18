@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -246,10 +247,12 @@ describe('Multi-room booking orders', () => {
     await Promise.all([
       request(app!.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ roomTypeId: firstType.body.id, startsOn, endsOn, availableUnits: 1 }),
       request(app!.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ roomTypeId: secondType.body.id, startsOn, endsOn, availableUnits: 0 }),
       request(app!.getHttpServer())
@@ -331,6 +334,7 @@ describe('Multi-room booking orders', () => {
 
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId: secondType.body.id, startsOn, endsOn, availableUnits: 1 })
       .expect(204);
@@ -632,6 +636,7 @@ describe('Multi-room booking orders', () => {
     await Promise.all([
       request(app!.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', cookie)
         .send({
           roomTypeId: firstType.body.id,
@@ -641,6 +646,7 @@ describe('Multi-room booking orders', () => {
         }),
       request(app!.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', cookie)
         .send({
           roomTypeId: secondType.body.id,
@@ -789,6 +795,7 @@ describe('Multi-room booking orders', () => {
     await Promise.all([
       request(app!.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', cookie)
         .send({
           roomTypeId: firstType.body.id,
@@ -798,6 +805,7 @@ describe('Multi-room booking orders', () => {
         }),
       request(app!.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', cookie)
         .send({
           roomTypeId: secondType.body.id,
@@ -959,6 +967,7 @@ describe('Multi-room booking orders', () => {
     await Promise.all([
       request(app!.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ roomTypeId: roomType.body.id, startsOn, endsOn, availableUnits: 2 })
         .expect(204),

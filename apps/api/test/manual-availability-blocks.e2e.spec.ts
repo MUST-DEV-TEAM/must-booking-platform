@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 
 import { INestApplication } from '@nestjs/common';
@@ -331,6 +332,7 @@ describe('manual availability blocks', () => {
       .expect(201);
     await request(app.getHttpServer())
       .put(`${pooledUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
         roomTypeId: pooledType.body.id,
@@ -371,6 +373,7 @@ describe('manual availability blocks', () => {
 
     await request(app.getHttpServer())
       .put(`${pooledUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
         roomTypeId: pooledType.body.id,

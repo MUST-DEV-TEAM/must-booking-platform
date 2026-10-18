@@ -74,6 +74,7 @@ describe('property booking rules evaluation', () => {
       {} as never,
       connections as never,
       {} as never,
+      {} as never,
     );
     vi.spyOn(service, 'getRoomAvailability').mockResolvedValue({ isAvailable: true } as never);
     const pool = vi
@@ -94,7 +95,13 @@ describe('property booking rules evaluation', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-10-18T12:00:00Z'));
     const db = database([[{ timezone: 'UTC' }]]);
-    const service = new AvailabilityService(db as never, {} as never, {} as never, {} as never);
+    const service = new AvailabilityService(
+      db as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
     await expect(
       service.createAvailabilityBlock(tenantId, propertyId, 'actor', {
         startsOn: '2026-10-17',
@@ -110,7 +117,13 @@ describe('property booking rules evaluation', () => {
       [], // No external PMS assignment.
       [{ id: 'booking', startsOn: '2035-10-19', endsOn: '2035-10-21' }],
     ]);
-    const service = new AvailabilityService(db as never, {} as never, {} as never, {} as never);
+    const service = new AvailabilityService(
+      db as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
     await expect(
       service.createAvailabilityBlock(tenantId, propertyId, 'actor', {
         startsOn: '2035-10-19',

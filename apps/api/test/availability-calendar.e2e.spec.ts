@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -110,6 +111,7 @@ describe('availability calendar (local)', () => {
       const nextDate = day === 31 ? '2027-04-01' : `2027-03-${String(day + 1).padStart(2, '0')}`;
       await request(app.getHttpServer())
         .put(`/tenants/${tenantId}/properties/${propertyId}/inventory-units`)
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ roomTypeId, startsOn: date, endsOn: nextDate, availableUnits: day === 10 ? 0 : 3 })
         .expect(204);

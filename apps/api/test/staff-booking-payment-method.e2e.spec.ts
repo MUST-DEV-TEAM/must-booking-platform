@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -160,8 +161,9 @@ describe('staff-bookings: payment method selection', () => {
       .expect(201);
     await request(app.getHttpServer())
       .put(`${tenantUrl}/properties/${propertyId}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
-      .send({ roomTypeId, startsOn: '2026-09-01', endsOn: '2026-09-10', availableUnits: 5 })
+      .send({ roomTypeId, startsOn: '2036-09-01', endsOn: '2036-09-10', availableUnits: 5 })
       .expect(204);
     await request(app.getHttpServer())
       .patch(`${tenantUrl}/properties/${propertyId}/payment-gateways`)
@@ -185,8 +187,8 @@ describe('staff-bookings: payment method selection', () => {
       .send({
         roomTypeId,
         ratePlanId,
-        startsOn: '2026-09-01',
-        endsOn: '2026-09-03',
+        startsOn: '2036-09-01',
+        endsOn: '2036-09-03',
         paymentMethod: 'stripe',
         guest: { email: 'stripe-guest@example.test', firstName: 'Stripe', lastName: 'Guest' },
       })
@@ -213,8 +215,8 @@ describe('staff-bookings: payment method selection', () => {
       .send({
         roomTypeId,
         ratePlanId,
-        startsOn: '2026-09-04',
-        endsOn: '2026-09-06',
+        startsOn: '2036-09-04',
+        endsOn: '2036-09-06',
         paymentMethod: 'pokpay',
         guest: { email: 'pokpay-guest@example.test', firstName: 'PokPay', lastName: 'Guest' },
       })
@@ -233,8 +235,8 @@ describe('staff-bookings: payment method selection', () => {
       .send({
         roomTypeId,
         ratePlanId,
-        startsOn: '2026-09-06',
-        endsOn: '2026-09-08',
+        startsOn: '2036-09-06',
+        endsOn: '2036-09-08',
         guest: { email: 'no-method-guest@example.test', firstName: 'No', lastName: 'Method' },
       })
       .expect(201);
@@ -249,8 +251,8 @@ describe('staff-bookings: payment method selection', () => {
       .send({
         roomTypeId,
         ratePlanId,
-        startsOn: '2026-09-08',
-        endsOn: '2026-09-10',
+        startsOn: '2036-09-08',
+        endsOn: '2036-09-10',
         paymentMethod: 'pay_at_hotel',
         guest: { email: 'pay-at-hotel-guest@example.test', firstName: 'PayAt', lastName: 'Hotel' },
       })
@@ -278,8 +280,8 @@ describe('staff-bookings: payment method selection', () => {
       .send({
         roomTypeId,
         ratePlanId,
-        startsOn: '2026-09-02',
-        endsOn: '2026-09-04',
+        startsOn: '2036-09-02',
+        endsOn: '2036-09-04',
         paymentMethod: 'pokpay',
         guest: { email: 'original-link@example.test', firstName: 'Original', lastName: 'Link' },
       })
@@ -315,8 +317,8 @@ describe('staff-bookings: payment method selection', () => {
       .send({
         roomTypeId,
         ratePlanId,
-        startsOn: '2026-09-04',
-        endsOn: '2026-09-06',
+        startsOn: '2036-09-04',
+        endsOn: '2036-09-06',
         paymentMethod: 'pokpay',
         guest: { email: 'pending-pokpay@example.test', firstName: 'Pending', lastName: 'PokPay' },
       })
@@ -376,8 +378,8 @@ describe('staff-bookings: payment method selection', () => {
       .send({
         roomTypeId,
         ratePlanId,
-        startsOn: '2026-09-06',
-        endsOn: '2026-09-08',
+        startsOn: '2036-09-06',
+        endsOn: '2036-09-08',
         paymentMethod: 'stripe',
         guest: { email: 'pending-manual@example.test', firstName: 'Pending', lastName: 'Manual' },
       })
@@ -426,8 +428,8 @@ describe('staff-bookings: payment method selection', () => {
       .send({
         roomTypeId,
         ratePlanId,
-        startsOn: '2026-09-03',
-        endsOn: '2026-09-05',
+        startsOn: '2036-09-03',
+        endsOn: '2036-09-05',
         paymentMethod: 'stripe',
         guest: { email: 'unpaid@example.test', firstName: 'Unpaid', lastName: 'Guest' },
       })

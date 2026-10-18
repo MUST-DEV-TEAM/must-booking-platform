@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -116,6 +117,7 @@ describe('guest journey', () => {
     const endsOn = isoDateFromToday(32);
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', ownerCookie)
       .send({ roomTypeId: roomType.body.id, startsOn, endsOn, availableUnits: 1 })
       .expect(204);

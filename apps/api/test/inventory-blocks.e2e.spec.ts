@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { AvailabilityService } from '../src/tenancy/availability.service';
 import { TenantDatabaseService } from '../src/tenancy/tenant-database.service';
 import { randomUUID } from 'node:crypto';
@@ -153,6 +154,7 @@ describe('Inventory blocks I2', () => {
     // Draft has no stock effect; cancelled block has none either.
     await request(app.getHttpServer())
       .put(`${root}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn: input.startsOn, endsOn: input.endsOn, availableUnits: 3 })
       .expect(204);
@@ -224,6 +226,7 @@ describe('Inventory blocks I2', () => {
       .expect(200);
     await request(app.getHttpServer())
       .put(`${root}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
         roomTypeId,

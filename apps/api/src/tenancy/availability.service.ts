@@ -1,3 +1,4 @@
+import { InventoryStockService } from './inventory-stock.service';
 import { applicableRestrictions } from './inventory-restrictions.repository';
 import {
   BadRequestException,
@@ -91,6 +92,7 @@ export class AvailabilityService {
     @Inject(IntegrationConnectionsService)
     private readonly connections: IntegrationConnectionsService,
     @Inject(ClockAvailabilityService) private readonly clockAvailability: ClockAvailabilityService,
+    @Inject(InventoryStockService) private readonly stock: InventoryStockService,
   ) {}
 
   evaluateRules(tenantId: string, propertyId: string, query: unknown) {
@@ -431,34 +433,7 @@ export class AvailabilityService {
     actorUserId: string,
     body: unknown,
   ): Promise<void> {
-    const input = this.inventoryInput(body);
-    await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      await this.requireRoomType(tx, tenantId, propertyId, input.roomTypeId);
-      await tx.$executeRaw`
-        INSERT INTO inventory_units (tenant_id, property_id, room_type_id, stays_on, available_units)
-        SELECT
-          ${tenantId}::uuid,
-          ${propertyId}::uuid,
-          ${input.roomTypeId}::uuid,
-          requested_nights.stays_on::date,
-          ${input.availableUnits}
-        FROM generate_series(
-          ${input.startsOn}::date,
-          ${input.endsOn}::date - 1,
-          INTERVAL '1 day'
-        ) AS requested_nights(stays_on)
-        ON CONFLICT (tenant_id, property_id, room_type_id, stays_on)
-        DO UPDATE SET available_units = EXCLUDED.available_units, updated_at = CURRENT_TIMESTAMP
-      `;
-      await this.audit.recordInTransaction(tx, {
-        tenantId,
-        propertyId,
-        actorUserId,
-        action: 'inventory_units.set',
-        targetType: 'room_type',
-        targetId: input.roomTypeId,
-      });
-    });
+    await this.stock.apply(tenantId, propertyId, actorUserId, body, randomUUID());
   }
 
   async getRoomAvailability(
@@ -760,15 +735,6 @@ export class AvailabilityService {
     const invalidRange = rangeViolation(startsOn, endsOn);
     if (invalidRange) throw new BadRequestException(invalidRange);
     return { startsOn, endsOn };
-  }
-
-  private inventoryInput(body: unknown): InventoryInput {
-    const input = this.input(body);
-    const value = (body ?? {}) as Record<string, unknown>;
-    const availableUnits = typeof value.availableUnits === 'number' ? value.availableUnits : NaN;
-    if (!Number.isInteger(availableUnits) || availableUnits < 0)
-      throw new BadRequestException('availableUnits must be a non-negative integer.');
-    return { ...input, availableUnits };
   }
 
   private roomAvailabilityInput(body: unknown): RoomAvailabilityInput {

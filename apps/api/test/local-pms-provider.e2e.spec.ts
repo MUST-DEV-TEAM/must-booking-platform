@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -358,6 +359,7 @@ describe('LocalPmsProvider', () => {
     ratePlanId = ratePlan.body.id;
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn: '2027-09-01', endsOn: '2027-09-03', availableUnits: 1 })
       .expect(204);
@@ -803,6 +805,7 @@ describe('LocalPmsProvider', () => {
       });
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
         roomTypeId,
@@ -1417,6 +1420,7 @@ describe('LocalPmsProvider', () => {
     const concurrentEndsOn = '2026-10-03';
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
         roomTypeId,
@@ -2158,6 +2162,7 @@ describe('LocalPmsProvider', () => {
     `;
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
         roomTypeId,
@@ -2234,6 +2239,7 @@ describe('LocalPmsProvider', () => {
     // that follow, which assume staffBooking is still CONFIRMED.
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
         roomTypeId,
@@ -2530,6 +2536,7 @@ describe('LocalPmsProvider', () => {
     const expiryEndsOn = '2026-11-03';
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
         roomTypeId,
@@ -2677,6 +2684,7 @@ describe('LocalPmsProvider', () => {
       .expect(201);
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn: pastStartsOn, endsOn: pastEndsOn, availableUnits: 1 })
       .expect(204);
@@ -2732,6 +2740,7 @@ describe('LocalPmsProvider', () => {
     const createPokpayBooking = async (startsOn: string, endsOn: string) => {
       await request(app!.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ roomTypeId, startsOn, endsOn, availableUnits: 1 })
         .expect(204);
@@ -2820,6 +2829,7 @@ describe('LocalPmsProvider', () => {
     const abandonedPokpayEndsOn = '2026-12-12';
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
+      .set('Idempotency-Key', crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
         roomTypeId,

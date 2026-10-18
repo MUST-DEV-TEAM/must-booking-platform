@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  Headers,
   Inject,
   Param,
   Post,
@@ -15,6 +16,7 @@ import {
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 import { Role, Roles } from './roles.decorator';
 import { TenantScoped } from './tenant-context.decorator';
+import { InventoryStockService } from './inventory-stock.service';
 import { AvailabilityService } from './availability.service';
 import { RequiresCapability } from './capabilities.decorator';
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
@@ -25,6 +27,7 @@ type TenantPropertyRequest = { tenantContext: { tenantId: string; propertyId: st
 export class AvailabilityController {
   constructor(
     @Inject(AvailabilityService) private readonly availability: AvailabilityService,
+    @Inject(InventoryStockService) private readonly stock: InventoryStockService,
     @Inject(IntegrationConnectionsService)
     private readonly connections: IntegrationConnectionsService,
   ) {}
@@ -95,17 +98,19 @@ export class AvailabilityController {
   @Put('inventory-units')
   @HttpCode(204)
   @TenantScoped({ propertyParam: 'propertyId' })
-  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('calendar.block')
   @RequiresVerifiedEmail()
-  setInventory(
+  async setInventory(
     @Body() body: unknown,
+    @Headers('idempotency-key') key: string | undefined,
     @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
   ) {
-    return this.availability.setInventory(
+    await this.stock.apply(
       request.tenantContext.tenantId,
       request.tenantContext.propertyId,
       request.tenantContext.userId,
       body,
+      key,
     );
   }
 

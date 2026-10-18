@@ -1,3 +1,4 @@
+import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 
 import { INestApplication } from '@nestjs/common';
@@ -119,6 +120,7 @@ describe('front-desk overview fields', () => {
     for (const [startsOn, endsOn] of [[today, inElevenDays]] as const) {
       await request(app.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
+        .set('Idempotency-Key', crypto.randomUUID())
         .set('Cookie', ownerCookie)
         .send({ roomTypeId, startsOn, endsOn, availableUnits: 5 })
         .expect(204);

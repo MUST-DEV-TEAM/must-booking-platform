@@ -1297,3 +1297,14 @@ model InventoryBlockSequence {
  @@id([tenantId, propertyId, year])
  @@map("inventory_block_sequences")
 }
+
+model InventoryStockOperation {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ idempotencyKey String @map("idempotency_key") @db.VarChar(128)
+ requestHash String @map("request_hash") @db.Char(64)
+ response Json
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+ @@id([tenantId, propertyId, idempotencyKey])
+ @@map("inventory_stock_operations")
+}
