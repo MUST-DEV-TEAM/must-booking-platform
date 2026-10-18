@@ -25,7 +25,7 @@ import {
 describe('shared report metric definitions and dates', () => {
   it('provides unique auditable definitions for all core KPIs', () => {
     expect(new Set(REPORT_METRICS.map((m) => m.key)).size).toBe(REPORT_METRICS.length);
-    expect(REPORT_METRICS.length).toBe(26);
+    expect(REPORT_METRICS.length).toBe(39);
     for (const metric of REPORT_METRICS) {
       expect(metric.formula.length).toBeGreaterThan(10);
       expect(metric.dateBasis.length).toBeGreaterThan(3);
@@ -187,6 +187,15 @@ describe('immutable nightly revenue evidence', () => {
       { date: '2027-01-01', amount: '99.99' },
     ],
   };
+  it('produces identical metrics with pre-parsed immutable snapshot evidence', () => {
+    const rows = [stay, { ...stay, currency: 'USD', nightlyRates: null }];
+    const snapshots = new Map(
+      rows.map((row) => [row, nightlySnapshot(row.nightlyRates, row.startsOn, row.endsOn)]),
+    );
+    expect(accrualMetrics(rows, '2026-12-31', '2027-01-01', snapshots)).toEqual(
+      accrualMetrics(rows, '2026-12-31', '2027-01-01'),
+    );
+  });
   it('counts created cohorts in property time zone and scheduled stays without counting checkout night', () => {
     const result = reservationMetrics(
       [stay, { ...stay, status: 'CANCELLED' }, { ...stay, status: 'PAYMENT_PENDING' }],

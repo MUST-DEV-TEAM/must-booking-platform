@@ -19,7 +19,7 @@ export class TenantDatabaseService extends PrismaClient implements OnModuleDestr
   async withTenantTransaction<T>(
     context: TenantDatabaseContext,
     operation: (transaction: TenantTransaction) => Promise<T>,
-    options?: { timeoutMs?: number },
+    options?: { timeoutMs?: number; isolationLevel?: Prisma.TransactionIsolationLevel },
   ): Promise<T> {
     const tenantId = this.requireUuid(context.tenantId, 'tenantId');
     const propertyId = context.propertyId ? this.requireUuid(context.propertyId, 'propertyId') : '';
@@ -39,7 +39,7 @@ export class TenantDatabaseService extends PrismaClient implements OnModuleDestr
       // (e.g. ClockBookingService calling Clock) — a slow-but-successful
       // third-party response must not spuriously abort a committed-so-far
       // local write. Callers making no such call should leave this unset.
-      options?.timeoutMs ? { timeout: options.timeoutMs } : undefined,
+      options ? { timeout: options.timeoutMs, isolationLevel: options.isolationLevel } : undefined,
     );
   }
 

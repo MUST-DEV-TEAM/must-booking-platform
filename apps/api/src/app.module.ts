@@ -43,6 +43,7 @@ import { GuestsService } from './tenancy/guests.service';
 import { ReportsController } from './tenancy/reports.controller';
 import { ReportsService } from './tenancy/reports.service';
 import { ReportDefinitionsService } from './tenancy/report-definitions.service';
+import { ReportWorkspaceService } from './tenancy/report-workspace.service';
 import { OverviewController } from './tenancy/overview.controller';
 import { OverviewService } from './tenancy/overview.service';
 import { NotificationsController } from './tenancy/notifications.controller';
@@ -278,6 +279,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     GuestsService,
     ReportsService,
     ReportDefinitionsService,
+    ReportWorkspaceService,
     OverviewService,
     NotificationsService,
     AuditLogService,

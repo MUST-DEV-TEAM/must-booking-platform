@@ -7,6 +7,7 @@ function minor(value: string): bigint {
   const cents = BigInt(whole!) * 100n + BigInt(fraction.padEnd(2, '0'));
   return value.startsWith('-') ? -cents : cents;
 }
+export { minor as reportMinor };
 
 export type MetricDefinition = {
   key: string;
@@ -276,6 +277,123 @@ export const REPORT_METRICS: readonly MetricDefinition[] = [
     'bookings.starts_on, ends_on, status',
     'Date-based scheduled occupancy, not actual stay-status evidence.',
   ),
+  definition(
+    'dimensionMix',
+    'Reservation mix',
+    'Count created reservation-room records by the selected stored dimension',
+    'Property-local created date',
+    false,
+    'Booking source, status, room type, payment method and current plan metadata',
+    'Null source is Unknown. Meal/plan labels are current metadata; provider meal identity is hidden when absent.',
+  ),
+  definition(
+    'funnel',
+    'Reservation evidence funnel',
+    'Count created cohort, linked provider session, successful charge and current confirmed state',
+    'Created booking cohort; evidence as of report snapshot',
+    false,
+    'bookings, payment_provider_sessions, payments',
+    'Not search-to-book conversion or a historical transition sequence.',
+  ),
+  definition(
+    'guestReturning',
+    'New and returning guests',
+    'Distinct known guest IDs; returning if first confirmed property booking predates period start',
+    'Created-booking or recognized-stay activity in period',
+    false,
+    'bookings.guest_id and first confirmed property booking',
+    'Unmatched guest identities excluded with coverage. Not inferred from email or country.',
+  ),
+  definition(
+    'guestRoomRevenue',
+    'Guest room revenue',
+    'Recognized tax-exclusive room revenue assigned to a known booking guest ID',
+    'Stay night',
+    true,
+    'Immutable nightly snapshots and booking guest_id',
+    'All staying guests, including reservations created before the selected period; not lifetime spend.',
+  ),
+  definition(
+    'averageGuestRoomRevenue',
+    'Average room revenue per guest',
+    'Currency room revenue / distinct known guests with a stay in that currency',
+    'Stay night',
+    true,
+    'Immutable nightly snapshots and known staying guests',
+    'Unknown snapshot poisons that currency total; zero guests gives n/a. No cross-currency average.',
+  ),
+  definition(
+    'failedPayments',
+    'Failed payment evidence',
+    'Count failed/declined/error CHARGE rows; failed booking states shown separately',
+    'Ledger posting date; booking failures by created cohort',
+    false,
+    'payments.status and bookings.status',
+    'Only stored evidence; absence of a failed ledger row does not prove there were no gateway attempts.',
+  ),
+  definition(
+    'expiredUnpaidCheckouts',
+    'Expired unpaid checkouts',
+    'Expired created-cohort bookings without a successful linked charge',
+    'Created booking cohort',
+    false,
+    'bookings.status and linked payment ledger',
+    'Not proof of visitor intent or a full abandoned-checkout event stream.',
+  ),
+  definition(
+    'refundToCollectionRatio',
+    'Refund-to-collection amount ratio',
+    'Refunded amount / collected amount × 100 in the same currency and cash period',
+    'Property-local successful ledger posting date',
+    true,
+    'Successful CHARGE and REFUND ledger rows',
+    'May exceed 100% because refunds can relate to earlier collections. Zero collections gives n/a.',
+  ),
+  definition(
+    'restrictionDays',
+    'Restriction schedule days',
+    'Count type/date cells with effective stop-sell or minimum-stay rules',
+    'Stored local schedules in selected dates',
+    false,
+    'Existing pure restriction evaluator with scope and priority',
+    'No lost-demand estimate; explicit open overrides are honored. Conflicting priority evidence gives Unknown.',
+  ),
+  definition(
+    'pricingCoverage',
+    'Pricing coverage and issues',
+    'Existing Rates health engine coverage and persisted-configuration diagnostics',
+    'Current configured pricing horizon',
+    false,
+    'pricingHealth and the shared pricing evaluator',
+    'Property-wide current coverage, independent of reservation date filters; Clock coverage Unknown.',
+  ),
+  definition(
+    'emailStatus',
+    'Email delivery status counts',
+    'Count stored messages grouped by current status and event type',
+    'Property-local message creation date',
+    false,
+    'email_messages.created_at, status, event_type',
+    'Status of the created-message cohort, not delivery events occurring on that day; no opens or clicks.',
+  ),
+  definition(
+    'staffActivity',
+    'Staff activity',
+    'Count scoped audit events grouped by action, actor or local day',
+    'Property-local audit creation date',
+    false,
+    'audit_logs with tenant_id and property_id',
+    'Actor data requires staff.view; no raw audit payloads are exposed.',
+  ),
+  definition(
+    'dataQuality',
+    'Data quality issues',
+    'Count observed scoped inconsistencies by code, with reservation drill-through',
+    'Created or overlapping-stay booking cohort; orphan payments by posting date',
+    false,
+    'Stored bookings, nightly snapshots, payment joins and sync states',
+    'Pay-at-hotel/free reservations need no online charge. Financial issues require payments.view; orphan holds cannot be inferred from combined stock counters.',
+  ),
 ];
 
 export function isoDay(value: string): boolean {
@@ -295,15 +413,23 @@ export function dayDistance(from: string, to: string): number {
   return (Date.parse(to) - Date.parse(from)) / 86400000;
 }
 
+// Pure locale configuration only; no tenant records or metric values are cached here.
+const dayFormatters = new Map<string, Intl.DateTimeFormat>();
 export function propertyDay(instant: Date | string, timezone: string): string {
   const date = new Date(instant);
   if (!Number.isFinite(date.valueOf())) throw new Error('Invalid instant.');
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date);
+  let formatter = dayFormatters.get(timezone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    if (dayFormatters.size >= 32) dayFormatters.delete(dayFormatters.keys().next().value!);
+    dayFormatters.set(timezone, formatter);
+  }
+  const parts = formatter.formatToParts(date);
   const get = (type: string) => parts.find((p) => p.type === type)!.value;
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
@@ -484,13 +610,19 @@ export function reservationMetrics(
   timezone: string,
 ) {
   const dates = reportRange(from, to);
+  const createdDays = new Map(rows.map((row) => [row, propertyDay(row.createdAt, timezone)]));
   const cohort = rows.filter((r) => {
-    const created = propertyDay(r.createdAt, timezone);
+    const created = createdDays.get(r)!;
     return created >= from && created <= to;
   });
   const nights = cohort.map((r) => dayDistance(r.startsOn, r.endsOn));
   if (nights.some((n) => n <= 0)) throw new Error('Invalid reservation stay.');
-  const leadDays = cohort.map((r) => dayDistance(propertyDay(r.createdAt, timezone), r.startsOn));
+  const leadDays = cohort.map((r) => dayDistance(createdDays.get(r)!, r.startsOn));
+  const createdCounts = new Map<string, number>();
+  for (const row of cohort) {
+    const day = createdDays.get(row)!;
+    createdCounts.set(day, (createdCounts.get(day) ?? 0) + 1);
+  }
   const confirmed = rows.filter((r) => r.status === 'CONFIRMED');
   const cancelled = cohort.filter((r) => r.status === 'CANCELLED').length;
   return {
@@ -509,7 +641,7 @@ export function reservationMetrics(
     stayNights: nights,
     daily: dates.map((date) => ({
       date,
-      bookingsCreated: cohort.filter((r) => propertyDay(r.createdAt, timezone) === date).length,
+      bookingsCreated: createdCounts.get(date) ?? 0,
       arrivals: confirmed.filter((r) => r.startsOn === date).length,
       departures: confirmed.filter((r) => r.endsOn === date).length,
       soldNights: confirmed.filter((r) => r.startsOn <= date && r.endsOn > date).length,
@@ -520,8 +652,14 @@ export function reservationMetrics(
 export type RevenueMetricRow = ReservationMetricRow & { currency: string; nightlyRates: unknown };
 
 /** Snapshot-only accrual; unknown bookings poison their currency total, never become zero revenue. */
-export function accrualMetrics(rows: readonly RevenueMetricRow[], from: string, to: string) {
+export function accrualMetrics(
+  rows: readonly RevenueMetricRow[],
+  from: string,
+  to: string,
+  snapshots?: ReadonlyMap<RevenueMetricRow, ReturnType<typeof nightlySnapshot>>,
+) {
   reportRange(from, to);
+  const endExclusive = shiftDay(to, 1);
   const currencies = new Map<
     string,
     {
@@ -543,9 +681,11 @@ export function accrualMetrics(rows: readonly RevenueMetricRow[], from: string, 
       legacyNights: 0,
     };
     const overlapFrom = row.startsOn > from ? row.startsOn : from;
-    const exclusiveTo = row.endsOn < shiftDay(to, 1) ? row.endsOn : shiftDay(to, 1);
+    const exclusiveTo = row.endsOn < endExclusive ? row.endsOn : endExclusive;
     total.soldNights += dayDistance(overlapFrom, exclusiveTo);
-    const snapshot = nightlySnapshot(row.nightlyRates, row.startsOn, row.endsOn);
+    const snapshot = snapshots?.has(row)
+      ? snapshots.get(row)!
+      : nightlySnapshot(row.nightlyRates, row.startsOn, row.endsOn);
     if (snapshot === null) total.unknownBookings++;
     else
       for (const night of snapshot) {
