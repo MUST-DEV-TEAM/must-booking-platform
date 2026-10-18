@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 
 import { RoomCategoriesService } from './room-categories.service';
@@ -15,12 +15,15 @@ function setup(queryResults: unknown[][] = []) {
   const executeRaw = vi.fn().mockResolvedValue(1);
   const database = {
     withTenantTransaction: async (
-      _context: unknown,
+      context: unknown,
       callback: (tx: {
         $queryRaw: typeof queryRaw;
         $executeRaw: typeof executeRaw;
       }) => Promise<unknown>,
-    ) => callback({ $queryRaw: queryRaw, $executeRaw: executeRaw }),
+    ) => {
+      expect(context).toEqual({ tenantId, propertyId });
+      return callback({ $queryRaw: queryRaw, $executeRaw: executeRaw });
+    },
   };
   const audit = { recordInTransaction: vi.fn().mockResolvedValue(undefined) };
   return {
@@ -48,7 +51,7 @@ describe('RoomCategoriesService', () => {
       storefrontVisible: true,
       roomCount: 0,
     };
-    const { service, audit } = setup([[{ nextOrder: 2 }], [created]]);
+    const { service, audit } = setup([[{ id: propertyId }], [], [{ nextOrder: 2 }], [created]]);
 
     await expect(
       service.create(tenantId, propertyId, actorUserId, { name: ' Suites ' }),
@@ -100,7 +103,7 @@ describe('RoomCategoriesService', () => {
     await expect(
       service.remove(tenantId, propertyId, categoryId, actorUserId),
     ).resolves.toBeUndefined();
-    expect(executeRaw).toHaveBeenCalledTimes(1);
+    expect(executeRaw).toHaveBeenCalledTimes(2);
     expect(queryRaw).toHaveBeenCalledTimes(1);
     expect(audit.recordInTransaction).toHaveBeenCalledWith(
       expect.anything(),
@@ -115,5 +118,46 @@ describe('RoomCategoriesService', () => {
       service.remove(tenantId, propertyId, categoryId, actorUserId),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(executeRaw).toHaveBeenCalledTimes(1);
+  });
+  it('rejects case-insensitive duplicate names before insertion', async () => {
+    const { service, executeRaw } = setup([[{ id: propertyId }], [{ id: categoryId }]]);
+    await expect(
+      service.create(tenantId, propertyId, actorUserId, { name: 'suites' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(executeRaw).not.toHaveBeenCalled();
+  });
+  it('rejects duplicate renames and does not update or audit', async () => {
+    const { service, audit } = setup([[{ id: propertyId }], [{ id: 'other' }]]);
+    await expect(
+      service.update(tenantId, propertyId, categoryId, actorUserId, { name: 'SUITES' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(audit.recordInTransaction).not.toHaveBeenCalled();
+  });
+  it('does not create categories in a missing or foreign property', async () => {
+    const { service, queryRaw } = setup([[]]);
+    await expect(
+      service.create(tenantId, propertyId, actorUserId, { name: 'Suites' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    { name: '' },
+    { name: 'x'.repeat(201) },
+    { name: 'Suites', description: 'x'.repeat(2001) },
+  ])('rejects invalid category fields', async (input) => {
+    const { service, queryRaw } = setup();
+    await expect(service.create(tenantId, propertyId, actorUserId, input)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(queryRaw).not.toHaveBeenCalled();
+  });
+  it('writes contiguous positions in the supplied complete order', async () => {
+    const second = 'e5555555-5555-4555-8555-555555555555';
+    const { service, executeRaw } = setup([[{ id: categoryId }, { id: second }]]);
+    await service.reorder(tenantId, propertyId, actorUserId, { categoryIds: [second, categoryId] });
+    expect(executeRaw.mock.calls[0]).toContain(0);
+    expect(executeRaw.mock.calls[0]).toContain(second);
+    expect(executeRaw.mock.calls[1]).toContain(1);
+    expect(executeRaw.mock.calls[1]).toContain(categoryId);
   });
 });

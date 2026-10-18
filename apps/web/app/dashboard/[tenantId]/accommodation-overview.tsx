@@ -172,7 +172,9 @@ export function AccommodationOverview({
             Recent room, publication, and photo changes for this property.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex-1">
+        <CardContent
+          className={allReady && !showAllReadyTypes ? 'max-h-32 overflow-y-auto' : 'flex-1'}
+        >
           {groupedActivity.length ? (
             <ol className="m-0 grid list-none grid-cols-1 gap-3 p-0 xl:grid-cols-2">
               {groupedActivity.slice(0, activityLimit).map((group) => (

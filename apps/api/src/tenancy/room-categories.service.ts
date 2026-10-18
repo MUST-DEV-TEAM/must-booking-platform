@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import type { Prisma } from '@prisma/client';
 
 import { AuditLogService } from './audit-log.service';
 import { TenantDatabaseService } from './tenant-database.service';
@@ -17,6 +18,7 @@ export type RoomCategory = {
   sortOrder: number;
   storefrontVisible: boolean;
   roomCount: number;
+  updatedAt: Date;
 };
 
 @Injectable()
@@ -31,7 +33,7 @@ export class RoomCategoriesService {
       { tenantId, propertyId },
       (tx) =>
         tx.$queryRaw<RoomCategory[]>`
-        SELECT c.id, c.name, c.description, c.sort_order AS "sortOrder",
+        SELECT c.id, c.name, c.description, c.updated_at AS "updatedAt", c.sort_order AS "sortOrder",
           c.storefront_visible AS "storefrontVisible", COUNT(rt.id)::int AS "roomCount"
         FROM room_categories c
         LEFT JOIN room_types rt ON rt.tenant_id = c.tenant_id
@@ -53,6 +55,7 @@ export class RoomCategoriesService {
     const id = randomUUID();
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       try {
+        await this.assertUniqueName(tx, tenantId, propertyId, input.name!);
         const orderRows = await tx.$queryRaw<Array<{ nextOrder: number }>>`
           SELECT COALESCE(MAX(sort_order), -1) + 1 AS "nextOrder"
           FROM room_categories WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
@@ -61,7 +64,7 @@ export class RoomCategoriesService {
           INSERT INTO room_categories (id, tenant_id, property_id, name, description, sort_order, storefront_visible)
           VALUES (${id}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${input.name}, ${input.description},
             ${input.sortOrder ?? orderRows[0].nextOrder}, ${input.storefrontVisible ?? true})
-          RETURNING id, name, description, sort_order AS "sortOrder",
+          RETURNING id, name, description, updated_at AS "updatedAt", sort_order AS "sortOrder",
             storefront_visible AS "storefrontVisible", 0::int AS "roomCount"
         `;
         await this.audit.recordInTransaction(tx, {
@@ -90,6 +93,8 @@ export class RoomCategoriesService {
     const input = this.input(body, true);
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       try {
+        if (input.name)
+          await this.assertUniqueName(tx, tenantId, propertyId, input.name, categoryId);
         const rows = await tx.$queryRaw<RoomCategory[]>`
           UPDATE room_categories SET
             name = COALESCE(${input.name ?? null}, name),
@@ -98,7 +103,7 @@ export class RoomCategoriesService {
             storefront_visible = COALESCE(${input.storefrontVisible ?? null}, storefront_visible),
             updated_at = CURRENT_TIMESTAMP
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${categoryId}::uuid
-          RETURNING id, name, description, sort_order AS "sortOrder",
+          RETURNING id, name, description, updated_at AS "updatedAt", sort_order AS "sortOrder",
             storefront_visible AS "storefrontVisible",
             (SELECT COUNT(*)::int FROM room_types rt WHERE rt.tenant_id = ${tenantId}::uuid
               AND rt.property_id = ${propertyId}::uuid AND rt.category_id = room_categories.id) AS "roomCount"
@@ -136,6 +141,15 @@ export class RoomCategoriesService {
           AND property_id = ${propertyId}::uuid AND id = ${categoryId}::uuid RETURNING id, name
       `;
       if (!rows[0]) throw new NotFoundException('Room category not found.');
+      await tx.$executeRaw`
+        WITH ordered AS (
+          SELECT id, (ROW_NUMBER() OVER (ORDER BY sort_order, name, id) - 1)::int AS position
+          FROM room_categories WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        )
+        UPDATE room_categories c SET sort_order = ordered.position, updated_at = CURRENT_TIMESTAMP
+        FROM ordered WHERE c.id = ordered.id AND c.tenant_id = ${tenantId}::uuid
+          AND c.property_id = ${propertyId}::uuid AND c.sort_order <> ordered.position
+      `;
       await this.audit.recordInTransaction(tx, {
         tenantId,
         propertyId,
@@ -187,6 +201,26 @@ export class RoomCategoriesService {
         targetId: propertyId,
       });
     });
+  }
+
+  private async assertUniqueName(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    propertyId: string,
+    name: string,
+    excludeId?: string,
+  ) {
+    // Serialize category name checks on the scoped property so concurrent API writes cannot bypass them.
+    const property = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM properties WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid FOR UPDATE
+    `;
+    if (!property[0]) throw new NotFoundException('Property not found.');
+    const duplicates = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM room_categories WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+        AND LOWER(name) = LOWER(${name}) AND (${excludeId ?? null}::uuid IS NULL OR id <> ${excludeId ?? null}::uuid)
+    `;
+    if (duplicates.length)
+      throw new ConflictException('A category with this name already exists for this property.');
   }
 
   private input(

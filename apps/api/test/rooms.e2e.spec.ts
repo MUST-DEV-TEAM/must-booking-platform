@@ -101,6 +101,48 @@ describe('rooms', () => {
       .send({ name: 'Suites', description: 'Large guest rooms.' })
       .expect(201);
     const categoryId = category.body.id as string;
+    expect(category.body.updatedAt).toEqual(expect.any(String));
+    await request(app.getHttpServer())
+      .post(categoriesUrl)
+      .set('Cookie', cookie)
+      .send({ name: ' suites ' })
+      .expect(409);
+    await request(app.getHttpServer())
+      .post(categoriesUrl)
+      .set('Cookie', cookie)
+      .send({ name: 'x'.repeat(201) })
+      .expect(400);
+    await request(app.getHttpServer())
+      .patch(`${categoriesUrl}/${randomUUID()}`)
+      .set('Cookie', cookie)
+      .send({ storefrontVisible: false })
+      .expect(404);
+    await request(app.getHttpServer())
+      .put(`${categoriesUrl}/order`)
+      .set('Cookie', cookie)
+      .send({ categoryIds: [randomUUID()] })
+      .expect(400);
+    const concurrent = await Promise.all(
+      ['Garden', 'garden'].map((name) =>
+        request(app.getHttpServer()).post(categoriesUrl).set('Cookie', cookie).send({ name }),
+      ),
+    );
+    expect(concurrent.map((r) => r.status).sort()).toEqual([201, 409]);
+    const gardenId = concurrent.find((r) => r.status === 201)!.body.id;
+    await request(app.getHttpServer())
+      .patch(`${categoriesUrl}/${gardenId}`)
+      .set('Cookie', cookie)
+      .send({ name: 'SUITES' })
+      .expect(409);
+    await request(app.getHttpServer())
+      .delete(`${categoriesUrl}/${gardenId}`)
+      .set('Cookie', cookie)
+      .expect(204);
+    await request(app.getHttpServer())
+      .get(categoriesUrl)
+      .set('Cookie', cookie)
+      .expect((r) => expect(r.body.map((c: { sortOrder: number }) => c.sortOrder)).toEqual([0]));
+
     await request(app.getHttpServer())
       .patch(`/tenants/${tenantId}/properties/${propertyId}/room-types/${roomTypeId}`)
       .set('Cookie', cookie)
@@ -360,16 +402,29 @@ describe('rooms', () => {
     await admin.$executeRaw`UPDATE tenant_memberships SET role = 'OWNER' WHERE tenant_id = ${tenantId}::uuid AND user_id = ${userId}::uuid`;
 
     await request(app.getHttpServer())
+      .delete(`${categoriesUrl}/${categoryId}`)
+      .set('Cookie', cookie)
+      .expect(204);
+    await request(app.getHttpServer())
+      .get(`/tenants/${tenantId}/properties/${propertyId}/room-types`)
+      .set('Cookie', cookie)
+      .expect((r) =>
+        expect(r.body).toContainEqual(
+          expect.objectContaining({ id: roomTypeId, categoryId: null }),
+        ),
+      );
+    await request(app.getHttpServer())
+      .get(`/tenants/${tenantId}/properties/${propertyId}/room-types/${roomTypeId}/rooms`)
+      .set('Cookie', cookie)
+      .expect((r) => expect(r.body).toContainEqual(expect.objectContaining({ id: roomId })));
+
+    await request(app.getHttpServer())
       .delete(
         `/tenants/${tenantId}/properties/${propertyId}/room-types/${roomTypeId}/rooms/${roomId}`,
       )
       .set('Cookie', cookie)
       .expect(204);
 
-    await request(app.getHttpServer())
-      .delete(`${categoriesUrl}/${categoryId}`)
-      .set('Cookie', cookie)
-      .expect(204);
     await request(app.getHttpServer())
       .get(`/tenants/${tenantId}/properties/${propertyId}/room-types`)
       .set('Cookie', cookie)

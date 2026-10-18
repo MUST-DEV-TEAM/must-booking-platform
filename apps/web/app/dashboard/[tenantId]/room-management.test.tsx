@@ -591,11 +591,11 @@ describe('RoomManagement', () => {
     await act(async () => (categoriesTab as HTMLElement).click());
     expect(container.textContent).toContain('Room categories');
     expect(container.textContent).toContain('Suites');
-    expect(container.textContent).toContain('1 room types');
+    expect(container.textContent).toContain('1 room type');
     expect(
       container.querySelector('[role="switch"][aria-label="Suites visible in storefront"]'),
     ).not.toBeNull();
-    expect(container.querySelector('button[aria-label="Move Suites up"]')).not.toBeNull();
+    expect(container.querySelector('button[aria-label="Actions for Suites"]')).not.toBeNull();
     await act(async () => root.unmount());
   });
 });

@@ -62,6 +62,7 @@ export type RoomCategory = {
   sortOrder: number;
   storefrontVisible: boolean;
   roomCount: number;
+  updatedAt?: string;
 };
 export type AccommodationActivity = {
   id: string;

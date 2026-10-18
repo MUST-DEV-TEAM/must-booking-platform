@@ -189,7 +189,11 @@ export function RoomManagement({
   }
 
   const createCategoryMutation = useMutation({
-    mutationFn: async (input: { name: string; description: string }) => {
+    mutationFn: async (input: {
+      name: string;
+      description: string;
+      storefrontVisible: boolean;
+    }) => {
       requireAccommodationManagement();
       const response = await fetch(`${propertyUrl}/room-categories`, {
         method: 'POST',
@@ -258,6 +262,46 @@ export function RoomManagement({
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: roomManagementQueryKey }),
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : 'Unable to reorder categories.'),
+  });
+
+  const assignCategoryMutation = useMutation({
+    mutationFn: async ({ category, ids }: { category: RoomCategory; ids: string[] }) => {
+      requireAccommodationManagement();
+      const types = data?.roomTypes ?? [];
+      try {
+        for (const type of types) {
+          const categoryId = ids.includes(type.id)
+            ? category.id
+            : type.categoryId === category.id
+              ? null
+              : type.categoryId;
+          if (categoryId === type.categoryId || (!categoryId && !type.categoryId)) continue;
+          const response = await fetch(`${roomTypesUrl}/${type.id}`, {
+            method: 'PATCH',
+            credentials: 'include',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              name: type.name,
+              description: type.description,
+              amenitiesIntro: type.amenitiesIntro,
+              rules: type.rules ?? null,
+              maxOccupancy: type.maxOccupancy,
+              categoryId,
+            }),
+          });
+          if (!response.ok)
+            throw new Error(
+              await errorMessage(
+                response,
+                'Unable to assign room types. Some earlier changes may have saved; review and retry.',
+              ),
+            );
+        }
+      } finally {
+        void queryClient.invalidateQueries({ queryKey: roomManagementQueryKey });
+      }
+    },
+    onSuccess: () => toast.success('Room types updated.'),
   });
 
   const saveRoomTypeMutation = useMutation({
@@ -758,17 +802,20 @@ export function RoomManagement({
             {accommodationTab === 'categories' ? (
               <RoomCategoriesPanel
                 categories={data.categories}
+                roomTypes={data.roomTypes}
                 canManage={canManageAccommodations}
                 saving={
                   createCategoryMutation.isPending ||
                   updateCategoryMutation.isPending ||
                   deleteCategoryMutation.isPending ||
-                  reorderCategoriesMutation.isPending
+                  reorderCategoriesMutation.isPending ||
+                  assignCategoryMutation.isPending
                 }
-                onCreate={(value) => createCategoryMutation.mutate(value)}
-                onUpdate={(id, value) => updateCategoryMutation.mutate({ id, value })}
-                onDelete={(category) => deleteCategoryMutation.mutate(category)}
-                onReorder={(categoryIds) => reorderCategoriesMutation.mutate(categoryIds)}
+                onCreate={(value) => createCategoryMutation.mutateAsync(value)}
+                onUpdate={(id, value) => updateCategoryMutation.mutateAsync({ id, value })}
+                onDelete={(category) => deleteCategoryMutation.mutateAsync(category)}
+                onReorder={(categoryIds) => reorderCategoriesMutation.mutateAsync(categoryIds)}
+                onAssign={(category, ids) => assignCategoryMutation.mutateAsync({ category, ids })}
               />
             ) : (
               <RoomManagementLists
