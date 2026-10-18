@@ -160,6 +160,37 @@ describe('RoomTypesService presentation-image validation', () => {
     expect(queryRaw.mock.calls[0]).toContain('Everything needed for a comfortable stay.');
   });
 
+  it('trims and persists room type house rules', async () => {
+    const { roomTypes, queryRaw } = service();
+
+    await roomTypes.create(tenantId, propertyId, actorUserId, {
+      name: 'Deluxe',
+      maxOccupancy: 2,
+      rules: '  No smoking.  ',
+    });
+
+    expect(queryRaw.mock.calls[0]).toContain('No smoking.');
+  });
+
+  it('normalizes blank room type rules to null and rejects non-text rules', async () => {
+    const { roomTypes, queryRaw } = service();
+
+    await roomTypes.create(tenantId, propertyId, actorUserId, {
+      name: 'Deluxe',
+      maxOccupancy: 2,
+      rules: '   ',
+    });
+    expect(queryRaw.mock.calls[0]).toContain(null);
+
+    await expect(
+      roomTypes.create(tenantId, propertyId, actorUserId, {
+        name: 'Invalid',
+        maxOccupancy: 2,
+        rules: 42,
+      }),
+    ).rejects.toThrow('rules must be a string or null.');
+  });
+
   it('normalizes a blank amenitiesIntro to null', async () => {
     const { roomTypes, queryRaw } = service();
 

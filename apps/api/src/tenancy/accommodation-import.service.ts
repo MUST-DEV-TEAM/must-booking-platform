@@ -32,6 +32,7 @@ type RoomTypeImport = {
   name: string;
   description: string | null;
   amenitiesIntro: string | null;
+  rules: string | null;
   maxOccupancy: number;
   status: 'DRAFT' | 'PUBLISHED' | 'HIDDEN';
   categoryId: string | null;
@@ -98,6 +99,7 @@ export class AccommodationImportService {
             await tx.$executeRaw`
               UPDATE room_types SET name = ${roomType.name}, description = ${roomType.description},
                 amenities_intro = ${roomType.amenitiesIntro}, max_occupancy = ${roomType.maxOccupancy},
+                rules = ${roomType.rules},
                 status = ${roomType.status}::"RoomTypeStatus", category_id = ${roomType.categoryId}::uuid,
                 updated_at = CURRENT_TIMESTAMP
               WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
@@ -105,10 +107,10 @@ export class AccommodationImportService {
             `;
           } else {
             await tx.$executeRaw`
-              INSERT INTO room_types (id, tenant_id, property_id, name, description, amenities_intro,
+              INSERT INTO room_types (id, tenant_id, property_id, name, description, amenities_intro, rules,
                 main_image_url, gallery_image_urls, max_occupancy, status, category_id)
               VALUES (${randomUUID()}::uuid, ${tenantId}::uuid, ${propertyId}::uuid,
-                ${roomType.name}, ${roomType.description}, ${roomType.amenitiesIntro}, NULL,
+                ${roomType.name}, ${roomType.description}, ${roomType.amenitiesIntro}, ${roomType.rules}, NULL,
                 ARRAY[]::varchar(2000)[], ${roomType.maxOccupancy},
                 ${roomType.status}::"RoomTypeStatus", ${roomType.categoryId}::uuid)
             `;
@@ -255,6 +257,7 @@ export class AccommodationImportService {
         name,
         description: optionalText(source.description),
         amenitiesIntro: optionalText(source.amenitiesIntro),
+        rules: optionalText(source.rules),
         maxOccupancy: maxOccupancy ?? 0,
         status: status as RoomTypeImport['status'],
         categoryId,

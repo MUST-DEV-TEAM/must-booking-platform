@@ -11,6 +11,7 @@ import { AuditLogService } from './audit-log.service';
 import { roomImagePresentation, type RoomImageProjectionRow } from './room-image-projection';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 import { STORAGE_PROVIDER, type StorageProvider } from '../storage/storage.provider';
+import { resolveEffectiveHouseRules } from './effective-house-rules';
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 type AllowedImageType = (typeof ALLOWED_IMAGE_TYPES)[number];
@@ -23,6 +24,8 @@ type Room = {
   title: string | null;
   roomSize: string | null;
   rules: string | null;
+  effectiveRules?: string | null;
+  rulesSource?: 'room' | 'room-type' | null;
   description: string | null;
   floor: number | null;
   viewType: string | null;
@@ -30,7 +33,11 @@ type Room = {
   images?: Array<{ id: string; url: string; sortOrder: number; isPrimary: boolean }>;
   photoSource?: 'room' | 'room_type' | 'none';
 };
-type RoomWithType = Room & { roomTypeId: string; roomTypeName: string };
+type RoomWithRuleInheritance = Room & { roomTypeId: string; roomTypeRules: string | null };
+type RoomWithType = Room & {
+  roomTypeId: string;
+  roomTypeName: string;
+};
 type RoomImage = RoomImageProjectionRow & { url: string };
 type ImageUpload = { id: string; uploadUrl: string; publicUrl: string };
 
@@ -44,11 +51,14 @@ export class RoomsService {
 
   list(tenantId: string, propertyId: string, roomTypeId: string): Promise<Room[]> {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      const rooms = await tx.$queryRaw<Array<Room & { roomTypeId: string }>>`
-        SELECT id, room_type_id AS "roomTypeId", name, title, room_size AS "roomSize", rules, description, floor, view_type AS "viewType", is_active AS "isActive"
-        FROM rooms
-        WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND room_type_id = ${roomTypeId}::uuid
-        ORDER BY created_at
+      const rooms = await tx.$queryRaw<RoomWithRuleInheritance[]>`
+        SELECT r.id, r.room_type_id AS "roomTypeId", r.name, r.title, r.room_size AS "roomSize",
+          r.rules, rt.rules AS "roomTypeRules", r.description, r.floor,
+          r.view_type AS "viewType", r.is_active AS "isActive"
+        FROM rooms r
+        JOIN room_types rt ON rt.tenant_id = r.tenant_id AND rt.property_id = r.property_id AND rt.id = r.room_type_id
+        WHERE r.tenant_id = ${tenantId}::uuid AND r.property_id = ${propertyId}::uuid AND r.room_type_id = ${roomTypeId}::uuid
+        ORDER BY r.created_at
       `;
       return this.withRoomImages(tx, tenantId, propertyId, rooms);
     });
@@ -59,9 +69,10 @@ export class RoomsService {
    * unlike list() above which is scoped to one room type at a time. */
   listAll(tenantId: string, propertyId: string): Promise<RoomWithType[]> {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      const rooms = await tx.$queryRaw<RoomWithType[]>`
-        SELECT r.id, r.name, r.title, r.room_size AS "roomSize", r.rules, r.description, r.floor, r.view_type AS "viewType", r.is_active AS "isActive", r.room_type_id AS "roomTypeId",
-          rt.name AS "roomTypeName"
+      const rooms = await tx.$queryRaw<Array<RoomWithType & { roomTypeRules: string | null }>>`
+        SELECT r.id, r.name, r.title, r.room_size AS "roomSize", r.rules, r.description, r.floor,
+          r.view_type AS "viewType", r.is_active AS "isActive", r.room_type_id AS "roomTypeId",
+          rt.name AS "roomTypeName", rt.rules AS "roomTypeRules"
         FROM rooms r
         JOIN room_types rt ON rt.tenant_id = r.tenant_id AND rt.id = r.room_type_id
         WHERE r.tenant_id = ${tenantId}::uuid AND r.property_id = ${propertyId}::uuid
@@ -81,8 +92,8 @@ export class RoomsService {
     const input = this.input(body);
     const id = randomUUID();
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      const roomType = await tx.$queryRaw<Array<{ id: string }>>`
-        SELECT id FROM room_types
+      const roomType = await tx.$queryRaw<Array<{ id: string; rules: string | null }>>`
+        SELECT id, rules FROM room_types
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomTypeId}::uuid
       `;
       if (!roomType[0]) throw new NotFoundException('Room type not found.');
@@ -103,7 +114,10 @@ export class RoomsService {
           targetType: 'room',
           targetId: id,
         });
-        return rows[0];
+        return {
+          ...rows[0],
+          ...resolveEffectiveHouseRules(rows[0].rules, roomType[0].rules),
+        };
       } catch (error: unknown) {
         if (this.isUniqueViolation(error))
           throw new ConflictException('A room with this name already exists for this property.');
@@ -122,13 +136,18 @@ export class RoomsService {
     const input = this.input(body);
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       try {
-        const currentRows = await tx.$queryRaw<Array<{ isActive: boolean }>>`
-          SELECT is_active AS "isActive" FROM rooms
-          WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomId}::uuid
+        const currentRows = await tx.$queryRaw<
+          Array<{ isActive: boolean; roomTypeRules: string | null }>
+        >`
+          SELECT r.is_active AS "isActive", rt.rules AS "roomTypeRules"
+          FROM rooms r
+          JOIN room_types rt ON rt.tenant_id = r.tenant_id AND rt.property_id = r.property_id AND rt.id = r.room_type_id
+          WHERE r.tenant_id = ${tenantId}::uuid AND r.property_id = ${propertyId}::uuid AND r.id = ${roomId}::uuid
         `;
         const rows = await tx.$queryRaw<Room[]>`
           UPDATE rooms
-          SET name = ${input.name}, title = ${input.title}, room_size = ${input.roomSize}, rules = ${input.rules}, description = ${input.description},
+          SET name = ${input.name}, title = ${input.title}, room_size = ${input.roomSize},
+            rules = CASE WHEN ${input.hasRules} THEN ${input.rules} ELSE rules END, description = ${input.description},
             floor = ${input.floor}, view_type = ${input.viewType},
             is_active = COALESCE(${input.isActive ?? null}, is_active),
             updated_at = CURRENT_TIMESTAMP
@@ -159,7 +178,10 @@ export class RoomsService {
             details: { from: currentRows[0].isActive, to: input.isActive },
           });
         }
-        return rows[0];
+        return {
+          ...rows[0],
+          ...resolveEffectiveHouseRules(rows[0].rules, currentRows[0]?.roomTypeRules),
+        };
       } catch (error: unknown) {
         if (this.isUniqueViolation(error))
           throw new ConflictException('A room with this name already exists for this property.');
@@ -574,14 +596,19 @@ export class RoomsService {
     `;
   }
 
-  private async withRoomImages<T extends Room & { roomTypeId: string }>(
+  private async withRoomImages<T extends RoomWithRuleInheritance>(
     tx: TenantTransaction,
     tenantId: string,
     propertyId: string,
     rooms: T[],
   ): Promise<
     Array<
-      T & { images: NonNullable<Room['images']>; photoSource: NonNullable<Room['photoSource']> }
+      Omit<T, 'roomTypeRules'> & {
+        effectiveRules: string | null;
+        rulesSource: 'room' | 'room-type' | null;
+        images: NonNullable<Room['images']>;
+        photoSource: NonNullable<Room['photoSource']>;
+      }
     >
   > {
     if (!rooms.length) return [];
@@ -612,8 +639,9 @@ export class RoomsService {
       const map = collection === 'room' ? roomImages : roomTypeImages;
       map.set(roomId, [...(map.get(roomId) ?? []), image]);
     }
-    return rooms.map((room) => ({
+    return rooms.map(({ roomTypeRules, ...room }) => ({
       ...room,
+      ...resolveEffectiveHouseRules(room.rules, roomTypeRules),
       ...roomImagePresentation(
         roomImages.get(room.id) ?? [],
         roomTypeImages.get(room.id) ?? [],
@@ -660,6 +688,7 @@ export class RoomsService {
     title: string | null;
     roomSize: string | null;
     rules: string | null;
+    hasRules: boolean;
     description: string | null;
     floor: number | null;
     viewType: string | null;
@@ -675,6 +704,9 @@ export class RoomsService {
     const roomSize = typeof v.roomSize === 'string' && v.roomSize.trim() ? v.roomSize.trim() : null;
     if (roomSize && roomSize.length > 50)
       throw new BadRequestException('roomSize must be at most 50 characters.');
+    const hasRules = Object.prototype.hasOwnProperty.call(v, 'rules');
+    if (hasRules && v.rules !== null && typeof v.rules !== 'string')
+      throw new BadRequestException('rules must be a string or null.');
     const rules = typeof v.rules === 'string' && v.rules.trim() ? v.rules.trim() : null;
     const description =
       typeof v.description === 'string' && v.description.trim() ? v.description.trim() : null;
@@ -689,6 +721,7 @@ export class RoomsService {
       title,
       roomSize,
       rules,
+      hasRules,
       description,
       floor,
       viewType,

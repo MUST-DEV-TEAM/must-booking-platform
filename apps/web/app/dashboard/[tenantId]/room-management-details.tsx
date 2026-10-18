@@ -225,6 +225,10 @@ export function RoomTypePeek({
           {roomType.amenitiesIntro ? (
             <DetailLine label="Amenities introduction" value={roomType.amenitiesIntro} />
           ) : null}
+          <DetailLine
+            label={roomType.effectiveRules || roomType.rules ? 'Own rules' : 'House rules'}
+            value={roomType.effectiveRules ?? roomType.rules ?? 'No rules set'}
+          />
         </CardContent>
       </Card>
       {canManagePhotos ? (
@@ -443,7 +447,22 @@ export function RoomPeek({
               {room.description ? (
                 <DetailLine label="Description override" value={room.description} />
               ) : null}
-              {room.rules ? <DetailLine label="Rules override" value={room.rules} /> : null}
+              <DetailLine
+                label={
+                  room.rulesSource === 'room'
+                    ? 'Own rules'
+                    : room.rulesSource === 'room-type' || roomType.rules
+                      ? 'Using room type rules'
+                      : 'House rules'
+                }
+                value={
+                  room.effectiveRules ??
+                  room.rules ??
+                  roomType.effectiveRules ??
+                  roomType.rules ??
+                  'No rules set'
+                }
+              />
             </CardContent>
           </Card>
           <Card className="gap-3 py-4">

@@ -112,6 +112,10 @@ export function RoomTypeDetail({
               <Detail label="Physical rooms" value={String(rooms.length)} />
               <Detail label="Description" value={roomType.description || 'Not set'} />
               <Detail label="Amenities introduction" value={roomType.amenitiesIntro || 'Not set'} />
+              <Detail
+                label={roomType.effectiveRules || roomType.rules ? 'Own rules' : 'House rules'}
+                value={roomType.effectiveRules ?? roomType.rules ?? 'No rules set'}
+              />
             </CardContent>
           </Card>
           <Card>
@@ -173,6 +177,19 @@ export function RoomTypeDetail({
                         ]
                           .filter(Boolean)
                           .join(' · ') || 'Room details not set'}
+                      </p>
+                      <p className="m-0 mt-1 text-sm text-muted-foreground">
+                        {room.rulesSource === 'room'
+                          ? 'Own rules'
+                          : room.rulesSource === 'room-type' || roomType.rules
+                            ? 'Using room type rules'
+                            : 'House rules'}
+                        :{' '}
+                        {room.effectiveRules ??
+                          room.rules ??
+                          roomType.effectiveRules ??
+                          roomType.rules ??
+                          'No rules set'}
                       </p>
                     </div>
                     {canManageAccommodations ? (

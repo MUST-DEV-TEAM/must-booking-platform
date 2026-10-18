@@ -11,6 +11,8 @@ export type Room = {
   title: string | null;
   roomSize: string | null;
   rules: string | null;
+  effectiveRules?: string | null;
+  rulesSource?: 'room' | 'room-type' | null;
   description: string | null;
   floor: number | null;
   viewType: string | null;
@@ -23,6 +25,9 @@ export type RoomType = {
   name: string;
   description: string | null;
   amenitiesIntro: string | null;
+  rules?: string | null;
+  effectiveRules?: string | null;
+  rulesSource?: 'room-type' | null;
   mainImageUrl: string | null;
   galleryImageUrls: string[];
   maxOccupancy: number;
@@ -83,6 +88,7 @@ export type RoomTypeForm = {
   name: string;
   description: string;
   amenitiesIntro: string;
+  rules: string;
   maxOccupancy: string;
   status: 'DRAFT' | 'PUBLISHED' | 'HIDDEN';
   categoryId: string;
@@ -102,6 +108,7 @@ export const emptyRoomTypeForm: RoomTypeForm = {
   name: '',
   description: '',
   amenitiesIntro: '',
+  rules: '',
   maxOccupancy: '2',
   status: 'PUBLISHED',
   categoryId: '',

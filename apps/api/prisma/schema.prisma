@@ -371,6 +371,7 @@ model RoomType {
   name             String            @db.VarChar(200)
   description      String?
   amenitiesIntro   String?           @map("amenities_intro")
+  rules            String?           @db.Text
   /// Compatibility projection of the canonical room_type_images collection.
   mainImageUrl     String?           @map("main_image_url") @db.VarChar(2000)
   /// Compatibility projection of the canonical room_type_images collection.

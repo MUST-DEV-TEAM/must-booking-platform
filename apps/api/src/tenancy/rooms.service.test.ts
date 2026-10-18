@@ -7,17 +7,20 @@ const propertyId = 'b2222222-2222-4222-8222-222222222222';
 const roomTypeId = 'c3333333-3333-4333-8333-333333333333';
 const actorUserId = 'd4444444-4444-4444-8444-444444444444';
 
-function service() {
+function service(
+  typeRules: string | null = 'Room type rules.',
+  ownRules: string | null = 'No smoking.',
+) {
   const queryRaw = vi
     .fn()
-    .mockResolvedValueOnce([{ id: roomTypeId }])
+    .mockResolvedValueOnce([{ id: roomTypeId, rules: typeRules }])
     .mockResolvedValueOnce([
       {
         id: 'room-id',
         name: '101',
         title: 'Deluxe Sea Suite',
         roomSize: '70m²',
-        rules: 'No smoking.',
+        rules: ownRules,
         description: 'A private sea-facing suite.',
         floor: 1,
         viewType: 'Sea view',
@@ -55,6 +58,8 @@ describe('RoomsService room presentation validation', () => {
       title: 'Deluxe Sea Suite',
       roomSize: '70m²',
       rules: 'No smoking.',
+      effectiveRules: 'No smoking.',
+      rulesSource: 'room',
       description: 'A private sea-facing suite.',
       floor: 1,
       viewType: 'Sea view',
@@ -73,6 +78,18 @@ describe('RoomsService room presentation validation', () => {
     expect(queryRaw.mock.calls[1]).toContain(false);
   });
 
+  it('returns room type rules when a room has no override', async () => {
+    const { rooms } = service('No smoking in the room.', null);
+
+    await expect(
+      rooms.create(tenantId, propertyId, roomTypeId, actorUserId, { name: '102' }),
+    ).resolves.toMatchObject({
+      rules: null,
+      effectiveRules: 'No smoking in the room.',
+      rulesSource: 'room-type',
+    });
+  });
+
   it.each([
     [{ floor: '1' }, 'floor must be an integer between -10 and 200.'],
     [{ floor: 1.5 }, 'floor must be an integer between -10 and 200.'],
@@ -81,6 +98,7 @@ describe('RoomsService room presentation validation', () => {
     [{ title: 'x'.repeat(201) }, 'title must be at most 200 characters.'],
     [{ roomSize: 'x'.repeat(51) }, 'roomSize must be at most 50 characters.'],
     [{ viewType: 'x'.repeat(101) }, 'viewType must be at most 100 characters.'],
+    [{ rules: 123 }, 'rules must be a string or null.'],
   ])('rejects invalid room presentation input %#', async (presentation, message) => {
     const { rooms, queryRaw } = service();
 

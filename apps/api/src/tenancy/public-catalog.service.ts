@@ -3,6 +3,7 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { TenantDatabaseService } from './tenant-database.service';
 import { roomImagePresentation, type RoomImageProjectionRow } from './room-image-projection';
 import { roomTypeImagePresentation } from './room-type-image-projection';
+import { resolveEffectiveHouseRules } from './effective-house-rules';
 import { STORAGE_PROVIDER, type StorageProvider } from '../storage/storage.provider';
 
 type PublicCatalogRoom = {
@@ -11,6 +12,7 @@ type PublicCatalogRoom = {
   title: string | null;
   roomSize: string | null;
   rules: string | null;
+  rulesSource: 'room' | 'room-type' | null;
   description: string | null;
   amenities: Array<{ id: string; name: string; icon: string | null }>;
   floor: number | null;
@@ -25,6 +27,8 @@ type PublicCatalogRoomType = {
   name: string;
   description: string | null;
   amenitiesIntro: string | null;
+  rules: string | null;
+  rulesSource: 'room-type' | null;
   mainImageUrl: string | null;
   galleryImageUrls: string[];
   maxOccupancy: number;
@@ -46,7 +50,7 @@ type PublicCatalogRoomType = {
   category: { id: string; name: string; description: string | null; sortOrder: number } | null;
 };
 
-type PublicCatalogRoomTypeRow = PublicCatalogRoomType & {
+type PublicCatalogRoomTypeRow = Omit<PublicCatalogRoomType, 'rulesSource'> & {
   imageRecords?: Array<{
     sourceUrl: string | null;
     objectKey: string | null;
@@ -105,6 +109,7 @@ export class PublicCatalogService {
           rt.name,
           rt.description,
           rt.amenities_intro AS "amenitiesIntro",
+          rt.rules,
           rt.max_occupancy AS "maxOccupancy",
           CASE WHEN category.id IS NULL THEN NULL ELSE json_build_object(
             'id', category.id, 'name', category.name, 'description', category.description,
@@ -168,10 +173,13 @@ export class PublicCatalogService {
           imageRecords.map((image, sortOrder) => ({ ...image, sortOrder })),
           (key) => this.storage.publicUrl(key),
         );
+        const houseRules = resolveEffectiveHouseRules(null, roomType.rules);
         const publicRoomType = {
           ...roomType,
           category: roomType.category ?? null,
           ...presentation,
+          rules: houseRules.effectiveRules,
+          rulesSource: houseRules.effectiveRules ? ('room-type' as const) : null,
         };
         delete publicRoomType.imageRecords;
         return publicRoomType;
@@ -197,7 +205,8 @@ export class PublicCatalogService {
       const range = this.availabilityRange(query);
       const roomRows = await tx.$queryRaw<
         Array<
-          Omit<PublicCatalogRoom, 'images' | 'photoSource'> & {
+          Omit<PublicCatalogRoom, 'images' | 'photoSource' | 'rulesSource'> & {
+            roomTypeRules: string | null;
             roomTypeId: string;
             roomImageRecords: RoomImageProjectionRow[];
             roomTypeImageRecords: RoomImageProjectionRow[];
@@ -205,7 +214,7 @@ export class PublicCatalogService {
         >
       >`
         SELECT r.id, r.name, r.title, r.room_size AS "roomSize",
-          COALESCE(NULLIF(BTRIM(r.rules), ''), NULLIF(BTRIM(p.rules), '')) AS rules,
+          r.rules, rt.rules AS "roomTypeRules",
           COALESCE(NULLIF(BTRIM(r.description), ''), NULLIF(BTRIM(rt.description), '')) AS description,
           COALESCE(
             (
@@ -303,20 +312,32 @@ export class PublicCatalogService {
               )
           ) AS "isAvailable"
         FROM rooms r
-        JOIN properties p ON p.tenant_id = r.tenant_id AND p.id = r.property_id
         JOIN room_types rt ON rt.tenant_id = r.tenant_id AND rt.property_id = r.property_id AND rt.id = r.room_type_id
         WHERE r.tenant_id = ${tenantId}::uuid AND r.property_id = ${propertyId}::uuid
           AND r.is_active = true AND rt.status = 'PUBLISHED'::"RoomTypeStatus"
         ORDER BY r.created_at
       `;
       const roomsByType = new Map<string, PublicCatalogRoom[]>();
-      for (const { roomTypeId, roomImageRecords, roomTypeImageRecords, ...room } of roomRows) {
+      for (const {
+        roomTypeId,
+        roomImageRecords,
+        roomTypeImageRecords,
+        roomTypeRules,
+        rules: roomRules,
+        ...room
+      } of roomRows) {
         const presentation = roomImagePresentation(
           roomImageRecords ?? [],
           roomTypeImageRecords ?? [],
           (key) => this.storage.publicUrl(key),
         );
-        const publicRoom = { ...room, ...presentation };
+        const houseRules = resolveEffectiveHouseRules(roomRules, roomTypeRules);
+        const publicRoom = {
+          ...room,
+          rules: houseRules.effectiveRules,
+          rulesSource: houseRules.rulesSource,
+          ...presentation,
+        };
         roomsByType.set(roomTypeId, [...(roomsByType.get(roomTypeId) ?? []), publicRoom]);
       }
       return {

@@ -14,12 +14,16 @@ import {
   type RoomTypeImageProjectionRow,
 } from './room-type-image-projection';
 import { STORAGE_PROVIDER, type StorageProvider } from '../storage/storage.provider';
+import { resolveEffectiveHouseRules } from './effective-house-rules';
 
 type RoomType = {
   id: string;
   name: string;
   description: string | null;
   amenitiesIntro: string | null;
+  rules: string | null;
+  effectiveRules?: string | null;
+  rulesSource?: 'room-type' | null;
   mainImageUrl: string | null;
   galleryImageUrls: string[];
   maxOccupancy: number;
@@ -87,7 +91,7 @@ export class RoomTypesService {
   list(tenantId: string, propertyId: string): Promise<RoomType[]> {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const roomTypes = await tx.$queryRaw<RoomTypeListRow[]>`
-        SELECT rt.id, rt.name, rt.description, rt.amenities_intro AS "amenitiesIntro",
+        SELECT rt.id, rt.name, rt.description, rt.amenities_intro AS "amenitiesIntro", rt.rules,
           rt.max_occupancy AS "maxOccupancy", rt.status::text AS status,
           rt.category_id AS "categoryId", category.name AS "categoryName", count(r.id)::int AS "roomCount",
           (NULLIF(BTRIM(rt.name), '') IS NOT NULL AND NULLIF(BTRIM(rt.description), '') IS NOT NULL) AS "hasBasicInfo",
@@ -150,8 +154,12 @@ export class RoomTypesService {
       }
       return roomTypes.map((roomType) => {
         const readiness = this.readiness(roomType);
+        const houseRules = resolveEffectiveHouseRules(null, roomType.rules);
         return {
           ...roomType,
+          rules: houseRules.effectiveRules,
+          effectiveRules: houseRules.effectiveRules,
+          rulesSource: houseRules.effectiveRules ? 'room-type' : null,
           readiness,
           ...roomTypeImagePresentation(imagesByRoomType.get(roomType.id) ?? [], (key) =>
             this.storage.publicUrl(key),
@@ -175,7 +183,7 @@ export class RoomTypesService {
           await this.requireCategory(tx, tenantId, propertyId, input.categoryId);
         const rows = await tx.$queryRaw<RoomType[]>`
           INSERT INTO room_types (
-            id, tenant_id, property_id, name, description, amenities_intro, main_image_url, gallery_image_urls, max_occupancy, category_id
+            id, tenant_id, property_id, name, description, amenities_intro, rules, main_image_url, gallery_image_urls, max_occupancy, category_id
           )
           VALUES (
             ${id}::uuid,
@@ -184,12 +192,13 @@ export class RoomTypesService {
             ${input.name},
             ${input.description},
             ${input.amenitiesIntro},
+            ${input.rules},
             NULL,
             ARRAY[]::varchar(2000)[],
             ${input.maxOccupancy},
             ${input.categoryId ?? null}::uuid
           )
-          RETURNING id, name, description, amenities_intro AS "amenitiesIntro", main_image_url AS "mainImageUrl",
+          RETURNING id, name, description, amenities_intro AS "amenitiesIntro", rules, main_image_url AS "mainImageUrl",
             gallery_image_urls AS "galleryImageUrls", max_occupancy AS "maxOccupancy", status::text AS status,
             category_id AS "categoryId", NULL::text AS "categoryName"
         `;
@@ -202,8 +211,12 @@ export class RoomTypesService {
           targetId: id,
         });
         const images = await this.roomTypeImageRows(tx, tenantId, propertyId, id);
+        const houseRules = resolveEffectiveHouseRules(null, rows[0].rules);
         return {
           ...rows[0],
+          rules: houseRules.effectiveRules,
+          effectiveRules: houseRules.effectiveRules,
+          rulesSource: houseRules.effectiveRules ? 'room-type' : null,
           ...roomTypeImagePresentation(images, (key) => this.storage.publicUrl(key)),
         };
       } catch (error: unknown) {
@@ -239,12 +252,13 @@ export class RoomTypesService {
             name = ${input.name},
             description = ${input.description},
             amenities_intro = ${input.amenitiesIntro},
+            rules = CASE WHEN ${input.hasRules} THEN ${input.rules} ELSE rules END,
             max_occupancy = ${input.maxOccupancy},
             category_id = CASE WHEN ${input.categoryId !== undefined} THEN ${input.categoryId ?? null}::uuid ELSE category_id END,
             status = COALESCE(${input.status ?? null}::"RoomTypeStatus", status),
             updated_at = CURRENT_TIMESTAMP
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${roomTypeId}::uuid
-          RETURNING id, name, description, amenities_intro AS "amenitiesIntro", main_image_url AS "mainImageUrl",
+          RETURNING id, name, description, amenities_intro AS "amenitiesIntro", rules, main_image_url AS "mainImageUrl",
             gallery_image_urls AS "galleryImageUrls", max_occupancy AS "maxOccupancy", status::text AS status,
             category_id AS "categoryId", NULL::text AS "categoryName"
         `;
@@ -269,8 +283,12 @@ export class RoomTypesService {
           });
         }
         const images = await this.roomTypeImageRows(tx, tenantId, propertyId, roomTypeId);
+        const houseRules = resolveEffectiveHouseRules(null, rows[0].rules);
         return {
           ...rows[0],
+          rules: houseRules.effectiveRules,
+          effectiveRules: houseRules.effectiveRules,
+          rulesSource: houseRules.effectiveRules ? 'room-type' : null,
           ...roomTypeImagePresentation(images, (key) => this.storage.publicUrl(key)),
         };
       } catch (error: unknown) {
@@ -952,6 +970,8 @@ export class RoomTypesService {
     name: string;
     description: string | null;
     amenitiesIntro: string | null;
+    rules: string | null;
+    hasRules: boolean;
     maxOccupancy: number;
     categoryId?: string | null;
     status?: 'DRAFT' | 'PUBLISHED' | 'HIDDEN';
@@ -971,6 +991,10 @@ export class RoomTypesService {
       typeof v.amenitiesIntro === 'string' && v.amenitiesIntro.trim()
         ? v.amenitiesIntro.trim()
         : null;
+    const hasRules = Object.prototype.hasOwnProperty.call(v, 'rules');
+    if (hasRules && v.rules !== null && typeof v.rules !== 'string')
+      throw new BadRequestException('rules must be a string or null.');
+    const rules = typeof v.rules === 'string' && v.rules.trim() ? v.rules.trim() : null;
     const maxOccupancy = typeof v.maxOccupancy === 'number' ? v.maxOccupancy : NaN;
     const categoryId = Object.prototype.hasOwnProperty.call(v, 'categoryId')
       ? v.categoryId === null
@@ -992,6 +1016,8 @@ export class RoomTypesService {
       name,
       description,
       amenitiesIntro,
+      rules,
+      hasRules,
       maxOccupancy,
       ...(categoryId !== undefined ? { categoryId } : {}),
       ...(status ? { status } : {}),

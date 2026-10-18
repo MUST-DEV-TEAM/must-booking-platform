@@ -5,10 +5,14 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { RoomManagement } from './room-management';
+import { RoomEditorDialog } from './room-management-dialogs';
 import { DashboardQueryProvider } from '../query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  window.history.replaceState({}, '', '/');
+});
 
 function accommodationFetch() {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -23,6 +27,7 @@ function accommodationFetch() {
             name: 'Double',
             description: 'A quiet double room',
             amenitiesIntro: null,
+            rules: 'No smoking in this room type.',
             mainImageUrl: null,
             galleryImageUrls: [],
             maxOccupancy: 2,
@@ -88,6 +93,8 @@ function accommodationFetch() {
             title: 'Garden room',
             roomSize: '24 m²',
             rules: null,
+            effectiveRules: 'No smoking in this room type.',
+            rulesSource: 'room-type',
             description: null,
             floor: 1,
             viewType: 'Garden view',
@@ -166,6 +173,64 @@ describe('RoomManagement', () => {
     await act(async () => (roomButton as HTMLButtonElement).click());
     expect(document.body.textContent).toContain('Room details');
     expect(document.body.textContent).toContain('Garden room');
+    expect(document.body.textContent).toContain('Using room type rules');
+    expect(document.body.textContent).toContain('No smoking in this room type.');
+    await act(async () => root.unmount());
+  });
+
+  it('switches a room from inherited house rules to an own override and back', async () => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    await act(async () =>
+      root.render(
+        createElement(RoomEditorDialog, {
+          roomType: {
+            id: 'room-type-1',
+            name: 'Double',
+            description: null,
+            amenitiesIntro: null,
+            rules: 'No smoking in this room type.',
+            mainImageUrl: null,
+            galleryImageUrls: [],
+            maxOccupancy: 2,
+            status: 'PUBLISHED',
+          },
+          room: null,
+          canManageAccommodations: true,
+          open: true,
+          saving: false,
+          onOpenChange: vi.fn(),
+          onSave: vi.fn(),
+        }),
+      ),
+    );
+
+    expect(document.body.textContent).toContain('Shown to guests on the booking page');
+    expect(document.body.textContent).toContain(
+      'Using room type rules: No smoking in this room type.',
+    );
+    const writeOwn = [...document.body.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Write rules for this room only',
+    );
+    await act(async () => (writeOwn as HTMLButtonElement).click());
+    const textarea = document.body.querySelector('#physical-room-rules');
+    expect(textarea).not.toBeNull();
+
+    const useType = [...document.body.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Use room type rules',
+    );
+    await act(async () => (useType as HTMLButtonElement).click());
+    expect(document.body.textContent).toContain(
+      'Using room type rules: No smoking in this room type.',
+    );
     await act(async () => root.unmount());
   });
 
@@ -431,6 +496,7 @@ describe('RoomManagement', () => {
       name: 'Double (copy)',
       description: 'A quiet double room',
       amenitiesIntro: null,
+      rules: 'No smoking in this room type.',
       maxOccupancy: 2,
       categoryId: 'category-1',
     });

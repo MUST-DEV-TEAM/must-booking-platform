@@ -39,6 +39,15 @@ function harness() {
 }
 
 describe('AccommodationImportService', () => {
+  it('imports multiline room type house rules', async () => {
+    const { imports, executeRaw } = harness();
+    await imports.confirm(tenantId, propertyId, actorUserId, {
+      kind: 'room-types',
+      rows: [{ name: 'Suite', maxOccupancy: '2', rules: 'No smoking.\nQuiet after 10pm.' }],
+    });
+    expect(executeRaw.mock.calls[0]).toContain('No smoking.\nQuiet after 10pm.');
+  });
+
   it('previews creates and updates, validating category references in the same property', async () => {
     const { imports } = harness();
     const preview = await imports.preview(tenantId, propertyId, {

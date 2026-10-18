@@ -110,6 +110,18 @@ export function RoomTypeEditorDialog({
               onChange={(event) => setForm({ ...form, amenitiesIntro: event.target.value })}
             />
           </FormField>
+          <FormField
+            label="House rules"
+            htmlFor="room-type-house-rules"
+            hint="Shown to guests on the booking page"
+          >
+            <Textarea
+              id="room-type-house-rules"
+              disabled={!canManageAccommodations}
+              value={form.rules}
+              onChange={(event) => setForm({ ...form, rules: event.target.value })}
+            />
+          </FormField>
           <FormField label="Maximum occupancy" htmlFor="room-type-max-occupancy" required>
             <Input
               id="room-type-max-occupancy"
@@ -243,6 +255,8 @@ export function RoomEditorDialog({
   onSave: (form: RoomForm) => void;
 }) {
   const [form, setForm] = useState<RoomForm>(() => roomForm(room));
+  const [editingOwnRules, setEditingOwnRules] = useState(() => Boolean(room?.rules?.trim()));
+  const inheritedRules = roomType?.effectiveRules ?? roomType?.rules ?? null;
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -322,16 +336,38 @@ export function RoomEditorDialog({
           </div>
           <div className="sm:col-span-2">
             <FormField
-              label="Room rules override"
+              label="House rules"
               htmlFor="physical-room-rules"
-              hint="Replaces the property room rules for this room only"
+              hint="Shown to guests on the booking page"
             >
-              <Textarea
-                id="physical-room-rules"
-                disabled={!canManageAccommodations}
-                value={form.rules}
-                onChange={(event) => setForm({ ...form, rules: event.target.value })}
-              />
+              <div className="flex flex-col gap-2">
+                {editingOwnRules ? (
+                  <Textarea
+                    id="physical-room-rules"
+                    disabled={!canManageAccommodations}
+                    placeholder={inheritedRules ?? undefined}
+                    value={form.rules}
+                    onChange={(event) => setForm({ ...form, rules: event.target.value })}
+                  />
+                ) : (
+                  <p className="m-0 rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                    Using room type rules: {inheritedRules || 'No rules set'}
+                  </p>
+                )}
+                {canManageAccommodations ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="self-start"
+                    onClick={() => {
+                      if (editingOwnRules) setForm({ ...form, rules: '' });
+                      setEditingOwnRules(!editingOwnRules);
+                    }}
+                  >
+                    {editingOwnRules ? 'Use room type rules' : 'Write rules for this room only'}
+                  </Button>
+                ) : null}
+              </div>
             </FormField>
           </div>
           <div className="sm:col-span-2">
@@ -529,6 +565,7 @@ function roomTypeForm(roomType: RoomType | null): RoomTypeForm {
         name: roomType.name,
         description: roomType.description ?? '',
         amenitiesIntro: roomType.amenitiesIntro ?? '',
+        rules: roomType.rules ?? '',
         maxOccupancy: String(roomType.maxOccupancy),
         status: roomType.status,
         categoryId: roomType.categoryId ?? '',
@@ -537,6 +574,7 @@ function roomTypeForm(roomType: RoomType | null): RoomTypeForm {
         name: '',
         description: '',
         amenitiesIntro: '',
+        rules: '',
         maxOccupancy: '2',
         status: 'PUBLISHED',
         categoryId: '',

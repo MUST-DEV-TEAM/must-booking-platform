@@ -50,6 +50,7 @@ function individualCatalogFor(rooms: unknown[]) {
         id: 'room-type-id',
         name: 'Deluxe',
         description: null,
+        rules: 'Type default rules.',
         mainImageUrl: null,
         galleryImageUrls: [],
         maxOccupancy: 2,
@@ -97,6 +98,7 @@ describe('PublicCatalogService payment methods', () => {
             name: 'Deluxe',
             description: 'Sea-facing suite',
             amenitiesIntro: 'Everything needed for a comfortable stay.',
+            rules: 'No smoking.',
             imageRecords: [
               {
                 sourceUrl: 'https://images.example.test/deluxe.jpg',
@@ -127,6 +129,8 @@ describe('PublicCatalogService payment methods', () => {
         {
           mainImageUrl: 'https://images.example.test/deluxe.jpg',
           amenitiesIntro: 'Everything needed for a comfortable stay.',
+          rules: 'No smoking.',
+          rulesSource: 'room-type',
           galleryImageUrls: ['https://images.example.test/deluxe-1.jpg'],
           amenities: [{ icon: 'BEACH' }],
           category: { id: 'category-id', name: 'Suites', description: 'Large rooms', sortOrder: 0 },
@@ -169,6 +173,7 @@ describe('PublicCatalogService payment methods', () => {
           title: 'Panoramic Sea Suite',
           roomSize: '70m²',
           rules: 'No smoking. Adults only.',
+          roomTypeRules: 'Type default rules.',
           description: 'A private sea-facing suite.',
           amenities: [{ id: 'balcony', name: 'Private balcony', icon: 'BEACH' }],
           floor: 1,
@@ -185,10 +190,34 @@ describe('PublicCatalogService payment methods', () => {
               title: 'Panoramic Sea Suite',
               roomSize: '70m²',
               rules: 'No smoking. Adults only.',
+              rulesSource: 'room',
               description: 'A private sea-facing suite.',
               amenities: [{ name: 'Private balcony', icon: 'BEACH' }],
             },
           ],
+        },
+      ],
+    });
+  });
+
+  it('returns inherited room type rules for a public room with no override', async () => {
+    await expect(
+      individualCatalogFor([
+        {
+          id: 'room-inherited',
+          name: '102',
+          rules: null,
+          roomTypeRules: 'Type default rules.',
+          roomTypeId: 'room-type-id',
+          isAvailable: true,
+        },
+      ]),
+    ).resolves.toMatchObject({
+      roomTypes: [
+        {
+          rules: 'Type default rules.',
+          rulesSource: 'room-type',
+          rooms: [{ rules: 'Type default rules.', rulesSource: 'room-type' }],
         },
       ],
     });

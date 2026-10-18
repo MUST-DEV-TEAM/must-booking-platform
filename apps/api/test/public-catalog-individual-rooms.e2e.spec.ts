@@ -189,6 +189,8 @@ describe('public catalog individual rooms', () => {
           description: null,
           category: null,
           amenitiesIntro: null,
+          rules: null,
+          rulesSource: null,
           mainImageUrl: 'https://images.example.test/pooled-classic.jpg',
           galleryImageUrls: [
             'https://images.example.test/pooled-classic-1.jpg',
