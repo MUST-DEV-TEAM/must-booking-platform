@@ -1,3 +1,4 @@
+import { localPricing } from '../tenancy/pricing.repository';
 import { applicableRestrictions } from '../tenancy/inventory-restrictions.repository';
 import type { BookingRestriction } from './booking-rules';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
@@ -84,7 +85,12 @@ export class QuoteService {
     const normalizedInput = this.normalizeOccupancy(input);
     // Guest-facing quotes only: staff walk-ins price through price(), which skips this.
     await this.enforceGuestSameDayRule(tenantId, propertyId, normalizedInput.startsOn);
-    const quote = await this.priceWithNightlyRates(tenantId, propertyId, normalizedInput);
+    const quote = await this.priceWithNightlyRates(
+      tenantId,
+      propertyId,
+      normalizedInput,
+      'website',
+    );
 
     const payload: QuotePayload = {
       version: 1,
@@ -122,6 +128,7 @@ export class QuoteService {
     tenantId: string,
     propertyId: string,
     input: QuoteInput,
+    pricingChannel: 'website' | 'staff' = 'staff',
   ): Promise<PricedQuote> {
     const normalizedInput = this.normalizeOccupancy(input);
     this.validStayInput(normalizedInput);
@@ -154,65 +161,23 @@ export class QuoteService {
           normalizedInput.roomId,
           normalizedInput.roomTypeId,
         );
-      const rows = await tx.$queryRaw<
-        Array<{ currency: string; amount: string; pricedNights: bigint; nightlyRates: unknown }>
-      >`
-        SELECT rp.currency, COALESCE(SUM(COALESCE(room_override.amount, resolved.amount)), 0)::text AS amount,
-          COUNT(COALESCE(room_override.amount, resolved.amount))::bigint AS "pricedNights",
-          COALESCE(
-            jsonb_agg(
-              jsonb_build_object(
-                'date', to_char(stay.stays_on::date, 'YYYY-MM-DD'),
-                'amount', COALESCE(room_override.amount, resolved.amount)::text
-              ) ORDER BY stay.stays_on
-            ) FILTER (WHERE COALESCE(room_override.amount, resolved.amount) IS NOT NULL),
-            '[]'::jsonb
-          ) AS "nightlyRates"
-        FROM rate_plans rp
-        CROSS JOIN generate_series(
-          ${normalizedInput.startsOn}::date,
-          (${normalizedInput.endsOn}::date - INTERVAL '1 day'),
-          INTERVAL '1 day'
-        ) AS stay(stays_on)
-        LEFT JOIN LATERAL (
-          SELECT rr.amount
-          FROM rate_rules rr
-          WHERE rr.tenant_id = ${tenantId}::uuid
-            AND rr.property_id = ${propertyId}::uuid
-            AND rr.rate_plan_id = rp.id
-            AND rr.room_type_id = ${normalizedInput.roomTypeId}::uuid
-            AND EXTRACT(DOW FROM stay.stays_on)::smallint = ANY(rr.weekdays)
-            AND (
-              (rr.starts_on IS NOT NULL AND rr.starts_on <= stay.stays_on::date AND rr.ends_on >= stay.stays_on::date)
-              OR rr.starts_on IS NULL
-            )
-          ORDER BY (rr.starts_on IS NULL), rr.created_at DESC
-          LIMIT 1
-        ) resolved ON TRUE
-        LEFT JOIN room_price_overrides room_override
-          ON room_override.tenant_id = ${tenantId}::uuid
-          AND room_override.property_id = ${propertyId}::uuid
-          AND room_override.rate_plan_id = rp.id
-          AND room_override.room_id = ${normalizedInput.roomId ?? null}::uuid
-        WHERE rp.id = ${normalizedInput.ratePlanId}::uuid
-          AND rp.tenant_id = ${tenantId}::uuid
-          AND rp.property_id = ${propertyId}::uuid
-          AND rp.is_active = true
-        GROUP BY rp.currency
-      `;
-      const row = rows[0];
-      if (!row) throw new NotFoundException('Active rate plan was not found.');
-      const nightCount = this.nightCount(normalizedInput.startsOn, normalizedInput.endsOn);
-      if (Number(row.pricedNights) !== nightCount)
-        throw new BadRequestException('The requested stay does not have a rate for every night.');
-      return {
-        total: { amount: row.amount, currency: row.currency },
-        nightlyRates: this.normalizeNightlyRates(
-          row.nightlyRates,
-          normalizedInput.startsOn,
-          normalizedInput.endsOn,
-        ),
-      };
+      const result = await localPricing(tx, tenantId, propertyId, {
+        roomTypeId: normalizedInput.roomTypeId,
+        roomId: normalizedInput.roomId,
+        ratePlanId: normalizedInput.ratePlanId!,
+        startsOn: normalizedInput.startsOn,
+        endsOn: normalizedInput.endsOn,
+        adults: normalizedInput.adults,
+        children: normalizedInput.children,
+        channel: pricingChannel,
+      });
+      if (!result.valid || !result.total)
+        throw new BadRequestException({
+          code: result.errors[0]?.code ?? 'PRICING_UNAVAILABLE',
+          message: result.errors.map((e) => e.message).join(' '),
+          errors: result.errors,
+        });
+      return { total: result.total, nightlyRates: result.nightlyRates };
     });
   }
 
@@ -264,16 +229,21 @@ export class QuoteService {
     const prices = await Promise.all(
       items.map(async (item) => {
         try {
-          const quote = await this.priceWithNightlyRates(tenantId, propertyId, {
-            roomTypeId: item.roomTypeId,
-            roomId: item.roomId,
-            ratePlanId: item.ratePlanId,
-            startsOn: normalized.startsOn,
-            endsOn: normalized.endsOn,
-            adults: normalized.adults,
-            children: normalized.children,
-            guestCount: normalized.guestCount,
-          });
+          const quote = await this.priceWithNightlyRates(
+            tenantId,
+            propertyId,
+            {
+              roomTypeId: item.roomTypeId,
+              roomId: item.roomId,
+              ratePlanId: item.ratePlanId,
+              startsOn: normalized.startsOn,
+              endsOn: normalized.endsOn,
+              adults: normalized.adults,
+              children: normalized.children,
+              guestCount: normalized.guestCount,
+            },
+            'website',
+          );
           return {
             key: item.key,
             roomTypeId: item.roomTypeId,
@@ -484,12 +454,6 @@ export class QuoteService {
 
   private nightCount(startsOn: string, endsOn: string): number {
     return (Date.parse(`${endsOn}T00:00:00Z`) - Date.parse(`${startsOn}T00:00:00Z`)) / 86_400_000;
-  }
-
-  private normalizeNightlyRates(value: unknown, startsOn: string, endsOn: string): NightlyRate[] {
-    if (!this.isNightlyRates(value, startsOn, endsOn))
-      throw new BadRequestException('The requested stay does not have a price for every night.');
-    return value.map((rate) => ({ date: rate.date, amount: rate.amount }));
   }
 
   private isNightlyRates(value: unknown, startsOn: string, endsOn: string): value is NightlyRate[] {

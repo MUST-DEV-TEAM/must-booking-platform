@@ -236,6 +236,7 @@ describe('Multi-room booking orders', () => {
         .send({ name: 'Unavailable Suite', maxOccupancy: 2 }),
       request(app!.getHttpServer())
         .post(`${propertyUrl}/rate-plans`)
+        .set('Idempotency-Key', globalThis.crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ name: 'Flexible', currency: 'EUR', freeCancellationUntilHours: 48 }),
     ]);
@@ -257,10 +258,12 @@ describe('Multi-room booking orders', () => {
         .send({ roomTypeId: secondType.body.id, startsOn, endsOn, availableUnits: 0 }),
       request(app!.getHttpServer())
         .post(`${propertyUrl}/rate-plans/${ratePlan.body.id}/rules`)
+        .set('Idempotency-Key', globalThis.crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ roomTypeId: firstType.body.id, startsOn: null, endsOn: null, amount: '100.00' }),
       request(app!.getHttpServer())
         .post(`${propertyUrl}/rate-plans/${ratePlan.body.id}/rules`)
+        .set('Idempotency-Key', globalThis.crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ roomTypeId: secondType.body.id, startsOn: null, endsOn: null, amount: '110.00' }),
     ]);
@@ -957,6 +960,7 @@ describe('Multi-room booking orders', () => {
         .send({ name: 'Sea View Double', maxOccupancy: 2 }),
       request(app!.getHttpServer())
         .post(`${propertyUrl}/rate-plans`)
+        .set('Idempotency-Key', globalThis.crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ name: 'Flexible', currency: 'EUR', freeCancellationUntilHours: 48 }),
     ]);
@@ -973,6 +977,7 @@ describe('Multi-room booking orders', () => {
         .expect(204),
       request(app!.getHttpServer())
         .post(`${propertyUrl}/rate-plans/${ratePlan.body.id}/rules`)
+        .set('Idempotency-Key', globalThis.crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ roomTypeId: roomType.body.id, startsOn: null, endsOn: null, amount: '90.00' })
         .expect(201),

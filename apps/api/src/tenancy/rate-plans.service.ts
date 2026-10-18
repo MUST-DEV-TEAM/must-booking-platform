@@ -7,7 +7,8 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
-import { AuditLogService } from './audit-log.service';
+import { PricingWrites } from './pricing-writes.service';
+type WriteOptions = { key: string; version?: number; reason?: string };
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 
 type RatePlan = {
@@ -15,6 +16,7 @@ type RatePlan = {
   name: string;
   currency: string;
   isActive: boolean;
+  version: number;
   freeCancellationUntilHours: number | null;
 };
 type RateRule = {
@@ -24,10 +26,12 @@ type RateRule = {
   endsOn: Date | null;
   weekdays: number[];
   amount: string;
+  version: number;
 };
 type RoomPriceOverride = {
   roomId: string;
   amount: string;
+  version: number;
 };
 
 type RatePlanInput = {
@@ -48,7 +52,7 @@ type RateRuleInput = {
 export class RatePlansService {
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
-    @Inject(AuditLogService) private readonly audit: AuditLogService,
+    @Inject(PricingWrites) private readonly writes: PricingWrites,
   ) {}
 
   list(tenantId: string, propertyId: string): Promise<RatePlan[]> {
@@ -56,7 +60,7 @@ export class RatePlansService {
       { tenantId, propertyId },
       (tx) =>
         tx.$queryRaw<RatePlan[]>`
-        SELECT id, name, currency, is_active AS "isActive",
+        SELECT id, name, currency, version, is_active AS "isActive",
           free_cancellation_until_hours AS "freeCancellationUntilHours"
         FROM rate_plans
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
@@ -71,12 +75,19 @@ export class RatePlansService {
     propertyId: string,
     actorUserId: string,
     body: unknown,
+    operation?: WriteOptions,
   ): Promise<RatePlan> {
     const input = this.ratePlanInput(body);
     const id = randomUUID();
-    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      try {
-        const rows = await tx.$queryRaw<RatePlan[]>`
+    return this.writes.run(
+      tenantId,
+      propertyId,
+      actorUserId,
+      operation?.key ?? randomUUID(),
+      { action: 'rate_plan.created', table: 'rate_plans', body: input },
+      async (tx) => {
+        try {
+          const rows = await tx.$queryRaw<RatePlan[]>`
           INSERT INTO rate_plans (
             id, tenant_id, property_id, name, currency, is_active, free_cancellation_until_hours
           ) VALUES (
@@ -86,20 +97,12 @@ export class RatePlansService {
           RETURNING id, name, currency, is_active AS "isActive",
             free_cancellation_until_hours AS "freeCancellationUntilHours"
         `;
-        await this.record(
-          tx,
-          tenantId,
-          propertyId,
-          actorUserId,
-          'rate_plan.created',
-          'rate_plan',
-          id,
-        );
-        return rows[0];
-      } catch (error: unknown) {
-        this.rethrowRatePlanConflict(error);
-      }
-    });
+          return rows[0];
+        } catch (error: unknown) {
+          this.rethrowRatePlanConflict(error);
+        }
+      },
+    );
   }
 
   async update(
@@ -108,11 +111,24 @@ export class RatePlansService {
     ratePlanId: string,
     actorUserId: string,
     body: unknown,
+    operation?: WriteOptions,
   ): Promise<RatePlan> {
     const input = this.ratePlanInput(body);
-    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      try {
-        const rows = await tx.$queryRaw<RatePlan[]>`
+    return this.writes.run(
+      tenantId,
+      propertyId,
+      actorUserId,
+      operation?.key ?? randomUUID(),
+      {
+        action: 'rate_plan.updated',
+        table: 'rate_plans',
+        body: input,
+        id: ratePlanId,
+        version: operation?.version,
+      },
+      async (tx) => {
+        try {
+          const rows = await tx.$queryRaw<RatePlan[]>`
           UPDATE rate_plans
           SET name = ${input.name}, currency = ${input.currency}, is_active = ${input.isActive},
             free_cancellation_until_hours = ${input.freeCancellationUntilHours}, updated_at = CURRENT_TIMESTAMP
@@ -120,21 +136,13 @@ export class RatePlansService {
           RETURNING id, name, currency, is_active AS "isActive",
             free_cancellation_until_hours AS "freeCancellationUntilHours"
         `;
-        if (!rows[0]) throw new NotFoundException('Rate plan not found.');
-        await this.record(
-          tx,
-          tenantId,
-          propertyId,
-          actorUserId,
-          'rate_plan.updated',
-          'rate_plan',
-          ratePlanId,
-        );
-        return rows[0];
-      } catch (error: unknown) {
-        this.rethrowRatePlanConflict(error);
-      }
-    });
+          if (!rows[0]) throw new NotFoundException('Rate plan not found.');
+          return rows[0];
+        } catch (error: unknown) {
+          this.rethrowRatePlanConflict(error);
+        }
+      },
+    );
   }
 
   async remove(
@@ -142,32 +150,37 @@ export class RatePlansService {
     propertyId: string,
     ratePlanId: string,
     actorUserId: string,
+    operation?: WriteOptions,
   ): Promise<void> {
-    await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      try {
-        const rows = await tx.$queryRaw<Array<{ id: string }>>`
+    await this.writes.run(
+      tenantId,
+      propertyId,
+      actorUserId,
+      operation?.key ?? randomUUID(),
+      {
+        action: 'rate_plan.deleted',
+        table: 'rate_plans',
+        body: null,
+        id: ratePlanId,
+        version: operation?.version,
+      },
+      async (tx) => {
+        try {
+          const rows = await tx.$queryRaw<Array<{ id: string }>>`
           DELETE FROM rate_plans
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND id = ${ratePlanId}::uuid
           RETURNING id
         `;
-        if (!rows[0]) throw new NotFoundException('Rate plan not found.');
-        await this.record(
-          tx,
-          tenantId,
-          propertyId,
-          actorUserId,
-          'rate_plan.deleted',
-          'rate_plan',
-          ratePlanId,
-        );
-      } catch (error: unknown) {
-        if (this.isForeignKeyViolation(error))
-          throw new ConflictException(
-            'Cannot delete a rate plan that still has rate rules or room price overrides.',
-          );
-        throw error;
-      }
-    });
+          if (!rows[0]) throw new NotFoundException('Rate plan not found.');
+        } catch (error: unknown) {
+          if (this.isForeignKeyViolation(error))
+            throw new ConflictException(
+              'Cannot delete a rate plan that still has rate rules or room price overrides.',
+            );
+          throw error;
+        }
+      },
+    );
   }
 
   async listRoomPriceOverrides(
@@ -178,7 +191,7 @@ export class RatePlansService {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       await this.requireRatePlan(tx, tenantId, propertyId, ratePlanId);
       return tx.$queryRaw<RoomPriceOverride[]>`
-        SELECT room_id AS "roomId", amount::text AS amount
+        SELECT room_id AS "roomId", amount::text AS amount,version
         FROM room_price_overrides
         WHERE tenant_id = ${tenantId}::uuid
           AND property_id = ${propertyId}::uuid
@@ -195,12 +208,26 @@ export class RatePlansService {
     roomId: string,
     actorUserId: string,
     body: unknown,
+    operation?: WriteOptions,
   ): Promise<RoomPriceOverride> {
     const amount = this.priceOverrideAmount(body);
-    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      await this.requireRatePlan(tx, tenantId, propertyId, ratePlanId);
-      await this.requireRoom(tx, tenantId, propertyId, roomId);
-      const rows = await tx.$queryRaw<RoomPriceOverride[]>`
+    return this.writes.run(
+      tenantId,
+      propertyId,
+      actorUserId,
+      operation?.key ?? randomUUID(),
+      {
+        action: 'room_price_override.set',
+        table: 'room_price_overrides',
+        body: { amount, reason: operation?.reason ?? null },
+        id: roomId,
+        version: operation?.version,
+        ratePlanId,
+      },
+      async (tx) => {
+        await this.requireRatePlan(tx, tenantId, propertyId, ratePlanId);
+        await this.requireRoom(tx, tenantId, propertyId, roomId);
+        const rows = await tx.$queryRaw<RoomPriceOverride[]>`
         INSERT INTO room_price_overrides (tenant_id, property_id, rate_plan_id, room_id, amount)
         VALUES (
           ${tenantId}::uuid, ${propertyId}::uuid, ${ratePlanId}::uuid, ${roomId}::uuid,
@@ -210,17 +237,9 @@ export class RatePlansService {
         DO UPDATE SET amount = EXCLUDED.amount, updated_at = CURRENT_TIMESTAMP
         RETURNING room_id AS "roomId", amount::text AS amount
       `;
-      await this.record(
-        tx,
-        tenantId,
-        propertyId,
-        actorUserId,
-        'room_price_override.set',
-        'room_price_override',
-        `${ratePlanId}:${roomId}`,
-      );
-      return rows[0]!;
-    });
+        return rows[0]!;
+      },
+    );
   }
 
   async removeRoomPriceOverride(
@@ -229,9 +248,23 @@ export class RatePlansService {
     ratePlanId: string,
     roomId: string,
     actorUserId: string,
+    operation?: WriteOptions,
   ): Promise<void> {
-    await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      const rows = await tx.$queryRaw<Array<{ roomId: string }>>`
+    await this.writes.run(
+      tenantId,
+      propertyId,
+      actorUserId,
+      operation?.key ?? randomUUID(),
+      {
+        action: 'room_price_override.deleted',
+        table: 'room_price_overrides',
+        body: { reason: operation?.reason ?? null },
+        id: roomId,
+        version: operation?.version,
+        ratePlanId,
+      },
+      async (tx) => {
+        const rows = await tx.$queryRaw<Array<{ roomId: string }>>`
         DELETE FROM room_price_overrides
         WHERE tenant_id = ${tenantId}::uuid
           AND property_id = ${propertyId}::uuid
@@ -239,24 +272,16 @@ export class RatePlansService {
           AND room_id = ${roomId}::uuid
         RETURNING room_id AS "roomId"
       `;
-      if (!rows[0]) throw new NotFoundException('Room price override not found.');
-      await this.record(
-        tx,
-        tenantId,
-        propertyId,
-        actorUserId,
-        'room_price_override.deleted',
-        'room_price_override',
-        `${ratePlanId}:${roomId}`,
-      );
-    });
+        if (!rows[0]) throw new NotFoundException('Room price override not found.');
+      },
+    );
   }
 
   async listRules(tenantId: string, propertyId: string, ratePlanId: string): Promise<RateRule[]> {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       await this.requireRatePlan(tx, tenantId, propertyId, ratePlanId);
       return tx.$queryRaw<RateRule[]>`
-        SELECT id, room_type_id AS "roomTypeId", starts_on AS "startsOn", ends_on AS "endsOn", weekdays, amount::text AS amount
+        SELECT id, room_type_id AS "roomTypeId", starts_on AS "startsOn", ends_on AS "endsOn", weekdays, amount::text AS amount,version
         FROM rate_rules
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND rate_plan_id = ${ratePlanId}::uuid
         ORDER BY starts_on, created_at
@@ -270,33 +295,32 @@ export class RatePlansService {
     ratePlanId: string,
     actorUserId: string,
     body: unknown,
+    operation?: WriteOptions,
   ): Promise<RateRule> {
     const input = this.rateRuleInput(body);
     const id = randomUUID();
-    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      await this.requireRatePlan(tx, tenantId, propertyId, ratePlanId);
-      await this.requireRoomType(tx, tenantId, propertyId, input.roomTypeId);
-      await this.rejectOverlap(tx, tenantId, propertyId, ratePlanId, input);
-      try {
-        const rows = await tx.$queryRaw<RateRule[]>`
+    return this.writes.run(
+      tenantId,
+      propertyId,
+      actorUserId,
+      operation?.key ?? randomUUID(),
+      { action: 'rate_rule.created', table: 'rate_rules', ratePlanId, body: input },
+      async (tx) => {
+        await this.requireRatePlan(tx, tenantId, propertyId, ratePlanId);
+        await this.requireRoomType(tx, tenantId, propertyId, input.roomTypeId);
+        await this.rejectOverlap(tx, tenantId, propertyId, ratePlanId, input);
+        try {
+          const rows = await tx.$queryRaw<RateRule[]>`
           INSERT INTO rate_rules (id, tenant_id, property_id, rate_plan_id, room_type_id, starts_on, ends_on, weekdays, amount)
           VALUES (${id}::uuid, ${tenantId}::uuid, ${propertyId}::uuid, ${ratePlanId}::uuid, ${input.roomTypeId}::uuid, ${input.startsOn}::date, ${input.endsOn}::date, ${input.weekdays}, ${input.amount}::numeric)
           RETURNING id, room_type_id AS "roomTypeId", starts_on AS "startsOn", ends_on AS "endsOn", weekdays, amount::text AS amount
         `;
-        await this.record(
-          tx,
-          tenantId,
-          propertyId,
-          actorUserId,
-          'rate_rule.created',
-          'rate_rule',
-          id,
-        );
-        return rows[0];
-      } catch (error: unknown) {
-        this.rethrowRateRuleConflict(error);
-      }
-    });
+          return rows[0];
+        } catch (error: unknown) {
+          this.rethrowRateRuleConflict(error);
+        }
+      },
+    );
   }
 
   async updateRule(
@@ -306,38 +330,44 @@ export class RatePlansService {
     rateRuleId: string,
     actorUserId: string,
     body: unknown,
+    operation?: WriteOptions,
   ): Promise<RateRule> {
     const input = this.rateRuleInput(body);
-    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      await this.requireRatePlan(tx, tenantId, propertyId, ratePlanId);
-      await this.requireRoomType(tx, tenantId, propertyId, input.roomTypeId);
-      const existing = await tx.$queryRaw<Array<{ id: string }>>`
+    return this.writes.run(
+      tenantId,
+      propertyId,
+      actorUserId,
+      operation?.key ?? randomUUID(),
+      {
+        action: 'rate_rule.updated',
+        table: 'rate_rules',
+        ratePlanId,
+        body: input,
+        id: rateRuleId,
+        version: operation?.version,
+      },
+      async (tx) => {
+        await this.requireRatePlan(tx, tenantId, propertyId, ratePlanId);
+        await this.requireRoomType(tx, tenantId, propertyId, input.roomTypeId);
+        const existing = await tx.$queryRaw<Array<{ id: string }>>`
         SELECT id FROM rate_rules
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND rate_plan_id = ${ratePlanId}::uuid AND id = ${rateRuleId}::uuid
       `;
-      if (!existing[0]) throw new NotFoundException('Rate rule not found.');
-      await this.rejectOverlap(tx, tenantId, propertyId, ratePlanId, input, rateRuleId);
-      try {
-        const rows = await tx.$queryRaw<RateRule[]>`
+        if (!existing[0]) throw new NotFoundException('Rate rule not found.');
+        await this.rejectOverlap(tx, tenantId, propertyId, ratePlanId, input, rateRuleId);
+        try {
+          const rows = await tx.$queryRaw<RateRule[]>`
           UPDATE rate_rules
           SET room_type_id = ${input.roomTypeId}::uuid, starts_on = ${input.startsOn}::date, ends_on = ${input.endsOn}::date, weekdays = ${input.weekdays}, amount = ${input.amount}::numeric, updated_at = CURRENT_TIMESTAMP
           WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND rate_plan_id = ${ratePlanId}::uuid AND id = ${rateRuleId}::uuid
           RETURNING id, room_type_id AS "roomTypeId", starts_on AS "startsOn", ends_on AS "endsOn", weekdays, amount::text AS amount
         `;
-        await this.record(
-          tx,
-          tenantId,
-          propertyId,
-          actorUserId,
-          'rate_rule.updated',
-          'rate_rule',
-          rateRuleId,
-        );
-        return rows[0];
-      } catch (error: unknown) {
-        this.rethrowRateRuleConflict(error);
-      }
-    });
+          return rows[0];
+        } catch (error: unknown) {
+          this.rethrowRateRuleConflict(error);
+        }
+      },
+    );
   }
 
   async removeRule(
@@ -346,24 +376,30 @@ export class RatePlansService {
     ratePlanId: string,
     rateRuleId: string,
     actorUserId: string,
+    operation?: WriteOptions,
   ): Promise<void> {
-    await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      const rows = await tx.$queryRaw<Array<{ id: string }>>`
+    await this.writes.run(
+      tenantId,
+      propertyId,
+      actorUserId,
+      operation?.key ?? randomUUID(),
+      {
+        action: 'rate_rule.deleted',
+        table: 'rate_rules',
+        ratePlanId,
+        body: null,
+        id: rateRuleId,
+        version: operation?.version,
+      },
+      async (tx) => {
+        const rows = await tx.$queryRaw<Array<{ id: string }>>`
         DELETE FROM rate_rules
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND rate_plan_id = ${ratePlanId}::uuid AND id = ${rateRuleId}::uuid
         RETURNING id
       `;
-      if (!rows[0]) throw new NotFoundException('Rate rule not found.');
-      await this.record(
-        tx,
-        tenantId,
-        propertyId,
-        actorUserId,
-        'rate_rule.deleted',
-        'rate_rule',
-        rateRuleId,
-      );
-    });
+        if (!rows[0]) throw new NotFoundException('Rate rule not found.');
+      },
+    );
   }
 
   private async requireRatePlan(
@@ -511,25 +547,6 @@ export class RatePlansService {
     if (Number.isNaN(date.valueOf()) || date.toISOString().slice(0, 10) !== value)
       throw new BadRequestException(`${field} must be an ISO date (YYYY-MM-DD).`);
     return value;
-  }
-
-  private async record(
-    tx: TenantTransaction,
-    tenantId: string,
-    propertyId: string,
-    actorUserId: string,
-    action: string,
-    targetType: string,
-    targetId: string,
-  ) {
-    await this.audit.recordInTransaction(tx, {
-      tenantId,
-      propertyId,
-      actorUserId,
-      action,
-      targetType,
-      targetId,
-    });
   }
 
   private rethrowRatePlanConflict(error: unknown): never {

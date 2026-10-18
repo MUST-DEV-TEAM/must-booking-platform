@@ -110,11 +110,13 @@ describe('room price overrides', () => {
       .expect(201);
     const ratePlan = await request(app.getHttpServer())
       .post(`${propertyUrl}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Flexible', currency: 'EUR' })
       .expect(201);
     await request(app.getHttpServer())
       .post(`${propertyUrl}/rate-plans/${ratePlan.body.id}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId: roomType.body.id, startsOn: null, endsOn: null, amount: '100.00' })
       .expect(201);
@@ -123,18 +125,25 @@ describe('room price overrides', () => {
       .patch(
         `${propertyUrl}/rate-plans/${ratePlan.body.id}/rooms/${overriddenRoom.body.id}/price-override`,
       )
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
-      .send({ amount: '125.50' })
+      .send({ version: 0, amount: '125.50' })
       .expect(200)
       .expect((response) => {
-        expect(response.body).toEqual({ roomId: overriddenRoom.body.id, amount: '125.50' });
+        expect(response.body).toEqual({
+          roomId: overriddenRoom.body.id,
+          amount: '125.50',
+          version: 1,
+        });
       });
     await request(app.getHttpServer())
       .get(`${propertyUrl}/rate-plans/${ratePlan.body.id}/room-price-overrides`)
       .set('Cookie', cookie)
       .expect(200)
       .expect((response) => {
-        expect(response.body).toEqual([{ roomId: overriddenRoom.body.id, amount: '125.50' }]);
+        expect(response.body).toEqual([
+          { roomId: overriddenRoom.body.id, amount: '125.50', version: 1 },
+        ]);
       });
 
     const quote = (roomId: string) =>
@@ -166,8 +175,9 @@ describe('room price overrides', () => {
       .patch(
         `/tenants/${randomUUID()}/properties/${propertyId}/rate-plans/${ratePlan.body.id}/rooms/${overriddenRoom.body.id}/price-override`,
       )
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
-      .send({ amount: '1.00' })
+      .send({ version: 0, amount: '1.00' })
       .expect(403);
   });
 });

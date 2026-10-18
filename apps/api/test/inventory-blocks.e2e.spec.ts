@@ -171,6 +171,7 @@ describe('Inventory blocks I2', () => {
     // Activation sees payment-pending holds and never changes the booking.
     const plan = await request(app.getHttpServer())
       .post(`${root}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Local plan', currency: 'EUR' })
       .expect(201);

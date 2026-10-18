@@ -1,3 +1,6 @@
+import { pricingFacts } from './pricing.repository';
+import { evaluatePricing } from '../booking/pricing-evaluator';
+import { propertyClock } from '../booking/booking-rules';
 import { applicableRestrictions } from './inventory-restrictions.repository';
 import { evaluateBookingRules } from '../booking/booking-rules';
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
@@ -84,11 +87,14 @@ export class PublicCatalogService {
           stripeEnabled: boolean;
           pokpayEnabled: boolean;
           payAtHotelEnabled: boolean;
+          timezone: string;
+          pricingSource: string;
           bookingMode: 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
         }>
       >`
         SELECT stripe_enabled AS "stripeEnabled", pokpay_enabled AS "pokpayEnabled",
-          pay_at_hotel_enabled AS "payAtHotelEnabled", booking_mode AS "bookingMode"
+          pay_at_hotel_enabled AS "payAtHotelEnabled", booking_mode AS "bookingMode",timezone,
+          CASE WHEN EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections c ON c.tenant_id=pc.tenant_id AND c.id=pc.connection_id WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.kind='PMS' AND pc.enabled AND c.provider='CLOCK_PMS') THEN 'CLOCK_PMS' ELSE 'LOCAL' END AS "pricingSource"
         FROM properties
         WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
       `;
@@ -146,13 +152,10 @@ export class PublicCatalogService {
             FROM (
               SELECT DISTINCT rp.id, rp.name, rp.currency, rp.free_cancellation_until_hours, rp.created_at
               FROM rate_plans rp
-              JOIN rate_rules rr ON rr.rate_plan_id = rp.id
-              WHERE rp.tenant_id = ${tenantId}::uuid
-                AND rp.property_id = ${propertyId}::uuid
-                AND rp.is_active = true
-                AND rr.tenant_id = ${tenantId}::uuid
-                AND rr.property_id = ${propertyId}::uuid
-                AND rr.room_type_id = rt.id
+              WHERE rp.tenant_id=${tenantId}::uuid AND rp.property_id=${propertyId}::uuid AND rp.is_active=true AND rp.lifecycle='Active'
+                AND 'website'=ANY(rp.channels) AND (cardinality(rp.room_type_ids)=0 OR rt.id=ANY(rp.room_type_ids))
+                AND (EXISTS(SELECT 1 FROM rate_rules rr WHERE rr.tenant_id=${tenantId}::uuid AND rr.property_id=${propertyId}::uuid AND rr.rate_plan_id=COALESCE(rp.base_plan_id,rp.id) AND rr.room_type_id=rt.id)
+                  OR EXISTS(SELECT 1 FROM pricing_daily_prices dp WHERE dp.tenant_id=${tenantId}::uuid AND dp.property_id=${propertyId}::uuid AND dp.rate_plan_id=COALESCE(rp.base_plan_id,rp.id) AND dp.room_type_id=rt.id))
             ) plans
           ), '[]'::json) AS "ratePlans",
           NOT EXISTS (
@@ -187,9 +190,20 @@ export class PublicCatalogService {
         return publicRoomType;
       });
       const property = properties[0];
+      if (properties[0]?.pricingSource === 'CLOCK_PMS') {
+        for (const type of roomTypes) {
+          type.ratePlans = [];
+          type.requiresRatePlanSelection = false;
+        }
+      }
       const requested = (query ?? {}) as Record<string, unknown>;
       if (requested.startsOn !== undefined || requested.endsOn !== undefined) {
         const stay = this.availabilityRange(query);
+        const pricing =
+          properties[0]?.pricingSource !== 'CLOCK_PMS' &&
+          roomTypes.some((t) => t.ratePlans.length > 0)
+            ? await pricingFacts(tx, tenantId, propertyId)
+            : null;
         const permitted: PublicCatalogRoomType[] = [];
         for (const type of roomTypes) {
           const restrictions = await applicableRestrictions(tx, tenantId, propertyId, type.id);
@@ -201,8 +215,25 @@ export class PublicCatalogService {
               restrictions,
               policy: { timezone: restrictions[0].timezone },
             }).valid
-          )
+          ) {
+            if (type.requiresRatePlanSelection && !type.ratePlans.length) continue;
+            if (pricing && type.requiresRatePlanSelection) {
+              type.ratePlans = type.ratePlans.filter(
+                (plan) =>
+                  evaluatePricing(pricing, {
+                    ratePlanId: plan.id,
+                    roomTypeId: type.id,
+                    ...stay,
+                    adults: 1,
+                    children: 0,
+                    channel: 'website',
+                    today: propertyClock(properties[0]?.timezone).date,
+                  }).valid,
+              );
+              if (!type.ratePlans.length) continue;
+            }
             permitted.push(type);
+          }
         }
         roomTypes = permitted;
       }

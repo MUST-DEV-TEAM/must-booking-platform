@@ -353,6 +353,7 @@ describe('LocalPmsProvider', () => {
       .expect(201);
     const ratePlan = await request(app!.getHttpServer())
       .post(`${propertyUrl}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Provider Flexible', currency: 'EUR', freeCancellationUntilHours: 48 })
       .expect(201);
@@ -365,6 +366,7 @@ describe('LocalPmsProvider', () => {
       .expect(204);
     await request(app!.getHttpServer())
       .post(`${propertyUrl}/rate-plans/${ratePlanId}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn: null, endsOn: null, amount: '90.00' })
       .expect(201);
@@ -1652,11 +1654,13 @@ describe('LocalPmsProvider', () => {
 
     const zeroRatePlan = await request(app!.getHttpServer())
       .post(`${propertyUrl}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Provider Complimentary', currency: 'EUR' })
       .expect(201);
     await request(app!.getHttpServer())
       .post(`${propertyUrl}/rate-plans/${zeroRatePlan.body.id}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn: null, endsOn: null, amount: '0.00' })
       .expect(201);
@@ -2674,11 +2678,13 @@ describe('LocalPmsProvider', () => {
     const pastEndsOn = isoDateFromToday(0);
     const pastCutoffRatePlan = await request(app!.getHttpServer())
       .post(`${propertyUrl}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Provider Past Cutoff', currency: 'EUR', freeCancellationUntilHours: 0 })
       .expect(201);
     await request(app!.getHttpServer())
       .post(`${propertyUrl}/rate-plans/${pastCutoffRatePlan.body.id}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn: null, endsOn: null, amount: '90.00' })
       .expect(201);

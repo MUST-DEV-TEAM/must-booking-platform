@@ -117,12 +117,14 @@ describe('tenant dashboard end-to-end flow', () => {
     roomTypeId = roomType.body.id;
     const ratePlan = await request(app.getHttpServer())
       .post(`${propertyUrl}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', ownerCookie)
       .send({ name: 'Dashboard Flexible', currency: 'EUR', freeCancellationUntilHours: 24 })
       .expect(201);
     ratePlanId = ratePlan.body.id;
     await request(app.getHttpServer())
       .post(`${propertyUrl}/rate-plans/${ratePlanId}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', ownerCookie)
       .send({ roomTypeId, startsOn: null, endsOn: null, amount: '90.00' })
       .expect(201);
@@ -344,6 +346,7 @@ describe('tenant dashboard end-to-end flow', () => {
       () =>
         request(app.getHttpServer())
           .post(`${propertyUrl}/rate-plans`)
+          .set('Idempotency-Key', globalThis.crypto.randomUUID())
           .set('Cookie', staffCookie)
           .send({ name: 'Not allowed', currency: 'EUR', freeCancellationUntilHours: 24 }),
     ];

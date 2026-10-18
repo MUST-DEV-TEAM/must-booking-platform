@@ -33,6 +33,28 @@ describe('Rates & Pricing dashboard route', () => {
         );
       if (url === '/api/tenants/t/properties')
         return Promise.resolve(new Response(JSON.stringify([{ id: 'p', name: 'Grand Hotel' }])));
+      if (url.endsWith('/capabilities/mine'))
+        return Promise.resolve(Response.json(['rates.manage']));
+      if (url.endsWith('/pricing'))
+        return Promise.resolve(
+          Response.json({
+            source: 'LOCAL',
+            readOnly: false,
+            today: '2035-03-01',
+            timezone: 'UTC',
+            bookingMode: 'ROOM_TYPE_ONLY',
+            pricingVersion: 1,
+            roomTypes: [],
+            rooms: [],
+            plans: [],
+            rules: [],
+            charges: [],
+            base: [],
+            roomOverrides: [],
+            issues: [],
+            coverage: null,
+          }),
+        );
       if (url === '/api/tenants/t/properties/p/notifications?page=1&pageSize=20')
         return Promise.resolve(new Response(JSON.stringify({ items: [] })));
       return Promise.resolve(new Response(JSON.stringify([])));
@@ -55,7 +77,17 @@ describe('Rates & Pricing dashboard route', () => {
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain('Rate plans and calendar overrides');
+    for (
+      let attempt = 0;
+      attempt < 10 && !container.textContent?.includes('Pricing setup required');
+      attempt++
+    )
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+    expect(container.textContent).toContain('Rates & Pricing');
+    expect(container.textContent).toContain('Pricing setup required');
+    expect(container.textContent).not.toContain('Managed in Clock');
     expect(
       container.querySelector('a[href="/dashboard/t?propertyId=p&section=rates-pricing"]'),
     ).not.toBeNull();

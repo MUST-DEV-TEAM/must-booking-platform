@@ -123,6 +123,7 @@ describe('LocalPmsProvider concurrent booking creation', () => {
       .expect(201);
     const ratePlan = await request(app!.getHttpServer())
       .post(`${propertyUrl}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Last Unit Flexible', currency: 'EUR' })
       .expect(201);
@@ -138,6 +139,7 @@ describe('LocalPmsProvider concurrent booking creation', () => {
       .expect(204);
     await request(app!.getHttpServer())
       .post(`${propertyUrl}/rate-plans/${ratePlanId}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn: null, endsOn: null, amount: '90.00' })
       .expect(201);

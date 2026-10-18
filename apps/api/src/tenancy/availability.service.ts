@@ -1,3 +1,5 @@
+import { pricingContext, pricingFacts } from './pricing.repository';
+import { evaluatePricing, pricingDay } from '../booking/pricing-evaluator';
 import { InventoryStockService } from './inventory-stock.service';
 import { applicableRestrictions } from './inventory-restrictions.repository';
 import {
@@ -397,6 +399,10 @@ export class AvailabilityService {
     days: Array<{ date: string; isAvailable: boolean }>,
   ) {
     const restrictions = await applicableRestrictions(tx, tenantId, propertyId, roomTypeId);
+    const pricingContextData = await pricingContext(tx, tenantId, propertyId);
+    const facts =
+      pricingContextData.source === 'LOCAL' ? await pricingFacts(tx, tenantId, propertyId) : null;
+    const fallback = facts?.plans.find((p) => p.isFallback);
     return days.map((day) => {
       const next = new Date(`${day.date}T00:00:00Z`);
       next.setUTCDate(next.getUTCDate() + 1);
@@ -415,6 +421,20 @@ export class AvailabilityService {
       return {
         ...localCalendarDay({ ...day, isAvailable: day.isAvailable && !closed }),
         ...(restrictions.length ? { restrictionErrors: evaluation.errors } : {}),
+        ...(facts && fallback
+          ? {
+              pricing: evaluatePricing(facts, {
+                ratePlanId: fallback.id,
+                roomTypeId,
+                startsOn: day.date,
+                endsOn: pricingDay(day.date, 1),
+                adults: 1,
+                children: 0,
+                channel: 'staff',
+                today: pricingContextData.today,
+              }),
+            }
+          : {}),
       };
     });
   }

@@ -606,7 +606,11 @@ export function DashboardShell({
         />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'rates-pricing' ? (
-        <RateManagement propertyId={selectedProperty.id} tenantId={tenantId} />
+        <RateManagement
+          propertyId={selectedProperty.id}
+          tenantId={tenantId}
+          emailVerified={user?.emailVerified === true}
+        />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'staff' ? (
         <DashboardStaff tenantId={tenantId} propertyId={selectedProperty.id} />

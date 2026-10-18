@@ -115,8 +115,15 @@ describe('Inventory restrictions I1', () => {
       .expect(204);
     const plan = await request(app.getHttpServer())
       .post(`${root}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Existing stay plan', currency: 'EUR' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`${root}/rate-plans/${plan.body.id}/rules`)
+      .set('Idempotency-Key', randomUUID())
+      .set('Cookie', cookie)
+      .send({ roomTypeId, startsOn: null, endsOn: null, amount: '100.00' })
       .expect(201);
     const bookingId = randomUUID();
     await admin.$executeRaw`INSERT INTO bookings(id,tenant_id,property_id,room_type_id,external_reference,status,starts_on,ends_on,rate_plan_id,total_amount) VALUES (${bookingId}::uuid,${tenantId}::uuid,${propertyId}::uuid,${roomTypeId}::uuid,'EXISTING-BEFORE-RESTRICTIONS','CONFIRMED','2035-11-02'::date,'2035-11-03'::date,${plan.body.id}::uuid,100)`;

@@ -84,6 +84,7 @@ describe('rate plans', () => {
 
     await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Flexible', currency: 'EUR' })
       .expect(403);
@@ -149,6 +150,7 @@ describe('rate plans', () => {
 
     const created = await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Flexible', currency: 'eur', freeCancellationUntilHours: 48 })
       .expect(201);
@@ -162,18 +164,21 @@ describe('rate plans', () => {
 
     await request(app.getHttpServer())
       .patch(`/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
-      .send({ name: 'Flexible', currency: 'EUR', freeCancellationUntilHours: -1 })
+      .send({ version: 1, name: 'Flexible', currency: 'EUR', freeCancellationUntilHours: -1 })
       .expect(400);
 
     await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Invalid currency', currency: 'EURO' })
       .expect(400);
 
     await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
         roomTypeId,
@@ -185,6 +190,7 @@ describe('rate plans', () => {
 
     await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
         roomTypeId,
@@ -196,6 +202,7 @@ describe('rate plans', () => {
 
     await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
         roomTypeId,
@@ -208,6 +215,7 @@ describe('rate plans', () => {
 
     await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
         roomTypeId,
@@ -219,6 +227,7 @@ describe('rate plans', () => {
 
     await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
         roomTypeId,
@@ -230,6 +239,7 @@ describe('rate plans', () => {
 
     const baseRule = await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn: null, endsOn: null, amount: '100.00' })
       .expect(201);
@@ -243,30 +253,35 @@ describe('rate plans', () => {
 
     await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn: null, endsOn: null, amount: '120.00' })
       .expect(409);
 
     await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn: null, endsOn: null, weekdays: [1], amount: '120.00' })
       .expect(400);
 
     await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Flexible', currency: 'EUR' })
       .expect(409);
 
     await request(app.getHttpServer())
       .post(`/tenants/${randomUUID()}/properties/${propertyId}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Outside', currency: 'EUR' })
       .expect(403);
 
     const firstRule = await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
         roomTypeId,
@@ -285,6 +300,7 @@ describe('rate plans', () => {
 
     await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
         roomTypeId,
@@ -298,6 +314,7 @@ describe('rate plans', () => {
     // Different weekdays do not overlap in applicability.
     const weekendRule = await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
         roomTypeId,
@@ -311,11 +328,13 @@ describe('rate plans', () => {
     // The same room/dates are independent in another rate plan.
     const otherPlan = await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Non-refundable', currency: 'EUR', isActive: false })
       .expect(201);
     await request(app.getHttpServer())
       .post(`/tenants/${tenantId}/properties/${propertyId}/rate-plans/${otherPlan.body.id}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn: '2026-08-01', endsOn: '2026-08-31', amount: '110.00' })
       .expect(201);
@@ -324,8 +343,10 @@ describe('rate plans', () => {
       .patch(
         `/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}/rules/${weekendRule.body.id}`,
       )
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({
+        version: 1,
         roomTypeId,
         startsOn: '2026-08-01',
         endsOn: '2026-08-31',
@@ -336,6 +357,8 @@ describe('rate plans', () => {
 
     await request(app.getHttpServer())
       .delete(`/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
+      .send({ version: 1 })
       .set('Cookie', cookie)
       .expect(409);
 
@@ -351,27 +374,53 @@ describe('rate plans', () => {
       .delete(
         `/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}/rules/${weekendRule.body.id}`,
       )
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
+
+      .send({ version: 1 })
       .expect(204);
     await request(app.getHttpServer())
       .delete(
         `/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}/rules/${firstRuleId}`,
       )
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
+
+      .send({ version: 1 })
       .expect(204);
     await request(app.getHttpServer())
       .delete(
         `/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}/rules/${baseRule.body.id}`,
       )
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
+
+      .send({ version: 1 })
       .expect(204);
     await request(app.getHttpServer())
-      .patch(`/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}`)
+      .patch(`/tenants/${tenantId}/properties/${propertyId}/rate-plans/${otherPlan.body.id}`)
+      .set('Idempotency-Key', randomUUID())
       .set('Cookie', cookie)
-      .send({ name: 'Flexible Updated', currency: 'EUR', isActive: false })
+      .send({ version: 1, name: 'Non-refundable', currency: 'EUR', isActive: true })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post(
+        `/tenants/${tenantId}/properties/${propertyId}/pricing/plans/${otherPlan.body.id}/fallback`,
+      )
+      .set('Idempotency-Key', randomUUID())
+      .set('Cookie', cookie)
+      .send({ version: 2, previousFallbackId: ratePlanId, previousFallbackVersion: 1 })
+      .expect(201);
+    await request(app.getHttpServer())
+      .patch(`/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
+      .set('Cookie', cookie)
+      .send({ version: 2, name: 'Flexible Updated', currency: 'EUR', isActive: false })
       .expect(200);
     await request(app.getHttpServer())
       .delete(`/tenants/${tenantId}/properties/${propertyId}/rate-plans/${ratePlanId}`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
+      .send({ version: 3 })
       .set('Cookie', cookie)
       .expect(204);
 

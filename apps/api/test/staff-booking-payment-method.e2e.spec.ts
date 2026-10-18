@@ -150,12 +150,14 @@ describe('staff-bookings: payment method selection', () => {
     roomTypeId = roomType.body.id;
     const ratePlan = await request(app.getHttpServer())
       .post(`${tenantUrl}/properties/${propertyId}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Standard Rate', currency: 'EUR' })
       .expect(201);
     ratePlanId = ratePlan.body.id;
     await request(app.getHttpServer())
       .post(`${tenantUrl}/properties/${propertyId}/rate-plans/${ratePlanId}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn: null, endsOn: null, amount: '100.00' })
       .expect(201);

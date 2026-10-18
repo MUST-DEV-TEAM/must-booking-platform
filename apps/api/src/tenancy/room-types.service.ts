@@ -1,3 +1,5 @@
+import { pricingContext, pricingFacts } from './pricing.repository';
+import { pricingHealth } from './pricing-health';
 import {
   BadRequestException,
   ConflictException,
@@ -152,8 +154,20 @@ export class RoomTypesService {
         roomTypeImages.push(image);
         imagesByRoomType.set(image.roomTypeId, roomTypeImages);
       }
+      const pricing = await pricingContext(tx, tenantId, propertyId);
+      const priceReadiness = pricing.readOnly
+        ? null
+        : pricingHealth(
+            await pricingFacts(tx, tenantId, propertyId),
+            roomTypes,
+            pricing.today,
+            pricing.advanceBookingDays,
+          ).readiness;
       return roomTypes.map((roomType) => {
-        const readiness = this.readiness(roomType);
+        const readiness = this.readiness({
+          ...roomType,
+          hasRateRule: priceReadiness ? priceReadiness[roomType.id] === true : roomType.hasRateRule,
+        });
         const houseRules = resolveEffectiveHouseRules(null, roomType.rules);
         return {
           ...roomType,

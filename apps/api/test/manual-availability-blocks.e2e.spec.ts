@@ -137,12 +137,14 @@ describe('manual availability blocks', () => {
       .expect(201);
     const ratePlan = await request(app.getHttpServer())
       .post(`${propertyUrl}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', cookie)
       .send({ name: 'Flexible', currency: 'EUR' })
       .expect(201);
     for (const roomTypeId of [firstType.body.id, secondType.body.id])
       await request(app.getHttpServer())
         .post(`${propertyUrl}/rate-plans/${ratePlan.body.id}/rules`)
+        .set('Idempotency-Key', globalThis.crypto.randomUUID())
         .set('Cookie', cookie)
         .send({ roomTypeId, startsOn: null, endsOn: null, amount: '100.00' })
         .expect(201);

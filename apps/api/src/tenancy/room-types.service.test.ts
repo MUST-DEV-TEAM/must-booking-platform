@@ -1,5 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
 
+vi.mock('./pricing.repository', () => ({
+  pricingContext: vi.fn(async () => ({
+    readOnly: false,
+    today: '2035-03-01',
+    advanceBookingDays: 30,
+  })),
+  pricingFacts: vi.fn(async () => ({
+    plans: [],
+    base: [],
+    daily: [],
+    rules: [],
+    charges: [],
+    roomOverrides: [],
+  })),
+}));
 import { RoomTypesService } from './room-types.service';
 
 const tenantId = 'a1111111-1111-4111-8111-111111111111';
@@ -70,8 +85,8 @@ describe('RoomTypesService presentation-image validation', () => {
     await expect(roomTypes.list(tenantId, propertyId)).resolves.toMatchObject([
       {
         readiness: {
-          completeCount: 3,
-          missingCount: 4,
+          completeCount: 2,
+          missingCount: 5,
           isComplete: false,
           firstFix: { key: 'basicInfo', label: 'Add details' },
         },

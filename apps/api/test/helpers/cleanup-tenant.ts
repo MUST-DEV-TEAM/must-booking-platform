@@ -14,6 +14,10 @@ export async function cleanupTenant(
   admin: PrismaClient | Prisma.TransactionClient,
   tenantId: string,
 ): Promise<void> {
+  await admin.$executeRaw`DELETE FROM pricing_operations WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM pricing_daily_prices WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM pricing_adjustments WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM pricing_charges WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM inventory_stock_operations WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM inventory_block_operations WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM inventory_block_sequences WHERE tenant_id = ${tenantId}::uuid`;
@@ -47,6 +51,7 @@ export async function cleanupTenant(
   await admin.$executeRaw`DELETE FROM bookings WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM availability_blocks WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM property_staff_assignments WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM rate_plans WHERE tenant_id = ${tenantId}::uuid AND pricing_basis='derived'`;
   await admin.$executeRaw`DELETE FROM rate_plans WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM cancellation_policies WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM rooms WHERE tenant_id = ${tenantId}::uuid`;

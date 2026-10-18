@@ -42,6 +42,7 @@ function individualCatalogFor(rooms: unknown[]) {
         pokpayEnabled: false,
         payAtHotelEnabled: true,
         bookingMode: 'INDIVIDUAL_ROOM_ONLY',
+        pricingSource: 'CLOCK_PMS',
       },
     ])
     .mockResolvedValueOnce([])

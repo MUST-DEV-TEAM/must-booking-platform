@@ -109,6 +109,7 @@ describe('guest journey', () => {
       .expect(201);
     const ratePlan = await request(app!.getHttpServer())
       .post(`${propertyUrl}/rate-plans`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', ownerCookie)
       .send({ name: 'Flexible', currency: 'EUR', freeCancellationUntilHours: 48 })
       .expect(201);
@@ -123,6 +124,7 @@ describe('guest journey', () => {
       .expect(204);
     await request(app!.getHttpServer())
       .post(`${propertyUrl}/rate-plans/${ratePlan.body.id}/rules`)
+      .set('Idempotency-Key', globalThis.crypto.randomUUID())
       .set('Cookie', ownerCookie)
       .send({ roomTypeId: roomType.body.id, startsOn: null, endsOn: null, amount: '95.00' })
       .expect(201);
