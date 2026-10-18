@@ -205,7 +205,13 @@ export class ReportWorkspaceService {
               roomTypeId: r.roomTypeId,
             })),
             ratePlans: facts.plans.map((p) => ({ value: p.id, label: p.name })),
-            currencies: [...new Set(facts.plans.map((p) => p.currency))].sort(),
+            currencies: [
+              ...new Set([
+                ...facts.plans.map((p) => p.currency),
+                ...facts.bookings.map((b) => b.currency),
+                ...(money ? facts.payments.map((p) => p.currency) : []),
+              ]),
+            ].sort(),
             sources: ['DIRECT', 'WEBSITE', 'UNKNOWN'],
             bookingMode: facts.context.bookingMode,
           },
@@ -240,6 +246,32 @@ export class ReportWorkspaceService {
       this.cache.set(key, { expires: Date.now() + ttl, value: structuredClone(workspace) });
     }
     return workspace;
+  }
+
+  async exportHistory(context: Context) {
+    if (!(await this.capabilities.effective(context)).includes('reports.view'))
+      throw new ForbiddenException('Reports permission is required.');
+    return this.database.withTenantTransaction(context, async (tx) => ({
+      exports: await tx.$queryRaw<
+        Array<{
+          id: string;
+          createdAt: string;
+          report: string;
+          format: string;
+          rowCount: number;
+          asOf: string;
+          timezone: string;
+          basis: string;
+          filters: ReportQuery;
+        }>
+      >`
+      SELECT target_id AS id,created_at::text AS "createdAt",details->>'report' AS report,details->>'format' AS format,
+        (details->>'rowCount')::int AS "rowCount",details->>'asOf' AS "asOf",details->>'timezone' AS timezone,
+        details->>'basis' AS basis,details->'filters' AS filters
+      FROM audit_logs WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid
+        AND actor_user_id=${context.userId}::uuid AND action='report.exported'
+      ORDER BY created_at DESC,id DESC LIMIT 50`,
+    }));
   }
 
   async export(context: Context, body: unknown) {
@@ -358,7 +390,17 @@ export function reportCsv(columns: ReportColumn[], rows: ReportRow[]) {
     '\uFEFF' +
     [
       columns.map((c) => cell(c.label)).join(','),
-      ...rows.map((row) => columns.map((c) => cell(row[c.key])).join(',')),
+      ...rows.map((row) =>
+        columns
+          .map((c) =>
+            cell(
+              c.money && row[c.key] !== null && row[c.key] !== undefined && row.currency
+                ? `${row.currency} ${row[c.key]}`
+                : row[c.key],
+            ),
+          )
+          .join(','),
+      ),
     ].join('\r\n') +
     '\r\n'
   );

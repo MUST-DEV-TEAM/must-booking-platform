@@ -19,13 +19,22 @@ import {
 } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 
-import { BookingStatusBadge, PaymentStatusBadge, SourceBadge } from '../../components/ui/status-badge';
+import { Badge } from '../../components/ui/badge';
+import {
+  BookingStatusBadge,
+  PaymentStatusBadge,
+  SourceBadge,
+} from '../../components/ui/status-badge';
 import { Button } from '../../components/ui/button';
 import { Card } from '../../components/ui/card';
 import { IconButton } from '../../components/ui/icon-button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
 import { Checkbox } from '../../components/ui/checkbox';
-import { CalendarPicker, formatCalendarSelection, type CalendarSelection } from '../../components/ui/calendar-picker';
+import {
+  CalendarPicker,
+  formatCalendarSelection,
+  type CalendarSelection,
+} from '../../components/ui/calendar-picker';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,7 +63,12 @@ import {
   SheetTitle,
 } from '../../components/ui/sheet';
 import { StatTile } from '../../components/ui/stat-tile';
-import { EmptyPanel, ErrorPanel, ListSkeleton, NoResultsPanel } from '../../components/ui/state-panel';
+import {
+  EmptyPanel,
+  ErrorPanel,
+  ListSkeleton,
+  NoResultsPanel,
+} from '../../components/ui/state-panel';
 import { TabBar, type TabBarEntry } from '../../components/ui/tab-bar';
 import {
   Table,
@@ -123,6 +137,7 @@ type SearchResult = {
   page: number;
   pageSize: number;
   counts: Record<View, number>;
+  metricBasis?: { source: string; timezone: string; today: string; basis: string };
 };
 
 type Filters = {
@@ -150,14 +165,21 @@ const columnLabels: Record<ColumnKey, string> = {
   total: 'Total',
 };
 const COLUMNS_STORAGE_KEY = 'must.reservations.columns';
-const defaultColumns: Record<ColumnKey, boolean> = { room: true, source: true, payment: true, total: true };
+const defaultColumns: Record<ColumnKey, boolean> = {
+  room: true,
+  source: true,
+  payment: true,
+  total: true,
+};
 
 type Density = 'comfortable' | 'compact';
 const DENSITY_STORAGE_KEY = 'must.reservations.density';
 
 function loadDensity(): Density {
   try {
-    return window.localStorage.getItem(DENSITY_STORAGE_KEY) === 'compact' ? 'compact' : 'comfortable';
+    return window.localStorage.getItem(DENSITY_STORAGE_KEY) === 'compact'
+      ? 'compact'
+      : 'comfortable';
   } catch {
     return 'comfortable';
   }
@@ -166,7 +188,8 @@ function loadDensity(): Density {
 function loadColumns(): Record<ColumnKey, boolean> {
   try {
     const stored = window.localStorage.getItem(COLUMNS_STORAGE_KEY);
-    if (stored) return { ...defaultColumns, ...(JSON.parse(stored) as Partial<Record<ColumnKey, boolean>>) };
+    if (stored)
+      return { ...defaultColumns, ...(JSON.parse(stored) as Partial<Record<ColumnKey, boolean>>) };
   } catch {
     // Storage can be blocked or hold bad data; fall back to showing every column.
   }
@@ -284,7 +307,9 @@ const guestName = (row: ReservationRow) =>
 
 function guestsLabel(row: ReservationRow) {
   const adults = `${row.adults} adult${row.adults === 1 ? '' : 's'}`;
-  return row.children > 0 ? `${adults} · ${row.children} child${row.children === 1 ? '' : 'ren'}` : adults;
+  return row.children > 0
+    ? `${adults} · ${row.children} child${row.children === 1 ? '' : 'ren'}`
+    : adults;
 }
 
 function dashboardHref(tenantId: string, propertyId: string, extra: string) {
@@ -382,7 +407,10 @@ export function ReservationsPage({
   useEffect(() => {
     if (!query.data) return;
     try {
-      window.sessionStorage.setItem(NEIGHBOURS_KEY, JSON.stringify(query.data.items.map((item) => item.id)));
+      window.sessionStorage.setItem(
+        NEIGHBOURS_KEY,
+        JSON.stringify(query.data.items.map((item) => item.id)),
+      );
     } catch {
       // Storage can be blocked; the arrows simply do not appear.
     }
@@ -397,7 +425,11 @@ export function ReservationsPage({
 
   const clearAll = () => {
     setSearchText('');
-    setFilters((current) => ({ ...initialFilters, view: current.view, pageSize: current.pageSize }));
+    setFilters((current) => ({
+      ...initialFilters,
+      view: current.view,
+      pageSize: current.pageSize,
+    }));
   };
 
   const counts = query.data?.counts;
@@ -412,7 +444,8 @@ export function ReservationsPage({
 
   const chips = useMemo<FilterChip[]>(() => {
     const list: FilterChip[] = [];
-    if (filters.status !== ALL) list.push({ key: 'status', label: bookingStatusDisplay(filters.status).label });
+    if (filters.status !== ALL)
+      list.push({ key: 'status', label: bookingStatusDisplay(filters.status).label });
     if (filters.payment !== ALL)
       list.push({
         key: 'payment',
@@ -454,11 +487,12 @@ export function ReservationsPage({
   const selectedRows = rows.filter((row) => selectedIds.includes(row.id));
   const allSelected = rows.length > 0 && selectedRows.length === rows.length;
   const someSelected = selectedRows.length > 0 && !allSelected;
-  const visibleColumnCount =
-    7 + Object.values(columns).filter(Boolean).length;
+  const visibleColumnCount = 7 + Object.values(columns).filter(Boolean).length;
 
   const toggleRow = (id: string, checked: boolean) =>
-    setSelectedIds((current) => (checked ? [...new Set([...current, id])] : current.filter((value) => value !== id)));
+    setSelectedIds((current) =>
+      checked ? [...new Set([...current, id])] : current.filter((value) => value !== id),
+    );
   const toggleAll = (checked: boolean) => setSelectedIds(checked ? rows.map((row) => row.id) : []);
   const toggleColumn = (key: ColumnKey) => {
     const next = { ...columns, [key]: !columns[key] };
@@ -480,7 +514,9 @@ export function ReservationsPage({
   };
   const copyReferences = async () => {
     try {
-      await navigator.clipboard.writeText(selectedRows.map((row) => row.externalReference).join('\n'));
+      await navigator.clipboard.writeText(
+        selectedRows.map((row) => row.externalReference).join('\n'),
+      );
       setNotice(`Copied ${selectedRows.length} reference${selectedRows.length === 1 ? '' : 's'}.`);
     } catch {
       setNotice('Could not copy. Select the references manually.');
@@ -510,12 +546,26 @@ export function ReservationsPage({
         }
       />
 
+      {data?.metricBasis ? (
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="secondary">
+            Today's confirmed scheduled stays - {data.metricBasis.timezone}
+          </Badge>
+          <Badge variant="secondary">
+            {data.metricBasis.source === 'CLOCK'
+              ? 'Synced from Clock - locally stored records'
+              : 'MUST local records'}
+          </Badge>
+        </div>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile
           label="Arriving today"
           value={counts?.arriving_today ?? '–'}
           active={filters.view === 'arriving_today'}
-          onClick={() => update({ view: filters.view === 'arriving_today' ? 'all' : 'arriving_today' })}
+          onClick={() =>
+            update({ view: filters.view === 'arriving_today' ? 'all' : 'arriving_today' })
+          }
         />
         <StatTile
           label="In house"
@@ -527,14 +577,18 @@ export function ReservationsPage({
           label="Departing today"
           value={counts?.departing_today ?? '–'}
           active={filters.view === 'departing_today'}
-          onClick={() => update({ view: filters.view === 'departing_today' ? 'all' : 'departing_today' })}
+          onClick={() =>
+            update({ view: filters.view === 'departing_today' ? 'all' : 'departing_today' })
+          }
         />
         <StatTile
           label="Needs attention"
           value={counts?.needs_attention ?? '–'}
           tone={counts && counts.needs_attention > 0 ? 'warning' : 'default'}
           active={filters.view === 'needs_attention'}
-          onClick={() => update({ view: filters.view === 'needs_attention' ? 'all' : 'needs_attention' })}
+          onClick={() =>
+            update({ view: filters.view === 'needs_attention' ? 'all' : 'needs_attention' })
+          }
         />
       </div>
 
@@ -585,7 +639,10 @@ export function ReservationsPage({
                   <FilterSelect
                     value={filters.status}
                     onChange={(value) => update({ status: value })}
-                    options={statusOptions.map((value) => [value, bookingStatusDisplay(value).label])}
+                    options={statusOptions.map((value) => [
+                      value,
+                      bookingStatusDisplay(value).label,
+                    ])}
                     allLabel="Any status"
                   />
                 </FilterField>
@@ -649,7 +706,11 @@ export function ReservationsPage({
 
             <IconButton
               label={density === 'compact' ? 'Comfortable rows' : 'Compact rows'}
-              hint={density === 'compact' ? 'Showing one line per row' : 'Showing details under each name'}
+              hint={
+                density === 'compact'
+                  ? 'Showing one line per row'
+                  : 'Showing details under each name'
+              }
               aria-pressed={density === 'compact'}
               onClick={toggleDensity}
             >
@@ -658,10 +719,17 @@ export function ReservationsPage({
 
             <IconButton
               label="Refresh"
-              hint={query.dataUpdatedAt ? `Updated ${updatedLabel(query.dataUpdatedAt, now)}` : undefined}
+              hint={
+                query.dataUpdatedAt
+                  ? `Updated ${updatedLabel(query.dataUpdatedAt, now)}`
+                  : undefined
+              }
               onClick={() => void query.refetch()}
             >
-              <RefreshCw aria-hidden="true" className={query.isFetching ? 'animate-spin' : undefined} />
+              <RefreshCw
+                aria-hidden="true"
+                className={query.isFetching ? 'animate-spin' : undefined}
+              />
             </IconButton>
           </div>
 
@@ -705,13 +773,15 @@ export function ReservationsPage({
               <EmptyPanel
                 title="No reservations yet"
                 description="Reservations made by guests on your website or entered by your team will appear here."
-                action={canCreateBooking ? (
-                  <Button asChild>
-                    <a href={addHref}>
-                      <CirclePlus /> Add the first reservation
-                    </a>
-                  </Button>
-                ) : undefined}
+                action={
+                  canCreateBooking ? (
+                    <Button asChild>
+                      <a href={addHref}>
+                        <CirclePlus /> Add the first reservation
+                      </a>
+                    </Button>
+                  ) : undefined
+                }
               />
             ) : (
               <NoResultsPanel onClear={filtered ? clearAll : undefined} />
@@ -733,15 +803,32 @@ export function ReservationsPage({
                       onCheckedChange={(value) => toggleAll(value === true)}
                     />
                   </TableHead>
-                  <SortHeader label="Reservation" sortKey="created" filters={filters} onSort={toggleSort} />
+                  <SortHeader
+                    label="Reservation"
+                    sortKey="created"
+                    filters={filters}
+                    onSort={toggleSort}
+                  />
                   <SortHeader label="Guest" sortKey="guest" filters={filters} onSort={toggleSort} />
-                  {columns.room ? <TableHead className="px-2 py-2 normal-case tracking-normal">Room</TableHead> : null}
+                  {columns.room ? (
+                    <TableHead className="px-2 py-2 normal-case tracking-normal">Room</TableHead>
+                  ) : null}
                   <SortHeader label="Stay" sortKey="stay" filters={filters} onSort={toggleSort} />
-                  {columns.source ? <TableHead className="px-2 py-2 normal-case tracking-normal">Source</TableHead> : null}
+                  {columns.source ? (
+                    <TableHead className="px-2 py-2 normal-case tracking-normal">Source</TableHead>
+                  ) : null}
                   <TableHead className="px-2 py-2 normal-case tracking-normal">Status</TableHead>
-                  {columns.payment ? <TableHead className="px-2 py-2 normal-case tracking-normal">Payment</TableHead> : null}
+                  {columns.payment ? (
+                    <TableHead className="px-2 py-2 normal-case tracking-normal">Payment</TableHead>
+                  ) : null}
                   {columns.total ? (
-                    <SortHeader label="Total" sortKey="total" filters={filters} onSort={toggleSort} end />
+                    <SortHeader
+                      label="Total"
+                      sortKey="total"
+                      filters={filters}
+                      onSort={toggleSort}
+                      end
+                    />
                   ) : null}
                   <TableHead className="w-10 px-2 py-2 text-right">
                     <span className="sr-only">Actions</span>
@@ -768,7 +855,12 @@ export function ReservationsPage({
                           isSelected && 'bg-primary/10 hover:bg-primary/10',
                         )}
                         onClick={(event) => {
-                          if ((event.target as HTMLElement).closest('button, a, input, label, [role="checkbox"]')) return;
+                          if (
+                            (event.target as HTMLElement).closest(
+                              'button, a, input, label, [role="checkbox"]',
+                            )
+                          )
+                            return;
                           openPreview(row);
                         }}
                       >
@@ -960,7 +1052,9 @@ function ExpandedReservation({ row }: { row: ReservationRow }) {
       </div>
       <div>
         <p className="font-semibold">Notes</p>
-        <p className="mt-1 text-muted-foreground">{row.specialRequests ?? 'No special requests.'}</p>
+        <p className="mt-1 text-muted-foreground">
+          {row.specialRequests ?? 'No special requests.'}
+        </p>
         <p className="text-muted-foreground">
           {row.roomName ? `Room ${row.roomName} assigned.` : 'Room not assigned yet.'}
         </p>
@@ -1160,7 +1254,9 @@ export function ReservationSheet({
                     {money(row.refundedAmount, row.total.currency)}
                   </DetailLine>
                 ) : null}
-                <DetailLine label="Balance due">{money(String(due), row.total.currency)}</DetailLine>
+                <DetailLine label="Balance due">
+                  {money(String(due), row.total.currency)}
+                </DetailLine>
                 <DetailLine label="Payment method">
                   {row.paymentMethod.toLowerCase().replaceAll('_', ' ')}
                 </DetailLine>
@@ -1180,19 +1276,33 @@ export function ReservationSheet({
               ) : null}
               <div className={cn('grid gap-2', row.guestId ? 'grid-cols-3' : 'grid-cols-2')}>
                 <Button size="sm" asChild>
-                  <a href={dashboardHref(tenantId, propertyId, `section=reservations&reservation=${row.id}`)}>
+                  <a
+                    href={dashboardHref(
+                      tenantId,
+                      propertyId,
+                      `section=reservations&reservation=${row.id}`,
+                    )}
+                  >
                     Reservation
                   </a>
                 </Button>
                 {row.guestId ? (
                   <Button size="sm" variant="outline" asChild>
-                    <a href={dashboardHref(tenantId, propertyId, `section=guests&guest=${row.guestId}`)}>
+                    <a
+                      href={dashboardHref(
+                        tenantId,
+                        propertyId,
+                        `section=guests&guest=${row.guestId}`,
+                      )}
+                    >
                       Guest
                     </a>
                   </Button>
                 ) : null}
                 <Button size="sm" variant="outline" asChild>
-                  <a href={dashboardHref(tenantId, propertyId, `section=payments&payment=${row.id}`)}>
+                  <a
+                    href={dashboardHref(tenantId, propertyId, `section=payments&payment=${row.id}`)}
+                  >
                     Payment
                   </a>
                 </Button>

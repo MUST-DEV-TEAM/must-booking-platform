@@ -44,6 +44,15 @@ const definition = (
 /** Executable catalog used by every Reports definition projection. */
 export const REPORT_METRICS: readonly MetricDefinition[] = [
   definition(
+    'deskReceivables',
+    'Due at the desk',
+    'Sum positive booking gross minus matching-currency successful net cash for confirmed pay-at-hotel arrivals',
+    'Property-local arrival today; linked cash as of snapshot',
+    true,
+    'Confirmed bookings, payment method and successful scoped ledger rows',
+    'Separate currencies. Refunds reopen the balance; failures are excluded. Not the created-date report cohort.',
+  ),
+  definition(
     'bookings',
     'Bookings created',
     'Count reservation-room records created in the period',
@@ -707,4 +716,14 @@ export function accrualMetrics(
       legacyNights: total.legacyNights,
       adr: total.unknownBookings ? null : moneyPerNight(decimal(total.room), total.soldNights),
     }));
+}
+
+/** Confirmed scheduled stay counters, shared by the operational booking list and report series. */
+export function scheduledStayMetrics(
+  rows: readonly ReservationMetricRow[],
+  today: string,
+  timezone: string,
+) {
+  const day = reservationMetrics(rows, today, today, timezone).daily[0]!;
+  return { arrivals: day.arrivals, departures: day.departures, inHouse: day.soldNights };
 }

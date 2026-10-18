@@ -45,6 +45,7 @@ import { ReportsService } from './tenancy/reports.service';
 import { ReportDefinitionsService } from './tenancy/report-definitions.service';
 import { ReportViewsController } from './tenancy/report-views.controller';
 import { ReportViewsService } from './tenancy/report-views.service';
+import { DashboardMetricsService } from './tenancy/dashboard-metrics.service';
 import { ReportWorkspaceService } from './tenancy/report-workspace.service';
 import { OverviewController } from './tenancy/overview.controller';
 import { OverviewService } from './tenancy/overview.service';
@@ -283,6 +284,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ReportsService,
     ReportDefinitionsService,
     ReportWorkspaceService,
+    DashboardMetricsService,
     ReportViewsService,
     OverviewService,
     NotificationsService,

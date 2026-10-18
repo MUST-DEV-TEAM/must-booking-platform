@@ -1,5 +1,6 @@
 'use client';
 
+import { reportValue } from '../../lib/report-presentation';
 import { useQuery } from '@tanstack/react-query';
 import {
   Ban,
@@ -35,10 +36,15 @@ export type Overview = {
     departures: number;
     inHouse: number;
     bookedRoomNights: number;
-    availableRoomNights: number;
+    availableRoomNights: number | null;
     occupancyRate: number | null;
   };
-  revenue: { today: { amount: string; currency: string } | null };
+  revenue: {
+    today: { amount: string; currency: string } | null;
+    byCurrency?: Array<{ amount: string; currency: string }>;
+  };
+  balancesDueAtDesk?: Array<{ amount: string; currency: string }>;
+  metricBasis?: { asOf?: string; source: string; timezone: string; moneyVisible: boolean };
   balanceDueAtDesk: { amount: string; currency: string } | null;
   newBookingsSinceYesterday: number;
   needsAttentionCount: number;
@@ -138,7 +144,8 @@ export function DashboardOverview({
 }) {
   const overviewQuery = useOverviewQuery(tenantId, propertyId, initialOverview);
   const canShowQuickBooking = canManageQuickBooking;
-  const link = (section: string, extra?: string) => dashboardHref(tenantId, propertyId, section, extra);
+  const link = (section: string, extra?: string) =>
+    dashboardHref(tenantId, propertyId, section, extra);
   const reservation = (id: string) => link('reservations', `reservation=${id}`);
 
   if (overviewQuery.isPending)
@@ -229,40 +236,56 @@ export function DashboardOverview({
             ) : null}
             {overview.soldOutRooms.length > 0 ? (
               <Badge variant="secondary" className="rounded-full px-2.5">
-                {overview.soldOutRooms.length} room{overview.soldOutRooms.length === 1 ? '' : 's'} sold out tonight
+                {overview.soldOutRooms.length} room{overview.soldOutRooms.length === 1 ? '' : 's'}{' '}
+                sold out tonight
               </Badge>
             ) : null}
           </>
         }
       />
 
-      <section aria-label="Today’s property statistics" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {overview.metricBasis?.asOf ? (
+        <Badge variant="secondary">
+          {overview.metricBasis.source === 'CLOCK'
+            ? 'Synced from Clock - locally stored records'
+            : 'MUST local records'}{' '}
+          - Updated{' '}
+          {new Date(overview.metricBasis.asOf).toLocaleString(undefined, {
+            timeZone: overview.metricBasis.timezone,
+          })}{' '}
+          ({overview.metricBasis.timezone})
+        </Badge>
+      ) : null}
+      <section
+        aria-label="Today’s property statistics"
+        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+      >
         <StatTile
           label="Arrivals"
           icon={LogIn}
           value={kpis.arrivals}
-          note="Arriving today"
+          note="Confirmed scheduled arrivals today"
           href={link('reservations', 'rv=arriving_today')}
         />
         <StatTile
           label="Departures"
           icon={LogOut}
           value={kpis.departures}
-          note="Leaving today"
+          note="Confirmed scheduled departures today"
           href={link('reservations', 'rv=departing_today')}
         />
         <StatTile
           label="In house"
           icon={Users}
           value={kpis.inHouse}
-          note="Staying tonight"
+          note="Confirmed scheduled stays tonight"
           href={link('reservations', 'rv=in_house')}
         />
         <StatTile
           label="Occupancy"
           icon={BedDouble}
-          value={kpis.occupancyRate === null ? '—' : `${kpis.occupancyRate}%`}
-          note={`${kpis.bookedRoomNights} of ${kpis.availableRoomNights} room-nights`}
+          value={reportValue(kpis.occupancyRate, 'percent')}
+          note={`${kpis.bookedRoomNights} of ${kpis.availableRoomNights ?? 'Unknown'} gross room-nights${overview.metricBasis?.source === 'CLOCK' ? ' - synced from Clock; supply Unknown' : ''}`}
         />
         <StatTile
           label="Needs attention"
@@ -272,19 +295,37 @@ export function DashboardOverview({
           note={attention > 0 ? 'Open the queue' : 'Nothing to follow up'}
           href={link('overview', 'tab=needs-attention')}
         />
-        <StatTile
-          label="Due at the desk"
-          icon={Wallet}
-          value={overview.balanceDueAtDesk ? formatMoney(overview.balanceDueAtDesk) : '—'}
-          note="Pay-at-hotel balances"
-        />
-        <StatTile
-          label="Revenue today"
-          icon={CreditCard}
-          value={overview.revenue?.today ? formatMoney(overview.revenue.today) : '—'}
-          note="Payments received today"
-          href={link('payments')}
-        />
+        {overview.metricBasis?.moneyVisible === false ? null : (
+          <StatTile
+            label="Due at the desk"
+            icon={Wallet}
+            value={
+              (
+                overview.balancesDueAtDesk ??
+                (overview.balanceDueAtDesk ? [overview.balanceDueAtDesk] : [])
+              )
+                .map(formatMoney)
+                .join(' / ') || 'Unknown'
+            }
+            note="Confirmed pay-at-hotel arrivals today; net balances."
+          />
+        )}
+        {overview.metricBasis?.moneyVisible === false ? null : (
+          <StatTile
+            label="Collected today"
+            icon={CreditCard}
+            value={
+              (
+                overview.revenue?.byCurrency ??
+                (overview.revenue?.today ? [overview.revenue.today] : [])
+              )
+                .map(formatMoney)
+                .join(' / ') || 'Unknown'
+            }
+            note="Successful charge postings today, per currency."
+            href={link('payments')}
+          />
+        )}
         <StatTile
           label="New bookings"
           icon={CirclePlus}
@@ -341,7 +382,10 @@ export function DashboardOverview({
                 title={booking.guestName ?? booking.guestEmail}
                 subtitle={`${booking.roomTypeName} · ${booking.startsOn} – ${booking.endsOn}`}
                 trailing={
-                  <Badge variant={bookingStatusDisplay(booking.status).tone} className="rounded-full px-2 py-0 text-[10px]">
+                  <Badge
+                    variant={bookingStatusDisplay(booking.status).tone}
+                    className="rounded-full px-2 py-0 text-[10px]"
+                  >
                     {bookingStatusDisplay(booking.status).label}
                   </Badge>
                 }
@@ -370,7 +414,10 @@ export function DashboardOverview({
                   key={room.roomId}
                   title={`${room.roomTypeName} — ${room.roomName}`}
                   trailing={
-                    <Badge variant={room.reason === 'blocked' ? 'warning' : 'secondary'} className="rounded-full px-2 py-0 text-[10px]">
+                    <Badge
+                      variant={room.reason === 'blocked' ? 'warning' : 'secondary'}
+                      className="rounded-full px-2 py-0 text-[10px]"
+                    >
                       {room.reason === 'blocked' ? 'Blocked' : 'Booked'}
                     </Badge>
                   }
@@ -421,9 +468,7 @@ function partySize(item: ArrivalDeparture): string {
 }
 
 function formatMoney(value: { amount: string; currency: string }): string {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: value.currency }).format(
-    Number(value.amount),
-  );
+  return reportValue(value.amount, 'money', value.currency);
 }
 
 function formatTime(value: string) {

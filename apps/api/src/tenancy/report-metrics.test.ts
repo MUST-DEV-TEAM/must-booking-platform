@@ -5,6 +5,7 @@ import {
   REPORT_METRICS,
   ageingBucket,
   cashMetrics,
+  scheduledStayMetrics,
   comparisonRange,
   dayDistance,
   groupDay,
@@ -25,7 +26,7 @@ import {
 describe('shared report metric definitions and dates', () => {
   it('provides unique auditable definitions for all core KPIs', () => {
     expect(new Set(REPORT_METRICS.map((m) => m.key)).size).toBe(REPORT_METRICS.length);
-    expect(REPORT_METRICS.length).toBe(39);
+    expect(REPORT_METRICS.length).toBe(40);
     for (const metric of REPORT_METRICS) {
       expect(metric.formula.length).toBeGreaterThan(10);
       expect(metric.dateBasis.length).toBeGreaterThan(3);
@@ -318,5 +319,33 @@ describe('immutable nightly revenue evidence', () => {
         '2026-10-20',
       ),
     ).toBeNull();
+  });
+});
+
+it('shares confirmed scheduled stay counters with operational lists', () => {
+  const rows = [
+    {
+      status: 'CONFIRMED',
+      startsOn: '2026-03-29',
+      endsOn: '2026-03-30',
+      createdAt: '2026-03-28T23:30:00Z',
+    },
+    {
+      status: 'PAYMENT_PENDING',
+      startsOn: '2026-03-29',
+      endsOn: '2026-03-30',
+      createdAt: '2026-03-28T23:30:00Z',
+    },
+    {
+      status: 'CONFIRMED',
+      startsOn: '2026-03-28',
+      endsOn: '2026-03-29',
+      createdAt: '2026-03-28T10:00:00Z',
+    },
+  ];
+  expect(scheduledStayMetrics(rows, '2026-03-29', 'Europe/Tirane')).toEqual({
+    arrivals: 1,
+    departures: 1,
+    inHouse: 1,
   });
 });

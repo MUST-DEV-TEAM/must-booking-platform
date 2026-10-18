@@ -28,6 +28,16 @@ export class ReportsController {
     return this.workspace.workspace(request.tenantContext, query);
   }
 
+  @Get('exports')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('reports.view')
+  exportHistory(
+    @Req() r: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
+  ) {
+    return this.workspace.exportHistory(r.tenantContext);
+  }
+
   @Post('exports')
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
@@ -67,6 +77,7 @@ export class ReportsController {
       request.tenantContext.tenantId,
       request.tenantContext.propertyId,
       query,
+      request.tenantContext.userId,
     );
     const grants = await this.capabilities.effective(request.tenantContext);
     return grants.includes('payments.view') ? report : { ...report, revenue: [] };

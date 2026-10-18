@@ -11,7 +11,11 @@ export class OverviewController {
   @Get()
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
-  get(@Req() request: { tenantContext: { tenantId: string; propertyId: string } }) {
-    return this.overview.get(request.tenantContext.tenantId, request.tenantContext.propertyId);
+  get(@Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } }) {
+    return this.overview.get(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
+      request.tenantContext.userId,
+    );
   }
 }

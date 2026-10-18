@@ -2,6 +2,7 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, it, expect, vi } from 'vitest';
+import { FinancialMetrics } from './financial-metrics';
 import { ReportTable } from './report-table';
 import { ReportBreakdown } from './report-breakdown';
 import { ReportChart } from './report-chart';
@@ -207,5 +208,36 @@ describe('Shared report components', () => {
     );
     expect(document.body.textContent).not.toContain('Export CSV');
     expect(document.querySelector('[aria-label="Select all visible records"]')).toBeNull();
+  });
+  it('shows server monetary totals per currency without adding them or making inaccessible links', async () => {
+    const onSelect = vi.fn();
+    await mount(
+      createElement(FinancialMetrics, {
+        rows: [
+          {
+            currency: 'EUR',
+            collected: '1.01',
+            refunded: '0.00',
+            netCollected: '1.01',
+            outstanding: '2.00',
+          },
+          {
+            currency: 'USD',
+            collected: '2.02',
+            refunded: '0.00',
+            netCollected: '2.02',
+            outstanding: '0.00',
+          },
+        ],
+        onSelect,
+        interactiveKeys: ['outstanding'],
+      }),
+    );
+    expect(document.body.textContent).toContain('EUR 1.01');
+    expect(document.body.textContent).toContain('USD 2.02');
+    expect(document.body.textContent).not.toContain('3.03');
+    expect(document.querySelectorAll('button')).toHaveLength(2);
+    await click(document.querySelector('button')!);
+    expect(onSelect).toHaveBeenCalledWith('outstanding', 'EUR');
   });
 });

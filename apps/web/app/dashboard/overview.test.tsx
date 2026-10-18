@@ -3,7 +3,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { DashboardOverview } from './overview';
+import { DashboardOverview, type Overview } from './overview';
 import { DashboardQueryProvider } from './query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -134,7 +134,7 @@ describe('DashboardOverview', () => {
     );
 
     expect(fetch).toHaveBeenCalledTimes(2);
-    expect(container.textContent).toContain('71%');
+    expect(container.textContent).toContain('71.0%');
     await act(async () => root.unmount());
   });
 
@@ -164,8 +164,8 @@ describe('DashboardOverview', () => {
     expect(container.textContent).toContain('2 adults');
     expect(container.textContent).toContain('Special request');
     expect(container.textContent).toContain('MB-1001');
-    expect(container.textContent).toContain('€350.00');
-    expect(container.textContent).toContain('€120.00');
+    expect(container.textContent).toContain('EUR 350.00');
+    expect(container.textContent).toContain('EUR 120.00');
     expect(container.textContent).toContain('Uma Upcoming');
     expect(container.textContent).toContain('1 adult, 1 child');
     expect(container.textContent).toContain('Sold out tonight');
@@ -188,13 +188,53 @@ describe('DashboardOverview', () => {
     expect(container.querySelector('a[href*="tab=quick-booking"]')).toBeNull();
     await act(async () => root.unmount());
   });
+  it('keeps multi-currency cash separate and Clock capacity Unknown', async () => {
+    vi.stubGlobal('fetch', vi.fn());
+    const { container, root } = await mount({
+      initialOverview: {
+        ...overview,
+        kpis: { ...overview.kpis, availableRoomNights: null, occupancyRate: null },
+        revenue: {
+          today: null,
+          byCurrency: [
+            { currency: 'EUR', amount: '1.01' },
+            { currency: 'USD', amount: '2.02' },
+          ],
+        },
+        balancesDueAtDesk: [
+          { currency: 'EUR', amount: '3.00' },
+          { currency: 'USD', amount: '4.00' },
+        ],
+        metricBasis: { source: 'CLOCK', timezone: 'UTC', moneyVisible: true },
+        soldOutRooms: [],
+      },
+    });
+    expect(container.textContent).toContain('EUR 1.01 / USD 2.02');
+    expect(container.textContent).not.toContain('3.03');
+    expect(container.textContent).toContain('Unknown gross room-nights');
+    expect(container.textContent).toContain('synced from Clock');
+    await act(async () => root.unmount());
+  });
+  it('hides financial headline cards when the server denies money access', async () => {
+    vi.stubGlobal('fetch', vi.fn());
+    const { container, root } = await mount({
+      initialOverview: {
+        ...overview,
+        metricBasis: { source: 'LOCAL', timezone: 'Europe/Tirane', moneyVisible: false },
+      },
+    });
+    expect(container.textContent).not.toContain('Collected today');
+    expect(container.textContent).not.toContain('Due at the desk');
+    expect(container.textContent).not.toContain('EUR 350.00');
+    await act(async () => root.unmount());
+  });
 });
 
 async function mount({
   initialOverview,
   canManageQuickBooking,
 }: {
-  initialOverview?: typeof overview;
+  initialOverview?: Overview;
   canManageQuickBooking?: boolean;
 } = {}) {
   const container = document.createElement('div');

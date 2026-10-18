@@ -1,5 +1,5 @@
 'use client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../components/ui/button';
 import { PageHeader } from '../../components/ui/page-header';
@@ -25,6 +25,7 @@ import { ReportPrint, type PrintReport } from '../../components/ui/report-print'
 import { ReportViewEditor } from '../../components/ui/report-view-editor';
 import { RecordDirectory } from '../../components/ui/record-directory';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
+import { ReportExportHistory } from './report-export-history';
 import { ReportDefinitions } from './report-definitions';
 import {
   reportNames,
@@ -114,6 +115,7 @@ export function DashboardReports(props: { tenantId: string; propertyId: string }
   return <ReportsWorkspace key={`${props.tenantId}:${props.propertyId}`} {...props} />;
 }
 function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; propertyId: string }) {
+  const queryClient = useQueryClient();
   const root = `/api/tenants/${tenantId}/properties/${propertyId}/reports`,
     writer = useRef(createReportWriter());
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]),
@@ -232,6 +234,9 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
         target,
         expectedFingerprint: data.meta.fingerprint,
       }),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ['dashboard', 'report-exports', tenantId, propertyId],
     });
     if (format === 'print') {
       setPrint(JSON.parse(result.content) as PrintReport);
@@ -405,6 +410,9 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
             )}
           </CardContent>
         </Card>
+      ) : null}
+      {custom ? (
+        <ReportExportHistory key={propertyId} tenantId={tenantId} propertyId={propertyId} />
       ) : null}
       {error ? (
         <Alert variant="destructive">

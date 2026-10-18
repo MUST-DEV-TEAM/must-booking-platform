@@ -13,7 +13,7 @@ import { AuditLogService } from '../src/tenancy/audit-log.service';
 import { TenantDatabaseService } from '../src/tenancy/tenant-database.service';
 import { reportFacts } from '../src/tenancy/report-facts.repository';
 import { parseReportQuery } from '../src/tenancy/report-query';
-import { propertyDay } from '../src/tenancy/report-metrics';
+import { propertyDay, shiftDay } from '../src/tenancy/report-metrics';
 
 const admin = new PrismaClient({
   datasources: {
@@ -671,7 +671,7 @@ describe('Reports R2 real scoped projections, cache and export audit', () => {
     name,
     visibility,
     configuration: {
-      query,
+      query: { ...query },
       columns: ['reference', 'status'],
       metrics: ['bookings', 'occupancy'],
       display: 'table',
@@ -847,5 +847,173 @@ describe('Reports R2 real scoped projections, cache and export audit', () => {
       await admin.$executeRaw`DELETE FROM property_staff_capability_overrides WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND user_id=${staff}::uuid`;
     }
     expect(app.get(ReportViewsService)).toBeDefined();
+  });
+  it('R5 reconciles selected-period Payments, new Reports and the legacy adapter by currency', async () => {
+    const report = (await get({ report: 'revenue' }).expect(200)).body;
+    const payments = await request(app.getHttpServer())
+      .get(`/tenants/${tenant}/properties/${property}/payments/summary`)
+      .set('Cookie', ownerCookie)
+      .query({ from: query.from, to: query.to })
+      .expect(200);
+    expect(payments.body.financial).toEqual(report.summary.financial);
+    const legacy = await request(app.getHttpServer())
+      .get(root())
+      .set('Cookie', ownerCookie)
+      .query({ from: query.from, to: query.to })
+      .expect(200);
+    expect(legacy.body.revenue).toEqual(
+      report.series.map((r: { date: string; currency: string; netCollected: string }) => ({
+        date: r.date,
+        currency: r.currency,
+        amount: r.netCollected,
+      })),
+    );
+    expect(legacy.body.cancellationRate).toEqual({
+      createdBookings: report.summary.bookings,
+      cancelledBookings: report.summary.cancelled,
+      rate: report.summary.cancellationRate,
+    });
+    await request(app.getHttpServer())
+      .get(`/tenants/${tenant}/properties/${property}/payments/summary`)
+      .set('Cookie', staffCookie)
+      .expect(403);
+    await request(app.getHttpServer())
+      .get(`/tenants/${foreignTenant}/properties/${foreignProperty}/payments/summary`)
+      .set('Cookie', ownerCookie)
+      .expect(403);
+    await request(app.getHttpServer())
+      .get(`/tenants/${tenant}/properties/${property}/payments/summary?from=bad`)
+      .set('Cookie', ownerCookie)
+      .expect(400);
+    const staffOverview = await request(app.getHttpServer())
+      .get(`/tenants/${tenant}/properties/${property}/overview`)
+      .set('Cookie', staffCookie)
+      .expect(200);
+    expect(staffOverview.body.revenue.byCurrency).toEqual([]);
+    expect(staffOverview.body.balancesDueAtDesk).toEqual([]);
+  });
+  it('R5 proves Overview, Bookings and Reports share today boundaries, confirmed counts and multi-currency cash', async () => {
+    const today = propertyDay(new Date(), 'Europe/Tirane'),
+      tomorrow = shiftDay(today, 1),
+      yesterday = shiftDay(today, -1),
+      pending = randomUUID(),
+      eurPayment = randomUUID(),
+      usdPayment = randomUUID();
+    const todayCreated = `${today}T10:00:00Z`;
+    const currentNights = [
+      {
+        date: today,
+        amount: '110.00',
+        components: [
+          { kind: 'base', amount: '100.00' },
+          { kind: 'charge', id: 'fee', name: 'Recorded charge', amount: '10.00' },
+        ],
+      },
+    ];
+    await admin.$executeRaw`UPDATE bookings SET starts_on=${today}::date,ends_on=${tomorrow}::date,created_at=${todayCreated}::timestamptz,nightly_rates=${JSON.stringify(currentNights)}::jsonb WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND id=${b1}::uuid`;
+    await admin.$executeRaw`UPDATE bookings SET starts_on=${yesterday}::date,ends_on=${today}::date,created_at=${todayCreated}::timestamptz,nightly_rates=${JSON.stringify([{ date: yesterday, amount: '200.00' }])}::jsonb WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND id=${b2}::uuid`;
+    await admin.$executeRaw`INSERT INTO bookings(id,tenant_id,property_id,room_type_id,rate_plan_id,external_reference,status,starts_on,ends_on,total_amount,payment_method,created_at) VALUES(${pending}::uuid,${tenant}::uuid,${property}::uuid,${king}::uuid,${eur}::uuid,'Pending current fixture','PAYMENT_PENDING',${today}::date,${tomorrow}::date,50,'PAY_AT_HOTEL',${todayCreated}::timestamptz)`;
+    await admin.$executeRaw`INSERT INTO payments(id,tenant_id,property_id,booking_id,kind,provider,external_payment_id,status,amount,currency,created_at) VALUES(${eurPayment}::uuid,${tenant}::uuid,${property}::uuid,${b1}::uuid,'CHARGE','manual',${eurPayment},'PAID',10,'EUR',${todayCreated}::timestamptz),(${usdPayment}::uuid,${tenant}::uuid,${property}::uuid,${b2}::uuid,'CHARGE','manual',${usdPayment},'PAID',20,'USD',${todayCreated}::timestamptz)`;
+    await admin.$executeRaw`INSERT INTO inventory_units(tenant_id,property_id,room_type_id,stays_on,available_units) VALUES(${tenant}::uuid,${property}::uuid,${king}::uuid,${today}::date,4),(${tenant}::uuid,${property}::uuid,${family}::uuid,${today}::date,2)`;
+    try {
+      const report = (await get({ report: 'overview', from: today, to: today }).expect(200)).body;
+      const overview = (
+        await request(app.getHttpServer())
+          .get(`/tenants/${tenant}/properties/${property}/overview`)
+          .set('Cookie', ownerCookie)
+          .expect(200)
+      ).body;
+      const search = (
+        await request(app.getHttpServer())
+          .get(`/tenants/${tenant}/properties/${property}/bookings/search?view=arriving_today`)
+          .set('Cookie', ownerCookie)
+          .expect(200)
+      ).body;
+      expect(overview.kpis).toMatchObject({
+        date: today,
+        arrivals: report.summary.arrivals,
+        departures: report.summary.departures,
+        inHouse: report.summary.soldNights,
+        bookedRoomNights: report.summary.soldNights,
+        availableRoomNights: report.summary.availableNights,
+        occupancyRate: report.summary.occupancy,
+      });
+      expect(search.counts).toMatchObject({
+        arriving_today: report.summary.arrivals,
+        departing_today: report.summary.departures,
+        in_house: report.summary.soldNights,
+      });
+      expect(search.items.map((b: { id: string }) => b.id)).not.toContain(pending);
+      expect(overview.revenue.byCurrency).toEqual(
+        report.summary.financial.map((r: { currency: string; collected: string }) => ({
+          currency: r.currency,
+          amount: r.collected,
+        })),
+      );
+      expect(overview.revenue.today).toBeNull();
+      expect(overview.revenue.byCurrency).toHaveLength(2);
+      const newBookings = (await get({ from: yesterday, to: today }).expect(200)).body.summary
+        .bookings;
+      expect(overview.newBookingsSinceYesterday).toBe(newBookings);
+      await admin.$executeRaw`UPDATE property_integration_connections SET enabled=true WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND connection_id=${connection}::uuid`;
+      const clockOverview = (
+        await request(app.getHttpServer())
+          .get(`/tenants/${tenant}/properties/${property}/overview`)
+          .set('Cookie', ownerCookie)
+          .expect(200)
+      ).body;
+      const clockReport = (await get({ report: 'overview', from: today, to: today }).expect(200))
+        .body;
+      expect(clockOverview.kpis.availableRoomNights).toBeNull();
+      expect(clockOverview.kpis.occupancyRate).toBe(clockReport.summary.occupancy);
+      expect(clockOverview.soldOutRooms).toEqual([]);
+      expect(clockOverview.metricBasis.source).toBe('CLOCK');
+    } finally {
+      await admin.$executeRaw`UPDATE property_integration_connections SET enabled=false WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND connection_id=${connection}::uuid`;
+      await admin.$executeRaw`DELETE FROM payments WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND id IN (${eurPayment}::uuid,${usdPayment}::uuid)`;
+      await admin.$executeRaw`DELETE FROM bookings WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND id=${pending}::uuid`;
+      await admin.$executeRaw`DELETE FROM inventory_units WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND stays_on=${today}::date`;
+      await admin.$executeRaw`UPDATE bookings SET starts_on='2026-03-29',ends_on='2026-03-31',created_at='2026-03-28T23:30:00Z',nightly_rates=${JSON.stringify(nights)}::jsonb WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND id=${b1}::uuid`;
+      await admin.$executeRaw`UPDATE bookings SET starts_on='2026-03-29',ends_on='2026-03-30',created_at='2026-03-29T22:30:00Z',nightly_rates='[{"date":"2026-03-29","amount":"200.00"}]'::jsonb WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND id=${b2}::uuid`;
+    }
+  });
+  it('R5 lists only the caller own completed export metadata in the scoped hotel', async () => {
+    await admin.$executeRaw`INSERT INTO property_staff_capability_overrides(tenant_id,property_id,user_id,capability_id,granted) SELECT ${tenant}::uuid,${property}::uuid,${staff}::uuid,id,true FROM capabilities WHERE tenant_id=${tenant}::uuid AND key='reports.view' ON CONFLICT(tenant_id,property_id,user_id,capability_id) DO UPDATE SET granted=true`;
+
+    const own = (await post({ query, columns: ['reference'] }).expect(201)).body;
+    const other = (await post({ query, columns: ['reference'] }, staffCookie).expect(201)).body;
+    const history = (
+      await request(app.getHttpServer())
+        .get(`${root()}/exports`)
+        .set('Cookie', ownerCookie)
+        .expect(200)
+    ).body.exports;
+    expect(history.some((r: { id: string }) => r.id === own.exportId)).toBe(true);
+    expect(history.some((r: { id: string }) => r.id === other.exportId)).toBe(false);
+    expect(
+      history.every((r: Record<string, unknown>) => !('content' in r) && !('actorUserId' in r)),
+    ).toBe(true);
+    const second = (
+      await request(app.getHttpServer())
+        .get(`${root(otherProperty)}/exports`)
+        .set('Cookie', ownerCookie)
+        .expect(200)
+    ).body.exports;
+    expect(second).toEqual([]);
+    await request(app.getHttpServer()).get(`${root()}/exports`).expect(401);
+  });
+  it('enforces the saved-view ownership cap against real stored configurations', async () => {
+    const fixtureName = `view-limit-${randomUUID()}`,
+      config = JSON.stringify(viewBody().configuration);
+    const seeded = await admin.$queryRaw<
+      Array<{ id: string }>
+    >`INSERT INTO report_views(tenant_id,property_id,owner_user_id,name,visibility,configuration) SELECT ${tenant}::uuid,${property}::uuid,${owner}::uuid,${fixtureName},'private',${config}::jsonb FROM generate_series(1,100) RETURNING id`;
+    try {
+      const result = await viewWrite('post', '', viewBody()).expect(400);
+      expect(result.body.message).toContain('limit reached');
+    } finally {
+      await admin.$executeRaw`DELETE FROM report_views WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND owner_user_id=${owner}::uuid AND name=${fixtureName}`;
+    }
+    expect(seeded).toHaveLength(100);
   });
 });

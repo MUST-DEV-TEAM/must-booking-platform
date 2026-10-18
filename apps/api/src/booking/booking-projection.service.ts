@@ -1,6 +1,9 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { BookingPaymentMethod, BookingStatus } from '@must/domain-contracts';
 
+import { pricingContext } from '../tenancy/pricing.repository';
+import { scheduledStayMetrics, type ReservationMetricRow } from '../tenancy/report-metrics';
+import { checkReportCap, REPORT_LIMITS } from '../tenancy/report-facts.repository';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import {
   BOOKING_VIEWS,
@@ -114,7 +117,12 @@ export type BookingDetail = BookingSearchItem & {
     county: string | null;
     postcode: string | null;
   };
-  clockFolios: Array<{ id: string; isDeposit: boolean; balance: string | null; closedAt: string | null }>;
+  clockFolios: Array<{
+    id: string;
+    isDeposit: boolean;
+    balance: string | null;
+    closedAt: string | null;
+  }>;
   activity: BookingActivity[];
 };
 
@@ -137,6 +145,7 @@ export type BookingSearchResult = {
   page: number;
   pageSize: number;
   counts: Record<BookingView, number>;
+  metricBasis: { source: string; timezone: string; today: string; basis: string };
 };
 
 const isoDate = (value: unknown): string =>
@@ -229,7 +238,9 @@ export class BookingProjectionService {
     const day = /^\d{4}-\d{2}-\d{2}$/;
     if (!day.test(from) || !day.test(to) || to <= from)
       throw new BadRequestException('from and to must be dates, and to must be after from.');
-    const spanDays = (new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime()) / 86_400_000;
+    const spanDays =
+      (new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime()) /
+      86_400_000;
     if (spanDays > 92) throw new BadRequestException('The calendar window can be at most 92 days.');
     const LIMIT = 1000;
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
@@ -300,7 +311,8 @@ export class BookingProjectionService {
     propertyId: string,
     bookingId: string,
   ): Promise<BookingDetail | null> {
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bookingId)) return null;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bookingId))
+      return null;
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const rows = await tx.$queryRawUnsafe<Array<Record<string, unknown>>>(
         `SELECT x.* FROM (${BOOKING_BASE_SQL}) x WHERE x.id = $3::uuid`,
@@ -336,7 +348,8 @@ export class BookingProjectionService {
         ORDER BY a.created_at DESC, a.id DESC
         LIMIT 50
       `;
-      const text = (value: unknown) => (value === null || value === undefined ? null : String(value));
+      const text = (value: unknown) =>
+        value === null || value === undefined ? null : String(value);
       return {
         ...toSearchItem(row),
         version: Number(row.version),
@@ -347,7 +360,9 @@ export class BookingProjectionService {
         cancellation: {
           isFree: (row.cancellation_is_free as boolean | null) ?? null,
           freeUntilHours:
-            row.cancellation_free_until_hours === null ? null : Number(row.cancellation_free_until_hours),
+            row.cancellation_free_until_hours === null
+              ? null
+              : Number(row.cancellation_free_until_hours),
           cutoffAt:
             row.cancellation_cutoff_at instanceof Date
               ? row.cancellation_cutoff_at.toISOString()
@@ -392,35 +407,59 @@ export class BookingProjectionService {
     const limit = `$${built.params.length + 3}`;
     const offset = `$${built.params.length + 4}`;
     const base = BOOKING_BASE_SQL;
-    const countSelect = BOOKING_VIEWS.map(
-      (view) => `COUNT(*) FILTER (WHERE ${VIEW_SQL[view]})::int AS "${view}"`,
-    ).join(', ');
+    const countSelect = BOOKING_VIEWS.filter(
+      (view) => !['arriving_today', 'departing_today', 'in_house'].includes(view),
+    )
+      .map((view) => `COUNT(*) FILTER (WHERE ${VIEW_SQL[view]})::int AS "${view}"`)
+      .join(', ');
 
-    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      const rows = await tx.$queryRawUnsafe<
-        Array<Record<string, unknown> & { total_count: number }>
-      >(
-        `SELECT x.*, COUNT(*) OVER()::int AS total_count FROM (${base}) x
+    return this.database.withTenantTransaction(
+      { tenantId, propertyId },
+      async (tx) => {
+        const rows = await tx.$queryRawUnsafe<
+          Array<Record<string, unknown> & { total_count: number }>
+        >(
+          `SELECT x.*, COUNT(*) OVER()::int AS total_count FROM (${base}) x
          WHERE ${built.where} ORDER BY ${built.orderBy} LIMIT ${limit} OFFSET ${offset}`,
-        tenantId,
-        propertyId,
-        ...built.params,
-        query.pageSize,
-        (query.page - 1) * query.pageSize,
-      );
-      const counts = await tx.$queryRawUnsafe<Array<Record<BookingView, number>>>(
-        `SELECT ${countSelect} FROM (${base}) x`,
-        tenantId,
-        propertyId,
-      );
-      return {
-        items: rows.map(toSearchItem),
-        total: rows.length > 0 ? Number(rows[0]!.total_count) : 0,
-        page: query.page,
-        pageSize: query.pageSize,
-        counts: counts[0] ?? ({} as Record<BookingView, number>),
-      };
-    });
+          tenantId,
+          propertyId,
+          ...built.params,
+          query.pageSize,
+          (query.page - 1) * query.pageSize,
+        );
+        const property = await pricingContext(tx, tenantId, propertyId);
+        const scheduledRows = await tx.$queryRaw<ReservationMetricRow[]>`
+        SELECT status::text,starts_on::text AS "startsOn",ends_on::text AS "endsOn",created_at::text AS "createdAt"
+        FROM bookings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND status='CONFIRMED'
+          AND starts_on<=${property.today}::date AND ends_on>=${property.today}::date LIMIT ${REPORT_LIMITS.bookings + 1}`;
+        checkReportCap(scheduledRows, REPORT_LIMITS.bookings);
+        const scheduled = scheduledStayMetrics(scheduledRows, property.today, property.timezone);
+        const counts = await tx.$queryRawUnsafe<Array<Record<BookingView, number>>>(
+          `SELECT ${countSelect} FROM (${base}) x`,
+          tenantId,
+          propertyId,
+        );
+        return {
+          items: rows.map(toSearchItem),
+          total: rows.length > 0 ? Number(rows[0]!.total_count) : 0,
+          page: query.page,
+          pageSize: query.pageSize,
+          metricBasis: {
+            source: property.source === 'LOCAL' ? 'LOCAL' : 'CLOCK',
+            timezone: property.timezone,
+            today: property.today,
+            basis: 'Confirmed scheduled stays, departure exclusive; stored reservation records',
+          },
+          counts: {
+            ...(counts[0] ?? ({} as Record<BookingView, number>)),
+            arriving_today: scheduled.arrivals,
+            departing_today: scheduled.departures,
+            in_house: scheduled.inHouse,
+          },
+        };
+      },
+      { timeoutMs: 20000, isolationLevel: 'RepeatableRead' },
+    );
   }
 
   async list(tenantId: string, propertyId: string): Promise<BookingProjection[]> {

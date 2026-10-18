@@ -29,11 +29,10 @@ const settle = async () => {
     await Promise.resolve();
   }
 };
-const buttons = () => Array.from(document.body.querySelectorAll<HTMLElement>('button, [role="radio"], [role="menuitem"]'));
 const byText = (text: string, within: ParentNode = document.body) =>
-  Array.from(within.querySelectorAll<HTMLElement>('button, [role="radio"], [role="menuitem"]')).find(
-    (element) => element.textContent?.trim() === text,
-  );
+  Array.from(
+    within.querySelectorAll<HTMLElement>('button, [role="radio"], [role="menuitem"]'),
+  ).find((element) => element.textContent?.trim() === text);
 const setValue = async (input: HTMLInputElement | HTMLTextAreaElement, value: string) =>
   act(async () => {
     Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!.set!.call(input, value);
@@ -46,7 +45,10 @@ const openMenu = async (row: Element) =>
       .querySelector('button[aria-label^="More actions"]')!
       .dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
   });
-const menuItems = () => Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).map((item) => item.textContent?.trim());
+const menuItems = () =>
+  Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')).map((item) =>
+    item.textContent?.trim(),
+  );
 const closeMenu = async () =>
   act(async () => {
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
@@ -124,7 +126,9 @@ describe('Payments', () => {
     });
     await act(settle);
     expect(toast.success).toHaveBeenCalledWith('Payment recorded.');
-    const call = (fetch as ReturnType<typeof vi.fn>).mock.calls.find(([url]) => String(url).endsWith('/manual-payment'));
+    const call = (fetch as ReturnType<typeof vi.fn>).mock.calls.find(([url]) =>
+      String(url).endsWith('/manual-payment'),
+    );
     expect(JSON.parse(call?.[1].body)).toEqual({ method: 'card_in_person' });
     await unmount();
   });
@@ -146,8 +150,20 @@ describe('Payments', () => {
     const { unmount } = await renderPayments([
       { ...booking, id: 'unpaid', guestEmail: 'unpaid@test' },
       { ...booking, id: 'paid', guestEmail: 'paid@test', paidAmount: '100.00' },
-      { ...booking, id: 'partial-refund', guestEmail: 'partial-refund@test', paidAmount: '100.00', refundedAmount: '25.00' },
-      { ...booking, id: 'full-refund', guestEmail: 'full-refund@test', paidAmount: '100.00', refundedAmount: '100.00' },
+      {
+        ...booking,
+        id: 'partial-refund',
+        guestEmail: 'partial-refund@test',
+        paidAmount: '100.00',
+        refundedAmount: '25.00',
+      },
+      {
+        ...booking,
+        id: 'full-refund',
+        guestEmail: 'full-refund@test',
+        paidAmount: '100.00',
+        refundedAmount: '100.00',
+      },
     ]);
     const offered: boolean[] = [];
     for (const row of rows()) offered.push(await menuHas(row, 'Refund…'));
@@ -177,13 +193,22 @@ describe('Payments', () => {
     expect(dialog()!.textContent).toContain('€100.00 was paid and can still be refunded');
     await act(async () => byText('Percentage', dialog()!)!.click());
     await act(async () => byText('25%', dialog()!)!.click());
-    await setValue(dialog()!.querySelector<HTMLTextAreaElement>('textarea')!, 'Approved by guest services');
+    await setValue(
+      dialog()!.querySelector<HTMLTextAreaElement>('textarea')!,
+      'Approved by guest services',
+    );
     await act(async () => {
       byText('Record refund', dialog()!)!.click();
     });
     await act(settle);
-    const call = (fetch as ReturnType<typeof vi.fn>).mock.calls.find(([url]) => String(url).endsWith('/payments/refunds'));
-    expect(JSON.parse(call?.[1].body)).toMatchObject({ bookingId: 'b1', note: 'Approved by guest services', percentage: 25 });
+    const call = (fetch as ReturnType<typeof vi.fn>).mock.calls.find(([url]) =>
+      String(url).endsWith('/payments/refunds'),
+    );
+    expect(JSON.parse(call?.[1].body)).toMatchObject({
+      bookingId: 'b1',
+      note: 'Approved by guest services',
+      percentage: 25,
+    });
     expect(dialog()).toBeNull();
     await unmount();
   });
@@ -251,7 +276,9 @@ describe('Payments', () => {
 
   it('lists the newest booking first', async () => {
     const { unmount } = await renderPayments([cancelledPayAtHotel, live, cancelledHeld]);
-    const references = Array.from(document.body.querySelectorAll('tbody tr code')).map((e) => e.textContent);
+    const references = Array.from(document.body.querySelectorAll('tbody tr code')).map(
+      (e) => e.textContent,
+    );
     expect(references).toEqual(['EBR-LIVE-0001', 'EBR-CANCELLED-0002', 'EBR-CANCELLED-0003']);
     await unmount();
   });
@@ -266,7 +293,9 @@ describe('Payments', () => {
     expect(tab('Needs action').textContent).toContain('1');
     expect(tab('Cancelled').textContent).toContain('2');
     await act(async () => tab('Needs action').click());
-    const references = Array.from(document.body.querySelectorAll('tbody tr code')).map((e) => e.textContent);
+    const references = Array.from(document.body.querySelectorAll('tbody tr code')).map(
+      (e) => e.textContent,
+    );
     expect(references).toEqual(['EBR-CANCELLED-0002']);
     expect(tab('Needs action').getAttribute('aria-selected')).toBe('true');
     await unmount();
@@ -281,7 +310,9 @@ describe('Payments', () => {
       ['GRACE@TEST', ['EBR-CANCELLED-0002']],
     ] as const) {
       await setValue(search, query);
-      expect(Array.from(document.body.querySelectorAll('tbody tr code')).map((e) => e.textContent)).toEqual(expected);
+      expect(
+        Array.from(document.body.querySelectorAll('tbody tr code')).map((e) => e.textContent),
+      ).toEqual(expected);
     }
     await setValue(search, 'nobody');
     expect(c.textContent).toContain('No results');
@@ -298,7 +329,10 @@ describe('Payments', () => {
 
   it('links each reference to its payment page and each guest to their guest page', async () => {
     const { unmount } = await renderPayments([{ ...live, guestId: 'g1' } as Reservation]);
-    const links = Array.from(rows()[0]!.querySelectorAll('a')).map((a) => [a.textContent, a.getAttribute('href')]);
+    const links = Array.from(rows()[0]!.querySelectorAll('a')).map((a) => [
+      a.textContent,
+      a.getAttribute('href'),
+    ]);
     expect(links).toEqual([
       ['EBR-LIVE-0001', '/dashboard/t?propertyId=p&section=payments&payment=b1'],
       ['Ada Lovelace', '/dashboard/t?propertyId=p&section=guests&guest=g1'],
@@ -306,18 +340,47 @@ describe('Payments', () => {
     await unmount();
   });
 
-  it('shows collected, refunded, net, outstanding and the needs-action count above the table', async () => {
-    const { c, unmount } = await renderPayments([
-      live,
-      { ...cancelledHeld, refundedAmount: '40.00' } as Reservation,
-      cancelledPayAtHotel,
-    ]);
+  it('shows report-kernel monetary totals separately from the operational needs-action count', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              query: { from: '2026-10-01', to: '2026-10-19' },
+              meta: {
+                source: 'LOCAL',
+                timezone: 'Europe/Tirane',
+                asOf: '2026-10-19T10:00:00Z',
+                basis: 'MUST locally stored records',
+              },
+              financial: [
+                {
+                  currency: 'EUR',
+                  collected: '987.65',
+                  refunded: '12.34',
+                  netCollected: '975.31',
+                  outstanding: '55.00',
+                },
+              ],
+            }),
+          ),
+      ),
+    );
+    const { c, unmount } = await renderPayments(
+      [live, { ...cancelledHeld, refundedAmount: '40.00' } as Reservation, cancelledPayAtHotel],
+      ['payments.view', 'payments.refund'],
+    );
+    await act(async () => {
+      await settle();
+    });
     const totals = c.querySelector('[aria-label="Payment totals"]')!.textContent ?? '';
-    expect(totals).toMatch(/Collected\s*€200\.00/);
-    expect(totals).toMatch(/Refunded\s*€40\.00/);
-    expect(totals).toMatch(/Net received\s*€160\.00/);
-    expect(totals).toMatch(/Outstanding\s*€0\.00/);
-    expect(totals).toMatch(/Needs action\s*1/);
+    expect(totals).toContain('EUR 987.65');
+    expect(totals).toContain('EUR 12.34');
+    expect(totals).toContain('EUR 975.31');
+    expect(totals).toContain('EUR 55.00');
+    expect(totals).toContain('confirmed bookings created');
+    expect(c.textContent).toMatch(/Needs action\s*1/);
     await unmount();
   });
 
@@ -332,7 +395,12 @@ describe('Payments', () => {
 
   it('previews the refund before confirming, taking a percentage of what is left', async () => {
     const { unmount } = await renderPayments([
-      { ...live, total: { amount: '250.00', currency: 'EUR' }, paidAmount: '250.00', refundedAmount: '50.00' } as Reservation,
+      {
+        ...live,
+        total: { amount: '250.00', currency: 'EUR' },
+        paidAmount: '250.00',
+        refundedAmount: '50.00',
+      } as Reservation,
     ]);
     await openRefund(rows()[0]!);
     expect(dialog()!.textContent).toContain('€200.00 was paid and can still be refunded');
@@ -355,7 +423,17 @@ describe('Payments', () => {
             tenantId: 't',
             propertyId: 'p',
             initialCapabilities: [],
-            initialBookings: [live, cancelledHeld, cancelledPayAtHotel, { ...booking, id: 'owes', externalReference: 'EBR-OWES-0004', status: 'CONFIRMED' } as Reservation],
+            initialBookings: [
+              live,
+              cancelledHeld,
+              cancelledPayAtHotel,
+              {
+                ...booking,
+                id: 'owes',
+                externalReference: 'EBR-OWES-0004',
+                status: 'CONFIRMED',
+              } as Reservation,
+            ],
           }),
         ),
       ),
@@ -367,7 +445,11 @@ describe('Payments', () => {
     expect(text).toContain('EBR-OWES-0004');
     expect(text).toContain('Recently paid');
     expect(c.querySelector('tbody')).toBeNull();
-    await act(async () => Array.from(c.querySelectorAll<HTMLElement>('[role="tab"]')).find((tab) => tab.textContent?.startsWith('Ledger'))!.click());
+    await act(async () =>
+      Array.from(c.querySelectorAll<HTMLElement>('[role="tab"]'))
+        .find((tab) => tab.textContent?.startsWith('Ledger'))!
+        .click(),
+    );
     expect(c.querySelector('tbody')).not.toBeNull();
     await act(async () => r.unmount());
   });

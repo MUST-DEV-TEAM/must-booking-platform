@@ -81,7 +81,8 @@ const fixture = (): ReportWorkspace => ({
   },
 });
 async function mount(data = fixture(), status = 200) {
-  const fetch = vi.fn(async (url: string) => {
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/exports') && init?.method !== 'POST') return new Response('{"exports":[]}');
     if (url.endsWith('/views')) return new Response('{"views":[]}');
     if (url.endsWith('/exports'))
       return new Response(JSON.stringify({ content: '{}', rowCount: 0 }), { status: 409 });

@@ -25,6 +25,35 @@ import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 import { PublicRateLimiterService } from '../src/tenancy/public-rate-limiter.service';
 
+// Real BullMQ behavior under a unique test namespace: no live dev worker can consume these jobs.
+const { testQueuePrefix } = vi.hoisted(() => ({
+  testQueuePrefix: `test-local-pms-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+}));
+vi.mock('bullmq', async (importOriginal) => {
+  const original = await importOriginal<typeof import('bullmq')>();
+  return {
+    ...original,
+    Queue: class extends original.Queue {
+      constructor(name: string, options?: ConstructorParameters<typeof original.Queue>[1]) {
+        super(name, { ...options, connection: options?.connection ?? {}, prefix: testQueuePrefix });
+      }
+    },
+    Worker: class extends original.Worker {
+      constructor(
+        name: string,
+        processor: ConstructorParameters<typeof original.Worker>[1],
+        options: ConstructorParameters<typeof original.Worker>[2],
+      ) {
+        super(name, processor, {
+          ...options,
+          connection: options?.connection ?? {},
+          prefix: testQueuePrefix,
+        });
+      }
+    },
+  };
+});
+
 const isoDateFromToday = (offsetDays: number) => {
   const date = new Date();
   date.setUTCDate(date.getUTCDate() + offsetDays);
@@ -226,6 +255,8 @@ describe('LocalPmsProvider', () => {
   });
 
   afterAll(async () => {
+    // Only the queue created in this unique test namespace is removed.
+    await mailQueue?.obliterate({ force: true });
     await mailQueue?.close();
     mailRedis?.disconnect();
     if (tenantId) await cleanupTenant(admin, tenantId);
@@ -487,7 +518,7 @@ describe('LocalPmsProvider', () => {
       inHouse: 2,
       bookedRoomNights: 2,
       availableRoomNights: 3,
-      occupancyRate: 67,
+      occupancyRate: (2 / 3) * 100,
     });
     expect(overview.body.needsAttention).toEqual(
       expect.arrayContaining([
@@ -993,7 +1024,8 @@ describe('LocalPmsProvider', () => {
               firstName: 'Updated',
               lastName: 'Directory',
               phone: null,
-              bookingCount: 3,
+              // Initial booking + two directory bookings + the persisted failed auto-assignment fixture.
+              bookingCount: 4,
               mostRecentStartsOn: '2031-01-05',
               mostRecentEndsOn: '2031-01-07',
             }),
@@ -1407,8 +1439,9 @@ describe('LocalPmsProvider', () => {
         }),
       }),
     );
-    const concurrentStartsOn = '2026-10-01';
-    const concurrentEndsOn = '2026-10-03';
+    // Stock writes must target future dates; this fixture must not age into the past.
+    const concurrentStartsOn = isoDateFromToday(60);
+    const concurrentEndsOn = isoDateFromToday(62);
     await request(app!.getHttpServer())
       .put(`${propertyUrl}/inventory-units`)
       .set('Idempotency-Key', crypto.randomUUID())
@@ -1900,6 +1933,7 @@ describe('LocalPmsProvider', () => {
       SELECT type FROM notifications
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
         AND type = 'BOOKING_NEEDS_ATTENTION' AND payload->>'status' = 'AVAILABILITY_FAILED'
+        AND payload->>'bookingId' = (SELECT id::text FROM bookings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND external_reference=${expiredReference})
     `;
     expect(attentionNotifications).toHaveLength(1);
 
@@ -2001,8 +2035,20 @@ describe('LocalPmsProvider', () => {
           roomName: 'Provider Suite',
           guestCount: 2,
           nightlyRates: [
-            { date: '2027-09-01', amount: '90.00' },
-            { date: '2027-09-02', amount: '90.00' },
+            expect.objectContaining({
+              date: '2027-09-01',
+              amount: '90.00',
+              components: expect.arrayContaining([
+                expect.objectContaining({ kind: 'base', amount: '90.00' }),
+              ]),
+            }),
+            expect.objectContaining({
+              date: '2027-09-02',
+              amount: '90.00',
+              components: expect.arrayContaining([
+                expect.objectContaining({ kind: 'base', amount: '90.00' }),
+              ]),
+            }),
           ],
           specialRequests: 'Please provide an accessible room.',
         },
@@ -2677,37 +2723,15 @@ describe('LocalPmsProvider', () => {
       .set('Cookie', cookie)
       .send({ roomTypeId, startsOn: null, endsOn: null, amount: '90.00' })
       .expect(201);
-    await request(app!.getHttpServer())
-      .put(`${propertyUrl}/inventory-units`)
-      .set('Idempotency-Key', crypto.randomUUID())
-      .set('Cookie', cookie)
-      .send({ roomTypeId, startsOn: pastStartsOn, endsOn: pastEndsOn, availableUnits: 1 })
-      .expect(204);
-    const pastQuote = await quotes.create(tenantId, propertyId, quoteSessionId, {
-      roomTypeId,
-      ratePlanId: pastCutoffRatePlan.body.id,
-      startsOn: pastStartsOn,
-      endsOn: pastEndsOn,
-    });
-    const pastCutoffBooking = await provider.createBooking(context, {
-      idempotencyKey: randomUUID(),
-      externalReference: `must-${randomUUID()}`,
-      roomTypeId,
-      ratePlanId: pastCutoffRatePlan.body.id,
-      startsOn: pastStartsOn,
-      endsOn: pastEndsOn,
-      guest: {
-        email: `past-cutoff-${randomUUID()}@example.test`,
-        firstName: 'Past',
-        lastName: 'Cutoff',
-        phone: null,
-      },
-      total: pastQuote.total,
-      quoteToken: pastQuote.quoteToken,
-      quoteSessionId,
-      paymentMethod: 'stripe',
-    });
-    if (!pastCutoffBooking.ok) throw new Error('Expected past-cutoff booking to succeed.');
+    // Historical cancellation fixture: current quote/stock routes correctly reject past dates.
+    const pastGuestId = randomUUID();
+    const pastCutoffBooking = { value: { id: randomUUID(), version: 1 } };
+    await admin.$executeRaw`INSERT INTO guests(id,tenant_id,email,first_name,last_name) VALUES(${pastGuestId}::uuid,${tenantId}::uuid,${`past-cutoff-${randomUUID()}@example.test`},'Past','Cutoff')`;
+    await admin.$executeRaw`INSERT INTO inventory_units(tenant_id,property_id,room_type_id,stays_on,available_units,booked_units)
+      VALUES(${tenantId}::uuid,${propertyId}::uuid,${roomTypeId}::uuid,${pastStartsOn}::date,1,1)
+      ON CONFLICT(tenant_id,property_id,room_type_id,stays_on) DO UPDATE SET available_units=GREATEST(inventory_units.available_units,1),booked_units=1`;
+    await admin.$executeRaw`INSERT INTO bookings(id,tenant_id,property_id,room_type_id,rate_plan_id,guest_id,guest_session_id,external_reference,status,payment_method,starts_on,ends_on,total_amount,nightly_rates,cancellation_is_free,cancellation_cutoff_at)
+      VALUES(${pastCutoffBooking.value.id}::uuid,${tenantId}::uuid,${propertyId}::uuid,${roomTypeId}::uuid,${pastCutoffRatePlan.body.id}::uuid,${pastGuestId}::uuid,${quoteSessionId}::uuid,${`past-cutoff-${randomUUID()}`},'PAYMENT_PENDING','STRIPE_CHECKOUT',${pastStartsOn}::date,${pastEndsOn}::date,90,${JSON.stringify([{ date: pastStartsOn, amount: '90.00' }])}::jsonb,true,${pastStartsOn + 'T00:00:00Z'}::timestamptz)`;
     // Milestone 11.5 Task 6: this stay already started (arrival yesterday),
     // so it's well within the property's self-service cancellation window
     // (default 21 days before arrival) — self-service cancellation is
@@ -2899,9 +2923,19 @@ describe('LocalPmsProvider', () => {
         (day: { date: string }) =>
           day.date === abandonedPokpayStartsOn || day.date === '2026-12-11',
       ),
-    ).toEqual([
-      { date: abandonedPokpayStartsOn, isAvailable: false, status: 'unavailable' },
-      { date: '2026-12-11', isAvailable: false, status: 'unavailable' },
+    ).toMatchObject([
+      {
+        date: abandonedPokpayStartsOn,
+        isAvailable: false,
+        status: 'unavailable',
+        pricing: { valid: true, total: { amount: '90.00', currency: 'EUR' } },
+      },
+      {
+        date: '2026-12-11',
+        isAvailable: false,
+        status: 'unavailable',
+        pricing: { valid: true, total: { amount: '90.00', currency: 'EUR' } },
+      },
     ]);
     const wordpressWhileHeld = await request(app!.getHttpServer())
       .get(
@@ -2949,9 +2983,19 @@ describe('LocalPmsProvider', () => {
         (day: { date: string }) =>
           day.date === abandonedPokpayStartsOn || day.date === '2026-12-11',
       ),
-    ).toEqual([
-      { date: abandonedPokpayStartsOn, isAvailable: true, status: 'available' },
-      { date: '2026-12-11', isAvailable: true, status: 'available' },
+    ).toMatchObject([
+      {
+        date: abandonedPokpayStartsOn,
+        isAvailable: true,
+        status: 'available',
+        pricing: { valid: true, total: { amount: '90.00', currency: 'EUR' } },
+      },
+      {
+        date: '2026-12-11',
+        isAvailable: true,
+        status: 'available',
+        pricing: { valid: true, total: { amount: '90.00', currency: 'EUR' } },
+      },
     ]);
     const wordpressAfterExpiry = await request(app!.getHttpServer())
       .get(

@@ -18,14 +18,27 @@ import {
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu';
 import { StatTile } from '../../components/ui/stat-tile';
-import { EmptyPanel, ErrorPanel, ListSkeleton, NoResultsPanel } from '../../components/ui/state-panel';
+import {
+  EmptyPanel,
+  ErrorPanel,
+  ListSkeleton,
+  NoResultsPanel,
+} from '../../components/ui/state-panel';
 import { BookingStatusBadge } from '../../components/ui/status-badge';
 import { TabBar } from '../../components/ui/tab-bar';
 import { SortableTableHead } from '../../components/ui/sortable-table-head';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
 import { cn } from '../../lib/utils';
 import { nightsBetween } from '../../lib/reservation-display';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../components/ui/table';
+import { PaymentReportSummary } from './payment-report-summary';
 import { PaymentsOverview } from './payments-overview';
 import { fetchPropertyBookings, guestName, type Reservation } from './reservations';
 import {
@@ -40,7 +53,6 @@ import {
   paymentStatus,
   paymentsCsv,
   sortNewestFirst,
-  summarize,
   type PaymentFilter,
 } from './payment-status';
 import { guestHref, paymentHref } from './payment-detail';
@@ -190,7 +202,6 @@ export function DashboardPayments({
       ),
     [allBookings, filter, search],
   );
-  const summary = useMemo(() => summarize(allBookings), [allBookings]);
   const capabilities = capabilitiesQuery.data ?? [];
   const busyBookingId = actionMutation.isPending ? actionMutation.variables?.bookingId : null;
   const canRefund = capabilities.includes('payments.refund');
@@ -202,7 +213,10 @@ export function DashboardPayments({
   const money = (amount: string, currency: string) =>
     new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(amount));
   type SortKey = 'created' | 'guest' | 'stay' | 'total';
-  const [sort, setSort] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>({ key: 'created', direction: 'desc' });
+  const [sort, setSort] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>({
+    key: 'created',
+    direction: 'desc',
+  });
   const sorted = useMemo(() => {
     const value = (booking: Reservation): string | number => {
       if (sort.key === 'guest') return guestName(booking).toLowerCase();
@@ -219,14 +233,14 @@ export function DashboardPayments({
   }, [bookings, sort]);
   const toggleSort = (key: SortKey) => {
     setSort((current) =>
-      current.key === key ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' } : { key, direction: key === 'created' || key === 'total' ? 'desc' : 'asc' },
+      current.key === key
+        ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+        : { key, direction: key === 'created' || key === 'total' ? 'desc' : 'asc' },
     );
     setPage(1);
   };
   const pageRows = sorted.slice((page - 1) * pageSize, page * pageSize);
   const tabs = FILTERS.map(({ key, label }) => ({ id: key, label, count: filterCounts[key] }));
-  const joined = (pick: (totals: (typeof summary.byCurrency)[number]) => string) =>
-    summary.byCurrency.map((totals) => money(pick(totals), totals.currency)).join(' · ') || '–';
   const clearFilters = () => {
     setFilter('all');
     setSearch('');
@@ -258,37 +272,38 @@ export function DashboardPayments({
         title="Payments"
         description="Money collected, refunded and still owed for the reservations of this hotel."
         actions={
-          <Button variant="outline" disabled={view !== 'ledger' || bookings.length === 0} onClick={() => downloadCsv(sorted)}>
+          <Button
+            variant="outline"
+            disabled={view !== 'ledger' || bookings.length === 0}
+            onClick={() => downloadCsv(sorted)}
+          >
             <Download /> Export CSV
           </Button>
         }
       />
 
-      <div aria-label="Payment totals" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5" role="group">
-        <StatTile label="Collected" size="sm" value={joined((totals) => totals.collected)} />
-        <StatTile label="Refunded" size="sm" value={joined((totals) => totals.refunded)} />
-        <StatTile label="Net received" size="sm" value={joined((totals) => totals.net)} />
-        <StatTile
-          label="Outstanding"
-          size="sm"
-          value={joined((totals) => totals.outstanding)}
-          active={view === 'ledger' && filter === 'outstanding'}
-          onClick={() => {
-            setFilter(view === 'ledger' && filter === 'outstanding' ? 'all' : 'outstanding');
+      {capabilities.includes('payments.view') ? (
+        <PaymentReportSummary
+          key={propertyId}
+          tenantId={tenantId}
+          propertyId={propertyId}
+          canOpenReports={capabilities.includes('reports.view')}
+          onOutstanding={() => {
+            setFilter('outstanding');
             setView('ledger');
           }}
         />
-        <StatTile
-          label="Needs action"
-          value={summary.needsAction}
-          tone={summary.needsAction > 0 ? 'warning' : 'default'}
-          active={view === 'ledger' && filter === 'needs-action'}
-          onClick={() => {
-            setFilter(view === 'ledger' && filter === 'needs-action' ? 'all' : 'needs-action');
-            setView('ledger');
-          }}
-        />
-      </div>
+      ) : null}
+      <StatTile
+        label="Needs action"
+        value={filterCounts['needs-action']}
+        note="All booking records, independent of the totals period."
+        tone={filterCounts['needs-action'] > 0 ? 'warning' : 'default'}
+        onClick={() => {
+          setFilter(view === 'ledger' && filter === 'needs-action' ? 'all' : 'needs-action');
+          setView('ledger');
+        }}
+      />
 
       <TabBar
         tabs={[
@@ -303,216 +318,274 @@ export function DashboardPayments({
       {view === 'overview' ? (
         <PaymentsOverview bookings={allBookings} tenantId={tenantId} propertyId={propertyId} />
       ) : (
-      <Card className="gap-0 overflow-clip p-0">
-        <div className="space-y-3 border-b p-4">
-          <TabBar tabs={tabs} current={filter} onSelect={(id) => setFilter(id as PaymentFilter)} label="Payment views" />
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <SearchInput
-              aria-label="Search payments"
-              className="w-full sm:w-80"
-              placeholder="Search reference, guest, email"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
+        <Card className="gap-0 overflow-clip p-0">
+          <div className="space-y-3 border-b p-4">
+            <TabBar
+              tabs={tabs}
+              current={filter}
+              onSelect={(id) => setFilter(id as PaymentFilter)}
+              label="Payment views"
             />
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <SearchInput
+                aria-label="Search payments"
+                className="w-full sm:w-80"
+                placeholder="Search reference, guest, email"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </div>
           </div>
-        </div>
-        {allBookings.length === 0 ? (
-          <EmptyPanel title="No payment activity yet" description="Payments appear here once a reservation is paid or refunded." />
-        ) : bookings.length === 0 ? (
-          <NoResultsPanel onClear={clearFilters} />
-        ) : (
-          <>
-            <Table containerClassName="overflow-x-clip" className="text-[11px]">
-              <TableHeader className="sticky top-[var(--app-header-height,86px)] z-20 bg-muted">
-                <TableRow className="hover:bg-muted">
-                  <SortableTableHead label="Reference" active={sort.key === 'created'} direction={sort.direction} onSort={() => toggleSort('created')} />
-                  <SortableTableHead label="Guest" active={sort.key === 'guest'} direction={sort.direction} onSort={() => toggleSort('guest')} />
-                  <SortableTableHead label="Stay" active={sort.key === 'stay'} direction={sort.direction} onSort={() => toggleSort('stay')} />
-                  <TableHead className="px-2 py-2 normal-case tracking-normal">Booking</TableHead>
-                  <TableHead className="px-2 py-2 normal-case tracking-normal">Payment</TableHead>
-                  <SortableTableHead label="Total" active={sort.key === 'total'} direction={sort.direction} onSort={() => toggleSort('total')} align="right" />
-                  <TableHead className="px-2 py-2 text-right normal-case tracking-normal">Outstanding</TableHead>
-                  <TableHead className="w-10 px-2 py-2 text-right">
-                    <span className="sr-only">Actions</span>
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pageRows.map((booking) => {
-                  const status = paymentStatus(booking);
-                  const currency = booking.total.currency;
-                  const name = guestName(booking);
-                  const email = booking.guestEmail;
-                  const nights = booking.startsOn && booking.endsOn ? nightsBetween(booking.startsOn, booking.endsOn) : 0;
-                  const owed = outstandingAmount(booking);
-                  const unpaid =
-                    booking.paymentMethod === 'PAY_AT_HOTEL' && status.state === 'unpaid' && !isDead(booking);
-                  const refundable = canRefund && hasRefundableBalance(booking);
-                  const busy = busyBookingId === booking.id;
-                  const detailHref = paymentHref(tenantId, propertyId, booking.id);
-                  return (
-                    <TableRow
-                      key={booking.id}
-                      className="h-12 cursor-pointer"
-                      onClick={(event) => {
-                        if ((event.target as HTMLElement).closest('button, a, [role="menuitem"]')) return;
-                        window.location.assign(detailHref);
-                      }}
-                    >
-                      <TableCell className="px-2 py-2">
-                        <a className="font-semibold text-primary no-underline hover:underline" href={detailHref}>
-                          <code>{booking.externalReference ?? '—'}</code>
-                        </a>
-                        {booking.createdAt ? (
-                          <span className="block text-[10px] text-muted-foreground">
-                            Created {formatDay(booking.createdAt.slice(0, 10), true)}
-                          </span>
-                        ) : null}
-                      </TableCell>
-                      <TableCell className="px-2 py-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-secondary text-primary">
-                            <UserRound aria-hidden="true" className="size-3.5" />
-                          </span>
-                          <span className="min-w-0">
-                            {booking.guestId ? (
-                              <a
-                                className="block truncate font-semibold text-foreground no-underline hover:underline"
-                                href={guestHref(tenantId, propertyId, booking.guestId)}
-                              >
-                                {name}
-                              </a>
-                            ) : (
-                              <span className="block truncate font-semibold">{name}</span>
-                            )}
-                            {email && email !== name ? (
-                              <span className="block truncate text-[10px] text-muted-foreground">{email}</span>
-                            ) : null}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="px-2 py-2">
-                        <span className="block whitespace-nowrap">{formatStay(booking)}</span>
-                        <span className="block text-[10px] text-muted-foreground">
-                          {booking.roomTypeName ?? ''}
-                          {nights > 0 ? ` · ${nights} night${nights === 1 ? '' : 's'}` : ''}
-                        </span>
-                      </TableCell>
-                      <TableCell className="px-2 py-2">
-                        {booking.status ? <BookingStatusBadge status={booking.status} /> : null}
-                      </TableCell>
-                      <TableCell className="px-2 py-2">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span
-                              tabIndex={0}
-                              className="inline-block rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            >
-                              <Badge
-                                variant={PAYMENT_BADGE_TONE[status.state]}
-                                className="max-w-full truncate rounded-full px-2 py-0 text-[10px] font-semibold"
-                              >
-                                {status.label}
-                              </Badge>
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent className="space-y-0.5">
-                            {booking.paymentMethod ? (
-                              <span className="block font-semibold">{paymentMethodLabel(booking.paymentMethod)}</span>
-                            ) : null}
-                            <span className="block">Total {money(booking.total.amount, currency)}</span>
-                            <span className="block">Paid {money(booking.paidAmount, currency)}</span>
-                            {Number(booking.refundedAmount) > 0 ? (
-                              <span className="block">Refunded {money(booking.refundedAmount, currency)}</span>
-                            ) : null}
-                            {Number(owed) > 0 ? (
-                              <span className="block font-semibold">Still owed {money(owed, currency)}</span>
-                            ) : null}
-                          </TooltipContent>
-                        </Tooltip>
-                      </TableCell>
-                      <TableCell className="px-2 py-2 text-right font-semibold whitespace-nowrap">
-                        {money(booking.total.amount, currency)}
-                      </TableCell>
-                      <TableCell
-                        className={cn(
-                          'px-2 py-2 text-right whitespace-nowrap',
-                          Number(owed) > 0 ? 'font-semibold text-warning' : 'text-muted-foreground',
-                        )}
-                      >
-                        {money(owed, currency)}
-                      </TableCell>
-                      <TableCell className="px-2 py-1 text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label={`More actions for ${booking.externalReference ?? 'booking'}`}
-                              className="size-7"
-                              disabled={busy}
-                            >
-                              <MoreHorizontal aria-hidden="true" className="size-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuLabel>{booking.externalReference}</DropdownMenuLabel>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem asChild>
-                              <a href={detailHref}>View payment</a>
-                            </DropdownMenuItem>
-                            {booking.guestId ? (
-                              <DropdownMenuItem asChild>
-                                <a href={guestHref(tenantId, propertyId, booking.guestId)}>Open guest</a>
-                              </DropdownMenuItem>
-                            ) : null}
-                            {refundable ? (
-                              <DropdownMenuItem onSelect={() => openRefundDialog(booking)}>Refund…</DropdownMenuItem>
-                            ) : null}
-                            {unpaid && canRecord ? (
-                              <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuLabel>Mark as paid by</DropdownMenuLabel>
-                                {MANUAL_METHODS.map(({ value, label }) => (
-                                  <DropdownMenuItem
-                                    key={value}
-                                    onSelect={() =>
-                                      actionMutation.mutate({
-                                        bookingId: booking.id,
-                                        url: `${base}/bookings/${booking.id}/manual-payment`,
-                                        body: { method: value },
-                                        success: 'Payment recorded.',
-                                      })
-                                    }
-                                  >
-                                    {label}
-                                  </DropdownMenuItem>
-                                ))}
-                              </>
-                            ) : null}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-            <Pagination
-              page={page}
-              pageSize={pageSize}
-              total={sorted.length}
-              onPage={setPage}
-              noun="payments"
-              pageSizeOptions={[10, 25, 50]}
-              onPageSize={(size) => {
-                setPageSize(size);
-                setPage(1);
-              }}
+          {allBookings.length === 0 ? (
+            <EmptyPanel
+              title="No payment activity yet"
+              description="Payments appear here once a reservation is paid or refunded."
             />
-          </>
-        )}
-      </Card>
+          ) : bookings.length === 0 ? (
+            <NoResultsPanel onClear={clearFilters} />
+          ) : (
+            <>
+              <Table containerClassName="overflow-x-clip" className="text-[11px]">
+                <TableHeader className="sticky top-[var(--app-header-height,86px)] z-20 bg-muted">
+                  <TableRow className="hover:bg-muted">
+                    <SortableTableHead
+                      label="Reference"
+                      active={sort.key === 'created'}
+                      direction={sort.direction}
+                      onSort={() => toggleSort('created')}
+                    />
+                    <SortableTableHead
+                      label="Guest"
+                      active={sort.key === 'guest'}
+                      direction={sort.direction}
+                      onSort={() => toggleSort('guest')}
+                    />
+                    <SortableTableHead
+                      label="Stay"
+                      active={sort.key === 'stay'}
+                      direction={sort.direction}
+                      onSort={() => toggleSort('stay')}
+                    />
+                    <TableHead className="px-2 py-2 normal-case tracking-normal">Booking</TableHead>
+                    <TableHead className="px-2 py-2 normal-case tracking-normal">Payment</TableHead>
+                    <SortableTableHead
+                      label="Total"
+                      active={sort.key === 'total'}
+                      direction={sort.direction}
+                      onSort={() => toggleSort('total')}
+                      align="right"
+                    />
+                    <TableHead className="px-2 py-2 text-right normal-case tracking-normal">
+                      Outstanding
+                    </TableHead>
+                    <TableHead className="w-10 px-2 py-2 text-right">
+                      <span className="sr-only">Actions</span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pageRows.map((booking) => {
+                    const status = paymentStatus(booking);
+                    const currency = booking.total.currency;
+                    const name = guestName(booking);
+                    const email = booking.guestEmail;
+                    const nights =
+                      booking.startsOn && booking.endsOn
+                        ? nightsBetween(booking.startsOn, booking.endsOn)
+                        : 0;
+                    const owed = outstandingAmount(booking);
+                    const unpaid =
+                      booking.paymentMethod === 'PAY_AT_HOTEL' &&
+                      status.state === 'unpaid' &&
+                      !isDead(booking);
+                    const refundable = canRefund && hasRefundableBalance(booking);
+                    const busy = busyBookingId === booking.id;
+                    const detailHref = paymentHref(tenantId, propertyId, booking.id);
+                    return (
+                      <TableRow
+                        key={booking.id}
+                        className="h-12 cursor-pointer"
+                        onClick={(event) => {
+                          if ((event.target as HTMLElement).closest('button, a, [role="menuitem"]'))
+                            return;
+                          window.location.assign(detailHref);
+                        }}
+                      >
+                        <TableCell className="px-2 py-2">
+                          <a
+                            className="font-semibold text-primary no-underline hover:underline"
+                            href={detailHref}
+                          >
+                            <code>{booking.externalReference ?? '—'}</code>
+                          </a>
+                          {booking.createdAt ? (
+                            <span className="block text-[10px] text-muted-foreground">
+                              Created {formatDay(booking.createdAt.slice(0, 10), true)}
+                            </span>
+                          ) : null}
+                        </TableCell>
+                        <TableCell className="px-2 py-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-secondary text-primary">
+                              <UserRound aria-hidden="true" className="size-3.5" />
+                            </span>
+                            <span className="min-w-0">
+                              {booking.guestId ? (
+                                <a
+                                  className="block truncate font-semibold text-foreground no-underline hover:underline"
+                                  href={guestHref(tenantId, propertyId, booking.guestId)}
+                                >
+                                  {name}
+                                </a>
+                              ) : (
+                                <span className="block truncate font-semibold">{name}</span>
+                              )}
+                              {email && email !== name ? (
+                                <span className="block truncate text-[10px] text-muted-foreground">
+                                  {email}
+                                </span>
+                              ) : null}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="px-2 py-2">
+                          <span className="block whitespace-nowrap">{formatStay(booking)}</span>
+                          <span className="block text-[10px] text-muted-foreground">
+                            {booking.roomTypeName ?? ''}
+                            {nights > 0 ? ` · ${nights} night${nights === 1 ? '' : 's'}` : ''}
+                          </span>
+                        </TableCell>
+                        <TableCell className="px-2 py-2">
+                          {booking.status ? <BookingStatusBadge status={booking.status} /> : null}
+                        </TableCell>
+                        <TableCell className="px-2 py-2">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span
+                                tabIndex={0}
+                                className="inline-block rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              >
+                                <Badge
+                                  variant={PAYMENT_BADGE_TONE[status.state]}
+                                  className="max-w-full truncate rounded-full px-2 py-0 text-[10px] font-semibold"
+                                >
+                                  {status.label}
+                                </Badge>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent className="space-y-0.5">
+                              {booking.paymentMethod ? (
+                                <span className="block font-semibold">
+                                  {paymentMethodLabel(booking.paymentMethod)}
+                                </span>
+                              ) : null}
+                              <span className="block">
+                                Total {money(booking.total.amount, currency)}
+                              </span>
+                              <span className="block">
+                                Paid {money(booking.paidAmount, currency)}
+                              </span>
+                              {Number(booking.refundedAmount) > 0 ? (
+                                <span className="block">
+                                  Refunded {money(booking.refundedAmount, currency)}
+                                </span>
+                              ) : null}
+                              {Number(owed) > 0 ? (
+                                <span className="block font-semibold">
+                                  Still owed {money(owed, currency)}
+                                </span>
+                              ) : null}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TableCell>
+                        <TableCell className="px-2 py-2 text-right font-semibold whitespace-nowrap">
+                          {money(booking.total.amount, currency)}
+                        </TableCell>
+                        <TableCell
+                          className={cn(
+                            'px-2 py-2 text-right whitespace-nowrap',
+                            Number(owed) > 0
+                              ? 'font-semibold text-warning'
+                              : 'text-muted-foreground',
+                          )}
+                        >
+                          {money(owed, currency)}
+                        </TableCell>
+                        <TableCell className="px-2 py-1 text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label={`More actions for ${booking.externalReference ?? 'booking'}`}
+                                className="size-7"
+                                disabled={busy}
+                              >
+                                <MoreHorizontal aria-hidden="true" className="size-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuLabel>{booking.externalReference}</DropdownMenuLabel>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem asChild>
+                                <a href={detailHref}>View payment</a>
+                              </DropdownMenuItem>
+                              {booking.guestId ? (
+                                <DropdownMenuItem asChild>
+                                  <a href={guestHref(tenantId, propertyId, booking.guestId)}>
+                                    Open guest
+                                  </a>
+                                </DropdownMenuItem>
+                              ) : null}
+                              {refundable ? (
+                                <DropdownMenuItem onSelect={() => openRefundDialog(booking)}>
+                                  Refund…
+                                </DropdownMenuItem>
+                              ) : null}
+                              {unpaid && canRecord ? (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuLabel>Mark as paid by</DropdownMenuLabel>
+                                  {MANUAL_METHODS.map(({ value, label }) => (
+                                    <DropdownMenuItem
+                                      key={value}
+                                      onSelect={() =>
+                                        actionMutation.mutate({
+                                          bookingId: booking.id,
+                                          url: `${base}/bookings/${booking.id}/manual-payment`,
+                                          body: { method: value },
+                                          success: 'Payment recorded.',
+                                        })
+                                      }
+                                    >
+                                      {label}
+                                    </DropdownMenuItem>
+                                  ))}
+                                </>
+                              ) : null}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+              <Pagination
+                page={page}
+                pageSize={pageSize}
+                total={sorted.length}
+                onPage={setPage}
+                noun="payments"
+                pageSizeOptions={[10, 25, 50]}
+                onPageSize={(size) => {
+                  setPageSize(size);
+                  setPage(1);
+                }}
+              />
+            </>
+          )}
+        </Card>
       )}
       {refundBooking ? (
         <RefundDialog
@@ -525,4 +598,3 @@ export function DashboardPayments({
     </div>
   );
 }
-

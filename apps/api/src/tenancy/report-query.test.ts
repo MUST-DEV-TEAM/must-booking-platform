@@ -115,3 +115,21 @@ describe('Report query bounds and export primitives', () => {
     expect(csv).toContain('ë Guest');
   });
 });
+
+it('keeps currency attached to exact monetary CSV cells even if its separate column is hidden', () => {
+  expect(
+    reportCsv(
+      [{ key: 'amount', label: 'Amount', type: 'money', money: true }],
+      [
+        { id: 'a', currency: 'EUR', amount: '9007199254740993.99' },
+        { id: 'b', currency: 'USD', amount: '-1.01' },
+      ],
+    ),
+  ).toContain('"EUR 9007199254740993.99"');
+  expect(
+    reportCsv(
+      [{ key: 'amount', label: 'Amount', type: 'money', money: true }],
+      [{ id: 'b', currency: 'USD', amount: '-1.01' }],
+    ),
+  ).toContain('"USD -1.01"');
+});

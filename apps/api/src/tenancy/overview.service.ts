@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 
 import { BOOKING_NEEDS_ATTENTION_STATUSES } from '../booking/booking-attention';
+import { DashboardMetricsService } from './dashboard-metrics.service';
 import { TenantDatabaseService } from './tenant-database.service';
 
 type Kpis = {
@@ -9,7 +10,7 @@ type Kpis = {
   departures: number;
   inHouse: number;
   bookedRoomNights: number;
-  availableRoomNights: number;
+  availableRoomNights: number | null;
 };
 
 export type ArrivalDeparture = {
@@ -65,8 +66,21 @@ export type NeedsAttentionBooking = {
 
 export type PropertyOverview = {
   kpis: Kpis & { occupancyRate: number | null };
-  revenue: { today: { amount: string; currency: string } | null };
+  revenue: {
+    today: { amount: string; currency: string } | null;
+    byCurrency: Array<{ amount: string; currency: string }>;
+  };
   balanceDueAtDesk: { amount: string; currency: string } | null;
+  balancesDueAtDesk: Array<{ amount: string; currency: string }>;
+  metricBasis: {
+    asOf: string;
+    source: string;
+    timezone: string;
+    moneyVisible: boolean;
+    capacity: string;
+    cash: string;
+    desk: string;
+  };
   newBookingsSinceYesterday: number;
   needsAttentionCount: number;
   needsAttention: NeedsAttentionBooking[];
@@ -101,14 +115,14 @@ const ACTIVITY_ACTIONS = ['booking.created', 'booking.cancelled'] as const;
 
 @Injectable()
 export class OverviewService {
-  constructor(@Inject(TenantDatabaseService) private readonly database: TenantDatabaseService) {}
+  constructor(
+    @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
+    @Inject(DashboardMetricsService) private readonly metrics: DashboardMetricsService,
+  ) {}
 
-  async get(tenantId: string, propertyId: string): Promise<PropertyOverview> {
+  async get(tenantId: string, propertyId: string, userId: string): Promise<PropertyOverview> {
     const [
-      kpis,
-      revenue,
-      balanceDueAtDesk,
-      newBookingsSinceYesterday,
+      metrics,
       needsAttentionCount,
       needsAttention,
       todaysArrivals,
@@ -118,10 +132,7 @@ export class OverviewService {
       recentCancellations,
       recentActivity,
     ] = await Promise.all([
-      this.kpis(tenantId, propertyId),
-      this.revenueToday(tenantId, propertyId),
-      this.balanceDueAtDesk(tenantId, propertyId),
-      this.newBookingsSinceYesterday(tenantId, propertyId),
+      this.metrics.overview({ tenantId, propertyId, userId }),
       this.needsAttentionCount(tenantId, propertyId),
       this.needsAttentionBookings(tenantId, propertyId),
       this.arrivalsOrDeparturesOn(tenantId, propertyId, 'starts_on'),
@@ -131,155 +142,17 @@ export class OverviewService {
       this.recentCancellations(tenantId, propertyId),
       this.recentActivity(tenantId, propertyId),
     ]);
-    const values = kpis[0] ?? {
-      date: new Date().toISOString().slice(0, 10),
-      arrivals: 0,
-      departures: 0,
-      inHouse: 0,
-      bookedRoomNights: 0,
-      availableRoomNights: 0,
-    };
     return {
-      kpis: {
-        ...values,
-        occupancyRate:
-          values.availableRoomNights === 0
-            ? null
-            : Math.round((values.bookedRoomNights / values.availableRoomNights) * 100),
-      },
-      revenue: { today: revenue },
-      balanceDueAtDesk,
-      newBookingsSinceYesterday,
+      ...metrics,
       needsAttentionCount,
       needsAttention,
       todaysArrivals,
       todaysDepartures,
       upcomingArrivals,
-      soldOutRooms,
+      soldOutRooms: metrics.metricBasis.source === 'CLOCK' ? [] : soldOutRooms,
       recentCancellations,
       recentActivity,
     };
-  }
-
-  private kpis(tenantId: string, propertyId: string) {
-    return this.database.withTenantTransaction(
-      { tenantId, propertyId },
-      (tx) =>
-        tx.$queryRaw<Kpis[]>`
-        WITH property_today AS (
-          SELECT (CURRENT_TIMESTAMP AT TIME ZONE timezone)::date AS date
-          FROM properties
-          WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
-        ), booking_counts AS (
-          SELECT
-            COUNT(*) FILTER (WHERE b.starts_on = property_today.date)::int AS arrivals,
-            COUNT(*) FILTER (WHERE b.ends_on = property_today.date)::int AS departures,
-            COUNT(*) FILTER (
-              WHERE b.starts_on <= property_today.date AND b.ends_on > property_today.date
-            )::int AS "inHouse"
-          FROM bookings b CROSS JOIN property_today
-          WHERE b.tenant_id = ${tenantId}::uuid AND b.property_id = ${propertyId}::uuid
-            AND b.status = 'CONFIRMED'::"BookingStatus"
-        ), inventory AS (
-          -- Falls back to a count of physical rooms when no inventory_units row
-          -- exists for today (e.g. individual-room properties, or a room-type
-          -- property that never had its per-night inventory explicitly set) so
-          -- occupancy doesn't silently read as "0 of 0" for a property that
-          -- plainly has rooms and in-house guests.
-          SELECT COALESCE(
-            (
-              SELECT SUM(i.available_units)::int FROM inventory_units i CROSS JOIN property_today
-              WHERE i.tenant_id = ${tenantId}::uuid AND i.property_id = ${propertyId}::uuid
-                AND i.stays_on = property_today.date
-            ),
-            (
-              SELECT COUNT(*)::int FROM rooms r
-              WHERE r.tenant_id = ${tenantId}::uuid AND r.property_id = ${propertyId}::uuid
-            ),
-            0
-          ) AS "availableRoomNights"
-        )
-        SELECT property_today.date::text AS date,
-          booking_counts.arrivals, booking_counts.departures, booking_counts."inHouse",
-          booking_counts."inHouse" AS "bookedRoomNights", inventory."availableRoomNights"
-        FROM property_today CROSS JOIN booking_counts CROSS JOIN inventory
-      `,
-    );
-  }
-
-  private async revenueToday(
-    tenantId: string,
-    propertyId: string,
-  ): Promise<{ amount: string; currency: string } | null> {
-    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      const rows = await tx.$queryRawUnsafe<Array<{ amount: string; currency: string }>>(
-        `WITH property_today AS (
-           SELECT (CURRENT_TIMESTAMP AT TIME ZONE timezone)::date AS date FROM properties
-           WHERE tenant_id = $1::uuid AND id = $2::uuid
-         )
-         SELECT COALESCE(SUM(b.total_amount), 0)::text AS amount, MAX(rp.currency) AS currency
-         FROM bookings b
-         CROSS JOIN property_today
-         JOIN rate_plans rp ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
-         WHERE b.tenant_id = $1::uuid AND b.property_id = $2::uuid
-           AND b.created_at::date = property_today.date
-           AND b.status = ANY($3::"BookingStatus"[])`,
-        tenantId,
-        propertyId,
-        OCCUPYING_STATUSES,
-      );
-      const row = rows[0];
-      if (!row || !row.currency) return null;
-      return { amount: row.amount, currency: row.currency };
-    });
-  }
-
-  private async balanceDueAtDesk(
-    tenantId: string,
-    propertyId: string,
-  ): Promise<{ amount: string; currency: string } | null> {
-    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      const rows = await tx.$queryRawUnsafe<Array<{ amount: string; currency: string }>>(
-        `WITH property_today AS (
-           SELECT (CURRENT_TIMESTAMP AT TIME ZONE timezone)::date AS date FROM properties
-           WHERE tenant_id = $1::uuid AND id = $2::uuid
-         )
-         SELECT COALESCE(SUM(b.total_amount), 0)::text AS amount, MAX(rp.currency) AS currency
-         FROM bookings b
-         CROSS JOIN property_today
-         JOIN rate_plans rp ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
-         WHERE b.tenant_id = $1::uuid AND b.property_id = $2::uuid
-           AND b.starts_on = property_today.date
-           AND b.payment_method = 'PAY_AT_HOTEL'::"BookingPaymentMethod"
-           AND b.status = 'CONFIRMED'::"BookingStatus"`,
-        tenantId,
-        propertyId,
-      );
-      const row = rows[0];
-      if (!row || !row.currency) return null;
-      return { amount: row.amount, currency: row.currency };
-    });
-  }
-
-  private newBookingsSinceYesterday(tenantId: string, propertyId: string) {
-    return this.database
-      .withTenantTransaction({ tenantId, propertyId }, (tx) =>
-        tx.$queryRawUnsafe<Array<{ count: number }>>(
-          `WITH property_today AS (
-             SELECT (CURRENT_TIMESTAMP AT TIME ZONE timezone)::date AS date FROM properties
-             WHERE tenant_id = $1::uuid AND id = $2::uuid
-           )
-           SELECT COUNT(*)::int AS count
-           FROM bookings b CROSS JOIN property_today
-           WHERE b.tenant_id = $1::uuid AND b.property_id = $2::uuid
-             AND b.created_at::date >= property_today.date - INTERVAL '1 day'
-             AND b.status = ANY($3::"BookingStatus"[])`,
-          tenantId,
-          propertyId,
-          OCCUPYING_STATUSES,
-        ),
-      )
-      .then((rows) => rows[0]?.count ?? 0);
   }
 
   private needsAttentionCount(tenantId: string, propertyId: string) {

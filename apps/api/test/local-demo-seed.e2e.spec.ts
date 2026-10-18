@@ -102,7 +102,12 @@ describe('local demo seed', () => {
 
     const reports = await app
       .get((await import('../src/tenancy/reports.service')).ReportsService)
-      .get(tenantId, first.property.id, { from: dateFromToday(-30), to: dateFromToday(30) });
+      .get(
+        tenantId,
+        first.property.id,
+        { from: dateFromToday(-30), to: dateFromToday(30) },
+        ownerUserId,
+      );
     expect(reports.occupancy.some((day) => day.rate !== null && day.bookedRoomNights > 0)).toBe(
       true,
     );

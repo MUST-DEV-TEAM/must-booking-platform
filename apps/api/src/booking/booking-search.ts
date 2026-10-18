@@ -19,7 +19,15 @@ export const BOOKING_VIEWS = [
 ] as const;
 export type BookingView = (typeof BOOKING_VIEWS)[number];
 
-export const PAYMENT_FILTERS = ['paid', 'deposit', 'unpaid', 'pay_at_hotel', 'refunded', 'failed', 'none'] as const;
+export const PAYMENT_FILTERS = [
+  'paid',
+  'deposit',
+  'unpaid',
+  'pay_at_hotel',
+  'refunded',
+  'failed',
+  'none',
+] as const;
 export type PaymentFilter = (typeof PAYMENT_FILTERS)[number];
 
 const DATE_TYPES = ['arrival', 'departure', 'stay', 'created'] as const;
@@ -70,7 +78,11 @@ function one(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
-function oneOf<T extends string>(value: string | undefined, allowed: readonly T[], name: string): T | undefined {
+function oneOf<T extends string>(
+  value: string | undefined,
+  allowed: readonly T[],
+  name: string,
+): T | undefined {
   if (value === undefined || value === '') return undefined;
   if (!(allowed as readonly string[]).includes(value))
     throw new BadRequestException(`${name} must be one of: ${allowed.join(', ')}.`);
@@ -87,7 +99,10 @@ function isRealDate(value: string): boolean {
 export function parseBookingSearchQuery(raw: Record<string, unknown>): BookingSearchQuery {
   const from = one(raw.from) || null;
   const to = one(raw.to) || null;
-  for (const [name, value] of [['from', from], ['to', to]] as const) {
+  for (const [name, value] of [
+    ['from', from],
+    ['to', to],
+  ] as const) {
     if (value !== null && !isRealDate(value))
       throw new BadRequestException(`${name} must be a valid date in YYYY-MM-DD format.`);
   }
@@ -147,7 +162,7 @@ const LIVE_SQL = `x.status IN (${quoted(LIVE_STATUSES)})`;
 
 export const VIEW_SQL: Record<BookingView, string> = {
   all: 'TRUE',
-  arriving_today: `${LIVE_SQL} AND x.starts_on = x.today`,
+  arriving_today: `x.status = 'CONFIRMED' AND x.starts_on = x.today`,
   in_house: `x.status = 'CONFIRMED' AND x.starts_on <= x.today AND x.ends_on > x.today`,
   departing_today: `x.status = 'CONFIRMED' AND x.ends_on = x.today`,
   upcoming: `${LIVE_SQL} AND x.starts_on > x.today`,
