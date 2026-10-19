@@ -4,10 +4,13 @@ import {
   useUnsavedNavigation,
   useUnsavedChanges,
 } from '../../components/ui/unsaved-changes';
+import { downloadCsv } from '../../lib/download-csv';
+import { Clock } from 'lucide-react';
+import { ActivityFeed } from '../../components/ui/activity-feed';
 import { TextComparison } from '../../components/ui/text-comparison';
 import { EmailHealthOverview } from './email-health-overview';
 import { EmailConfiguration } from './email-configuration';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, AlertDescription } from '../../components/ui/alert';
 import { Badge } from '../../components/ui/badge';
@@ -21,7 +24,8 @@ import { Input, Textarea } from '../../components/ui/input';
 import { MessagePreview } from '../../components/ui/message-preview';
 import { PageHeader } from '../../components/ui/page-header';
 import { QuickPeek } from '../../components/ui/quick-peek';
-import { RecordDirectory } from '../../components/ui/record-directory';
+import { FilterGrid } from '../../components/ui/filter-grid';
+import { RecordDirectory, type RecordServerControls } from '../../components/ui/record-directory';
 import { EmptyPanel, ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import { TabBar } from '../../components/ui/tab-bar';
 import {
@@ -43,7 +47,7 @@ const tabs = [
 ];
 export function EmailsWorkspace(props: Parameters<typeof EmailsWorkspaceContent>[0]) {
   return (
-    <UnsavedChangesBoundary>
+    <UnsavedChangesBoundary key={`${props.tenantId}/${props.propertyId}`}>
       <EmailsWorkspaceContent {...props} />
     </UnsavedChangesBoundary>
   );
@@ -67,33 +71,55 @@ function EmailsWorkspaceContent({
     [deliverySize, setDeliverySize] = useState(25),
     [deliveryFilter, setDeliveryFilter] = useState('all'),
     [deliveryTopic, setDeliveryTopic] = useState(''),
-    [deliveryHours, setDeliveryHours] = useState<number | undefined>();
+    [deliveryHours, setDeliveryHours] = useState<number | undefined>(),
+    [deliveryStatus, setDeliveryStatus] = useState(''),
+    [deliveryRecipient, setDeliveryRecipient] = useState(''),
+    [deliveryFrom, setDeliveryFrom] = useState(''),
+    [deliveryTo, setDeliveryTo] = useState(''),
+    [deliverySearch, setDeliverySearch] = useState(''),
+    [deliverySort, setDeliverySort] = useState<RecordServerControls['sort']>({
+      key: 'created',
+      direction: 'desc',
+    });
+  const deliveryParams = new URLSearchParams({
+    page: String(deliveryPage),
+    pageSize: String(deliverySize),
+    filter: deliveryFilter,
+    topic: deliveryTopic,
+    status: deliveryStatus,
+    recipient: deliveryRecipient,
+    from: deliveryFrom,
+    to: deliveryTo,
+    search: deliverySearch,
+    sort: deliverySort.key,
+    direction: deliverySort.direction,
+    ...(deliveryHours ? { hours: String(deliveryHours) } : {}),
+  });
+  const updateDelivery = (action: () => void) => {
+    action();
+    setDeliveryPage(1);
+  };
+  const server: RecordServerControls = {
+    search: deliverySearch,
+    onSearch: (value) => updateDelivery(() => setDeliverySearch(value)),
+    sort: deliverySort,
+    onSort: (value) => updateDelivery(() => setDeliverySort(value)),
+  };
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const templates = useQuery({
     queryKey: ['emails', base, 'templates'],
     queryFn: () => emailRequest<EmailTemplate[]>(`${base}/email-templates`),
   });
   const deliveries = useQuery({
-    queryKey: [
-      'emails',
-      base,
-      'delivery',
-      deliveryPage,
-      deliverySize,
-      deliveryFilter,
-      deliveryTopic,
-      deliveryHours,
-    ],
-    queryFn: () =>
-      emailRequest<EmailPage>(
-        `${base}/email-activity?page=${deliveryPage}&pageSize=${deliverySize}&filter=${deliveryFilter}&topic=${encodeURIComponent(deliveryTopic)}${deliveryHours ? `&hours=${deliveryHours}` : ''}`,
-      ),
+    queryKey: ['emails', base, 'delivery', deliveryParams.toString()],
+    placeholderData: keepPreviousData,
+    queryFn: () => emailRequest<EmailPage>(`${base}/email-activity?${deliveryParams}`),
   });
   const overview = useQuery({
     queryKey: ['emails', base, 'overview'],
     queryFn: () => emailRequest<EmailOverview>(`${base}/email-activity/overview`),
   });
-  const error = templates.error ?? deliveries.error ?? overview.error;
+  const error = templates.error ?? overview.error ?? (tab === 'delivery' ? null : deliveries.error);
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -135,7 +161,7 @@ function EmailsWorkspaceContent({
             void overview.refetch();
           }}
         />
-      ) : !templates.data || !deliveries.data || !overview.data ? (
+      ) : !templates.data || (!deliveries.data && !deliveries.error) || !overview.data ? (
         <ListSkeleton />
       ) : (
         <>
@@ -158,7 +184,7 @@ function EmailsWorkspaceContent({
                 description="Most recent loaded messages. Use Delivery to page through the complete log."
               />
               <DeliveryDirectory
-                items={deliveries.data.items}
+                items={deliveries.data?.items ?? []}
                 onRow={(row) => setMessageId(row.id)}
               />
             </>
@@ -224,20 +250,167 @@ function EmailsWorkspaceContent({
                   setDeliveryPage(1);
                 }}
               />
-              <DeliveryDirectory
-                items={deliveries.data.items}
-                onRow={(row) => setMessageId(row.id)}
-                pagination={{
-                  page: deliveryPage,
-                  pageSize: deliverySize,
-                  total: deliveries.data.total,
-                  onPage: setDeliveryPage,
-                  onPageSize: (size) => {
-                    setDeliverySize(size);
-                    setDeliveryPage(1);
+              <FilterGrid>
+                <FormField label="Status">
+                  <Combobox
+                    label="Delivery status"
+                    value={deliveryStatus}
+                    options={[
+                      { value: '', label: 'All statuses' },
+                      ...[
+                        'QUEUED',
+                        'SENT',
+                        'FAILED',
+                        'DELIVERED',
+                        'BOUNCED',
+                        'COMPLAINED',
+                        'SUPPRESSED',
+                      ].map((value) => ({
+                        value,
+                        label: value.charAt(0) + value.slice(1).toLowerCase(),
+                      })),
+                    ]}
+                    onChange={(value) => updateDelivery(() => setDeliveryStatus(value))}
+                  />
+                </FormField>
+                <FormField label="Topic">
+                  <Combobox
+                    label="Delivery topic"
+                    value={deliveryTopic}
+                    options={[
+                      { value: '', label: 'All topics' },
+                      ...(deliveries.data?.topics ?? []),
+                      ...(deliveryTopic &&
+                      !deliveries.data?.topics?.some((t) => t.value === deliveryTopic)
+                        ? [{ value: deliveryTopic, label: deliveryTopic }]
+                        : []),
+                    ]}
+                    onChange={(value) => updateDelivery(() => setDeliveryTopic(value))}
+                  />
+                </FormField>
+                <FormField label="Recipient">
+                  <Input
+                    aria-label="Delivery recipient"
+                    value={deliveryRecipient}
+                    placeholder="Email address"
+                    onChange={(e) => updateDelivery(() => setDeliveryRecipient(e.target.value))}
+                  />
+                </FormField>
+                <FormField label="From date">
+                  <Input
+                    aria-label="Delivery from date"
+                    type="date"
+                    value={deliveryFrom}
+                    onChange={(e) =>
+                      updateDelivery(() => {
+                        setDeliveryFrom(e.target.value);
+                        setDeliveryHours(undefined);
+                      })
+                    }
+                  />
+                </FormField>
+                <FormField label="Through date">
+                  <Input
+                    aria-label="Delivery through date"
+                    type="date"
+                    value={deliveryTo}
+                    onChange={(e) =>
+                      updateDelivery(() => {
+                        setDeliveryTo(e.target.value);
+                        setDeliveryHours(undefined);
+                      })
+                    }
+                  />
+                </FormField>
+                <FormField label="Time window">
+                  <Combobox
+                    label="Delivery time window"
+                    value={String(deliveryHours ?? '')}
+                    options={[
+                      { value: '', label: 'All recorded time' },
+                      { value: '24', label: 'Last 24 hours' },
+                      { value: '168', label: 'Last 7 days' },
+                    ]}
+                    onChange={(value) =>
+                      updateDelivery(() => {
+                        setDeliveryHours(value ? Number(value) : undefined);
+                        setDeliveryFrom('');
+                        setDeliveryTo('');
+                      })
+                    }
+                  />
+                </FormField>
+              </FilterGrid>
+              <DetailList
+                items={[
+                  { label: 'Hotel', value: 'Selected hotel in the header' },
+                  {
+                    label: 'Date time zone',
+                    value: deliveries.data?.timezone ?? 'Property-local dates',
                   },
-                }}
+                ]}
               />
+              <Button
+                variant="outline"
+                className="self-start"
+                onClick={() =>
+                  updateDelivery(() => {
+                    setDeliveryFilter('all');
+                    setDeliveryTopic('');
+                    setDeliveryStatus('');
+                    setDeliveryRecipient('');
+                    setDeliverySearch('');
+                    setDeliveryHours(undefined);
+                    setDeliveryFrom('');
+                    setDeliveryTo('');
+                  })
+                }
+              >
+                Clear delivery filters
+              </Button>
+              {deliveries.error ? (
+                <ErrorPanel
+                  title={
+                    deliveries.error instanceof EmailRequestError && deliveries.error.status === 403
+                      ? 'Email access unavailable'
+                      : 'Delivery unavailable'
+                  }
+                  description={deliveries.error.message}
+                  reference={
+                    deliveries.error instanceof EmailRequestError
+                      ? (deliveries.error.reference ?? undefined)
+                      : undefined
+                  }
+                  onRetry={() => void deliveries.refetch()}
+                />
+              ) : (
+                <DeliveryDirectory
+                  server={server}
+                  exportScope={
+                    deliveries.data?.observedAt && deliveries.data.exportVersion !== undefined
+                      ? {
+                          filters: Object.fromEntries(deliveryParams),
+                          through: deliveries.data.observedAt,
+                          version: deliveries.data.exportVersion,
+                        }
+                      : undefined
+                  }
+                  base={base}
+                  canWrite={canWrite}
+                  items={deliveries.data?.items ?? []}
+                  onRow={(row) => setMessageId(row.id)}
+                  pagination={{
+                    page: deliveryPage,
+                    pageSize: deliverySize,
+                    total: deliveries.data?.total ?? 0,
+                    onPage: setDeliveryPage,
+                    onPageSize: (size) => {
+                      setDeliverySize(size);
+                      setDeliveryPage(1);
+                    },
+                  }}
+                />
+              )}
             </>
           ) : null}
           {tab === 'configuration' ? (
@@ -245,7 +418,7 @@ function EmailsWorkspaceContent({
           ) : null}
         </>
       )}
-      {messageId ? (
+      {messageId && !error && !deliveries.error ? (
         <EmailDeliveryDetail
           key={messageId}
           base={base}
@@ -261,7 +434,15 @@ function DeliveryDirectory({
   items,
   onRow,
   pagination,
+  server,
+  base,
+  canWrite = false,
+  exportScope,
 }: {
+  exportScope?: { filters: Record<string, string>; through: string; version: number };
+  base?: string;
+  canWrite?: boolean;
+  server?: RecordServerControls;
   items: EmailMessage[];
   onRow: (message: EmailMessage) => void;
   pagination?: {
@@ -272,58 +453,156 @@ function DeliveryDirectory({
     onPageSize: (size: number) => void;
   };
 }) {
+  const [bulk, setBulk] = useState<EmailMessage[]>([]);
+  const [exportIds, setExportIds] = useState<string[] | null | undefined>();
+  const [exportNotice, setExportNotice] = useState('');
+  const writer = useRef(createEmailWriter()).current;
+  const client = useQueryClient();
   return (
-    <RecordDirectory
-      rows={items}
-      pagination={pagination}
-      initialSort={{ key: 'created', direction: 'desc' }}
-      storageKey="must.email-delivery.table"
-      emptyTitle="No email deliveries yet"
-      columns={[
-        { id: 'label', label: 'Event', value: (row) => row.label },
-        { id: 'recipient', label: 'Recipient', value: (row) => row.recipient },
-        {
-          id: 'status',
-          label: 'Status',
-          value: (row) => row.status,
-          render: (row) => (
-            <Badge
-              className="capitalize"
-              variant={
-                ['FAILED', 'BOUNCED', 'COMPLAINED'].includes(row.status)
-                  ? 'danger'
-                  : row.status === 'SUPPRESSED'
-                    ? 'warning'
-                    : row.status === 'QUEUED'
-                      ? 'outline'
-                      : 'success'
-              }
-            >
-              {row.status.toLowerCase()}
-            </Badge>
-          ),
-        },
-        {
-          id: 'subject',
-          label: 'Subject',
-          value: (row) => row.subject,
-          render: (row) => (
-            <span className="block max-w-[22rem] truncate" title={row.subject}>
-              {row.subject}
-            </span>
-          ),
-        },
-        { id: 'attempts', label: 'Attempts', value: (row) => row.attemptCount },
-        {
-          id: 'created',
-          label: 'Created',
-          value: (row) => row.createdAt,
-          render: (row) => new Date(row.createdAt).toLocaleString(),
-        },
-        { id: 'booking', label: 'Booking', value: (row) => row.bookingReference ?? 'Not linked' },
-      ]}
-      onRow={onRow}
-    />
+    <>
+      {exportNotice ? (
+        <Alert>
+          <AlertDescription>{exportNotice}</AlertDescription>
+        </Alert>
+      ) : null}
+      <RecordDirectory
+        rows={items}
+        exportable={false}
+        visibleActions={
+          base && exportScope
+            ? () => [
+                {
+                  label: 'Export filtered CSV',
+                  disabled: !canWrite,
+                  onSelect: () => setExportIds(null),
+                },
+              ]
+            : undefined
+        }
+        selectionActions={
+          base
+            ? (rows) => [
+                {
+                  label: 'Retry selected failed',
+                  disabled:
+                    !canWrite ||
+                    !rows.length ||
+                    rows.length > 50 ||
+                    rows.some((row) => row.status !== 'FAILED' || !row.canResend),
+                  onSelect: () => setBulk([...rows]),
+                },
+                ...(exportScope
+                  ? [
+                      {
+                        label: 'Export selected CSV',
+                        disabled: !canWrite || !rows.length || rows.length > 100,
+                        onSelect: () => setExportIds(rows.map((row) => row.id)),
+                      },
+                    ]
+                  : []),
+              ]
+            : undefined
+        }
+        server={server}
+        pagination={pagination}
+        initialSort={{ key: 'created', direction: 'desc' }}
+        storageKey="must.email-delivery.table"
+        emptyTitle="No email deliveries yet"
+        columns={[
+          { id: 'label', label: 'Event', value: (row) => row.label },
+          { id: 'recipient', label: 'Recipient', value: (row) => row.recipient },
+          {
+            id: 'status',
+            label: 'Status',
+            value: (row) => row.status,
+            render: (row) => (
+              <Badge
+                className="capitalize"
+                variant={
+                  ['FAILED', 'BOUNCED', 'COMPLAINED'].includes(row.status)
+                    ? 'danger'
+                    : row.status === 'SUPPRESSED'
+                      ? 'warning'
+                      : row.status === 'QUEUED'
+                        ? 'outline'
+                        : 'success'
+                }
+              >
+                {row.status.toLowerCase()}
+              </Badge>
+            ),
+          },
+          {
+            id: 'subject',
+            label: 'Subject',
+            value: (row) => row.subject,
+            render: (row) => (
+              <span className="block max-w-[22rem] truncate" title={row.subject}>
+                {row.subject}
+              </span>
+            ),
+          },
+          { id: 'attempts', label: 'Attempts', value: (row) => row.attemptCount },
+          {
+            id: 'created',
+            label: 'Created',
+            value: (row) => row.createdAt,
+            render: (row) => new Date(row.createdAt).toLocaleString(),
+          },
+          { id: 'booking', label: 'Booking', value: (row) => row.bookingReference ?? 'Not linked' },
+        ]}
+        onRow={onRow}
+      />
+      <ConfirmDialog
+        open={bulk.length > 0}
+        onOpenChange={(open) => {
+          if (!open) setBulk([]);
+        }}
+        title={`Retry ${bulk.length} failed emails?`}
+        description="Uses the original recipients and approved wording. Every selected message must still be eligible; otherwise none are changed. Maximum 50."
+        reasonRequired
+        reasonLabel="Reason for bulk retry"
+        reasonPlaceholder="Recorded with this email action"
+        confirmLabel="Retry selected"
+        onConfirm={async (reason) => {
+          await writer(`${base}/email-activity/bulk-retry`, {
+            messages: bulk.map((row) => ({ id: row.id, version: row.version })),
+            reason,
+          });
+          setBulk([]);
+          await client.invalidateQueries({ queryKey: ['emails', base] });
+        }}
+      />
+      <ConfirmDialog
+        open={exportIds !== undefined}
+        onOpenChange={(open) => {
+          if (!open) setExportIds(undefined);
+        }}
+        title="Export email deliveries"
+        description="Exports current delivery outcomes for messages created through the recorded observation time. Recipient addresses are included; keep the downloaded file private. Maximum 5,000 rows or 2 MB."
+        confirmLabel="Export CSV"
+        reasonRequired
+        reasonLabel="Reason for export"
+        reasonPlaceholder="Recorded with this email action"
+        onConfirm={async (reason) => {
+          if (!exportScope) return;
+          const file = await writer<{
+            csv: string;
+            filename: string;
+            count: number;
+            version: number;
+          }>(`${base}/email-activity/export`, {
+            ...exportScope,
+            reason,
+            ...(exportIds ? { ids: exportIds } : {}),
+          });
+          downloadCsv(file);
+          setExportNotice(`${file.count} email deliveries exported. The download has started.`);
+          setExportIds(undefined);
+          await client.invalidateQueries({ queryKey: ['emails', base] });
+        }}
+      />
+    </>
   );
 }
 function TemplateEditor({
@@ -771,6 +1050,57 @@ function EmailDeliveryDetail({
               { label: 'Failure', value: query.data.lastError },
             ]}
           />
+          <DetailList
+            items={[
+              { label: 'Provider', value: query.data.provider ?? 'Not recorded' },
+              { label: 'Provider receipt', value: query.data.providerMessageId ?? 'Not recorded' },
+            ]}
+          />
+          {query.data.bookingHref ? (
+            <Button variant="outline" asChild>
+              <a href={query.data.bookingHref}>Open booking</a>
+            </Button>
+          ) : null}
+          <Card>
+            <CardHeader>
+              <CardTitle>Observed delivery timeline</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {!query.data.timelineHasCreation ? (
+                <DetailList
+                  items={[
+                    {
+                      label: 'Earlier history',
+                      value: 'Earlier steps were not recorded and are not reconstructed.',
+                    },
+                  ]}
+                />
+              ) : null}
+              {query.data.timelineTruncated ? (
+                <DetailList
+                  items={[{ label: 'History window', value: 'Latest 200 recorded events.' }]}
+                />
+              ) : null}
+              <ActivityFeed
+                entries={(query.data.timeline ?? []).map((event) => ({
+                  key: event.id,
+                  title:
+                    event.kind === 'ATTEMPT'
+                      ? 'Sending attempt'
+                      : event.kind === 'RETRY_WAIT'
+                        ? 'Waiting for retry'
+                        : event.kind.charAt(0) + event.kind.slice(1).toLowerCase(),
+                  at: event.observedAt,
+                  detail: `Attempt ${event.attemptCount}${event.provider ? ` / ${event.provider}` : ''}`,
+                  icon: Clock,
+                  tone: ['FAILED', 'BOUNCED', 'COMPLAINED'].includes(event.kind)
+                    ? ('danger' as const)
+                    : ('default' as const),
+                }))}
+                empty="No detailed events were recorded for this message."
+              />
+            </CardContent>
+          </Card>
           {query.data.canResend ? (
             <Button disabled={!canWrite} onClick={() => setRetry(true)}>
               Retry approved message

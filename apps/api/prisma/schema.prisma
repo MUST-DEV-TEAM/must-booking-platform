@@ -163,6 +163,7 @@ model User {
 }
 
 model Property {
+  emailDeliveryExportVersion Int @default(0) @map("email_delivery_export_version")
   emailConfigurationVersion Int @default(1) @map("email_configuration_version")
   emailSenderName String? @map("email_sender_name") @db.VarChar(120)
   emailReplyTo String? @map("email_reply_to") @db.VarChar(254)
@@ -1600,4 +1601,32 @@ model EmailSuppressionEvent {
  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
  @@id([tenantId,propertyId,messageId,eventHash])
  @@map("email_suppression_events")
+}
+
+model EmailDeliveryEvent {
+ id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ messageId String @map("message_id") @db.Uuid
+ kind String
+ status String
+ attemptCount Int @map("attempt_count")
+ provider String? @db.VarChar(40)
+ providerMessageId String? @map("provider_message_id") @db.VarChar(200)
+ observedAt DateTime @default(dbgenerated("clock_timestamp()")) @map("observed_at") @db.Timestamptz(6)
+ @@index([tenantId,propertyId,messageId,observedAt,id],map:"email_delivery_events_message")
+ @@map("email_delivery_events")
+}
+
+model EmailDeliveryExport {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ userId String @map("user_id") @db.Uuid
+ idempotencyKey String @map("idempotency_key") @db.VarChar(128)
+ requestHash String @map("request_hash") @db.Char(64)
+ response Json
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+ @@id([tenantId,propertyId,userId,idempotencyKey])
+ @@index([tenantId,propertyId,createdAt],map:"email_delivery_exports_expiry")
+ @@map("email_delivery_exports")
 }

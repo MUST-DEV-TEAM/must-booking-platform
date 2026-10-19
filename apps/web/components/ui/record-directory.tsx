@@ -24,6 +24,12 @@ export type RecordColumn<T> = {
   render?: (row: T) => ReactNode;
 };
 export type RecordAction = { label: string; onSelect: () => void; disabled?: boolean };
+export type RecordServerControls = {
+  search: string;
+  onSearch: (value: string) => void;
+  sort: { key: string; direction: 'asc' | 'desc' };
+  onSort: (sort: { key: string; direction: 'asc' | 'desc' }) => void;
+};
 /** Shared selectable, sortable directory with persistent columns/density and selected-row copy/CSV. */
 export function RecordDirectory<T extends { id: string }>({
   rows,
@@ -38,6 +44,7 @@ export function RecordDirectory<T extends { id: string }>({
   visibleActions,
   selectionActions,
   defaultHidden,
+  server,
 }: {
   rows: readonly T[];
   columns: readonly RecordColumn<T>[];
@@ -50,6 +57,8 @@ export function RecordDirectory<T extends { id: string }>({
   selectionActions?: (rows: readonly T[]) => RecordAction[];
   /** Initial hidden columns; saved user choices continue to take precedence. */
   defaultHidden?: readonly string[];
+  /** Controlled global filtering/order; rows are already filtered, ordered and paged by the server. */
+  server?: RecordServerControls;
   emptyTitle?: string;
   /** Disable local exports when the caller requires a dedicated audited export flow. */
   exportable?: boolean;
@@ -69,7 +78,7 @@ export function RecordDirectory<T extends { id: string }>({
   const preferences = useTablePreferences(storageKey, defaults);
   const [search, setSearch] = useState(''),
     [selected, setSelected] = useState<string[]>([]),
-    [sort, setSort] = useState(
+    [localSort, setSort] = useState(
       initialSort ?? { key: columns[0].id, direction: 'asc' as 'asc' | 'desc' },
     ),
     [page, setPage] = useState(1),
@@ -77,24 +86,27 @@ export function RecordDirectory<T extends { id: string }>({
     [error, setError] = useState('');
   const serverPage = pagination?.page,
     serverPageSize = pagination?.pageSize;
+  const sort = server?.sort ?? localSort;
   useEffect(() => {
     if (serverPage !== undefined) setSelected([]);
   }, [serverPage, serverPageSize, rows]);
-  const filtered = rows
-    .filter((r) =>
-      columns.some((c) => String(c.value(r)).toLowerCase().includes(search.toLowerCase())),
-    )
-    .sort((a, b) => {
-      const col = columns.find((c) => c.id === sort.key)!;
-      const av = col.value(a),
-        bv = col.value(b);
-      return (
-        (typeof av === 'number' && typeof bv === 'number'
-          ? av - bv
-          : String(av).localeCompare(String(bv), undefined, { numeric: true })) *
-        (sort.direction === 'asc' ? 1 : -1)
-      );
-    });
+  const filtered = server
+    ? [...rows]
+    : rows
+        .filter((r) =>
+          columns.some((c) => String(c.value(r)).toLowerCase().includes(search.toLowerCase())),
+        )
+        .sort((a, b) => {
+          const col = columns.find((c) => c.id === sort.key)!;
+          const av = col.value(a),
+            bv = col.value(b);
+          return (
+            (typeof av === 'number' && typeof bv === 'number'
+              ? av - bv
+              : String(av).localeCompare(String(bv), undefined, { numeric: true })) *
+            (sort.direction === 'asc' ? 1 : -1)
+          );
+        });
   const currentPage = Math.min(page, Math.max(1, Math.ceil(filtered.length / pageSize))),
     visible = pagination
       ? filtered
@@ -131,11 +143,16 @@ export function RecordDirectory<T extends { id: string }>({
       <div className="flex flex-wrap items-center gap-2">
         <SearchInput
           className="ml-auto w-64"
-          aria-label={pagination ? 'Search this page' : 'Search records'}
-          placeholder={pagination ? 'Search this page' : 'Search records'}
-          value={search}
+          aria-label={
+            server ? 'Search all records' : pagination ? 'Search this page' : 'Search records'
+          }
+          placeholder={
+            server ? 'Search all records' : pagination ? 'Search this page' : 'Search records'
+          }
+          value={server?.search ?? search}
           onChange={(e) => {
-            setSearch(e.target.value);
+            if (server) server.onSearch(e.target.value);
+            else setSearch(e.target.value);
             setPage(1);
           }}
         />
@@ -240,10 +257,14 @@ export function RecordDirectory<T extends { id: string }>({
                       active={sort.key === c.id}
                       direction={sort.direction}
                       onSort={() => {
-                        setSort({
+                        const next = {
                           key: c.id,
-                          direction: sort.key === c.id && sort.direction === 'asc' ? 'desc' : 'asc',
-                        });
+                          direction: (sort.key === c.id && sort.direction === 'asc'
+                            ? 'desc'
+                            : 'asc') as 'asc' | 'desc',
+                        };
+                        if (server) server.onSort(next);
+                        else setSort(next);
                         setPage(1);
                       }}
                     />

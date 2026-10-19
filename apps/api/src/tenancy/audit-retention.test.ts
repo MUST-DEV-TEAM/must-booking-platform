@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import { NotificationRetentionService } from './notification-retention.service';
 import type { TenantDatabaseService } from './tenant-database.service';
 import type { NotificationInboxService } from './notification-inbox.service';
+import type { EmailActivityService } from './email-activity.service';
 import type { ActivityAuditService } from './activity-audit.service';
 it('nightly discovery passes the same exact property to inbox and temporary-file cleanup on retries', async () => {
   const scope = { tenantId: 'tenant', propertyId: 'property' },
@@ -21,13 +22,20 @@ it('nightly discovery passes the same exact property to inbox and temporary-file
       calls.push(['exports', c]);
     },
   } as unknown as ActivityAuditService;
-  const worker = new NotificationRetentionService(db, inbox, audit);
+  const email = {
+    async cleanupExports(c: unknown) {
+      calls.push(['email-exports', c]);
+    },
+  } as unknown as EmailActivityService;
+  const worker = new NotificationRetentionService(db, inbox, audit, email);
   await worker.sweep();
   await worker.sweep();
   expect(calls).toEqual([
     ['inbox', scope],
     ['exports', scope],
+    ['email-exports', scope],
     ['inbox', scope],
     ['exports', scope],
+    ['email-exports', scope],
   ]);
 });

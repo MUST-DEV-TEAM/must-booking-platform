@@ -4,6 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EmailSettings, isEmailTab, type EmailTab } from './email-settings';
 import { EmailsWorkspace } from './emails';
+import { downloadCsv } from '../../lib/download-csv';
+vi.mock('../../lib/download-csv', () => ({ downloadCsv: vi.fn() }));
 import { DashboardQueryProvider } from './query-provider';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const base = '/api/tenants/t/properties/p';
@@ -82,6 +84,13 @@ function mockFetch(failure?: number) {
           { message: failure === 403 ? 'Permission denied' : 'Email service unavailable' },
           { status: failure, headers: { 'x-request-id': 'email-ref-17' } },
         );
+      if (url.endsWith('/email-activity/export'))
+        return Response.json({
+          csv: '\uFEFFauthorized evidence',
+          filename: 'deliveries.csv',
+          count: 1,
+          version: 1,
+        });
       if (method !== 'GET') {
         if (url.endsWith('/preview'))
           return Response.json({
@@ -115,7 +124,15 @@ function mockFetch(failure?: number) {
           testTrafficExcluded: true,
         });
       if (url.includes('/email-activity?'))
-        return Response.json({ items: [message], total: 1, page: 1, pageSize: 100 });
+        return Response.json({
+          observedAt: '2026-10-19T10:00:00Z',
+          exportVersion: 0,
+          timezone: 'Europe/Tirane',
+          items: [message],
+          total: 1,
+          page: 1,
+          pageSize: 100,
+        });
       if (url === base + '/email-activity/m1') return Response.json(message);
       if (url === base + '/email-configuration')
         return Response.json({
@@ -302,5 +319,120 @@ describe('Emails workspace and legacy links', () => {
     );
     expect(host.textContent).toContain('email-ref-17');
     expect(host.querySelector('table')).toBeNull();
+  });
+  it('sends global delivery filters and ordering to the server and can clear the complete scope', async () => {
+    const calls = mockFetch();
+    await mount('activity');
+    expect(document.body.textContent).not.toContain('Export page CSV');
+    await fill(
+      document.querySelector<HTMLInputElement>('[aria-label="Search all records"]')!,
+      'MH-999',
+    );
+    expect(
+      calls.some(
+        (c) =>
+          c.url.includes('/email-activity?') &&
+          new URL(c.url, 'http://localhost').searchParams.get('search') === 'MH-999',
+      ),
+    ).toBe(true);
+    await fill(
+      document.querySelector<HTMLInputElement>('[aria-label="Delivery recipient"]')!,
+      'ana@example.test',
+    );
+    await click(button('Recipient', document.querySelector('thead')!));
+    const latest = calls.filter((c) => c.url.includes('/email-activity?')).at(-1)!;
+    expect(new URL(latest.url, 'http://localhost').searchParams.get('sort')).toBe('recipient');
+    expect(new URL(latest.url, 'http://localhost').searchParams.get('recipient')).toBe(
+      'ana@example.test',
+    );
+    await click(button('Clear delivery filters'));
+    const clear = new URL(
+      calls.filter((c) => c.url.includes('/email-activity?')).at(-1)!.url,
+      'http://localhost',
+    );
+    for (const key of ['search', 'recipient', 'from', 'to', 'topic', 'status'])
+      expect(clear.searchParams.get(key)).toBe('');
+  });
+  it('confirms a versioned bulk retry with a required reason and no local export', async () => {
+    const calls = mockFetch();
+    await mount('activity');
+    await click(
+      document.querySelector<HTMLButtonElement>('[aria-label="Select Booking confirmed (guest)"]')!,
+    );
+    await click(button('Retry selected failed'));
+    expect(button('Retry selected').disabled).toBe(true);
+    await fill(
+      document.querySelector<HTMLTextAreaElement>('#confirm-reason')!,
+      'Provider is working again',
+    );
+    await click(button('Retry selected'));
+    const bulk = calls.find((call) => call.url.endsWith('/bulk-retry'));
+    expect(bulk).toMatchObject({
+      method: 'POST',
+      body: { messages: [{ id: 'm1', version: 3 }], reason: 'Provider is working again' },
+    });
+    expect(bulk!.headers.get('Idempotency-Key')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('Copy selected');
+  });
+  it('audits the exact global filter and observation cutoff before downloading CSV', async () => {
+    vi.mocked(downloadCsv).mockClear();
+    const calls = mockFetch();
+    await mount('activity');
+    await click(button('Export filtered CSV'));
+    expect(button('Export CSV').disabled).toBe(true);
+    await fill(
+      document.querySelector<HTMLTextAreaElement>('#confirm-reason')!,
+      'Review hotel email evidence',
+    );
+    await click(button('Export CSV'));
+    const request = calls.find((c) => c.url.endsWith('/email-activity/export'));
+    expect(request).toMatchObject({
+      method: 'POST',
+      body: {
+        version: 0,
+        through: '2026-10-19T10:00:00Z',
+        reason: 'Review hotel email evidence',
+        filters: { filter: 'all', search: '', sort: 'created', direction: 'desc' },
+      },
+    });
+    expect(request!.body).not.toHaveProperty('ids');
+    expect(request!.headers.get('Idempotency-Key')).toBeTruthy();
+    expect(downloadCsv).toHaveBeenCalledWith({
+      csv: '\uFEFFauthorized evidence',
+      filename: 'deliveries.csv',
+      count: 1,
+      version: 1,
+    });
+  });
+  it('shows observed event history and the provider receipt without inventing missing earlier steps', async () => {
+    mockFetch();
+    const original = fetch;
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) =>
+      String(input).endsWith('/email-activity/m1')
+        ? Response.json({
+            ...message,
+            provider: 'resend',
+            providerMessageId: 'mock-receipt',
+            timelineHasCreation: true,
+            timeline: [
+              {
+                id: 'event-1',
+                kind: 'SENT',
+                status: 'SENT',
+                attemptCount: 1,
+                provider: 'resend',
+                providerMessageId: 'mock-receipt',
+                observedAt: '2026-10-19T10:00:00Z',
+              },
+            ],
+          })
+        : original(input, init),
+    );
+    await mount('activity');
+    await click(button('Booking confirmed (guest)'));
+    expect(document.body.textContent).toContain('Observed delivery timeline');
+    expect(document.body.textContent).toContain('Attempt 1 / resend');
+    expect(document.body.textContent).toContain('mock-receipt');
+    expect(document.body.textContent).not.toContain('Earlier steps were not recorded');
   });
 });

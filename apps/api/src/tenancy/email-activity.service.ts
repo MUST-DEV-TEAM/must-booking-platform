@@ -7,8 +7,14 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 
+import { createHash } from 'node:crypto';
+import { auditCsv } from './audit-workspace';
+import { Prisma } from '@prisma/client';
+import { emailDeliveryQuery } from './email-delivery-query';
+
 import { MailDeliveryService, RESEND_WINDOW_DAYS } from '../mail/mail-delivery.service';
 import { emailWrite } from './email-workspace-writes';
+import { CapabilitiesService } from './capabilities.service';
 import { AuditLogService } from './audit-log.service';
 import { TenantDatabaseService } from './tenant-database.service';
 
@@ -17,6 +23,7 @@ type Status = 'QUEUED' | 'SENT' | 'FAILED' | 'DELIVERED' | 'BOUNCED' | 'COMPLAIN
 
 export type EmailActivityItem = {
   id: string;
+  version: number;
   eventType: string;
   label: string;
   recipient: string;
@@ -45,6 +52,10 @@ export type EmailActivityPage = {
   page: number;
   pageSize: number;
   total: number;
+  observedAt: Date;
+  exportVersion: number;
+  timezone: string | null;
+  topics: { value: string; label: string }[];
 };
 
 /** Names people know, for the email log's event types. */
@@ -65,14 +76,6 @@ const LABELS: Record<string, string> = {
   'staff.invitation': 'Staff invitation',
 };
 
-const FILTERS: Record<string, Status[]> = {
-  all: ['QUEUED', 'SENT', 'FAILED', 'DELIVERED', 'BOUNCED', 'COMPLAINED', 'SUPPRESSED'],
-  problems: ['FAILED', 'BOUNCED', 'COMPLAINED', 'SUPPRESSED'],
-  queued: ['QUEUED'],
-  bounced: ['BOUNCED'],
-  complained: ['COMPLAINED'],
-};
-
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Every email this property sent, with "send again" for failed ones (email plan Step 4). */
@@ -82,41 +85,32 @@ export class EmailActivityService {
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(AuditLogService) private readonly audit: AuditLogService,
     @Inject(MailDeliveryService) private readonly delivery: MailDeliveryService,
+    @Inject(CapabilitiesService) private readonly capabilities: CapabilitiesService,
   ) {}
 
   list(context: Context, query: Record<string, unknown>): Promise<EmailActivityPage> {
     const page = this.positive(query.page, 1, 10_000);
     const pageSize = this.positive(query.pageSize, 25, 100);
-    const filter = typeof query.filter === 'string' ? query.filter : 'all';
-    const statuses = FILTERS[filter];
-    if (!statuses) throw new BadRequestException('Unknown email delivery filter.');
-    const topic = typeof query.topic === 'string' ? query.topic.trim() : '';
-    const hours = query.hours === undefined ? null : Number(query.hours);
-    if (topic.length > 100 || (hours !== null && ![24, 168].includes(hours)))
-      throw new BadRequestException('Use a valid topic and 24 or 168 hour window.');
+    const filters = emailDeliveryQuery(query);
     return this.database.withTenantTransaction(context, async (tx) => {
-      const [rows, counts] = await Promise.all([
-        tx.$queryRaw<Array<Omit<EmailActivityItem, 'label' | 'canResend'>>>`
-          SELECT em.id, em.event_type AS "eventType", em.recipient_email AS recipient, em.subject,
-            em.status::text AS status, em.last_error AS "lastError",
-            em.attempt_count AS "attemptCount", em.booking_id::text AS "bookingId",
-            COALESCE(b.order_reference, b.external_reference) AS "bookingReference",
-            em.created_at AS "createdAt", em.sent_at AS "sentAt", em.delivered_at AS "deliveredAt"
-          FROM email_messages em
-          LEFT JOIN bookings b ON b.tenant_id = em.tenant_id AND b.property_id = em.property_id AND b.id = em.booking_id
-          WHERE em.tenant_id = ${context.tenantId}::uuid AND em.property_id = ${context.propertyId}::uuid
-            AND em.status::text = ANY(${statuses}) AND (${topic}='' OR em.event_type=${topic})
-            AND (${hours}::int IS NULL OR em.created_at >= now()-make_interval(hours=>${hours}::int))
-          ORDER BY em.created_at DESC, em.id DESC
-          LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}
-        `,
-        tx.$queryRaw<Array<{ total: number }>>`
-          SELECT count(*)::int AS total FROM email_messages
-          WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
-            AND status::text = ANY(${statuses}) AND (${topic}='' OR event_type=${topic})
-            AND (${hours}::int IS NULL OR created_at >= now()-make_interval(hours=>${hours}::int))
-        `,
-      ]);
+      const scope = this.deliveryScope(context, filters);
+      const rows = await tx.$queryRaw<
+        Array<Omit<EmailActivityItem, 'label' | 'canResend'>>
+      >(Prisma.sql`
+        SELECT em.id,em.workspace_version AS version,em.event_type AS "eventType",em.recipient_email AS recipient,em.subject,
+          em.status::text AS status,em.last_error AS "lastError",em.attempt_count AS "attemptCount",
+          em.booking_id::text AS "bookingId",COALESCE(b.order_reference,b.external_reference) AS "bookingReference",
+          em.created_at AS "createdAt",em.sent_at AS "sentAt",em.delivered_at AS "deliveredAt"
+        ${scope} ORDER BY ${filters.order} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`);
+      const counts = await tx.$queryRaw<{ total: number }[]>(
+        Prisma.sql`SELECT count(*)::int AS total ${scope}`,
+      );
+      const properties = await tx.$queryRaw<
+        { timezone: string; observedAt: Date; exportVersion: number }[]
+      >`SELECT timezone,transaction_timestamp() AS "observedAt",email_delivery_export_version AS "exportVersion" FROM properties WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid`;
+      const topics = await tx.$queryRaw<
+        { value: string }[]
+      >`SELECT DISTINCT event_type AS value FROM email_messages WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid ORDER BY event_type`;
       const cutoff = Date.now() - RESEND_WINDOW_DAYS * 24 * 60 * 60 * 1000;
       return {
         items: rows.map((row) => ({
@@ -128,10 +122,173 @@ export class EmailActivityService {
             row.eventType !== 'staff.invitation' &&
             new Date(row.createdAt).getTime() > cutoff,
         })),
+        observedAt: properties[0]!.observedAt,
+        exportVersion: properties[0]!.exportVersion,
+        timezone: properties[0]?.timezone ?? null,
+        topics: topics.map((t) => ({ value: t.value, label: LABELS[t.value] ?? t.value })),
         page,
         pageSize,
         total: counts[0]?.total ?? 0,
       };
+    });
+  }
+
+  private deliveryScope(context: Context, filters: ReturnType<typeof emailDeliveryQuery>) {
+    return Prisma.sql`FROM email_messages em
+        JOIN properties p ON p.tenant_id=em.tenant_id AND p.id=em.property_id
+        LEFT JOIN bookings b ON b.tenant_id=em.tenant_id AND b.property_id=em.property_id AND b.id=em.booking_id
+        WHERE em.tenant_id=${context.tenantId}::uuid AND em.property_id=${context.propertyId}::uuid AND ${filters.where}`;
+  }
+
+  async cleanupExports(context: Context, now = new Date()) {
+    return this.database.withTenantTransaction(
+      context,
+      (tx) =>
+        tx.$executeRaw`DELETE FROM email_delivery_exports WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND created_at<${now}-interval '24 hours'`,
+    );
+  }
+
+  async export(context: Context, actorUserId: string, body: Record<string, unknown>, key?: string) {
+    if (
+      !key ||
+      !/^[\x21-\x7e]{1,128}$/.test(key) ||
+      !Number.isSafeInteger(body.version) ||
+      Number(body.version) < 0
+    )
+      throw new BadRequestException('An Idempotency-Key and current export version are required.');
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    if (reason.length < 3 || reason.length > 300)
+      throw new BadRequestException('An export reason of 3-300 characters is required.');
+    const through = typeof body.through === 'string' ? new Date(body.through) : new Date(NaN);
+    if (
+      Number.isNaN(through.getTime()) ||
+      through.getTime() > Date.now() + 5000 ||
+      through.getTime() < Date.now() - 86400000
+    )
+      throw new BadRequestException('Use an observed cutoff within the last 24 hours.');
+    if (!body.filters || typeof body.filters !== 'object' || Array.isArray(body.filters))
+      throw new BadRequestException('Current delivery filters are required.');
+    const filters = emailDeliveryQuery(body.filters as Record<string, unknown>, through);
+    const ids = body.ids;
+    if (
+      ids !== undefined &&
+      (!Array.isArray(ids) ||
+        !ids.length ||
+        ids.length > 100 ||
+        ids.some((id) => typeof id !== 'string' || !UUID.test(id)) ||
+        new Set(ids).size !== ids.length)
+    )
+      throw new BadRequestException('Select 1-100 distinct message IDs.');
+    const normalized = {
+      version: body.version,
+      reason,
+      through: through.toISOString(),
+      ids: ids ? [...ids].sort() : null,
+      filters: {
+        filter: filters.filter,
+        status: filters.status,
+        topic: filters.topic,
+        recipient: filters.recipient,
+        search: filters.search,
+        from: filters.from,
+        to: filters.to,
+        hours: filters.hours,
+        sort: filters.sort,
+        direction: filters.direction,
+      },
+    };
+    const hash = createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
+    return this.database.withTenantTransaction(context, async (tx) => {
+      const properties = await tx.$queryRaw<
+        { version: number }[]
+      >`SELECT email_delivery_export_version AS version FROM properties WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid FOR UPDATE`;
+      if (!properties[0]) throw new NotFoundException('Property was not found.');
+      await tx.$executeRaw`DELETE FROM email_delivery_exports WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND created_at<now()-interval '24 hours'`;
+      const receipts = await tx.$queryRaw<
+        {
+          hash: string;
+          response: { csv: string; filename: string; count: number; version: number };
+        }[]
+      >`SELECT request_hash AS hash,response FROM email_delivery_exports WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND user_id=${actorUserId}::uuid AND idempotency_key=${key}`;
+      if (receipts[0]) {
+        if (receipts[0].hash !== hash)
+          throw new ConflictException('Export intent changed. Use a new key.');
+        return receipts[0].response;
+      }
+      if (properties[0].version !== body.version)
+        throw new ConflictException('Another export changed the version. Reload before exporting.');
+      const rows = await tx.$queryRaw<
+        {
+          id: string;
+          topic: string;
+          recipient: string;
+          subject: string;
+          status: string;
+          attempts: number;
+          booking: string | null;
+          created: Date;
+          sent: Date | null;
+          delivered: Date | null;
+        }[]
+      >(
+        Prisma.sql`SELECT em.id,em.event_type AS topic,em.recipient_email AS recipient,em.subject,em.status::text AS status,em.attempt_count AS attempts,COALESCE(b.order_reference,b.external_reference) AS booking,em.created_at AS created,em.sent_at AS sent,em.delivered_at AS delivered ${this.deliveryScope(context, filters)} AND (${ids === undefined} OR em.id=ANY(${ids ?? []}::uuid[])) ORDER BY ${filters.order} LIMIT 5001`,
+      );
+      if (rows.length > 5000)
+        throw new BadRequestException('More than 5,000 messages match. Narrow the filters.');
+      if (Array.isArray(ids) && rows.length !== ids.length)
+        throw new NotFoundException('A selected message is outside the current scope or filters.');
+      const csv = auditCsv([
+        [
+          'Message ID',
+          'Topic',
+          'Recipient',
+          'Subject',
+          'Status',
+          'Attempts',
+          'Booking reference',
+          'Created UTC',
+          'Sent UTC',
+          'Delivered UTC',
+        ],
+        ...rows.map((row) => [
+          row.id,
+          row.topic,
+          row.recipient,
+          row.subject,
+          row.status,
+          row.attempts,
+          row.booking,
+          row.created.toISOString(),
+          row.sent?.toISOString(),
+          row.delivered?.toISOString(),
+        ]),
+      ]);
+      if (Buffer.byteLength(csv, 'utf8') > 2 * 1024 * 1024)
+        throw new BadRequestException('Export exceeds 2 MB. Narrow the filters.');
+      const version = properties[0].version + 1,
+        response = {
+          csv,
+          count: rows.length,
+          version,
+          filename: `email-delivery-${context.propertyId}-${through.toISOString().slice(0, 10)}.csv`,
+        };
+      await this.audit.recordInTransaction(tx, {
+        ...context,
+        actorUserId,
+        action: 'email.delivery.exported',
+        targetType: 'email_export',
+        targetId: context.propertyId,
+        details: {
+          reason,
+          count: rows.length,
+          through: through.toISOString(),
+          selected: Array.isArray(ids),
+          filters: normalized.filters,
+        },
+      });
+      await tx.$executeRaw`UPDATE properties SET email_delivery_export_version=${version} WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid`;
+      await tx.$executeRaw`INSERT INTO email_delivery_exports(tenant_id,property_id,user_id,idempotency_key,request_hash,response) VALUES(${context.tenantId}::uuid,${context.propertyId}::uuid,${actorUserId}::uuid,${key},${hash},${JSON.stringify(response)}::jsonb)`;
+      return response;
     });
   }
 
@@ -207,26 +364,54 @@ export class EmailActivityService {
     });
   }
 
-  async detail(context: Context, messageId: string) {
+  async detail(context: Context, messageId: string, actorUserId?: string) {
     if (!UUID.test(messageId)) throw new NotFoundException('Email was not found.');
+    const caps = actorUserId
+      ? await this.capabilities.effective({ ...context, userId: actorUserId })
+      : [];
     return this.database.withTenantTransaction(context, async (tx) => {
       const rows = await tx.$queryRaw<
-        (Omit<EmailActivityItem, 'label' | 'canResend'> & { version: number })[]
+        (Omit<EmailActivityItem, 'label' | 'canResend'> & {
+          version: number;
+          provider: string | null;
+          providerMessageId: string | null;
+        })[]
       >`
         SELECT em.id,em.event_type AS "eventType",em.recipient_email AS recipient,em.subject,
           em.status::text AS status,em.last_error AS "lastError",em.attempt_count AS "attemptCount",
           em.booking_id::text AS "bookingId",COALESCE(b.order_reference,b.external_reference) AS "bookingReference",
-          em.created_at AS "createdAt",em.sent_at AS "sentAt",em.delivered_at AS "deliveredAt",em.workspace_version AS version
+          em.created_at AS "createdAt",em.sent_at AS "sentAt",em.delivered_at AS "deliveredAt",em.workspace_version AS version,em.provider,em.provider_message_id AS "providerMessageId"
         FROM email_messages em LEFT JOIN bookings b ON b.tenant_id=em.tenant_id AND b.property_id=em.property_id AND b.id=em.booking_id
         WHERE em.tenant_id=${context.tenantId}::uuid AND em.property_id=${context.propertyId}::uuid AND em.id=${messageId}::uuid
       `;
       const row = rows[0];
       if (!row) throw new NotFoundException('Email was not found.');
+      const events = await tx.$queryRaw<
+        {
+          id: string;
+          kind: string;
+          status: string;
+          attemptCount: number;
+          provider: string | null;
+          providerMessageId: string | null;
+          observedAt: Date;
+        }[]
+      >`
+        SELECT id,kind,status,attempt_count AS "attemptCount",provider,provider_message_id AS "providerMessageId",observed_at AS "observedAt"
+        FROM email_delivery_events WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND message_id=${messageId}::uuid
+        ORDER BY observed_at DESC,id DESC LIMIT 201`;
       const suppressed = await tx.$queryRaw<
         { recipient: string }[]
       >`SELECT recipient FROM email_suppressions WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND recipient=${row.recipient.toLowerCase()} AND active`;
       return {
         ...row,
+        bookingHref:
+          caps.includes('bookings.view') && row.bookingId
+            ? `/dashboard/${context.tenantId}?propertyId=${context.propertyId}&section=reservations&reservation=${row.bookingId}`
+            : null,
+        timeline: events.slice(0, 200).reverse(),
+        timelineTruncated: events.length > 200,
+        timelineHasCreation: events.some((e) => e.kind === 'QUEUED' && e.attemptCount === 0),
         retryUnavailableReason: suppressed.length
           ? 'Recipient is suppressed. Resolve it in Configuration before retrying.'
           : null,
@@ -309,7 +494,7 @@ export class EmailActivityService {
         const version = before.version + 1;
         await tx.$executeRaw`UPDATE email_messages SET status='QUEUED',last_error=NULL,workspace_version=${version},updated_at=now() WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${messageId}::uuid`;
         return {
-          response: { status: 'QUEUED' as const, version, approved },
+          response: { status: 'QUEUED' as const, version },
           details: {
             before: { status: before.status, version: before.version },
             after: { status: 'QUEUED', version },
@@ -327,13 +512,111 @@ export class EmailActivityService {
     );
     if (!pending.length) return { status: response.status, version: response.version };
     try {
-      await this.delivery.enqueueApproved(response.approved, response.version);
+      const approved = await this.delivery.retainedCommand(messageId, context);
+      if (!approved) throw new Error('Retained command unavailable.');
+      await this.delivery.enqueueApproved(approved, response.version);
     } catch {
       throw new ServiceUnavailableException(
         'Retry was recorded but could not be queued. Retry this same request.',
       );
     }
     return { status: response.status, version: response.version };
+  }
+
+  async bulkRetry(
+    context: Context,
+    actorUserId: string,
+    body: Record<string, unknown>,
+    key?: string,
+  ) {
+    const messages = body.messages;
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    if (
+      !Array.isArray(messages) ||
+      messages.length < 1 ||
+      messages.length > 50 ||
+      messages.some(
+        (m) =>
+          !m ||
+          typeof m !== 'object' ||
+          typeof m.id !== 'string' ||
+          !UUID.test(m.id) ||
+          !Number.isSafeInteger(m.version) ||
+          m.version < 1,
+      ) ||
+      new Set(messages.map((m) => m.id)).size !== messages.length
+    )
+      throw new BadRequestException('Select 1-50 distinct messages with their current versions.');
+    if (reason.length < 3 || reason.length > 300)
+      throw new BadRequestException('A retry reason of 3-300 characters is required.');
+    const selections = (messages as { id: string; version: number }[])
+      .map((m) => ({ id: m.id, version: m.version }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const response = await emailWrite(
+      this.database,
+      this.audit,
+      context,
+      actorUserId,
+      key,
+      'email.bulk_retry.requested',
+      context.propertyId,
+      { messages: selections, reason },
+      async (tx) => {
+        const changes: { id: string; version: number }[] = [];
+        for (const message of selections) {
+          const rows = await tx.$queryRaw<
+            { status: string; version: number; createdAt: Date; recipient: string }[]
+          >`SELECT status::text AS status,workspace_version AS version,created_at AS "createdAt",recipient_email AS recipient FROM email_messages WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${message.id}::uuid FOR UPDATE`;
+          const row = rows[0];
+          if (!row) throw new NotFoundException('A selected email was not found.');
+          if (row.status !== 'FAILED' || row.version !== message.version)
+            throw new ConflictException(
+              'A selected email changed or is no longer failed. Reload before retrying.',
+            );
+          const suppressions = await tx.$queryRaw<
+            { recipient: string }[]
+          >`SELECT recipient FROM email_suppressions WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND recipient=${row.recipient.toLowerCase()} AND active`;
+          if (suppressions.length)
+            throw new ConflictException(
+              'A selected recipient is suppressed. Resolve it in Configuration first.',
+            );
+          if (
+            Date.now() - row.createdAt.getTime() >= RESEND_WINDOW_DAYS * 86400000 ||
+            !(await this.delivery.retainedCommand(message.id, context))
+          )
+            throw new ConflictException(
+              'A selected original approved message is no longer available.',
+            );
+          const version = row.version + 1;
+          await tx.$executeRaw`UPDATE email_messages SET status='QUEUED',last_error=NULL,workspace_version=${version},updated_at=now() WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${message.id}::uuid`;
+          changes.push({ id: message.id, version });
+        }
+        return {
+          response: { status: 'QUEUED' as const, messages: changes },
+          details: { reason, count: changes.length, before: selections, after: changes },
+        };
+      },
+    );
+    try {
+      for (const message of response.messages) {
+        const pending = await this.database.withTenantTransaction(
+          context,
+          (tx) =>
+            tx.$queryRaw<
+              { id: string }[]
+            >`SELECT id FROM email_messages WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${message.id}::uuid AND status='QUEUED' AND workspace_version=${message.version}`,
+        );
+        if (!pending.length) continue;
+        const approved = await this.delivery.retainedCommand(message.id, context);
+        if (!approved) throw new Error('Retained command unavailable.');
+        await this.delivery.enqueueApproved(approved, message.version);
+      }
+    } catch {
+      throw new ServiceUnavailableException(
+        'Bulk retry was recorded but not fully queued. Retry this same request.',
+      );
+    }
+    return response;
   }
 
   async resend(

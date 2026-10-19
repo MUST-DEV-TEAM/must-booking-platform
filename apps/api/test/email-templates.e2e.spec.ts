@@ -3,9 +3,10 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { RenderedEmailCommand } from '@must/domain-contracts';
 
+import { EmailActivityService } from '../src/tenancy/email-activity.service';
 import { ResendWebhookService } from '../src/mail/resend-webhook.service';
 import { MailDeliveryError } from '../src/mail/mail-delivery-error';
 import { isolatedMailDelivery } from './helpers/isolated-mail-delivery';
@@ -1050,5 +1051,324 @@ describe('email templates (a property’s own wording for guest emails)', () => 
       .set('Cookie', cookie)
       .send({ subject: 'Hello', body: '{unknown_field}', previewText: '' })
       .expect(400);
+  });
+  it('filters and sorts the whole delivery log with property-local DST edges and isolated topic choices', async () => {
+    const property = randomUUID(),
+      other = randomUUID();
+    for (const id of [property, other])
+      await admin.$executeRaw`INSERT INTO properties(id,tenant_id,name,slug,timezone) VALUES(${id}::uuid,${tenantId}::uuid,'Directory fixture',${id},'Europe/Tirane')`;
+    const dates = [
+      '2026-03-28T22:59:59Z',
+      '2026-03-28T23:00:00Z',
+      '2026-03-29T01:00:00Z',
+      '2026-03-29T21:59:59Z',
+      '2026-03-29T22:00:00Z',
+    ];
+    const ids: string[] = [];
+    for (let i = 0; i < dates.length; i++) {
+      const id = randomUUID();
+      ids.push(id);
+      await admin.$executeRaw`INSERT INTO email_messages(id,tenant_id,property_id,event_type,recipient_email,subject,status,idempotency_key,created_at) VALUES(${id}::uuid,${tenantId}::uuid,${property}::uuid,'owner.alert',${`staff${i}@example.test`},${`Literal_% ${i}`},'FAILED',${randomUUID()},${new Date(dates[i])})`;
+    }
+    await admin.$executeRaw`INSERT INTO email_messages(tenant_id,property_id,event_type,recipient_email,subject,status,idempotency_key,created_at) VALUES(${tenantId}::uuid,${other}::uuid,'foreign.topic','foreign@example.test','Never included','FAILED',${randomUUID()},'2026-03-29T12:00:00Z'::timestamptz)`;
+    const base = `/tenants/${tenantId}/properties/${property}/email-activity`;
+    const get = (query: string) =>
+      request(app!.getHttpServer())
+        .get(base + query)
+        .set('Cookie', cookie);
+    const result = await get(
+      '?from=2026-03-29&to=2026-03-29&pageSize=1&sort=recipient&direction=asc',
+    ).expect(200);
+    expect(result.body.total).toBe(3);
+    expect(result.body.timezone).toBe('Europe/Tirane');
+    expect(result.body.items.map((r: { id: string }) => r.id)).toEqual([ids[1]]);
+    expect(result.body.topics).toEqual([{ value: 'owner.alert', label: 'Alert (owner)' }]);
+    const next = await get(
+      '?from=2026-03-29&to=2026-03-29&pageSize=1&page=3&sort=recipient&direction=asc',
+    ).expect(200);
+    expect(next.body.items.map((r: { id: string }) => r.id)).toEqual([ids[3]]);
+    const descending = await get(
+      '?from=2026-03-29&to=2026-03-29&sort=recipient&direction=desc&status=FAILED&recipient=STAFF&topic=owner.alert&search=Literal_%25',
+    ).expect(200);
+    expect(descending.body.items.map((r: { id: string }) => r.id)).toEqual([
+      ids[3],
+      ids[2],
+      ids[1],
+    ]);
+    expect((await get('?search=%25').expect(200)).body.total).toBe(5); // Literal percent, not SQL wildcard.
+    expect((await get('?search=NoMatchingTerm').expect(200)).body.total).toBe(0);
+    expect((await get('?filter=problems&status=SENT').expect(200)).body.total).toBe(0);
+    for (const query of [
+      '?from=2026-02-29',
+      '?sort=not-a-column',
+      '?direction=SIDEWAYS',
+      '?from=2024-01-01&to=2025-01-01',
+    ])
+      await get(query).expect(400);
+    await request(app!.getHttpServer())
+      .get(`/tenants/${randomUUID()}/properties/${property}/email-activity`)
+      .set('Cookie', cookie)
+      .expect(403);
+    await admin.$executeRaw`UPDATE tenant_memberships SET role='STAFF' WHERE tenant_id=${tenantId}::uuid AND user_id=${userId}::uuid`;
+    try {
+      await get('').expect(403);
+    } finally {
+      await admin.$executeRaw`UPDATE tenant_memberships SET role='OWNER' WHERE tenant_id=${tenantId}::uuid AND user_id=${userId}::uuid`;
+    }
+    await app!
+      .get(TenantDatabaseService)
+      .withTenantTransaction({ tenantId: randomUUID(), propertyId: property }, async (tx) => {
+        const rows = await tx.$queryRaw<
+          { id: string }[]
+        >`SELECT id FROM email_messages WHERE tenant_id=${tenantId}::uuid AND property_id=${property}::uuid`;
+        expect(rows).toEqual([]);
+      });
+  });
+  it('records actual delivery transitions atomically, ignores no-op webhooks, and never invents earlier history', async () => {
+    const id = randomUUID(),
+      providerId = randomUUID();
+    await admin.$executeRaw`INSERT INTO email_messages(id,tenant_id,property_id,event_type,recipient_email,subject,status,idempotency_key) VALUES(${id}::uuid,${tenantId}::uuid,${propertyId}::uuid,'owner.alert','ledger@example.test','Observed delivery','QUEUED',${randomUUID()})`;
+    const database = app!.get(TenantDatabaseService),
+      context = { tenantId, propertyId };
+    await database.withTenantTransaction(context, async (tx) => {
+      await tx.$executeRaw`UPDATE email_messages SET attempt_count=attempt_count+1 WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${id}::uuid`;
+      await tx.$executeRaw`UPDATE email_messages SET last_error='Do not retain secret-token=fixture' WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${id}::uuid`;
+      await tx.$executeRaw`UPDATE email_messages SET status='SENT',provider='resend',provider_message_id=${providerId},sent_at=now() WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${id}::uuid`;
+    });
+    const webhook = app!.get(ResendWebhookService);
+    const delivered = {
+      type: 'email.delivered',
+      data: { email_id: providerId },
+      created_at: '2026-10-19T10:00:00Z',
+    };
+    expect(await webhook.apply(delivered)).toBe('applied');
+    expect(await webhook.apply(delivered)).toBe('ignored');
+    const read = () =>
+      request(app!.getHttpServer())
+        .get(url().replace('/email-templates', '/email-activity/') + id)
+        .set('Cookie', cookie);
+    const detail = await read().expect(200);
+    expect(detail.body.timeline.map((e: { kind: string }) => e.kind)).toEqual([
+      'QUEUED',
+      'ATTEMPT',
+      'RETRY_WAIT',
+      'SENT',
+      'DELIVERED',
+    ]);
+    expect(detail.body).toMatchObject({
+      timelineHasCreation: true,
+      timelineTruncated: false,
+      provider: 'resend',
+      providerMessageId: providerId,
+    });
+    expect(JSON.stringify(detail.body.timeline)).not.toContain('secret-token');
+    await expect(
+      database.withTenantTransaction(context, async (tx) => {
+        await tx.$executeRaw`UPDATE email_messages SET status='COMPLAINED' WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${id}::uuid`;
+        throw new Error('Rollback the whole observation');
+      }),
+    ).rejects.toThrow('Rollback');
+    expect((await read().expect(200)).body.timeline).toHaveLength(5);
+    await database.withTenantTransaction({ tenantId, propertyId: randomUUID() }, async (tx) => {
+      expect(
+        await tx.$queryRaw`SELECT id FROM email_delivery_events WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND message_id=${id}::uuid`,
+      ).toEqual([]);
+    });
+    // A retained old row with no observations must not get a fabricated queued/sent timeline.
+    await admin.$executeRaw`DELETE FROM email_delivery_events WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND message_id=${id}::uuid`;
+    const old = await read().expect(200);
+    expect(old.body).toMatchObject({ timeline: [], timelineHasCreation: false });
+  });
+  it('bulk retry is atomic, versioned and idempotent under concurrent requests and a lost enqueue', async () => {
+    const dispatch = app!.get(MailDeliveryService),
+      base = url().replace('/email-templates', '/email-activity');
+    const subjects = [`Bulk A ${randomUUID()}`, `Bulk B ${randomUUID()}`];
+    failRendered = true;
+    try {
+      for (const subject of subjects)
+        await dispatch.dispatch(
+          'rendered',
+          {
+            to: 'bulk@example.test',
+            subject,
+            html: '<p>Original approved content</p>',
+            text: 'Original approved content',
+            eventType: 'owner.alert',
+            idempotencyKey: randomUUID(),
+            bookingId: null,
+          },
+          { tenantId, propertyId },
+        );
+      await waitFor(() =>
+        subjects.every((subject) => rendered.some((command) => command.subject === subject)),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    } finally {
+      failRendered = false;
+    }
+    const rows = await admin.$queryRaw<
+      { id: string; version: number; status: string }[]
+    >`SELECT id,workspace_version AS version,status::text AS status FROM email_messages WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND subject=ANY(${subjects}::text[]) ORDER BY id`;
+    expect(rows.map((row) => row.status)).toEqual(['FAILED', 'FAILED']);
+    const messages = rows.map(({ id, version }) => ({ id, version }));
+    const post = (selection: typeof messages, key = randomUUID()) =>
+      request(app!.getHttpServer())
+        .post(base + '/bulk-retry')
+        .set('Cookie', cookie)
+        .set('Idempotency-Key', key)
+        .send({ messages: selection, reason: 'Retry after provider recovery' });
+    await post([messages[0], { id: randomUUID(), version: 1 }]).expect(404);
+    await post([messages[0], { ...messages[1], version: 999 }]).expect(409);
+    await post([messages[0], messages[0]]).expect(400);
+    expect(
+      (
+        await admin.$queryRaw<
+          { status: string }[]
+        >`SELECT status::text AS status FROM email_messages WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=ANY(${rows.map((r) => r.id)}::uuid[])`
+      ).map((r) => r.status),
+    ).toEqual(['FAILED', 'FAILED']);
+    const key = randomUUID(),
+      enqueue = vi
+        .spyOn(dispatch, 'enqueueApproved')
+        .mockRejectedValueOnce(new Error('Test queue interruption'));
+    try {
+      await post(messages, key).expect(503);
+    } finally {
+      enqueue.mockRestore();
+    }
+    const receipt = await admin.$queryRaw<
+      { response: unknown }[]
+    >`SELECT response FROM email_workspace_operations WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND idempotency_key=${key}`;
+    expect(receipt[0].response).toEqual({
+      status: 'QUEUED',
+      messages: messages.map((m) => ({ id: m.id, version: m.version + 1 })),
+    });
+    const before = rendered.filter((command) => subjects.includes(command.subject)).length;
+    const responses = await Promise.all([post(messages, key), post([...messages].reverse(), key)]);
+    expect(responses.map((r) => r.status)).toEqual([200, 200]);
+    expect(responses[0].body).toEqual(responses[1].body);
+    await waitFor(
+      () => rendered.filter((command) => subjects.includes(command.subject)).length >= before + 2,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(rendered.filter((command) => subjects.includes(command.subject)).length).toBe(
+      before + 2,
+    );
+    await post(messages, key).expect(200);
+    await post(messages).expect(409);
+    const audits = await admin.$queryRaw<
+      { count: number }[]
+    >`SELECT count(*)::int AS count FROM audit_logs WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND action='email.bulk_retry.requested'`;
+    expect(audits[0].count).toBe(1);
+  });
+  it('exports exact filtered delivery evidence with audited idempotency, atomic selection, BOM and formula protection', async () => {
+    const property = randomUUID(),
+      other = randomUUID();
+    for (const id of [property, other])
+      await admin.$executeRaw`INSERT INTO properties(id,tenant_id,name,slug,timezone) VALUES(${id}::uuid,${tenantId}::uuid,'Export fixture',${id},'Pacific/Kiritimati')`;
+    const ids = [randomUUID(), randomUUID(), randomUUID()];
+    for (let i = 0; i < ids.length; i++)
+      await admin.$executeRaw`INSERT INTO email_messages(id,tenant_id,property_id,event_type,recipient_email,subject,status,idempotency_key) VALUES(${ids[i]}::uuid,${tenantId}::uuid,${i === 2 ? other : property}::uuid,'owner.alert','export@example.test',${' \t=CSV-fixture ' + i},'FAILED',${randomUUID()})`;
+    const base = `/tenants/${tenantId}/properties/${property}/email-activity`,
+      http = () => request(app!.getHttpServer());
+    const page = await http()
+      .get(base + '?search=CSV-fixture&sort=subject&direction=asc&pageSize=1')
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(page.body).toMatchObject({ total: 2, exportVersion: 0, timezone: 'Pacific/Kiritimati' });
+    const body = {
+      version: page.body.exportVersion,
+      through: page.body.observedAt,
+      filters: { search: 'CSV-fixture', sort: 'subject', direction: 'asc' },
+      reason: 'Review delivery failures',
+    };
+    const key = randomUUID(),
+      post = (input: object = body, operation = key) =>
+        http()
+          .post(base + '/export')
+          .set('Cookie', cookie)
+          .set('Idempotency-Key', operation)
+          .send(input);
+    await post({ ...body, ids: [ids[0], ids[2]] }).expect(404);
+    const exported = await Promise.all([post(), post()]);
+    expect(exported.map((r) => r.status)).toEqual([200, 200]);
+    expect(exported[0].body).toEqual(exported[1].body);
+    expect(exported[0].body).toMatchObject({ count: 2, version: 1 });
+    const csv = exported[0].body.csv as string;
+    expect([...Buffer.from(csv).subarray(0, 3)]).toEqual([239, 187, 191]);
+    expect(csv).toContain('"\' \t=CSV-fixture');
+    expect(csv).not.toContain(ids[2]);
+    expect(csv).not.toContain('CSV-fixture 2');
+    await post({ ...body, reason: 'Different intent' }).expect(409);
+    await post(body, randomUUID()).expect(409);
+    const selected = await post({ ...body, version: 1, ids: [ids[0]] }, randomUUID()).expect(200);
+    expect(selected.body.count).toBe(1);
+    const rows = await admin.$queryRaw<
+      { count: number }[]
+    >`SELECT count(*)::int AS count FROM audit_logs WHERE tenant_id=${tenantId}::uuid AND property_id=${property}::uuid AND action='email.delivery.exported'`;
+    expect(rows[0].count).toBe(2);
+    const service = app!.get(EmailActivityService);
+    await service.cleanupExports(
+      { tenantId, propertyId: other },
+      new Date(Date.now() + 25 * 3600000),
+    );
+    expect(
+      (
+        await admin.$queryRaw<
+          { count: number }[]
+        >`SELECT count(*)::int AS count FROM email_delivery_exports WHERE tenant_id=${tenantId}::uuid AND property_id=${property}::uuid`
+      )[0].count,
+    ).toBe(2);
+    await service.cleanupExports(
+      { tenantId, propertyId: property },
+      new Date(Date.now() + 25 * 3600000),
+    );
+    expect(
+      (
+        await admin.$queryRaw<
+          { count: number }[]
+        >`SELECT count(*)::int AS count FROM email_delivery_exports WHERE tenant_id=${tenantId}::uuid AND property_id=${property}::uuid`
+      )[0].count,
+    ).toBe(0);
+    await post({ ...body, through: '2020-01-01T00:00:00Z' }, randomUUID()).expect(400);
+    await post(
+      { ...body, through: new Date(Date.now() + 60000).toISOString() },
+      randomUUID(),
+    ).expect(400);
+  });
+  it('rejects oversized delivery exports without an audit, version change or partial receipt', async () => {
+    const property = randomUUID();
+    await admin.$executeRaw`INSERT INTO properties(id,tenant_id,name,slug,timezone) VALUES(${property}::uuid,${tenantId}::uuid,'Export limits',${property},'Europe/Tirane')`;
+    await admin.$executeRaw`INSERT INTO email_messages(tenant_id,property_id,event_type,recipient_email,subject,status,idempotency_key) SELECT ${tenantId}::uuid,${property}::uuid,'owner.alert','limits@example.test',repeat('x',490),'FAILED',gen_random_uuid()::text FROM generate_series(1,5001)`;
+    const base = `/tenants/${tenantId}/properties/${property}/email-activity`,
+      http = () => request(app!.getHttpServer());
+    const page = await http().get(base).set('Cookie', cookie).expect(200);
+    const body = {
+      version: 0,
+      through: page.body.observedAt,
+      filters: {},
+      reason: 'Test bounded export',
+    };
+    const count = await http()
+      .post(base + '/export')
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send(body)
+      .expect(400);
+    expect(count.body.message).toContain('5,000');
+    await admin.$executeRaw`DELETE FROM email_messages WHERE tenant_id=${tenantId}::uuid AND property_id=${property}::uuid AND id IN(SELECT id FROM email_messages WHERE tenant_id=${tenantId}::uuid AND property_id=${property}::uuid LIMIT 1)`;
+    const size = await http()
+      .post(base + '/export')
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send(body)
+      .expect(400);
+    expect(size.body.message).toContain('2 MB');
+    const unchanged = await http().get(base).set('Cookie', cookie).expect(200);
+    expect(unchanged.body.exportVersion).toBe(0);
+    const receipts = await admin.$queryRaw<
+      { count: number }[]
+    >`SELECT count(*)::int AS count FROM email_delivery_exports WHERE tenant_id=${tenantId}::uuid AND property_id=${property}::uuid`;
+    expect(receipts[0].count).toBe(0);
   });
 });

@@ -201,3 +201,49 @@ it('starts with optional evidence columns hidden while preserving the directory 
     await act(async () => root.unmount());
   }
 });
+
+it('delegates global search and sorting without filtering or reordering the loaded server window', async () => {
+  const onSearch = vi.fn(),
+    onSort = vi.fn();
+  const root = createRoot(document.body.appendChild(document.createElement('div')));
+  try {
+    await act(async () =>
+      root.render(
+        createElement(RecordDirectory<{ id: string }>, {
+          rows: [{ id: 'Z first from server' }, { id: 'A second from server' }],
+          columns: [{ id: 'id', label: 'Identifier', value: (r) => r.id }],
+          storageKey: 'server.global',
+          onRow: () => {},
+          exportable: false,
+          server: {
+            search: 'not a local match',
+            onSearch,
+            sort: { key: 'id', direction: 'asc' },
+            onSort,
+          },
+          pagination: { page: 2, pageSize: 25, total: 100, onPage: () => {}, onPageSize: () => {} },
+        }),
+      ),
+    );
+    const names = [...document.querySelectorAll('tbody button')].map((b) => b.textContent);
+    expect(names).toEqual(['Z first from server', 'A second from server']);
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>('thead button')]
+        .find((b) => b.textContent === 'Identifier')!
+        .click(),
+    );
+    expect(onSort).toHaveBeenCalledWith({ key: 'id', direction: 'desc' });
+    const input = document.querySelector<HTMLInputElement>('[aria-label="Search all records"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        'all history',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(onSearch).toHaveBeenCalledWith('all history');
+    expect(document.body.textContent).not.toContain('Export page CSV');
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

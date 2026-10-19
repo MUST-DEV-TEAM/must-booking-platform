@@ -32,6 +32,20 @@ export type EmailVersions = {
   history: EmailRevision[];
 };
 export type EmailMessage = {
+  bookingHref?: string | null;
+  provider?: string | null;
+  providerMessageId?: string | null;
+  timeline?: {
+    id: string;
+    kind: string;
+    status: string;
+    attemptCount: number;
+    provider: string | null;
+    providerMessageId: string | null;
+    observedAt: string;
+  }[];
+  timelineTruncated?: boolean;
+  timelineHasCreation?: boolean;
   id: string;
   label: string;
   eventType: string;
@@ -48,7 +62,16 @@ export type EmailMessage = {
   retryUnavailableReason?: string | null;
   version: number;
 };
-export type EmailPage = { items: EmailMessage[]; total: number; page: number; pageSize: number };
+export type EmailPage = {
+  observedAt?: string;
+  exportVersion?: number;
+  items: EmailMessage[];
+  total: number;
+  page: number;
+  pageSize: number;
+  timezone?: string;
+  topics?: { value: string; label: string }[];
+};
 export type EmailOverview = {
   volume24h: number;
   volume7d: number;
