@@ -255,7 +255,7 @@ describe('scheduled emails (pre-arrival reminder, owner daily summary)', () => {
     expect(summaries).toHaveLength(1);
     const summary = summaries[0]!;
     expect(summary.to).toBe(ownerEmail);
-    expect(summary.subject).toBe('Seaside <Hotel> today: 1 arrival, 1 departure');
+    expect(summary.subject).toBe('Daily summary - Seaside <Hotel> - 2030-05-10');
     expect(summary.text).toContain('Arrivals (1): Bob Guest · Sea View · 2 nights');
     expect(summary.text).toContain('Departures (1): Ada Guest · Sea View');
     expect(summary.text).toContain('In-house tonight: 2 bookings');

@@ -28,6 +28,8 @@ type StayRow = {
   endsOn: string;
   roomName: string;
   guestCount: number;
+  currency: string;
+  nightlyRates: { date: string; amount: string }[] | null;
 };
 
 /** What a booking looked like before the hotel changed it. */
@@ -156,10 +158,11 @@ export class BookingUpdateNotificationService {
          g.email, g.first_name AS "firstName", g.last_name AS "lastName",
          b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
          COALESCE(r.name, rt.name) AS "roomName", (b.adults + b.children)::int AS "guestCount",
-         b.room_type_id::text AS "roomTypeId"
+         b.room_type_id::text AS "roomTypeId",b.nightly_rates AS "nightlyRates",rp.currency
        FROM bookings b
        JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
        JOIN room_types rt ON rt.tenant_id = b.tenant_id AND rt.property_id = b.property_id AND rt.id = b.room_type_id
+       JOIN rate_plans rp ON rp.tenant_id=b.tenant_id AND rp.property_id=b.property_id AND rp.id=b.rate_plan_id
        LEFT JOIN rooms r ON r.tenant_id = b.tenant_id AND r.property_id = b.property_id AND r.id = b.room_id
        WHERE b.tenant_id = $1::uuid AND b.property_id = $2::uuid AND ${where}
          AND b.status = $4::"BookingStatus" AND b.external_reference NOT LIKE 'CLOCK-%'
@@ -183,6 +186,10 @@ export class BookingUpdateNotificationService {
       template,
       stayTemplateValues({
         guestName: stay.guestName,
+        roomNightlyRates: stay.roomNightlyRates,
+        language: template?.language,
+        hotelContact: brand.supportEmail ?? brand.phone ?? undefined,
+        directions: brand.address ?? undefined,
         hotelName: brand.name || 'the hotel',
         reference: stay.reference,
         startsOn: stay.startsOn,
@@ -203,6 +210,11 @@ export class BookingUpdateNotificationService {
       startsOn: first.startsOn,
       endsOn: first.endsOn,
       rooms: rows.map((row) => ({ roomName: row.roomName, guestCount: Number(row.guestCount) })),
+      roomNightlyRates: rows.map((row) => ({
+        roomName: row.roomName,
+        currency: row.currency,
+        nightlyRates: row.nightlyRates,
+      })),
     };
   }
 

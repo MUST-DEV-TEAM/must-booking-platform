@@ -100,6 +100,16 @@ function mockFetch(failure?: number) {
       if (url === base + '/email-activity/overview')
         return Response.json({
           days: 7,
+          volume24h: 1,
+          volume7d: 1,
+          attempted7d: 1,
+          bounceRate: 0,
+          complaintRate: 0,
+          queued: 0,
+          oldestQueued: null,
+          suppressedAddresses: 0,
+          failingTopics: [],
+          actionNeeded: [],
           counts: [{ status: 'FAILED', count: 1, today: 1 }],
           domainAuthentication: 'UNKNOWN',
           testTrafficExcluded: true,
@@ -202,8 +212,8 @@ describe('Emails workspace and legacy links', () => {
     expect(isEmailTab('bad')).toBe(false);
     mockFetch();
     const host = await mount(undefined, true, true);
-    expect(host.textContent).toContain('Sent / delivered (7 days)');
-    expect(host.textContent).toContain('controlled tests excluded');
+    expect(host.textContent).toContain('Volume - last 24 hours');
+    expect(host.textContent).toContain('Controlled tests are excluded');
     expect(host.textContent).toContain('Booking MH-1');
   });
   it('preserves recipient timing, sender, review links and personal mute configuration', async () => {

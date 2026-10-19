@@ -1,3 +1,5 @@
+import { savedTemplate, renderTemplate } from '../mail/email-templates';
+import type { MailBrand } from '@must/domain-contracts';
 import {
   BadRequestException,
   ConflictException,
@@ -151,10 +153,15 @@ export class StaffInviteService implements OnModuleDestroy {
           'That email already has an account. Send an invitation instead so they can join this hotel.',
         );
       if (error instanceof StaffSeatLimitReachedError)
-        await this.notifications.record(command.tenantId, command.propertyId, 'STAFF_SEAT_CAP_REACHED', {
-          maxStaffSeats: error.maxStaffSeats,
-          staffSeats: error.staffSeats,
-        });
+        await this.notifications.record(
+          command.tenantId,
+          command.propertyId,
+          'STAFF_SEAT_CAP_REACHED',
+          {
+            maxStaffSeats: error.maxStaffSeats,
+            staffSeats: error.staffSeats,
+          },
+        );
       throw error;
     }
     return { userId };
@@ -240,16 +247,43 @@ export class StaffInviteService implements OnModuleDestroy {
           return { organization: organization[0], assignments: assignments.map((rows) => rows[0]) };
         },
       );
+      const propertyId =
+        command.assignments.length === 1 ? command.assignments[0]!.propertyId : null;
+      const customized = propertyId
+        ? await this.database.withTenantTransaction(
+            { tenantId: command.tenantId, propertyId },
+            async (tx) => {
+              const [brand] = await tx.$queryRaw<
+                MailBrand[]
+              >`SELECT name,logo_url AS "logoUrl",support_email AS "supportEmail",phone,address,public_website_origin AS "websiteUrl" FROM properties WHERE tenant_id=${command.tenantId}::uuid AND id=${propertyId}::uuid`;
+              const saved = await savedTemplate(
+                tx,
+                { tenantId: command.tenantId, propertyId },
+                'staff_invitation',
+              );
+              return {
+                brand,
+                template: renderTemplate('staff_invitation', saved, {
+                  hotel_name: brand?.name ?? details.organization.organizationName,
+                  staff_name: 'colleague',
+                  role_name: details.assignments[0]?.roleTemplateName ?? 'staff',
+                  invitation_link: invitationUrl.toString(),
+                }),
+              };
+            },
+          )
+        : {};
       await this.delivery.dispatch(
         'staffInvitation',
         {
           to: command.email,
+          ...customized,
           organizationName: details.organization.organizationName,
           invitedByEmail: details.organization.invitedByEmail,
           assignments: details.assignments,
           invitationUrl: invitationUrl.toString(),
         },
-        { tenantId: command.tenantId, propertyId: null },
+        { tenantId: command.tenantId, propertyId },
         { inlineFirst: true },
       );
     } catch (error) {

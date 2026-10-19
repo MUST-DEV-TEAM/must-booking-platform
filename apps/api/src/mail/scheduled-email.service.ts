@@ -48,6 +48,7 @@ type StayRow = {
   paymentMethod: string;
   amount: string;
   currency: string;
+  nightlyRates: { date: string; amount: string }[] | null;
 };
 
 /** The calendar date and hour right now in a time zone (UTC if the zone is unknown). */
@@ -161,7 +162,7 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
           g.email, g.first_name AS "firstName", g.last_name AS "lastName",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
           COALESCE(r.name, rt.name) AS "roomName", (b.adults + b.children) AS "guestCount",
-          b.payment_method::text AS "paymentMethod", b.total_amount::text AS amount, rp.currency
+          b.payment_method::text AS "paymentMethod", b.total_amount::text AS amount, rp.currency,b.nightly_rates AS "nightlyRates"
         FROM bookings b
         JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
         JOIN rate_plans rp ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
@@ -188,6 +189,11 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         work.template,
         stayTemplateValues({
           guestName: stay.guestName,
+          roomNightlyRates: stay.roomNightlyRates,
+          language: work.template?.language,
+          checkInTime: work.brand.checkInTime ?? undefined,
+          hotelContact: work.brand.supportEmail ?? work.brand.phone ?? undefined,
+          directions: work.brand.address ?? undefined,
           hotelName: work.brand.name || 'the hotel',
           reference: stay.reference,
           startsOn: stay.startsOn,
@@ -221,7 +227,7 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
           g.email, g.first_name AS "firstName", g.last_name AS "lastName",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
           COALESCE(r.name, rt.name) AS "roomName", (b.adults + b.children) AS "guestCount",
-          b.payment_method::text AS "paymentMethod", b.total_amount::text AS amount, rp.currency
+          b.payment_method::text AS "paymentMethod", b.total_amount::text AS amount, rp.currency,b.nightly_rates AS "nightlyRates"
         FROM bookings b
         JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
         JOIN rate_plans rp ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id
@@ -253,6 +259,11 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         work.template,
         stayTemplateValues({
           guestName: stay.guestName,
+          roomNightlyRates: stay.roomNightlyRates,
+          language: work.template?.language,
+          checkInTime: work.brand.checkInTime ?? undefined,
+          hotelContact: work.brand.supportEmail ?? work.brand.phone ?? undefined,
+          directions: work.brand.address ?? undefined,
           hotelName: work.brand.name || 'the hotel',
           reference: stay.reference,
           startsOn: stay.startsOn,
@@ -286,12 +297,25 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         pending,
         brand: await this.brand(tx, context),
         summary: await this.ownerSummary(tx, context, timeZone, today),
+        template: await savedTemplate(tx, context, 'owner_daily_summary'),
       };
     });
     if (!work) return;
     const dashboardUrl = this.dashboardUrl();
     for (const recipient of work.pending) {
-      const email = ownerDailySummaryEmail(work.summary, recipient.email, work.brand, dashboardUrl);
+      const message = renderTemplate('owner_daily_summary', work.template, {
+        hotel_name: work.brand.name,
+        hotel_contact: work.brand.supportEmail ?? work.brand.phone ?? 'Contact the hotel',
+        summary_date: today,
+        summary: `${work.summary.arrivals.length} scheduled arrivals; ${work.summary.departures.length} scheduled departures; ${work.summary.inHouse} in-house bookings.`,
+      });
+      const email = ownerDailySummaryEmail(
+        work.summary,
+        recipient.email,
+        work.brand,
+        dashboardUrl,
+        message,
+      );
       await this.delivery.dispatch(
         'rendered',
         { ...email, idempotencyKey: recipient.key },
@@ -376,6 +400,11 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         startsOn: first.startsOn,
         endsOn: first.endsOn,
         rooms: group.map((row) => ({ roomName: row.roomName, guestCount: Number(row.guestCount) })),
+        roomNightlyRates: group.map((row) => ({
+          roomName: row.roomName,
+          currency: row.currency,
+          nightlyRates: row.nightlyRates,
+        })),
         dueAtHotel: payAtHotel
           ? { amount: (total / 100).toFixed(2), currency: first.currency }
           : null,

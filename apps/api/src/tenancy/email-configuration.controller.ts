@@ -1,3 +1,5 @@
+import { templateCatalog } from '../mail/email-template-catalog';
+import type { EmailTemplateKey } from '../mail/email-templates';
 import {
   BadRequestException,
   Body,
@@ -121,9 +123,13 @@ export class EmailConfigurationService {
               { key: string }[]
             >`SELECT template_key AS key FROM email_templates WHERE tenant_id=${c.tenantId}::uuid AND property_id=${c.propertyId}::uuid AND language='sq'`;
             if (
-              Object.keys(EMAIL_TEMPLATES).some(
-                (key) => !translations.some((row) => row.key === key),
-              )
+              (Object.keys(EMAIL_TEMPLATES) as EmailTemplateKey[])
+                .filter(
+                  (key) =>
+                    templateCatalog(key).triggerAvailable &&
+                    templateCatalog(key).audience === 'Guest',
+                )
+                .some((key) => !translations.some((row) => row.key === key))
             )
               throw new BadRequestException(
                 'Publish all Albanian guest templates before selecting Albanian as the hotel default.',

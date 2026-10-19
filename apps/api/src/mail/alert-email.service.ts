@@ -1,3 +1,4 @@
+import { EMAIL_TEMPLATES, savedTemplate, renderTemplate } from './email-templates';
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
@@ -147,14 +148,49 @@ export class AlertEmailService implements OnModuleInit, OnModuleDestroy {
           public_website_origin AS "websiteUrl", address, timezone
         FROM properties WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
       `;
-      return { recipients, property: rows[0]! };
+      return {
+        recipients,
+        property: rows[0]!,
+        template: await savedTemplate(
+          tx,
+          context,
+          topic === 'refund_processed' ? 'staff_refund_processed' : 'owner_alerts',
+        ),
+      };
     });
     if (!work) return;
     const { timezone, ...brand } = work.property;
     const render = topic === 'refund_processed' ? refundAlertEmail : ownerAlertEmail;
     const prefix = topic === 'refund_processed' ? 'refund-alert' : 'owner-alert';
     for (const recipient of work.recipients) {
-      const email = render(events, recipient.email, brand, timezone || 'UTC', this.dashboardUrl());
+      const key = topic === 'refund_processed' ? 'staff_refund_processed' : 'owner_alerts';
+      const message = renderTemplate(key, work.template, {
+        ...Object.fromEntries(
+          EMAIL_TEMPLATES[key].placeholders.map((name) => [
+            name,
+            'See the recorded reservations below',
+          ]),
+        ),
+        hotel_name: brand.name,
+        hotel_contact: brand.supportEmail ?? brand.phone ?? 'Contact the hotel',
+        alert_summary: `${events.length} recorded events need review.`,
+        booking_reference: events
+          .map((e) => e.reference)
+          .filter(Boolean)
+          .join(', '),
+        refund_amount: events
+          .map((e) => e.detail)
+          .filter(Boolean)
+          .join('; '),
+      });
+      const email = render(
+        events,
+        recipient.email,
+        brand,
+        timezone || 'UTC',
+        this.dashboardUrl(),
+        message,
+      );
       await this.delivery.dispatch(
         'rendered',
         {

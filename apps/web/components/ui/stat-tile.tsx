@@ -44,7 +44,9 @@ export function StatTile({
       </div>
       <div
         className={cn(
-          size === 'sm' ? 'text-lg leading-tight font-bold' : 'text-2xl font-extrabold tracking-tight',
+          size === 'sm'
+            ? 'text-lg leading-tight font-bold'
+            : 'text-2xl font-extrabold tracking-tight',
           tone === 'warning' && 'text-warning',
           tone === 'danger' && 'text-destructive',
           tone === 'success' && 'text-success',
@@ -72,7 +74,12 @@ export function StatTile({
       aria-pressed={active}
       className="block w-full rounded-xl border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
     >
-      <Card className={cn('gap-2 px-5 py-4 transition-colors hover:bg-muted/40', active && 'border-primary bg-secondary/40')}>
+      <Card
+        className={cn(
+          'h-full gap-2 px-5 py-4 transition-colors hover:bg-muted/40',
+          active && 'border-primary bg-secondary/40',
+        )}
+      >
         {body}
       </Card>
     </button>

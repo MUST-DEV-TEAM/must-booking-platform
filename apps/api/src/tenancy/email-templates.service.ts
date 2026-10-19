@@ -1,3 +1,4 @@
+import { templateCatalog } from '../mail/email-template-catalog';
 import {
   BadRequestException,
   ConflictException,
@@ -17,6 +18,7 @@ import {
   TEMPLATE_LANGUAGE,
   isEmailTemplateKey,
   renderTemplate,
+  defaultTemplate,
   savedTemplate,
   stayTemplateValues,
   unknownPlaceholders,
@@ -34,6 +36,11 @@ export type EmailTemplateView = {
   language: string;
   subject: string;
   body: string;
+  previewText: string;
+  audience: string;
+  trigger: string | null;
+  triggerAvailable: boolean;
+  unavailableReason: string | null;
   /** True when the property saved its own wording; false = the default below. */
   custom: boolean;
   defaultSubject: string;
@@ -71,7 +78,7 @@ export class EmailTemplatesService {
   list(context: Context): Promise<EmailTemplateView[]> {
     return this.database.withTenantTransaction(context, async (tx) => {
       const saved = await tx.$queryRaw<Array<SavedTemplate & { key: string }>>`
-        SELECT template_key AS key, subject, body FROM email_templates
+        SELECT template_key AS key, subject, body,preview_text AS "previewText" FROM email_templates
         WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
           AND language = ${TEMPLATE_LANGUAGE}
       `;
@@ -85,13 +92,22 @@ export class EmailTemplatesService {
         }[]
       >`SELECT template_key AS key,language,draft_revision AS "draftRevision",live_revision AS "liveRevision",version FROM email_template_heads WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid`;
       const topics = await tx.$queryRaw<
-        { topic: string; enabled: boolean }[]
-      >`SELECT topic,guest_enabled AS enabled FROM notification_topic_settings WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid`;
+        { topic: string; enabled: boolean; staffEnabled: boolean }[]
+      >`SELECT topic,guest_enabled AS enabled,staff_enabled AS "staffEnabled" FROM notification_topic_settings WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid`;
       return (Object.keys(EMAIL_TEMPLATES) as EmailTemplateKey[]).map((key) => ({
-        enabled:
-          topics.find(
-            (topic) => topic.topic === (key === 'booking_confirmed' ? 'new_booking' : key),
-          )?.enabled ?? true,
+        enabled: (() => {
+          const topicKey: Record<string, string> = {
+            booking_confirmed: 'new_booking',
+            booking_confirmed_pay_at_hotel: 'new_booking',
+            staff_new_booking: 'new_booking',
+            staff_booking_cancelled: 'booking_cancelled',
+            staff_refund_processed: 'refund_processed',
+          };
+          const row = topics.find((topic) => topic.topic === (topicKey[key] ?? key));
+          return templateCatalog(key).audience === 'Guest'
+            ? (row?.enabled ?? true)
+            : (row?.staffEnabled ?? true);
+        })(),
         ...this.view(key, saved.find((row) => row.key === key) ?? null),
         hasDraft: heads.some((row) => row.key === key && row.draftRevision !== null),
         locales: [
@@ -118,11 +134,11 @@ export class EmailTemplatesService {
       await this.requireLegacyTemplate(tx, context, templateKey);
       await tx.$executeRaw`
         INSERT INTO email_templates
-          (tenant_id, property_id, template_key, language, subject, body, updated_by_user_id)
+          (tenant_id, property_id, template_key, language, subject, body, preview_text,updated_by_user_id)
         VALUES (${context.tenantId}::uuid, ${context.propertyId}::uuid, ${templateKey},
-          ${TEMPLATE_LANGUAGE}, ${input.subject}, ${input.body}, ${actorUserId}::uuid)
+          ${TEMPLATE_LANGUAGE}, ${input.subject}, ${input.body}, ${input.previewText ?? ''},${actorUserId}::uuid)
         ON CONFLICT (tenant_id, property_id, template_key, language) DO UPDATE SET
-          subject = EXCLUDED.subject, body = EXCLUDED.body,
+          subject = EXCLUDED.subject, body = EXCLUDED.body, preview_text=EXCLUDED.preview_text,
           updated_by_user_id = EXCLUDED.updated_by_user_id, updated_at = now()
       `;
       await this.audit.recordInTransaction(tx, {
@@ -170,6 +186,7 @@ export class EmailTemplatesService {
         templateKey,
         draft ?? (await savedTemplate(tx, context, templateKey)),
         await this.brand(tx, context),
+        (body as { language?: unknown }).language === 'sq' ? 'sq' : 'en',
       ),
     );
   }
@@ -223,6 +240,7 @@ export class EmailTemplatesService {
           templateKey,
           draft ?? (await savedTemplate(tx, context, templateKey)),
           brand,
+          String(language),
         );
         const response = {
           to: users[0].email,
@@ -262,22 +280,58 @@ export class EmailTemplatesService {
     key: EmailTemplateKey,
     template: SavedTemplate | null,
     brand: MailBrand,
+    language = 'en',
   ): EmailTemplatePreview {
     const hotelName = brand.name || 'the hotel';
     const message = renderTemplate(key, template, {
-      ...stayTemplateValues({ ...SAMPLE, hotelName }),
+      ...Object.fromEntries(
+        EMAIL_TEMPLATES[key].placeholders.map((name) => [
+          name,
+          `Example ${name.replaceAll('_', ' ')}`,
+        ]),
+      ),
+      ...stayTemplateValues({
+        ...SAMPLE,
+        hotelName,
+        language,
+        nightlyRates: [
+          { date: '2026-07-14', amount: '100.00' },
+          { date: '2026-07-15', amount: '120.00' },
+          { date: '2026-07-16', amount: '110.00' },
+        ],
+        currency: 'EUR',
+      }),
+      hotel_contact: brand.supportEmail ?? brand.phone ?? 'Contact the hotel',
+      hotel_policies: 'Example booking terms; check the policies agreed when booking.',
+      check_in_time: '15:00',
+      directions: brand.address ?? 'Contact the hotel for directions',
+      payment_link: 'https://example.test/payment-example',
+      invitation_link: 'https://example.test/invitation-example',
+      sign_in_link: 'https://example.test/sign-in',
+      staff_name: 'Alex Smith',
+      staff_email: 'alex@example.test',
+      role_name: 'Reception',
+      summary: '3 scheduled arrivals; 2 scheduled departures (example)',
+      summary_date: '24 October 2026',
+      alert_summary: 'Example issue requiring review',
+      payment_due: '120.00 EUR',
+      payment_amount: '120.00 EUR',
+      expires_at: '24 October, 18:00',
+
       ...SAMPLE_EXTRA,
     });
     const rows = [
       { label: 'Booking reference', value: SAMPLE.reference },
       { label: 'Room', value: SAMPLE.roomName },
-      { label: 'Dates', value: '14 July 2026 – 17 July 2026 (3 nights)' },
+      ...(!message.hasStayBlock
+        ? [{ label: 'Dates', value: '14 July 2026 - 17 July 2026 (3 nights)' }]
+        : []),
       { label: 'Guests', value: String(SAMPLE.guestCount) },
     ];
     const html = renderBrandedEmail({
       subject: message.subject,
       brand,
-      preheader: message.text.split('\n')[0] ?? null,
+      preheader: message.previewText || message.text.split('\n')[0] || null,
       heading: EMAIL_TEMPLATES[key].label,
       content: message.html,
       summaryRows: rows,
@@ -292,13 +346,15 @@ export class EmailTemplatesService {
     const definition = EMAIL_TEMPLATES[key];
     return {
       key,
+      ...templateCatalog(key),
+      previewText: saved?.previewText ?? '',
       label: definition.label,
       language: TEMPLATE_LANGUAGE,
       subject: saved?.subject ?? definition.subject,
-      body: saved?.body ?? definition.body,
+      body: saved?.body ?? defaultTemplate(key).body,
       custom: saved !== null,
       defaultSubject: definition.subject,
-      defaultBody: definition.body,
+      defaultBody: defaultTemplate(key).body,
       placeholders: [...definition.placeholders],
     };
   }
@@ -309,12 +365,12 @@ export class EmailTemplatesService {
   }
 
   private hasDraft(body: object): boolean {
-    const value = body as { subject?: unknown; body?: unknown };
+    const value = body as { subject?: unknown; body?: unknown; previewText?: unknown };
     return value.subject !== undefined || value.body !== undefined;
   }
 
   validate(key: EmailTemplateKey, body: object): SavedTemplate {
-    const value = body as { subject?: unknown; body?: unknown };
+    const value = body as { subject?: unknown; body?: unknown; previewText?: unknown };
     if (typeof value.subject !== 'string' || typeof value.body !== 'string')
       throw new BadRequestException('subject and body are required.');
     const subject = value.subject.replace(/[\r\n]+/g, ' ').trim();
@@ -323,12 +379,24 @@ export class EmailTemplatesService {
       throw new BadRequestException(`The subject must be 1 to ${MAX_SUBJECT_LENGTH} characters.`);
     if (!text || text.length > MAX_BODY_LENGTH)
       throw new BadRequestException(`The message must be 1 to ${MAX_BODY_LENGTH} characters.`);
-    const unknown = unknownPlaceholders(key, subject, text);
+    const previewText =
+      value.previewText === undefined
+        ? ''
+        : typeof value.previewText === 'string'
+          ? value.previewText.trim()
+          : null;
+    if (previewText === null || previewText.length > 200 || /[\r\n]/.test(previewText))
+      throw new BadRequestException('Preview text must be one line of at most 200 characters.');
+    if (/\{invitation_link\}/.test(subject + previewText))
+      throw new BadRequestException(
+        'Invitation links may appear only in the message body, never the subject or preview text.',
+      );
+    const unknown = unknownPlaceholders(key, subject, text, previewText);
     if (unknown.length)
       throw new BadRequestException(
         `Unknown placeholder${unknown.length === 1 ? '' : 's'}: ${unknown.map((name) => `{${name}}`).join(', ')}.`,
       );
-    return { subject, body: text };
+    return { subject, body: text, previewText };
   }
 
   private async requireLegacyTemplate(

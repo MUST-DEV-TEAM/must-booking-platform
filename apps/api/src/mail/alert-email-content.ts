@@ -1,4 +1,4 @@
-import type { MailBrand, RenderedEmailCommand } from '@must/domain-contracts';
+import type { MailBrand, RenderedEmailCommand, MailTemplateOverride } from '@must/domain-contracts';
 
 import { escapeHtml, MUST_BOOKING_BRAND, renderBrandedEmail } from './email-layout';
 import { longDate } from './scheduled-email-content';
@@ -111,6 +111,7 @@ function plural(count: number, word: string): string {
 
 function staffEmail(input: {
   to: string;
+  message?: MailTemplateOverride;
   brand: MailBrand;
   subject: string;
   heading: string;
@@ -123,11 +124,11 @@ function staffEmail(input: {
 }): Omit<RenderedEmailCommand, 'idempotencyKey'> {
   const rows = [{ label: input.rowsLabel, value: listValue(input.lines) }];
   const html = renderBrandedEmail({
-    subject: input.subject,
+    subject: input.message?.subject ?? input.subject,
     brand: input.brand,
-    preheader: input.lines[0] ?? input.intro,
+    preheader: input.message?.previewText || input.lines[0] || input.intro,
     heading: input.heading,
-    content: `<p style="margin:0;">${escapeHtml(input.intro)}</p>`,
+    content: input.message?.html ?? `<p style="margin:0;">${escapeHtml(input.intro)}</p>`,
     summaryRows: rows,
     summaryHeading: input.rowsLabel,
     cta: input.dashboardUrl ? { url: input.dashboardUrl, label: 'Open dashboard' } : null,
@@ -139,14 +140,14 @@ function staffEmail(input: {
   });
   const text = [
     input.heading,
-    input.intro,
+    input.message?.text ?? input.intro,
     ...input.lines.map((line) => `- ${line}`),
     ...(input.dashboardUrl ? [`Dashboard: ${input.dashboardUrl}`] : []),
   ].join('\n');
   return {
     eventType: input.eventType,
     to: input.to,
-    subject: input.subject,
+    subject: input.message?.subject ?? input.subject,
     html,
     text,
     bookingId: null,
@@ -160,6 +161,7 @@ export function ownerAlertEmail(
   brand: MailBrand,
   timeZone: string,
   dashboardUrl: string | null,
+  message?: MailTemplateOverride,
 ): Omit<RenderedEmailCommand, 'idempotencyKey'> {
   const hotel = brand.name || 'your property';
   const first = events[0]!;
@@ -169,6 +171,7 @@ export function ownerAlertEmail(
       : `Action needed at ${hotel}: ${plural(events.length, 'problem')}`;
   return staffEmail({
     to,
+    message,
     brand,
     subject,
     heading: 'Something needs your attention',
@@ -190,6 +193,7 @@ export function refundAlertEmail(
   brand: MailBrand,
   timeZone: string,
   dashboardUrl: string | null,
+  message?: MailTemplateOverride,
 ): Omit<RenderedEmailCommand, 'idempotencyKey'> {
   const hotel = brand.name || 'your property';
   const first = events[0]!;
@@ -199,6 +203,7 @@ export function refundAlertEmail(
       : `${hotel}: ${plural(events.length, 'refund')} made`;
   return staffEmail({
     to,
+    message,
     brand,
     subject,
     heading: events.length === 1 ? 'A refund was made' : 'Refunds were made',

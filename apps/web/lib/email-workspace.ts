@@ -1,4 +1,8 @@
 export type EmailTemplate = {
+  previewText?: string;
+  audience?: string;
+  triggerAvailable?: boolean;
+  unavailableReason?: string | null;
   key: string;
   label: string;
   subject: string;
@@ -12,6 +16,7 @@ export type EmailTemplate = {
   defaultBody?: string;
 };
 export type EmailRevision = {
+  previewText?: string;
   revision: number;
   subject: string;
   body: string;
@@ -22,7 +27,7 @@ export type EmailVersions = {
   key: string;
   language: 'en' | 'sq';
   version: number;
-  live: { subject: string; body: string } | null;
+  live: { subject: string; body: string; previewText?: string } | null;
   draft: EmailRevision | null;
   history: EmailRevision[];
 };
@@ -45,6 +50,25 @@ export type EmailMessage = {
 };
 export type EmailPage = { items: EmailMessage[]; total: number; page: number; pageSize: number };
 export type EmailOverview = {
+  volume24h: number;
+  volume7d: number;
+  attempted7d: number;
+  bounceRate: number | null;
+  complaintRate: number | null;
+  queued: number;
+  oldestQueued: string | null;
+  suppressedAddresses: number;
+  failingTopics: { topic: string; label: string; count: number }[];
+  actionNeeded: {
+    id: string;
+    label: string;
+    eventType: string;
+    recipient: string;
+    status: string;
+    lastError: string | null;
+    createdAt: string;
+  }[];
+
   counts: { status: string; count: number; today: number }[];
   days: number;
   testTrafficExcluded: boolean;

@@ -123,6 +123,25 @@ describe('email templates (a property’s own wording for guest emails)', () => 
       'booking_changed',
       'payment_not_completed',
       'post_stay',
+      'booking_confirmed_pay_at_hotel',
+      'payment_pending',
+      'payment_reminder',
+      'payment_link_expiring',
+      'payment_received',
+      'payment_failed',
+      'check_in_day',
+      'no_show_notice',
+      'staff_new_booking',
+      'staff_booking_changed',
+      'staff_booking_cancelled',
+      'staff_payment_received',
+      'staff_payment_failed',
+      'staff_refund_processed',
+      'owner_alerts',
+      'owner_daily_summary',
+      'owner_weekly_summary',
+      'staff_invitation',
+      'staff_account_created',
     ]);
     expect(list.body[3]).toMatchObject({
       key: 'pre_arrival',
@@ -692,6 +711,7 @@ describe('email templates (a property’s own wording for guest emails)', () => 
     const http = () => request(app!.getHttpServer());
     for (const key of [
       'booking_confirmed',
+      'booking_confirmed_pay_at_hotel',
       'booking_cancelled',
       'refund_processed',
       'pre_arrival',
@@ -704,7 +724,9 @@ describe('email templates (a property’s own wording for guest emails)', () => 
         subject: 'Pershendetje {guest_name}',
         body:
           '{hotel_name}: {booking_reference}' +
-          (key === 'booking_confirmed' ? ' {payment_note}' : '') +
+          (['booking_confirmed', 'booking_confirmed_pay_at_hotel'].includes(key)
+            ? ' {payment_note}'
+            : '') +
           (key === 'refund_processed' ? ' {refund_amount}' : ''),
       };
       await http()
@@ -910,5 +932,123 @@ describe('email templates (a property’s own wording for guest emails)', () => 
         defaultLanguage: 'en',
       })
       .expect(200);
+  });
+  it('computes actionable email health from real scoped outcomes and rolling windows, excluding tests', async () => {
+    const property = randomUUID(),
+      other = randomUUID(),
+      empty = randomUUID();
+    for (const id of [property, other, empty])
+      await admin.$executeRaw`INSERT INTO properties(id,tenant_id,name,slug,timezone) VALUES(${id}::uuid,${tenantId}::uuid,'Health fixture',${id},'Pacific/Kiritimati')`;
+    const records = [
+      { status: 'QUEUED', days: 8, hours: 0, attempts: 0 },
+      { status: 'QUEUED', days: 0, hours: 1, attempts: 0 },
+      { status: 'SENT', days: 0, hours: 6, attempts: 1 },
+      { status: 'BOUNCED', days: 2, hours: 0, attempts: 1 },
+      { status: 'COMPLAINED', days: 6, hours: 0, attempts: 1 },
+      { status: 'FAILED', days: 8, hours: 0, attempts: 1 },
+    ];
+    for (const row of records)
+      await admin.$executeRaw`INSERT INTO email_messages(tenant_id,property_id,event_type,recipient_email,subject,status,idempotency_key,attempt_count,created_at) VALUES(${tenantId}::uuid,${property}::uuid,'owner.alert','health@example.test','Health fixture',${row.status}::"EmailMessageStatus",${randomUUID()},${row.attempts},now()-make_interval(days=>${row.days}::int,hours=>${row.hours}::int))`;
+    for (const [id, event] of [
+      [property, 'template.test'],
+      [other, 'owner.alert'],
+    ])
+      await admin.$executeRaw`INSERT INTO email_messages(tenant_id,property_id,event_type,recipient_email,subject,status,idempotency_key,attempt_count) VALUES(${tenantId}::uuid,${id}::uuid,${event},'test@example.test','Excluded','FAILED',${randomUUID()},1)`;
+    await admin.$executeRaw`INSERT INTO email_suppressions(tenant_id,property_id,recipient,reason,latest_event_at) VALUES(${tenantId}::uuid,${property}::uuid,'suppressed@example.test','hard_bounce',now())`;
+    const base = `/tenants/${tenantId}/properties/${property}/email-activity`;
+    const result = await request(app!.getHttpServer())
+      .get(base + '/overview')
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(result.body).toMatchObject({
+      volume24h: 2,
+      volume7d: 4,
+      attempted7d: 3,
+      queued: 2,
+      suppressedAddresses: 1,
+    });
+    expect(result.body.bounceRate).toBeCloseTo(100 / 3);
+    expect(result.body.complaintRate).toBeCloseTo(100 / 3);
+    expect(result.body.oldestQueued).toBeTruthy();
+    expect(result.body.actionNeeded).toHaveLength(3);
+    expect(result.body.failingTopics).toEqual([
+      { topic: 'owner.alert', label: 'Alert (owner)', count: 2 },
+    ]);
+    const filtered = await request(app!.getHttpServer())
+      .get(base + '?filter=bounced&topic=owner.alert')
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(filtered.body.total).toBe(1);
+    expect(filtered.body.items[0].status).toBe('BOUNCED');
+    const recent = await request(app!.getHttpServer())
+      .get(base + '?hours=24')
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(recent.body.total).toBe(3); // Includes controlled tests in Delivery, but not health.
+    await request(app!.getHttpServer())
+      .get(base + '?hours=25')
+      .set('Cookie', cookie)
+      .expect(400);
+    const zero = await request(app!.getHttpServer())
+      .get(`/tenants/${tenantId}/properties/${empty}/email-activity/overview`)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(zero.body).toMatchObject({
+      volume24h: 0,
+      volume7d: 0,
+      bounceRate: null,
+      complaintRate: null,
+      oldestQueued: null,
+      suppressedAddresses: 0,
+      actionNeeded: [],
+      failingTopics: [],
+    });
+  });
+  it('versions inbox preview text, rejects secret-link metadata, and refuses unsupported live triggers', async () => {
+    const base = url().replace('/email-templates', ''),
+      http = () => request(app!.getHttpServer());
+    const endpoint = base + '/email-template-versions/payment_pending';
+    const draft = await http()
+      .put(endpoint + '/draft')
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({
+        version: 0,
+        subject: 'Payment for {guest_name}',
+        body: '{guest_name}: {payment_link}',
+        previewText: 'Stay at {hotel_name}',
+      })
+      .expect(200);
+    expect(draft.body.draft.previewText).toBe('Stay at {hotel_name}');
+    await http()
+      .post(endpoint + '/publish')
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ version: draft.body.version })
+      .expect(400);
+    await http()
+      .post(base + '/email-templates/staff_invitation/preview')
+      .set('Cookie', cookie)
+      .send({ subject: '{invitation_link}', body: 'Hello {staff_name}' })
+      .expect(400);
+    const preview = await http()
+      .post(base + '/email-templates/pre_arrival/preview')
+      .set('Cookie', cookie)
+      .send({
+        subject: 'Stay {hotel_name}',
+        body: '{stay_range}\n\n{stay_nights}',
+        previewText: 'For {guest_name}',
+        language: 'sq',
+      })
+      .expect(200);
+    expect(preview.body.html).toContain('korrik');
+    expect(preview.body.text).toContain('100.00 EUR');
+    expect(preview.body.text).toContain('120.00 EUR');
+    expect(preview.body.html).toContain('For Ana Smith');
+    await http()
+      .post(base + '/email-templates/pre_arrival/preview')
+      .set('Cookie', cookie)
+      .send({ subject: 'Hello', body: '{unknown_field}', previewText: '' })
+      .expect(400);
   });
 });

@@ -26,6 +26,8 @@ export interface MailProvider {
   }): Promise<MailSendReceipt | void>;
   sendStaffInvitationEmail(command: {
     to: string;
+    template?: MailTemplateOverride;
+    brand?: MailBrand;
     organizationName: string;
     invitedByEmail: string;
     assignments: Array<{ propertyName: string; roleTemplateName: string }>;
@@ -57,6 +59,7 @@ export interface MailProvider {
     paymentId: string;
     staffUserId: string;
     to: string;
+    template?: MailTemplateOverride;
     guest: { name: string; email: string; phone: string | null };
     stay: { startsOn: string; endsOn: string };
     roomName: string;
@@ -101,6 +104,7 @@ export interface MailProvider {
     bookingReference: string;
     staffUserId: string;
     to: string;
+    template?: MailTemplateOverride;
     brand: MailBrand;
     guest: { name: string; email: string; phone: string | null };
     stay: { startsOn: string; endsOn: string };
@@ -131,7 +135,13 @@ export type RenderedEmailCommand = {
 };
 
 /** A property's own wording for a guest email, already filled in and escaped. */
-export type MailTemplateOverride = { subject: string; html: string; text: string };
+export type MailTemplateOverride = {
+  hasStayBlock?: boolean;
+  subject: string;
+  html: string;
+  text: string;
+  previewText?: string;
+};
 
 export type MailOrderRoom = {
   roomName: string;

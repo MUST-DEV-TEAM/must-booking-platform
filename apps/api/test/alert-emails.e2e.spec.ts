@@ -185,13 +185,14 @@ describe('alert emails (owner problem alerts, refunds, system owner)', () => {
 
     const owner = sent.filter((e) => e.to === ownerEmail);
     const problem = owner.find((e) => e.eventType === 'owner.alert')!;
-    expect(problem.subject).toBe('Action needed at Alert Hotel: 2 problems');
+    expect(problem.subject).toBe('Action needed at Alert Hotel');
     expect(problem.text).toContain('11:01 · Booking ALERT-1: Clock did not confirm the booking');
     expect(problem.text).toContain('Clock sync needs a check: Clock room type RT-9 is not mapped');
     expect(problem.text).not.toContain('ALERT-OK');
     expect(problem.text).not.toContain('Refund');
     const refund = owner.find((e) => e.eventType === 'owner.refund_alert')!;
-    expect(refund.subject).toBe('Alert Hotel: refund of 40.00 EUR for booking ALERT-2');
+    expect(refund.subject).toBe('Refund recorded - ALERT-2');
+    expect(refund.text).toContain('40.00 EUR');
 
     const platform = sent.filter((e) => e.to === opsEmail);
     const alert = platform.find((e) => e.eventType === 'platform.alert')!;

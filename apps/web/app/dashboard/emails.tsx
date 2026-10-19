@@ -1,7 +1,14 @@
 'use client';
+import {
+  UnsavedChangesBoundary,
+  useUnsavedNavigation,
+  useUnsavedChanges,
+} from '../../components/ui/unsaved-changes';
+import { TextComparison } from '../../components/ui/text-comparison';
+import { EmailHealthOverview } from './email-health-overview';
 import { EmailConfiguration } from './email-configuration';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, AlertDescription } from '../../components/ui/alert';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
@@ -16,7 +23,6 @@ import { PageHeader } from '../../components/ui/page-header';
 import { QuickPeek } from '../../components/ui/quick-peek';
 import { RecordDirectory } from '../../components/ui/record-directory';
 import { EmptyPanel, ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
-import { StatTile } from '../../components/ui/stat-tile';
 import { TabBar } from '../../components/ui/tab-bar';
 import {
   createEmailWriter,
@@ -35,7 +41,14 @@ const tabs = [
   { id: 'delivery', label: 'Delivery' },
   { id: 'configuration', label: 'Configuration' },
 ];
-export function EmailsWorkspace({
+export function EmailsWorkspace(props: Parameters<typeof EmailsWorkspaceContent>[0]) {
+  return (
+    <UnsavedChangesBoundary>
+      <EmailsWorkspaceContent {...props} />
+    </UnsavedChangesBoundary>
+  );
+}
+function EmailsWorkspaceContent({
   tenantId,
   propertyId,
   canWrite = false,
@@ -46,22 +59,34 @@ export function EmailsWorkspace({
   canWrite?: boolean;
   initialTab?: string;
 }) {
+  const { request: navigate } = useUnsavedNavigation();
   const [tab, setTab] = useState(initialTab);
   const [template, setTemplate] = useState<EmailTemplate | null>(null);
-  const [message, setMessage] = useState<EmailMessage | null>(null);
+  const [messageId, setMessageId] = useState<string | null>(null);
   const [deliveryPage, setDeliveryPage] = useState(1),
     [deliverySize, setDeliverySize] = useState(25),
-    [deliveryFilter, setDeliveryFilter] = useState('all');
+    [deliveryFilter, setDeliveryFilter] = useState('all'),
+    [deliveryTopic, setDeliveryTopic] = useState(''),
+    [deliveryHours, setDeliveryHours] = useState<number | undefined>();
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const templates = useQuery({
     queryKey: ['emails', base, 'templates'],
     queryFn: () => emailRequest<EmailTemplate[]>(`${base}/email-templates`),
   });
   const deliveries = useQuery({
-    queryKey: ['emails', base, 'delivery', deliveryPage, deliverySize, deliveryFilter],
+    queryKey: [
+      'emails',
+      base,
+      'delivery',
+      deliveryPage,
+      deliverySize,
+      deliveryFilter,
+      deliveryTopic,
+      deliveryHours,
+    ],
     queryFn: () =>
       emailRequest<EmailPage>(
-        `${base}/email-activity?page=${deliveryPage}&pageSize=${deliverySize}&filter=${deliveryFilter}`,
+        `${base}/email-activity?page=${deliveryPage}&pageSize=${deliverySize}&filter=${deliveryFilter}&topic=${encodeURIComponent(deliveryTopic)}${deliveryHours ? `&hours=${deliveryHours}` : ''}`,
       ),
   });
   const overview = useQuery({
@@ -87,8 +112,10 @@ export function EmailsWorkspace({
         tabs={tabs}
         current={tab}
         onSelect={(id) => {
-          setTab(id);
-          setTemplate(null);
+          navigate(() => {
+            setTab(id);
+            setTemplate(null);
+          });
         }}
       />
       {error ? (
@@ -114,57 +141,26 @@ export function EmailsWorkspace({
         <>
           {tab === 'overview' ? (
             <>
-              <div className="grid gap-3 sm:grid-cols-4">
-                {[
-                  { label: 'Sent / delivered (7 days)', statuses: ['SENT', 'DELIVERED'] },
-                  { label: 'Queued', statuses: ['QUEUED'] },
-                  { label: 'Needs attention', statuses: ['FAILED', 'BOUNCED', 'COMPLAINED'] },
-                  { label: 'Today', statuses: [] },
-                ].map((tile) => (
-                  <StatTile
-                    key={tile.label}
-                    label={tile.label}
-                    value={overview.data.counts.reduce(
-                      (sum, row) =>
-                        sum +
-                        (tile.statuses.length
-                          ? tile.statuses.includes(row.status)
-                            ? row.count
-                            : 0
-                          : row.today),
-                      0,
-                    )}
-                  />
-                ))}
-              </div>
-              <Card>
-                <CardHeader>
-                  <CardTitle>Delivery health</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <DetailList
-                    items={[
-                      {
-                        label: 'Basis',
-                        value: 'Stored messages in the last 7 days; controlled tests excluded',
-                      },
-                      {
-                        label: 'Domain authentication',
-                        value: 'Unknown - no diagnostic has been run',
-                      },
-                      {
-                        label: 'Clock hotels',
-                        value: 'MUST manages these email settings for local and connected hotels',
-                      },
-                    ]}
-                  />
-                </CardContent>
-              </Card>
+              <EmailHealthOverview
+                data={overview.data}
+                onDelivery={(filter, topic, hours) => {
+                  setDeliveryFilter(filter);
+                  setDeliveryTopic(topic ?? '');
+                  setDeliveryHours(hours);
+                  setDeliveryPage(1);
+                  setTab('delivery');
+                }}
+                onConfiguration={() => setTab('configuration')}
+                onMessage={setMessageId}
+              />
               <PageHeader
                 title="Recent deliveries"
                 description="Most recent loaded messages. Use Delivery to page through the complete log."
               />
-              <DeliveryDirectory items={deliveries.data.items} onRow={setMessage} />
+              <DeliveryDirectory
+                items={deliveries.data.items}
+                onRow={(row) => setMessageId(row.id)}
+              />
             </>
           ) : null}
           {tab === 'templates' ? (
@@ -183,12 +179,18 @@ export function EmailsWorkspace({
                 columns={[
                   { id: 'label', label: 'Template', value: (row) => row.label },
                   { id: 'key', label: 'Trigger key', value: (row) => row.key },
-                  { id: 'audience', label: 'Audience', value: () => 'Guest' },
+                  { id: 'audience', label: 'Audience', value: (row) => row.audience ?? 'Guest' },
                   {
                     id: 'draft',
                     label: 'State',
                     value: (row) =>
-                      row.enabled === false ? 'Disabled' : row.hasDraft ? 'Draft + live' : 'Live',
+                      row.triggerAvailable === false
+                        ? 'Wording only'
+                        : row.enabled === false
+                          ? 'Disabled'
+                          : row.hasDraft
+                            ? 'Draft + live'
+                            : 'Live',
                   },
                   {
                     id: 'locales',
@@ -212,6 +214,9 @@ export function EmailsWorkspace({
                 tabs={[
                   { id: 'all', label: 'All deliveries' },
                   { id: 'problems', label: 'Needs attention' },
+                  { id: 'queued', label: 'Queued' },
+                  { id: 'bounced', label: 'Bounced' },
+                  { id: 'complained', label: 'Complained' },
                 ]}
                 current={deliveryFilter}
                 onSelect={(value) => {
@@ -221,7 +226,7 @@ export function EmailsWorkspace({
               />
               <DeliveryDirectory
                 items={deliveries.data.items}
-                onRow={setMessage}
+                onRow={(row) => setMessageId(row.id)}
                 pagination={{
                   page: deliveryPage,
                   pageSize: deliverySize,
@@ -240,12 +245,12 @@ export function EmailsWorkspace({
           ) : null}
         </>
       )}
-      {message ? (
+      {messageId ? (
         <EmailDeliveryDetail
-          key={message.id}
+          key={messageId}
           base={base}
-          id={message.id}
-          onClose={() => setMessage(null)}
+          id={messageId}
+          onClose={() => setMessageId(null)}
           canWrite={canWrite}
         />
       ) : null}
@@ -333,6 +338,7 @@ function TemplateEditor({
   onClose: () => void;
 }) {
   const client = useQueryClient();
+  const { request: navigate } = useUnsavedNavigation();
   const [language, setLanguage] = useState('en');
   const query = useQuery({
     queryKey: ['emails', base, template.key, language],
@@ -343,14 +349,14 @@ function TemplateEditor({
   });
   return (
     <div className="flex flex-col gap-4">
-      <Button variant="ghost" onClick={onClose}>
+      <Button variant="ghost" onClick={() => navigate(onClose)}>
         Back to templates
       </Button>
       <FormField label="Language">
         <Combobox
           label="Language"
           value={language}
-          onChange={setLanguage}
+          onChange={(value) => navigate(() => setLanguage(value))}
           options={[
             { value: 'en', label: 'English' },
             { value: 'sq', label: 'Albanian' },
@@ -392,6 +398,46 @@ function TemplateDraft({
   const [preview, setPreview] = useState<{ subject: string; html: string; text: string } | null>(
     null,
   );
+  const [previewText, setPreviewText] = useState(
+    data.draft?.previewText ?? data.live?.previewText ?? '',
+  );
+  const [previewError, setPreviewError] = useState('');
+  const [previewRetry, setPreviewRetry] = useState(0);
+  const [comparison, setComparison] = useState<(typeof data.history)[number] | null>(null);
+  const initial = data.draft ?? data.live;
+  const dirty =
+    subject !== (initial?.subject ?? '') ||
+    body !== (initial?.body ?? '') ||
+    previewText !== (initial?.previewText ?? '');
+  const clean = useUnsavedChanges(dirty),
+    { request: navigate, setDirty: guardDirty } = useUnsavedNavigation();
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      setPreviewError('');
+      void emailRequest<{ subject: string; html: string; text: string }>(
+        `${base}/email-templates/${template.key}/preview`,
+        {
+          method: 'POST',
+          signal: controller.signal,
+          body: JSON.stringify({ subject, body, previewText, language: data.language }),
+        },
+      )
+        .then((value) => {
+          if (!controller.signal.aborted) setPreview(value);
+        })
+        .catch((e) => {
+          if (!controller.signal.aborted) {
+            setPreview(null);
+            setPreviewError(e instanceof Error ? e.message : 'Preview unavailable.');
+          }
+        });
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [base, template.key, subject, body, previewText, data.language, previewRetry]);
   const [testNotice, setTestNotice] = useState('');
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
@@ -407,13 +453,15 @@ function TemplateDraft({
         {
           language: data.language,
           version: data.version,
-          ...(operation === 'draft' ? { subject, body } : {}),
+          ...(operation === 'draft' ? { subject, body, previewText } : {}),
           ...(revision === undefined ? {} : { revision }),
         },
         operation === 'draft' ? 'PUT' : 'POST',
       );
+      clean();
       onSaved();
     } catch (e) {
+      guardDirty(dirty);
       setError(e instanceof Error ? e.message : 'The template could not be saved.');
     } finally {
       setBusy(false);
@@ -423,7 +471,7 @@ function TemplateDraft({
     <div className="flex flex-col gap-4">
       <PageHeader
         title={template.label}
-        description={`Guest template / ${data.language.toUpperCase()} / version ${data.version}`}
+        description={`${template.audience ?? 'Guest'} template / ${data.language.toUpperCase()} / version ${data.version}${dirty ? ' / Unsaved changes' : ''}`}
       />
       <Alert>
         <AlertDescription>
@@ -437,104 +485,167 @@ function TemplateDraft({
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}
-      <Card>
-        <CardContent className="flex flex-col gap-4 pt-6">
-          <FormField label="Subject" htmlFor="template-subject" required>
-            <Input
-              id="template-subject"
-              value={subject}
-              maxLength={300}
-              disabled={!canWrite || busy}
-              onChange={(e) => setSubject(e.target.value)}
-            />
-          </FormField>
-          <FormField
-            label="Message"
-            htmlFor="template-body"
-            required
-            hint="Plain text only. Publish requires {guest_name}, plus {payment_note} for confirmation or {refund_amount} for refunds. Hotel identity and booking reference remain in protected generated blocks."
-          >
-            <Textarea
-              id="template-body"
-              value={body}
-              maxLength={5000}
-              rows={8}
-              disabled={!canWrite || busy}
-              onChange={(e) => setBody(e.target.value)}
-            />
-          </FormField>
-          <div className="flex flex-wrap gap-2" aria-label="Safe variables">
-            {template.placeholders.map((name) => (
-              <Button
-                key={name}
-                size="sm"
-                variant="outline"
+      <div className="grid items-start gap-4 xl:grid-cols-2">
+        <Card>
+          <CardContent className="flex flex-col gap-4 pt-6">
+            <FormField label="Subject" htmlFor="template-subject" required>
+              <Input
+                id="template-subject"
+                value={subject}
+                maxLength={300}
                 disabled={!canWrite || busy}
-                onClick={() => setBody((current) => `${current} {${name}}`)}
-              >{`{${name}}`}</Button>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              disabled={!canWrite || busy || data.language !== 'en'}
-              onClick={() => {
-                setSubject(template.defaultSubject ?? template.subject);
-                setBody(template.defaultBody ?? template.body);
-              }}
+                onChange={(e) => setSubject(e.target.value)}
+              />
+            </FormField>
+            <FormField
+              label="Preview text"
+              htmlFor="template-preview-text"
+              hint="A short inbox preview line; safe variables are supported."
             >
-              Use built-in English wording as draft
-            </Button>
-            <Button
-              disabled={!canWrite || busy || !subject.trim() || !body.trim()}
-              onClick={() => void act('draft')}
+              <Input
+                id="template-preview-text"
+                value={previewText}
+                maxLength={200}
+                disabled={!canWrite || busy}
+                onChange={(e) => setPreviewText(e.target.value)}
+              />
+            </FormField>
+            {template.placeholders.includes('stay_range') ? (
+              <FormField label="Stay date display">
+                <Combobox
+                  label="Stay date display"
+                  value={body.includes('{stay_nights}') ? 'nights' : 'range'}
+                  options={[
+                    { value: 'range', label: 'Date range' },
+                    { value: 'nights', label: 'Per-night list with recorded rates' },
+                  ]}
+                  disabled={!canWrite || busy}
+                  onChange={(mode) => {
+                    const token = mode === 'nights' ? '{stay_nights}' : '{stay_range}';
+                    setBody((current) =>
+                      /\{stay_(range|nights)\}/.test(current)
+                        ? current.replace(/\{stay_(range|nights)\}/g, token)
+                        : current + '\n\n' + token,
+                    );
+                  }}
+                />
+              </FormField>
+            ) : null}
+            <FormField
+              label="Message"
+              htmlFor="template-body"
+              required
+              hint="Plain text only. Publish requires {guest_name}, plus {payment_note} for confirmation or {refund_amount} for refunds. Hotel identity and booking reference remain in protected generated blocks."
             >
-              Save draft
-            </Button>
-            <Button
-              variant="outline"
-              disabled={busy || !subject || !body}
-              onClick={async () => {
-                setError('');
-                try {
-                  setPreview(
-                    await emailRequest(`${base}/email-templates/${template.key}/preview`, {
-                      method: 'POST',
-                      body: JSON.stringify({ subject, body }),
-                    }),
-                  );
-                } catch (e) {
-                  setError(e instanceof Error ? e.message : 'Preview failed.');
-                }
-              }}
-            >
-              Preview
-            </Button>
-            <Button
-              variant="outline"
-              disabled={!canWrite || busy || !data.draft}
-              onClick={() => setPublish(true)}
-            >
-              Publish saved draft
-            </Button>
-            {
+              <Textarea
+                id="template-body"
+                value={body}
+                maxLength={5000}
+                rows={8}
+                disabled={!canWrite || busy}
+                onChange={(e) => setBody(e.target.value)}
+              />
+            </FormField>
+            <FormField label="Insert safe variable">
+              <Combobox
+                label="Insert safe variable"
+                value=""
+                options={template.placeholders.map((name) => ({ value: name, label: `{${name}}` }))}
+                placeholder="Search variables"
+                disabled={!canWrite || busy}
+                onChange={(name) => setBody((current) => `${current} {${name}}`)}
+              />
+            </FormField>
+            <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"
-                disabled={!canWrite || busy || !subject || !body}
-                onClick={() => setTest(true)}
+                disabled={!canWrite || busy || data.language !== 'en'}
+                onClick={() => {
+                  setSubject(template.defaultSubject ?? template.subject);
+                  setBody(template.defaultBody ?? template.body);
+                  setPreviewText('');
+                }}
               >
-                Send controlled test
+                Use built-in English wording as draft
               </Button>
-            }
-          </div>
-        </CardContent>
-      </Card>
+              <Button
+                disabled={!canWrite || busy || !subject.trim() || !body.trim()}
+                onClick={() => void act('draft')}
+              >
+                Save draft
+              </Button>
+              <Button
+                variant="outline"
+                disabled={busy || !subject || !body}
+                onClick={async () => {
+                  setError('');
+                  try {
+                    setPreview(
+                      await emailRequest(`${base}/email-templates/${template.key}/preview`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                          subject,
+                          body,
+                          previewText,
+                          language: data.language,
+                        }),
+                      }),
+                    );
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : 'Preview failed.');
+                  }
+                }}
+              >
+                Preview
+              </Button>
+              <Button
+                variant="outline"
+                disabled={!canWrite || busy || !data.draft || template.triggerAvailable === false}
+                onClick={() => setPublish(true)}
+              >
+                Publish saved draft
+              </Button>
+              {
+                <Button
+                  variant="outline"
+                  disabled={!canWrite || busy || !subject || !body}
+                  onClick={() => setTest(true)}
+                >
+                  Send controlled test
+                </Button>
+              }
+            </div>
+          </CardContent>
+        </Card>
+        <div className="min-w-0 xl:sticky xl:top-4">
+          {previewError ? (
+            <ErrorPanel
+              title="Preview unavailable"
+              description={previewError}
+              onRetry={() => setPreviewRetry((current) => current + 1)}
+            />
+          ) : preview ? (
+            <MessagePreview {...preview} />
+          ) : (
+            <ListSkeleton rows={3} />
+          )}
+        </div>
+      </div>
+      {template.triggerAvailable === false ? (
+        <p className="m-0 text-sm text-muted-foreground">{template.unavailableReason}</p>
+      ) : null}
+      {comparison ? (
+        <TextComparison
+          before={`${comparison.subject}\n${comparison.previewText ?? ''}\n\n${comparison.body}`}
+          after={`${subject}\n${previewText}\n\n${body}`}
+          beforeLabel={`Revision ${comparison.revision}`}
+        />
+      ) : null}
       {testNotice ? (
         <Alert>
           <AlertDescription>{testNotice}</AlertDescription>
         </Alert>
       ) : null}
-      {preview ? <MessagePreview {...preview} /> : null}
       <Card>
         <CardHeader>
           <CardTitle>Version history</CardTitle>
@@ -552,25 +663,13 @@ function TemplateDraft({
                 },
               ]}
               storageKey="must.email-versions.table"
-              onRow={async (row) => {
-                setError('');
-                try {
-                  setPreview(
-                    await emailRequest(`${base}/email-templates/${template.key}/preview`, {
-                      method: 'POST',
-                      body: JSON.stringify({ subject: row.subject, body: row.body }),
-                    }),
-                  );
-                } catch (e) {
-                  setError(e instanceof Error ? e.message : 'Preview failed.');
-                }
-              }}
+              onRow={(row) => setComparison(row)}
               actions={
                 canWrite
                   ? (row) => [
                       {
                         label: 'Restore as draft',
-                        onSelect: () => void act('restore', row.revision),
+                        onSelect: () => navigate(() => void act('restore', row.revision)),
                       },
                     ]
                   : undefined
@@ -613,6 +712,7 @@ function TemplateDraft({
             {
               subject,
               body,
+              previewText,
               reason,
               version: data.version,
               language: data.language,

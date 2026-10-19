@@ -1,3 +1,4 @@
+import { templateCatalog } from '../mail/email-template-catalog';
 import {
   BadRequestException,
   ConflictException,
@@ -6,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  EMAIL_TEMPLATES,
+  defaultTemplate,
   isEmailTemplateKey,
   type EmailTemplateKey,
   type SavedTemplate,
@@ -55,6 +56,8 @@ export class EmailTemplateVersionsService {
     const identity = this.identity(key, raw.language);
     if (!Number.isSafeInteger(raw.version) || Number(raw.version) < 0)
       throw new BadRequestException('A nonnegative version is required.');
+    if (operation === 'publish' && !templateCatalog(identity.key).triggerAvailable)
+      throw new BadRequestException(templateCatalog(identity.key).unavailableReason!);
     const draft = operation === 'draft' ? this.templates.validate(identity.key, raw) : null;
     if (
       operation === 'restore' &&
@@ -86,7 +89,7 @@ export class EmailTemplateVersionsService {
           VALUES(${context.tenantId}::uuid,${context.propertyId}::uuid,${identity.key},${identity.language}) ON CONFLICT DO NOTHING
         `;
         if (!before.history.length && before.live) {
-          await tx.$executeRaw`INSERT INTO email_template_revisions(tenant_id,property_id,template_key,language,revision,subject,body,actor_user_id) VALUES(${context.tenantId}::uuid,${context.propertyId}::uuid,${identity.key},${identity.language},0,${before.live.subject},${before.live.body},${actorUserId}::uuid) ON CONFLICT DO NOTHING`;
+          await tx.$executeRaw`INSERT INTO email_template_revisions(tenant_id,property_id,template_key,language,revision,subject,body,preview_text,actor_user_id) VALUES(${context.tenantId}::uuid,${context.propertyId}::uuid,${identity.key},${identity.language},0,${before.live.subject},${before.live.body},${before.live.previewText ?? ''},${actorUserId}::uuid) ON CONFLICT DO NOTHING`;
           await tx.$executeRaw`UPDATE email_template_heads SET live_revision=0 WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND template_key=${identity.key} AND language=${identity.language}`;
         }
         const nextVersion = before.version + 1;
@@ -100,9 +103,9 @@ export class EmailTemplateVersionsService {
               `Required variables: ${missing.map((name) => `{${name}}`).join(', ')}.`,
             );
           await tx.$executeRaw`
-            INSERT INTO email_templates(tenant_id,property_id,template_key,language,subject,body,updated_by_user_id)
-            VALUES(${context.tenantId}::uuid,${context.propertyId}::uuid,${identity.key},${identity.language},${before.draft.subject},${before.draft.body},${actorUserId}::uuid)
-            ON CONFLICT(tenant_id,property_id,template_key,language) DO UPDATE SET subject=EXCLUDED.subject,body=EXCLUDED.body,updated_by_user_id=EXCLUDED.updated_by_user_id,updated_at=now()
+            INSERT INTO email_templates(tenant_id,property_id,template_key,language,subject,body,preview_text,updated_by_user_id)
+            VALUES(${context.tenantId}::uuid,${context.propertyId}::uuid,${identity.key},${identity.language},${before.draft.subject},${before.draft.body},${before.draft.previewText ?? ''},${actorUserId}::uuid)
+            ON CONFLICT(tenant_id,property_id,template_key,language) DO UPDATE SET subject=EXCLUDED.subject,body=EXCLUDED.body,preview_text=EXCLUDED.preview_text,updated_by_user_id=EXCLUDED.updated_by_user_id,updated_at=now()
           `;
           await tx.$executeRaw`
             UPDATE email_template_heads SET live_revision=draft_revision,draft_revision=NULL,version=${nextVersion}
@@ -112,8 +115,8 @@ export class EmailTemplateVersionsService {
           const wording = draft ?? before.history.find((item) => item.revision === raw.revision);
           if (!wording) throw new NotFoundException('Revision was not found.');
           await tx.$executeRaw`
-            INSERT INTO email_template_revisions(tenant_id,property_id,template_key,language,revision,subject,body,actor_user_id)
-            VALUES(${context.tenantId}::uuid,${context.propertyId}::uuid,${identity.key},${identity.language},${nextVersion},${wording.subject},${wording.body},${actorUserId}::uuid)
+            INSERT INTO email_template_revisions(tenant_id,property_id,template_key,language,revision,subject,body,preview_text,actor_user_id)
+            VALUES(${context.tenantId}::uuid,${context.propertyId}::uuid,${identity.key},${identity.language},${nextVersion},${wording.subject},${wording.body},${wording.previewText ?? ''},${actorUserId}::uuid)
           `;
           await tx.$executeRaw`
             UPDATE email_template_heads SET draft_revision=${nextVersion},version=${nextVersion}
@@ -152,11 +155,11 @@ export class EmailTemplateVersionsService {
     `;
     const head = heads[0];
     const history = await tx.$queryRaw<Revision[]>`
-      SELECT revision,subject,body,actor_user_id::text AS "actorUserId",created_at::text AS "createdAt" FROM email_template_revisions
+      SELECT revision,subject,body,preview_text AS "previewText",actor_user_id::text AS "actorUserId",created_at::text AS "createdAt" FROM email_template_revisions
       WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND template_key=${key} AND language=${language} ORDER BY revision DESC
     `;
     const saved = await tx.$queryRaw<SavedTemplate[]>`
-      SELECT subject,body FROM email_templates WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND template_key=${key} AND language=${language}
+      SELECT subject,body,preview_text AS "previewText" FROM email_templates WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND template_key=${key} AND language=${language}
     `;
     return {
       key,
@@ -165,9 +168,7 @@ export class EmailTemplateVersionsService {
       live:
         history.find((row) => row.revision === head?.liveRevision) ??
         saved[0] ??
-        (language === 'en'
-          ? { subject: EMAIL_TEMPLATES[key].subject, body: EMAIL_TEMPLATES[key].body }
-          : null),
+        (language === 'en' ? defaultTemplate(key) : null),
       draft: history.find((row) => row.revision === head?.draftRevision) ?? null,
       history,
     };
@@ -177,8 +178,10 @@ export class EmailTemplateVersionsService {
 /** Protected detail blocks remain generated; these semantic variables cannot be lost in publication. */
 export function requiredTemplateVariables(key: EmailTemplateKey): string[] {
   return [
-    'guest_name',
-    ...(key === 'booking_confirmed' ? ['payment_note'] : []),
+    ...(!key.startsWith('staff_') && !key.startsWith('owner_') ? ['guest_name'] : []),
+    ...(['booking_confirmed', 'booking_confirmed_pay_at_hotel'].includes(key)
+      ? ['payment_note']
+      : []),
     ...(key === 'refund_processed' ? ['refund_amount'] : []),
   ];
 }

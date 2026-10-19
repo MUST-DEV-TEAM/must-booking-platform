@@ -554,6 +554,7 @@ model BookingSeen {
 }
 
 model EmailTemplate {
+  previewText String @default("") @map("preview_text") @db.VarChar(200)
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId        String   @map("tenant_id") @db.Uuid
   propertyId      String   @map("property_id") @db.Uuid
@@ -1553,6 +1554,7 @@ model EmailTemplateHead {
  @@map("email_template_heads")
 }
 model EmailTemplateRevision {
+  previewText String @default("") @map("preview_text") @db.VarChar(200)
  tenantId String @map("tenant_id") @db.Uuid
  propertyId String @map("property_id") @db.Uuid
  templateKey String @map("template_key")

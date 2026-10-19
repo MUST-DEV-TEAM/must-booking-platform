@@ -68,6 +68,9 @@ const LABELS: Record<string, string> = {
 const FILTERS: Record<string, Status[]> = {
   all: ['QUEUED', 'SENT', 'FAILED', 'DELIVERED', 'BOUNCED', 'COMPLAINED', 'SUPPRESSED'],
   problems: ['FAILED', 'BOUNCED', 'COMPLAINED', 'SUPPRESSED'],
+  queued: ['QUEUED'],
+  bounced: ['BOUNCED'],
+  complained: ['COMPLAINED'],
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -86,7 +89,11 @@ export class EmailActivityService {
     const pageSize = this.positive(query.pageSize, 25, 100);
     const filter = typeof query.filter === 'string' ? query.filter : 'all';
     const statuses = FILTERS[filter];
-    if (!statuses) throw new BadRequestException('filter must be "all" or "problems".');
+    if (!statuses) throw new BadRequestException('Unknown email delivery filter.');
+    const topic = typeof query.topic === 'string' ? query.topic.trim() : '';
+    const hours = query.hours === undefined ? null : Number(query.hours);
+    if (topic.length > 100 || (hours !== null && ![24, 168].includes(hours)))
+      throw new BadRequestException('Use a valid topic and 24 or 168 hour window.');
     return this.database.withTenantTransaction(context, async (tx) => {
       const [rows, counts] = await Promise.all([
         tx.$queryRaw<Array<Omit<EmailActivityItem, 'label' | 'canResend'>>>`
@@ -98,14 +105,16 @@ export class EmailActivityService {
           FROM email_messages em
           LEFT JOIN bookings b ON b.tenant_id = em.tenant_id AND b.property_id = em.property_id AND b.id = em.booking_id
           WHERE em.tenant_id = ${context.tenantId}::uuid AND em.property_id = ${context.propertyId}::uuid
-            AND em.status::text = ANY(${statuses})
+            AND em.status::text = ANY(${statuses}) AND (${topic}='' OR em.event_type=${topic})
+            AND (${hours}::int IS NULL OR em.created_at >= now()-make_interval(hours=>${hours}::int))
           ORDER BY em.created_at DESC, em.id DESC
           LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}
         `,
         tx.$queryRaw<Array<{ total: number }>>`
           SELECT count(*)::int AS total FROM email_messages
           WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
-            AND status::text = ANY(${statuses})
+            AND status::text = ANY(${statuses}) AND (${topic}='' OR event_type=${topic})
+            AND (${hours}::int IS NULL OR created_at >= now()-make_interval(hours=>${hours}::int))
         `,
       ]);
       const cutoff = Date.now() - RESEND_WINDOW_DAYS * 24 * 60 * 60 * 1000;
@@ -136,11 +145,64 @@ export class EmailActivityService {
           AND em.event_type<>'template.test' AND em.created_at>=now()-interval '7 days'
         GROUP BY status,p.timezone
       `;
+      const metrics = await tx.$queryRaw<
+        {
+          volume24h: number;
+          volume7d: number;
+          attempted7d: number;
+          bounced7d: number;
+          complained7d: number;
+          queued: number;
+          oldestQueued: Date | null;
+          suppressedAddresses: number;
+        }[]
+      >`
+        SELECT count(*) FILTER(WHERE em.created_at>=now()-interval '24 hours')::int AS "volume24h",
+          count(*) FILTER(WHERE em.created_at>=now()-interval '7 days')::int AS "volume7d",
+          count(*) FILTER(WHERE em.created_at>=now()-interval '7 days' AND (em.attempt_count>0 OR em.status IN('SENT','DELIVERED','BOUNCED','COMPLAINED')))::int AS "attempted7d",
+          count(*) FILTER(WHERE em.created_at>=now()-interval '7 days' AND em.status='BOUNCED')::int AS "bounced7d",
+          count(*) FILTER(WHERE em.created_at>=now()-interval '7 days' AND em.status='COMPLAINED')::int AS "complained7d",
+          count(*) FILTER(WHERE em.status='QUEUED')::int AS queued,
+          min(em.created_at) FILTER(WHERE em.status='QUEUED') AS "oldestQueued",
+          (SELECT count(*)::int FROM email_suppressions WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND active) AS "suppressedAddresses"
+        FROM email_messages em WHERE em.tenant_id=${context.tenantId}::uuid AND em.property_id=${context.propertyId}::uuid AND em.event_type<>'template.test'
+      `;
+      const failingTopics = await tx.$queryRaw<{ topic: string; count: number }[]>`
+        SELECT event_type AS topic,count(*)::int AS count FROM email_messages
+        WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid
+          AND event_type<>'template.test' AND created_at>=now()-interval '7 days' AND status IN('FAILED','BOUNCED','COMPLAINED')
+        GROUP BY event_type ORDER BY count(*) DESC,event_type LIMIT 10
+      `;
+      const actionNeeded = await tx.$queryRaw<
+        {
+          id: string;
+          eventType: string;
+          recipient: string;
+          status: string;
+          lastError: string | null;
+          createdAt: Date;
+        }[]
+      >`
+        SELECT id,event_type AS "eventType",recipient_email AS recipient,status::text AS status,last_error AS "lastError",created_at AS "createdAt"
+        FROM email_messages WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid
+          AND event_type<>'template.test' AND status IN('FAILED','BOUNCED','COMPLAINED')
+        ORDER BY created_at DESC,id DESC LIMIT 10
+      `;
+      const m = metrics[0]!;
       return {
         days: 7,
         counts,
         testTrafficExcluded: true,
         domainAuthentication: 'UNKNOWN' as const,
+        ...m,
+        bounceRate: m.attempted7d ? (m.bounced7d * 100) / m.attempted7d : null,
+        complaintRate: m.attempted7d ? (m.complained7d * 100) / m.attempted7d : null,
+        failingTopics: failingTopics.map((r) => ({ ...r, label: LABELS[r.topic] ?? r.topic })),
+        actionNeeded: actionNeeded.map((r) => ({
+          ...r,
+          label: LABELS[r.eventType] ?? r.eventType,
+          lastError: r.lastError ? safeDeliveryError(r.lastError) : null,
+        })),
       };
     });
   }
@@ -319,6 +381,8 @@ export class EmailActivityService {
 
 /** Provider text is untrusted diagnostic content; never expose credentials, authorization or URLs. */
 export function safeDeliveryError(value: string): string {
+  if (/(?:RESEND_API_KEY|MAIL_FROM_EMAIL) must be configured/.test(value))
+    return 'Email sending is not configured. Choose a sender in Configuration.';
   return value
     .replace(/https?:\/\/\S+/gi, '[link redacted]')
     .replace(

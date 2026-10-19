@@ -40,7 +40,7 @@ export class PaymentNotificationService {
     const guest = await this.guestSetup(
       context,
       'new_booking',
-      'booking_confirmed',
+      paid ? 'booking_confirmed' : 'booking_confirmed_pay_at_hotel',
       command,
       () => ({
         payment_note: paid
@@ -56,11 +56,12 @@ export class PaymentNotificationService {
     );
   }
 
-  sendNewBookingStaffNotificationSafely(
+  async sendNewBookingStaffNotificationSafely(
     command: QueuedMailCommands['newBookingStaff'],
     context: NotificationContext,
   ): Promise<void> {
-    return this.delivery.dispatch('newBookingStaff', command, this.scope(context));
+    const template = await this.staffTemplate(context, 'staff_new_booking', command);
+    return this.delivery.dispatch('newBookingStaff', { ...command, template }, this.scope(context));
   }
 
   async sendRefundConfirmationEmailSafely(
@@ -97,11 +98,16 @@ export class PaymentNotificationService {
     );
   }
 
-  sendBookingCancelledStaffNotificationSafely(
+  async sendBookingCancelledStaffNotificationSafely(
     command: QueuedMailCommands['bookingCancelledStaff'],
     context: NotificationContext,
   ): Promise<void> {
-    return this.delivery.dispatch('bookingCancelledStaff', command, this.scope(context));
+    const template = await this.staffTemplate(context, 'staff_booking_cancelled', command);
+    return this.delivery.dispatch(
+      'bookingCancelledStaff',
+      { ...command, template },
+      this.scope(context),
+    );
   }
 
   /**
@@ -115,7 +121,14 @@ export class PaymentNotificationService {
     templateKey: EmailTemplateKey,
     command: {
       bookingReference: string;
-      brand: { name: string };
+      brand: {
+        name: string;
+        supportEmail?: string | null;
+        phone?: string | null;
+        address?: string | null;
+      };
+      nightlyRates?: readonly { date: string; amount: string }[];
+      amount?: { currency: string };
       guest: { name: string };
       stay: { startsOn: string; endsOn: string };
       roomName: string;
@@ -128,8 +141,14 @@ export class PaymentNotificationService {
       return await this.database.withTenantTransaction(context, async (tx) => {
         if (!(await guestNotificationEnabled(tx, context, topic)))
           return { enabled: false, template: null };
-        const saved = await savedTemplate(tx, context, templateKey);
-        if (!saved) return { enabled: true, template: null };
+        const saved =
+          (await savedTemplate(tx, context, templateKey)) ??
+          (templateKey === 'booking_confirmed_pay_at_hotel'
+            ? await savedTemplate(tx, context, 'booking_confirmed')
+            : null);
+        const [property] = await tx.$queryRaw<
+          { checkInTime: string | null; address: string | null }[]
+        >`SELECT check_in_time AS "checkInTime",address FROM properties WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid`;
         const values = {
           ...stayTemplateValues({
             guestName: command.guest.name,
@@ -139,6 +158,12 @@ export class PaymentNotificationService {
             endsOn: command.stay.endsOn,
             roomName: command.roomName,
             guestCount: command.guestCount,
+            language: saved?.language,
+            nightlyRates: command.nightlyRates,
+            currency: command.amount?.currency,
+            hotelContact: command.brand.supportEmail ?? command.brand.phone ?? undefined,
+            checkInTime: property?.checkInTime ?? undefined,
+            directions: property?.address ?? undefined,
           }),
           ...extra(),
         };
@@ -153,6 +178,49 @@ export class PaymentNotificationService {
     }
   }
 
+  private async staffTemplate(
+    context: NotificationContext,
+    key: EmailTemplateKey,
+    command: {
+      guest: { name: string };
+      brand: { name: string; supportEmail?: string | null; phone?: string | null };
+      bookingReference: string;
+      stay: { startsOn: string; endsOn: string };
+      roomName: string;
+      guestCount: number;
+      paymentMethod?: string;
+      nightlyRates?: readonly { date: string; amount: string }[];
+      amount?: { currency: string };
+    },
+  ): Promise<MailTemplateOverride | undefined> {
+    try {
+      return await this.database.withTenantTransaction(context, async (tx) => {
+        const saved = await savedTemplate(tx, context, key);
+        return renderTemplate(key, saved, {
+          ...stayTemplateValues({
+            guestName: command.guest.name,
+            hotelName: command.brand.name,
+            reference: command.bookingReference,
+            startsOn: command.stay.startsOn,
+            endsOn: command.stay.endsOn,
+            roomName: command.roomName,
+            guestCount: command.guestCount,
+            language: saved?.language,
+            nightlyRates: command.nightlyRates,
+            currency: command.amount?.currency,
+            hotelContact: command.brand.supportEmail ?? command.brand.phone ?? undefined,
+          }),
+          payment_note:
+            command.paymentMethod === 'pay_at_hotel'
+              ? 'Payment is due at the hotel.'
+              : 'Check the recorded payment status in MUST.',
+        });
+      });
+    } catch {
+      this.logger.error('Could not load staff email wording; using the built-in email.');
+      return undefined;
+    }
+  }
   private scope(context: NotificationContext): NotificationContext {
     return { tenantId: context.tenantId, propertyId: context.propertyId };
   }

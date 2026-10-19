@@ -12,6 +12,11 @@ export type GuestStay = {
   startsOn: string;
   endsOn: string;
   rooms: Array<{ roomName: string; guestCount: number }>;
+  roomNightlyRates?: {
+    roomName: string;
+    currency: string;
+    nightlyRates: { date: string; amount: string }[] | null;
+  }[];
 };
 
 function dates(startsOn: string, endsOn: string): string {
@@ -34,7 +39,7 @@ function guestEmail(input: {
   subject: string;
   preheader: string;
   heading: string;
-  message: { html: string; text: string };
+  message: { html: string; text: string; previewText?: string; hasStayBlock?: boolean };
   rows: Array<{ label: string; value: string }>;
   cta: { url: string; label: string } | null;
   eventType: string;
@@ -43,7 +48,7 @@ function guestEmail(input: {
   const html = renderBrandedEmail({
     subject: input.subject,
     brand: input.brand,
-    preheader: input.preheader,
+    preheader: input.message.previewText || input.preheader,
     heading: input.heading,
     content: input.message.html,
     summaryRows: input.rows,
@@ -74,7 +79,13 @@ export function bookingChangedEmail(
   stay: GuestStay,
   previous: { startsOn: string; endsOn: string; roomName: string },
   brand: MailBrand,
-  message: { subject: string; html: string; text: string },
+  message: {
+    subject: string;
+    html: string;
+    text: string;
+    previewText?: string;
+    hasStayBlock?: boolean;
+  },
 ): Omit<RenderedEmailCommand, 'idempotencyKey'> {
   const subject = message.subject;
   const datesChanged = previous.startsOn !== stay.startsOn || previous.endsOn !== stay.endsOn;
@@ -82,7 +93,9 @@ export function bookingChangedEmail(
   const rows = [
     { label: 'Booking reference', value: stay.reference },
     { label: stay.rooms.length === 1 ? 'Room' : 'Rooms', value: roomsValue(stay) },
-    { label: 'Dates', value: dates(stay.startsOn, stay.endsOn) },
+    ...(!message.hasStayBlock
+      ? [{ label: 'Dates', value: dates(stay.startsOn, stay.endsOn) }]
+      : []),
     {
       label: 'Guests',
       value: String(stay.rooms.reduce((sum, room) => sum + room.guestCount, 0)),
@@ -96,7 +109,7 @@ export function bookingChangedEmail(
     stay,
     brand,
     subject,
-    preheader: `Your stay is now ${dates(stay.startsOn, stay.endsOn)}.`,
+    preheader: message.previewText || `Your stay is now ${dates(stay.startsOn, stay.endsOn)}.`,
     heading: 'Your booking has been updated',
     message,
     rows,
@@ -109,18 +122,26 @@ export function bookingChangedEmail(
 export function paymentNotCompletedEmail(
   stay: GuestStay,
   brand: MailBrand,
-  message: { subject: string; html: string; text: string },
+  message: {
+    subject: string;
+    html: string;
+    text: string;
+    previewText?: string;
+    hasStayBlock?: boolean;
+  },
 ): Omit<RenderedEmailCommand, 'idempotencyKey'> {
   const subject = message.subject;
   const rows = [
     { label: stay.rooms.length === 1 ? 'Room' : 'Rooms', value: roomsValue(stay) },
-    { label: 'Dates', value: dates(stay.startsOn, stay.endsOn) },
+    ...(!message.hasStayBlock
+      ? [{ label: 'Dates', value: dates(stay.startsOn, stay.endsOn) }]
+      : []),
   ];
   return guestEmail({
     stay,
     brand,
     subject,
-    preheader: 'The payment was not completed, so the booking was not made.',
+    preheader: message.previewText || 'The payment was not completed, so the booking was not made.',
     heading: 'Your booking was not completed',
     message,
     rows,
