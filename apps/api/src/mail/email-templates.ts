@@ -139,7 +139,8 @@ export async function savedTemplate(
   const rows = await tx.$queryRaw<SavedTemplate[]>`
     SELECT subject, body FROM email_templates
     WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
-      AND template_key = ${key} AND language = ${TEMPLATE_LANGUAGE}
+      AND template_key = ${key} AND language IN ('en',(SELECT email_default_language FROM properties WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid))
+    ORDER BY CASE WHEN language=(SELECT email_default_language FROM properties WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid) THEN 0 ELSE 1 END LIMIT 1
   `;
   return rows[0] ?? null;
 }

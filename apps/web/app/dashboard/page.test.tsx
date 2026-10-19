@@ -249,6 +249,25 @@ describe('Tenant dashboard shell', () => {
     );
   });
 
+  it.each(['OWNER', 'ADMIN', 'STAFF'] as const)(
+    'requires loaded settings.manage before showing Emails to %s',
+    (role) => {
+      expect(
+        dashboardNavigation('tenant-1', 'property-1', role, 'overview', []).some(
+          (item) => item.label === 'Emails',
+        ),
+      ).toBe(false);
+      expect(
+        dashboardNavigation('tenant-1', 'property-1', role, 'overview', ['settings.manage']),
+      ).toContainEqual(
+        expect.objectContaining({
+          label: 'Emails',
+          href: '/dashboard/tenant-1?propertyId=property-1&section=emails',
+        }),
+      );
+    },
+  );
+
   it('uses the designed navigation order and preserves the bookings route key', () => {
     const ownerItems = dashboardNavigation('tenant-1', 'property-1', 'OWNER');
     expect(ownerItems.map((item) => item.label)).toEqual([

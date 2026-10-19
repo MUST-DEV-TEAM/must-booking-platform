@@ -28,6 +28,7 @@ export function ConfirmDialog({
   destructive = false,
   reasonLabel,
   reasonRequired = false,
+  reasonPlaceholder = "Visible in the reservation's activity",
   typedWord,
   confirmDisabled = false,
   children,
@@ -42,6 +43,7 @@ export function ConfirmDialog({
   /** Shows a reason box with this label. */
   reasonLabel?: string;
   reasonRequired?: boolean;
+  reasonPlaceholder?: string;
   /** The word the user must type to enable the confirm button (for example "CANCEL"). */
   typedWord?: string;
   /** Keeps the confirm button off while something in `children` is not valid yet. */
@@ -78,7 +80,9 @@ export function ConfirmDialog({
       setTyped('');
       onOpenChange(false);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Something went wrong. Nothing was changed.');
+      setError(
+        caught instanceof Error ? caught.message : 'Something went wrong. Nothing was changed.',
+      );
     } finally {
       setBusy(false);
     }
@@ -104,7 +108,7 @@ export function ConfirmDialog({
               id="confirm-reason"
               value={reason}
               onChange={(event) => setReason(event.target.value)}
-              placeholder="Visible in the reservation's activity"
+              placeholder={reasonPlaceholder}
             />
           </div>
         ) : null}

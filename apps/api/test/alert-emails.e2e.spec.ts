@@ -6,8 +6,11 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { RenderedEmailCommand } from '@must/domain-contracts';
 
+import { MailDeliveryService } from '../src/mail/mail-delivery.service';
+import { isolatedMailDelivery } from './helpers/isolated-mail-delivery';
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { AlertEmailService, alertWindows } from '../src/mail/alert-email.service';
+import { withoutExternalWorkers } from './helpers/without-external-workers';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 
@@ -89,10 +92,12 @@ describe('alert emails (owner problem alerts, refunds, system owner)', () => {
     await clearSignupRateLimits();
     await clearPlatformRows();
     const { AppModule } = await import('../src/app.module');
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    const moduleBuilder = Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(MAIL_PROVIDER)
       .useValue(mail)
-      .compile();
+      .overrideProvider(MailDeliveryService)
+      .useFactory(isolatedMailDelivery);
+    const moduleRef = await withoutExternalWorkers(moduleBuilder).compile();
     app = moduleRef.createNestApplication();
     await app.init();
 

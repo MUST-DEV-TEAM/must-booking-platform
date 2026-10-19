@@ -484,8 +484,16 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
   }
 
   /** Guest emails come from the hotel's name, and replies go to the hotel. */
-  private guestSender(brand: { name?: string | null; supportEmail?: string | null }) {
-    return { fromName: brand.name ?? null, replyTo: brand.supportEmail ?? null };
+  private guestSender(brand: {
+    name?: string | null;
+    supportEmail?: string | null;
+    senderName?: string | null;
+    replyTo?: string | null;
+  }) {
+    return {
+      fromName: brand.senderName ?? brand.name ?? null,
+      replyTo: brand.replyTo ?? brand.supportEmail ?? null,
+    };
   }
 
   /** "Hotel name" <our address>: the name is the hotel's, the sending address stays ours. */

@@ -175,3 +175,6 @@ Ship Phase A immediately (it is a live bug). Phases B and C fix reliability and 
 ## Documentation to update when work lands
 
 `docs/architecture/frontends-and-api.md` (endpoints), `docs/architecture/data-and-access.md` (new tables/RLS), a new ADR for the email log/queue/template model, `docs/operations/` (required mail env vars and Resend domain/webhook setup), and the roadmap index.
+
+
+M24 owner-authorized A2 extends this implementation with versioned structured authoring, controlled tests, configuration and delivery recovery. The exact active contract, limitations and verification are owned by [24-notifications-emails-audit-plan.md](24-notifications-emails-audit-plan.md); historical task states above are not self-marked accepted. The previous Settings email screen becomes a compatibility entry into the same sidebar Emails workspace. Separate private recipient deliveries remain the supported transport behavior; CC/BCC headers are not implemented. Code inspection found no existing reserved-address/property-hourly safety checks: A2 adds them at the shared delivery boundary and records that as new behavior, rather than treating a requirement as historical implementation evidence.

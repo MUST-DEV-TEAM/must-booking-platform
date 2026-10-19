@@ -12,6 +12,7 @@ import {
   Hotel as IconHotel,
   Layers,
   LayoutDashboard,
+  Mail,
   LoaderCircle,
   Package as IconInventory,
   Settings,
@@ -50,6 +51,7 @@ import { ReservationsPage } from './reservations-page';
 import { EmailSettings, isEmailTab, type EmailTab } from './email-settings';
 import { DashboardSettings, isSettingsArea, SettingsHub, type SettingsArea } from './settings';
 import { DashboardNotifications, NotificationsInbox } from './notifications';
+import { EmailsWorkspace } from './emails';
 import { DashboardReports } from './reports';
 import { RoomManagement } from './[tenantId]/room-management';
 import { RateManagement } from './[tenantId]/rate-management';
@@ -139,6 +141,7 @@ const managementNavigation = [
     capabilities: ['rates.manage'],
   },
   { section: 'staff', label: 'Staff', icon: Users, capabilities: ['staff.view'] },
+  { section: 'emails', label: 'Emails', icon: Mail, capabilities: ['settings.manage'] },
   { section: 'reports', label: 'Reports', icon: FileChartColumn, capabilities: ['reports.view'] },
   { section: 'settings', label: 'Settings', icon: Settings },
 ] as const;
@@ -186,6 +189,7 @@ const unavailableDashboardTabCopy: Record<UnavailableDashboardTab, string> = {
 const ownerAdminOnlySections = new Set(['settings']);
 
 function canAccessSection(role: TenantRole, capabilities: readonly string[], section: string) {
+  if (section === 'emails') return capabilities.includes('settings.manage');
   if (
     role !== 'STAFF' ||
     section === 'overview' ||
@@ -375,13 +379,20 @@ export function DashboardShell({
   }, [initialData, tenantId]);
 
   useEffect(() => {
-    if (role !== 'STAFF' || !selectedProperty) return;
+    if (!role || !selectedProperty) return;
     let active = true;
     setCapabilities(undefined);
     void fetch(`/api/tenants/${tenantId}/properties/${selectedProperty.id}/capabilities/mine`, {
       credentials: 'include',
     })
-      .then(async (response) => (response.ok ? ((await response.json()) as string[]) : []))
+      .then(async (response) => {
+        if (!response.ok) return [];
+        const value: unknown = await response.json();
+        return Array.isArray(value) &&
+          value.every((item): item is string => typeof item === 'string')
+          ? value
+          : [];
+      })
       .then((value) => {
         if (active) setCapabilities(value);
       })
@@ -624,6 +635,14 @@ export function DashboardShell({
       {selectedProperty && role && canViewSection && section === 'staff' ? (
         <DashboardStaff tenantId={tenantId} propertyId={selectedProperty.id} />
       ) : null}
+      {selectedProperty && role && canViewSection && section === 'emails' ? (
+        <EmailsWorkspace
+          key={selectedProperty.id}
+          tenantId={tenantId}
+          propertyId={selectedProperty.id}
+          canWrite={user?.emailVerified === true && hasCapability('settings.manage')}
+        />
+      ) : null}
       {selectedProperty && role && canViewSection && section === 'reports' ? (
         <DashboardReports tenantId={tenantId} propertyId={selectedProperty.id} />
       ) : null}
@@ -633,6 +652,7 @@ export function DashboardShell({
             tenantId={tenantId}
             propertyId={selectedProperty.id}
             initialTab={emailTab}
+            canWrite={user?.emailVerified === true && hasCapability('settings.manage')}
           />
         ) : settingsArea ? (
           <DashboardSettings

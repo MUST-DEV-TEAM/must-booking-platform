@@ -82,6 +82,16 @@ import {
 } from './tenancy/email-activity.controller';
 import { EmailActivityService } from './tenancy/email-activity.service';
 import { ReviewLinksController, ReviewLinksService } from './tenancy/review-links.controller';
+import { EmailTemplateVersionsController } from './tenancy/email-template-versions.controller';
+import { EmailTemplateVersionsService } from './tenancy/email-template-versions.service';
+import {
+  EmailConfigurationController,
+  EmailConfigurationService,
+} from './tenancy/email-configuration.controller';
+import {
+  EmailSuppressionsController,
+  EmailSuppressionsService,
+} from './tenancy/email-suppressions.controller';
 import { EmailTemplatesController } from './tenancy/email-templates.controller';
 import { EmailTemplatesService } from './tenancy/email-templates.service';
 import { STORAGE_PROVIDER } from './storage/storage.provider';
@@ -224,6 +234,9 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     NotificationSettingsController,
     EmailPreferencesController,
     EmailTemplatesController,
+    EmailSuppressionsController,
+    EmailConfigurationController,
+    EmailTemplateVersionsController,
     EmailActivityController,
     EmailSenderController,
     ReviewLinksController,
@@ -296,6 +309,9 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     CancellationPoliciesService,
     NotificationSettingsService,
     EmailTemplatesService,
+    EmailSuppressionsService,
+    EmailConfigurationService,
+    EmailTemplateVersionsService,
     EmailActivityService,
     ReviewLinksService,
     RoomTypesService,

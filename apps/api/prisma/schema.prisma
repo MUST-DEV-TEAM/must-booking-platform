@@ -163,6 +163,10 @@ model User {
 }
 
 model Property {
+  emailConfigurationVersion Int @default(1) @map("email_configuration_version")
+  emailSenderName String? @map("email_sender_name") @db.VarChar(120)
+  emailReplyTo String? @map("email_reply_to") @db.VarChar(254)
+  emailDefaultLanguage String @default("en") @map("email_default_language")
   id                                String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId                          String                    @map("tenant_id") @db.Uuid
   name                              String                    @db.VarChar(200)
@@ -229,6 +233,7 @@ enum PropertyBookingMode {
 }
 
 model TenantMembership {
+  emailPreferencesVersion Int @default(1) @map("email_preferences_version")
   id                String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId          String                    @map("tenant_id") @db.Uuid
   userId            String                    @map("user_id") @db.Uuid
@@ -1218,6 +1223,7 @@ model RoomAmenity {
 // tenant and is the duplicate guard for transports without provider-side
 // idempotency. `propertyId` is null for tenant-level mail (e.g. staff invites).
 enum EmailMessageStatus {
+  SUPPRESSED
   QUEUED
   SENT
   FAILED
@@ -1233,6 +1239,7 @@ enum EmailRecipientKind {
 }
 
 model EmailMessage {
+  workspaceVersion Int @default(1) @map("workspace_version")
   id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId          String?            @map("tenant_id") @db.Uuid
   propertyId        String?            @map("property_id") @db.Uuid
@@ -1255,6 +1262,7 @@ model EmailMessage {
 
   @@unique([tenantId, idempotencyKey], map: "email_messages_tenant_idempotency_key")
   @@index([tenantId, propertyId, createdAt(sort: Desc)], map: "email_messages_tenant_property_created_idx")
+  @@unique([tenantId,propertyId,id],map:"email_message_scoped_identity")
   @@map("email_messages")
 }
 
@@ -1475,4 +1483,73 @@ model GuestCaptureOperation {
  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
  @@id([tenantId,propertyId,idempotencyKey])
  @@map("guest_capture_operations")
+}
+
+model EmailWorkspaceOperation {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ idempotencyKey String @map("idempotency_key") @db.VarChar(128)
+ requestHash String @map("request_hash") @db.Char(64)
+ response Json
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+ @@id([tenantId,propertyId,idempotencyKey])
+ @@map("email_workspace_operations")
+}
+model EmailTemplateHead {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ templateKey String @map("template_key")
+ language String
+ version Int @default(0)
+ liveRevision Int? @map("live_revision")
+ draftRevision Int? @map("draft_revision")
+ @@id([tenantId,propertyId,templateKey,language])
+ @@map("email_template_heads")
+}
+model EmailTemplateRevision {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ templateKey String @map("template_key")
+ language String
+ revision Int
+ subject String @db.VarChar(300)
+ body String
+ actorUserId String @map("actor_user_id") @db.Uuid
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+ @@id([tenantId,propertyId,templateKey,language,revision])
+ @@map("email_template_revisions")
+}
+
+model EmailSuppression {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ recipient String @db.VarChar(254)
+ reason String
+ active Boolean @default(true)
+ version Int @default(1)
+ latestEventAt DateTime @map("latest_event_at") @db.Timestamptz(6)
+ clearedAt DateTime? @map("cleared_at") @db.Timestamptz(6)
+ updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+ @@id([tenantId,propertyId,recipient])
+ @@map("email_suppressions")
+}
+
+model EmailDeliverySlot {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ messageId String @map("message_id") @db.Uuid
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+ @@id([tenantId,propertyId,messageId])
+ @@index([tenantId,propertyId,createdAt],map:"email_delivery_slots_window")
+ @@map("email_delivery_slots")
+}
+
+model EmailSuppressionEvent {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ messageId String @map("message_id") @db.Uuid
+ eventHash String @map("event_hash") @db.Char(64)
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+ @@id([tenantId,propertyId,messageId,eventHash])
+ @@map("email_suppression_events")
 }

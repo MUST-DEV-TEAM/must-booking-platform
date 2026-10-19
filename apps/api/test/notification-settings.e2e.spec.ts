@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MailDeliveryService } from '../src/mail/mail-delivery.service';
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { PaymentNotificationService } from '../src/mail/payment-notification.service';
+import { withoutExternalWorkers } from './helpers/without-external-workers';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 
@@ -61,10 +62,10 @@ describe('notification settings (who receives which email)', () => {
     process.env.WEB_APP_URL = 'http://localhost:3001';
     await clearSignupRateLimits();
     const { AppModule } = await import('../src/app.module');
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    const moduleBuilder = Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(MAIL_PROVIDER)
-      .useValue(mail)
-      .compile();
+      .useValue(mail);
+    const moduleRef = await withoutExternalWorkers(moduleBuilder).compile();
     app = moduleRef.createNestApplication();
     await app.init();
   });
@@ -265,6 +266,7 @@ describe('notification settings (who receives which email)', () => {
         .set('Cookie', muteCookie)
         .expect(200);
       expect(initial.body).toEqual({
+        version: 1,
         muteOptionalEmails: false,
         optionalEmails: [
           { topic: 'refund_processed', label: 'Refund processed' },

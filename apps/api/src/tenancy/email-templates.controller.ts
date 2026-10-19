@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  Headers,
   Inject,
   Param,
   Post,
@@ -66,12 +67,18 @@ export class EmailTemplatesController {
   @TenantScoped({ propertyParam: 'propertyId' })
   @RequiresCapability('settings.manage')
   @RequiresVerifiedEmail()
-  sendTest(@Param('key') key: string, @Body() body: object, @Req() request: RequestContext) {
+  sendTest(
+    @Param('key') key: string,
+    @Body() body: Record<string, unknown>,
+    @Req() request: RequestContext,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
     return this.templates.sendTest(
       this.context(request),
       request.tenantContext.userId,
       key,
       body ?? {},
+      idempotencyKey,
     );
   }
 

@@ -32,6 +32,7 @@ type RuleRow = {
 
 /** Whether this person skips the non-urgent staff emails, and which ones those are. */
 export type EmailPreferences = {
+  version: number;
   muteOptionalEmails: boolean;
   optionalEmails: Array<{ topic: string; label: string }>;
 };
@@ -58,7 +59,7 @@ export class NotificationSettingsService {
     const mute = value.muteOptionalEmails;
     return this.database.withTenantTransaction({ tenantId }, async (tx) => {
       await tx.$executeRaw`
-        UPDATE tenant_memberships SET mute_optional_emails = ${mute}, updated_at = now()
+        UPDATE tenant_memberships SET mute_optional_emails = ${mute}, email_preferences_version=email_preferences_version+1, updated_at = now()
         WHERE tenant_id = ${tenantId}::uuid AND user_id = ${userId}::uuid
       `;
       return this.preferences(tx, tenantId, userId);
@@ -70,14 +71,15 @@ export class NotificationSettingsService {
     tenantId: string,
     userId: string,
   ): Promise<EmailPreferences> {
-    const rows = await tx.$queryRaw<Array<{ mute: boolean }>>`
-      SELECT mute_optional_emails AS mute FROM tenant_memberships
+    const rows = await tx.$queryRaw<Array<{ mute: boolean; version: number }>>`
+      SELECT mute_optional_emails AS mute,email_preferences_version AS version FROM tenant_memberships
       WHERE tenant_id = ${tenantId}::uuid AND user_id = ${userId}::uuid
     `;
     if (!rows[0]) throw new NotFoundException('Membership was not found.');
     const topics = Object.keys(NOTIFICATION_TOPICS) as NotificationTopic[];
     return {
       muteOptionalEmails: rows[0].mute,
+      version: rows[0].version,
       optionalEmails: topics
         .filter(isOptionalStaffTopic)
         .map((topic) => ({ topic, label: NOTIFICATION_TOPICS[topic].label })),
@@ -119,10 +121,34 @@ export class NotificationSettingsService {
   ): Promise<NotificationTopicSettings> {
     if (!isNotificationTopic(topicParam)) throw new NotFoundException('Unknown notification.');
     const topic = topicParam;
-    const input = this.input(topic, body);
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      await this.requireTargetsBelongHere(tx, tenantId, propertyId, input.rules);
-      await tx.$executeRaw`
+      await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
+      const result = await this.updateInTransaction(
+        tx,
+        tenantId,
+        propertyId,
+        actorUserId,
+        topic,
+        body,
+      );
+      await tx.$executeRaw`UPDATE properties SET email_configuration_version=email_configuration_version+1 WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid`;
+      return result;
+    });
+  }
+
+  async updateInTransaction(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    actorUserId: string,
+    topicParam: string,
+    body: unknown,
+  ): Promise<NotificationTopicSettings> {
+    if (!isNotificationTopic(topicParam)) throw new NotFoundException('Unknown notification.');
+    const topic = topicParam;
+    const input = this.input(topic, body);
+    await this.requireTargetsBelongHere(tx, tenantId, propertyId, input.rules);
+    await tx.$executeRaw`
         INSERT INTO notification_topic_settings
           (tenant_id, property_id, topic, guest_enabled, staff_enabled, custom_staff_recipients, days_offset)
         VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${topic}, ${input.guestEnabled},
@@ -134,12 +160,12 @@ export class NotificationSettingsService {
           days_offset = EXCLUDED.days_offset,
           updated_at = CURRENT_TIMESTAMP
       `;
-      await tx.$executeRaw`
+    await tx.$executeRaw`
         DELETE FROM notification_recipient_rules
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND topic = ${topic}
       `;
-      for (const rule of input.rules) {
-        await tx.$executeRaw`
+    for (const rule of input.rules) {
+      await tx.$executeRaw`
           INSERT INTO notification_recipient_rules
             (tenant_id, property_id, topic, target, membership_role, role_template_id, user_id, email)
           VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${topic}, ${rule.target}::"NotificationRecipientTarget",
@@ -148,18 +174,17 @@ export class NotificationSettingsService {
             ${rule.target === 'STAFF_USER' ? rule.userId : null}::uuid,
             ${rule.target === 'EMAIL' ? rule.email : null})
         `;
-      }
-      await this.audit.recordInTransaction(tx, {
-        tenantId,
-        propertyId,
-        actorUserId,
-        action: 'notification_settings.updated',
-        targetType: 'notification_topic',
-        targetId: topic,
-        details: { ...input },
-      });
-      return this.topicSettings(tx, tenantId, propertyId, topic);
+    }
+    await this.audit.recordInTransaction(tx, {
+      tenantId,
+      propertyId,
+      actorUserId,
+      action: 'notification_settings.updated',
+      targetType: 'notification_topic',
+      targetId: topic,
+      details: { ...input },
     });
+    return this.topicSettings(tx, tenantId, propertyId, topic);
   }
 
   private async topicSettings(

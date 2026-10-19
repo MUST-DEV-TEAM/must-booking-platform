@@ -140,6 +140,9 @@ export type MailOrderRoom = {
 };
 
 export type MailBrand = {
+  /** Approved hotel email identity; does not change the property name in content. */
+  senderName?: string | null;
+  replyTo?: string | null;
   name: string;
   logoUrl?: string | null;
   supportEmail?: string | null;

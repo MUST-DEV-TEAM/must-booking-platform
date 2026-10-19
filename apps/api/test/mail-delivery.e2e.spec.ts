@@ -100,6 +100,7 @@ describe('MailDeliveryService (real Postgres + Redis/BullMQ)', () => {
       INSERT INTO "properties" ("id", "tenant_id", "name", "slug")
       VALUES (${propertyId}::uuid, ${tenantId}::uuid, 'Mail delivery property', ${`mail-delivery-${propertyId}`})
     `;
+    service.queueName = `mail-delivery-test-${randomUUID()}`;
     service.retryPolicy = { attempts: 3, backoffMs: 50 };
     service.onModuleInit();
   });

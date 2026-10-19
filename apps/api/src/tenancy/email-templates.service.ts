@@ -1,5 +1,12 @@
-import { randomUUID } from 'node:crypto';
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  HttpException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import type { MailBrand } from '@must/domain-contracts';
 
 import { renderBrandedEmail } from '../mail/email-layout';
@@ -17,6 +24,7 @@ import {
   type SavedTemplate,
 } from '../mail/email-templates';
 import { MailDeliveryService } from '../mail/mail-delivery.service';
+import { emailWrite } from './email-workspace-writes';
 import { AuditLogService } from './audit-log.service';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 
@@ -67,9 +75,34 @@ export class EmailTemplatesService {
         WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
           AND language = ${TEMPLATE_LANGUAGE}
       `;
-      return (Object.keys(EMAIL_TEMPLATES) as EmailTemplateKey[]).map((key) =>
-        this.view(key, saved.find((row) => row.key === key) ?? null),
-      );
+      const heads = await tx.$queryRaw<
+        {
+          key: string;
+          language: string;
+          draftRevision: number | null;
+          liveRevision: number | null;
+          version: number;
+        }[]
+      >`SELECT template_key AS key,language,draft_revision AS "draftRevision",live_revision AS "liveRevision",version FROM email_template_heads WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid`;
+      const topics = await tx.$queryRaw<
+        { topic: string; enabled: boolean }[]
+      >`SELECT topic,guest_enabled AS enabled FROM notification_topic_settings WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid`;
+      return (Object.keys(EMAIL_TEMPLATES) as EmailTemplateKey[]).map((key) => ({
+        enabled:
+          topics.find(
+            (topic) => topic.topic === (key === 'booking_confirmed' ? 'new_booking' : key),
+          )?.enabled ?? true,
+        ...this.view(key, saved.find((row) => row.key === key) ?? null),
+        hasDraft: heads.some((row) => row.key === key && row.draftRevision !== null),
+        locales: [
+          'en',
+          ...(heads.some(
+            (row) => row.key === key && row.language === 'sq' && row.liveRevision !== null,
+          )
+            ? ['sq']
+            : []),
+        ],
+      }));
     });
   }
 
@@ -82,6 +115,7 @@ export class EmailTemplatesService {
     const templateKey = this.requireKey(key);
     const input = this.validate(templateKey, body);
     return this.database.withTenantTransaction(context, async (tx) => {
+      await this.requireLegacyTemplate(tx, context, templateKey);
       await tx.$executeRaw`
         INSERT INTO email_templates
           (tenant_id, property_id, template_key, language, subject, body, updated_by_user_id)
@@ -108,6 +142,7 @@ export class EmailTemplatesService {
   reset(context: Context, actorUserId: string, key: string): Promise<EmailTemplateView> {
     const templateKey = this.requireKey(key);
     return this.database.withTenantTransaction(context, async (tx) => {
+      await this.requireLegacyTemplate(tx, context, templateKey);
       await tx.$executeRaw`
         DELETE FROM email_templates
         WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
@@ -139,45 +174,86 @@ export class EmailTemplatesService {
     );
   }
 
-  /** Sends the preview to the signed-in person's own address. */
+  /** Tests use only the verified actor's own address and a stable, audited send intention. */
   async sendTest(
     context: Context,
     userId: string,
     key: string,
-    body: object,
+    body: Record<string, unknown>,
+    idempotencyKey?: string,
   ): Promise<{ sentTo: string }> {
     const templateKey = this.requireKey(key);
     const draft = this.hasDraft(body) ? this.validate(templateKey, body) : null;
-    const work = await this.database.withTenantTransaction(context, async (tx) => {
-      const users = await tx.$queryRaw<Array<{ email: string }>>`
-        SELECT email FROM users WHERE id = ${userId}::uuid
-      `;
-      if (!users[0]) throw new NotFoundException('User was not found.');
-      const brand = await this.brand(tx, context);
-      return {
-        to: users[0].email,
-        brand,
-        preview: this.render(
+    const language = body.language ?? 'en';
+    if (language !== 'en' && language !== 'sq')
+      throw new BadRequestException('Language must be en or sq.');
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    if (!reason || reason.length > 300)
+      throw new BadRequestException('A test reason of 1 to 300 characters is required.');
+    if (!Number.isSafeInteger(body.version) || Number(body.version) < 0)
+      throw new BadRequestException('A nonnegative version is required.');
+    const work = await emailWrite(
+      this.database,
+      this.audit,
+      context,
+      userId,
+      idempotencyKey,
+      'email.test.requested',
+      templateKey,
+      { templateKey, language, draft, reason, version: body.version },
+      async (tx) => {
+        const heads = await tx.$queryRaw<{ version: number }[]>`
+          SELECT version FROM email_template_heads WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND template_key=${templateKey} AND language=${language}
+        `;
+        if ((heads[0]?.version ?? 0) !== body.version)
+          throw new ConflictException('The template changed. Reload before testing.');
+        const users = await tx.$queryRaw<
+          { email: string; verified: Date | null }[]
+        >`SELECT email,email_verified_at AS verified FROM users WHERE id=${userId}::uuid`;
+        if (!users[0]?.verified)
+          throw new ForbiddenException('Verify your email before sending a test.');
+        const count = await tx.$queryRaw<{ count: number }[]>`
+          SELECT count(*)::int AS count FROM audit_logs WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid
+          AND actor_user_id=${userId}::uuid AND action='email.test.requested' AND created_at>now()-interval '1 hour'
+        `;
+        if ((count[0]?.count ?? 0) >= 5)
+          throw new HttpException('At most five test emails per person and hotel per hour.', 429);
+        const brand = await this.brand(tx, context);
+        const preview = this.render(
           templateKey,
           draft ?? (await savedTemplate(tx, context, templateKey)),
           brand,
-        ),
-      };
-    });
+        );
+        const response = {
+          to: users[0].email,
+          subject: `[TEST] ${preview.subject}`,
+          html: preview.html,
+          text: preview.text,
+          replyTo: brand.replyTo ?? brand.supportEmail ?? null,
+          fromName: brand.senderName ?? brand.name ?? null,
+        };
+        return {
+          response,
+          details: {
+            templateKey,
+            language,
+            reason,
+            recipient: users[0].email,
+            version: body.version,
+          },
+        };
+      },
+    );
     await this.delivery.dispatch(
       'rendered',
       {
+        ...work,
         eventType: 'template.test',
-        to: work.to,
-        subject: `[Test] ${work.preview.subject}`,
-        html: work.preview.html,
-        text: work.preview.text,
-        idempotencyKey: `template-test/${templateKey}/${randomUUID()}`,
+        idempotencyKey: `template-test/${context.propertyId}/${idempotencyKey}`,
         bookingId: null,
-        replyTo: work.brand.supportEmail ?? null,
-        fromName: work.brand.name || null,
       },
       context,
+      { preserveIdentity: true },
     );
     return { sentTo: work.to };
   }
@@ -237,7 +313,7 @@ export class EmailTemplatesService {
     return value.subject !== undefined || value.body !== undefined;
   }
 
-  private validate(key: EmailTemplateKey, body: object): SavedTemplate {
+  validate(key: EmailTemplateKey, body: object): SavedTemplate {
     const value = body as { subject?: unknown; body?: unknown };
     if (typeof value.subject !== 'string' || typeof value.body !== 'string')
       throw new BadRequestException('subject and body are required.');
@@ -255,9 +331,24 @@ export class EmailTemplatesService {
     return { subject, body: text };
   }
 
+  private async requireLegacyTemplate(
+    tx: TenantTransaction,
+    context: Context,
+    key: EmailTemplateKey,
+  ): Promise<void> {
+    await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid FOR UPDATE`;
+    const heads = await tx.$queryRaw<{ live: number | null; draft: number | null }[]>`
+      SELECT live_revision AS live,draft_revision AS draft FROM email_template_heads WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND template_key=${key} AND language='en'
+    `;
+    if (heads.some((head) => head.live !== null || head.draft !== null))
+      throw new ConflictException('Use the versioned template editor to change this template.');
+    // Compatibility writes invalidate an already-open new editor even before its first draft.
+    await tx.$executeRaw`INSERT INTO email_template_heads(tenant_id,property_id,template_key,language,version) VALUES(${context.tenantId}::uuid,${context.propertyId}::uuid,${key},'en',1) ON CONFLICT(tenant_id,property_id,template_key,language) DO UPDATE SET version=email_template_heads.version+1`;
+  }
+
   private async brand(tx: TenantTransaction, context: Context): Promise<MailBrand> {
     const rows = await tx.$queryRaw<MailBrand[]>`
-      SELECT name, logo_url AS "logoUrl", support_email AS "supportEmail", phone,
+      SELECT name, email_sender_name AS "senderName",email_reply_to AS "replyTo",logo_url AS "logoUrl", support_email AS "supportEmail", phone,
         public_website_origin AS "websiteUrl", address
       FROM properties WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
     `;

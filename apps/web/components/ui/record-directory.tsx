@@ -1,5 +1,5 @@
 'use client';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { Button } from './button';
 import { Card } from './card';
@@ -33,6 +33,8 @@ export function RecordDirectory<T extends { id: string }>({
   actions,
   emptyTitle = 'No records yet',
   exportable = true,
+  pagination,
+  initialSort,
 }: {
   rows: readonly T[];
   columns: readonly RecordColumn<T>[];
@@ -42,15 +44,31 @@ export function RecordDirectory<T extends { id: string }>({
   emptyTitle?: string;
   /** Disable local exports when the caller requires a dedicated audited export flow. */
   exportable?: boolean;
+  /** Server window; selection/export applies to the loaded page only. */
+  initialSort?: { key: string; direction: 'asc' | 'desc' };
+  pagination?: {
+    page: number;
+    pageSize: number;
+    total: number;
+    onPage: (page: number) => void;
+    onPageSize: (size: number) => void;
+  };
 }) {
   const defaults = Object.fromEntries(columns.slice(1).map((c) => [c.id, true]));
   const preferences = useTablePreferences(storageKey, defaults);
   const [search, setSearch] = useState(''),
     [selected, setSelected] = useState<string[]>([]),
-    [sort, setSort] = useState({ key: columns[0].id, direction: 'asc' as 'asc' | 'desc' }),
+    [sort, setSort] = useState(
+      initialSort ?? { key: columns[0].id, direction: 'asc' as 'asc' | 'desc' },
+    ),
     [page, setPage] = useState(1),
     [pageSize, setPageSize] = useState(25),
     [error, setError] = useState('');
+  const serverPage = pagination?.page,
+    serverPageSize = pagination?.pageSize;
+  useEffect(() => {
+    if (serverPage !== undefined) setSelected([]);
+  }, [serverPage, serverPageSize, rows]);
   const filtered = rows
     .filter((r) =>
       columns.some((c) => String(c.value(r)).toLowerCase().includes(search.toLowerCase())),
@@ -67,7 +85,9 @@ export function RecordDirectory<T extends { id: string }>({
       );
     });
   const currentPage = Math.min(page, Math.max(1, Math.ceil(filtered.length / pageSize))),
-    visible = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    visible = pagination
+      ? filtered
+      : filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize),
     shown = columns.filter((c, i) => i === 0 || preferences.columns[c.id]);
   const selectedRows = rows.filter((r) => selected.includes(r.id));
   const csv = (items: readonly T[]) =>
@@ -100,8 +120,8 @@ export function RecordDirectory<T extends { id: string }>({
       <div className="flex flex-wrap items-center gap-2">
         <SearchInput
           className="ml-auto w-64"
-          aria-label="Search records"
-          placeholder="Search records"
+          aria-label={pagination ? 'Search this page' : 'Search records'}
+          placeholder={pagination ? 'Search this page' : 'Search records'}
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
@@ -119,7 +139,7 @@ export function RecordDirectory<T extends { id: string }>({
         />
         {exportable ? (
           <Button variant="outline" size="sm" onClick={() => download(filtered)}>
-            Export CSV
+            {pagination ? 'Export page CSV' : 'Export CSV'}
           </Button>
         ) : null}
       </div>
@@ -263,12 +283,16 @@ export function RecordDirectory<T extends { id: string }>({
             </Table>
           </div>
           <Pagination
-            page={currentPage}
-            pageSize={pageSize}
-            total={filtered.length}
-            onPage={setPage}
+            page={pagination?.page ?? currentPage}
+            pageSize={pagination?.pageSize ?? pageSize}
+            total={pagination?.total ?? filtered.length}
+            onPage={pagination?.onPage ?? setPage}
             pageSizeOptions={[10, 25, 50]}
             onPageSize={(size) => {
+              if (pagination) {
+                pagination.onPageSize(size);
+                return;
+              }
               setPageSize(size);
               setPage(1);
             }}

@@ -75,4 +75,31 @@ describe('RecordDirectory', () => {
       await act(async () => root.unmount());
     }
   });
+  it('uses a server page without slicing the loaded records a second time', async () => {
+    const host = document.body.appendChild(document.createElement('div')),
+      root = createRoot(host),
+      onPage = vi.fn();
+    try {
+      await act(async () =>
+        root.render(
+          createElement(RecordDirectory<{ id: string; name: string }>, {
+            rows: [{ id: 'b', name: 'Page two row' }],
+            columns: [{ id: 'name', label: 'Name', value: (row) => row.name }],
+            storageKey: 'test.server.directory',
+            onRow: () => {},
+            pagination: { page: 2, pageSize: 25, total: 70, onPage, onPageSize: vi.fn() },
+          }),
+        ),
+      );
+      expect(host.querySelector('tbody')!.textContent).toContain('Page two row');
+      expect(host.textContent).toContain('70 items');
+      expect(host.querySelector('input[aria-label="Search this page"]')).not.toBeNull();
+      await act(async () =>
+        host.querySelector<HTMLButtonElement>('[aria-label="Next page"]')!.click(),
+      );
+      expect(onPage).toHaveBeenCalledWith(3);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
 });
