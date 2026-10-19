@@ -53,6 +53,7 @@ import { DashboardSettings, isSettingsArea, SettingsHub, type SettingsArea } fro
 import { DashboardNotifications, NotificationsInbox } from './notifications';
 import { EmailsWorkspace } from './emails';
 import { DashboardReports } from './reports';
+import { ActivityAudit } from './activity-audit';
 import { RoomManagement } from './[tenantId]/room-management';
 import { RateManagement } from './[tenantId]/rate-management';
 import { IntegrationsManagement } from './[tenantId]/integrations-management';
@@ -143,6 +144,23 @@ const managementNavigation = [
   { section: 'staff', label: 'Staff', icon: Users, capabilities: ['staff.view'] },
   { section: 'emails', label: 'Emails', icon: Mail, capabilities: ['settings.manage'] },
   { section: 'reports', label: 'Reports', icon: FileChartColumn, capabilities: ['reports.view'] },
+  {
+    section: 'audit',
+    label: 'Audit log',
+    icon: ClipboardList,
+    anyCapabilities: [
+      'bookings.view',
+      'payments.view',
+      'calendar.view',
+      'rates.manage',
+      'accommodations.manage',
+      'photos.manage',
+      'guests.view',
+      'reports.view',
+      'settings.manage',
+      'staff.view',
+    ],
+  },
   { section: 'settings', label: 'Settings', icon: Settings },
 ] as const;
 
@@ -607,6 +625,9 @@ export function DashboardShell({
           role={role ? roleLabels[role] : undefined}
           hotelName={selectedProperty.name}
         />
+      ) : null}
+      {selectedProperty && role && canViewSection && section === 'audit' ? (
+        <ActivityAudit tenantId={tenantId} propertyId={selectedProperty.id} userId={user?.id} />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'notifications' ? (
         <NotificationsInbox tenantId={tenantId} propertyId={selectedProperty.id} />

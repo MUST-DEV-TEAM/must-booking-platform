@@ -1,3 +1,4 @@
+import { currentAuditContext } from './audit-request-context';
 import { Inject, Injectable } from '@nestjs/common';
 
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
@@ -21,10 +22,9 @@ export class AuditLogService {
 
   async record(entry: AuditEntry): Promise<void> {
     if (!entry.tenantId) {
-      await this.database.$executeRaw`
-        INSERT INTO "audit_logs" ("actor_user_id", "actor_type", "action", "target_type", "target_id", "details")
-        VALUES (${entry.actorUserId}::uuid, ${entry.actorType ?? 'TENANT_USER'}::"AuditActorType", ${entry.action}, ${entry.targetType}, ${entry.targetId}, ${JSON.stringify(entry.details ?? {})}::jsonb)
-      `;
+      await this.database.$transaction(async (tx) => {
+        await this.recordAccountEventInTransaction(tx, entry);
+      });
       return;
     }
     await this.database.withTenantTransaction(
@@ -35,9 +35,44 @@ export class AuditLogService {
 
   async recordInTransaction(tx: TenantTransaction, entry: AuditEntry): Promise<void> {
     await tx.$executeRaw`
-      INSERT INTO "audit_logs" ("tenant_id", "property_id", "actor_user_id", "actor_type", "action", "target_type", "target_id", "details")
-      VALUES (${entry.tenantId ?? null}::uuid, ${entry.propertyId ?? null}::uuid, ${entry.actorUserId}::uuid, ${entry.actorType ?? 'TENANT_USER'}::"AuditActorType", ${entry.action}, ${entry.targetType}, ${entry.targetId}, ${JSON.stringify(entry.details ?? {})}::jsonb)
+      INSERT INTO "audit_logs" ("tenant_id", "property_id", "actor_user_id", "actor_type", "action", "target_type", "target_id", "details", "request_context")
+      VALUES (${entry.tenantId ?? null}::uuid, ${entry.propertyId ?? null}::uuid, ${entry.actorUserId}::uuid, ${entry.actorType ?? 'TENANT_USER'}::"AuditActorType", ${entry.action}, ${entry.targetType}, ${entry.targetId}, ${JSON.stringify(entry.details ?? {})}::jsonb, ${JSON.stringify(currentAuditContext())}::jsonb)
     `;
+  }
+
+  /** Copy new successful account observations only to the properties accessible at occurrence. */
+  async recordAccountEventInTransaction(tx: TenantTransaction, entry: AuditEntry): Promise<void> {
+    await this.recordInTransaction(tx, entry);
+    if (
+      !entry.actorUserId ||
+      !['auth.login', 'auth.logout', 'auth.password_changed', 'auth.session_revoked'].includes(
+        entry.action,
+      )
+    )
+      return;
+    const memberships = await tx.$queryRaw<
+      { tenantId: string; role: string }[]
+    >`SELECT "tenantId",role FROM auth_list_user_tenants(${entry.actorUserId}::uuid)`;
+    for (const membership of memberships) {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id',${membership.tenantId},true),set_config('app.property_id','',true)`;
+      const properties = await tx.$queryRaw<
+        { id: string }[]
+      >`SELECT p.id FROM properties p WHERE p.tenant_id=${membership.tenantId}::uuid AND (${['OWNER', 'ADMIN'].includes(membership.role)} OR EXISTS(SELECT 1 FROM property_staff_assignments s WHERE s.tenant_id=${membership.tenantId}::uuid AND s.property_id=p.id AND s.user_id=${entry.actorUserId}::uuid AND s.suspended_at IS NULL))`;
+      for (const property of properties) {
+        await tx.$executeRaw`SELECT set_config('app.property_id',${property.id},true)`;
+        await this.recordInTransaction(tx, {
+          ...entry,
+          tenantId: membership.tenantId,
+          propertyId: property.id,
+          details: {
+            ...entry.details,
+            result: 'succeeded',
+            scope: 'Account event; property access existed at occurrence',
+          },
+        });
+      }
+    }
+    await tx.$executeRaw`SELECT set_config('app.tenant_id','',true),set_config('app.property_id','',true)`;
   }
 
   async list(tenantId: string): Promise<

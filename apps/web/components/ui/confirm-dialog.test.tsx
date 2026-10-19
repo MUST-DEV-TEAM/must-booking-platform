@@ -47,3 +47,31 @@ describe('ConfirmDialog', () => {
     }
   });
 });
+
+it('uses a specific cancellation label for a non-destructive confirmation', async () => {
+  const close = vi.fn(),
+    root = createRoot(document.body.appendChild(document.createElement('div')));
+  try {
+    await act(async () =>
+      root.render(
+        createElement(ConfirmDialog, {
+          open: true,
+          onOpenChange: close,
+          title: 'Export evidence',
+          description: 'Export the selected records.',
+          confirmLabel: 'Export',
+          cancelLabel: 'Cancel',
+          onConfirm: async () => {},
+        }),
+      ),
+    );
+    const cancel = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+      (b) => b.textContent === 'Cancel',
+    )!;
+    expect(cancel).toBeTruthy();
+    await act(async () => cancel.click());
+    expect(close).toHaveBeenCalledWith(false);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

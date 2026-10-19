@@ -25,6 +25,7 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel,
+  cancelLabel = 'Keep it',
   destructive = false,
   reasonLabel,
   reasonRequired = false,
@@ -39,6 +40,7 @@ export function ConfirmDialog({
   title: string;
   description: ReactNode;
   confirmLabel: string;
+  cancelLabel?: string;
   destructive?: boolean;
   /** Shows a reason box with this label. */
   reasonLabel?: string;
@@ -132,7 +134,7 @@ export function ConfirmDialog({
         ) : null}
         <DialogFooter>
           <Button variant="outline" onClick={() => close(false)} disabled={busy}>
-            Keep it
+            {cancelLabel}
           </Button>
           <Button
             variant={destructive ? 'destructive' : 'default'}

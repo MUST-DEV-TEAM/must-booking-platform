@@ -11,6 +11,9 @@ import {
   AuthService,
   LOGIN_FAILURE_LIMIT,
 } from '../src/auth/auth.service';
+import { MailDeliveryService } from '../src/mail/mail-delivery.service';
+import { isolatedMailDelivery } from './helpers/isolated-mail-delivery';
+import { withoutExternalWorkers } from './helpers/without-external-workers';
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { clearAuthRateLimits, clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 
@@ -68,10 +71,12 @@ describe('authentication endpoints', () => {
     await clearSignupRateLimits();
     await clearAuthRateLimits();
     const { AppModule } = await import('../src/app.module');
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    const moduleBuilder = Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(MAIL_PROVIDER)
       .useValue(mail)
-      .compile();
+      .overrideProvider(MailDeliveryService)
+      .useFactory(isolatedMailDelivery);
+    const moduleRef = await withoutExternalWorkers(moduleBuilder).compile();
     app = moduleRef.createNestApplication();
     await app.init();
   });

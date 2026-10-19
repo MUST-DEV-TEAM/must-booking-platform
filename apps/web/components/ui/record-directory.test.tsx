@@ -143,3 +143,61 @@ it('passes only locally filtered visible rows to a shared visible action', async
     await act(async () => root.unmount());
   }
 });
+
+it('supports selected server commands while hiding local copy/export', async () => {
+  const action = vi.fn(),
+    root = createRoot(document.body.appendChild(document.createElement('div')));
+  try {
+    await act(async () =>
+      root.render(
+        createElement(RecordDirectory<{ id: string }>, {
+          rows: [{ id: 'evidence' }],
+          columns: [{ id: 'id', label: 'Evidence', value: (r) => r.id }],
+          storageKey: 'audited.selection',
+          exportable: false,
+          onRow: () => {},
+          selectionActions: (rows) => [
+            { label: 'Export selected evidence', onSelect: () => action(rows.map((r) => r.id)) },
+          ],
+        }),
+      ),
+    );
+    expect(document.body.textContent).not.toContain('Export CSV');
+    expect(document.body.textContent).not.toContain('Copy selected');
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('[aria-label="Select evidence"]')!.click(),
+    );
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>('button')]
+        .find((b) => b.textContent === 'Export selected evidence')!
+        .click(),
+    );
+    expect(action).toHaveBeenCalledWith(['evidence']);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it('starts with optional evidence columns hidden while preserving the directory controls', async () => {
+  const root = createRoot(document.body.appendChild(document.createElement('div')));
+  try {
+    await act(async () =>
+      root.render(
+        createElement(RecordDirectory<{ id: string; note: string }>, {
+          rows: [{ id: 'event', note: 'Detail' }],
+          columns: [
+            { id: 'id', label: 'Action', value: (r) => r.id },
+            { id: 'note', label: 'Evidence', value: (r) => r.note },
+          ],
+          defaultHidden: ['note'],
+          storageKey: 'hidden.initial',
+          onRow: () => {},
+        }),
+      ),
+    );
+    expect(document.querySelector('thead')?.textContent).not.toContain('Evidence');
+    expect(document.querySelector('[aria-label="Columns"]')).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

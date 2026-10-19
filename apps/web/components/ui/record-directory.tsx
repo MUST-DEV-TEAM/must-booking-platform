@@ -36,6 +36,8 @@ export function RecordDirectory<T extends { id: string }>({
   pagination,
   initialSort,
   visibleActions,
+  selectionActions,
+  defaultHidden,
 }: {
   rows: readonly T[];
   columns: readonly RecordColumn<T>[];
@@ -44,6 +46,10 @@ export function RecordDirectory<T extends { id: string }>({
   actions?: (row: T) => RecordAction[];
   /** Actions receive exactly the rows currently visible after local search and paging. */
   visibleActions?: (rows: readonly T[]) => RecordAction[];
+  /** Custom bulk commands can replace local copy/export, e.g. an audited server export. */
+  selectionActions?: (rows: readonly T[]) => RecordAction[];
+  /** Initial hidden columns; saved user choices continue to take precedence. */
+  defaultHidden?: readonly string[];
   emptyTitle?: string;
   /** Disable local exports when the caller requires a dedicated audited export flow. */
   exportable?: boolean;
@@ -57,7 +63,9 @@ export function RecordDirectory<T extends { id: string }>({
     onPageSize: (size: number) => void;
   };
 }) {
-  const defaults = Object.fromEntries(columns.slice(1).map((c) => [c.id, true]));
+  const defaults = Object.fromEntries(
+    columns.slice(1).map((c) => [c.id, !defaultHidden?.includes(c.id)]),
+  );
   const preferences = useTablePreferences(storageKey, defaults);
   const [search, setSearch] = useState(''),
     [selected, setSelected] = useState<string[]>([]),
@@ -162,25 +170,40 @@ export function RecordDirectory<T extends { id: string }>({
           {error}
         </p>
       ) : null}
-      {exportable ? (
+      {exportable || selectionActions ? (
         <BulkBar count={selectedRows.length} onClear={() => setSelected([])}>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(csv(selectedRows));
-                setError('');
-              } catch {
-                setError('Copy could not complete. Use Export selected.');
-              }
-            }}
-          >
-            Copy selected
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => download(selectedRows)}>
-            Export selected
-          </Button>
+          {exportable ? (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(csv(selectedRows));
+                    setError('');
+                  } catch {
+                    setError('Copy could not complete. Use Export selected.');
+                  }
+                }}
+              >
+                Copy selected
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => download(selectedRows)}>
+                Export selected
+              </Button>
+            </>
+          ) : null}
+          {selectionActions?.(selectedRows).map((action) => (
+            <Button
+              key={action.label}
+              size="sm"
+              variant="outline"
+              disabled={action.disabled}
+              onClick={action.onSelect}
+            >
+              {action.label}
+            </Button>
+          ))}
         </BulkBar>
       ) : null}
       {!rows.length ? (
@@ -193,7 +216,7 @@ export function RecordDirectory<T extends { id: string }>({
             <Table className="group" data-density={preferences.density}>
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
-                  {exportable ? (
+                  {exportable || selectionActions ? (
                     <TableHead>
                       <Checkbox
                         aria-label="Select all visible records"
@@ -235,7 +258,7 @@ export function RecordDirectory<T extends { id: string }>({
               <TableBody>
                 {visible.map((r) => (
                   <TableRow key={r.id} onClick={() => onRow(r)} className="cursor-pointer">
-                    {exportable ? (
+                    {exportable || selectionActions ? (
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <Checkbox
                           aria-label={`Select ${columns[0].value(r)}`}

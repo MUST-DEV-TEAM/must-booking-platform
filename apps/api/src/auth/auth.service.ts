@@ -197,7 +197,9 @@ export class AuthService implements OnModuleDestroy {
 
   async logout(sessionId: string | undefined): Promise<void> {
     const userId = await this.getSessionUserId(sessionId);
-    if (sessionId) await this.client().then((redis) => redis.del(`auth:session:${sessionId}`));
+    const removed = sessionId
+      ? await this.client().then((redis) => redis.del(`auth:session:${sessionId}`))
+      : 0;
     if (userId) {
       await this.auditLogs.record({
         actorUserId: userId,
@@ -205,6 +207,14 @@ export class AuthService implements OnModuleDestroy {
         targetType: 'user',
         targetId: userId,
       });
+      if (removed)
+        await this.auditLogs.record({
+          actorUserId: userId,
+          action: 'auth.session_revoked',
+          targetType: 'user',
+          targetId: userId,
+          details: { reason: 'Signed out', result: 'succeeded' },
+        });
     }
   }
 
@@ -277,8 +287,17 @@ export class AuthService implements OnModuleDestroy {
     const { token, password } = this.tokenAndPassword(input);
     const userId = await this.consumeToken('password-reset', token);
     if (!userId) throw new BadRequestException('Invalid or expired password-reset token.');
-    await this.database
-      .$executeRaw`SELECT "auth_update_password"(${userId}::uuid, ${await bcrypt.hash(password, 12)})`;
+    const hash = await bcrypt.hash(password, 12);
+    await this.database.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT "auth_update_password"(${userId}::uuid, ${hash})`;
+      await this.auditLogs.recordAccountEventInTransaction(tx, {
+        actorUserId: userId,
+        action: 'auth.password_changed',
+        targetType: 'user',
+        targetId: userId,
+        details: { result: 'succeeded', method: 'Password reset' },
+      });
+    });
   }
 
   async requestEmailVerification(input: unknown): Promise<void> {

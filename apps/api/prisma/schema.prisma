@@ -224,6 +224,8 @@ model Property {
   @@map("properties")
   pricingVersion Int @default(1) @map("pricing_version")
 
+  auditExportVersion Int @default(0) @map("audit_export_version")
+
 }
 
 enum PropertyBookingMode {
@@ -336,6 +338,18 @@ model PropertyStaffCapabilityOverride {
   @@map("property_staff_capability_overrides")
 }
 
+model AuditExportOperation {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ userId String @map("user_id") @db.Uuid
+ idempotencyKey String @map("idempotency_key") @db.VarChar(128)
+ requestHash String @map("request_hash") @db.VarChar(64)
+ response Json
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+ @@id([tenantId,propertyId,userId,idempotencyKey])
+ @@index([tenantId,propertyId,createdAt],map:"audit_export_operations_expiry")
+ @@map("audit_export_operations")
+}
 model AuditLog {
   id          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId    String?        @map("tenant_id") @db.Uuid
@@ -346,10 +360,12 @@ model AuditLog {
   targetType  String         @map("target_type") @db.VarChar(100)
   targetId    String         @map("target_id") @db.VarChar(320)
   details     Json           @default("{}")
+  requestContext Json? @map("request_context")
   createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([tenantId, createdAt])
   @@index([actorUserId, createdAt])
+  @@index([tenantId,propertyId,createdAt(sort: Desc),id(sort: Desc)],map:"audit_logs_property_created")
   @@map("audit_logs")
 }
 

@@ -10,7 +10,10 @@ import { InventoryBlocksController } from './tenancy/inventory-blocks.controller
 import { InventoryBlocksService } from './tenancy/inventory-blocks.service';
 import { InventoryRestrictionsController } from './tenancy/inventory-restrictions.controller';
 import { InventoryRestrictionsService } from './tenancy/inventory-restrictions.service';
-import { Module } from '@nestjs/common';
+import { Module, type NestModule, type MiddlewareConsumer } from '@nestjs/common';
+import { auditRequestContext } from './tenancy/audit-request-context';
+import { ActivityAuditController } from './tenancy/activity-audit.controller';
+import { ActivityAuditService } from './tenancy/activity-audit.service';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { randomUUID } from 'node:crypto';
@@ -229,6 +232,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ReportViewsController,
     OverviewController,
     NotificationsController,
+    ActivityAuditController,
     AuditLogController,
     PlanUsageController,
     PropertiesController,
@@ -305,6 +309,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ReportViewsService,
     OverviewService,
     NotificationsService,
+    ActivityAuditService,
     NotificationInboxService,
     NotificationRetentionService,
     AuditLogService,
@@ -404,4 +409,8 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     { provide: APP_GUARD, useExisting: SignupRateLimitGuard },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(auditRequestContext).forRoutes('*');
+  }
+}

@@ -1,10 +1,18 @@
-import { Inject, Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { ActivityAuditService } from './activity-audit.service';
+import {
+  Inject,
+  Optional,
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
 import { TenantDatabaseService } from './tenant-database.service';
 import { NotificationInboxService } from './notification-inbox.service';
 type Scope = { tenantId: string; propertyId: string };
-/** Nightly inbox expiry only; source bookings, payments and reviews are retained. */
+/** Nightly inbox and temporary export receipt expiry; source records and audit evidence remain. */
 @Injectable()
 export class NotificationRetentionService implements OnModuleInit, OnModuleDestroy {
   private queue: Queue | null = null;
@@ -14,6 +22,7 @@ export class NotificationRetentionService implements OnModuleInit, OnModuleDestr
   constructor(
     @Inject(TenantDatabaseService) private readonly db: TenantDatabaseService,
     @Inject(NotificationInboxService) private readonly inbox: NotificationInboxService,
+    @Optional() @Inject(ActivityAuditService) private readonly exports?: ActivityAuditService,
   ) {}
   async onModuleInit() {
     if (process.env.NODE_ENV === 'test' || !process.env.REDIS_URL) return;
@@ -23,7 +32,10 @@ export class NotificationRetentionService implements OnModuleInit, OnModuleDestr
       'notifications.retention',
       async (job) => {
         if (job.name === 'sweep') await this.sweep();
-        else await this.inbox.cleanup(job.data as Scope);
+        else {
+          await this.inbox.cleanup(job.data as Scope);
+          await this.exports?.cleanupExports(job.data as Scope);
+        }
       },
       { connection: this.connection, concurrency: 1 },
     );
@@ -47,7 +59,10 @@ export class NotificationRetentionService implements OnModuleInit, OnModuleDestr
           removeOnComplete: true,
           removeOnFail: 100,
         });
-      else await this.inbox.cleanup(scope);
+      else {
+        await this.inbox.cleanup(scope);
+        await this.exports?.cleanupExports(scope);
+      }
   }
   async onModuleDestroy() {
     await this.worker?.close();

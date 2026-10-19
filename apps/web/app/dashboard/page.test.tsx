@@ -41,6 +41,7 @@ describe('Tenant dashboard shell', () => {
       'Rates &amp; Pricing',
       'Staff',
       'Reports',
+      'Audit log',
       'Settings',
     ];
     for (const label of labels) expect(markup).toContain(label);
@@ -282,6 +283,7 @@ describe('Tenant dashboard shell', () => {
       'Rates & Pricing',
       'Staff',
       'Reports',
+      'Audit log',
       'Settings',
     ]);
     expect(ownerItems.find((item) => item.label === 'Bookings')?.href).toBe(
@@ -302,6 +304,7 @@ describe('Tenant dashboard shell', () => {
       'Inventory',
       'Payments',
       'Guests',
+      'Audit log',
     ]);
   });
 
@@ -367,4 +370,15 @@ describe('Tenant dashboard shell', () => {
       expect(markup).toContain(`aria-label="${label}"`);
     for (const label of ['Settings']) expect(markup).not.toContain(`aria-label="${label}"`);
   });
+});
+
+it('shows Audit log only for a permitted staff event family, with owner/admin property access', () => {
+  const sections = (role: 'OWNER' | 'ADMIN' | 'STAFF', capabilities: string[]) =>
+    dashboardNavigation('t', 'p', role, 'overview', capabilities).map((item) => item.label);
+  expect(sections('OWNER', [])).toContain('Audit log');
+  expect(sections('ADMIN', [])).toContain('Audit log');
+  expect(sections('STAFF', ['reports.view'])).toContain('Audit log');
+  expect(sections('STAFF', ['staff.view'])).toContain('Audit log');
+  expect(sections('STAFF', [])).not.toContain('Audit log');
+  expect(sections('STAFF', ['bookings.create'])).not.toContain('Audit log');
 });
