@@ -353,6 +353,35 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+model NotificationInboxState {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ userId String @map("user_id") @db.Uuid
+ version Int @default(0)
+ @@id([tenantId,propertyId,userId])
+ @@map("notification_inbox_states")
+}
+model NotificationRead {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ userId String @map("user_id") @db.Uuid
+ notificationId String @map("notification_id") @db.Uuid
+ readAt DateTime @default(now()) @map("read_at") @db.Timestamptz(6)
+ @@id([tenantId,propertyId,userId,notificationId])
+ @@map("notification_reads")
+}
+model NotificationOperation {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ userId String @map("user_id") @db.Uuid
+ idempotencyKey String @map("idempotency_key") @db.VarChar(128)
+ requestHash String @map("request_hash") @db.VarChar(64)
+ response Json
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+ @@id([tenantId,propertyId,userId,idempotencyKey])
+ @@index([tenantId,propertyId,createdAt],map:"notification_operations_retention")
+ @@map("notification_operations")
+}
 model Notification {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId   String    @map("tenant_id") @db.Uuid
@@ -365,6 +394,7 @@ model Notification {
 
   @@index([tenantId, propertyId, createdAt])
   @@index([tenantId, propertyId, readAt])
+  @@unique([tenantId,propertyId,id],map:"notifications_scope_id")
   @@map("notifications")
 }
 

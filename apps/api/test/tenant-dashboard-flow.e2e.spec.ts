@@ -8,6 +8,9 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
+import { withoutExternalWorkers } from './helpers/without-external-workers';
+import { MailDeliveryService } from '../src/mail/mail-delivery.service';
+import { isolatedMailDelivery } from './helpers/isolated-mail-delivery';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 
 const database = new PrismaClient({
@@ -56,10 +59,12 @@ describe('tenant dashboard end-to-end flow', () => {
     process.env.STRIPE_SECRET_KEY = 'sk_test_tenant_dashboard_e2e';
     process.env.STRIPE_WEBHOOK_SECRET = 'whsec_tenant_dashboard_e2e';
     const { AppModule } = await import('../src/app.module');
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    const moduleBuilder = Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(MAIL_PROVIDER)
       .useValue(mail)
-      .compile();
+      .overrideProvider(MailDeliveryService)
+      .useFactory(isolatedMailDelivery);
+    const moduleRef = await withoutExternalWorkers(moduleBuilder).compile();
     app = moduleRef.createNestApplication({ rawBody: true });
     await app.init();
   });
@@ -200,7 +205,7 @@ describe('tenant dashboard end-to-end flow', () => {
         expect.objectContaining({
           type: 'BOOKING_CREATED',
           readAt: null,
-          payload: expect.objectContaining({ bookingId }),
+          booking: expect.objectContaining({ id: bookingId }),
         }),
       ]),
     );

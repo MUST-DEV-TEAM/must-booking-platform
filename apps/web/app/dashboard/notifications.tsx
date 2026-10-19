@@ -1,12 +1,15 @@
 'use client';
-
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bell, CircleAlert, CirclePlus, Undo2, Users, type LucideIcon } from 'lucide-react';
-import { useState } from 'react';
-
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Bell } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { Alert, AlertDescription } from '../../components/ui/alert';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
-import { Card } from '../../components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { Combobox } from '../../components/ui/combobox';
+import { DetailList } from '../../components/ui/detail-list';
+import { FormField } from '../../components/ui/form-field';
+import { Input } from '../../components/ui/input';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,207 +18,68 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../../components/ui/dropdown-menu';
-import { PageHero } from '../../components/ui/page-hero';
-import { Pagination } from '../../components/ui/pagination';
+import { PageHeader } from '../../components/ui/page-header';
+import { QuickPeek } from '../../components/ui/quick-peek';
+import { RecordDirectory } from '../../components/ui/record-directory';
 import { EmptyPanel, ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
-import { BookingStatusBadge } from '../../components/ui/status-badge';
-
-export type Notification = {
-  id: string;
-  type:
-    'BOOKING_CREATED' | 'BOOKING_NEEDS_ATTENTION' | 'PAYMENT_REFUNDED' | 'STAFF_SEAT_CAP_REACHED';
-  payload: Record<string, unknown>;
-  readAt: string | null;
-  createdAt: string;
-  /** The reservation this notification is about, when there is one. */
-  booking?: {
-    id: string;
-    externalReference: string;
-    status: string;
-    startsOn: string;
-    endsOn: string;
-    guestName: string | null;
-    guestEmail: string | null;
-    roomTypeName: string;
-  } | null;
-};
-
-export type NotificationPage = {
-  items: Notification[];
-  page: number;
-  pageSize: number;
-  total: number;
-  /** How many notifications are still unread in total (not just on this page). */
-  unreadTotal?: number;
-};
-
-const NOTIFICATION_PAGE_SIZE = 20;
-const NOTIFICATION_DROPDOWN_LIMIT = 10;
-
-const notificationLabels: Record<Notification['type'], string> = {
-  BOOKING_CREATED: 'Booking created',
-  BOOKING_NEEDS_ATTENTION: 'Booking needs attention',
-  PAYMENT_REFUNDED: 'Payment refunded',
-  STAFF_SEAT_CAP_REACHED: 'Staff seat cap reached',
-};
-
-const notificationHints: Record<Notification['type'], string> = {
-  BOOKING_CREATED: 'A new reservation was made.',
-  BOOKING_NEEDS_ATTENTION: 'Open the reservation and follow up.',
-  PAYMENT_REFUNDED: 'A refund was recorded.',
-  STAFF_SEAT_CAP_REACHED: 'The staff limit of the plan is reached.',
-};
-
-function notificationQueryKey(tenantId: string, propertyId: string) {
-  return ['dashboard', 'notifications', tenantId, propertyId] as const;
-}
-
+import { StatTile } from '../../components/ui/stat-tile';
+import { TabBar } from '../../components/ui/tab-bar';
+import {
+  createInboxWriter,
+  validateInboxPage,
+  inboxRequest,
+  InboxError,
+  safeNotificationHref,
+  type InboxNotification,
+  type InboxPage,
+} from '../../lib/notification-inbox';
+export type Notification = InboxNotification;
+export type NotificationPage = InboxPage;
 export function notificationsInboxHref(tenantId: string, propertyId: string) {
   return `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=notifications`;
 }
-
-function useNotificationPage(
-  tenantId: string,
-  propertyId: string,
-  page: number,
-  pageSize = NOTIFICATION_PAGE_SIZE,
-  unreadOnly = false,
-) {
-  const base = `/api/tenants/${tenantId}/properties/${propertyId}/notifications`;
-  const queryClient = useQueryClient();
-  const rootQueryKey = notificationQueryKey(tenantId, propertyId);
-  const notificationsQuery = useQuery({
-    queryKey: [...rootQueryKey, page, pageSize, unreadOnly ? 'unread' : 'all'],
-    queryFn: async (): Promise<NotificationPage> => {
-      const response = await fetch(`${base}?page=${page}&pageSize=${pageSize}${unreadOnly ? '&unread=1' : ''}`, {
-        credentials: 'include',
-      });
-      if (!response.ok) throw new Error('Unable to load notifications.');
-      const result = (await response.json()) as Partial<NotificationPage> & {
-        items?: Notification[];
-      };
-      const items = result.items ?? [];
-      return {
-        items,
-        page: result.page ?? page,
-        pageSize: result.pageSize ?? pageSize,
-        total: result.total ?? items.length,
-        unreadTotal: result.unreadTotal,
-      };
-    },
-    placeholderData: keepPreviousData,
+function useInbox(tenantId: string, propertyId: string, params: string) {
+  const base = `/api/tenants/${tenantId}/properties/${propertyId}/notifications`,
+    root = ['dashboard', 'notifications', tenantId, propertyId];
+  const client = useQueryClient(),
+    writer = useRef(createInboxWriter());
+  const query = useQuery({
+    queryKey: [...root, params],
+    queryFn: async () => validateInboxPage(await inboxRequest<unknown>(`${base}?${params}`)),
+    refetchInterval: 60000,
   });
-  const markReadMutation = useMutation({
-    mutationFn: async (notificationId: string) => {
-      const response = await fetch(`${base}/${notificationId}`, {
-        method: 'PATCH',
-        credentials: 'include',
+  const mark = useMutation({
+    mutationFn: ({ kind, ids }: { kind: 'single' | 'visible' | 'all'; ids?: string[] }) => {
+      if (!query.data) throw new Error('Reload the inbox before marking read.');
+      const suffix =
+        kind === 'single' ? ids![0] : kind === 'all' ? 'mark-all-read' : 'mark-visible-read';
+      return writer.current(`${base}/${suffix}`, {
+        version: query.data.version,
+        ...(kind === 'all' ? { through: query.data.through } : kind === 'visible' ? { ids } : {}),
       });
-      if (!response.ok) throw new Error('Unable to update notification.');
-      return (await response.json()) as Notification;
     },
-    onSuccess: (updated) => {
-      // The bell lists only unread notifications: a read one leaves it and the count drops.
-      queryClient.setQueriesData<NotificationPage>(
-        { queryKey: rootQueryKey, predicate: (query) => query.queryKey.at(-1) === 'unread' },
-        (current) =>
-          current
-            ? {
-                ...current,
-                items: current.items.filter((notification) => notification.id !== updated.id),
-                total: current.items.some((notification) => notification.id === updated.id)
-                  ? Math.max(0, current.total - 1)
-                  : current.total,
-                unreadTotal: current.items.some((notification) => notification.id === updated.id)
-                  ? Math.max(0, (current.unreadTotal ?? current.total) - 1)
-                  : current.unreadTotal,
-              }
-            : current,
-      );
-      queryClient.setQueriesData<NotificationPage>(
-        { queryKey: rootQueryKey, predicate: (query) => query.queryKey.at(-1) === 'all' },
-        (current) =>
-          current
-            ? {
-                ...current,
-                items: current.items.map((notification) =>
-                  notification.id === updated.id
-                    ? { ...notification, readAt: updated.readAt }
-                    : notification,
-                ),
-              }
-            : current,
-      );
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: root });
+      await client.invalidateQueries({ queryKey: ['notification-detail', base] });
     },
+    onError: () => client.invalidateQueries({ queryKey: root }),
   });
-  const markAllReadMutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(`${base}/mark-all-read`, {
-        method: 'PATCH',
-        credentials: 'include',
-      });
-      if (!response.ok) throw new Error('Unable to mark all notifications as read.');
-    },
-    onSuccess: () => {
-      const now = new Date().toISOString();
-      queryClient.setQueriesData<NotificationPage>(
-        { queryKey: rootQueryKey, predicate: (query) => query.queryKey.at(-1) === 'unread' },
-        (current) => (current ? { ...current, items: [], total: 0, unreadTotal: 0 } : current),
-      );
-      queryClient.setQueriesData<NotificationPage>(
-        { queryKey: rootQueryKey, predicate: (query) => query.queryKey.at(-1) === 'all' },
-        (current) =>
-          current
-            ? {
-                ...current,
-                items: current.items.map((notification) =>
-                  notification.readAt === null ? { ...notification, readAt: now } : notification,
-                ),
-              }
-            : current,
-      );
-    },
-  });
-
-  return { notificationsQuery, markReadMutation, markAllReadMutation };
+  return { base, query, mark };
 }
-
-/** Icon, tone and destination for a notification; bookings and payments open their reservation. */
-function notificationLook(notification: Notification, tenantId: string, propertyId: string) {
-  const icons: Record<Notification['type'], LucideIcon> = {
-    BOOKING_CREATED: CirclePlus,
-    BOOKING_NEEDS_ATTENTION: CircleAlert,
-    PAYMENT_REFUNDED: Undo2,
-    STAFF_SEAT_CAP_REACHED: Users,
-  };
-  const bookingId =
-    typeof notification.payload.bookingId === 'string' ? notification.payload.bookingId : null;
-  const base = `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}`;
-  const href = bookingId
-    ? `${base}&section=reservations&reservation=${bookingId}`
-    : notification.type === 'STAFF_SEAT_CAP_REACHED'
-      ? `${base}&section=staff`
-      : notificationsInboxHref(tenantId, propertyId);
-  return {
-    Icon: icons[notification.type],
-    href,
-    attention: notification.type === 'BOOKING_NEEDS_ATTENTION',
-  };
+function Failure({ error, retry }: { error: Error; retry: () => void }) {
+  return (
+    <ErrorPanel
+      title={
+        error instanceof InboxError && error.status === 403
+          ? 'Notifications access denied'
+          : 'Notifications unavailable'
+      }
+      description={error.message}
+      reference={error instanceof InboxError ? (error.reference ?? undefined) : undefined}
+      onRetry={retry}
+    />
+  );
 }
-
-function timeAgo(value: string) {
-  const minutes = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 60_000));
-  if (minutes < 1) return 'Just now';
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} h ago`;
-  return formatNotificationDate(value);
-}
-
-const iconBox = 'flex shrink-0 items-center justify-center rounded-lg';
-const iconTone = (attention: boolean) =>
-  attention ? 'bg-warning-surface text-warning' : 'bg-muted text-muted-foreground';
-
 export function DashboardNotifications({
   tenantId,
   propertyId,
@@ -223,19 +87,8 @@ export function DashboardNotifications({
   tenantId: string;
   propertyId: string;
 }) {
-  const { notificationsQuery, markReadMutation, markAllReadMutation } = useNotificationPage(
-    tenantId,
-    propertyId,
-    1,
-    NOTIFICATION_DROPDOWN_LIMIT,
-    true,
-  );
-  const notificationPage = notificationsQuery.data;
-  const notifications = notificationPage?.items;
-  const error = notificationsQuery.error ?? markReadMutation.error ?? markAllReadMutation.error;
-  const unread = notificationPage?.unreadTotal ?? notificationPage?.total ?? 0;
-  const unreadBadge = unread > 99 ? '99+' : unread > 0 ? String(unread) : '';
-
+  const { query } = useInbox(tenantId, propertyId, 'page=1&pageSize=10&unread=1');
+  const unread = query.error ? undefined : query.data?.unreadTotal;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -243,86 +96,38 @@ export function DashboardNotifications({
           variant="outline"
           size="icon"
           className="relative size-10"
-          aria-label={`Notifications${unreadBadge ? ` (${unreadBadge} unread)` : ''}`}
+          aria-label={`Notifications${unread ? ` (${unread > 99 ? '99+' : unread} unread)` : ''}`}
         >
           <Bell aria-hidden="true" />
-          {unreadBadge ? (
-            <span className="absolute -top-1.5 -right-1.5 min-w-4 rounded-full bg-destructive px-1 text-center text-[10px] leading-4 font-bold text-white">
-              {unreadBadge}
-            </span>
+          {unread ? (
+            <Badge variant="danger" className="absolute -top-2 -right-2">
+              {unread > 99 ? '99+' : unread}
+            </Badge>
           ) : null}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[min(22rem,calc(100vw-1rem))] p-2">
-        <div className="flex items-center justify-between px-2 py-1">
-          <DropdownMenuLabel className="p-0">Notifications</DropdownMenuLabel>
-          {unread > 0 ? (
-            <button
-              type="button"
-              disabled={markAllReadMutation.isPending}
-              onClick={() => markAllReadMutation.mutate()}
-              className="rounded-sm bg-transparent text-xs font-semibold text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {markAllReadMutation.isPending ? 'Marking…' : 'Mark all as read'}
-            </button>
-          ) : null}
-        </div>
+      <DropdownMenuContent align="end" className="w-[min(24rem,calc(100vw-1rem))]">
+        <DropdownMenuLabel>Personal notifications</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {error ? (
-          <div role="alert" className="px-2 py-3 text-sm text-destructive">
-            {error.message}
-            {notificationsQuery.isError ? (
-              <button
-                type="button"
-                className="ml-2 bg-transparent font-semibold underline"
-                onClick={() => void notificationsQuery.refetch()}
-              >
-                Retry
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-        {notifications?.length ? (
-          notifications.map((notification) => {
-            const { Icon, href, attention } = notificationLook(notification, tenantId, propertyId);
-            const isUnread = notification.readAt === null;
-            return (
-              <DropdownMenuItem
-                key={notification.id}
-                asChild
-                className="min-h-14 items-start gap-3 px-2 py-2.5"
-              >
-                <a
-                  href={href}
-                  onClick={() => {
-                    if (isUnread) markReadMutation.mutate(notification.id);
-                  }}
-                >
-                  <span className={`mt-0.5 size-8 ${iconBox} ${iconTone(attention)}`}>
-                    <Icon aria-hidden="true" className="size-4" />
+        {query.isPending ? (
+          <DropdownMenuLabel>Loading notifications...</DropdownMenuLabel>
+        ) : query.error ? (
+          <DropdownMenuLabel>Unable to load notifications.</DropdownMenuLabel>
+        ) : query.data?.items.length ? (
+          query.data.items.map((row) => (
+            <DropdownMenuItem key={row.id} asChild>
+              <a href={`${notificationsInboxHref(tenantId, propertyId)}&notification=${row.id}`}>
+                <span className="flex flex-col gap-1 py-1">
+                  <span className="font-semibold">{row.title}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {row.category} / {row.priority} / {new Date(row.createdAt).toLocaleString()}
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2 text-sm font-semibold">
-                      {notificationLabels[notification.type]}
-                      {isUnread ? (
-                        <span aria-label="Unread" className="size-1.5 rounded-full bg-primary" />
-                      ) : null}
-                    </span>
-                    <span className="mt-0.5 block text-xs text-muted-foreground">
-                      {notificationHints[notification.type]}
-                    </span>
-                  </span>
-                  <span className="shrink-0 pt-0.5 text-[10px] text-muted-foreground">
-                    {timeAgo(notification.createdAt)}
-                  </span>
-                </a>
-              </DropdownMenuItem>
-            );
-          })
-        ) : notificationsQuery.isPending ? (
-          <p className="m-0 px-2 py-3 text-sm text-muted-foreground">Loading notifications…</p>
+                </span>
+              </a>
+            </DropdownMenuItem>
+          ))
         ) : (
-          <p className="m-0 px-2 py-3 text-sm text-muted-foreground">You are all caught up.</p>
+          <DropdownMenuLabel>You are all caught up.</DropdownMenuLabel>
         )}
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
@@ -332,7 +137,6 @@ export function DashboardNotifications({
     </DropdownMenu>
   );
 }
-
 export function NotificationsInbox({
   tenantId,
   propertyId,
@@ -340,165 +144,354 @@ export function NotificationsInbox({
   tenantId: string;
   propertyId: string;
 }) {
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(NOTIFICATION_PAGE_SIZE);
-  const { notificationsQuery, markReadMutation } = useNotificationPage(
-    tenantId,
-    propertyId,
-    page,
-    pageSize,
+  const [tab, setTab] = useState('all'),
+    [category, setCategory] = useState(''),
+    [priority, setPriority] = useState(''),
+    [search, setSearch] = useState(''),
+    [from, setFrom] = useState(''),
+    [to, setTo] = useState(''),
+    [page, setPage] = useState(1),
+    [pageSize, setPageSize] = useState(20);
+  const [selected, setSelected] = useState<string | null>(() =>
+    typeof window === 'undefined'
+      ? null
+      : new URLSearchParams(window.location.search).get('notification'),
   );
-  const notificationPage = notificationsQuery.data;
-  const error = notificationsQuery.error ?? markReadMutation.error;
-
+  const params = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
+    ...(tab === 'unread' ? { unread: '1' } : tab === 'action' ? { needsAction: '1' } : {}),
+    ...(category ? { category } : {}),
+    ...(priority ? { priority } : {}),
+    ...(search ? { search } : {}),
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
+  });
+  const { base, query, mark } = useInbox(tenantId, propertyId, params.toString()),
+    data = query.error ? undefined : query.data;
+  const detail = useQuery({
+    queryKey: ['notification-detail', base, selected],
+    queryFn: () => inboxRequest<InboxNotification>(`${base}/${selected}`),
+    enabled: !!selected,
+  });
+  const change = (setter: (value: string) => void) => (value: string) => {
+    setter(value);
+    setPage(1);
+  };
+  const error = query.error ?? mark.error,
+    canMark = !!data?.canMarkRead && !mark.isPending && !mark.error && !query.isFetching;
+  const row =
+    selected && !query.error && !detail.error
+      ? (data?.items.find((r) => r.id === selected) ?? detail.data)
+      : null;
+  const href = safeNotificationHref(row?.href, tenantId, propertyId);
   return (
-    <div className="space-y-4">
-      <PageHero
-        eyebrow="Activity"
+    <div className="flex flex-col gap-6">
+      <PageHeader
         title="Notifications"
-        description="Review booking, payment, and staff notifications for this property."
+        description="Your personal inbox. Reading an alert does not resolve the underlying issue."
+        actions={
+          <Button
+            variant="outline"
+            disabled={!canMark || !data?.unreadTotal}
+            onClick={() => mark.mutate({ kind: 'all' })}
+          >
+            Mark all as read
+          </Button>
+        }
       />
+      {data && !data.canMarkRead ? (
+        <Alert>
+          <AlertDescription>
+            Read only. Verify your email to mark notifications read.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {data ? (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <StatTile label="Unread" value={data.unreadTotal} />
+          <StatTile label="Critical" value={data.counts?.critical ?? 'Unknown'} />
+          <StatTile
+            label="Today"
+            value={data.counts?.today ?? 'Unknown'}
+            note="Property local date"
+          />
+          <StatTile label="Needs action" value={data.counts?.needsAction ?? 'Unknown'} />
+        </div>
+      ) : null}
+      <TabBar
+        label="Notification views"
+        current={tab}
+        onSelect={change(setTab)}
+        tabs={[
+          { id: 'all', label: 'All' },
+          { id: 'unread', label: 'Unread', count: data?.unreadTotal },
+          { id: 'action', label: 'Needs action', count: data?.counts?.needsAction },
+        ]}
+      />
+      <div className="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <FormField label="Category">
+          <Combobox
+            label="Category"
+            value={category}
+            onChange={change(setCategory)}
+            options={[
+              { value: '', label: 'All categories' },
+              ...['Reservations', 'Payments', 'Providers', 'Emails', 'System'].map((value) => ({
+                value,
+                label: value,
+              })),
+            ]}
+          />
+        </FormField>
+        <FormField label="Priority">
+          <Combobox
+            label="Priority"
+            value={priority}
+            onChange={change(setPriority)}
+            options={[
+              { value: '', label: 'All priorities' },
+              ...['Critical', 'High', 'Medium', 'Low'].map((value) => ({ value, label: value })),
+            ]}
+          />
+        </FormField>
+        <FormField label="Search inbox">
+          <Input
+            aria-label="Search inbox"
+            placeholder="Type, reservation, guest"
+            value={search}
+            maxLength={100}
+            onChange={(e) => change(setSearch)(e.target.value)}
+          />
+        </FormField>
+        <FormField label="From">
+          <Input
+            aria-label="From date"
+            type="date"
+            value={from}
+            onChange={(e) => change(setFrom)(e.target.value)}
+          />
+        </FormField>
+        <FormField label="To">
+          <Input
+            aria-label="To date"
+            type="date"
+            value={to}
+            onChange={(e) => change(setTo)(e.target.value)}
+          />
+        </FormField>
+      </div>
       {error ? (
-        <ErrorPanel
-          title="Notifications unavailable"
-          description="Try again to reload the notifications inbox."
-          onRetry={() => void notificationsQuery.refetch()}
+        <Failure
+          error={error}
+          retry={() => {
+            mark.reset();
+            void query.refetch();
+          }}
         />
-      ) : notificationsQuery.isPending && !notificationPage ? (
+      ) : query.isPending ? (
         <ListSkeleton rows={5} />
-      ) : (
-        <Card className="gap-0 py-0">
-          {notificationPage?.items.length ? (
-            <ul className="m-0 list-none divide-y p-0">
-              {notificationPage.items.map((notification) => {
-                const unread = notification.readAt === null;
-                const { Icon, href, attention } = notificationLook(notification, tenantId, propertyId);
-                return (
-                  <li key={notification.id} className="flex items-start gap-4 px-5 py-4">
-                    <span className={`mt-0.5 size-10 ${iconBox} ${iconTone(attention)}`}>
-                      <Icon aria-hidden="true" className="size-5" />
-                    </span>
-                    <div className="min-w-0 flex-1 space-y-1.5">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <strong className="text-sm">{notificationLabels[notification.type]}</strong>
-                        {unread ? (
-                          <Badge variant="info" className="rounded-full px-2 py-0 text-[10px]">
-                            Unread
-                          </Badge>
-                        ) : null}
-                        {notification.booking ? (
-                          <BookingStatusBadge status={notification.booking.status} />
-                        ) : null}
-                        <time
-                          dateTime={notification.createdAt}
-                          className="ml-auto text-xs text-muted-foreground"
-                        >
-                          {formatNotificationDate(notification.createdAt)}
-                        </time>
-                      </div>
-                      <p className="m-0 text-sm text-muted-foreground">{notificationHints[notification.type]}</p>
-                      {notification.booking ? (
-                        <dl className="m-0 grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2 lg:grid-cols-4">
-                          <Detail label="Reservation" value={notification.booking.externalReference} />
-                          <Detail
-                            label="Guest"
-                            value={notification.booking.guestName ?? notification.booking.guestEmail}
-                          />
-                          <Detail label="Room type" value={notification.booking.roomTypeName} />
-                          <Detail
-                            label="Stay"
-                            value={`${shortDay(notification.booking.startsOn)} – ${shortDay(notification.booking.endsOn)}`}
-                          />
-                        </dl>
-                      ) : null}
-                      {typeof notification.payload.amount === 'string' ||
-                      typeof notification.payload.amount === 'number' ? (
-                        <p className="m-0 text-xs text-muted-foreground">
-                          Amount: <strong className="text-foreground">{String(notification.payload.amount)}</strong>
-                        </p>
-                      ) : null}
-                      {typeof notification.payload.reason === 'string' ? (
-                        <p className="m-0 text-xs text-muted-foreground">
-                          Reason: {notification.payload.reason.replaceAll('_', ' ')}
-                        </p>
-                      ) : null}
-                      <div className="flex flex-wrap gap-2 pt-1">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          asChild
-                        >
-                          <a
-                            href={href}
-                            onClick={() => {
-                              if (unread) markReadMutation.mutate(notification.id);
-                            }}
-                          >
-                            {notification.booking ? 'Open reservation' : 'Open'}
-                          </a>
-                        </Button>
-                        {unread ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={markReadMutation.isPending}
-                            onClick={() => markReadMutation.mutate(notification.id)}
-                          >
-                            Mark as read
-                          </Button>
-                        ) : null}
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <div className="p-6">
-              <EmptyPanel
-                title="No notifications"
-                description="New bookings, payments and alerts will show here."
-              />
-            </div>
-          )}
-          {notificationPage ? (
-            <Pagination
-              page={notificationPage.page}
-              pageSize={notificationPage.pageSize}
-              total={notificationPage.total}
-              onPage={setPage}
-              noun="notifications"
-              pageSizeOptions={[10, 20, 50]}
-              onPageSize={(size) => {
-                setPageSize(size);
-                setPage(1);
-              }}
+      ) : data ? (
+        <RecordDirectory
+          rows={data.items}
+          storageKey="must.notifications.table"
+          initialSort={{ key: 'createdAt', direction: 'desc' }}
+          onRow={(r) => setSelected(r.id)}
+          emptyTitle={
+            tab === 'unread'
+              ? 'No unread notifications'
+              : search || category || priority || from || to
+                ? 'No matching notifications'
+                : 'No notifications'
+          }
+          columns={[
+            {
+              id: 'title',
+              label: 'Notification',
+              value: (r) => r.title,
+              render: (r) => (
+                <span className="flex flex-wrap items-center gap-2">
+                  {r.title}
+                  {!r.readAt ? <Badge variant="info">Unread</Badge> : null}
+                </span>
+              ),
+            },
+            { id: 'category', label: 'Category', value: (r) => r.category },
+            {
+              id: 'priority',
+              label: 'Priority',
+              value: (r) => r.priority,
+              render: (r) => (
+                <Badge
+                  variant={
+                    r.priority === 'Critical'
+                      ? 'danger'
+                      : r.priority === 'High'
+                        ? 'warning'
+                        : 'secondary'
+                  }
+                >
+                  {r.priority}
+                </Badge>
+              ),
+            },
+            {
+              id: 'action',
+              label: 'Issue',
+              value: (r) =>
+                r.needsAction === true
+                  ? 'Needs action'
+                  : r.needsAction === null
+                    ? 'Unknown'
+                    : r.type === 'BOOKING_NEEDS_ATTENTION'
+                      ? 'Resolved'
+                      : 'Information',
+            },
+            {
+              id: 'reference',
+              label: 'Reservation',
+              value: (r) =>
+                r.booking?.externalReference ?? (r.limitedContext ? 'Limited context' : '-'),
+            },
+            {
+              id: 'createdAt',
+              label: 'Received',
+              value: (r) => r.createdAt,
+              render: (r) => new Date(r.createdAt).toLocaleString(),
+            },
+          ]}
+          actions={(r) => [
+            { label: 'View detail', onSelect: () => setSelected(r.id) },
+            ...(!r.readAt
+              ? [
+                  {
+                    label: 'Mark as read',
+                    disabled: !canMark,
+                    onSelect: () => mark.mutate({ kind: 'single', ids: [r.id] }),
+                  },
+                ]
+              : []),
+          ]}
+          visibleActions={(visible) => [
+            {
+              label: 'Mark visible as read',
+              disabled: !canMark || !visible.some((r) => !r.readAt),
+              onSelect: () => mark.mutate({ kind: 'visible', ids: visible.map((r) => r.id) }),
+            },
+          ]}
+          pagination={{
+            page,
+            pageSize,
+            total: data.total,
+            onPage: setPage,
+            onPageSize: (size) => {
+              setPageSize(size);
+              setPage(1);
+            },
+          }}
+        />
+      ) : null}
+      <Card>
+        <CardHeader>
+          <CardTitle>Categories and routing</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <DetailList
+            items={(data?.registry ?? []).map((r) => ({
+              label: r.title,
+              value: `${r.category} / ${r.priority} / ${r.capability}`,
+            }))}
+          />
+          <p className="m-0 pt-3 text-sm text-muted-foreground">
+            Notifications are personal awareness. Needs Attention is the shared work queue. Emails
+            manages outbound messages. Inbox alerts expire after 90 days; source records remain.
+            Providers and Emails have no registered inbox types yet.
+          </p>
+        </CardContent>
+      </Card>
+      <QuickPeek
+        open={!!selected}
+        onClose={() => setSelected(null)}
+        title={row?.title ?? 'Notification detail'}
+        description="Recorded alert and current operational context"
+        badges={
+          row ? (
+            <>
+              <Badge>{row.category}</Badge>
+              <Badge>{row.priority}</Badge>
+              <Badge variant={row.readAt ? 'secondary' : 'info'}>
+                {row.readAt ? 'Read' : 'Unread'}
+              </Badge>
+            </>
+          ) : null
+        }
+        actions={
+          row ? (
+            <>
+              {href ? (
+                <Button asChild>
+                  <a href={href}>
+                    {row.type === 'STAFF_SEAT_CAP_REACHED' ? 'Open staff' : 'Open reservation'}
+                  </a>
+                </Button>
+              ) : null}
+              {!row.readAt ? (
+                <Button
+                  variant="outline"
+                  disabled={!canMark}
+                  onClick={() => mark.mutate({ kind: 'single', ids: [row.id] })}
+                >
+                  Mark as read
+                </Button>
+              ) : null}
+            </>
+          ) : null
+        }
+      >
+        {detail.error ? (
+          <Failure error={detail.error} retry={() => void detail.refetch()} />
+        ) : row ? (
+          <>
+            <p className="m-0 text-sm">{row.description}</p>
+            {row.limitedContext ? (
+              <Alert>
+                <AlertDescription>Limited context: {row.limitedContext}</AlertDescription>
+              </Alert>
+            ) : null}
+            <DetailList
+              items={[
+                { label: 'Received', value: new Date(row.createdAt).toLocaleString() },
+                {
+                  label: 'Read by you',
+                  value: row.readAt ? new Date(row.readAt).toLocaleString() : 'Not read',
+                },
+                {
+                  label: 'Issue',
+                  value:
+                    row.needsAction === true
+                      ? 'Needs action - reading does not resolve it'
+                      : row.needsAction === null
+                        ? 'Unknown - related context unavailable'
+                        : row.type === 'BOOKING_NEEDS_ATTENTION'
+                          ? 'Resolved in the underlying record'
+                          : 'Information',
+                },
+                { label: 'Reservation', value: row.booking?.externalReference },
+                { label: 'Status', value: row.booking?.status },
+                { label: 'Guest', value: row.booking?.guestName },
+                {
+                  label: 'Stay',
+                  value: row.booking ? `${row.booking.startsOn} to ${row.booking.endsOn}` : null,
+                },
+              ]}
             />
-          ) : null}
-        </Card>
-      )}
+          </>
+        ) : detail.isPending ? (
+          <ListSkeleton rows={3} />
+        ) : (
+          <EmptyPanel title="Notification unavailable" />
+        )}
+      </QuickPeek>
     </div>
   );
-}
-
-function Detail({ label, value }: { label: string; value: string | null | undefined }) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="m-0 truncate font-semibold">{value || '—'}</dd>
-    </div>
-  );
-}
-
-function shortDay(value: string) {
-  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(
-    new Date(`${value}T00:00:00`),
-  );
-}
-
-function formatNotificationDate(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value));
 }

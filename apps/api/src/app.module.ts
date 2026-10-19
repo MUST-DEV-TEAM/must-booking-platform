@@ -50,6 +50,8 @@ import { DashboardMetricsService } from './tenancy/dashboard-metrics.service';
 import { ReportWorkspaceService } from './tenancy/report-workspace.service';
 import { OverviewController } from './tenancy/overview.controller';
 import { OverviewService } from './tenancy/overview.service';
+import { NotificationInboxService } from './tenancy/notification-inbox.service';
+import { NotificationRetentionService } from './tenancy/notification-retention.service';
 import { NotificationsController } from './tenancy/notifications.controller';
 import { NotificationsService } from './tenancy/notifications.service';
 import { AuditLogController } from './tenancy/audit-log.controller';
@@ -303,6 +305,8 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ReportViewsService,
     OverviewService,
     NotificationsService,
+    NotificationInboxService,
+    NotificationRetentionService,
     AuditLogService,
     PlanUsageService,
     PropertiesService,

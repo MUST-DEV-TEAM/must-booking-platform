@@ -54,7 +54,7 @@ ADR-0024's structured phone and profile fields remain a **target**: User/Organiz
 
 ## Audit and known review boundaries
 
-AuditLogService records tenant-sensitive actions and supports global authentication events; notifications and integration manual-review items serve different operational purposes. The guest ledger has SELECT/INSERT RLS policies rather than normal UPDATE/DELETE policies.
+AuditLogService records tenant-sensitive actions and supports global authentication events; notifications and integration manual-review items serve different operational purposes. The personal inbox uses scoped notification_reads and versioned per-user inbox state; the legacy shared read_at is not attributed to a person. Permission routing and 90-day inbox retention are defined in the [M24 contract](../roadmap/milestones/24-notifications-emails-audit-plan.md#a3-contract-and-rules-before-implementation); expiry never resolves or removes the underlying booking/review evidence. The guest ledger has SELECT/INSERT RLS policies rather than normal UPDATE/DELETE policies.
 
 The blanket "every cache key and queue message has tenant_id" rule needs context: auth/health keys and scheduler ticks are global by design; domain jobs carry tenant/property context. Clock's older cache and rate-limit keys use connection/API-user identity instead of always explicitly containing tenant/property IDs; see [Clock architecture](../integrations/clock/architecture.md). Review isolation before expanding them.
 

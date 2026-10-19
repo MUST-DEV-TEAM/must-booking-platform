@@ -87,12 +87,13 @@ describe('RecordDirectory', () => {
             columns: [{ id: 'name', label: 'Name', value: (row) => row.name }],
             storageKey: 'test.server.directory',
             onRow: () => {},
-            pagination: { page: 2, pageSize: 25, total: 70, onPage, onPageSize: vi.fn() },
+            pagination: { page: 2, pageSize: 20, total: 70, onPage, onPageSize: vi.fn() },
           }),
         ),
       );
       expect(host.querySelector('tbody')!.textContent).toContain('Page two row');
       expect(host.textContent).toContain('70 items');
+      expect(host.querySelector('[role="combobox"]')?.textContent).toContain('20');
       expect(host.querySelector('input[aria-label="Search this page"]')).not.toBeNull();
       await act(async () =>
         host.querySelector<HTMLButtonElement>('[aria-label="Next page"]')!.click(),
@@ -102,4 +103,43 @@ describe('RecordDirectory', () => {
       await act(async () => root.unmount());
     }
   });
+});
+
+it('passes only locally filtered visible rows to a shared visible action', async () => {
+  const action = vi.fn();
+  const root = createRoot(document.body.appendChild(document.createElement('div')));
+  try {
+    await act(async () =>
+      root.render(
+        createElement(RecordDirectory<{ id: string; name: string }>, {
+          rows: [
+            { id: 'a', name: 'Alpha' },
+            { id: 'b', name: 'Beta' },
+          ],
+          columns: [{ id: 'name', label: 'Name', value: (r) => r.name }],
+          storageKey: 'visible.action',
+          onRow: () => {},
+          visibleActions: (rows) => [
+            { label: 'Mark visible', onSelect: () => action(rows.map((r) => r.id)) },
+          ],
+        }),
+      ),
+    );
+    const input = document.querySelector<HTMLInputElement>('[aria-label="Search records"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        'Beta',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>('button')]
+        .find((b) => b.textContent === 'Mark visible')!
+        .click(),
+    );
+    expect(action).toHaveBeenCalledWith(['b']);
+  } finally {
+    await act(async () => root.unmount());
+  }
 });

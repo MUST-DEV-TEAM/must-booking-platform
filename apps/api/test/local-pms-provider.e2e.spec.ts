@@ -21,6 +21,8 @@ import { PaymentProviderRegistry } from '../src/payments/payment-provider-regist
 import { StripePaymentProvider } from '../src/payments/stripe-payment.provider';
 import { PropertyRoleTemplatesService } from '../src/tenancy/property-role-templates.service';
 import type { PaymentProvider } from '@must/domain-contracts';
+import { withoutExternalWorkers } from './helpers/without-external-workers';
+import { TenantDatabaseService } from '../src/tenancy/tenant-database.service';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 import { PublicRateLimiterService } from '../src/tenancy/public-rate-limiter.service';
@@ -239,7 +241,7 @@ describe('LocalPmsProvider', () => {
     process.env.STRIPE_WEBHOOK_SECRET = stripeWebhookSecret;
     await clearSignupRateLimits();
     const { AppModule } = await import('../src/app.module');
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    const moduleBuilder = Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(MAIL_PROVIDER)
       .useValue(mail)
       .overrideProvider(PAYMENT_PROVIDER)
@@ -247,9 +249,20 @@ describe('LocalPmsProvider', () => {
       .overrideProvider(PokPayPaymentProvider)
       .useValue(pokpay)
       .overrideProvider(PublicRateLimiterService)
-      .useValue({ consume: async () => ({ allowed: true, retryAfterSeconds: 0 }) })
-      .compile();
+      .useValue({ consume: async () => ({ allowed: true, retryAfterSeconds: 0 }) });
+    const moduleRef = await withoutExternalWorkers(moduleBuilder, { keepExpiry: true }).compile();
     app = moduleRef.createNestApplication({ rawBody: true });
+    // Keep explicit expiry behavior tests, but no automatic sweep of the shared dev database.
+    app.get(PaymentExpiryService).onModuleInit = async () => {};
+    const fixtureDb = app.get(TenantDatabaseService),
+      raw = fixtureDb.$queryRaw;
+    fixtureDb.$queryRaw = async function (this: TenantDatabaseService, query, ...values) {
+      const result = await raw.call(this, query, ...values);
+      const sql = Array.isArray(query) ? query.join('') : '';
+      return /payment_pending_(expiry|pokpay)_candidates/.test(sql) && Array.isArray(result)
+        ? result.filter((candidate: { tenantId: string }) => candidate.tenantId === tenantId)
+        : result;
+    } as typeof fixtureDb.$queryRaw;
     await app.init();
     app.get(PaymentProviderRegistry).pokpay = pokpay as PokPayPaymentProvider;
   });
@@ -289,6 +302,8 @@ describe('LocalPmsProvider', () => {
     cookie = signup.headers['set-cookie'][0];
     const propertyUrl = `/tenants/${tenantId}/properties/${propertyId}`;
     await app!.get(PropertyRoleTemplatesService).ensureBuiltInTemplates(tenantId, propertyId);
+    for (let attempt = 0; attempt < 100 && !verificationToken; attempt++)
+      await new Promise((resolve) => setTimeout(resolve, 20));
     await request(app!.getHttpServer())
       .post('/auth/email-verification/confirm')
       .send({ token: verificationToken })
@@ -788,20 +803,26 @@ describe('LocalPmsProvider', () => {
       .set('Cookie', cookie)
       .expect(200);
     const createdNotification = notificationPage.body.items.find(
-      (item: { type: string; payload: { bookingId?: string } }) =>
-        item.type === 'BOOKING_CREATED' && item.payload.bookingId === created.value.id,
+      (item: { type: string; booking: { id?: string } | null }) =>
+        item.type === 'BOOKING_CREATED' && item.booking?.id === created.value.id,
     );
     expect(createdNotification).toEqual(expect.objectContaining({ readAt: null }));
     if (!createdNotification) throw new Error('Expected booking-created notification.');
+    const notificationReadKey = randomUUID();
     const firstMarkRead = await request(app!.getHttpServer())
       .patch(`${propertyUrl}/notifications/${createdNotification.id}`)
       .set('Cookie', cookie)
+      .set('Idempotency-Key', notificationReadKey)
+      .send({ version: notificationPage.body.version })
       .expect(200);
     const secondMarkRead = await request(app!.getHttpServer())
       .patch(`${propertyUrl}/notifications/${createdNotification.id}`)
       .set('Cookie', cookie)
+      .set('Idempotency-Key', notificationReadKey)
+      .send({ version: notificationPage.body.version })
       .expect(200);
-    expect(secondMarkRead.body.readAt).toBe(firstMarkRead.body.readAt);
+    expect(secondMarkRead.body).toEqual(firstMarkRead.body);
+    expect(firstMarkRead.body.updated).toBe(1);
     const otherGuestQuote = await request(app!.getHttpServer())
       .post(`${propertyUrl}/quotes`)
       .send({ roomTypeId, ratePlanId, startsOn: '2027-09-01', endsOn: '2027-09-03' })

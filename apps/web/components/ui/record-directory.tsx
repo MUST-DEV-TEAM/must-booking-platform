@@ -35,12 +35,15 @@ export function RecordDirectory<T extends { id: string }>({
   exportable = true,
   pagination,
   initialSort,
+  visibleActions,
 }: {
   rows: readonly T[];
   columns: readonly RecordColumn<T>[];
   storageKey: string;
   onRow: (row: T) => void;
   actions?: (row: T) => RecordAction[];
+  /** Actions receive exactly the rows currently visible after local search and paging. */
+  visibleActions?: (rows: readonly T[]) => RecordAction[];
   emptyTitle?: string;
   /** Disable local exports when the caller requires a dedicated audited export flow. */
   exportable?: boolean;
@@ -128,6 +131,17 @@ export function RecordDirectory<T extends { id: string }>({
             setPage(1);
           }}
         />
+        {visibleActions?.(visible).map((action) => (
+          <Button
+            key={action.label}
+            variant="outline"
+            size="sm"
+            disabled={action.disabled || !visible.length}
+            onClick={action.onSelect}
+          >
+            {action.label}
+          </Button>
+        ))}
         <ColumnChooser
           labels={Object.fromEntries(columns.slice(1).map((c) => [c.id, c.label]))}
           visible={preferences.columns}
@@ -287,7 +301,9 @@ export function RecordDirectory<T extends { id: string }>({
             pageSize={pagination?.pageSize ?? pageSize}
             total={pagination?.total ?? filtered.length}
             onPage={pagination?.onPage ?? setPage}
-            pageSizeOptions={[10, 25, 50]}
+            pageSizeOptions={[...new Set([10, 25, 50, pagination?.pageSize ?? pageSize])].sort(
+              (a, b) => a - b,
+            )}
             onPageSize={(size) => {
               if (pagination) {
                 pagination.onPageSize(size);

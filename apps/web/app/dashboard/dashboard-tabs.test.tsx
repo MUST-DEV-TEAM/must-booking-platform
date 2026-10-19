@@ -41,7 +41,22 @@ describe('Dashboard section tabs', () => {
       if (url === '/api/tenants/t/properties')
         return Promise.resolve(new Response(JSON.stringify([{ id: 'p', name: 'Grand Hotel' }])));
       if (url === '/api/tenants/t/properties/p/notifications?page=1&pageSize=20')
-        return Promise.resolve(new Response(JSON.stringify({ items: [] })));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [],
+              total: 0,
+              page: 1,
+              pageSize: 20,
+              unreadTotal: 0,
+              version: 0,
+              through: '2026-10-19T10:00:00Z',
+              canMarkRead: true,
+              counts: { critical: 0, today: 0, needsAction: 0 },
+              registry: [],
+            }),
+          ),
+        );
       return Promise.resolve(
         new Response(
           JSON.stringify({
@@ -113,7 +128,22 @@ describe('Dashboard section tabs', () => {
       if (url === '/api/tenants/t/properties')
         return Promise.resolve(new Response(JSON.stringify([{ id: 'p', name: 'Grand Hotel' }])));
       if (url === '/api/tenants/t/properties/p/notifications?page=1&pageSize=20')
-        return Promise.resolve(new Response(JSON.stringify({ items: [] })));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [],
+              total: 0,
+              page: 1,
+              pageSize: 20,
+              unreadTotal: 0,
+              version: 0,
+              through: '2026-10-19T10:00:00Z',
+              canMarkRead: true,
+              counts: { critical: 0, today: 0, needsAction: 0 },
+              registry: [],
+            }),
+          ),
+        );
       return Promise.resolve(
         new Response(
           JSON.stringify({
@@ -182,7 +212,22 @@ describe('Dashboard section tabs', () => {
       if (url === '/api/tenants/t/properties')
         return Promise.resolve(new Response(JSON.stringify([{ id: 'p', name: 'Grand Hotel' }])));
       if (url === '/api/tenants/t/properties/p/notifications?page=1&pageSize=20')
-        return Promise.resolve(new Response(JSON.stringify({ items: [] })));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [],
+              total: 0,
+              page: 1,
+              pageSize: 20,
+              unreadTotal: 0,
+              version: 0,
+              through: '2026-10-19T10:00:00Z',
+              canMarkRead: true,
+              counts: { critical: 0, today: 0, needsAction: 0 },
+              registry: [],
+            }),
+          ),
+        );
       if (url.endsWith('/capabilities/mine'))
         return Promise.resolve(new Response(JSON.stringify(['calendar.view', 'calendar.block'])));
       if (url.endsWith('/inventory/restrictions') || url.endsWith('/inventory/blocks'))
@@ -282,7 +327,15 @@ describe('Dashboard section tabs', () => {
                 {
                   id: 'booking',
                   type: 'BOOKING_CREATED',
-                  payload: {},
+                  title: 'Booking created',
+                  description: 'A new reservation was made.',
+                  category: 'Reservations',
+                  priority: 'Low',
+                  capability: 'bookings.view',
+                  needsAction: false,
+                  href: null,
+                  booking: null,
+                  limitedContext: 'Related reservation is unavailable',
                   readAt: null,
                   createdAt: '2026-08-03T10:00:00.000Z',
                 },
@@ -290,6 +343,12 @@ describe('Dashboard section tabs', () => {
               page: 1,
               pageSize: 20,
               total: 1,
+              unreadTotal: 1,
+              version: 0,
+              through: '2026-10-19T10:00:00Z',
+              canMarkRead: true,
+              counts: { critical: 0, today: 0, needsAction: 0 },
+              registry: [],
             }),
           ),
         );
@@ -390,7 +449,22 @@ describe('Dashboard section tabs', () => {
         )
           return Promise.resolve(new Response(JSON.stringify([])));
         if (url === '/api/tenants/t/properties/p/notifications?page=1&pageSize=20')
-          return Promise.resolve(new Response(JSON.stringify({ items: [] })));
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                items: [],
+                total: 0,
+                page: 1,
+                pageSize: 20,
+                unreadTotal: 0,
+                version: 0,
+                through: '2026-10-19T10:00:00Z',
+                canMarkRead: true,
+                counts: { critical: 0, today: 0, needsAction: 0 },
+                registry: [],
+              }),
+            ),
+          );
         return Promise.resolve(new Response(JSON.stringify({})));
       });
       vi.stubGlobal('fetch', fetch);
@@ -459,7 +533,22 @@ describe('Dashboard section tabs', () => {
         if (url === '/api/tenants/t/properties')
           return Promise.resolve(new Response(JSON.stringify([{ id: 'p', name: 'Grand Hotel' }])));
         if (url === '/api/tenants/t/properties/p/notifications?page=1&pageSize=20')
-          return Promise.resolve(new Response(JSON.stringify({ items: [] })));
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                items: [],
+                total: 0,
+                page: 1,
+                pageSize: 20,
+                unreadTotal: 0,
+                version: 0,
+                through: '2026-10-19T10:00:00Z',
+                canMarkRead: true,
+                counts: { critical: 0, today: 0, needsAction: 0 },
+                registry: [],
+              }),
+            ),
+          );
         return Promise.resolve(
           new Response(
             JSON.stringify({
