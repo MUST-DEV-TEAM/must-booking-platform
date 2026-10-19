@@ -61,6 +61,9 @@ import { AuditLogController } from './tenancy/audit-log.controller';
 import { AuditLogService } from './tenancy/audit-log.service';
 import { MAIL_PROVIDER } from './mail/mail.provider';
 import { EmailMessageArchiveService } from './mail/email-message-archive.service';
+import { EmailTransportCredentialService } from './mail/email-transport-credentials';
+import { EmailSendingProfileController } from './tenancy/email-sending-profile.controller';
+import { EmailSendingProfileService } from './tenancy/email-sending-profile.service';
 import { ResendMailProvider } from './mail/resend-mail.provider';
 import { MailDeliveryService } from './mail/mail-delivery.service';
 import { AlertEmailService } from './mail/alert-email.service';
@@ -243,6 +246,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     EmailTemplatesController,
     EmailSuppressionsController,
     EmailConfigurationController,
+    EmailSendingProfileController,
     EmailTemplateVersionsController,
     EmailActivityController,
     EmailSenderController,
@@ -321,6 +325,8 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     EmailTemplatesService,
     EmailSuppressionsService,
     EmailConfigurationService,
+    EmailSendingProfileService,
+    EmailTransportCredentialService,
     EmailTemplateVersionsService,
     EmailActivityService,
     ReviewLinksService,

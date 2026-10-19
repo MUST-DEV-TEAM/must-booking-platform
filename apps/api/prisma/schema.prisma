@@ -1643,3 +1643,29 @@ model EmailMessagePreview {
  @@index([tenantId,propertyId,expiresAt],map:"email_message_previews_expiry")
  @@map("email_message_previews")
 }
+
+model EmailSendingProfile {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ version Int @default(1)
+ mode String @default("DEFAULT")
+ activeMode String @default("DEFAULT") @map("active_mode")
+ fromName String? @map("from_name")
+ fromAddress String? @map("from_address")
+ domain String?
+ smtpHost String? @map("smtp_host")
+ smtpPort Int? @map("smtp_port")
+ smtpSecurity String? @map("smtp_security")
+ encryptedCredentials String? @map("encrypted_credentials")
+ credentialRevision String? @map("credential_revision") @db.Uuid
+ fallbackGuest Boolean @default(true) @map("fallback_guest")
+ fromVerifiedAt DateTime? @map("from_verified_at") @db.Timestamptz(6)
+ connectionCheckedAt DateTime? @map("connection_checked_at") @db.Timestamptz(6)
+ domainCheckedAt DateTime? @map("domain_checked_at") @db.Timestamptz(6)
+ domainStatus String @default("unknown") @map("domain_status")
+ dnsRecords Json @default("[]") @map("dns_records")
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+ updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+ @@id([tenantId,propertyId])
+ @@map("email_sending_profiles")
+}

@@ -15,6 +15,7 @@ export async function cleanupTenant(
   tenantId: string,
 ): Promise<void> {
   await admin.$executeRaw`DELETE FROM email_message_previews WHERE tenant_id = ${tenantId}::uuid`;
+  await admin.$executeRaw`DELETE FROM email_sending_profiles WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM email_delivery_events WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM email_delivery_exports WHERE tenant_id = ${tenantId}::uuid`;
   await admin.$executeRaw`DELETE FROM audit_export_operations WHERE tenant_id = ${tenantId}::uuid`;
