@@ -39,6 +39,9 @@ import { PlatformAuditController } from './platform/console/platform-audit.contr
 import { PlatformHotelsController } from './platform/console/platform-hotels.controller';
 import { PlatformHotelsService } from './platform/console/platform-hotels.service';
 import { PlatformLifecycleService } from './platform/console/platform-lifecycle.service';
+import { HotelSupportController } from './platform/console/hotel-support.controller';
+import { PlatformSupportController } from './platform/console/platform-support.controller';
+import { PlatformSupportService } from './platform/console/platform-support.service';
 import { PlatformAuthController } from './platform/console/platform-auth.controller';
 import { PlatformAuthService } from './platform/console/platform-auth.service';
 import { PlatformIdempotencyService } from './platform/console/platform-idempotency.service';
@@ -295,6 +298,8 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PlatformTeamController,
     PlatformAuditController,
     PlatformHotelsController,
+    PlatformSupportController,
+    HotelSupportController,
     IntegrationConnectionsController,
     ClockCatalogSyncController,
     ClockRateRankingController,
@@ -310,6 +315,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PlatformTeamService,
     PlatformLifecycleService,
     PlatformHotelsService,
+    PlatformSupportService,
     PlatformAccessGuard,
     PlatformRouteInterceptor,
     AuthService,

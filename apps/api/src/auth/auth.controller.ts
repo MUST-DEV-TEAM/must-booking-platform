@@ -13,6 +13,11 @@ import {
 import { AuthService } from './auth.service';
 import { SignupRateLimited } from './signup-rate-limit.decorator';
 import { Public } from '../tenancy/tenant-context.decorator';
+import {
+  PlatformSupportService,
+  SUPPORT_COOKIE,
+} from '../platform/console/platform-support.service';
+import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 
 type CookieResponse = {
   cookie(name: string, value: string, options: Record<string, unknown>): void;
@@ -23,7 +28,11 @@ type CookieRequest = { headers: { cookie?: string } };
 @Public()
 @Controller('auth')
 export class AuthController {
-  constructor(@Inject(AuthService) private readonly auth: AuthService) {}
+  constructor(
+    @Inject(AuthService) private readonly auth: AuthService,
+    @Inject(PlatformSupportService) private readonly support: PlatformSupportService,
+    @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
+  ) {}
 
   @Post('signup') @SignupRateLimited() async signup(
     @Body() body: unknown,
@@ -87,15 +96,44 @@ export class AuthController {
     const user = await this.auth.getSessionUser(
       this.cookie(request.headers.cookie, 'must_session'),
     );
-    if (!user) throw new UnauthorizedException('A valid session is required.');
-    return { user };
+    if (user) return { user };
+    // No hotel session: a platform support session lets the dashboard load for that one hotel.
+    const access = await this.support.resolveAny(
+      this.cookie(request.headers.cookie, SUPPORT_COOKIE),
+    );
+    if (!access) throw new UnauthorizedException('A valid session is required.');
+    await this.support.recordCookieRequest(access, '/auth/session');
+    return {
+      user: {
+        id: `support:${access.sessionId}`,
+        email: access.accountEmail,
+        emailVerified: true,
+        isPlatformAdmin: false,
+      },
+      support: { sessionId: access.sessionId, kind: access.kind, tenantId: access.tenantId },
+    };
   }
   @Get('memberships') async memberships(@Req() request: CookieRequest) {
     const memberships = await this.auth.getSessionMemberships(
       this.cookie(request.headers.cookie, 'must_session'),
     );
-    if (!memberships) throw new UnauthorizedException('A valid session is required.');
-    return { memberships };
+    if (memberships) return { memberships };
+    const access = await this.support.resolveAny(
+      this.cookie(request.headers.cookie, SUPPORT_COOKIE),
+    );
+    if (!access) throw new UnauthorizedException('A valid session is required.');
+    await this.support.recordCookieRequest(access, '/auth/memberships');
+    const hotel = await this.database.withTenantTransaction({ tenantId: access.tenantId }, (tx) =>
+      tx.$queryRaw<Array<{ name: string }>>`
+        SELECT "name" FROM "organizations" WHERE "id" = ${access.tenantId}::uuid
+      `,
+    );
+    return {
+      memberships: [
+        { tenantId: access.tenantId, organizationName: hotel[0]?.name ?? 'Hotel', role: 'OWNER' },
+      ],
+      support: { sessionId: access.sessionId, kind: access.kind },
+    };
   }
 
   private cookie(header: string | undefined, name: string): string | undefined {
