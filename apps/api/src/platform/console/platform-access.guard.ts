@@ -36,10 +36,29 @@ export function readCookie(header: string | undefined, name: string): string | u
     .find(([key]) => key === name)?.[1];
 }
 
+/**
+ * Number of trusted reverse proxies in front of the API (the Next.js proxy counts as one). The
+ * client address is then the entry that many places from the RIGHT of X-Forwarded-For, which is the
+ * one the nearest trusted proxy appended; entries to its left are client-controlled and ignored.
+ * With 0 (the default) forwarded headers are ignored and the socket address is used.
+ */
+export function trustedProxyHops(): number {
+  const hops = Number.parseInt(process.env.PLATFORM_TRUSTED_PROXY_HOPS ?? '0', 10);
+  return Number.isSafeInteger(hops) && hops > 0 ? Math.min(hops, 5) : 0;
+}
+
 export function clientIp(request: ConsoleRequest): string | null {
-  const forwarded = request.headers['x-forwarded-for'];
-  const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(',')[0]?.trim();
-  return (first || request.ip || request.socket?.remoteAddress || null)?.slice(0, 64) ?? null;
+  const hops = trustedProxyHops();
+  if (hops > 0) {
+    const forwarded = request.headers['x-forwarded-for'];
+    const chain = (Array.isArray(forwarded) ? forwarded.join(',') : (forwarded ?? ''))
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const trusted = chain[chain.length - hops];
+    if (trusted) return trusted.slice(0, 64);
+  }
+  return (request.socket?.remoteAddress || request.ip || null)?.slice(0, 64) ?? null;
 }
 
 /**

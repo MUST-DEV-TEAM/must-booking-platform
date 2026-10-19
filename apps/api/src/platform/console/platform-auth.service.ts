@@ -14,6 +14,7 @@ import { createClient, type RedisClientType } from 'redis';
 import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
 import { PlatformAuditService } from './platform-audit.service';
 import type { PlatformActor, PlatformRequestContext } from './platform-console.decorators';
+import { trustedProxyHops } from './platform-access.guard';
 import { hashToken, PlatformSessionService } from './platform-session.service';
 
 export const PLATFORM_LOGIN_EMAIL_LIMIT = 8;
@@ -75,10 +76,12 @@ export class PlatformAuthService implements OnModuleDestroy {
     const password = body.password.slice(0, 200);
 
     const emailKey = this.key('email', email);
-    const ipKey = this.key('ip', ctx.ip ?? 'unknown');
+    // Behind a proxy that is not configured as trusted every request shares one address, so a
+    // per-IP bucket would let one attacker lock everybody out. It applies only to a trusted IP.
+    const ipKey = trustedProxyHops() > 0 && ctx.ip ? this.key('ip', ctx.ip) : null;
     const [emailAttempts, ipAttempts] = await Promise.all([
       this.count(emailKey),
-      this.count(ipKey),
+      ipKey ? this.count(ipKey) : Promise.resolve(0),
     ]);
     if (emailAttempts > PLATFORM_LOGIN_EMAIL_LIMIT || ipAttempts > PLATFORM_LOGIN_IP_LIMIT) {
       await this.audit.record(ctx, {
