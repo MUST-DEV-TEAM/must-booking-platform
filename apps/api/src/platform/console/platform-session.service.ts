@@ -92,8 +92,9 @@ export class PlatformSessionService {
   }
 
   async revoke(sessionId: string, reason: string): Promise<void> {
-    await this.database.withPlatformConsoleTransaction((tx) =>
-      tx.$executeRaw`
+    await this.database.withPlatformConsoleTransaction(
+      (tx) =>
+        tx.$executeRaw`
         UPDATE "platform_sessions" SET "revoked_at" = now(), "revoke_reason" = ${reason}
         WHERE "id" = ${sessionId}::uuid AND "revoked_at" IS NULL
       `,
@@ -102,8 +103,9 @@ export class PlatformSessionService {
 
   /** Signs an account out of every device; returns how many sessions were ended. */
   async revokeAll(accountId: string, reason: string): Promise<number> {
-    return this.database.withPlatformConsoleTransaction((tx) =>
-      tx.$executeRaw`
+    return this.database.withPlatformConsoleTransaction(
+      (tx) =>
+        tx.$executeRaw`
         UPDATE "platform_sessions" SET "revoked_at" = now(), "revoke_reason" = ${reason}
         WHERE "account_id" = ${accountId}::uuid AND "revoked_at" IS NULL
       `,

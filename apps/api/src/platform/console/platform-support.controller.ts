@@ -22,7 +22,9 @@ import {
 } from './platform-console.decorators';
 import { PlatformSupportService, SUPPORT_COOKIE } from './platform-support.service';
 
-type CookieResponse = { cookie(name: string, value: string, options: Record<string, unknown>): void };
+type CookieResponse = {
+  cookie(name: string, value: string, options: Record<string, unknown>): void;
+};
 
 export function supportCookieOptions(expiresAt: string) {
   return {

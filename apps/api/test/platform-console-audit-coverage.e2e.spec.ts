@@ -6,7 +6,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { PrismaClient } from '@prisma/client';
 
-import { BUILT_IN_PLATFORM_ROLES, PLATFORM_CAPABILITY_KEYS } from '../src/platform/console/platform-capabilities';
+import {
+  BUILT_IN_PLATFORM_ROLES,
+  PLATFORM_CAPABILITY_KEYS,
+} from '../src/platform/console/platform-capabilities';
 import { discoverConsoleRoutes } from '../src/platform/console/platform-console-routes';
 import {
   clearPlatformLoginLimits,
@@ -59,7 +62,9 @@ describe('platform console: audit coverage', () => {
         .set('X-Request-Id', requestId);
       if (!route.public && !route.skipsIdempotency) req.set('Idempotency-Key', randomUUID());
       // An empty or meaningless body: most routes fail validation, which must still be audited.
-      const response = await req.send(route.public ? { email: adminEmail, password: 'Wrong-password-1' } : {});
+      const response = await req.send(
+        route.public ? { email: adminEmail, password: 'Wrong-password-1' } : {},
+      );
       expect(response.status, `${route.method} ${route.path}`).not.toBe(500);
 
       const rows = await owner.$queryRaw<Array<{ n: number }>>`
@@ -79,14 +84,23 @@ describe('platform console: audit coverage', () => {
       expect([...(roles.find((row) => row.key === role.key)?.capabilities ?? [])].sort()).toEqual(
         [...role.capabilities].sort(),
       );
-    expect(BUILT_IN_PLATFORM_ROLES.find((role) => role.key === 'super_admin')?.capabilities).toEqual(
-      PLATFORM_CAPABILITY_KEYS,
-    );
+    expect(
+      BUILT_IN_PLATFORM_ROLES.find((role) => role.key === 'super_admin')?.capabilities,
+    ).toEqual(PLATFORM_CAPABILITY_KEYS);
     // Finance and the auditor never get write access outside billing.
     const finance = roles.find((row) => row.key === 'finance')!.capabilities;
-    expect(finance.filter((key) => !key.startsWith('platform.billing') && key !== 'platform.hotels.view' && key !== 'platform.connections.view')).toEqual([]);
+    expect(
+      finance.filter(
+        (key) =>
+          !key.startsWith('platform.billing') &&
+          key !== 'platform.hotels.view' &&
+          key !== 'platform.connections.view',
+      ),
+    ).toEqual([]);
     const auditor = roles.find((row) => row.key === 'auditor')!.capabilities;
-    expect(auditor.filter((key) => /manage|create|lifecycle|dangerous|act_as|approve|export/.test(key))).toEqual([]);
+    expect(
+      auditor.filter((key) => /manage|create|lifecycle|dangerous|act_as|approve|export/.test(key)),
+    ).toEqual([]);
     void TEST_PASSWORD;
   });
 });

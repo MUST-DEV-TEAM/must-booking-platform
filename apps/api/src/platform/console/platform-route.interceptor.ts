@@ -126,7 +126,10 @@ export class PlatformRouteInterceptor implements NestInterceptor {
           targetType: ctx.hint.targetType ?? meta.targetType,
           targetId: ctx.hint.targetId,
           reason: ctx.hint.reason,
-          details: { status, error: error instanceof Error ? error.message.slice(0, 300) : 'error' },
+          details: {
+            status,
+            error: error instanceof Error ? error.message.slice(0, 300) : 'error',
+          },
         })
         .catch(() => undefined);
       throw error;

@@ -43,7 +43,11 @@ describe('platform console: hotels, onboarding and lifecycle', () => {
     expect(response.status).toBe(201);
     tenants.push(response.body.tenantId);
     userEmails.push(body.ownerEmail);
-    return { ...response.body, body } as { tenantId: string; propertyId: string; body: ReturnType<typeof hotelBody> };
+    return { ...response.body, body } as {
+      tenantId: string;
+      propertyId: string;
+      body: ReturnType<typeof hotelBody>;
+    };
   };
 
   /** Owner follows the emailed link, sets a password and signs in to the hotel dashboard. */
@@ -56,7 +60,12 @@ describe('platform console: hotels, onboarding and lifecycle', () => {
     const login = await request(app.getHttpServer())
       .post('/auth/login')
       .send({ email, password: 'Owner-pass-12345' });
-    return { status: login.status, body: login.body, cookie: (login.headers['set-cookie'] as unknown as string[] | undefined)?.[0]?.split(';')[0] ?? '' };
+    return {
+      status: login.status,
+      body: login.body,
+      cookie:
+        (login.headers['set-cookie'] as unknown as string[] | undefined)?.[0]?.split(';')[0] ?? '',
+    };
   };
 
   const hotelGet = (path: string, cookie: string) =>
@@ -97,13 +106,25 @@ describe('platform console: hotels, onboarding and lifecycle', () => {
       const detail = await operations.get(`/hotels/${created.tenantId}`);
       expect(detail.status).toBe(200);
       expect(detail.body.lifecycle.state).toBe('TRIAL');
-      expect(detail.body).toMatchObject({ mode: 'MUST_SOURCE', country: 'AL', currency: 'EUR', timeZone: 'Europe/Tirane' });
+      expect(detail.body).toMatchObject({
+        mode: 'MUST_SOURCE',
+        country: 'AL',
+        currency: 'EUR',
+        timeZone: 'Europe/Tirane',
+      });
       expect(detail.body.ownerInvite.email).toBe(created.body.ownerEmail);
-      expect(mail.invitations.some((entry) => entry.to === created.body.ownerEmail.toLowerCase())).toBe(true);
+      expect(
+        mail.invitations.some((entry) => entry.to === created.body.ownerEmail.toLowerCase()),
+      ).toBe(true);
 
-      const audit = await owner.$queryRaw<Array<{ action: string; actor_role: string; after: Record<string, unknown> }>>`
+      const audit = await owner.$queryRaw<
+        Array<{ action: string; actor_role: string; after: Record<string, unknown> }>
+      >`
         SELECT action, actor_role, after FROM platform_audit_log WHERE tenant_id = ${created.tenantId}::uuid ORDER BY created_at`;
-      expect(audit.map((row) => row.action)).toEqual(['platform.hotel.created', 'platform.hotel.owner_invited']);
+      expect(audit.map((row) => row.action)).toEqual([
+        'platform.hotel.created',
+        'platform.hotel.owner_invited',
+      ]);
       expect(audit[0]).toMatchObject({ actor_role: 'operations' });
       expect(audit[0].after).toMatchObject({ lifecycle: 'TRIAL', mode: 'MUST_SOURCE' });
     });
@@ -137,12 +158,21 @@ describe('platform console: hotels, onboarding and lifecycle', () => {
         first_booking: 'todo',
       });
       expect(first.body.complete).toBe(false);
-      expect(first.body.items.every((item: { fixHref: string; evidence: string }) => item.fixHref && item.evidence)).toBe(true);
+      expect(
+        first.body.items.every(
+          (item: { fixHref: string; evidence: string }) => item.fixHref && item.evidence,
+        ),
+      ).toBe(true);
 
       // Real changes flip exactly the matching items.
       await owner.$executeRaw`UPDATE properties SET address = 'Rruga 1', phone = '+355 4 000', check_in_time = '14:00', check_out_time = '11:00', wordpress_connected_at = now() WHERE tenant_id = ${created.tenantId}::uuid`;
       const second = await operations.get(`/hotels/${created.tenantId}/onboarding`);
-      expect(state(second.body.items)).toMatchObject({ hotel_details: 'done', website: 'done', payment_gateway: 'todo', first_booking: 'todo' });
+      expect(state(second.body.items)).toMatchObject({
+        hotel_details: 'done',
+        website: 'done',
+        payment_gateway: 'todo',
+        first_booking: 'todo',
+      });
 
       await owner.$executeRaw`INSERT INTO integration_connections (tenant_id, kind, provider, name, encrypted_credentials, status) VALUES (${created.tenantId}::uuid, 'PAYMENT', 'POKPAY', 'PokPay', 'x', 'CONNECTED')`;
       const third = await operations.get(`/hotels/${created.tenantId}/onboarding`);
@@ -156,7 +186,11 @@ describe('platform console: hotels, onboarding and lifecycle', () => {
 
     it('invites the owner again only while the hotel has none', async () => {
       const created = await createHotel(operations);
-      const again = await operations.write('post', `/hotels/${created.tenantId}/owner-invitations`, { email: `other-${randomUUID()}@example.test` });
+      const again = await operations.write(
+        'post',
+        `/hotels/${created.tenantId}/owner-invitations`,
+        { email: `other-${randomUUID()}@example.test` },
+      );
       expect(again.status).toBe(201);
       await ownerSignsIn(created.body.ownerEmail).catch(() => undefined);
       await owner.$executeRaw`SELECT 1`;
@@ -166,7 +200,10 @@ describe('platform console: hotels, onboarding and lifecycle', () => {
   describe('directory and detail', () => {
     it('searches, filters, sorts and pages the directory, and exposes no health or plan editing', async () => {
       const a = await createHotel(operations, hotelBody(`Zephyr ${randomUUID().slice(0, 6)}`));
-      const b = await createHotel(operations, { ...hotelBody(`Alpha ${randomUUID().slice(0, 6)}`), mode: 'CLOCK' });
+      const b = await createHotel(operations, {
+        ...hotelBody(`Alpha ${randomUUID().slice(0, 6)}`),
+        mode: 'CLOCK',
+      });
       const search = await finance.get(`/hotels?search=${encodeURIComponent(a.body.hotelName)}`);
       expect(search.status).toBe(200);
       expect(search.body.items.map((row: { id: string }) => row.id)).toEqual([a.tenantId]);
@@ -188,7 +225,9 @@ describe('platform console: hotels, onboarding and lifecycle', () => {
       expect(paged.body.page).toBe(2);
 
       const trial = await operations.get('/hotels?lifecycle=TRIAL&pageSize=100');
-      expect(trial.body.items.every((row: { lifecycleState: string }) => row.lifecycleState === 'TRIAL')).toBe(true);
+      expect(
+        trial.body.items.every((row: { lifecycleState: string }) => row.lifecycleState === 'TRIAL'),
+      ).toBe(true);
       expect(trial.body.lifecycleCounts.TRIAL).toBeGreaterThanOrEqual(2);
     });
 
@@ -200,7 +239,9 @@ describe('platform console: hotels, onboarding and lifecycle', () => {
       expect(response.body.pms[0]).toMatchObject({ provider: 'CLOCK_PMS', status: 'FAILED' });
       expect(JSON.stringify(response.body)).not.toMatch(/SUPER-SECRET|encrypted|credential/i);
       expect(response.body).toHaveProperty('email.last30Days');
-      expect((await operations.write('post', `/hotels/${created.tenantId}/connections`, {})).status).toBe(404);
+      expect(
+        (await operations.write('post', `/hotels/${created.tenantId}/connections`, {})).status,
+      ).toBe(404);
     });
 
     it('lists staff with last login, usage against placeholder limits, and recent hotel events', async () => {
@@ -208,9 +249,15 @@ describe('platform console: hotels, onboarding and lifecycle', () => {
       await ownerSignsIn(created.body.ownerEmail);
       const response = await operations.get(`/hotels/${created.tenantId}/staff-usage`);
       expect(response.status).toBe(200);
-      expect(response.body.staff[0]).toMatchObject({ email: created.body.ownerEmail.toLowerCase(), membership: 'OWNER' });
+      expect(response.body.staff[0]).toMatchObject({
+        email: created.body.ownerEmail.toLowerCase(),
+        membership: 'OWNER',
+      });
       expect(response.body.staff[0].lastLoginAt).toBeTruthy();
-      expect(response.body.usage.limits.map((item: { key: string }) => item.key)).toEqual(['properties', 'staff']);
+      expect(response.body.usage.limits.map((item: { key: string }) => item.key)).toEqual([
+        'properties',
+        'staff',
+      ]);
       expect(response.body.recentHotelEvents.length).toBeGreaterThan(0);
       expect(JSON.stringify(response.body)).not.toMatch(/password/i);
     });
@@ -232,7 +279,11 @@ describe('platform console: hotels, onboarding and lifecycle', () => {
 
       const move = async (client: ConsoleClient, to: string) => {
         const current = (await client.get(`/hotels/${created.tenantId}`)).body.lifecycle.version;
-        return client.write('post', `/hotels/${created.tenantId}/lifecycle`, { to, reason: `Test move to ${to}`, version: current });
+        return client.write('post', `/hotels/${created.tenantId}/lifecycle`, {
+          to,
+          reason: `Test move to ${to}`,
+          version: current,
+        });
       };
 
       expect((await move(operations, 'ACTIVE')).status).toBe(201);
@@ -243,14 +294,18 @@ describe('platform console: hotels, onboarding and lifecycle', () => {
       const blocked = await hotelGet(dashboard, cookie);
       expect(blocked.status).toBe(403);
       expect(blocked.body.code).toBe('HOTEL_SUSPENDED');
-      const blockedLogin = await request(app.getHttpServer()).post('/auth/login').send({ email: created.body.ownerEmail, password: 'Owner-pass-12345' });
+      const blockedLogin = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: created.body.ownerEmail, password: 'Owner-pass-12345' });
       expect(blockedLogin.status).toBe(403);
       expect(blockedLogin.body.code).toBe('HOTEL_SUSPENDED');
       const blockedPublic = await request(app.getHttpServer()).get(catalog);
       expect(blockedPublic.status).toBe(403);
       expect(blockedPublic.body.code).toBe('HOTEL_UNAVAILABLE');
       // The legacy status column follows the lifecycle.
-      const flag = await owner.$queryRaw<Array<{ status: string }>>`SELECT status::text FROM organizations WHERE id = ${created.tenantId}::uuid`;
+      const flag = await owner.$queryRaw<
+        Array<{ status: string }>
+      >`SELECT status::text FROM organizations WHERE id = ${created.tenantId}::uuid`;
       expect(flag[0].status).toBe('SUSPENDED');
 
       expect((await move(operations, 'ACTIVE')).status).toBe(201);
@@ -261,19 +316,32 @@ describe('platform console: hotels, onboarding and lifecycle', () => {
       expect(denied.status).toBe(403);
       expect((await move(superAdmin, 'CANCELLED')).status).toBe(201);
       expect((await hotelGet(dashboard, cookie)).status).toBe(403);
-      expect((await request(app.getHttpServer()).post('/auth/login').send({ email: created.body.ownerEmail, password: 'Owner-pass-12345' })).status).toBe(403);
+      expect(
+        (
+          await request(app.getHttpServer())
+            .post('/auth/login')
+            .send({ email: created.body.ownerEmail, password: 'Owner-pass-12345' })
+        ).status,
+      ).toBe(403);
 
       expect((await move(superAdmin, 'ARCHIVED')).status).toBe(201);
-      const login = await request(app.getHttpServer()).post('/auth/login').send({ email: created.body.ownerEmail, password: 'Owner-pass-12345' });
+      const login = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: created.body.ownerEmail, password: 'Owner-pass-12345' });
       expect(login.status).toBe(201);
       const archivedCookie = (login.headers['set-cookie'] as unknown as string[])[0].split(';')[0];
       expect((await hotelGet(dashboard, archivedCookie)).status).toBe(200);
-      const write = await request(app.getHttpServer()).post(`/tenants/${created.tenantId}/staff-invitations`).set('Cookie', archivedCookie).send({ email: 'x@example.test', assignments: [] });
+      const write = await request(app.getHttpServer())
+        .post(`/tenants/${created.tenantId}/staff-invitations`)
+        .set('Cookie', archivedCookie)
+        .send({ email: 'x@example.test', assignments: [] });
       expect(write.status).toBe(403);
       expect(write.body.code).toBe('HOTEL_ARCHIVED');
       expect((await request(app.getHttpServer()).get(catalog)).status).toBe(403);
       // Nothing was deleted.
-      const kept = await owner.$queryRaw<[{ n: number }]>`SELECT COUNT(*)::int AS n FROM properties WHERE tenant_id = ${created.tenantId}::uuid`;
+      const kept = await owner.$queryRaw<
+        [{ n: number }]
+      >`SELECT COUNT(*)::int AS n FROM properties WHERE tenant_id = ${created.tenantId}::uuid`;
       expect(kept[0].n).toBe(1);
       // Archived is terminal.
       expect((await move(superAdmin, 'ACTIVE')).status).toBe(409);
@@ -282,41 +350,84 @@ describe('platform console: hotels, onboarding and lifecycle', () => {
     it('requires a reason, a known target, a current version and an allowed move', async () => {
       const created = await createHotel(operations);
       const version = (await operations.get(`/hotels/${created.tenantId}`)).body.lifecycle.version;
-      const post = (body: object) => operations.write('post', `/hotels/${created.tenantId}/lifecycle`, body);
+      const post = (body: object) =>
+        operations.write('post', `/hotels/${created.tenantId}/lifecycle`, body);
       expect((await post({ to: 'ACTIVE', version })).status).toBe(400);
       expect((await post({ to: 'ACTIVE', reason: 'abc', version })).status).toBe(400);
       expect((await post({ to: 'BOGUS', reason: 'A real reason', version })).status).toBe(400);
       expect((await post({ to: 'ACTIVE', reason: 'A real reason' })).status).toBe(400);
-      expect((await post({ to: 'ACTIVE', reason: 'A real reason', version: version + 5 })).status).toBe(409);
+      expect(
+        (await post({ to: 'ACTIVE', reason: 'A real reason', version: version + 5 })).status,
+      ).toBe(409);
       expect((await post({ to: 'ARCHIVED', reason: 'A real reason', version })).status).toBe(409);
       expect((await post({ to: 'TRIAL', reason: 'A real reason', version })).status).toBe(409);
-      expect((await finance.write('post', `/hotels/${created.tenantId}/lifecycle`, { to: 'ACTIVE', reason: 'A real reason', version })).status).toBe(403);
+      expect(
+        (
+          await finance.write('post', `/hotels/${created.tenantId}/lifecycle`, {
+            to: 'ACTIVE',
+            reason: 'A real reason',
+            version,
+          })
+        ).status,
+      ).toBe(403);
     });
 
     it('lets only one of two admins who act at the same moment win', async () => {
       const created = await createHotel(operations);
       const version = (await operations.get(`/hotels/${created.tenantId}`)).body.lifecycle.version;
       const [one, two] = await Promise.all([
-        operations.write('post', `/hotels/${created.tenantId}/lifecycle`, { to: 'ACTIVE', reason: 'First admin', version }),
-        superAdmin.write('post', `/hotels/${created.tenantId}/lifecycle`, { to: 'SUSPENDED', reason: 'Second admin', version }),
+        operations.write('post', `/hotels/${created.tenantId}/lifecycle`, {
+          to: 'ACTIVE',
+          reason: 'First admin',
+          version,
+        }),
+        superAdmin.write('post', `/hotels/${created.tenantId}/lifecycle`, {
+          to: 'SUSPENDED',
+          reason: 'Second admin',
+          version,
+        }),
       ]);
       expect([one.status, two.status].sort()).toEqual([201, 409]);
-      const events = await owner.$queryRaw<[{ n: number }]>`SELECT COUNT(*)::int AS n FROM organization_lifecycle_events WHERE tenant_id = ${created.tenantId}::uuid`;
+      const events = await owner.$queryRaw<
+        [{ n: number }]
+      >`SELECT COUNT(*)::int AS n FROM organization_lifecycle_events WHERE tenant_id = ${created.tenantId}::uuid`;
       expect(events[0].n).toBe(2); // creation + exactly one change
     });
 
     it('records history, and audits the change with before, after and the reason', async () => {
       const created = await createHotel(operations);
       const version = (await operations.get(`/hotels/${created.tenantId}`)).body.lifecycle.version;
-      await operations.write('post', `/hotels/${created.tenantId}/lifecycle`, { to: 'ACTIVE', reason: 'Contract signed', version });
+      await operations.write('post', `/hotels/${created.tenantId}/lifecycle`, {
+        to: 'ACTIVE',
+        reason: 'Contract signed',
+        version,
+      });
       const detail = await auditor.get(`/hotels/${created.tenantId}`);
-      expect(detail.body.lifecycle.history[0]).toMatchObject({ from: 'TRIAL', to: 'ACTIVE', reason: 'Contract signed' });
+      expect(detail.body.lifecycle.history[0]).toMatchObject({
+        from: 'TRIAL',
+        to: 'ACTIVE',
+        reason: 'Contract signed',
+      });
       expect(detail.body.lifecycle.allowedTransitions).toEqual([]); // the auditor cannot change status
-      const rows = await owner.$queryRaw<Array<{ before: { state: string }; after: { state: string }; reason: string; result: string }>>`
+      const rows = await owner.$queryRaw<
+        Array<{
+          before: { state: string };
+          after: { state: string };
+          reason: string;
+          result: string;
+        }>
+      >`
         SELECT before, after, reason, result FROM platform_audit_log WHERE tenant_id = ${created.tenantId}::uuid AND action = 'platform.hotel.lifecycle_changed'`;
       expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({ before: { state: 'TRIAL' }, after: { state: 'ACTIVE' }, reason: 'Contract signed', result: 'succeeded' });
-      await expect(owner.$executeRaw`DELETE FROM organization_lifecycle_events WHERE tenant_id = ${created.tenantId}::uuid`).rejects.toThrow();
+      expect(rows[0]).toMatchObject({
+        before: { state: 'TRIAL' },
+        after: { state: 'ACTIVE' },
+        reason: 'Contract signed',
+        result: 'succeeded',
+      });
+      await expect(
+        owner.$executeRaw`DELETE FROM organization_lifecycle_events WHERE tenant_id = ${created.tenantId}::uuid`,
+      ).rejects.toThrow();
     });
 
     it('keeps the existing legacy suspend route consistent with the lifecycle', async () => {
@@ -325,7 +436,9 @@ describe('platform console: hotels, onboarding and lifecycle', () => {
       const detail = await operations.get(`/hotels/${created.tenantId}`);
       expect(detail.body.lifecycle.state).toBe('SUSPENDED');
       await owner.$executeRaw`UPDATE organizations SET status = 'ACTIVE' WHERE id = ${created.tenantId}::uuid`;
-      expect((await operations.get(`/hotels/${created.tenantId}`)).body.lifecycle.state).toBe('ACTIVE');
+      expect((await operations.get(`/hotels/${created.tenantId}`)).body.lifecycle.state).toBe(
+        'ACTIVE',
+      );
     });
   });
 });

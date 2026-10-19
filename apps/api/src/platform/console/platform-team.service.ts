@@ -9,7 +9,10 @@ import {
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'node:crypto';
 
-import { TenantDatabaseService, type TenantTransaction } from '../../tenancy/tenant-database.service';
+import {
+  TenantDatabaseService,
+  type TenantTransaction,
+} from '../../tenancy/tenant-database.service';
 import { PlatformAuditService } from './platform-audit.service';
 import { assertStrongPassword, emailPattern } from './platform-auth.service';
 import { PLATFORM_CAPABILITY_CATALOG } from './platform-capabilities';
@@ -49,8 +52,9 @@ export class PlatformTeamService {
   ) {}
 
   async list(): Promise<TeamMember[]> {
-    return this.database.withPlatformConsoleTransaction((tx) =>
-      tx.$queryRaw<TeamMember[]>`
+    return this.database.withPlatformConsoleTransaction(
+      (tx) =>
+        tx.$queryRaw<TeamMember[]>`
         SELECT a."id", a."email",
           NULLIF(BTRIM(CONCAT_WS(' ', a."first_name", a."last_name")), '') AS "name",
           r."key" AS "roleKey", r."name" AS "roleName", a."status",
@@ -69,8 +73,9 @@ export class PlatformTeamService {
     roles: TeamRole[];
     catalog: typeof PLATFORM_CAPABILITY_CATALOG;
   }> {
-    const roles = await this.database.withPlatformConsoleTransaction((tx) =>
-      tx.$queryRaw<TeamRole[]>`
+    const roles = await this.database.withPlatformConsoleTransaction(
+      (tx) =>
+        tx.$queryRaw<TeamRole[]>`
         SELECT "id", "key", "name", "description", "is_built_in" AS "isBuiltIn", "capabilities"
         FROM "platform_roles" ORDER BY "is_built_in" DESC, "name" ASC
       `,
@@ -154,7 +159,11 @@ export class PlatformTeamService {
       this.assertCanManage(current.roleCapabilities, actor.capabilities);
       if (current.version !== body.version)
         throw new ConflictException('This account was changed by someone else. Reload and retry.');
-      if (current.roleKey === 'super_admin' && role.key !== 'super_admin' && current.status === 'ACTIVE')
+      if (
+        current.roleKey === 'super_admin' &&
+        role.key !== 'super_admin' &&
+        current.status === 'ACTIVE'
+      )
         await this.assertAnotherSuperAdmin(tx, accountId);
       await tx.$executeRaw`
         UPDATE "platform_accounts"
@@ -179,7 +188,10 @@ export class PlatformTeamService {
   ): Promise<TeamMember> {
     const actor = requireActor(ctx);
     const body = (input ?? {}) as { status?: unknown; version?: unknown };
-    if ((body.status !== 'ACTIVE' && body.status !== 'SUSPENDED') || !Number.isInteger(body.version))
+    if (
+      (body.status !== 'ACTIVE' && body.status !== 'SUSPENDED') ||
+      !Number.isInteger(body.version)
+    )
       throw new BadRequestException('status (ACTIVE or SUSPENDED) and version are required.');
     const status = body.status;
     if (accountId === actor.accountId)
@@ -191,7 +203,8 @@ export class PlatformTeamService {
         throw new ConflictException('This account was changed by someone else. Reload and retry.');
       if (current.status === 'INVITED')
         throw new BadRequestException('An invited account has not accepted yet.');
-      if (current.status === status) throw new ConflictException(`The account is already ${status}.`);
+      if (current.status === status)
+        throw new ConflictException(`The account is already ${status}.`);
       if (status === 'SUSPENDED' && current.roleKey === 'super_admin')
         await this.assertAnotherSuperAdmin(tx, accountId);
       await tx.$executeRaw`
@@ -258,7 +271,9 @@ export class PlatformTeamService {
     actorCapabilities: readonly string[],
   ): void {
     if (!targetCapabilities.every((key) => actorCapabilities.includes(key)))
-      throw new ForbiddenException('You cannot manage an account with more permissions than yours.');
+      throw new ForbiddenException(
+        'You cannot manage an account with more permissions than yours.',
+      );
   }
 
   private async lockAccount(tx: TenantTransaction, accountId: string) {
@@ -313,7 +328,8 @@ export class PlatformTeamService {
       return rows[0]!.id;
     } catch (error) {
       const code = (error as { meta?: { code?: string }; code?: string }).meta?.code;
-      if (code === '23505') throw new ConflictException('That email already has a platform account.');
+      if (code === '23505')
+        throw new ConflictException('That email already has a platform account.');
       throw error;
     }
   }

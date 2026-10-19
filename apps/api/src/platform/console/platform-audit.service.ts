@@ -2,7 +2,10 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { auditCsv } from '../../tenancy/audit-workspace';
-import { TenantDatabaseService, type TenantTransaction } from '../../tenancy/tenant-database.service';
+import {
+  TenantDatabaseService,
+  type TenantTransaction,
+} from '../../tenancy/tenant-database.service';
 import type { PlatformRequestContext } from './platform-console.decorators';
 
 export interface PlatformAuditEntry {
@@ -193,9 +196,7 @@ export class PlatformAuditService {
     if (filters.tenantId) conditions.push(Prisma.sql`l."tenant_id" = ${filters.tenantId}::uuid`);
     if (filters.from) conditions.push(Prisma.sql`l."created_at" >= ${filters.from}::timestamptz`);
     if (filters.to) conditions.push(Prisma.sql`l."created_at" <= ${filters.to}::timestamptz`);
-    return conditions.length
-      ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}`
-      : Prisma.empty;
+    return conditions.length ? Prisma.sql`WHERE ${Prisma.join(conditions, ' AND ')}` : Prisma.empty;
   }
 }
 

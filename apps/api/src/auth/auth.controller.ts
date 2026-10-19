@@ -123,8 +123,10 @@ export class AuthController {
     );
     if (!access) throw new UnauthorizedException('A valid session is required.');
     await this.support.recordCookieRequest(access, '/auth/memberships');
-    const hotel = await this.database.withTenantTransaction({ tenantId: access.tenantId }, (tx) =>
-      tx.$queryRaw<Array<{ name: string }>>`
+    const hotel = await this.database.withTenantTransaction(
+      { tenantId: access.tenantId },
+      (tx) =>
+        tx.$queryRaw<Array<{ name: string }>>`
         SELECT "name" FROM "organizations" WHERE "id" = ${access.tenantId}::uuid
       `,
     );

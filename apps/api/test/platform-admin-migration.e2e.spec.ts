@@ -37,7 +37,9 @@ describe('migrating is_platform_admin users into platform accounts', () => {
   it('is a dry run by default, applies idempotently, keeps the old user, and can be rolled back', async () => {
     const dry = await migratePlatformAdmins(owner, 'dry-run');
     expect(dry.candidates).toContainEqual({ email, action: 'create' });
-    expect(await owner.$queryRaw`SELECT 1 FROM platform_accounts WHERE lower(email) = ${email}`).toHaveLength(0);
+    expect(
+      await owner.$queryRaw`SELECT 1 FROM platform_accounts WHERE lower(email) = ${email}`,
+    ).toHaveLength(0);
 
     const applied = await migratePlatformAdmins(owner, 'apply');
     expect(applied.candidates).toContainEqual({ email, action: 'create' });
@@ -48,7 +50,9 @@ describe('migrating is_platform_admin users into platform accounts', () => {
     expect(accounts).toEqual([{ role: 'super_admin', status: 'ACTIVE' }]);
 
     // The old user and its flag are untouched, so the old routes keep working.
-    const legacy = await owner.$queryRaw<Array<{ is_platform_admin: boolean }>>`SELECT is_platform_admin FROM users WHERE id = ${userId}::uuid`;
+    const legacy = await owner.$queryRaw<
+      Array<{ is_platform_admin: boolean }>
+    >`SELECT is_platform_admin FROM users WHERE id = ${userId}::uuid`;
     expect(legacy[0].is_platform_admin).toBe(true);
 
     // The migrated account signs in to the new console with the same password.

@@ -17,11 +17,20 @@ describe('hotel lifecycle rules', () => {
     ).sort();
     expect(allowed).toEqual(
       [
-        'TRIAL>ACTIVE', 'TRIAL>PAST_DUE', 'TRIAL>SUSPENDED', 'TRIAL>CANCELLED',
-        'ACTIVE>PAST_DUE', 'ACTIVE>SUSPENDED', 'ACTIVE>CANCELLED',
-        'PAST_DUE>ACTIVE', 'PAST_DUE>SUSPENDED', 'PAST_DUE>CANCELLED',
-        'SUSPENDED>ACTIVE', 'SUSPENDED>CANCELLED',
-        'CANCELLED>ARCHIVED', 'CANCELLED>ACTIVE',
+        'TRIAL>ACTIVE',
+        'TRIAL>PAST_DUE',
+        'TRIAL>SUSPENDED',
+        'TRIAL>CANCELLED',
+        'ACTIVE>PAST_DUE',
+        'ACTIVE>SUSPENDED',
+        'ACTIVE>CANCELLED',
+        'PAST_DUE>ACTIVE',
+        'PAST_DUE>SUSPENDED',
+        'PAST_DUE>CANCELLED',
+        'SUSPENDED>ACTIVE',
+        'SUSPENDED>CANCELLED',
+        'CANCELLED>ARCHIVED',
+        'CANCELLED>ACTIVE',
       ].sort(),
     );
     expect(canTransition('ARCHIVED', 'ACTIVE')).toBe(false);
@@ -51,7 +60,13 @@ describe('hotel lifecycle rules', () => {
       { state: 'PAST_DUE', read: 'allowed', write: 'allowed', login: false, publicBooking: true },
       { state: 'SUSPENDED', read: 'blocked', write: 'blocked', login: true, publicBooking: false },
       { state: 'CANCELLED', read: 'blocked', write: 'blocked', login: true, publicBooking: false },
-      { state: 'ARCHIVED', read: 'allowed', write: 'read_only', login: false, publicBooking: false },
+      {
+        state: 'ARCHIVED',
+        read: 'allowed',
+        write: 'read_only',
+        login: false,
+        publicBooking: false,
+      },
     ]);
   });
 });

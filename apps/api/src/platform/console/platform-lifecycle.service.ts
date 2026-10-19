@@ -44,7 +44,8 @@ export class PlatformLifecycleService {
   ): Promise<LifecycleResult> {
     const actor = requireActor(ctx);
     const body = (input ?? {}) as { to?: unknown; reason?: unknown; version?: unknown };
-    if (!isLifecycleState(body.to)) throw new BadRequestException('A valid target status is required.');
+    if (!isLifecycleState(body.to))
+      throw new BadRequestException('A valid target status is required.');
     const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
     if (reason.length < 5 || reason.length > 1000)
       throw new BadRequestException('A reason of 5 to 1000 characters is required.');
@@ -74,7 +75,9 @@ export class PlatformLifecycleService {
         needsDangerousPermission(current.state, to) &&
         !actor.capabilities.includes('platform.hotels.dangerous')
       )
-        throw new ForbiddenException('Only a Super admin can cancel, archive or reinstate a hotel.');
+        throw new ForbiddenException(
+          'Only a Super admin can cancel, archive or reinstate a hotel.',
+        );
 
       const updated = await tx.$queryRaw<Array<{ version: number; changedAt: string }>>`
         UPDATE "organizations"
@@ -110,17 +113,19 @@ export class PlatformLifecycleService {
   }
 
   async history(tenantId: string) {
-    return this.database.withConsoleTenantTransaction({ tenantId }, (tx) =>
-      tx.$queryRaw<
-        Array<{
-          id: string;
-          from: LifecycleState | null;
-          to: LifecycleState;
-          reason: string;
-          actorEmail: string | null;
-          createdAt: string;
-        }>
-      >`
+    return this.database.withConsoleTenantTransaction(
+      { tenantId },
+      (tx) =>
+        tx.$queryRaw<
+          Array<{
+            id: string;
+            from: LifecycleState | null;
+            to: LifecycleState;
+            reason: string;
+            actorEmail: string | null;
+            createdAt: string;
+          }>
+        >`
         SELECT "id", "from_state"::text AS "from", "to_state"::text AS "to", "reason",
           "actor_email" AS "actorEmail", "created_at" AS "createdAt"
         FROM "organization_lifecycle_events"

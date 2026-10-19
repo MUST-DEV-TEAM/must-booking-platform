@@ -45,11 +45,7 @@ export class StaffInviteService implements OnModuleDestroy {
     this.redis = createClient({ url: process.env.REDIS_URL });
   }
 
-  async invite(
-    command: StaffInvite,
-    actorUserId: string,
-    sender?: InviteSender,
-  ): Promise<string> {
+  async invite(command: StaffInvite, actorUserId: string, sender?: InviteSender): Promise<string> {
     if (!command.assignments.length)
       throw new BadRequestException('At least one property assignment is required.');
     try {

@@ -4,8 +4,7 @@ import { createHash } from 'node:crypto';
 import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
 
 export type IdempotencyClaim =
-  | { state: 'new' }
-  | { state: 'replay'; statusCode: number; body: unknown };
+  { state: 'new' } | { state: 'replay'; statusCode: number; body: unknown };
 
 const IN_PROGRESS = 0;
 /** An unfinished claim older than this is treated as abandoned (the process died mid-request). */
@@ -75,8 +74,9 @@ export class PlatformIdempotencyService {
   }
 
   async complete(accountId: string, key: string, statusCode: number, body: unknown): Promise<void> {
-    await this.database.withPlatformConsoleTransaction((tx) =>
-      tx.$executeRaw`
+    await this.database.withPlatformConsoleTransaction(
+      (tx) =>
+        tx.$executeRaw`
         UPDATE "platform_idempotency_keys"
         SET "status_code" = ${statusCode}, "response" = ${JSON.stringify(body ?? null)}::jsonb
         WHERE "account_id" = ${accountId}::uuid AND "key" = ${key}
@@ -86,8 +86,9 @@ export class PlatformIdempotencyService {
 
   /** The request failed: let the caller retry with the same key. */
   async release(accountId: string, key: string): Promise<void> {
-    await this.database.withPlatformConsoleTransaction((tx) =>
-      tx.$executeRaw`
+    await this.database.withPlatformConsoleTransaction(
+      (tx) =>
+        tx.$executeRaw`
         UPDATE "platform_idempotency_keys" SET "status_code" = ${IN_PROGRESS}, "created_at" = now() - (${STALE_CLAIM_SECONDS + 1}::int * interval '1 second')
         WHERE "account_id" = ${accountId}::uuid AND "key" = ${key} AND "status_code" = ${IN_PROGRESS}
       `,

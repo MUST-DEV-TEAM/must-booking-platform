@@ -31,7 +31,10 @@ function directoryQuery(query: Record<string, string | undefined>): HotelDirecto
   return {
     search: query.search?.slice(0, 200),
     lifecycle: lifecycle.length ? lifecycle : undefined,
-    mode: query.mode === 'CLOCK' || query.mode === 'MUST_SOURCE' ? (query.mode as HotelMode) : undefined,
+    mode:
+      query.mode === 'CLOCK' || query.mode === 'MUST_SOURCE'
+        ? (query.mode as HotelMode)
+        : undefined,
     sort,
     direction: query.direction === 'asc' ? 'asc' : 'desc',
     page: positive(query.page, 1),
@@ -86,7 +89,10 @@ export class PlatformHotelsController {
 
   @Post(':id/lifecycle')
   @PlatformCapability('platform.hotels.lifecycle')
-  @PlatformAudit('platform.hotel.lifecycle_changed', { tenantParam: 'id', targetType: 'organization' })
+  @PlatformAudit('platform.hotel.lifecycle_changed', {
+    tenantParam: 'id',
+    targetType: 'organization',
+  })
   changeLifecycle(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: unknown,

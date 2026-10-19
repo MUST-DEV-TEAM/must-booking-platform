@@ -11,7 +11,10 @@ import { randomBytes } from 'node:crypto';
 
 import { AuditLogService } from '../../tenancy/audit-log.service';
 import { currentAuditContext } from '../../tenancy/audit-request-context';
-import { TenantDatabaseService, type TenantTransaction } from '../../tenancy/tenant-database.service';
+import {
+  TenantDatabaseService,
+  type TenantTransaction,
+} from '../../tenancy/tenant-database.service';
 import { hotelDashboardAccess, type LifecycleState } from './hotel-lifecycle';
 import { PlatformAuditService } from './platform-audit.service';
 import { requireActor, type PlatformRequestContext } from './platform-console.decorators';
@@ -151,7 +154,9 @@ export class PlatformSupportService {
       `;
       if (!orgs[0]) throw new NotFoundException('Hotel not found.');
       if (kind === 'ACT' && hotelDashboardAccess(orgs[0].state, 'POST') !== 'allowed')
-        throw new ConflictException('Act-as access is only available for a hotel that is in service.');
+        throw new ConflictException(
+          'Act-as access is only available for a hotel that is in service.',
+        );
       await this.expireStale(tx, tenantId);
       const name = actor.name;
       let created: Row[];
@@ -177,7 +182,8 @@ export class PlatformSupportService {
       const session = toSummary({ ...created[0]!, hotelName: orgs[0].name });
       ctx.hint.targetId = session.id;
       await this.audit.recordInTransaction(tx, ctx, {
-        action: kind === 'VIEW' ? 'platform.support.view_started' : 'platform.support.act_requested',
+        action:
+          kind === 'VIEW' ? 'platform.support.view_started' : 'platform.support.act_requested',
         tenantId,
         targetType: 'support_session',
         targetId: session.id,
@@ -214,10 +220,7 @@ export class PlatformSupportService {
     return (await this.withHotelNames(rows)).map(toSummary);
   }
 
-  async approve(
-    id: string,
-    ctx: PlatformRequestContext,
-  ): Promise<SupportSessionSummary> {
+  async approve(id: string, ctx: PlatformRequestContext): Promise<SupportSessionSummary> {
     const actor = requireActor(ctx);
     const tenantId = await this.tenantOf(id);
     ctx.hint.tenantId = tenantId;
@@ -244,7 +247,12 @@ export class PlatformSupportService {
         action: 'support.session.approved',
         targetType: 'support_session',
         targetId: id,
-        details: { approvedBy: actor.email, via: 'platform', requestedBy: current.accountEmail, expiresAt: row.expiresAt },
+        details: {
+          approvedBy: actor.email,
+          via: 'platform',
+          requestedBy: current.accountEmail,
+          expiresAt: row.expiresAt,
+        },
       });
       return toSummary(row);
     });
@@ -294,7 +302,9 @@ export class PlatformSupportService {
         current.accountId !== actor.accountId &&
         !actor.capabilities.includes('platform.support.approve')
       )
-        throw new ForbiddenException('Only the requester or a support approver can end this session.');
+        throw new ForbiddenException(
+          'Only the requester or a support approver can end this session.',
+        );
       const row = await this.end(tx, id, 'REVOKED', actor.email);
       await this.audit.recordInTransaction(tx, ctx, {
         action: 'platform.support.revoked',
@@ -389,7 +399,12 @@ export class PlatformSupportService {
               : 'support.session.ended',
         targetType: 'support_session',
         targetId: id,
-        details: { by: ownerEmail, via: 'owner', requestedBy: current.accountEmail, kind: current.kind },
+        details: {
+          by: ownerEmail,
+          via: 'owner',
+          requestedBy: current.accountEmail,
+          kind: current.kind,
+        },
       });
       // The platform log records the owner's decision too, without a platform actor.
       await tx.$executeRaw`
@@ -410,7 +425,10 @@ export class PlatformSupportService {
    * session can never be used on another tenant. Re-checks that the platform account is still
    * active and still holds the capability, so suspensions and role changes bite immediately.
    */
-  async resolveForTenant(token: string | undefined, tenantId: string): Promise<ResolvedSupportAccess | null> {
+  async resolveForTenant(
+    token: string | undefined,
+    tenantId: string,
+  ): Promise<ResolvedSupportAccess | null> {
     if (!token || token.length > 200) return null;
     return this.database.withConsoleTenantTransaction({ tenantId }, (tx) =>
       this.resolveInTransaction(tx, token, tenantId),
@@ -419,8 +437,9 @@ export class PlatformSupportService {
 
   async resolveAny(token: string | undefined): Promise<ResolvedSupportAccess | null> {
     if (!token || token.length > 200) return null;
-    const found = await this.database.withPlatformConsoleTransaction((tx) =>
-      tx.$queryRaw<Array<{ tenantId: string }>>`
+    const found = await this.database.withPlatformConsoleTransaction(
+      (tx) =>
+        tx.$queryRaw<Array<{ tenantId: string }>>`
         SELECT "tenant_id" AS "tenantId" FROM "support_sessions"
         WHERE "token_hash" = ${hashToken(token)} AND "status" = 'ACTIVE' AND "expires_at" > now()
       `,
@@ -505,7 +524,8 @@ export class PlatformSupportService {
           tenantId: access.tenantId,
           actorUserId: access.accountId,
           actorType: 'PLATFORM_ADMIN',
-          action: entry.result === 'succeeded' ? 'support.action.performed' : 'support.action.refused',
+          action:
+            entry.result === 'succeeded' ? 'support.action.performed' : 'support.action.refused',
           targetType: 'support_session',
           targetId: access.sessionId,
           details: {
@@ -567,8 +587,9 @@ export class PlatformSupportService {
   }
 
   private async tenantOf(id: string): Promise<string> {
-    const rows = await this.database.withPlatformConsoleTransaction((tx) =>
-      tx.$queryRaw<Array<{ tenantId: string }>>`
+    const rows = await this.database.withPlatformConsoleTransaction(
+      (tx) =>
+        tx.$queryRaw<Array<{ tenantId: string }>>`
         SELECT "tenant_id" AS "tenantId" FROM "support_sessions" WHERE "id" = ${id}::uuid
       `,
     );
@@ -615,7 +636,12 @@ export class PlatformSupportService {
     return rows[0];
   }
 
-  private async end(tx: TenantTransaction, id: string, status: 'REVOKED', by: string): Promise<Row> {
+  private async end(
+    tx: TenantTransaction,
+    id: string,
+    status: 'REVOKED',
+    by: string,
+  ): Promise<Row> {
     const rows = await tx.$queryRaw<Row[]>`
       UPDATE "support_sessions" s
       SET "status" = ${status}, "ended_at" = now(), "ended_by" = ${by}, "token_hash" = NULL,
@@ -639,8 +665,10 @@ export class PlatformSupportService {
   private async withHotelNames(rows: Row[]): Promise<Row[]> {
     const ids = [...new Set(rows.map((row) => row.tenantId))];
     if (!ids.length) return rows;
-    const names = await this.database.withPlatformAdminTransaction({ role: 'platform_admin' }, (tx) =>
-      tx.$queryRaw<Array<{ id: string; name: string }>>`
+    const names = await this.database.withPlatformAdminTransaction(
+      { role: 'platform_admin' },
+      (tx) =>
+        tx.$queryRaw<Array<{ id: string; name: string }>>`
         SELECT "id", "name" FROM "organizations" WHERE "id" = ANY(${ids}::uuid[])
       `,
     );

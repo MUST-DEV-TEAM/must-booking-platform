@@ -32,7 +32,10 @@ export class MailCapture {
   readonly provider = new Proxy(
     {
       sendStaffInvitationEmail: async (command: { to: string; invitationUrl: string }) => {
-        this.invitations.push({ to: command.to.toLowerCase(), invitationUrl: command.invitationUrl });
+        this.invitations.push({
+          to: command.to.toLowerCase(),
+          invitationUrl: command.invitationUrl,
+        });
       },
     },
     {
@@ -44,7 +47,9 @@ export class MailCapture {
   ) as unknown as MailProvider;
 
   tokenFor(email: string): string {
-    const invitation = [...this.invitations].reverse().find((entry) => entry.to === email.toLowerCase());
+    const invitation = [...this.invitations]
+      .reverse()
+      .find((entry) => entry.to === email.toLowerCase());
     if (!invitation) throw new Error(`No invitation email captured for ${email}`);
     return new URL(invitation.invitationUrl).searchParams.get('token')!;
   }
@@ -124,7 +129,10 @@ export class ConsoleClient {
   }
 }
 
-export async function loggedIn(app: INestApplication, account: TestAccount): Promise<ConsoleClient> {
+export async function loggedIn(
+  app: INestApplication,
+  account: TestAccount,
+): Promise<ConsoleClient> {
   const client = new ConsoleClient(app);
   const response = await client.login(account.email);
   if (response.status !== 200) throw new Error(`Login failed in test arrange: ${response.status}`);

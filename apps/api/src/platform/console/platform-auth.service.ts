@@ -118,7 +118,11 @@ export class PlatformAuthService implements OnModuleDestroy {
         result: 'failed',
         actorEmail: email,
         details: {
-          reason: !account ? 'unknown_account' : account.status !== 'ACTIVE' ? 'not_active' : 'bad_password',
+          reason: !account
+            ? 'unknown_account'
+            : account.status !== 'ACTIVE'
+              ? 'not_active'
+              : 'bad_password',
         },
       });
       throw new UnauthorizedException('Invalid email or password.');

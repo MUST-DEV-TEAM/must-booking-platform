@@ -9,7 +9,10 @@ import { randomUUID } from 'node:crypto';
 
 import { PropertyRoleTemplatesService } from '../../tenancy/property-role-templates.service';
 import { StaffInviteService } from '../../tenancy/staff-invite.service';
-import { TenantDatabaseService, type TenantTransaction } from '../../tenancy/tenant-database.service';
+import {
+  TenantDatabaseService,
+  type TenantTransaction,
+} from '../../tenancy/tenant-database.service';
 import {
   LIFECYCLE_LABELS,
   LIFECYCLE_TRANSITIONS,
@@ -103,20 +106,22 @@ export class PlatformHotelsService {
 
   async list(query: HotelDirectoryQuery) {
     const [organizations, facts] = await Promise.all([
-      this.database.withPlatformAdminTransaction({ role: 'platform_admin' }, (tx) =>
-        tx.$queryRaw<
-          Array<{
-            id: string;
-            name: string;
-            lifecycleState: LifecycleState;
-            onboardingMode: HotelMode | null;
-            country: string | null;
-            createdAt: string;
-            planName: string;
-            ownerEmail: string | null;
-            ownerPending: boolean;
-          }>
-        >`
+      this.database.withPlatformAdminTransaction(
+        { role: 'platform_admin' },
+        (tx) =>
+          tx.$queryRaw<
+            Array<{
+              id: string;
+              name: string;
+              lifecycleState: LifecycleState;
+              onboardingMode: HotelMode | null;
+              country: string | null;
+              createdAt: string;
+              planName: string;
+              ownerEmail: string | null;
+              ownerPending: boolean;
+            }>
+          >`
           SELECT o."id", o."name", o."lifecycle_state"::text AS "lifecycleState",
             o."onboarding_mode" AS "onboardingMode", o."country", o."created_at" AS "createdAt",
             p."name" AS "planName", COALESCE(owner."email", o."owner_invited_email") AS "ownerEmail",
@@ -130,17 +135,18 @@ export class PlatformHotelsService {
           ) owner ON true
         `,
       ),
-      this.database.withPlatformConsoleTransaction((tx) =>
-        tx.$queryRaw<
-          Array<{
-            tenantId: string;
-            propertyCount: number;
-            staffCount: number;
-            hasClock: boolean;
-            bookingCount: number;
-            lastBookingAt: string | null;
-          }>
-        >`SELECT * FROM "console_hotel_facts"()`,
+      this.database.withPlatformConsoleTransaction(
+        (tx) =>
+          tx.$queryRaw<
+            Array<{
+              tenantId: string;
+              propertyCount: number;
+              staffCount: number;
+              hasClock: boolean;
+              bookingCount: number;
+              lastBookingAt: string | null;
+            }>
+          >`SELECT * FROM "console_hotel_facts"()`,
       ),
     ]);
     const factsById = new Map(facts.map((row) => [row.tenantId, row]));
@@ -243,9 +249,7 @@ export class PlatformHotelsService {
       const org = orgs[0];
       if (!org) throw new NotFoundException('Hotel not found.');
       const [owner, properties, counts, clock] = await Promise.all([
-        tx.$queryRaw<
-          Array<{ userId: string; email: string; name: string | null; since: string }>
-        >`
+        tx.$queryRaw<Array<{ userId: string; email: string; name: string | null; since: string }>>`
           SELECT u."id" AS "userId", u."email",
             NULLIF(BTRIM(CONCAT_WS(' ', u."first_name", u."last_name")), '') AS "name",
             tm."created_at" AS "since"
@@ -267,7 +271,15 @@ export class PlatformHotelsService {
           FROM "properties" ORDER BY "created_at", "name"
         `,
         tx.$queryRaw<
-          [{ staff: number; bookings: number; bookings30: number; rooms: number; roomTypes: number }]
+          [
+            {
+              staff: number;
+              bookings: number;
+              bookings30: number;
+              rooms: number;
+              roomTypes: number;
+            },
+          ]
         >`
           SELECT
             (SELECT COUNT(*)::int FROM "tenant_memberships") AS "staff",
@@ -280,7 +292,13 @@ export class PlatformHotelsService {
           SELECT 1 AS "found" FROM "integration_connections" WHERE "provider" = ${MODE_CLOCK_SQL}::"IntegrationProvider" LIMIT 1
         `,
       ]);
-      return { org, owner: owner[0] ?? null, properties, counts: counts[0], hasClock: clock.length > 0 };
+      return {
+        org,
+        owner: owner[0] ?? null,
+        properties,
+        counts: counts[0],
+        hasClock: clock.length > 0,
+      };
     });
 
     const { org } = detail;
@@ -421,7 +439,12 @@ export class PlatformHotelsService {
             replyTo: row.emailReplyTo ?? row.supportEmail,
           })),
           last30Days: { delivered: sentOrDelivered, failed, queued: byStatus.QUEUED ?? 0 },
-          lastActivityAt: email.map((row) => row.lastAt).filter(Boolean).sort().pop() ?? null,
+          lastActivityAt:
+            email
+              .map((row) => row.lastAt)
+              .filter(Boolean)
+              .sort()
+              .pop() ?? null,
         },
       };
     });
@@ -431,9 +454,7 @@ export class PlatformHotelsService {
 
   async staffUsage(tenantId: string) {
     return this.database.withConsoleTenantTransaction({ tenantId }, async (tx) => {
-      const orgs = await tx.$queryRaw<
-        Array<{ maxProperties: number; maxStaffSeats: number }>
-      >`
+      const orgs = await tx.$queryRaw<Array<{ maxProperties: number; maxStaffSeats: number }>>`
         SELECT p."max_properties" AS "maxProperties", p."max_staff_seats" AS "maxStaffSeats"
         FROM "organizations" o JOIN "plans" p ON p."id" = o."plan_id" WHERE o."id" = ${tenantId}::uuid
       `;
@@ -469,7 +490,9 @@ export class PlatformHotelsService {
           WHERE tm."tenant_id" = ${tenantId}::uuid
           ORDER BY tm."created_at" ASC
         `,
-        tx.$queryRaw<[{ bookings: number; bookings30: number; confirmed30: number; properties: number }]>`
+        tx.$queryRaw<
+          [{ bookings: number; bookings30: number; confirmed30: number; properties: number }]
+        >`
           SELECT (SELECT COUNT(*)::int FROM "bookings") AS "bookings",
             (SELECT COUNT(*)::int FROM "bookings" WHERE "created_at" >= now() - interval '30 days') AS "bookings30",
             (SELECT COUNT(*)::int FROM "bookings" WHERE "created_at" >= now() - interval '30 days'
@@ -484,7 +507,13 @@ export class PlatformHotelsService {
           GROUP BY "currency" ORDER BY "currency"
         `,
         tx.$queryRaw<
-          Array<{ id: string; action: string; actorType: string; targetType: string; createdAt: string }>
+          Array<{
+            id: string;
+            action: string;
+            actorType: string;
+            targetType: string;
+            createdAt: string;
+          }>
         >`
           SELECT "id", "action", "actor_type"::text AS "actorType", "target_type" AS "targetType",
             "created_at" AS "createdAt"
@@ -501,7 +530,12 @@ export class PlatformHotelsService {
           liveBookingsLast30Days: usage[0]?.confirmed30 ?? 0,
           paymentsLast30Days: payments,
           limits: [
-            { key: 'properties', label: 'Properties', used: usage[0]?.properties ?? 0, limit: orgs[0].maxProperties },
+            {
+              key: 'properties',
+              label: 'Properties',
+              used: usage[0]?.properties ?? 0,
+              limit: orgs[0].maxProperties,
+            },
             { key: 'staff', label: 'Staff seats', used: seats, limit: orgs[0].maxStaffSeats },
           ],
           limitsNote: 'Limits are the current plan placeholders (Milestone 15 makes them real).',
@@ -516,7 +550,11 @@ export class PlatformHotelsService {
   async onboarding(tenantId: string): Promise<{ items: ChecklistItem[]; complete: boolean }> {
     const facts = await this.database.withConsoleTenantTransaction({ tenantId }, async (tx) => {
       const orgs = await tx.$queryRaw<
-        Array<{ ownerInvitedEmail: string | null; ownerInvitedAt: string | null; mode: HotelMode | null }>
+        Array<{
+          ownerInvitedEmail: string | null;
+          ownerInvitedAt: string | null;
+          mode: HotelMode | null;
+        }>
       >`
         SELECT "owner_invited_email" AS "ownerInvitedEmail", "owner_invited_at" AS "ownerInvitedAt",
           "onboarding_mode" AS "mode" FROM "organizations" WHERE "id" = ${tenantId}::uuid
@@ -633,7 +671,8 @@ export class PlatformHotelsService {
         label: mode === 'CLOCK' ? 'Clock PMS connected' : 'Rooms and rates set up',
         state: modeState,
         evidence: modeEvidence,
-        fixHref: mode === 'CLOCK' ? `${base}?tab=connections` : `/dashboard/${tenantId}/accommodations`,
+        fixHref:
+          mode === 'CLOCK' ? `${base}?tab=connections` : `/dashboard/${tenantId}/accommodations`,
       },
       {
         key: 'payment_gateway',
@@ -687,10 +726,14 @@ export class PlatformHotelsService {
     const mode = body.mode;
     if (hotelName.length < 2) throw new BadRequestException('A hotel name is required.');
     if (ownerName.length < 2) throw new BadRequestException('The owner’s name is required.');
-    if (!emailPattern.test(ownerEmail)) throw new BadRequestException('A valid owner email is required.');
-    if (!/^[A-Z]{2}$/.test(country)) throw new BadRequestException('A two-letter country code is required.');
-    if (!timeZone || !isValidTimeZone(timeZone)) throw new BadRequestException('A valid time zone is required.');
-    if (!/^[A-Z]{3}$/.test(currency)) throw new BadRequestException('A three-letter currency code is required.');
+    if (!emailPattern.test(ownerEmail))
+      throw new BadRequestException('A valid owner email is required.');
+    if (!/^[A-Z]{2}$/.test(country))
+      throw new BadRequestException('A two-letter country code is required.');
+    if (!timeZone || !isValidTimeZone(timeZone))
+      throw new BadRequestException('A valid time zone is required.');
+    if (!/^[A-Z]{3}$/.test(currency))
+      throw new BadRequestException('A three-letter currency code is required.');
     if (mode !== 'CLOCK' && mode !== 'MUST_SOURCE')
       throw new BadRequestException('Mode must be CLOCK or MUST_SOURCE.');
 
@@ -728,7 +771,15 @@ export class PlatformHotelsService {
           propertyId,
           targetType: 'organization',
           targetId: tenantId,
-          after: { name: hotelName, country, timeZone, currency, mode, lifecycle: 'TRIAL', ownerEmail },
+          after: {
+            name: hotelName,
+            country,
+            timeZone,
+            currency,
+            mode,
+            lifecycle: 'TRIAL',
+            ownerEmail,
+          },
           details: { ownerName },
         });
         if (!templates[0]) throw new ConflictException('Could not create the hotel roles.');
@@ -744,7 +795,8 @@ export class PlatformHotelsService {
   async inviteOwner(tenantId: string, input: unknown, ctx: PlatformRequestContext) {
     const body = (input ?? {}) as { email?: unknown };
     const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
-    if (!emailPattern.test(email)) throw new BadRequestException('A valid owner email is required.');
+    if (!emailPattern.test(email))
+      throw new BadRequestException('A valid owner email is required.');
     const target = await this.database.withConsoleTenantTransaction({ tenantId }, async (tx) => {
       await this.requireHotel(tx, tenantId);
       const owner = await tx.$queryRaw<Array<{ found: number }>>`
@@ -758,7 +810,8 @@ export class PlatformHotelsService {
           ON t."tenant_id" = p."tenant_id" AND t."property_id" = p."id" AND t."name" = 'Property Manager'
         ORDER BY p."created_at" LIMIT 1
       `;
-      if (!property[0]) throw new ConflictException('The hotel has no property to assign the owner to.');
+      if (!property[0])
+        throw new ConflictException('The hotel has no property to assign the owner to.');
       return property[0];
     });
     ctx.hint.tenantId = tenantId;

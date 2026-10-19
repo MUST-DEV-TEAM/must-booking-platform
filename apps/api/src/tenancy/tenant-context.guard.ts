@@ -175,8 +175,10 @@ export class TenantContextGuard implements CanActivate {
     if (!access) return false;
 
     if (propertyId) {
-      const found = await this.database.withTenantTransaction({ tenantId, propertyId }, (tx) =>
-        tx.$queryRaw<Array<{ allowed: number }>>`
+      const found = await this.database.withTenantTransaction(
+        { tenantId, propertyId },
+        (tx) =>
+          tx.$queryRaw<Array<{ allowed: number }>>`
           SELECT 1 AS allowed FROM "properties" WHERE "id" = ${propertyId}::uuid
         `,
       );

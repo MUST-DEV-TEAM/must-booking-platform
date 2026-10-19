@@ -2,7 +2,10 @@ import type { PrismaClient } from '@prisma/client';
 
 export interface MigrationReport {
   mode: 'dry-run' | 'apply' | 'rollback';
-  candidates: Array<{ email: string; action: 'create' | 'skip-existing' | 'suspend' | 'skip-missing' }>;
+  candidates: Array<{
+    email: string;
+    action: 'create' | 'skip-existing' | 'suspend' | 'skip-missing';
+  }>;
 }
 
 type MigrationClient = Pick<PrismaClient, '$queryRaw' | '$executeRaw' | '$transaction'>;
@@ -21,7 +24,15 @@ export async function migratePlatformAdmins(
   mode: MigrationReport['mode'],
 ): Promise<MigrationReport> {
   const report: MigrationReport = { mode, candidates: [] };
-  const flagged = await client.$queryRaw<Array<{ id: string; email: string; passwordHash: string | null; firstName: string | null; lastName: string | null }>>`
+  const flagged = await client.$queryRaw<
+    Array<{
+      id: string;
+      email: string;
+      passwordHash: string | null;
+      firstName: string | null;
+      lastName: string | null;
+    }>
+  >`
     SELECT "id", "email", "password_hash" AS "passwordHash", "first_name" AS "firstName", "last_name" AS "lastName"
     FROM "users" WHERE "is_platform_admin" = true ORDER BY "created_at"
   `;

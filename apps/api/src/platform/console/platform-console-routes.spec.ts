@@ -20,7 +20,9 @@ describe('platform console route policy', () => {
   it('audits every mutating route', () => {
     const unaudited = routes.filter((route) => route.mutating && !route.audited);
     expect(
-      unaudited.map((route) => `${route.method} ${route.path} (${route.controller}.${route.handler})`),
+      unaudited.map(
+        (route) => `${route.method} ${route.path} (${route.controller}.${route.handler})`,
+      ),
     ).toEqual([]);
   });
 

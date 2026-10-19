@@ -1,4 +1,14 @@
-import { Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Post, Req, Res } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  HttpCode,
+  Inject,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Req,
+  Res,
+} from '@nestjs/common';
 
 import { Public, TenantScoped } from '../../tenancy/tenant-context.decorator';
 import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
@@ -31,7 +41,8 @@ export class HotelSupportController {
   @HttpCode(204)
   async end(
     @Req() request: { headers: { cookie?: string } },
-    @Res({ passthrough: true }) response: { clearCookie(name: string, options: Record<string, unknown>): void },
+    @Res({ passthrough: true })
+    response: { clearCookie(name: string, options: Record<string, unknown>): void },
   ) {
     await this.support.endByCookie(readCookie(request.headers.cookie, SUPPORT_COOKIE));
     response.clearCookie(SUPPORT_COOKIE, { httpOnly: true, sameSite: 'strict', path: '/' });
