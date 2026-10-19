@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Inject,
@@ -14,6 +15,7 @@ import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { createClient, type RedisClientType } from 'redis';
 
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
+import { blocksHotelLogin, type LifecycleState } from '../platform/console/hotel-lifecycle';
 import { AuditLogService } from '../tenancy/audit-log.service';
 import { PropertyRoleTemplatesService } from '../tenancy/property-role-templates.service';
 import { MailDeliveryService } from '../mail/mail-delivery.service';
@@ -177,6 +179,7 @@ export class AuthService implements OnModuleDestroy {
     if (!user?.passwordHash || !(await bcrypt.compare(password, user.passwordHash)))
       throw new UnauthorizedException('Invalid email or password.');
     await redis.del(failureKey);
+    await this.assertHotelAccountsOpen(user.id);
     const sessionId = await this.createSession(user.id);
     await this.auditLogs.record({
       actorUserId: user.id,
@@ -193,6 +196,24 @@ export class AuthService implements OnModuleDestroy {
         isPlatformAdmin: user.isPlatformAdmin,
       },
     };
+  }
+
+  /**
+   * Refuses sign-in when every hotel the person belongs to is suspended or cancelled. A person
+   * with at least one hotel in service still signs in; the per-request guard closes the others.
+   */
+  private async assertHotelAccountsOpen(userId: string): Promise<void> {
+    const states = await this.database.$queryRaw<Array<{ lifecycleState: string }>>`
+      SELECT "lifecycleState" FROM "auth_user_tenant_states"(${userId}::uuid)
+    `;
+    if (
+      states.length > 0 &&
+      states.every((row) => blocksHotelLogin(row.lifecycleState as LifecycleState))
+    )
+      throw new ForbiddenException({
+        message: 'This hotel account is not active. Contact MUST support.',
+        code: 'HOTEL_SUSPENDED',
+      });
   }
 
   async logout(sessionId: string | undefined): Promise<void> {

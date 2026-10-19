@@ -36,6 +36,9 @@ import { RolesGuard } from './tenancy/roles.guard';
 import { PlatformAccessGuard } from './platform/console/platform-access.guard';
 import { PlatformAuditService } from './platform/console/platform-audit.service';
 import { PlatformAuditController } from './platform/console/platform-audit.controller';
+import { PlatformHotelsController } from './platform/console/platform-hotels.controller';
+import { PlatformHotelsService } from './platform/console/platform-hotels.service';
+import { PlatformLifecycleService } from './platform/console/platform-lifecycle.service';
 import { PlatformAuthController } from './platform/console/platform-auth.controller';
 import { PlatformAuthService } from './platform/console/platform-auth.service';
 import { PlatformIdempotencyService } from './platform/console/platform-idempotency.service';
@@ -291,6 +294,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PlatformAuthController,
     PlatformTeamController,
     PlatformAuditController,
+    PlatformHotelsController,
     IntegrationConnectionsController,
     ClockCatalogSyncController,
     ClockRateRankingController,
@@ -304,6 +308,8 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PlatformIdempotencyService,
     PlatformAuthService,
     PlatformTeamService,
+    PlatformLifecycleService,
+    PlatformHotelsService,
     PlatformAccessGuard,
     PlatformRouteInterceptor,
     AuthService,

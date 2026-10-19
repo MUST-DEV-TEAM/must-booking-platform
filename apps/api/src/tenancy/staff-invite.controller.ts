@@ -26,7 +26,12 @@ export class StaffInviteController {
   ): Promise<{ token: string }> {
     return {
       token: await this.invites.invite(
-        { ...body, tenantId: request.tenantContext.tenantId },
+        // membershipRole is never accepted from a hotel user: only the platform console may invite an owner.
+        {
+          email: body.email,
+          assignments: body.assignments,
+          tenantId: request.tenantContext.tenantId,
+        },
         request.tenantContext.userId,
       ),
     };

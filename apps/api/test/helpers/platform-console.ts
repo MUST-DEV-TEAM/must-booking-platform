@@ -7,6 +7,7 @@ import * as bcrypt from 'bcrypt';
 import request from 'supertest';
 
 import { MailDeliveryService } from '../../src/mail/mail-delivery.service';
+import { MAIL_PROVIDER, type MailProvider } from '../../src/mail/mail.provider';
 import { isolatedMailDelivery } from './isolated-mail-delivery';
 import { withoutExternalWorkers } from './without-external-workers';
 
@@ -25,15 +26,39 @@ export function ownerClient(): PrismaClient {
   return new PrismaClient({ datasources: { db: { url: TEST_MIGRATION_URL } } });
 }
 
-export async function startConsoleApp(): Promise<INestApplication> {
+/** Captures staff invitation emails so a test can follow the link without a real mailbox. */
+export class MailCapture {
+  readonly invitations: Array<{ to: string; invitationUrl: string }> = [];
+  readonly provider = new Proxy(
+    {
+      sendStaffInvitationEmail: async (command: { to: string; invitationUrl: string }) => {
+        this.invitations.push({ to: command.to.toLowerCase(), invitationUrl: command.invitationUrl });
+      },
+    },
+    {
+      // Only send* calls are stubbed; answering `then` or lifecycle hooks would make Nest wait forever.
+      get: (target, key) =>
+        (target as Record<string | symbol, unknown>)[key] ??
+        (typeof key === 'string' && key.startsWith('send') ? async () => undefined : undefined),
+    },
+  ) as unknown as MailProvider;
+
+  tokenFor(email: string): string {
+    const invitation = [...this.invitations].reverse().find((entry) => entry.to === email.toLowerCase());
+    if (!invitation) throw new Error(`No invitation email captured for ${email}`);
+    return new URL(invitation.invitationUrl).searchParams.get('token')!;
+  }
+}
+
+export async function startConsoleApp(mail?: MailCapture): Promise<INestApplication> {
   process.env.APP_PORT ??= '3000';
   process.env.DATABASE_URL = TEST_DATABASE_URL;
   process.env.REDIS_URL ??= 'redis://localhost:6379';
   process.env.WEB_APP_URL ??= 'http://localhost:3001';
   const { AppModule } = await import('../../src/app.module');
-  const builder = Test.createTestingModule({ imports: [AppModule] })
-    .overrideProvider(MailDeliveryService)
-    .useFactory(isolatedMailDelivery);
+  const builder = Test.createTestingModule({ imports: [AppModule] });
+  if (mail) builder.overrideProvider(MAIL_PROVIDER).useValue(mail.provider);
+  builder.overrideProvider(MailDeliveryService).useFactory(isolatedMailDelivery);
   const moduleRef = await withoutExternalWorkers(builder).compile();
   const app = moduleRef.createNestApplication();
   await app.init();

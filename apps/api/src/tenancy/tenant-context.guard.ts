@@ -17,9 +17,11 @@ import {
 } from './tenant-context.decorator';
 import { TenantDatabaseService } from './tenant-database.service';
 import { REQUIRED_ROLES, Role } from './roles.decorator';
+import { hotelDashboardAccess, type LifecycleState } from '../platform/console/hotel-lifecycle';
 import { PLATFORM_CONSOLE } from '../platform/console/platform-console.decorators';
 
 type RequestWithContext = {
+  method: string;
   headers: { cookie?: string };
   params: Record<string, string | undefined>;
   tenantContext?: { userId: string; tenantId: string; propertyId?: string };
@@ -77,25 +79,44 @@ export class TenantContextGuard implements CanActivate {
     if (!tenantId || (scope.propertyParam && !propertyId))
       throw new ForbiddenException('Invalid tenant scope.');
 
-    const isAuthorized = await this.database.withTenantTransaction(
+    const access = await this.database.withTenantTransaction(
       { tenantId, propertyId },
       async (tx) => {
         const memberships = await tx.$queryRaw<Array<{ allowed: number }>>`
         SELECT 1 AS allowed FROM "tenant_memberships"
         WHERE "tenant_id" = ${tenantId}::uuid AND "user_id" = ${userId}::uuid
       `;
-        if (memberships.length === 0) return false;
-        if (!propertyId) return true;
-        const properties = await tx.$queryRaw<Array<{ allowed: number }>>`
+        if (memberships.length === 0) return null;
+        if (propertyId) {
+          const properties = await tx.$queryRaw<Array<{ allowed: number }>>`
         SELECT 1 AS allowed FROM "properties" WHERE "id" = ${propertyId}::uuid
       `;
-        return properties.length === 1;
+          if (properties.length !== 1) return null;
+        }
+        const organization = await tx.$queryRaw<Array<{ state: LifecycleState }>>`
+          SELECT "lifecycle_state"::text AS "state" FROM "organizations" WHERE "id" = ${tenantId}::uuid
+        `;
+        return { state: organization[0]?.state ?? ('ACTIVE' as LifecycleState) };
       },
     );
-    if (!isAuthorized)
+    if (!access)
       throw new ForbiddenException(
         'The requested tenant or property is outside this session scope.',
       );
+    // Lifecycle effects (Milestone 24 platform console): a suspended or cancelled hotel is closed to
+    // its staff, and an archived one is read-only. The session stays valid for the hotel's other
+    // tenants.
+    const verdict = hotelDashboardAccess(access.state, request.method);
+    if (verdict === 'blocked')
+      throw new ForbiddenException({
+        message: 'This hotel account is not active. Contact MUST support.',
+        code: 'HOTEL_SUSPENDED',
+      });
+    if (verdict === 'read_only')
+      throw new ForbiddenException({
+        message: 'This hotel is archived and read-only.',
+        code: 'HOTEL_ARCHIVED',
+      });
 
     request.tenantContext = { userId, tenantId, propertyId };
     return true;

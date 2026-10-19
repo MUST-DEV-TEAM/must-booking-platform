@@ -21,6 +21,14 @@ export interface StaffInvite {
   tenantId: string;
   email: string;
   assignments: Array<{ propertyId: string; roleTemplateId: string; capabilityKeys?: string[] }>;
+  /** Hotel membership the invitee receives. Defaults to STAFF; the platform console invites owners. */
+  membershipRole?: 'OWNER' | 'STAFF';
+}
+
+/** Set when a platform account (not a hotel user) sends the invitation. */
+export interface InviteSender {
+  email: string;
+  type: 'PLATFORM_ADMIN';
 }
 
 @Injectable()
@@ -37,7 +45,11 @@ export class StaffInviteService implements OnModuleDestroy {
     this.redis = createClient({ url: process.env.REDIS_URL });
   }
 
-  async invite(command: StaffInvite, actorUserId: string): Promise<string> {
+  async invite(
+    command: StaffInvite,
+    actorUserId: string,
+    sender?: InviteSender,
+  ): Promise<string> {
     if (!command.assignments.length)
       throw new BadRequestException('At least one property assignment is required.');
     try {
@@ -65,12 +77,16 @@ export class StaffInviteService implements OnModuleDestroy {
     await this.auditLogs.record({
       tenantId: command.tenantId,
       actorUserId,
+      actorType: sender?.type,
       action: 'staff.invite_created',
       targetType: 'staff_invitation',
       targetId: command.email.toLowerCase(),
-      details: { propertyIds: command.assignments.map((assignment) => assignment.propertyId) },
+      details: {
+        propertyIds: command.assignments.map((assignment) => assignment.propertyId),
+        ...(command.membershipRole === 'OWNER' ? { membershipRole: 'OWNER' } : {}),
+      },
     });
-    await this.sendInvitationEmailSafely(command, actorUserId, token);
+    await this.sendInvitationEmailSafely(command, actorUserId, token, sender?.email);
     return token;
   }
 
@@ -213,6 +229,7 @@ export class StaffInviteService implements OnModuleDestroy {
     command: StaffInvite,
     actorUserId: string,
     token: string,
+    senderEmail?: string,
   ): Promise<void> {
     try {
       const invitationUrl = new URL('/staff-invitation', process.env.WEB_APP_URL);
@@ -223,9 +240,9 @@ export class StaffInviteService implements OnModuleDestroy {
           const organization = await tx.$queryRaw<
             Array<{ organizationName: string; invitedByEmail: string }>
           >`
-            SELECT o.name AS "organizationName", u.email AS "invitedByEmail"
+            SELECT o.name AS "organizationName", COALESCE(${senderEmail ?? null}::text, u.email) AS "invitedByEmail"
             FROM organizations o
-            JOIN users u ON u.id = ${actorUserId}::uuid
+            LEFT JOIN users u ON u.id = ${actorUserId}::uuid
             WHERE o.id = ${command.tenantId}::uuid
           `;
           const assignments = await Promise.all(
@@ -310,7 +327,14 @@ export class StaffInviteService implements OnModuleDestroy {
     invite: StaffInvite,
     userId: string,
   ): Promise<void> {
-    await this.assignStaffInTransaction(tx, invite.tenantId, userId, invite.assignments, false);
+    await this.assignStaffInTransaction(
+      tx,
+      invite.tenantId,
+      userId,
+      invite.assignments,
+      false,
+      invite.membershipRole === 'OWNER' ? 'OWNER' : 'STAFF',
+    );
     await this.auditLogs.recordInTransaction(tx, {
       tenantId: invite.tenantId,
       actorUserId: userId,
@@ -341,11 +365,12 @@ export class StaffInviteService implements OnModuleDestroy {
     userId: string,
     assignments: StaffInvite['assignments'],
     autoProvisioned: boolean,
+    membershipRole: 'OWNER' | 'STAFF' = 'STAFF',
   ): Promise<void> {
     await this.ensureTenantMembershipAllowed(tx, userId);
     await tx.$executeRaw`
       INSERT INTO "tenant_memberships" ("tenant_id", "user_id", "role", "is_auto_provisioned")
-      VALUES (${tenantId}::uuid, ${userId}::uuid, 'STAFF', ${autoProvisioned})
+      VALUES (${tenantId}::uuid, ${userId}::uuid, ${membershipRole}::"TenantMembershipRole", ${autoProvisioned})
       ON CONFLICT ("tenant_id", "user_id") DO NOTHING
     `;
     for (const assignment of assignments) {
