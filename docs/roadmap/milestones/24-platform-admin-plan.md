@@ -102,13 +102,13 @@ Team: `GET team`, `GET team/roles`, `POST team/invitations`, `POST team` (create
 Hotels: `GET hotels` (search, lifecycle, mode, sort, page), `POST hotels` (onboarding), `GET hotels/:id`, `GET hotels/:id/connections`, `GET hotels/:id/staff-usage`, `GET hotels/:id/onboarding`, `POST hotels/:id/lifecycle`, `POST hotels/:id/owner-invitations`.
 Support: `POST support-sessions`, `GET support-sessions`, `POST support-sessions/:id/revoke`, `POST support-sessions/:id/approve`, `POST support-sessions/:id/deny`, `POST support-sessions/:id/enter` (sets the cookie).
 Audit: `GET audit` (filters actor, action family, tenant, from, to, page), `POST audit/export` (CSV, audited).
-Hotel-side: `GET support/current`, `POST support/end`, `GET tenants/:tenantId/support-sessions` (Owner), `POST tenants/:tenantId/support-sessions/:id/approve|deny` (Owner).
+Hotel-side: `GET support/current`, `POST support/end`, `GET tenants/:tenantId/support-sessions` (Owner), `POST tenants/:tenantId/support-sessions/:id/approve|deny|revoke` (Owner). Also `GET /auth/session` and `GET /auth/memberships` answer for a support cookie so the hotel dashboard loads inside a session.
 
-Mutating routes require `Idempotency-Key`; records with a `version` require `If-Match`/`version` in the body.
+Mutating routes require `Idempotency-Key`; records with a `version` (lifecycle, team role and status) take it in the body and answer 409 when stale. Routes that set or clear a cookie, sign in or out, or return a file skip the key (listed in a test).
 
 ## Security notes
 
-Basic by decision. Implemented: separate cookie (`must_platform`, HttpOnly, SameSite=Strict, Secure in production, path `/`), token stored hashed, absolute 12 h and idle 2 h expiry, login throttle per email and per IP in Redis (generic error, constant-time compare), bcrypt cost 12, every login/logout/failed login audited, logout everywhere, suspend and role change revoke sessions, state-changing requests require a custom header `X-Platform-Console: 1` plus an `Origin` that matches `WEB_APP_URL` when present (cheap CSRF defence on top of SameSite=Strict), no secrets in responses or logs (connections show status only).
+Basic by decision. Implemented: separate cookie (`must_platform`, HttpOnly, SameSite=Strict, Secure in production, path `/`), token stored hashed, absolute 12 h and idle 2 h expiry, login throttle per email in Redis, and per IP only when `PLATFORM_TRUSTED_PROXY_HOPS` says the client address can be trusted (X-Forwarded-For is read from the right, never the client-controlled left side; found by the automated security review and fixed), generic errors, one bcrypt comparison even for unknown emails, bcrypt cost 12, every login/logout/failed login audited, logout everywhere, suspending an account revokes its sessions, and a role change applies at once because capabilities are read from the database on every request, state-changing requests require a custom header `X-Platform-Console: 1` plus an `Origin` that matches `WEB_APP_URL` when present (cheap CSRF defence on top of SameSite=Strict), no secrets in responses or logs (connections show status only).
 
 **Hardening gap list (NOT implemented, do not claim):** mandatory two-factor authentication; shorter sessions and re-authentication for sensitive actions (cancel, archive, act-as, team changes); IP allow-list; device/session list UI; password breach check and rotation policy; separate admin hostname; audit retention and external (WORM) export; custom platform roles UI; break-glass account procedure.
 
@@ -132,8 +132,44 @@ Basic by decision. Implemented: separate cookie (`must_platform`, HttpOnly, Same
 
 | Date | Step | Status |
 | --- | --- | --- |
-| 2026-10-19 | Plan written, worktree created, dependencies installed | Done |
+| 2026-10-19 | Plan, worktree, local database `must_booking_platform`, ports 3100/3101, Redis db 7 for tests | Done |
+| 2026-10-19 | Migrations `20261020000000` to `20261020030000` (platform tables, lifecycle, support sessions, login state function, directory facts function); applied twice to prove re-runnable | Done |
+| 2026-10-20 | Platform accounts, sessions, capability guard, audit (append-only), idempotency, team | Done, e2e verified |
+| 2026-10-20 | Hotel lifecycle with enforced effects, directory, detail, connections, staff and usage, onboarding checklist, owner invite | Done, e2e verified |
+| 2026-10-20 | Support access: view-as, act-as with approval, banner endpoints, owner decisions | Done, e2e verified |
+| 2026-10-20 | Admin migration script (dry run, apply, rollback) | Done; **not run against any real database** |
+| 2026-10-20 | Web: sign-in, overview, hotels, new hotel, hotel detail (3 tabs), support access, team, audit, invitation page, hotel-side banner and owner notice | Done; screenshots for 4 roles and both banners |
+| Open | Removal of the old `is_platform_admin` flag path (old `/platform/*` API routes, `RolesGuard` branch) | **Not done on purpose**: the spec says only after the console is proven, as its own commit. The web pages that used those routes are gone; the routes are unused but still work |
+
+### Verification (2026-10-20, local isolated database)
+
+- API unit and e2e on `must_booking_platform`: full suite 1242 tests, 1237 pass, 5 fail. The same 5 fail identically on the untouched base commit 3a46d94 (date-dependent or state-dependent specs: local-demo-seed, local-pms-provider, overview-front-desk, properties, public-catalog-individual-rooms), so they are not caused by this work.
+- New API specs: 6 e2e files and 3 unit files, 60 tests (auth and team 18, hotels and lifecycle 13, support 11, audit coverage and role drift 2, migration 1, route policy 5, lifecycle rules 3, client IP 4, plus the existing guard specs). The route-policy test was shown to fail when an audit decorator is removed.
+- Web: full suite 105 files, 535 tests pass (new: console components 5, console pages 21, support bar 4).
+- API build, Prisma validate, API and web type-check: pass (one pre-existing type error in `test/room-types.e2e.spec.ts`, untouched).
+- Existing guard-related e2e (auth, capabilities, page visibility, admin staff, onboarding) pass with the guard changes.
+
+## Assumptions
+
+- Hotel suspension had no effect before this work; the new effects are defined in State machines. Archived hotels allow read-only sign-in.
+- Owner notification and approval is a banner in the hotel dashboard (new `support-bar.tsx`), not an entry in the Notifications inbox, because Notifications belongs to the other agent's area. Wiring a topic there is a small follow-up.
+- Act-as acts as the hotel's earliest Owner user so existing handlers work; the hotel audit rows carry the platform account in `request_context.support` and a separate `support.action.performed` row.
+- The act-as allow-list is the capability list in `platform-capabilities.ts`; a handler without a declared capability is read-only in a support session.
+- A hotel's mode is its stored `onboarding_mode`, else Clock when a Clock PMS connection exists, else MUST (built-in).
 
 ## Gaps (kept current)
 
-See "Hardening gap list" above plus the Phase 2/3 items. Additions are recorded here as they are found.
+Security hardening, **not implemented, do not claim**: mandatory two-factor; shorter sessions and re-authentication for sensitive actions (cancel, archive, act-as, team changes); IP allow-list; session and device list; password breach check and rotation; separate admin hostname; audit retention and external write-once export; custom roles UI (the model supports it); break-glass procedure. Client IP for rate limiting and audit is only as good as `PLATFORM_TRUSTED_PROXY_HOPS` (unset means the socket address, which is the web proxy behind Next).
+
+Product gaps:
+- Platform invitation links are shown once to the inviter; no email is sent for platform invitations (hotel owner invitations do send email).
+- View-as shows the hotel's write buttons; the server refuses them (403 with a plain message) but the UI does not hide them yet.
+- Owner approval is not in the Notifications inbox (see Assumptions); no email to the owner when a session starts.
+- Support banner polls once a minute; an ended session shows up on the next request or poll.
+- Directory has no health score or plan filter (Phase 2 and Milestone 15); plan and limits are placeholders.
+- No unarchive; Archived is terminal in the console.
+- Idempotency records and expired support sessions are never purged.
+- Onboarding checklist cannot tell an unconnected website from one the hotel simply has not built; it only trusts the plugin connection time.
+- Remove the old flag path after the migration script has been run in production and the console is accepted.
+
+Local use (from `apps/api`): `pnpm migrate:platform-admins` (dry run; `--apply`, `--rollback`), `pnpm seed:platform-console-demo` (local demo data, API on 3100), environment `PLATFORM_TRUSTED_PROXY_HOPS`.
