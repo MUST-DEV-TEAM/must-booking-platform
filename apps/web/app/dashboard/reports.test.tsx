@@ -157,7 +157,7 @@ describe('Reports workspace', () => {
       ),
     );
   });
-  it('shows Clock Unknown and incomplete/no-comparison evidence without money', async () => {
+  it('hides unavailable Clock KPIs, explains missing evidence and offers concrete actions', async () => {
     const data = fixture();
     data.meta.source = 'CLOCK';
     data.meta.basis = 'Synced from Clock';
@@ -174,9 +174,30 @@ describe('Reports workspace', () => {
     };
     await mount(data);
     await rendered('Incomplete stored evidence');
-    expect(document.body.textContent).toContain('Inventory is Unknown');
-    expect(document.body.textContent).toContain('No data for comparison');
+    expect(document.body.textContent).toContain('Stock and occupancy are managed in Clock.');
+    expect(document.body.textContent).not.toContain('Unknown');
+    expect(document.body.textContent).not.toContain('Data basis & limits');
+    expect(
+      [...document.querySelectorAll('button')].some((b) => b.textContent === 'Review data quality'),
+    ).toBe(true);
+    expect(document.body.textContent).toContain('No matching activity for comparison');
+    await click('Review data quality');
+    await rendered('Data quality');
     expect(document.body.textContent).not.toContain('EUR 125.50');
+  });
+  it('uses full-width shared filter grids and keeps known zero metrics', async () => {
+    const data = fixture();
+    data.summary.cancelled = 0;
+    data.summary.onTheBooksHistory = {
+      pickup: [{ status: 'No history yet' }],
+      pace: { status: 'No history yet' },
+    };
+    await mount(data);
+    await rendered('EUR 125.50');
+    expect(document.querySelectorAll('[data-slot=filter-grid]').length).toBe(2);
+    expect(document.body.textContent).toContain('Daily history is still accumulating');
+    expect(document.body.textContent).not.toContain('Data basis & limits');
+    expect(document.body.textContent).not.toContain('Current on-the-books state');
   });
   it('uses shared empty, denied and error-with-reference states', async () => {
     await mount(fixture(), 403);

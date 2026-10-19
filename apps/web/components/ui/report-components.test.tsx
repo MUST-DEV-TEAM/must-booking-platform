@@ -106,7 +106,7 @@ describe('Shared report components', () => {
     expect(document.body.textContent).toContain('Refresh before export');
     expect(document.body.textContent).toContain('One');
   });
-  it('renders aggregate labels and Unknown without raw JSON or executable markup', async () => {
+  it('renders aggregate labels and a plain missing-value reason without executable markup', async () => {
     await mount(
       createElement(ReportBreakdown, {
         title: 'Currency evidence',
@@ -115,7 +115,7 @@ describe('Shared report components', () => {
         ],
       }),
     );
-    expect(document.body.textContent).toContain('Unknown');
+    expect(document.body.textContent).toContain('Not recorded');
     expect(document.querySelector('script')).toBeNull();
     expect(document.querySelector('table')?.textContent).toContain('EUR');
   });
@@ -133,7 +133,7 @@ describe('Shared report components', () => {
     expect(option.series.map((s: { data: unknown }) => s.data)).toEqual([[101], [null]]);
     expect(option.yAxis.minInterval).toBe(1);
     expect(option.tooltip.valueFormatter(101)).toBe('1.01');
-    expect(option.tooltip.valueFormatter(0.2)).toBe('Unknown');
+    expect(option.tooltip.valueFormatter(0.2)).toBe('See exact amount in table');
   });
   it('prints only the provided audited snapshot and closes accessibly', async () => {
     const print = vi.spyOn(window, 'print').mockImplementation(() => {});

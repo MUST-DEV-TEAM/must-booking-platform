@@ -15,7 +15,7 @@ const cents = (v: ReportCell): number | null => {
   return Number.isSafeInteger(n) ? n : null;
 };
 const decimal = (v: unknown) => {
-  if (!/^-?\d+$/.test(String(v))) return 'Unknown';
+  if (!/^-?\d+$/.test(String(v))) return 'See exact amount in table';
   const n = BigInt(String(v)),
     sign = n < 0n ? '-' : '';
   const abs = n < 0n ? -n : n;
@@ -43,7 +43,8 @@ export function ReportChart({
       tooltip: {
         trigger: 'axis',
         renderMode: 'richText',
-        valueFormatter: (v) => (v === null ? 'Unknown' : column.money ? decimal(v) : String(v)),
+        valueFormatter: (v) =>
+          v === null ? 'No recorded value for this period' : column.money ? decimal(v) : String(v),
       },
       legend: { bottom: 0 },
       grid: { left: 70, right: 25, top: 20, bottom: 65 },
@@ -69,7 +70,7 @@ export function ReportChart({
         <CardTitle>{column.label}</CardTitle>
         <CardDescription>
           {column.money
-            ? 'Separate currency lines. Values beyond safe chart precision stay Unknown; the table retains exact amounts.'
+            ? 'Separate currency lines. Amounts too large to chart are available in the exact-value table.'
             : 'One value per period; repeated currency rows are counted once.'}{' '}
           Comparison aligns periods by position.
         </CardDescription>

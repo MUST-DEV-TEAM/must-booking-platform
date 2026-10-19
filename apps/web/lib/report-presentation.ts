@@ -73,7 +73,7 @@ export function reportPreset(today: string, preset: string) {
 export function reportChartData(rows: ReportRow[], column: ReportColumn) {
   const groups = new Map<string, Map<string, ReportCell>>();
   for (const row of rows) {
-    const key = column.money ? String(row.currency ?? 'Unknown currency') : column.label;
+    const key = column.money ? String(row.currency ?? 'Currency not recorded') : column.label;
     const values = groups.get(key) ?? new Map<string, ReportCell>();
     values.set(String(row.date), row[column.key] ?? null);
     groups.set(key, values);

@@ -27,7 +27,9 @@ export function ReportTable({
   onExport,
   initialColumns,
   onVisibleColumns,
+  missingReason,
 }: {
+  missingReason?: (key: string) => string;
   rows: ReportRow[];
   columns: ReportColumn[];
   storageKey: string;
@@ -53,6 +55,12 @@ export function ReportTable({
     [peek, setPeek] = useState<ReportRow | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
+  const cell = (row: ReportRow, c: ReportColumn) =>
+    row[c.key] === null || row[c.key] === undefined
+      ? (missingReason?.(c.key) ?? 'Not recorded')
+      : row[c.key] === 'Unknown'
+        ? 'Not recorded'
+        : reportValue(row[c.key], c.type, String(row.currency ?? ''));
   const shown = columns.filter((c, i) => i === 0 || prefs.columns[c.key]),
     ids = selected.filter((id) => rows.some((r) => r.id === id));
   const visibleSignature = JSON.stringify(shown.map((c) => c.key));
@@ -103,7 +111,7 @@ export function ReportTable({
       {!rows.length ? (
         <EmptyPanel
           title="No rows in this report"
-          description="Try another period or clear filters. Unknown source data is never replaced with invented values."
+          description="No matching records. Try another period or clear filters."
         />
       ) : (
         <Table>
@@ -154,10 +162,10 @@ export function ReportTable({
                       </a>
                     ) : i === 0 ? (
                       <Button variant="ghost" size="sm" onClick={() => setPeek(row)}>
-                        {reportValue(row[c.key], c.type, String(row.currency ?? ''))}
+                        {cell(row, c)}
                       </Button>
                     ) : (
-                      reportValue(row[c.key], c.type, String(row.currency ?? ''))
+                      cell(row, c)
                     )}
                   </TableCell>
                 ))}
@@ -192,7 +200,7 @@ export function ReportTable({
                       Open record
                     </a>
                   ) : (
-                    reportValue(peek[c.key], c.type, String(peek.currency ?? ''))
+                    cell(peek, c)
                   )}
                 </dd>
               </div>

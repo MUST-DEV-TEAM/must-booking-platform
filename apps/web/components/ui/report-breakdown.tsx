@@ -4,7 +4,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '.
 const scalar = (v: unknown) => v === null || ['string', 'number', 'boolean'].includes(typeof v);
 /** Compact, labeled aggregate evidence, including nested per-currency breakdowns. */
 export function ReportEvidence({ value }: { value: unknown }) {
-  if (scalar(value)) return <span>{reportValue(value)}</span>;
+  if (scalar(value)) return <span>{value == null ? 'Not recorded' : reportValue(value)}</span>;
   if (Array.isArray(value)) {
     if (!value.length)
       return <span className="text-sm text-muted-foreground">No recorded activity</span>;
@@ -30,7 +30,9 @@ export function ReportEvidence({ value }: { value: unknown }) {
             {value.map((row, i) => (
               <TableRow key={i}>
                 {keys.map((k) => (
-                  <TableCell key={k}>{reportValue(row[k])}</TableCell>
+                  <TableCell key={k}>
+                    {row[k] == null ? 'Not recorded' : reportValue(row[k])}
+                  </TableCell>
                 ))}
               </TableRow>
             ))}

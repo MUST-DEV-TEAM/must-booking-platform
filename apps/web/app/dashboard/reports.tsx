@@ -1,6 +1,8 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
+import { FilterGrid } from '../../components/ui/filter-grid';
+import { reportMissingReason, reportDisplayEvidence } from '../../lib/report-display';
 import { Button } from '../../components/ui/button';
 import { PageHeader } from '../../components/ui/page-header';
 import { TabBar } from '../../components/ui/tab-bar';
@@ -100,11 +102,11 @@ const breakdowns: Record<ReportKind, string[]> = {
   ],
   revenue: ['financial', 'refunds', 'paymentMethods', 'byWeekday', 'breakdowns', 'chargeCoverage'],
   occupancy: ['onTheBooksHistory', 'forward', 'inventorySchedules', 'lengthOfStayDistribution'],
-  accommodation: ['currencyOccupancyBasis'],
-  guests: ['guestOrigins', 'averageGuestRoomRevenue', 'guestSpendBasis'],
-  pricing: ['pricingHealth', 'inventorySchedules', 'pricingPerformanceBasis'],
+  accommodation: [],
+  guests: ['guestOrigins', 'averageGuestRoomRevenue'],
+  pricing: ['pricingHealth', 'inventorySchedules'],
   operations: ['emailStatus', 'staffActivity', 'staffByUser', 'staffByDay'],
-  quality: ['qualityBasis'],
+  quality: [],
 };
 const details: Record<string, string[]> = {
   revenue: ['default', 'balances', 'reconciliation', 'charges', 'refunds'],
@@ -118,6 +120,7 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
   const queryClient = useQueryClient();
   const root = `/api/tenants/${tenantId}/properties/${propertyId}/reports`,
     writer = useRef(createReportWriter());
+  const lastAction = useRef<(() => Promise<void>) | null>(null);
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]),
     [query, setQuery] = useState<ReportQuery>({ report: 'overview' }),
     [custom, setCustom] = useState(false),
@@ -159,7 +162,11 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
     setQuery((q) => ({ report, from: q.from, to: q.to, comparison: q.comparison, group: q.group }));
   };
   const metricColumns =
-      data?.seriesColumns.filter((c) => !['date', 'currency'].includes(c.key)) ?? [],
+      data?.seriesColumns.filter(
+        (c) =>
+          !['date', 'currency'].includes(c.key) &&
+          data.series.some((r) => r[c.key] !== null && r[c.key] !== undefined),
+      ) ?? [],
     metric = metricColumns.find((c) => c.key === chartMetric) ?? metricColumns[0];
   const configuration: ViewConfiguration = {
     query: data?.query ?? query,
@@ -196,6 +203,7 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
   };
   if (!configuration.metrics.length) configuration.metrics = ['bookings'];
   const operation = async (work: () => Promise<void>) => {
+    lastAction.current = work;
     setError('');
     setBusy(true);
     try {
@@ -271,8 +279,14 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
     options: { value: string; label: string }[],
     onChange: (value: string) => void,
   ) => (
-    <FormField label={label}>
-      <Combobox label={label} value={value} options={options} onChange={onChange} />
+    <FormField label={label} className="min-w-0">
+      <Combobox
+        label={label}
+        value={value}
+        options={options}
+        onChange={onChange}
+        triggerClassName="w-full min-w-0 text-left"
+      />
     </FormField>
   );
   const options = (values: string[]) =>
@@ -418,12 +432,25 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
         <Alert variant="destructive">
           <AlertTitle>Action unavailable</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
+          <Button
+            variant="outline"
+            className="col-start-2 mt-2 justify-self-start"
+            disabled={busy}
+            onClick={() =>
+              lastAction.current
+                ? void operation(lastAction.current)
+                : document.getElementById('report-from')?.focus()
+            }
+          >
+            {lastAction.current ? 'Try action again' : 'Change dates'}
+          </Button>
         </Alert>
       ) : null}
       <Card>
         <CardContent className="pt-5">
           <form
-            className="flex flex-wrap items-end gap-3"
+            className="flex flex-col gap-4"
+            aria-label="Report date filters"
             onSubmit={(e) => {
               e.preventDefault();
               if (
@@ -432,68 +459,71 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
                 from > to ||
                 (Date.parse(to) - Date.parse(from)) / 86400000 >= 366
               ) {
+                lastAction.current = null;
                 setError('Choose a valid range of 1 to 366 days.');
                 return;
               }
               change({ from, to });
             }}
           >
-            <FormField label="From" htmlFor="report-from">
-              <Input
-                id="report-from"
-                aria-label="Report start date"
-                type="date"
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
-              />
-            </FormField>
-            <FormField label="To" htmlFor="report-to">
-              <Input
-                id="report-to"
-                aria-label="Report end date"
-                type="date"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-              />
-            </FormField>
-            <Button type="submit">Apply range</Button>
-            {data
-              ? choose(
-                  'Date preset',
-                  'custom',
-                  [
-                    { value: 'custom', label: 'Custom range' },
-                    { value: 'today', label: 'Today' },
-                    { value: 'week', label: 'Last 7 days' },
-                    { value: 'last30', label: 'Last 30 days' },
-                    { value: 'month', label: 'This month' },
-                  ],
-                  (v) => v !== 'custom' && change(reportPreset(data.meta.today, v)),
-                )
-              : null}
-            {choose(
-              'Compare',
-              query.comparison ?? 'none',
-              [
-                { value: 'none', label: 'No comparison' },
-                { value: 'previous', label: 'Previous period' },
-                { value: 'year', label: 'Same period last year' },
-              ],
-              (v) => change({ comparison: v }),
-            )}
-            {choose(
-              'Group by',
-              query.group ?? 'day',
-              [
-                { value: 'day', label: 'Day' },
-                { value: 'week', label: 'Week (Monday)' },
-                { value: 'month', label: 'Month' },
-              ],
-              (v) => change({ group: v }),
-            )}
+            <FilterGrid>
+              <FormField label="From" htmlFor="report-from">
+                <Input
+                  id="report-from"
+                  aria-label="Report start date"
+                  type="date"
+                  value={from}
+                  onChange={(e) => setFrom(e.target.value)}
+                />
+              </FormField>
+              <FormField label="To" htmlFor="report-to">
+                <Input
+                  id="report-to"
+                  aria-label="Report end date"
+                  type="date"
+                  value={to}
+                  onChange={(e) => setTo(e.target.value)}
+                />
+              </FormField>
+              <Button type="submit">Apply range</Button>
+              {data
+                ? choose(
+                    'Date preset',
+                    'custom',
+                    [
+                      { value: 'custom', label: 'Custom range' },
+                      { value: 'today', label: 'Today' },
+                      { value: 'week', label: 'Last 7 days' },
+                      { value: 'last30', label: 'Last 30 days' },
+                      { value: 'month', label: 'This month' },
+                    ],
+                    (v) => v !== 'custom' && change(reportPreset(data.meta.today, v)),
+                  )
+                : null}
+              {choose(
+                'Compare',
+                query.comparison ?? 'none',
+                [
+                  { value: 'none', label: 'No comparison' },
+                  { value: 'previous', label: 'Previous period' },
+                  { value: 'year', label: 'Same period last year' },
+                ],
+                (v) => change({ comparison: v }),
+              )}
+              {choose(
+                'Group by',
+                query.group ?? 'day',
+                [
+                  { value: 'day', label: 'Day' },
+                  { value: 'week', label: 'Week (Monday)' },
+                  { value: 'month', label: 'Month' },
+                ],
+                (v) => change({ group: v }),
+              )}
+            </FilterGrid>
           </form>
           {data ? (
-            <div className="mt-4 flex flex-wrap items-end gap-3">
+            <FilterGrid className="mt-4">
               {custom
                 ? choose(
                     'Base report',
@@ -573,7 +603,7 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
               >
                 Clear filters
               </Button>
-            </div>
+            </FilterGrid>
           ) : null}
         </CardContent>
       </Card>
@@ -595,37 +625,35 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
               {new Date(data.meta.asOf).toLocaleString(undefined, { timeZone: data.meta.timezone })}
             </span>
           </div>
-          <Alert
-            variant={
-              data.meta.source === 'CLOCK' || !data.meta.coverage.supplyKnown ? 'warning' : 'info'
-            }
-          >
-            <AlertTitle>{data.meta.basis}</AlertTitle>
-            <AlertDescription>
-              Bookings: created date. Occupancy and booked room revenue: stay night, departure
-              excluded. Cash and refunds: local ledger posting date. Gross capacity includes blocks.{' '}
+          {['overview', 'occupancy', 'accommodation', 'pricing'].includes(query.report) &&
+          !data.meta.coverage.supplyKnown ? (
+            <p className="m-0 text-sm text-muted-foreground">
               {data.meta.source === 'CLOCK'
-                ? 'Inventory is Unknown; only locally stored evidence is used.'
-                : null}{' '}
-              {!data.meta.moneyVisible
-                ? 'Financial figures are hidden for your permissions.'
-                : null}
-            </AlertDescription>
-          </Alert>
-          {data.meta.coverage.unknownNightlyBookings > 0 || data.meta.coverage.invalidStays > 0 ? (
+                ? 'Stock and occupancy are managed in Clock.'
+                : 'Historical room capacity was not recorded for these dates.'}
+            </p>
+          ) : null}
+          {(data.meta.coverage.unknownNightlyBookings > 0 || data.meta.coverage.invalidStays > 0) &&
+          ['overview', 'revenue', 'occupancy', 'accommodation', 'guests'].includes(query.report) ? (
             <Alert variant="warning">
               <AlertTitle>Incomplete stored evidence</AlertTitle>
               <AlertDescription>
-                {data.meta.coverage.unknownNightlyBookings} reservations have missing nightly
-                prices; {data.meta.coverage.invalidStays} have invalid stays. Affected figures
-                remain Unknown.
+                {data.meta.coverage.unknownNightlyBookings} reservations have no recorded nightly
+                prices; {data.meta.coverage.invalidStays} have invalid stay dates.
               </AlertDescription>
+              <Button
+                className="col-start-2 mt-2 justify-self-start"
+                variant="outline"
+                onClick={() => switchReport('quality')}
+              >
+                Review data quality
+              </Button>
             </Alert>
           ) : null}
           {!data.meta.hasData ? (
             <EmptyPanel
               title="No recorded activity for this report"
-              description="Change dates or filters. Zero activity and Unknown inventory are different states."
+              description="No matching records for these dates and filters."
             />
           ) : null}
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -633,6 +661,7 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
               .filter(
                 (key) =>
                   data.summary[key] !== undefined &&
+                  data.summary[key] !== null &&
                   (typeof data.summary[key] !== 'object' || data.summary[key] === null),
               )
               .map((key) => (
@@ -649,7 +678,7 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
                     data.comparison
                       ? data.comparison.hasData
                         ? `Comparison: ${reportValue(data.comparison.summary?.[key])}`
-                        : 'Comparison: no data'
+                        : undefined
                       : undefined
                   }
                   onClick={
@@ -677,7 +706,10 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
                   'collectionRate',
                 ]
                   .filter(
-                    (key) => !selectedView || selectedView.configuration.metrics.includes(key),
+                    (key) =>
+                      row[key] !== null &&
+                      row[key] !== undefined &&
+                      (!selectedView || selectedView.configuration.metrics.includes(key)),
                   )
                   .map((key) => {
                     const prior = (
@@ -696,7 +728,7 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
                           data.comparison
                             ? data.comparison.hasData
                               ? `Comparison: ${reportValue(prior?.[key], key === 'collectionRate' ? 'percent' : 'money', String(row.currency))}`
-                              : 'Comparison: no data'
+                              : undefined
                             : key === 'roomRevenue'
                               ? 'Accrual by stay night; mandatory charges excluded.'
                               : 'See Definitions for the date and cohort basis.'
@@ -722,12 +754,18 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
             </div>
           ) : null}
           {data.comparison && !data.comparison.hasData ? (
-            <Alert>
-              <AlertTitle>No data for comparison</AlertTitle>
-              <AlertDescription>
-                {data.comparison.from} to {data.comparison.to} has no qualifying stored evidence.
-              </AlertDescription>
-            </Alert>
+            <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+              <span>
+                No matching activity for comparison ({data.comparison.from} to {data.comparison.to}
+                ).
+              </span>
+              <Button
+                variant="outline"
+                onClick={() => document.getElementById('report-from')?.focus()}
+              >
+                Change dates
+              </Button>
+            </div>
           ) : null}
           {metric ? (
             <>
@@ -845,6 +883,7 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
               <ReportTable
                 key={`${query.report}:${query.detail ?? 'default'}:${reportSearch(data.query)}`}
                 rows={data.rows}
+                missingReason={(key) => reportMissingReason(key, data.meta.source)}
                 columns={data.columns}
                 initialColumns={selectedView?.configuration.columns}
                 storageKey={`must.reports.${propertyId}.${query.report}.${query.detail ?? 'default'}`}
@@ -869,21 +908,13 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
             {breakdowns[query.report]
               .filter((key) => data.summary[key] !== undefined && data.summary[key] !== null)
               .map((key) => (
-                <ReportBreakdown key={key} title={reportLabel(key)} value={data.summary[key]} />
+                <ReportBreakdown
+                  key={key}
+                  title={reportLabel(key)}
+                  value={reportDisplayEvidence(data.summary[key])}
+                />
               ))}
           </div>
-          <Card>
-            <CardHeader>
-              <CardTitle>Data basis & limits</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul className="m-0 flex list-disc flex-col gap-2 pl-4 text-xs text-muted-foreground">
-                {data.meta.warnings.map((w) => (
-                  <li key={w}>{w}</li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
         </>
       ) : null}
       {editing && data ? (
