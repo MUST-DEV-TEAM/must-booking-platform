@@ -14,7 +14,7 @@ import {
 import type { TenantTransaction } from './tenant-database.service';
 export const pricingPlanColumns = Prisma.sql`id,name,currency,is_active AS "isActive",lifecycle,version,code,description,pricing_basis AS "pricingBasis",base_plan_id AS "basePlanId",adjustment_kind AS "adjustmentKind",adjustment_value::text AS "adjustmentValue",room_type_ids AS "roomTypeIds",channels,meal_plan AS "mealPlan",is_fallback AS "isFallback",min_stay AS "minStay",max_stay AS "maxStay",min_advance AS "minAdvance",publication_starts_on::text AS "publicationStartsOn",publication_ends_on::text AS "publicationEndsOn"`;
 export const adjustmentColumns = Prisma.sql`id,name,lifecycle,version,mode,value::text,currency,room_type_ids AS "roomTypeIds",rate_plan_ids AS "ratePlanIds",starts_on::text AS "startsOn",ends_on::text AS "endsOn",weekdays,priority,min_stay AS "minStay",max_stay AS "maxStay",min_advance AS "minAdvance",max_advance AS "maxAdvance",note`;
-export const chargeColumns = Prisma.sql`id,name,lifecycle,version,basis,value::text,currency,display,confirmed,room_type_ids AS "roomTypeIds",rate_plan_ids AS "ratePlanIds",channels,starts_on::text AS "startsOn",ends_on::text AS "endsOn",note`;
+export const chargeColumns = Prisma.sql`id,name,category,lifecycle,version,basis,value::text,currency,display,confirmed,room_type_ids AS "roomTypeIds",rate_plan_ids AS "ratePlanIds",channels,starts_on::text AS "startsOn",ends_on::text AS "endsOn",note`;
 export async function pricingContext(
   tx: TenantTransaction,
   tenantId: string,

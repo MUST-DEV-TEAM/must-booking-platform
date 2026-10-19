@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Ban, CalendarPlus, Mail, Pencil, Phone } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
+import { GuestCountryEditor } from './guest-country-editor';
 import { ActivityFeed, type ActivityEntry } from '../../components/ui/activity-feed';
 import { DetailList } from '../../components/ui/detail-list';
 import { TabBar } from '../../components/ui/tab-bar';
@@ -45,18 +46,6 @@ type ProfileTab = 'reservations' | 'payments' | 'activity';
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const reservationHref = (tenantId: string, propertyId: string, bookingId: string) =>
   `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=reservations&reservation=${encodeURIComponent(bookingId)}`;
-
-function formatDay(value: string | undefined, withYear: boolean) {
-  if (!value) return '';
-  const date = new Date(`${value}T00:00:00Z`);
-  if (Number.isNaN(date.valueOf())) return value;
-  return date.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    ...(withYear ? { year: 'numeric' } : {}),
-    timeZone: 'UTC',
-  });
-}
 
 function normalize(value: string | null | undefined) {
   return (value ?? '').trim().toLocaleLowerCase();
@@ -101,11 +90,14 @@ export function GuestDetail({
   tenantId,
   propertyId,
   guestId,
+  canEditCountry = false,
 }: {
   tenantId: string;
   propertyId: string;
   guestId: string;
+  canEditCountry?: boolean;
 }) {
+  const [editCountry, setEditCountry] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(10);
   const [tab, setTab] = useState<ProfileTab>('reservations');
@@ -185,7 +177,10 @@ export function GuestDetail({
         entries.push({
           key: `cancelled-${booking.id}`,
           title: `Reservation ${booking.externalReference ?? ''} cancelled`,
-          detail: Number(booking.refundedAmount) > 0 ? `Refunded ${formattedMoney(booking.refundedAmount, booking.total.currency)}` : undefined,
+          detail:
+            Number(booking.refundedAmount) > 0
+              ? `Refunded ${formattedMoney(booking.refundedAmount, booking.total.currency)}`
+              : undefined,
           at: booking.updatedAt,
           icon: Ban,
           tone: 'danger',
@@ -215,7 +210,10 @@ export function GuestDetail({
         backHref={backToGuestsHref(tenantId, propertyId)}
         backLabel="All guests"
         title={name}
-        subtitle={[profile.guestEmail, profile.guestPhone].filter(Boolean).join(' · ') || 'No contact details on file'}
+        subtitle={
+          [profile.guestEmail, profile.guestPhone].filter(Boolean).join(' · ') ||
+          'No contact details on file'
+        }
         badges={<GuestBadges stats={stats} duplicate={duplicates.length > 0} />}
         actions={
           <>
@@ -233,21 +231,35 @@ export function GuestDetail({
                 </a>
               </Button>
             ) : null}
-            <Button variant="outline" size="sm" disabled title="Editing guest details is not available yet">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled
+              title="Editing guest details is not available yet"
+            >
               <Pencil aria-hidden="true" /> Edit
             </Button>
           </>
         }
       />
 
-      <div aria-label="Guest summary" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" role="group">
+      <div
+        aria-label="Guest summary"
+        className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+        role="group"
+      >
         <StatTile
           label="Reservations"
           size="sm"
           value={stats?.stays ?? bookings.length}
           note={stats && stats.cancelled > 0 ? `${stats.cancelled} cancelled` : undefined}
         />
-        <StatTile label="Net paid" size="sm" value={formatMoneyList(stats?.net ?? [])} note="Collected minus refunds" />
+        <StatTile
+          label="Net paid"
+          size="sm"
+          value={formatMoneyList(stats?.net ?? [])}
+          note="Collected minus refunds"
+        />
         <StatTile
           label="Still owed"
           size="sm"
@@ -269,10 +281,35 @@ export function GuestDetail({
                   { label: 'Email', value: profile.guestEmail },
                   { label: 'Phone', value: profile.guestPhone ?? 'Not on file' },
                   { label: 'Address', value: address || 'Not on file' },
+                  {
+                    label: 'Country',
+                    value: profile.guestCountryCode
+                      ? new Intl.DisplayNames(['en'], { type: 'region' }).of(
+                          profile.guestCountryCode,
+                        )
+                      : 'Not recorded',
+                  },
                   { label: 'Guest since', value: dayLabel(stats?.firstBookedAt?.slice(0, 10)) },
-                  { label: 'Latest booking', value: dayLabel(bookings[0]?.createdAt?.slice(0, 10)) },
+                  {
+                    label: 'Latest booking',
+                    value: dayLabel(bookings[0]?.createdAt?.slice(0, 10)),
+                  },
                 ]}
               />
+              {canEditCountry && profile.guestCaptureVersion ? (
+                <Button variant="outline" onClick={() => setEditCountry(true)}>
+                  Edit country
+                </Button>
+              ) : null}
+              {editCountry && profile.guestCaptureVersion ? (
+                <GuestCountryEditor
+                  base={`/api/tenants/${tenantId}/properties/${propertyId}`}
+                  id={guestId}
+                  country={profile.guestCountryCode ?? null}
+                  version={profile.guestCaptureVersion}
+                  onClose={() => setEditCountry(false)}
+                />
+              ) : null}
             </CardContent>
           </Card>
           {duplicates.length > 0 ? (
@@ -285,7 +322,11 @@ export function GuestDetail({
                 <ListRow
                   key={other.guestId}
                   title={guestName(other)}
-                  subtitle={other.guestEmail && other.guestEmail !== guestName(other) ? other.guestEmail : undefined}
+                  subtitle={
+                    other.guestEmail && other.guestEmail !== guestName(other)
+                      ? other.guestEmail
+                      : undefined
+                  }
                   href={guestHref(tenantId, propertyId, other.guestId)}
                 />
               ))}
@@ -393,16 +434,25 @@ export function GuestDetail({
                           </a>
                         </TableCell>
                         <TableCell className="px-2 py-2">
-                          <Badge variant={PAYMENT_BADGE_TONE[status.state]} className="rounded-full px-2 py-0 text-[10px]">
+                          <Badge
+                            variant={PAYMENT_BADGE_TONE[status.state]}
+                            className="rounded-full px-2 py-0 text-[10px]"
+                          >
                             {status.label}
                           </Badge>
                           <span className="block text-[10px] text-muted-foreground">
                             {paymentMethodLabel(booking.paymentMethod)}
                           </span>
                         </TableCell>
-                        <TableCell className="px-2 py-2 text-right tabular-nums">{amount(booking.total.amount)}</TableCell>
-                        <TableCell className="px-2 py-2 text-right tabular-nums">{amount(booking.paidAmount)}</TableCell>
-                        <TableCell className="px-2 py-2 text-right tabular-nums">{amount(booking.refundedAmount)}</TableCell>
+                        <TableCell className="px-2 py-2 text-right tabular-nums">
+                          {amount(booking.total.amount)}
+                        </TableCell>
+                        <TableCell className="px-2 py-2 text-right tabular-nums">
+                          {amount(booking.paidAmount)}
+                        </TableCell>
+                        <TableCell className="px-2 py-2 text-right tabular-nums">
+                          {amount(booking.refundedAmount)}
+                        </TableCell>
                         <TableCell
                           className={`px-2 py-2 text-right tabular-nums ${Number(outstandingAmount(booking)) > 0 ? 'font-semibold text-warning' : 'text-muted-foreground'}`}
                         >

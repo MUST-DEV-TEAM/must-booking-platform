@@ -1,3 +1,4 @@
+import { otbHistory } from './report-otb';
 import { ConflictException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { AuditLogService } from './audit-log.service';
@@ -107,6 +108,18 @@ export class ReportWorkspaceService {
       async (tx) => {
         const facts = await reportFacts(tx, context.tenantId, context.propertyId, q, staff);
         const current = projectReport(facts, q, context.tenantId, context.propertyId, money, staff);
+        const history = await otbHistory(
+          tx,
+          context.tenantId,
+          context.propertyId,
+          q,
+          facts.context.today,
+          facts.context.source === 'LOCAL' ? 'LOCAL' : 'CLOCK',
+          facts.context.timezone,
+          money,
+          facts,
+        );
+        if (history) current.summary.onTheBooksHistory = history;
         const comparisonDates =
           q.comparison === 'none' ? null : comparisonRange(q.from, q.to, q.comparison);
         const compared = comparisonDates
@@ -150,8 +163,8 @@ export class ReportWorkspaceService {
               refunds: 'Property-local refund ledger posting date',
             },
             warnings: [
-              'Current on-the-books state; no historical pickup/pace reconstruction.',
-              'Room revenue excludes every mandatory charge component; tax categories are not stored.',
+              'Live current totals; pickup/pace compare these live facts to complete compatible daily captured observations.',
+              'Room revenue excludes all mandatory charge components; new classified components carry tax categories and older evidence is Unclassified.',
               'Plan and meal-plan labels are current metadata, not historical snapshots.',
               'Gross supply includes blocks. Historical physical supply and Clock supply are Unknown.',
               'Non-capacity filters narrow bookings and linked payments; they do not reduce the room-supply denominator.',

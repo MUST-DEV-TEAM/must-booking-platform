@@ -284,7 +284,7 @@ describe('immutable nightly revenue evidence', () => {
       {
         date: '2026-12-31',
         roomAmount: '90.10',
-        charges: [{ id: 'tax', name: 'Recorded fee', amount: '20.00' }],
+        charges: [{ id: 'tax', name: 'Recorded fee', amount: '20.00', category: 'Unclassified' }],
         legacy: false,
       },
       { date: '2027-01-01', roomAmount: '90.00', charges: [], legacy: true },

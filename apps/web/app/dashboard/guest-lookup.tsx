@@ -18,6 +18,7 @@ export type KnownGuest = {
   city?: string | null;
   county?: string | null;
   postcode?: string | null;
+  countryCode?: string | null;
   bookingCount: number;
   mostRecentStartsOn?: string;
 };
@@ -75,8 +76,9 @@ export function GuestLookup({
           <div className="min-w-0">
             <p className="m-0 truncate text-sm font-bold">{nameOf(selected)}</p>
             <p className="m-0 text-xs text-muted-foreground">
-              Existing guest · {selected.bookingCount} previous stay{selected.bookingCount === 1 ? '' : 's'} · details
-              filled in below, change anything for this reservation only.
+              Existing guest · {selected.bookingCount} previous stay
+              {selected.bookingCount === 1 ? '' : 's'} · details filled in below, change anything
+              for this reservation only.
             </p>
           </div>
         </div>

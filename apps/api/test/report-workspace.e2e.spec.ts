@@ -1,3 +1,4 @@
+import { ReportOtbService } from '../src/tenancy/report-otb.service';
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -1015,5 +1016,219 @@ describe('Reports R2 real scoped projections, cache and export audit', () => {
       await admin.$executeRaw`DELETE FROM report_views WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND owner_user_id=${owner}::uuid AND name=${fixtureName}`;
     }
     expect(seeded).toHaveLength(100);
+  });
+  it('collects one 365-day snapshot under concurrent retries, enforces RLS/retention and Clock Unknown', async () => {
+    const collector = app.get(ReportOtbService),
+      db = app.get(TenantDatabaseService);
+    await admin.$executeRaw`UPDATE properties SET timezone='Pacific/Auckland' WHERE tenant_id=${tenant}::uuid AND id=${property}::uuid`;
+    const today = propertyDay(new Date(), 'Pacific/Auckland');
+    await admin.$executeRaw`UPDATE bookings SET starts_on=${today}::date,ends_on=${shiftDay(today, 1)}::date,nightly_rates=${JSON.stringify(
+      [
+        {
+          date: today,
+          amount: '110.00',
+          components: [
+            { kind: 'base', amount: '100.00' },
+            { kind: 'charge', id: 'tax', name: 'VAT', amount: '10.00', category: 'vat' },
+          ],
+        },
+      ],
+    )}::jsonb WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND id=${b1}::uuid`;
+    try {
+      await admin.$executeRaw`INSERT INTO report_otb_snapshots(tenant_id,property_id,snapshot_date,timezone,source) VALUES(${tenant}::uuid,${property}::uuid,${shiftDay(today, -800)}::date,'Pacific/Auckland','LOCAL'),(${tenant}::uuid,${property}::uuid,${shiftDay(today, -799)}::date,'Pacific/Auckland','LOCAL')`;
+      const captures = await Promise.all([
+        collector.capture(context),
+        collector.capture(context),
+        collector.capture(context),
+      ]);
+      expect(captures.filter((c) => c.captured)).toHaveLength(1);
+      const days = await admin.$queryRaw<
+        Array<{ count: number; first: string; last: string }>
+      >`SELECT count(*)::int AS count,min(stay_date)::text AS first,max(stay_date)::text AS last FROM report_otb_days WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND snapshot_date=${today}::date`;
+      expect(days[0]).toEqual({ count: 365, first: today, last: shiftDay(today, 364) });
+      const money = await admin.$queryRaw<
+        Array<{ amount: string }>
+      >`SELECT room_revenue_minor::text AS amount FROM report_otb_revenue WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND snapshot_date=${today}::date AND stay_date=${today}::date AND currency='EUR'`;
+      expect(money).toEqual([{ amount: '10000' }]);
+      const auditCount = await admin.$queryRaw<
+        Array<{ count: number }>
+      >`SELECT count(*)::int AS count FROM audit_logs WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND action='reports.otb.captured'`;
+      expect(auditCount[0]!.count).toBe(1);
+      const retained = await admin.$queryRaw<
+        Array<{ count: number }>
+      >`SELECT count(*)::int AS count FROM report_otb_snapshots WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid`;
+      expect(retained[0]!.count).toBe(2);
+      await db.withTenantTransaction(
+        { tenantId: foreignTenant, propertyId: foreignProperty },
+        async (tx) => {
+          const rows = await tx.$queryRaw<
+            unknown[]
+          >`SELECT * FROM report_otb_days WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid`;
+          expect(rows).toEqual([]);
+        },
+      );
+      await expect(
+        db.withTenantTransaction(
+          { tenantId: tenant, propertyId: otherProperty },
+          (tx) =>
+            tx.$executeRaw`INSERT INTO report_otb_snapshots(tenant_id,property_id,snapshot_date,timezone,source) VALUES(${tenant}::uuid,${property}::uuid,${shiftDay(today, -1)}::date,'UTC','LOCAL')`,
+        ),
+      ).rejects.toThrow();
+      const report = await get({ report: 'occupancy', from: today, to: shiftDay(today, 2) }).expect(
+        200,
+      );
+      expect(
+        report.body.summary.onTheBooksHistory.pickup.every(
+          (p: { status: string }) => p.status === 'No history yet',
+        ),
+      ).toBe(true);
+      const previous = shiftDay(today, -1);
+      await admin.$executeRaw`INSERT INTO report_otb_snapshots(tenant_id,property_id,snapshot_date,timezone,source) VALUES(${tenant}::uuid,${property}::uuid,${previous}::date,'Pacific/Auckland','LOCAL')`;
+      await admin.$executeRaw`INSERT INTO report_otb_days(tenant_id,property_id,snapshot_date,stay_date,sold,available)VALUES(${tenant}::uuid,${property}::uuid,${previous}::date,${today}::date,0,5)`;
+      const historicalQuery = { report: 'occupancy', from: today, to: today };
+      const live = await app.get(ReportWorkspaceService).workspace(context, historicalQuery, true);
+      expect((live.summary.onTheBooksHistory as { pickup: object[] }).pickup[0]).toMatchObject({
+        status: 'Available',
+        change: 1,
+        sold: 1,
+        previousSold: 0,
+        revenue: [{ currency: 'EUR', change: '100.00' }],
+      });
+      await admin.$executeRaw`UPDATE bookings SET status='CANCELLED' WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND id=${b1}::uuid`;
+      const changed = await app
+        .get(ReportWorkspaceService)
+        .workspace(context, historicalQuery, true);
+      expect((changed.summary.onTheBooksHistory as { pickup: object[] }).pickup[0]).toMatchObject({
+        status: 'Available',
+        change: 0,
+        sold: 0,
+      });
+      await admin.$executeRaw`UPDATE bookings SET status='CONFIRMED' WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND id=${b1}::uuid`;
+      await admin.$executeRaw`DELETE FROM report_otb_snapshots WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND snapshot_date=${today}::date`;
+      await admin.$executeRaw`UPDATE property_integration_connections SET enabled=true WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND connection_id=${connection}::uuid`;
+      expect((await collector.capture(context)).captured).toBe(true);
+      const unknown = await admin.$queryRaw<
+        Array<{ count: number }>
+      >`SELECT count(*)::int AS count FROM report_otb_days WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND snapshot_date=${today}::date AND available IS NULL`;
+      expect(unknown[0]!.count).toBe(365);
+    } finally {
+      await admin.$executeRaw`UPDATE bookings SET status='CONFIRMED',starts_on='2026-03-29',ends_on='2026-03-31',nightly_rates=${JSON.stringify(nights)}::jsonb WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND id=${b1}::uuid`;
+      await admin.$executeRaw`DELETE FROM report_otb_snapshots WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid`;
+      await admin.$executeRaw`UPDATE properties SET timezone='Europe/Tirane' WHERE tenant_id=${tenant}::uuid AND id=${property}::uuid`;
+      await admin.$executeRaw`UPDATE property_integration_connections SET enabled=false WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND connection_id=${connection}::uuid`;
+    }
+  }, 60000);
+  it('captures guest country with scoped authorization, actual retry/version races and atomic audit', async () => {
+    const base = `/tenants/${tenant}/properties/${property}/guests/${guest}/country`;
+    const write = (body: object, key: string, cookie = ownerCookie, url = base) =>
+      request(app.getHttpServer())
+        .patch(url)
+        .set('Cookie', cookie)
+        .set('Idempotency-Key', key)
+        .send(body);
+    await write({ countryCode: 'ZZ', version: 1 }, randomUUID()).expect(400);
+    await request(app.getHttpServer())
+      .patch(base)
+      .set('Cookie', ownerCookie)
+      .send({ countryCode: 'AL', version: 1 })
+      .expect(400);
+    const key = randomUUID(),
+      retry = await Promise.all([
+        write({ countryCode: 'AL', version: 1 }, key),
+        write({ countryCode: 'AL', version: 1 }, key),
+      ]);
+    expect(retry.map((r) => r.status)).toEqual([200, 200]);
+    expect(retry[0]!.body).toEqual(retry[1]!.body);
+    await write({ countryCode: 'GB', version: 1 }, key).expect(409);
+    const race = await Promise.all([
+      write({ countryCode: 'GB', version: 2 }, randomUUID()),
+      write({ countryCode: 'US', version: 2 }, randomUUID()),
+    ]);
+    expect(race.map((r) => r.status).sort()).toEqual([200, 409]);
+    await write(
+      { countryCode: null, version: 3 },
+      randomUUID(),
+      ownerCookie,
+      `/tenants/${tenant}/properties/${otherProperty}/guests/${guest}/country`,
+    ).expect(404);
+    await admin.$executeRaw`INSERT INTO property_staff_capability_overrides(tenant_id,property_id,user_id,capability_id,granted) SELECT ${tenant}::uuid,${property}::uuid,${staff}::uuid,id,false FROM capabilities WHERE tenant_id=${tenant}::uuid AND key='bookings.edit' ON CONFLICT DO NOTHING`;
+    await write({ countryCode: 'AL', version: 3 }, randomUUID(), staffCookie).expect(403);
+    const audit = await admin.$queryRaw<
+      Array<{ count: number }>
+    >`SELECT count(*)::int AS count FROM audit_logs WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND action='guest.country.updated' AND target_id=${guest}`;
+    expect(audit[0]!.count).toBe(2);
+  });
+  it('captures refund reason without changing refund amounts or retry behavior; classifies only new immutable charges', async () => {
+    const booking = randomUUID(),
+      charge = randomUUID(),
+      key = randomUUID();
+    await admin.$executeRaw`INSERT INTO bookings(id,tenant_id,property_id,room_type_id,rate_plan_id,guest_id,external_reference,status,starts_on,ends_on,total_amount,nightly_rates,adults,children,payment_method) SELECT ${booking}::uuid,tenant_id,property_id,room_type_id,rate_plan_id,guest_id,${booking},'CONFIRMED',starts_on,ends_on,100,nightly_rates,adults,children,'PAY_AT_HOTEL' FROM bookings WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND id=${b1}::uuid`;
+    await admin.$executeRaw`INSERT INTO payments(tenant_id,property_id,booking_id,kind,provider,external_payment_id,status,amount,currency) VALUES(${tenant}::uuid,${property}::uuid,${booking}::uuid,'CHARGE','manual',${charge},'PAID',100,'EUR')`;
+    const url = `/tenants/${tenant}/properties/${property}/payments/refunds`;
+    const refund = (reasonCode: string, k = key) =>
+      request(app.getHttpServer())
+        .post(url)
+        .set('Cookie', ownerCookie)
+        .set('Idempotency-Key', k)
+        .send({
+          bookingId: booking,
+          amount: { amount: '25.00', currency: 'EUR' },
+          reasonCode,
+          note: 'Fixture reason',
+        });
+    await refund('invented').expect(400);
+    const retries = await Promise.all([refund('guest_request'), refund('guest_request')]);
+    expect(retries.map((r) => r.status)).toEqual([200, 200]);
+    expect(retries.every((r) => r.body.ok)).toBe(true);
+    await refund('goodwill').expect(409);
+    const payment = await admin.$queryRaw<
+      Array<{ amount: string; reason: string; note: string }>
+    >`SELECT amount::text,reason_code AS reason,note FROM payments WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND booking_id=${booking}::uuid AND kind='REFUND'`;
+    expect(payment).toEqual([{ amount: '25.00', reason: 'guest_request', note: 'Fixture reason' }]);
+    const today = propertyDay(new Date(), 'Europe/Tirane');
+    const analysis = await get({
+      report: 'revenue',
+      detail: 'refunds',
+      from: today,
+      to: today,
+    }).expect(200);
+    expect(
+      analysis.body.rows.some(
+        (r: { reason: string; amount: string }) =>
+          r.reason === 'guest_request' && r.amount === '25.00',
+      ),
+    ).toBe(true);
+    const charges = `/tenants/${tenant}/properties/${property}/pricing/charges`,
+      body = {
+        name: 'Classified VAT',
+        category: 'vat',
+        basis: 'percentage_accommodation',
+        display: 'included',
+        value: '10.00',
+        startsOn: today,
+        confirmed: true,
+      };
+    const created = await request(app.getHttpServer())
+      .post(charges)
+      .set('Cookie', ownerCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send(body)
+      .expect(201);
+    expect(created.body.category).toBe('vat');
+    await request(app.getHttpServer())
+      .patch(`${charges}/${created.body.id}`)
+      .set('Cookie', ownerCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ ...body, version: created.body.version, category: 'tourist_tax' })
+      .expect(400);
+    await expect(
+      app
+        .get(TenantDatabaseService)
+        .withTenantTransaction(
+          context,
+          (tx) =>
+            tx.$executeRaw`UPDATE pricing_charges SET category='other' WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND id=${created.body.id}::uuid`,
+        ),
+    ).rejects.toThrow();
   });
 });

@@ -37,6 +37,7 @@ export type ReportBooking = {
   paymentMethod: string;
   guestId: string | null;
   guestName: string | null;
+  guestCountry?: string | null;
   adults: number;
   children: number;
   pmsStayStatus: string | null;
@@ -49,6 +50,7 @@ export type ReportBooking = {
   firstGuestBookingAt: string | null;
 };
 export type ReportPayment = {
+  reasonCode?: string | null;
   id: string;
   bookingId: string;
   kind: string;
@@ -131,7 +133,7 @@ export async function reportFacts(
     SELECT b.id,b.external_reference AS "externalReference",b.status::text,b.starts_on::text AS "startsOn",b.ends_on::text AS "endsOn",b.created_at::text AS "createdAt",
       b.room_type_id AS "roomTypeId",rt.name AS "roomTypeName",b.room_id AS "roomId",r.name AS "roomName",b.rate_plan_id AS "ratePlanId",rp.name AS "ratePlanName",
       rp.currency,b.total_amount::text AS "totalAmount",b.nightly_rates AS "nightlyRates",b.source,b.payment_method::text AS "paymentMethod",b.guest_id AS "guestId",
-      NULLIF(BTRIM(CONCAT_WS(' ',g.first_name,g.last_name)),'') AS "guestName",b.adults,b.children,b.pms_stay_status AS "pmsStayStatus",rp.meal_plan AS "mealPlan",rp.pricing_basis AS "pricingBasis",
+      NULLIF(BTRIM(CONCAT_WS(' ',g.first_name,g.last_name)),'') AS "guestName",g.country_code AS "guestCountry",b.adults,b.children,b.pms_stay_status AS "pmsStayStatus",rp.meal_plan AS "mealPlan",rp.pricing_basis AS "pricingBasis",
       cancelled."cancelledAt",
       b.cancellation_is_free AS "cancellationIsFree",b.cancellation_cutoff_at::text AS "cancellationCutoffAt",
       (started.booking_id IS NOT NULL) AS "paymentStarted",
@@ -148,7 +150,7 @@ export async function reportFacts(
     ORDER BY b.created_at,b.id`);
   const payments = ids.length
     ? await tx.$queryRaw<ReportPayment[]>`
-    SELECT id,booking_id AS "bookingId",kind::text,status,amount::text,currency,method,provider,created_at::text AS "createdAt"
+    SELECT id,reason_code AS "reasonCode",booking_id AS "bookingId",kind::text,status,amount::text,currency,method,provider,created_at::text AS "createdAt"
     FROM payments WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND booking_id=ANY(${ids}::uuid[])
     ORDER BY created_at,id LIMIT ${REPORT_LIMITS.payments + 1}`
     : [];

@@ -30,6 +30,8 @@ export type Reservation = {
   guestCity: string | null;
   guestCounty: string | null;
   guestPostcode: string | null;
+  guestCountryCode?: string | null;
+  guestCaptureVersion?: number;
   specialRequests?: string | null;
   roomTypeId: string;
   roomTypeName: string;

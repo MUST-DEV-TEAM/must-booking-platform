@@ -572,7 +572,16 @@ export function DashboardShell({
       ) : null}
       {selectedProperty && role && canViewSection && section === 'guests' ? (
         guestId ? (
-          <GuestDetail tenantId={tenantId} propertyId={selectedProperty.id} guestId={guestId} />
+          <GuestDetail
+            tenantId={tenantId}
+            propertyId={selectedProperty.id}
+            guestId={guestId}
+            canEditCountry={
+              hasCapability('bookings.edit') &&
+              hasCapability('guests.view') &&
+              user?.emailVerified === true
+            }
+          />
         ) : (
           <DashboardGuests
             tenantId={tenantId}

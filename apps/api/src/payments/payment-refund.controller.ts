@@ -9,7 +9,7 @@ import {
   Post,
   Req,
 } from '@nestjs/common';
-import type { Money } from '@must/domain-contracts';
+import { REFUND_REASONS, type RefundReason, type Money } from '@must/domain-contracts';
 
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 import { RequiresCapability } from '../tenancy/capabilities.decorator';
@@ -50,6 +50,7 @@ export class PaymentRefundController {
       amount: this.money(value.amount),
       percentage: this.percentage(value.percentage),
       note: this.note(value.note),
+      ...(value.reasonCode === undefined ? {} : { reasonCode: this.reason(value.reasonCode) }),
       actorUserId: request.tenantContext.userId,
     });
     if (!result.ok && result.error.code === 'IDEMPOTENCY_KEY_CONFLICT')
@@ -79,6 +80,12 @@ export class PaymentRefundController {
     if (typeof value !== 'number' || !Number.isFinite(value))
       throw new BadRequestException('percentage must be a number between 1 and 100.');
     return value;
+  }
+
+  private reason(value: unknown): RefundReason {
+    if (typeof value !== 'string' || !REFUND_REASONS.includes(value as RefundReason))
+      throw new BadRequestException('Choose a valid refund reason.');
+    return value as RefundReason;
   }
 
   private note(value: unknown): string | undefined {

@@ -84,7 +84,7 @@ const tiles: Record<ReportKind, string[]> = {
   quality: ['issues'],
 };
 const breakdowns: Record<ReportKind, string[]> = {
-  overview: ['today', 'forward'],
+  overview: ['onTheBooksHistory', 'today', 'forward'],
   reservations: [
     'statuses',
     'funnel',
@@ -99,9 +99,9 @@ const breakdowns: Record<ReportKind, string[]> = {
     'noShow',
   ],
   revenue: ['financial', 'refunds', 'paymentMethods', 'byWeekday', 'breakdowns', 'chargeCoverage'],
-  occupancy: ['forward', 'inventorySchedules', 'lengthOfStayDistribution'],
+  occupancy: ['onTheBooksHistory', 'forward', 'inventorySchedules', 'lengthOfStayDistribution'],
   accommodation: ['currencyOccupancyBasis'],
-  guests: ['averageGuestRoomRevenue', 'guestSpendBasis'],
+  guests: ['guestOrigins', 'averageGuestRoomRevenue', 'guestSpendBasis'],
   pricing: ['pricingHealth', 'inventorySchedules', 'pricingPerformanceBasis'],
   operations: ['emailStatus', 'staffActivity', 'staffByUser', 'staffByDay'],
   quality: ['qualityBasis'],

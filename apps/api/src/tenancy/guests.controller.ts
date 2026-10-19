@@ -1,4 +1,18 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query, Req } from '@nestjs/common';
+import { CapabilitiesService } from './capabilities.service';
+import {
+  Body,
+  ForbiddenException,
+  Controller,
+  Get,
+  Headers,
+  Patch,
+  HttpCode,
+  Inject,
+  Param,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
 
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 import { Role, Roles } from './roles.decorator';
@@ -8,7 +22,10 @@ import { RequiresCapability } from './capabilities.decorator';
 
 @Controller('tenants/:tenantId/properties/:propertyId/guests')
 export class GuestsController {
-  constructor(@Inject(GuestsService) private readonly guests: GuestsService) {}
+  constructor(
+    @Inject(GuestsService) private readonly guests: GuestsService,
+    @Inject(CapabilitiesService) private readonly capabilities: CapabilitiesService,
+  ) {}
 
   @Get()
   @TenantScoped({ propertyParam: 'propertyId' })
@@ -23,6 +40,22 @@ export class GuestsController {
       request.tenantContext.propertyId,
       search,
     );
+  }
+
+  @Patch(':guestId/country')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.edit')
+  @RequiresVerifiedEmail()
+  async updateCountry(
+    @Param('guestId') id: string,
+    @Body() body: unknown,
+    @Headers('idempotency-key') key: string | undefined,
+    @Req() r: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
+  ) {
+    if (!(await this.capabilities.effective(r.tenantContext)).includes('guests.view'))
+      throw new ForbiddenException('Guest view permission is required.');
+    return this.guests.updateCountry(r.tenantContext, id, body, key);
   }
 
   @Get('suspected-duplicates')

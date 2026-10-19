@@ -202,6 +202,12 @@ export class PricingService {
               await this.catalog(tx, tenantId, propertyId),
               c.today,
             );
+          if (
+            kind === 'charges' &&
+            current &&
+            (current as Charge).category !== (input as Charge).category
+          )
+            pricingInvalid('Category is fixed after creation. Create a new charge to classify it.');
           if (kind === 'charges' && current?.lifecycle === 'Active' && !(input as Charge).confirmed)
             pricingInvalid('Confirm property applicability before an active charge can be saved.');
           await this.save(

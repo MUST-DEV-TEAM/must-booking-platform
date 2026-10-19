@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { countryCode } from '@must/domain-contracts';
 import {
   BadRequestException,
   ConflictException,
@@ -20,6 +22,8 @@ export type GuestDirectoryEntry = {
   city: string | null;
   county: string | null;
   postcode: string | null;
+  countryCode: string | null;
+  captureVersion: number;
   bookingCount: number;
   mostRecentStartsOn: string;
   mostRecentEndsOn: string;
@@ -65,7 +69,7 @@ export class GuestsService {
         tx.$queryRaw<GuestDirectoryEntry[]>`
         SELECT g.id, g.email, g.first_name AS "firstName", g.last_name AS "lastName", g.phone,
           g.street_address AS "streetAddress", g.address_line_2 AS "addressLine2", g.city, g.county,
-          g.postcode,
+          g.postcode,g.country_code AS "countryCode",g.capture_version AS "captureVersion",
           COUNT(b.id)::int AS "bookingCount",
           recent.starts_on::text AS "mostRecentStartsOn",
           recent.ends_on::text AS "mostRecentEndsOn"
@@ -92,6 +96,62 @@ export class GuestsService {
         ORDER BY recent.starts_on DESC, g.email ASC
       `,
     );
+  }
+
+  async updateCountry(
+    c: { tenantId: string; propertyId: string; userId: string },
+    id: string,
+    body: unknown,
+    key: string | undefined,
+  ) {
+    if (!uuidPattern.test(id) || !key || !/^[!-~]{1,128}$/.test(key))
+      throw new BadRequestException('A guest and Idempotency-Key are required.');
+    const v = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+    if (
+      !Number.isInteger(v.version) ||
+      Number(v.version) < 1 ||
+      !('countryCode' in v) ||
+      Object.keys(v).some((k) => !['version', 'countryCode'].includes(k))
+    )
+      throw new BadRequestException('Country and expected version are required.');
+    let country: string | null;
+    try {
+      country = countryCode(v.countryCode) ?? null;
+    } catch {
+      throw new BadRequestException('Choose an assigned ISO country code.');
+    }
+    const hash = createHash('sha256')
+      .update(JSON.stringify({ actor: c.userId, id, version: v.version, country }))
+      .digest('hex');
+    return this.database.withTenantTransaction(c, async (tx) => {
+      await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${c.tenantId}::uuid AND id=${c.propertyId}::uuid FOR UPDATE`;
+      const receipt = await tx.$queryRaw<
+        Array<{ hash: string; response: unknown }>
+      >`SELECT request_hash AS hash,response FROM guest_capture_operations WHERE tenant_id=${c.tenantId}::uuid AND property_id=${c.propertyId}::uuid AND idempotency_key=${key}`;
+      if (receipt[0]) {
+        if (receipt[0].hash !== hash)
+          throw new ConflictException('Idempotency key was used for another change.');
+        return receipt[0].response;
+      }
+      const guests = await tx.$queryRaw<
+        Array<{ version: number; country: string | null }>
+      >`SELECT capture_version AS version,country_code AS country FROM guests WHERE tenant_id=${c.tenantId}::uuid AND id=${id}::uuid AND merged_into_guest_id IS NULL AND EXISTS(SELECT 1 FROM bookings b WHERE b.tenant_id=${c.tenantId}::uuid AND b.property_id=${c.propertyId}::uuid AND b.guest_id=guests.id) FOR UPDATE`;
+      if (!guests[0]) throw new NotFoundException('Guest not found in this property.');
+      if (guests[0].version !== v.version)
+        throw new ConflictException('Guest was changed. Reload before saving.');
+      const response = { id, countryCode: country, captureVersion: Number(v.version) + 1 };
+      await tx.$executeRaw`UPDATE guests SET country_code=${country},capture_version=capture_version+1,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=${c.tenantId}::uuid AND id=${id}::uuid`;
+      await this.audit.recordInTransaction(tx, {
+        ...c,
+        actorUserId: c.userId,
+        action: 'guest.country.updated',
+        targetType: 'guest',
+        targetId: id,
+        details: { before: { countryCode: guests[0].country }, after: response },
+      });
+      await tx.$executeRaw`INSERT INTO guest_capture_operations(tenant_id,property_id,idempotency_key,request_hash,response)VALUES(${c.tenantId}::uuid,${c.propertyId}::uuid,${key},${hash},${JSON.stringify(response)}::jsonb)`;
+      return response;
+    });
   }
 
   listSuspectedDuplicates(tenantId: string, propertyId: string): Promise<SuspectedDuplicatePair[]> {

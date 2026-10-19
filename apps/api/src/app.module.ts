@@ -1,3 +1,4 @@
+import { ReportOtbService } from './tenancy/report-otb.service';
 import { PricingController } from './tenancy/pricing.controller';
 import { PricingService } from './tenancy/pricing.service';
 import { PricingWrites } from './tenancy/pricing-writes.service';
@@ -284,6 +285,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ReportsService,
     ReportDefinitionsService,
     ReportWorkspaceService,
+    ReportOtbService,
     DashboardMetricsService,
     ReportViewsService,
     OverviewService,

@@ -118,6 +118,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@must/domain-contracts':
+        specifier: workspace:*
+        version: link:../../packages/domain-contracts
       '@must/ui':
         specifier: workspace:*
         version: link:../../packages/ui

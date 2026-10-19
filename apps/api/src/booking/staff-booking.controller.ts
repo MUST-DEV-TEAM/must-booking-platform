@@ -1,3 +1,4 @@
+import { countryCode } from '@must/domain-contracts';
 import {
   BadRequestException,
   Body,
@@ -70,9 +71,7 @@ export class StaffBookingController {
     });
     return {
       ...result,
-      refundOutcome: refunded.ok
-        ? { ok: true }
-        : { ok: false, message: refunded.error.message },
+      refundOutcome: refunded.ok ? { ok: true } : { ok: false, message: refunded.error.message },
     };
   }
 
@@ -111,7 +110,12 @@ export class StaffBookingController {
   }
 
   /** The same rules the dashboard form applies, so other clients cannot save bad contact data. */
-  private validateGuest(guest: { email: string; firstName: string; lastName: string; phone: string | null }) {
+  private validateGuest(guest: {
+    email: string;
+    firstName: string;
+    lastName: string;
+    phone: string | null;
+  }) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(guest.email.trim()) || guest.email.length > 254)
       throw new BadRequestException('A valid guest email address is required.');
     if (!guest.firstName.trim() || guest.firstName.length > 100)
@@ -119,11 +123,15 @@ export class StaffBookingController {
     if (!guest.lastName.trim() || guest.lastName.length > 100)
       throw new BadRequestException('A guest last name of up to 100 characters is required.');
     if (guest.phone && !/^\+?[0-9][0-9 ]{4,19}$/.test(guest.phone.trim()))
-      throw new BadRequestException('The guest phone number may contain only digits and a country prefix.');
+      throw new BadRequestException(
+        'The guest phone number may contain only digits and a country prefix.',
+      );
   }
 
   /** What staff chose to do with money already paid: nothing, everything left, a percentage or an amount. */
-  private refundChoice(value: unknown):
+  private refundChoice(
+    value: unknown,
+  ):
     | { kind: 'none' }
     | { kind: 'full' }
     | { kind: 'percentage'; percentage: number }
@@ -175,7 +183,9 @@ export class StaffBookingController {
         city: this.optionalNullableString(guest.city),
         county: this.optionalNullableString(guest.county),
         postcode: this.optionalNullableString(guest.postcode),
-        specialRequests: typeof guest.specialRequests === 'string' ? guest.specialRequests : undefined,
+        countryCode: this.country(guest.countryCode),
+        specialRequests:
+          typeof guest.specialRequests === 'string' ? guest.specialRequests : undefined,
       },
     };
   }
@@ -199,5 +209,12 @@ export class StaffBookingController {
   private idempotencyKey(value: string | undefined): string {
     if (!value?.trim()) throw new BadRequestException('Idempotency-Key header is required.');
     return value;
+  }
+  private country(value: unknown) {
+    try {
+      return countryCode(value);
+    } catch {
+      throw new BadRequestException('Choose an assigned ISO country code.');
+    }
   }
 }

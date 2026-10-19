@@ -61,6 +61,7 @@ export type Adjustment = {
   note: string;
 };
 export type Charge = {
+  category?: import('@must/domain-contracts').ChargeCategory | null;
   id: string;
   name: string;
   lifecycle: string;
@@ -149,6 +150,7 @@ export type PricingComponent = {
   name: string;
   amount: string;
   display?: string;
+  category?: import('@must/domain-contracts').ChargeCategory | null;
 };
 export type PricingNight = { date: string; amount: string; components: PricingComponent[] };
 export type PricingResult = {
@@ -368,6 +370,7 @@ export function evaluatePricing(facts: PricingFacts, input: PricingRequest): Pri
         fixed += amount;
         components.push({
           kind: 'charge',
+          category: c.category ?? null,
           id: c.id,
           version: c.version,
           name: c.name,
@@ -384,6 +387,7 @@ export function evaluatePricing(facts: PricingFacts, input: PricingRequest): Pri
         percentages += amount;
         components.push({
           kind: 'charge',
+          category: c.category ?? null,
           id: c.id,
           version: c.version,
           name: c.name,

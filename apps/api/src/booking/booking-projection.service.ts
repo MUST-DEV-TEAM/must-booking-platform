@@ -26,6 +26,8 @@ export type BookingProjection = {
   guestCity: string | null;
   guestCounty: string | null;
   guestPostcode: string | null;
+  guestCountryCode?: string | null;
+  guestCaptureVersion?: number;
   specialRequests: string | null;
   roomTypeId: string;
   roomTypeName: string;
@@ -477,7 +479,7 @@ export class BookingProjectionService {
         SELECT b.id, b.guest_id AS "guestId", g.first_name AS "guestFirstName",
           g.last_name AS "guestLastName", g.email AS "guestEmail", g.phone AS "guestPhone",
           g.street_address AS "guestStreetAddress", g.address_line_2 AS "guestAddressLine2",
-          g.city AS "guestCity", g.county AS "guestCounty", g.postcode AS "guestPostcode",
+          g.city AS "guestCity", g.county AS "guestCounty", g.postcode AS "guestPostcode",g.country_code AS "guestCountryCode",g.capture_version AS "guestCaptureVersion",
           b.special_requests AS "specialRequests",
           b.room_type_id AS "roomTypeId", rt.name AS "roomTypeName", b.room_id AS "roomId",
           b.rate_plan_id AS "ratePlanId", rp.name AS "ratePlanName",

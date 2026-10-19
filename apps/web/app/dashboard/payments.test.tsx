@@ -197,6 +197,11 @@ describe('Payments', () => {
       dialog()!.querySelector<HTMLTextAreaElement>('textarea')!,
       'Approved by guest services',
     );
+    expect(byText('Record refund', dialog()!)?.hasAttribute('disabled')).toBe(true);
+    await act(async () =>
+      document.querySelector<HTMLElement>('[aria-label="Refund reason"]')!.click(),
+    );
+    await act(async () => byText('guest request')!.click());
     await act(async () => {
       byText('Record refund', dialog()!)!.click();
     });
@@ -208,6 +213,7 @@ describe('Payments', () => {
       bookingId: 'b1',
       note: 'Approved by guest services',
       percentage: 25,
+      reasonCode: 'guest_request',
     });
     expect(dialog()).toBeNull();
     await unmount();

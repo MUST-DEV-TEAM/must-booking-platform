@@ -31,6 +31,7 @@ export type PricingRecord = {
   weekdays?: number[];
   basis?: string;
   display?: string;
+  category?: string | null;
   confirmed?: boolean;
   note?: string;
 };

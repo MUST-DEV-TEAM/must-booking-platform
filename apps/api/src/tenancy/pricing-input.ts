@@ -1,3 +1,4 @@
+import { CHARGE_CATEGORIES } from '@must/domain-contracts';
 import {
   minor,
   decimal,
@@ -182,8 +183,14 @@ export function adjustmentInput(body: unknown) {
   };
 }
 export function chargeInput(body: unknown) {
-  const v = pricingObject(body),
-    basis = v.basis ?? 'percentage_accommodation',
+  const v = pricingObject(body);
+  if (
+    v.category != null &&
+    v.category !== '' &&
+    !CHARGE_CATEGORIES.includes(v.category as (typeof CHARGE_CATEGORIES)[number])
+  )
+    pricingInvalid('Choose a valid charge category.');
+  const basis = v.basis ?? 'percentage_accommodation',
     display = v.display ?? 'included',
     start = date(v.startsOn, true)!,
     end = date(v.endsOn),
@@ -206,6 +213,10 @@ export function chargeInput(body: unknown) {
     pricingInvalid('Confirm applicability with a checkbox.');
   return {
     name: text(v, 'name', 200, true),
+    category:
+      v.category == null || v.category === ''
+        ? null
+        : (v.category as (typeof CHARGE_CATEGORIES)[number]),
     basis: String(basis),
     display: String(display),
     value,

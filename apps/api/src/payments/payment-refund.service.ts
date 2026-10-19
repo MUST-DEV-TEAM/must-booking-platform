@@ -1,6 +1,8 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import {
+  type RefundReason,
+  REFUND_REASONS,
   type MailBrand,
   type Money,
   type Payment,
@@ -30,6 +32,7 @@ type ManualRefundCommand = {
   idempotencyKey: string;
   amount?: Money;
   percentage?: number;
+  reasonCode?: RefundReason;
   note?: string;
   actorUserId: string;
 };
@@ -161,7 +164,13 @@ export class PaymentRefundService {
     context: PaymentProviderContext,
     bookingId: string,
     charge: Pick<Charge, 'provider' | 'externalPaymentId' | 'amount' | 'currency'>,
-    command: { amount: Money; idempotencyKey: string; actorUserId?: string; note?: string },
+    command: {
+      amount: Money;
+      idempotencyKey: string;
+      actorUserId?: string;
+      note?: string;
+      reasonCode?: RefundReason;
+    },
   ): Promise<RefundChargeOutcome> {
     if (charge.provider === 'manual')
       return this.recordManualRefund(tx, context, bookingId, charge, command);
@@ -188,11 +197,11 @@ export class PaymentRefundService {
 
     const inserted = await tx.$queryRaw<Array<{ id: string }>>`
       INSERT INTO payments (
-        tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency, note
+        tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency, note, reason_code
       ) VALUES (
         ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${bookingId}::uuid,
         'REFUND'::"PaymentKind", ${charge.provider}, ${refunded.value.id}, 'REFUNDED',
-        ${command.amount.amount}::numeric, ${command.amount.currency}, ${command.note ?? null}
+        ${command.amount.amount}::numeric, ${command.amount.currency}, ${command.note ?? null}, ${command.reasonCode ?? null}
       )
       ON CONFLICT (tenant_id, external_payment_id) DO NOTHING
       RETURNING id
@@ -210,6 +219,7 @@ export class PaymentRefundService {
           chargeExternalPaymentId: charge.externalPaymentId,
           refundExternalPaymentId: refunded.value.id,
           amount: command.amount,
+          ...(command.reasonCode ? { reasonCode: command.reasonCode } : {}),
           ...(command.note ? { note: command.note } : {}),
         },
       });
@@ -259,8 +269,10 @@ export class PaymentRefundService {
    * cancelled. True when the booking is cancelled and the cancellation is older than that.
    */
   async refundWindowClosed(context: PaymentProviderContext, bookingId: string): Promise<boolean> {
-    const rows = await this.database.withTenantTransaction(context, (tx) =>
-      tx.$queryRaw<Array<{ closed: boolean }>>`
+    const rows = await this.database.withTenantTransaction(
+      context,
+      (tx) =>
+        tx.$queryRaw<Array<{ closed: boolean }>>`
       SELECT (
         b.status = 'CANCELLED' AND COALESCE(
           (SELECT MAX(a.created_at) FROM audit_logs a
@@ -280,6 +292,8 @@ export class PaymentRefundService {
     context: PaymentProviderContext,
     command: ManualRefundCommand,
   ): Promise<Result<Payment>> {
+    if (command.reasonCode !== undefined && !REFUND_REASONS.includes(command.reasonCode))
+      return this.failure('INVALID_REFUND_REASON', 'Choose a valid refund reason.');
     if (command.note !== undefined && command.note.length > 500)
       return this.failure('INVALID_REFUND_NOTE', 'Refund note must be 500 characters or fewer.');
     let confirmation: RefundConfirmation | null = null;
@@ -339,6 +353,7 @@ export class PaymentRefundService {
           idempotencyKey: `manual-refund:${command.idempotencyKey}`,
           actorUserId: command.actorUserId,
           note: command.note,
+          ...(command.reasonCode ? { reasonCode: command.reasonCode } : {}),
         });
         confirmation = outcome.confirmation;
         if (outcome.result.ok && outcome.clockRefund) {
@@ -357,16 +372,16 @@ export class PaymentRefundService {
     context: PaymentProviderContext,
     bookingId: string,
     charge: Pick<Charge, 'externalPaymentId' | 'amount' | 'currency'>,
-    command: { amount: Money; actorUserId?: string; note?: string },
+    command: { amount: Money; actorUserId?: string; note?: string; reasonCode?: RefundReason },
   ): Promise<RefundChargeOutcome> {
     const externalPaymentId = `manual:refund:${randomUUID()}`;
     const inserted = await tx.$queryRaw<Array<{ id: string }>>`
       INSERT INTO payments (
-        tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency, note
+        tenant_id, property_id, booking_id, kind, provider, external_payment_id, status, amount, currency, note, reason_code
       ) VALUES (
         ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${bookingId}::uuid,
         'REFUND'::"PaymentKind", 'manual', ${externalPaymentId}, 'REFUNDED',
-        ${command.amount.amount}::numeric, ${command.amount.currency}, ${command.note ?? null}
+        ${command.amount.amount}::numeric, ${command.amount.currency}, ${command.note ?? null}, ${command.reasonCode ?? null}
       )
       ON CONFLICT (tenant_id, external_payment_id) DO NOTHING
       RETURNING id
@@ -384,6 +399,7 @@ export class PaymentRefundService {
           chargeExternalPaymentId: charge.externalPaymentId,
           refundExternalPaymentId: externalPaymentId,
           amount: command.amount,
+          ...(command.reasonCode ? { reasonCode: command.reasonCode } : {}),
           ...(command.note ? { note: command.note } : {}),
         },
       });

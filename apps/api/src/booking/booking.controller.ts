@@ -1,3 +1,4 @@
+import { countryCode } from '@must/domain-contracts';
 import {
   BadRequestException,
   Body,
@@ -278,6 +279,7 @@ export class BookingController {
         city: this.optionalNullableString(guest.city),
         county: this.optionalNullableString(guest.county),
         postcode: this.optionalNullableString(guest.postcode),
+        countryCode: this.country(guest.countryCode),
         specialRequests: this.optionalSpecialRequests(guest.specialRequests),
       },
       total: this.money(value.total) ?? { amount: '', currency: '' },
@@ -393,5 +395,12 @@ export class BookingController {
         'This idempotency key was already used with a different request.',
       );
     return result;
+  }
+  private country(value: unknown) {
+    try {
+      return countryCode(value);
+    } catch {
+      throw new BadRequestException('Choose an assigned ISO country code.');
+    }
   }
 }

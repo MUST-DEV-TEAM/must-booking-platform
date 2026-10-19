@@ -244,19 +244,19 @@ export const REPORT_METRICS: readonly MetricDefinition[] = [
   definition(
     'pickup',
     'Pickup',
-    'Current eligible OTB − eligible OTB at historical cutoff',
+    'Current eligible OTB minus captured eligible OTB at historical cutoff',
     'Same future stay window, two as-of instants',
     false,
-    'Complete immutable reservation snapshots',
-    'Hidden until historical status/date amendments can be reconstructed.',
+    'Complete compatible property-wide daily OTB observations',
+    'Unfiltered future stay dates only; missing capture or changed source/timezone gives No history yet.',
   ),
   definition(
     'pace',
     'Pace',
-    'Current OTB − comparable prior-period OTB at same lead time',
+    'Current OTB minus captured year-earlier OTB at the same lead distance',
     'Comparable stay windows and equal lead time',
     false,
-    'Complete immutable reservation snapshots',
+    'Complete compatible property-wide daily OTB observations',
     'Missing prior evidence: no data, not zero.',
   ),
   definition(
@@ -516,7 +516,7 @@ export function withinFreeCancellation(
 type SnapshotNight = {
   date: string;
   roomAmount: string;
-  charges: { id: string; name: string; amount: string }[];
+  charges: { id: string; name: string; amount: string; category: string }[];
   legacy: boolean;
 };
 const object = (v: unknown): v is Record<string, unknown> =>
@@ -564,7 +564,14 @@ export function nightlySnapshot(
           if (typeof c.id !== 'string' || typeof c.name !== 'string' || minor(c.amount) < 0n)
             return null;
           room -= minor(c.amount);
-          charges.push({ id: c.id, name: c.name, amount: decimal(minor(c.amount)) });
+          charges.push({
+            id: c.id,
+            name: c.name,
+            amount: decimal(minor(c.amount)),
+            category: ['vat', 'tourist_tax', 'service', 'other'].includes(String(c.category))
+              ? String(c.category)
+              : 'Unclassified',
+          });
         }
       }
       if (total !== minor(row.amount) || room < 0n) return null;

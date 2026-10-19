@@ -219,6 +219,7 @@ export interface GuestDetails {
   city?: string | null;
   county?: string | null;
   postcode?: string | null;
+  countryCode?: string | null;
   specialRequests?: string | null;
 }
 
@@ -457,3 +458,5 @@ export interface UpdateNotificationTopicCommand {
   /** Only for scheduled topics; omitted keeps the default. */
   daysOffset?: number | null;
 }
+
+export * from './capture';

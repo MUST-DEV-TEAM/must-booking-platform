@@ -604,6 +604,7 @@ export function projectReport(
             id: p.id,
             currency: p.currency,
             amount: p.amount,
+            reason: p.reasonCode ?? 'Unclassified',
             postingDate: propertyDay(p.createdAt, timezone),
             daysSinceFirstCharge: charge
               ? dayDistance(
@@ -669,6 +670,7 @@ export function projectReport(
           column('postingDate', 'Refund posting date', 'date'),
           column('currency', 'Currency'),
           column('amount', 'Refunded', 'money', true),
+          column('reason', 'Refund reason'),
           column('daysSinceFirstCharge', 'Days since first charge', 'number'),
           column('href', 'Open reservation', 'link'),
         ];
@@ -676,16 +678,24 @@ export function projectReport(
       if (q.detail === 'charges') {
         const charges = new Map<
           string,
-          { id: string; name: string; currency: string; amount: bigint; nights: number }
+          {
+            id: string;
+            name: string;
+            category: string;
+            currency: string;
+            amount: bigint;
+            nights: number;
+          }
         >();
         for (const b of validBookings.filter((b) => b.status === 'CONFIRMED'))
           for (const night of snapshots.get(b) ?? []) {
             if (!inRange(night.date, q)) continue;
             for (const c of night.charges) {
-              const id = JSON.stringify([b.currency, c.id, c.name]);
+              const id = JSON.stringify([b.currency, c.id, c.name, c.category]);
               const entry = charges.get(id) ?? {
                 id,
                 name: c.name,
+                category: c.category,
                 currency: b.currency,
                 amount: 0n,
                 nights: 0,
@@ -698,6 +708,7 @@ export function projectReport(
         rows = [...charges.values()].map((c) => ({ ...c, amount: decimal(c.amount) }));
         columns = [
           column('name', 'Recorded mandatory charge'),
+          column('category', 'Tax / charge category'),
           column('currency', 'Currency'),
           column('amount', 'Recognized charge', 'money', true),
           column('nights', 'Charge lines', 'number'),
@@ -858,6 +869,23 @@ export function projectReport(
       'Each currency row shows its share of sold nights; do not sum repeated supply.';
   }
   if (q.report === 'guests') {
+    const origin = new Map<string, Set<string>>();
+    for (const b of validBookings.filter(
+      (b) =>
+        b.guestId &&
+        b.guestCountry &&
+        b.startsOn <= q.to &&
+        b.endsOn > q.from &&
+        b.status === 'CONFIRMED',
+    )) {
+      const known = origin.get(b.guestCountry!) ?? new Set<string>();
+      known.add(b.guestId!);
+      origin.set(b.guestCountry!, known);
+    }
+    summary.guestOrigins = [...origin].map(([country, guests]) => ({
+      country,
+      guests: guests.size,
+    }));
     const staying = validBookings.filter(
       (b) => b.status === 'CONFIRMED' && b.startsOn <= q.to && b.endsOn > q.from,
     );

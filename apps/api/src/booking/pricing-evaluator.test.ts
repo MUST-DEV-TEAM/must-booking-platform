@@ -251,4 +251,37 @@ describe('pure local pricing', () => {
     expect(pricingDay('2035-12-31', 1)).toBe('2036-01-01');
     expect(pricingDay('2026-10-25', 1)).toBe('2026-10-26');
   });
+  it('copies category only into new charge components without changing calculated amounts', () => {
+    const f = facts();
+    f.charges = [
+      {
+        id: 'tax',
+        name: 'VAT',
+        lifecycle: 'Active',
+        version: 1,
+        basis: 'percentage_accommodation',
+        value: '10',
+        currency: null,
+        display: 'included',
+        confirmed: true,
+        roomTypeIds: [],
+        ratePlanIds: [],
+        channels: ['website', 'staff'],
+        startsOn: '2036-01-01',
+        endsOn: null,
+        note: '',
+        category: 'vat',
+      },
+    ];
+    const before = evaluatePricing(f, input);
+    f.charges[0]!.category = 'tourist_tax';
+    const after = evaluatePricing(f, input);
+    expect(before.total).toEqual(after.total);
+    expect(before.nightlyRates[0]!.components.find((c) => c.kind === 'charge')?.category).toBe(
+      'vat',
+    );
+    expect(after.nightlyRates[0]!.components.find((c) => c.kind === 'charge')?.category).toBe(
+      'tourist_tax',
+    );
+  });
 });

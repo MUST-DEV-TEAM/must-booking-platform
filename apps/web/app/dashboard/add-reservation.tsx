@@ -1,4 +1,5 @@
 'use client';
+import { CountrySelect } from '../../components/ui/country-select';
 
 import { useBookingRulesEvaluation } from './booking-rules';
 
@@ -79,6 +80,7 @@ type Guest = {
   city: string;
   county: string;
   postcode: string;
+  countryCode?: string | null;
   arrivalTime: string;
   accessibility: boolean;
   specialRequests: string;
@@ -111,6 +113,7 @@ const emptyGuest: Guest = {
   city: '',
   county: '',
   postcode: '',
+  countryCode: undefined,
   arrivalTime: '',
   accessibility: false,
   specialRequests: '',
@@ -424,6 +427,7 @@ export function AddReservation({
           city: guest.city.trim() || undefined,
           county: guest.county.trim() || undefined,
           postcode: guest.postcode.trim() || undefined,
+          countryCode: guest.countryCode,
           specialRequests: requestsText(guest),
         },
         paymentMethod: gateway,
@@ -940,6 +944,7 @@ export function AddReservation({
                         city: found.city ?? '',
                         county: found.county ?? '',
                         postcode: found.postcode ?? '',
+                        countryCode: found.countryCode ?? undefined,
                       }));
                     }}
                   />
@@ -1073,6 +1078,12 @@ export function AddReservation({
                         onChange={(event) =>
                           setGuest({ ...guest, county: cleanName(event.target.value) })
                         }
+                      />
+                    </FormField>
+                    <FormField label="Country">
+                      <CountrySelect
+                        value={guest.countryCode}
+                        onChange={(countryCode) => setGuest({ ...guest, countryCode })}
                       />
                     </FormField>
                     <FormField label="Postcode" htmlFor="guest-postcode">

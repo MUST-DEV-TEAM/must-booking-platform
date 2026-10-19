@@ -65,6 +65,7 @@ export function PricingEditor({
       priority: record?.priority ?? 50,
       basis: record?.basis ?? 'percentage_accommodation',
       display: record?.display ?? 'included',
+      category: record?.category ?? '',
       confirmed: record?.confirmed ?? false,
       note: record?.note ?? '',
       changeReason: '',
@@ -420,6 +421,28 @@ export function PricingEditor({
             ) : null}
             {kind === 'charges' ? (
               <>
+                <FormField
+                  label="Tax / charge category"
+                  hint={
+                    record
+                      ? 'Category is fixed for this charge. Create a new charge to use another category.'
+                      : 'Optional. Unclassified keeps existing reporting behavior.'
+                  }
+                >
+                  <Combobox
+                    label="Tax / charge category"
+                    value={str('category')}
+                    onChange={(v) => set('category', v)}
+                    disabled={!!record}
+                    options={[
+                      { value: '', label: 'Unclassified' },
+                      ...['vat', 'tourist_tax', 'service', 'other'].map((value) => ({
+                        value,
+                        label: value.replaceAll('_', ' '),
+                      })),
+                    ]}
+                  />
+                </FormField>
                 <FormField label="Customer display">
                   <Combobox
                     label="Charge display"
