@@ -17,6 +17,7 @@ import {
 } from './tenant-context.decorator';
 import { TenantDatabaseService } from './tenant-database.service';
 import { REQUIRED_ROLES, Role } from './roles.decorator';
+import { PLATFORM_CONSOLE } from '../platform/console/platform-console.decorators';
 
 type RequestWithContext = {
   headers: { cookie?: string };
@@ -33,6 +34,8 @@ export class TenantContextGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // Platform console controllers authenticate through PlatformAccessGuard, never a hotel session.
+    if (this.reflector.get<boolean>(PLATFORM_CONSOLE, context.getClass())) return true;
     if (
       this.reflector.getAllAndOverride<boolean>(PUBLIC_ROUTE, [
         context.getHandler(),
