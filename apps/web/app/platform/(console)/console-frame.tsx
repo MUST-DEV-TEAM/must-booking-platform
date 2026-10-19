@@ -111,8 +111,10 @@ export function ConsoleFrame({ children }: { children: ReactNode }) {
   ];
   const nav = items
     .filter((item) => item.visible)
-    .map(({ visible: _visible, ...item }) => ({
-      ...item,
+    .map((item) => ({
+      href: item.href,
+      label: item.label,
+      icon: item.icon,
       current:
         item.href === '/platform' ? pathname === '/platform' : pathname.startsWith(item.href),
     }));

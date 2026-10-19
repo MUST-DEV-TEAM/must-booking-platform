@@ -255,8 +255,10 @@ export default function HotelsPage() {
                     </TableCell>
                     <TableCell className="px-2">
                       {hotel.ownerEmail ? (
-                        <span className="inline-flex items-center gap-2">
-                          {hotel.ownerEmail}
+                        <span className="inline-flex max-w-60 items-center gap-2">
+                          <span className="truncate" title={hotel.ownerEmail}>
+                            {hotel.ownerEmail}
+                          </span>
                           {hotel.ownerPending ? <Badge variant="warning">Invited</Badge> : null}
                         </span>
                       ) : (
