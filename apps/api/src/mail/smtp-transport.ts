@@ -1,4 +1,5 @@
-import nodemailer, { type SendMailOptions, type SMTPTransportOptions } from 'nodemailer';
+import type { SendMailOptions, SMTPTransportOptions } from 'nodemailer';
+import { createSmtpConnection } from './smtp-connection';
 import { resolveSmtpEndpoint, type SmtpLookup } from './smtp-network-policy';
 import { MailDeliveryError } from './mail-delivery-error';
 
@@ -11,12 +12,12 @@ export type SmtpSettings = {
 };
 type Address = string | { name: string; address: string };
 type Receipt = { messageId: string; accepted: Address[]; rejected: Address[] };
-type Connection = {
+export type SmtpConnection = {
   verify(): Promise<true>;
   sendMail(message: SendMailOptions): Promise<Receipt>;
   close(): void;
 };
-export type SmtpConnectionFactory = (options: SMTPTransportOptions) => Connection;
+export type SmtpConnectionFactory = (options: SMTPTransportOptions) => SmtpConnection;
 export type PreparedTransportMessage = {
   from: string;
   to: string[];
@@ -78,10 +79,9 @@ function failure(error: unknown): SmtpTransportError {
 export class SmtpTransport {
   constructor(
     private readonly resolve?: SmtpLookup,
-    private readonly connect: SmtpConnectionFactory = (options) =>
-      nodemailer.createTransport(options),
+    private readonly connect: SmtpConnectionFactory = createSmtpConnection,
   ) {}
-  private async connection(settings: SmtpSettings): Promise<Connection> {
+  private async connection(settings: SmtpSettings): Promise<SmtpConnection> {
     if (
       !([465, 587, 2525] as number[]).includes(settings.port) ||
       (settings.port === 465 ? settings.security !== 'TLS' : settings.security !== 'STARTTLS') ||
@@ -141,7 +141,15 @@ export class SmtpTransport {
     const connection = await this.connection(settings);
     try {
       const receipt = await connection.sendMail({
-        ...message,
+        from: message.from,
+        to: message.to,
+        cc: message.cc,
+        bcc: message.bcc,
+        replyTo: message.replyTo,
+        subject: message.subject,
+        html: message.html,
+        text: message.text,
+        messageId: message.messageId,
         disableFileAccess: true,
         disableUrlAccess: true,
       });
