@@ -1,3 +1,4 @@
+import { EmailMessageArchiveService } from '../mail/email-message-archive.service';
 import { EmailActivityService } from './email-activity.service';
 import { ActivityAuditService } from './activity-audit.service';
 import {
@@ -25,6 +26,9 @@ export class NotificationRetentionService implements OnModuleInit, OnModuleDestr
     @Inject(NotificationInboxService) private readonly inbox: NotificationInboxService,
     @Optional() @Inject(ActivityAuditService) private readonly exports?: ActivityAuditService,
     @Optional() @Inject(EmailActivityService) private readonly emailExports?: EmailActivityService,
+    @Optional()
+    @Inject(EmailMessageArchiveService)
+    private readonly previews?: EmailMessageArchiveService,
   ) {}
   async onModuleInit() {
     if (process.env.NODE_ENV === 'test' || !process.env.REDIS_URL) return;
@@ -38,6 +42,7 @@ export class NotificationRetentionService implements OnModuleInit, OnModuleDestr
           await this.inbox.cleanup(job.data as Scope);
           await this.exports?.cleanupExports(job.data as Scope);
           await this.emailExports?.cleanupExports(job.data as Scope);
+          await this.previews?.cleanup(job.data as Scope);
         }
       },
       { connection: this.connection, concurrency: 1 },
@@ -66,6 +71,7 @@ export class NotificationRetentionService implements OnModuleInit, OnModuleDestr
         await this.inbox.cleanup(scope);
         await this.exports?.cleanupExports(scope);
         await this.emailExports?.cleanupExports(scope);
+        await this.previews?.cleanup(scope);
       }
   }
   async onModuleDestroy() {

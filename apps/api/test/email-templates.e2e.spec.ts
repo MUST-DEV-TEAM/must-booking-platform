@@ -6,6 +6,10 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { RenderedEmailCommand } from '@must/domain-contracts';
 
+import { EmailMessageArchiveService } from '../src/mail/email-message-archive.service';
+import { ResendMailProvider } from '../src/mail/resend-mail.provider';
+import { withMailAttempt } from '../src/mail/mail-attempt-context';
+import { AuditLogService } from '../src/tenancy/audit-log.service';
 import { EmailActivityService } from '../src/tenancy/email-activity.service';
 import { ResendWebhookService } from '../src/mail/resend-webhook.service';
 import { MailDeliveryError } from '../src/mail/mail-delivery-error';
@@ -1370,5 +1374,313 @@ describe('email templates (a property’s own wording for guest emails)', () => 
       { count: number }[]
     >`SELECT count(*)::int AS count FROM email_delivery_exports WHERE tenant_id=${tenantId}::uuid AND property_id=${property}::uuid`;
     expect(receipts[0].count).toBe(0);
+  });
+  it('retains only an encrypted redacted prepared preview, with exact scope, first-write and expiry protection', async () => {
+    const names = ['INTEGRATION_CREDENTIALS_KEY', 'RESEND_API_KEY', 'MAIL_FROM_EMAIL'] as const;
+    const original = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+    const database = app!.get(TenantDatabaseService),
+      archive = app!.get(EmailMessageArchiveService);
+    const actual = app!.get(ResendMailProvider),
+      direct = new MailDeliveryService(database, actual);
+    const operation = randomUUID(),
+      other = randomUUID(),
+      otherProperty = randomUUID();
+    try {
+      process.env.INTEGRATION_CREDENTIALS_KEY = Buffer.alloc(32, 7).toString('base64');
+      process.env.RESEND_API_KEY = 'mock-archive-transport';
+      process.env.MAIL_FROM_EMAIL = 'MUST <sender@example.test>';
+      const transport = vi.fn(async () => Response.json({ id: randomUUID() }));
+      vi.stubGlobal('fetch', transport);
+      await direct.dispatch(
+        'rendered',
+        {
+          to: 'archive@example.test',
+          subject: 'Prepared message',
+          html: '<p>Recorded stay 120.00 EUR</p><a href="https://hotel.test/cancel?token=guest-action-example">Manage stay</a>',
+          text: 'Recorded stay 120.00 EUR https://hotel.test/cancel?token=guest-action-example',
+          eventType: 'owner.alert',
+          idempotencyKey: operation,
+          bookingId: null,
+        },
+        { tenantId, propertyId },
+      );
+      const records = await admin.$queryRaw<
+        { id: string; status: string }[]
+      >`SELECT id,status::text AS status FROM email_messages WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND idempotency_key=${operation}`;
+      expect(records[0].status).toBe('SENT');
+      expect(transport).toHaveBeenCalledTimes(1);
+      const messageId = records[0].id;
+      const stored = await admin.$queryRaw<
+        { encrypted: string }[]
+      >`SELECT encrypted_preview AS encrypted FROM email_message_previews WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND message_id=${messageId}::uuid`;
+      expect(stored[0].encrypted).not.toContain('Recorded stay');
+      expect(stored[0].encrypted).not.toContain('guest-action-example');
+      const read = await archive.read({ tenantId, propertyId }, messageId);
+      expect(read?.text).toBe('Recorded stay 120.00 EUR [link removed]');
+      expect(read?.html).not.toContain('href=');
+      expect(read!.expiresAt.getTime() - read!.capturedAt.getTime()).toBeLessThanOrEqual(
+        7 * 86400000,
+      );
+      const detail = await request(app!.getHttpServer())
+        .get(url().replace('/email-templates', '/email-activity/') + messageId)
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(detail.body.renderedPreview.text).toBe(read?.text);
+      await withMailAttempt({ tenantId, propertyId, messageId, sensitive: false }, () =>
+        archive.capture({
+          subject: 'Changed later',
+          text: 'Do not replace',
+          html: '<p>Do not replace</p>',
+        }),
+      );
+      expect((await archive.read({ tenantId, propertyId }, messageId))?.subject).toBe(
+        'Prepared message',
+      );
+      expect(await archive.read({ tenantId, propertyId: otherProperty }, messageId)).toBeNull();
+      expect(await archive.read({ tenantId: randomUUID(), propertyId }, messageId)).toBeNull();
+      await admin.$executeRaw`INSERT INTO properties(id,tenant_id,name,slug) VALUES(${otherProperty}::uuid,${tenantId}::uuid,'Other preview hotel',${otherProperty})`;
+      await admin.$executeRaw`INSERT INTO email_messages(id,tenant_id,property_id,event_type,recipient_email,subject,idempotency_key) VALUES(${other}::uuid,${tenantId}::uuid,${otherProperty}::uuid,'owner.alert','other@example.test','Other scope',${randomUUID()})`;
+      await admin.$executeRaw`INSERT INTO email_message_previews(tenant_id,property_id,message_id,encrypted_preview,expires_at) VALUES(${tenantId}::uuid,${otherProperty}::uuid,${other}::uuid,${stored[0].encrypted},now()+interval '1 day')`;
+      expect(await archive.read({ tenantId, propertyId: otherProperty }, other)).toBeNull(); // Authenticated payload cannot be transplanted.
+      await admin.$executeRaw`UPDATE email_message_previews SET captured_at=now()-interval '8 days',expires_at=now()-interval '2 days' WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND message_id=${messageId}::uuid`;
+      expect(await archive.read({ tenantId, propertyId }, messageId)).toBeNull();
+      await archive.cleanup({ tenantId, propertyId });
+      expect(
+        (
+          await admin.$queryRaw<
+            { count: number }[]
+          >`SELECT count(*)::int AS count FROM email_message_previews WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid`
+        )[0].count,
+      ).toBe(0);
+      expect(
+        (
+          await admin.$queryRaw<
+            { count: number }[]
+          >`SELECT count(*)::int AS count FROM email_message_previews WHERE tenant_id=${tenantId}::uuid AND property_id=${otherProperty}::uuid`
+        )[0].count,
+      ).toBe(1);
+      delete process.env.INTEGRATION_CREDENTIALS_KEY;
+      const noKey = randomUUID();
+      await direct.dispatch(
+        'rendered',
+        {
+          to: 'archive@example.test',
+          subject: 'Retention unavailable',
+          html: '<p>Still send</p>',
+          text: 'Still send',
+          eventType: 'owner.alert',
+          idempotencyKey: noKey,
+          bookingId: null,
+        },
+        { tenantId, propertyId },
+      );
+      expect(transport).toHaveBeenCalledTimes(2);
+      const sent = await admin.$queryRaw<
+        { status: string }[]
+      >`SELECT status::text AS status FROM email_messages WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND idempotency_key=${noKey}`;
+      expect(sent[0].status).toBe('SENT');
+    } finally {
+      vi.unstubAllGlobals();
+      for (const name of names) {
+        if (original[name] === undefined) delete process.env[name];
+        else process.env[name] = original[name];
+      }
+    }
+  });
+  it('never archives property invitations containing security links', async () => {
+    const names = ['INTEGRATION_CREDENTIALS_KEY', 'RESEND_API_KEY', 'MAIL_FROM_EMAIL'] as const,
+      original = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+    try {
+      process.env.INTEGRATION_CREDENTIALS_KEY = Buffer.alloc(32, 8).toString('base64');
+      process.env.RESEND_API_KEY = 'mock-security-transport';
+      process.env.MAIL_FROM_EMAIL = 'MUST <sender@example.test>';
+      const transport = vi.fn(async () => Response.json({ id: randomUUID() }));
+      vi.stubGlobal('fetch', transport);
+      const direct = new MailDeliveryService(
+        app!.get(TenantDatabaseService),
+        app!.get(ResendMailProvider),
+      );
+      const before = await admin.$queryRaw<
+        { count: number }[]
+      >`SELECT count(*)::int AS count FROM email_message_previews WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid`;
+      await direct.dispatch(
+        'staffInvitation',
+        {
+          to: 'sensitive-archive@example.test',
+          organizationName: 'Test hotel',
+          invitedByEmail: 'owner@example.test',
+          assignments: [{ propertyName: 'Test hotel', roleTemplateName: 'Receptionist' }],
+          invitationUrl: 'http://localhost:3001/accept-invitation?token=' + randomUUID(),
+        },
+        { tenantId, propertyId },
+      );
+      expect(transport).toHaveBeenCalledTimes(1);
+      const after = await admin.$queryRaw<
+        { count: number }[]
+      >`SELECT count(*)::int AS count FROM email_message_previews WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid`;
+      expect(after).toEqual(before);
+    } finally {
+      vi.unstubAllGlobals();
+      for (const name of names) {
+        if (original[name] === undefined) delete process.env[name];
+        else process.env[name] = original[name];
+      }
+    }
+  });
+  it('creates one deliberate copy under concurrent retries and queue interruption, preserving the original content and outcome', async () => {
+    const dispatch = app!.get(MailDeliveryService),
+      operation = randomUUID(),
+      subject = 'Deliberate copy ' + randomUUID();
+    const command = {
+      to: 'copy@example.test',
+      subject,
+      html: '<p>Original frozen wording</p>',
+      text: 'Original frozen wording',
+      eventType: 'owner.alert',
+      idempotencyKey: operation,
+      bookingId: null,
+    };
+    await dispatch.dispatch('rendered', command, { tenantId, propertyId });
+    let source: { id: string; version: number; status: string } | undefined;
+    for (let i = 0; i < 100; i++) {
+      source = (
+        await admin.$queryRaw<
+          { id: string; version: number; status: string }[]
+        >`SELECT id,workspace_version AS version,status::text AS status FROM email_messages WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND idempotency_key=${operation}`
+      )[0];
+      if (
+        source?.status === 'SENT' &&
+        (await dispatch.retainedCommand(source.id, { tenantId, propertyId }))
+      )
+        break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(source?.status).toBe('SENT');
+    const id = source!.id,
+      version = source!.version,
+      key = randomUUID(),
+      base = url().replace('/email-templates', '/email-activity');
+    const post = (intent = key, current = version) =>
+      request(app!.getHttpServer())
+        .post(base + '/' + id + '/resend-copy')
+        .set('Cookie', cookie)
+        .set('Idempotency-Key', intent)
+        .send({ version: current, reason: 'Guest requested another copy' });
+    const detail = await request(app!.getHttpServer())
+      .get(base + '/' + id)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(detail.body.canSendCopy).toBe(true);
+    const auditFailure = vi
+      .spyOn(app!.get(AuditLogService), 'recordInTransaction')
+      .mockRejectedValueOnce(new Error('Controlled audit rollback'));
+    try {
+      await post().expect(500);
+    } finally {
+      auditFailure.mockRestore();
+    }
+    const untouched = await admin.$queryRaw<
+      { version: number; copies: number }[]
+    >`SELECT workspace_version AS version,(SELECT count(*)::int FROM email_messages WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND resend_of_message_id=${id}::uuid) AS copies FROM email_messages WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${id}::uuid`;
+    expect(untouched[0]).toEqual({ version, copies: 0 });
+    const enqueue = vi
+      .spyOn(dispatch, 'enqueueApproved')
+      .mockRejectedValueOnce(new Error('Controlled queue interruption'));
+    try {
+      await post().expect(503);
+    } finally {
+      enqueue.mockRestore();
+    }
+    const results = await Promise.all([post(), post()]);
+    expect(results.map((r) => r.status)).toEqual([200, 200]);
+    expect(results[0].body).toEqual(results[1].body);
+    const copyId = results[0].body.messageId;
+    expect(copyId).not.toBe(id);
+    for (let i = 0; i < 100; i++) {
+      if (await dispatch.retainedCommand(copyId, { tenantId, propertyId })) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    const retained = await dispatch.retainedCommand(copyId, { tenantId, propertyId });
+    expect(retained?.idempotencyKeyOverride).toBe('manual-resend/' + copyId);
+    expect(retained?.command).toMatchObject(command);
+    expect(rendered.filter((c) => c.subject === subject)).toHaveLength(2);
+    const original = await request(app!.getHttpServer())
+      .get(base + '/' + id)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(original.body).toMatchObject({ version: version + 1, status: 'SENT' });
+    const copy = await request(app!.getHttpServer())
+      .get(base + '/' + copyId)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(copy.body).toMatchObject({
+      resendOfMessageId: id,
+      status: 'SENT',
+      subject,
+      recipient: command.to,
+    });
+    await post(randomUUID()).expect(409);
+    const receipts = await admin.$queryRaw<
+      { response: unknown }[]
+    >`SELECT response FROM email_workspace_operations WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND idempotency_key=${key}`;
+    expect(receipts[0].response).toEqual(results[0].body);
+    expect(JSON.stringify(receipts[0].response)).not.toContain('Original frozen wording');
+    await admin.$executeRaw`INSERT INTO email_suppressions(tenant_id,property_id,recipient,reason,latest_event_at) VALUES(${tenantId}::uuid,${propertyId}::uuid,${command.to},'complaint',now())`;
+    try {
+      await post(randomUUID(), version + 1).expect(409);
+    } finally {
+      await admin.$executeRaw`DELETE FROM email_suppressions WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND recipient=${command.to}`;
+    }
+    await admin.$executeRaw`UPDATE users SET email_verified_at=NULL WHERE id=${userId}::uuid`;
+    try {
+      await post().expect(403);
+    } finally {
+      await admin.$executeRaw`UPDATE users SET email_verified_at=now() WHERE id=${userId}::uuid`;
+    }
+    const audits = await admin.$queryRaw<
+      { count: number }[]
+    >`SELECT count(*)::int AS count FROM audit_logs WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND target_id=${id} AND action='email.copy.requested'`;
+    expect(audits[0].count).toBe(1);
+  });
+  it('does not let deliberate copies bypass the controlled-test recipient and hourly cap', async () => {
+    const delivery = app!.get(MailDeliveryService),
+      operation = randomUUID();
+    await delivery.dispatch(
+      'rendered',
+      {
+        to: ownerEmail,
+        subject: 'Controlled sample copy boundary',
+        html: '<p>Sample</p>',
+        text: 'Sample',
+        eventType: 'template.test',
+        idempotencyKey: operation,
+        bookingId: null,
+      },
+      { tenantId, propertyId },
+    );
+    let row: { id: string; version: number } | undefined;
+    for (let i = 0; i < 100; i++) {
+      row = (
+        await admin.$queryRaw<
+          { id: string; version: number }[]
+        >`SELECT id,workspace_version AS version FROM email_messages WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND idempotency_key=${operation}`
+      )[0];
+      if (row && (await delivery.retainedCommand(row.id, { tenantId, propertyId }))) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(await delivery.retainedCommand(row!.id, { tenantId, propertyId })).not.toBeNull();
+    const base = url().replace('/email-templates', '/email-activity/');
+    const detail = await request(app!.getHttpServer())
+      .get(base + row!.id)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(detail.body.canSendCopy).toBe(false);
+    const blocked = await request(app!.getHttpServer())
+      .post(base + row!.id + '/resend-copy')
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ version: row!.version, reason: 'Try another sample' })
+      .expect(409);
+    expect(blocked.body.message).toContain('Send controlled test');
   });
 });

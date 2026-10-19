@@ -102,6 +102,26 @@ export class EmailActivityController {
     );
   }
 
+  @Post(':messageId/resend-copy')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('settings.manage')
+  @RequiresVerifiedEmail()
+  resendCopy(
+    @Param('messageId') id: string,
+    @Body() body: Record<string, unknown>,
+    @Req() request: RequestContext,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.activity.resendCopy(
+      this.context(request),
+      request.tenantContext.userId,
+      id,
+      body ?? {},
+      key,
+    );
+  }
+
   @Post(':messageId/resend')
   @HttpCode(200)
   @TenantScoped({ propertyParam: 'propertyId' })

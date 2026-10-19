@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { withMailAttempt } from '../src/mail/mail-attempt-context';
 import { ResendMailProvider } from '../src/mail/resend-mail.provider';
 
 describe('ResendMailProvider', () => {
@@ -514,5 +515,35 @@ describe('ResendMailProvider', () => {
       expect(message.html).toContain('padding:16px 18px;');
     for (const message of [messages[3], messages[4], messages[5], messages[8]])
       expect(message.html).toContain('border-radius:24px');
+  });
+  it('uses a fresh stable provider key for an explicit copy without changing the approved command', async () => {
+    process.env.RESEND_API_KEY = 'mock-key';
+    process.env.MAIL_FROM_EMAIL = 'MUST <sender@example.test>';
+    const transport = vi.fn(async () => Response.json({ id: 'receipt' }));
+    vi.stubGlobal('fetch', transport);
+    const command = {
+      to: 'guest@example.test',
+      subject: 'Approved',
+      html: '<p>Approved</p>',
+      text: 'Approved',
+      eventType: 'owner.alert',
+      idempotencyKey: 'original-command',
+      bookingId: null,
+    };
+    await withMailAttempt(
+      {
+        tenantId: 'tenant',
+        propertyId: 'property',
+        messageId: 'copy',
+        sensitive: false,
+        idempotencyKeyOverride: 'manual-resend/copy',
+      },
+      () => provider.sendRenderedEmail(command),
+    );
+    await provider.sendRenderedEmail(command);
+    const calls = transport.mock.calls as unknown as [string, RequestInit][];
+    expect(new Headers(calls[0][1].headers).get('Idempotency-Key')).toBe('manual-resend/copy');
+    expect(new Headers(calls[1][1].headers).get('Idempotency-Key')).toBe('original-command');
+    expect(command.idempotencyKey).toBe('original-command');
   });
 });

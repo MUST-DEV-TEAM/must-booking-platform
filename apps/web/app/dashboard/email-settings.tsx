@@ -16,7 +16,9 @@ export function EmailSettings({
   propertyId,
   initialTab,
   canWrite = false,
+  viewerId,
 }: {
+  viewerId?: string;
   tenantId: string;
   propertyId: string;
   initialTab?: EmailTab;
@@ -24,6 +26,7 @@ export function EmailSettings({
 }) {
   return (
     <EmailsWorkspace
+      viewerId={viewerId}
       tenantId={tenantId}
       propertyId={propertyId}
       canWrite={canWrite}

@@ -7,11 +7,12 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { auditCsv } from './audit-workspace';
 import { Prisma } from '@prisma/client';
 import { emailDeliveryQuery } from './email-delivery-query';
 
+import { EmailMessageArchiveService } from '../mail/email-message-archive.service';
 import { MailDeliveryService, RESEND_WINDOW_DAYS } from '../mail/mail-delivery.service';
 import { emailWrite } from './email-workspace-writes';
 import { CapabilitiesService } from './capabilities.service';
@@ -86,6 +87,7 @@ export class EmailActivityService {
     @Inject(AuditLogService) private readonly audit: AuditLogService,
     @Inject(MailDeliveryService) private readonly delivery: MailDeliveryService,
     @Inject(CapabilitiesService) private readonly capabilities: CapabilitiesService,
+    @Inject(EmailMessageArchiveService) private readonly archive: EmailMessageArchiveService,
   ) {}
 
   list(context: Context, query: Record<string, unknown>): Promise<EmailActivityPage> {
@@ -375,12 +377,13 @@ export class EmailActivityService {
           version: number;
           provider: string | null;
           providerMessageId: string | null;
+          resendOfMessageId: string | null;
         })[]
       >`
         SELECT em.id,em.event_type AS "eventType",em.recipient_email AS recipient,em.subject,
           em.status::text AS status,em.last_error AS "lastError",em.attempt_count AS "attemptCount",
           em.booking_id::text AS "bookingId",COALESCE(b.order_reference,b.external_reference) AS "bookingReference",
-          em.created_at AS "createdAt",em.sent_at AS "sentAt",em.delivered_at AS "deliveredAt",em.workspace_version AS version,em.provider,em.provider_message_id AS "providerMessageId"
+          em.created_at AS "createdAt",em.sent_at AS "sentAt",em.delivered_at AS "deliveredAt",em.workspace_version AS version,em.provider,em.provider_message_id AS "providerMessageId",em.resend_of_message_id AS "resendOfMessageId"
         FROM email_messages em LEFT JOIN bookings b ON b.tenant_id=em.tenant_id AND b.property_id=em.property_id AND b.id=em.booking_id
         WHERE em.tenant_id=${context.tenantId}::uuid AND em.property_id=${context.propertyId}::uuid AND em.id=${messageId}::uuid
       `;
@@ -403,8 +406,13 @@ export class EmailActivityService {
       const suppressed = await tx.$queryRaw<
         { recipient: string }[]
       >`SELECT recipient FROM email_suppressions WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND recipient=${row.recipient.toLowerCase()} AND active`;
+      const retained =
+        !suppressed.length &&
+        Date.now() - new Date(row.createdAt).getTime() < RESEND_WINDOW_DAYS * 86400000 &&
+        (await this.delivery.canResend(messageId, context));
       return {
         ...row,
+        renderedPreview: await this.archive.read(context, messageId, tx),
         bookingHref:
           caps.includes('bookings.view') && row.bookingId
             ? `/dashboard/${context.tenantId}?propertyId=${context.propertyId}&section=reservations&reservation=${row.bookingId}`
@@ -421,7 +429,11 @@ export class EmailActivityService {
           !suppressed.length &&
           row.status === 'FAILED' &&
           Date.now() - new Date(row.createdAt).getTime() < RESEND_WINDOW_DAYS * 86400000 &&
-          (await this.delivery.canResend(messageId, context)),
+          retained,
+        canSendCopy:
+          retained &&
+          row.eventType !== 'template.test' &&
+          ['SENT', 'DELIVERED'].includes(row.status),
       };
     });
   }
@@ -615,6 +627,113 @@ export class EmailActivityService {
       throw new ServiceUnavailableException(
         'Bulk retry was recorded but not fully queued. Retry this same request.',
       );
+    }
+    return response;
+  }
+
+  async resendCopy(
+    context: Context,
+    actorUserId: string,
+    messageId: string,
+    body: Record<string, unknown>,
+    key?: string,
+  ) {
+    if (!UUID.test(messageId)) throw new NotFoundException('Email was not found.');
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    if (
+      !Number.isSafeInteger(body.version) ||
+      Number(body.version) < 1 ||
+      reason.length < 3 ||
+      reason.length > 300
+    )
+      throw new BadRequestException(
+        'A current source version and reason of 3-300 characters are required.',
+      );
+    const response = await emailWrite(
+      this.database,
+      this.audit,
+      context,
+      actorUserId,
+      key,
+      'email.copy.requested',
+      messageId,
+      { version: body.version, reason },
+      async (tx) => {
+        const rows = await tx.$queryRaw<
+          {
+            version: number;
+            status: string;
+            createdAt: Date;
+            recipient: string;
+            eventType: string;
+          }[]
+        >`SELECT workspace_version AS version,status::text AS status,created_at AS "createdAt",recipient_email AS recipient,event_type AS "eventType" FROM email_messages WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${messageId}::uuid FOR UPDATE`;
+        const row = rows[0];
+        if (!row) throw new NotFoundException('Email was not found.');
+        if (row.version !== body.version || !['SENT', 'DELIVERED'].includes(row.status))
+          throw new ConflictException(
+            'The source changed or has no sent/delivered outcome. Reload before sending a copy.',
+          );
+        if (row.eventType === 'template.test')
+          throw new ConflictException(
+            'Use Send controlled test so the verified recipient and test cap are enforced.',
+          );
+        const suppressions = await tx.$queryRaw<
+          { recipient: string }[]
+        >`SELECT recipient FROM email_suppressions WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND recipient=${row.recipient.toLowerCase()} AND active`;
+        if (suppressions.length)
+          throw new ConflictException(
+            'The recipient is suppressed. Resolve it in Configuration first.',
+          );
+        if (
+          Date.now() - row.createdAt.getTime() >= RESEND_WINDOW_DAYS * 86400000 ||
+          !(await this.delivery.retainedCommand(messageId, context))
+        )
+          throw new ConflictException('The original approved message is no longer retained.');
+        const copyId = randomUUID(),
+          version = row.version + 1;
+        await tx.$executeRaw`INSERT INTO email_messages(id,tenant_id,property_id,booking_id,event_type,recipient_email,recipient_kind,subject,template_version,idempotency_key,resend_of_message_id) SELECT ${copyId}::uuid,tenant_id,property_id,booking_id,event_type,recipient_email,recipient_kind,subject,template_version,${'manual-resend/' + copyId},id FROM email_messages WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${messageId}::uuid`;
+        await tx.$executeRaw`UPDATE email_messages SET workspace_version=${version},updated_at=now() WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${messageId}::uuid`;
+        return {
+          response: {
+            status: 'QUEUED' as const,
+            messageId: copyId,
+            originMessageId: messageId,
+            version,
+          },
+          details: {
+            reason,
+            before: { version: row.version, status: row.status },
+            after: { version, status: row.status, copyId },
+          },
+        };
+      },
+    );
+    const pending = await this.database.withTenantTransaction(
+      context,
+      (tx) =>
+        tx.$queryRaw<
+          { id: string }[]
+        >`SELECT id FROM email_messages WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${response.messageId}::uuid AND status='QUEUED' AND workspace_version=1`,
+    );
+    if (pending.length) {
+      try {
+        const approved = await this.delivery.retainedCommand(messageId, context);
+        if (!approved) throw new Error('Retained command unavailable.');
+        await this.delivery.enqueueApproved(
+          {
+            ...approved,
+            messageId: response.messageId,
+            idempotencyKeyOverride: 'manual-resend/' + response.messageId,
+          },
+          1,
+          true,
+        );
+      } catch {
+        throw new ServiceUnavailableException(
+          'The copy was recorded but could not be queued. Retry this same request.',
+        );
+      }
     }
     return response;
   }

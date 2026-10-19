@@ -658,6 +658,7 @@ export function DashboardShell({
       ) : null}
       {selectedProperty && role && canViewSection && section === 'emails' ? (
         <EmailsWorkspace
+          viewerId={user?.id}
           key={selectedProperty.id}
           tenantId={tenantId}
           propertyId={selectedProperty.id}
@@ -670,6 +671,7 @@ export function DashboardShell({
       {selectedProperty && role && canViewSection && section === 'settings' ? (
         settingsArea === 'email' ? (
           <EmailSettings
+            viewerId={user?.id}
             tenantId={tenantId}
             propertyId={selectedProperty.id}
             initialTab={emailTab}

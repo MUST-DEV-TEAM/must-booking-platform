@@ -1,4 +1,6 @@
-import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { currentMailAttempt } from './mail-attempt-context';
+import { EmailMessageArchiveService } from './email-message-archive.service';
+import { Inject, Optional, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 
 import type {
   MailBrand,
@@ -30,6 +32,11 @@ const RESEND_REQUEST_TIMEOUT_MS = 10_000;
 @Injectable()
 export class ResendMailProvider implements MailProvider, OnModuleInit {
   private readonly logger = new Logger(ResendMailProvider.name);
+  constructor(
+    @Optional()
+    @Inject(EmailMessageArchiveService)
+    private readonly archive?: EmailMessageArchiveService,
+  ) {}
 
   onModuleInit(): void {
     if (process.env.NODE_ENV === 'test') return;
@@ -527,6 +534,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
     replyTo?: string | null;
     fromName?: string | null;
   }): Promise<MailSendReceipt> {
+    await this.archive?.capture(message);
     let response: Response;
     try {
       response = await fetch(resendEmailsUrl(), {
@@ -535,7 +543,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
         headers: {
           Authorization: `Bearer ${this.requiredEnvironment('RESEND_API_KEY')}`,
           'Content-Type': 'application/json',
-          'Idempotency-Key': message.idempotencyKey,
+          'Idempotency-Key': currentMailAttempt()?.idempotencyKeyOverride ?? message.idempotencyKey,
           'User-Agent': 'must-booking-platform/0.0.0',
         },
         body: JSON.stringify({

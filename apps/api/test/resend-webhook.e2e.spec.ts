@@ -1,3 +1,4 @@
+import { cleanupTenant } from './helpers/cleanup-tenant';
 import { createHmac, randomUUID } from 'node:crypto';
 
 import { PrismaClient } from '@prisma/client';
@@ -90,8 +91,7 @@ describe('Resend delivery webhook (real Postgres)', () => {
 
   afterAll(async () => {
     await migrationPrisma.$executeRaw`DELETE FROM "email_messages" WHERE "tenant_id" = ${tenantId}::uuid`;
-    await migrationPrisma.$executeRaw`DELETE FROM "properties" WHERE "tenant_id" = ${tenantId}::uuid`;
-    await migrationPrisma.$executeRaw`DELETE FROM "organizations" WHERE "id" = ${tenantId}::uuid`;
+    await cleanupTenant(migrationPrisma, tenantId);
     process.env.RESEND_WEBHOOK_SECRET = previousSecret;
     await migrationPrisma.$disconnect();
     await database.$disconnect();

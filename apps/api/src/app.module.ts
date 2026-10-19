@@ -60,6 +60,7 @@ import { NotificationsService } from './tenancy/notifications.service';
 import { AuditLogController } from './tenancy/audit-log.controller';
 import { AuditLogService } from './tenancy/audit-log.service';
 import { MAIL_PROVIDER } from './mail/mail.provider';
+import { EmailMessageArchiveService } from './mail/email-message-archive.service';
 import { ResendMailProvider } from './mail/resend-mail.provider';
 import { MailDeliveryService } from './mail/mail-delivery.service';
 import { AlertEmailService } from './mail/alert-email.service';
@@ -391,6 +392,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     { provide: PAYMENT_PROVIDER, useExisting: StripePaymentProvider },
     R2StorageProvider,
     { provide: STORAGE_PROVIDER, useExisting: R2StorageProvider },
+    EmailMessageArchiveService,
     ResendMailProvider,
     MailDeliveryService,
     ScheduledEmailService,

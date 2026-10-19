@@ -1287,6 +1287,7 @@ enum EmailRecipientKind {
 }
 
 model EmailMessage {
+  resendOfMessageId String? @map("resend_of_message_id") @db.Uuid
   workspaceVersion Int @default(1) @map("workspace_version")
   id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId          String?            @map("tenant_id") @db.Uuid
@@ -1629,4 +1630,16 @@ model EmailDeliveryExport {
  @@id([tenantId,propertyId,userId,idempotencyKey])
  @@index([tenantId,propertyId,createdAt],map:"email_delivery_exports_expiry")
  @@map("email_delivery_exports")
+}
+
+model EmailMessagePreview {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ messageId String @map("message_id") @db.Uuid
+ encryptedPreview String @map("encrypted_preview")
+ capturedAt DateTime @default(now()) @map("captured_at") @db.Timestamptz(6)
+ expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+ @@id([tenantId,propertyId,messageId])
+ @@index([tenantId,propertyId,expiresAt],map:"email_message_previews_expiry")
+ @@map("email_message_previews")
 }

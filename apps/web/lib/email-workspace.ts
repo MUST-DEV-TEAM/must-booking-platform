@@ -32,6 +32,15 @@ export type EmailVersions = {
   history: EmailRevision[];
 };
 export type EmailMessage = {
+  canSendCopy?: boolean;
+  resendOfMessageId?: string | null;
+  renderedPreview?: {
+    subject: string;
+    html: string;
+    text: string;
+    capturedAt: string;
+    expiresAt: string;
+  } | null;
   bookingHref?: string | null;
   provider?: string | null;
   providerMessageId?: string | null;
@@ -122,20 +131,58 @@ export async function emailRequest<T>(url: string, init?: RequestInit): Promise<
   }
   return response.json() as Promise<T>;
 }
-/** Keep an operation key across a retry of the same intent, including a lost response. */
+/** Replay the original approved snapshot after an uncertain response, even if background metadata refreshes. */
 export function createEmailWriter() {
+  type Approved = {
+    intent: string;
+    semantic: string;
+    key: string;
+    url: string;
+    method: string;
+    wire: string;
+  };
   let intent = '',
-    key = '';
-  return <T>(url: string, body: object, method = 'POST') => {
+    key = '',
+    pending: Approved | undefined;
+  return async <T>(url: string, body: object, method = 'POST'): Promise<T> => {
+    const wire = JSON.stringify(body);
     const next = JSON.stringify({ url, body, method });
-    if (next !== intent) {
-      intent = next;
-      key = crypto.randomUUID();
-    }
-    return emailRequest<T>(url, {
+    // Versions/cutoffs are observations, not a fresh user decision after a lost response.
+    const semantic = JSON.stringify({
+      url,
       method,
-      body: JSON.stringify(body),
-      headers: { 'Idempotency-Key': key },
+      body: Object.fromEntries(
+        Object.entries(body).filter(([name]) => name !== 'version' && name !== 'through'),
+      ),
     });
+    const unresolved = pending;
+    let approved: Approved;
+    if (pending?.semantic === semantic) approved = pending;
+    else {
+      if (next !== intent) {
+        intent = next;
+        key = crypto.randomUUID();
+      }
+      approved = { intent: next, semantic, key, url, method, wire };
+    }
+    intent = approved.intent;
+    key = approved.key;
+    try {
+      const response = await emailRequest<T>(approved.url, {
+        method: approved.method,
+        body: approved.wire,
+        headers: { 'Idempotency-Key': approved.key },
+      });
+      pending = undefined;
+      return response;
+    } catch (error) {
+      pending =
+        error instanceof EmailRequestError && error.status < 500
+          ? unresolved?.semantic !== approved.semantic
+            ? unresolved
+            : undefined
+          : approved;
+      throw error;
+    }
   };
 }

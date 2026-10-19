@@ -5,6 +5,7 @@ import type { MailProvider, MailSendReceipt } from '@must/domain-contracts';
 
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { isReservedEmail, propertyEmailHourlyCap } from './email-safety';
+import { withMailAttempt } from './mail-attempt-context';
 import { MailDeliveryError } from './mail-delivery-error';
 import { describeMail, type QueuedMailCommands, type QueuedMailKind } from './mail-descriptors';
 import { MAIL_PROVIDER } from './mail.provider';
@@ -36,6 +37,7 @@ export interface DispatchOptions {
 
 export interface MailJobData {
   messageId: string;
+  idempotencyKeyOverride?: string;
   context: MailDeliveryContext;
   kind: QueuedMailKind;
   command: unknown;
@@ -186,10 +188,10 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** A retry intent has committed first. Stable queue IDs make a lost enqueue response safe to repeat. */
-  async enqueueApproved(data: MailJobData, version: number): Promise<void> {
+  async enqueueApproved(data: MailJobData, version: number, fresh = false): Promise<void> {
     if (!this.queue) throw new Error('The email retry queue is unavailable.');
     await this.queue.add(data.kind, data, {
-      jobId: `${data.messageId}-retry-${version}`,
+      jobId: fresh ? data.messageId : `${data.messageId}-retry-${version}`,
       attempts: this.retryPolicy.attempts,
       backoff: { type: 'exponential', delay: this.retryPolicy.backoffMs },
       removeOnComplete: { age: RESEND_WINDOW_DAYS * 86400 },
@@ -301,7 +303,7 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
       if (inserted[0]) return inserted[0].id;
       const existing = await tx.$queryRaw<{ id: string; status: string }[]>`
         SELECT id, status::text AS status FROM email_messages
-        WHERE tenant_id IS NOT DISTINCT FROM ${tenantId}::uuid AND idempotency_key = ${descriptor.idempotencyKey}
+        WHERE tenant_id IS NOT DISTINCT FROM ${tenantId}::uuid AND property_id IS NOT DISTINCT FROM ${propertyId}::uuid AND idempotency_key = ${descriptor.idempotencyKey}
       `;
       return existing[0]?.status === 'QUEUED' ? existing[0].id : null;
     });
@@ -360,7 +362,7 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
       (tx) =>
         tx.$queryRaw<{ id: string }[]>`
         UPDATE email_messages SET attempt_count = attempt_count + 1, updated_at = now()
-        WHERE id = ${messageId}::uuid AND tenant_id IS NOT DISTINCT FROM ${context.tenantId}::uuid AND status = 'QUEUED'
+        WHERE id = ${messageId}::uuid AND tenant_id IS NOT DISTINCT FROM ${context.tenantId}::uuid AND property_id IS NOT DISTINCT FROM ${context.propertyId}::uuid AND status = 'QUEUED'
         RETURNING id
       `,
     );
@@ -390,7 +392,15 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
             429,
           );
       }
-      receipt = await this.invoke(data);
+      receipt = await withMailAttempt(
+        {
+          ...context,
+          messageId,
+          sensitive: describeMail(data.kind, data.command as never).sensitive,
+          idempotencyKeyOverride: data.idempotencyKeyOverride,
+        },
+        () => this.invoke(data),
+      );
     } catch (error) {
       const retryable = error instanceof MailDeliveryError ? error.retryable : true;
       const message = (error instanceof Error ? error.message : String(error)).slice(0, 1000);
@@ -400,7 +410,7 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
           `last_error = ${message}`,
           async (tx) => tx.$executeRaw`
           UPDATE email_messages SET last_error = ${message}, updated_at = now()
-          WHERE id = ${messageId}::uuid AND tenant_id IS NOT DISTINCT FROM ${context.tenantId}::uuid AND status = 'QUEUED'
+          WHERE id = ${messageId}::uuid AND tenant_id IS NOT DISTINCT FROM ${context.tenantId}::uuid AND property_id IS NOT DISTINCT FROM ${context.propertyId}::uuid AND status = 'QUEUED'
         `,
         );
         throw error instanceof Error ? error : new Error(message); // BullMQ schedules the retry
@@ -413,7 +423,7 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
         'FAILED',
         async (tx) => tx.$executeRaw`
         UPDATE email_messages SET status = 'FAILED', last_error = ${message}, updated_at = now()
-        WHERE id = ${messageId}::uuid AND tenant_id IS NOT DISTINCT FROM ${context.tenantId}::uuid AND status = 'QUEUED'
+        WHERE id = ${messageId}::uuid AND tenant_id IS NOT DISTINCT FROM ${context.tenantId}::uuid AND property_id IS NOT DISTINCT FROM ${context.propertyId}::uuid AND status = 'QUEUED'
       `,
       );
       return;
@@ -427,7 +437,7 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
       UPDATE email_messages
       SET status = 'SENT', provider = 'resend', provider_message_id = ${providerMessageId},
           sent_at = now(), last_error = NULL, updated_at = now()
-      WHERE id = ${messageId}::uuid AND tenant_id IS NOT DISTINCT FROM ${context.tenantId}::uuid AND status = 'QUEUED'
+      WHERE id = ${messageId}::uuid AND tenant_id IS NOT DISTINCT FROM ${context.tenantId}::uuid AND property_id IS NOT DISTINCT FROM ${context.propertyId}::uuid AND status = 'QUEUED'
     `,
     );
   }

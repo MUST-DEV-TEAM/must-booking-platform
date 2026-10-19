@@ -4,6 +4,7 @@ import {
   useUnsavedNavigation,
   useUnsavedChanges,
 } from '../../components/ui/unsaved-changes';
+import { DashboardQueryProvider } from './query-provider';
 import { downloadCsv } from '../../lib/download-csv';
 import { Clock } from 'lucide-react';
 import { ActivityFeed } from '../../components/ui/activity-feed';
@@ -47,9 +48,13 @@ const tabs = [
 ];
 export function EmailsWorkspace(props: Parameters<typeof EmailsWorkspaceContent>[0]) {
   return (
-    <UnsavedChangesBoundary key={`${props.tenantId}/${props.propertyId}`}>
-      <EmailsWorkspaceContent {...props} />
-    </UnsavedChangesBoundary>
+    <DashboardQueryProvider
+      key={`${props.viewerId ?? 'session'}/${props.tenantId}/${props.propertyId}`}
+    >
+      <UnsavedChangesBoundary key={`${props.tenantId}/${props.propertyId}`}>
+        <EmailsWorkspaceContent {...props} />
+      </UnsavedChangesBoundary>
+    </DashboardQueryProvider>
   );
 }
 function EmailsWorkspaceContent({
@@ -58,6 +63,7 @@ function EmailsWorkspaceContent({
   canWrite = false,
   initialTab = 'overview',
 }: {
+  viewerId?: string;
   tenantId: string;
   propertyId: string;
   canWrite?: boolean;
@@ -425,6 +431,11 @@ function EmailsWorkspaceContent({
           id={messageId}
           onClose={() => setMessageId(null)}
           canWrite={canWrite}
+          onMessage={setMessageId}
+          onConfiguration={() => {
+            setMessageId(null);
+            setTab('configuration');
+          }}
         />
       ) : null}
     </div>
@@ -454,7 +465,13 @@ function DeliveryDirectory({
   };
 }) {
   const [bulk, setBulk] = useState<EmailMessage[]>([]);
-  const [exportIds, setExportIds] = useState<string[] | null | undefined>();
+  const [exportIntent, setExportIntent] = useState<{
+    scope: NonNullable<typeof exportScope>;
+    ids: string[] | null;
+  }>();
+  const startExport = (ids: string[] | null) => {
+    if (exportScope) setExportIntent({ scope: exportScope, ids });
+  };
   const [exportNotice, setExportNotice] = useState('');
   const writer = useRef(createEmailWriter()).current;
   const client = useQueryClient();
@@ -474,7 +491,7 @@ function DeliveryDirectory({
                 {
                   label: 'Export filtered CSV',
                   disabled: !canWrite,
-                  onSelect: () => setExportIds(null),
+                  onSelect: () => startExport(null),
                 },
               ]
             : undefined
@@ -496,7 +513,7 @@ function DeliveryDirectory({
                       {
                         label: 'Export selected CSV',
                         disabled: !canWrite || !rows.length || rows.length > 100,
-                        onSelect: () => setExportIds(rows.map((row) => row.id)),
+                        onSelect: () => startExport(rows.map((row) => row.id)),
                       },
                     ]
                   : []),
@@ -574,9 +591,9 @@ function DeliveryDirectory({
         }}
       />
       <ConfirmDialog
-        open={exportIds !== undefined}
+        open={exportIntent !== undefined}
         onOpenChange={(open) => {
-          if (!open) setExportIds(undefined);
+          if (!open) setExportIntent(undefined);
         }}
         title="Export email deliveries"
         description="Exports current delivery outcomes for messages created through the recorded observation time. Recipient addresses are included; keep the downloaded file private. Maximum 5,000 rows or 2 MB."
@@ -585,20 +602,20 @@ function DeliveryDirectory({
         reasonLabel="Reason for export"
         reasonPlaceholder="Recorded with this email action"
         onConfirm={async (reason) => {
-          if (!exportScope) return;
+          if (!exportIntent) return;
           const file = await writer<{
             csv: string;
             filename: string;
             count: number;
             version: number;
           }>(`${base}/email-activity/export`, {
-            ...exportScope,
+            ...exportIntent.scope,
             reason,
-            ...(exportIds ? { ids: exportIds } : {}),
+            ...(exportIntent.ids ? { ids: exportIntent.ids } : {}),
           });
           downloadCsv(file);
           setExportNotice(`${file.count} email deliveries exported. The download has started.`);
-          setExportIds(undefined);
+          setExportIntent(undefined);
           await client.invalidateQueries({ queryKey: ['emails', base] });
         }}
       />
@@ -619,8 +636,14 @@ function TemplateEditor({
   const client = useQueryClient();
   const { request: navigate } = useUnsavedNavigation();
   const [language, setLanguage] = useState('en');
+  const [reloading, setReloading] = useState(false);
+  const [formBusy, setFormBusy] = useState(false);
   const query = useQuery({
     queryKey: ['emails', base, template.key, language],
+    staleTime: Infinity,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     queryFn: () =>
       emailRequest<EmailVersions>(
         `${base}/email-template-versions/${template.key}?language=${language}`,
@@ -628,12 +651,28 @@ function TemplateEditor({
   });
   return (
     <div className="flex flex-col gap-4">
-      <Button variant="ghost" onClick={() => navigate(onClose)}>
-        Back to templates
-      </Button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Button variant="ghost" disabled={formBusy || reloading} onClick={() => navigate(onClose)}>
+          Back to templates
+        </Button>
+        <Button
+          variant="outline"
+          className="self-start"
+          disabled={formBusy || reloading || query.isFetching}
+          onClick={() =>
+            navigate(() => {
+              setReloading(true);
+              void query.refetch().finally(() => setReloading(false));
+            })
+          }
+        >
+          Reload wording
+        </Button>
+      </div>
       <FormField label="Language">
         <Combobox
           label="Language"
+          disabled={formBusy || reloading}
           value={language}
           onChange={(value) => navigate(() => setLanguage(value))}
           options={[
@@ -642,16 +681,19 @@ function TemplateEditor({
           ]}
         />
       </FormField>
-      {query.error ? (
+      {reloading ? (
+        <ListSkeleton />
+      ) : query.error ? (
         <ErrorPanel description={query.error.message} onRetry={() => void query.refetch()} />
-      ) : query.data ? (
+      ) : query.data && query.isFetchedAfterMount ? (
         <TemplateDraft
           key={`${language}/${query.data.version}`}
           base={base}
           template={template}
           data={query.data}
           canWrite={canWrite}
-          onSaved={() => void client.invalidateQueries({ queryKey: ['emails', base] })}
+          onBusyChange={setFormBusy}
+          onSaved={() => client.invalidateQueries({ queryKey: ['emails', base] })}
         />
       ) : (
         <ListSkeleton />
@@ -665,12 +707,14 @@ function TemplateDraft({
   data,
   canWrite,
   onSaved,
+  onBusyChange,
 }: {
   base: string;
   template: EmailTemplate;
   data: EmailVersions;
   canWrite: boolean;
-  onSaved: () => void;
+  onSaved: () => Promise<unknown>;
+  onBusyChange: (busy: boolean) => void;
 }) {
   const [subject, setSubject] = useState(data.draft?.subject ?? data.live?.subject ?? '');
   const [body, setBody] = useState(data.draft?.body ?? data.live?.body ?? '');
@@ -722,6 +766,17 @@ function TemplateDraft({
     [error, setError] = useState(''),
     [test, setTest] = useState(false),
     [publish, setPublish] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    onBusyChange(busy);
+    return () => onBusyChange(false);
+  }, [busy, onBusyChange]);
   const writer = useRef(createEmailWriter()).current;
   async function act(operation: string, revision?: number) {
     setBusy(true);
@@ -737,13 +792,15 @@ function TemplateDraft({
         },
         operation === 'draft' ? 'PUT' : 'POST',
       );
+      if (!mounted.current) return;
       clean();
-      onSaved();
+      await onSaved();
     } catch (e) {
+      if (!mounted.current) return;
       guardDirty(dirty);
       setError(e instanceof Error ? e.message : 'The template could not be saved.');
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   }
   return (
@@ -1010,17 +1067,26 @@ function EmailDeliveryDetail({
   id,
   onClose,
   canWrite,
+  onMessage,
+  onConfiguration,
 }: {
   base: string;
   id: string;
   onClose: () => void;
   canWrite: boolean;
+  onMessage: (id: string) => void;
+  onConfiguration: () => void;
 }) {
   const query = useQuery({
     queryKey: ['emails', base, 'detail', id],
     queryFn: () => emailRequest<EmailMessage>(`${base}/email-activity/${id}`),
   });
   const [retry, setRetry] = useState(false);
+  const [showRendered, setShowRendered] = useState(false);
+  const [copy, setCopy] = useState(false);
+  const [copyVersion, setCopyVersion] = useState<number>();
+  const [retryVersion, setRetryVersion] = useState<number>();
+  const [newCopyId, setNewCopyId] = useState<string | null>(null);
   const client = useQueryClient();
   const writer = useRef(createEmailWriter()).current;
   return (
@@ -1031,7 +1097,20 @@ function EmailDeliveryDetail({
       description="Recorded message evidence and recovery."
     >
       {query.error ? (
-        <ErrorPanel description={query.error.message} />
+        <ErrorPanel
+          title={
+            query.error instanceof EmailRequestError && query.error.status === 403
+              ? 'Email access unavailable'
+              : 'Email delivery unavailable'
+          }
+          description={query.error.message}
+          reference={
+            query.error instanceof EmailRequestError
+              ? (query.error.reference ?? undefined)
+              : undefined
+          }
+          onRetry={() => void query.refetch()}
+        />
       ) : !query.data ? (
         <ListSkeleton />
       ) : (
@@ -1102,16 +1181,125 @@ function EmailDeliveryDetail({
             </CardContent>
           </Card>
           {query.data.canResend ? (
-            <Button disabled={!canWrite} onClick={() => setRetry(true)}>
+            <Button
+              disabled={!canWrite}
+              onClick={() => {
+                setRetryVersion(query.data!.version);
+                setRetry(true);
+              }}
+            >
               Retry approved message
             </Button>
-          ) : (
+          ) : query.data.status === 'FAILED' || query.data.retryUnavailableReason ? (
             <Alert>
               <AlertDescription>
                 {query.data.retryUnavailableReason ??
                   'Retry unavailable: only a failed message with its original non-sensitive command still retained can be retried.'}
               </AlertDescription>
             </Alert>
+          ) : null}
+          {query.data.retryUnavailableReason ? (
+            <Button variant="outline" onClick={onConfiguration}>
+              Review suppression
+            </Button>
+          ) : null}
+          {query.data.canSendCopy === true ? (
+            <Button
+              variant="outline"
+              disabled={!canWrite}
+              onClick={() => {
+                setCopyVersion(query.data!.version);
+                setCopy(true);
+              }}
+            >
+              Send another copy
+            </Button>
+          ) : null}
+          {newCopyId ? (
+            <Alert>
+              <AlertDescription>
+                Another copy was queued. Check the new delivery for its outcome.
+              </AlertDescription>
+              <Button variant="link" onClick={() => onMessage(newCopyId)}>
+                View new delivery
+              </Button>
+            </Alert>
+          ) : null}
+          {query.data.resendOfMessageId ? (
+            <Button variant="outline" onClick={() => onMessage(query.data!.resendOfMessageId!)}>
+              View original delivery
+            </Button>
+          ) : null}
+          <ConfirmDialog
+            open={copy}
+            onOpenChange={setCopy}
+            title="Send another copy?"
+            description="Sends the original approved wording to the same recipient as a new delivery. This can duplicate an email they already received. Booking and payment details are not recalculated."
+            confirmLabel="Send copy"
+            reasonRequired
+            reasonLabel="Reason for another copy"
+            reasonPlaceholder="Recorded with this email action"
+            onConfirm={async (reason) => {
+              if (copyVersion === undefined) throw new Error('Reload the source delivery first.');
+              const result = await writer<{ messageId: string }>(
+                `${base}/email-activity/${id}/resend-copy`,
+                { version: copyVersion, reason },
+              );
+              setNewCopyId(result.messageId);
+              await client.invalidateQueries({ queryKey: ['emails', base] });
+            }}
+          />
+          {query.data.renderedPreview ? (
+            <>
+              <DetailList
+                items={[
+                  {
+                    label: 'Preview captured',
+                    value: new Date(query.data.renderedPreview.capturedAt).toLocaleString(),
+                  },
+                  {
+                    label: 'Preview expires',
+                    value: new Date(query.data.renderedPreview.expiresAt).toLocaleString(),
+                  },
+                ]}
+              />
+              <Button
+                variant="outline"
+                aria-expanded={showRendered}
+                aria-controls={`retained-email-${id}`}
+                onClick={() => setShowRendered(!showRendered)}
+              >
+                {showRendered ? 'Hide retained message' : 'View retained message'}
+              </Button>
+              {showRendered ? (
+                <div id={`retained-email-${id}`} className="flex flex-col gap-3">
+                  <DetailList
+                    items={[
+                      {
+                        label: 'Safe preview',
+                        value:
+                          'Links, remote images and active content are removed. This is prepared content, not proof of delivery.',
+                      },
+                    ]}
+                  />
+                  <MessagePreview
+                    subject={query.data.renderedPreview.subject}
+                    html={query.data.renderedPreview.html}
+                    text={query.data.renderedPreview.text}
+                  />
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <DetailList
+              items={[
+                {
+                  label: 'Retained message',
+                  value:
+                    'No retained preview. Copies expire after seven days; security links are excluded.',
+                },
+              ]}
+            />
           )}
           <ConfirmDialog
             open={retry}
@@ -1123,8 +1311,9 @@ function EmailDeliveryDetail({
             reasonRequired
             reasonPlaceholder="Recorded with this email action"
             onConfirm={async (reason) => {
+              if (retryVersion === undefined) throw new Error('Reload the source delivery first.');
               await writer(`${base}/email-activity/${id}/retry`, {
-                version: query.data!.version,
+                version: retryVersion,
                 reason,
               });
               await client.invalidateQueries({ queryKey: ['emails', base] });

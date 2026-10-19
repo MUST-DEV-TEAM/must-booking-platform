@@ -6,6 +6,7 @@ import { EmailSettings, isEmailTab, type EmailTab } from './email-settings';
 import { EmailsWorkspace } from './emails';
 import { downloadCsv } from '../../lib/download-csv';
 vi.mock('../../lib/download-csv', () => ({ downloadCsv: vi.fn() }));
+import { focusManager } from '@tanstack/react-query';
 import { DashboardQueryProvider } from './query-provider';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const base = '/api/tenants/t/properties/p';
@@ -65,7 +66,7 @@ const settings = {
   options: { roleTemplates: [], staff: [] },
 };
 let root: Root | null = null;
-function mockFetch(failure?: number) {
+function mockFetch(failure?: number, detail: object = message) {
   const calls: {
     url: string;
     method: string;
@@ -84,6 +85,7 @@ function mockFetch(failure?: number) {
           { message: failure === 403 ? 'Permission denied' : 'Email service unavailable' },
           { status: failure, headers: { 'x-request-id': 'email-ref-17' } },
         );
+      if (url.endsWith('/resend-copy')) return Response.json({ messageId: 'm2' });
       if (url.endsWith('/email-activity/export'))
         return Response.json({
           csv: '\uFEFFauthorized evidence',
@@ -133,7 +135,17 @@ function mockFetch(failure?: number) {
           page: 1,
           pageSize: 100,
         });
-      if (url === base + '/email-activity/m1') return Response.json(message);
+      if (url === base + '/email-activity/m1') return Response.json(detail);
+      if (url === base + '/email-activity/m2')
+        return Response.json({
+          ...message,
+          id: 'm2',
+          version: 1,
+          status: 'QUEUED',
+          canResend: false,
+          resendOfMessageId: 'm1',
+          lastError: null,
+        });
       if (url === base + '/email-configuration')
         return Response.json({
           version: 1,
@@ -434,5 +446,241 @@ describe('Emails workspace and legacy links', () => {
     expect(document.body.textContent).toContain('Attempt 1 / resend');
     expect(document.body.textContent).toContain('mock-receipt');
     expect(document.body.textContent).not.toContain('Earlier steps were not recorded');
+  });
+  it('opens a safe retained preview and confirms an explicit versioned copy with source navigation', async () => {
+    const detail = {
+      ...message,
+      status: 'SENT',
+      lastError: null,
+      canResend: false,
+      canSendCopy: true,
+      renderedPreview: {
+        subject: 'Prepared message',
+        html: '<p>Sanitized recorded wording</p>',
+        text: 'Sanitized recorded wording',
+        capturedAt: '2026-10-19T10:00:00Z',
+        expiresAt: '2026-10-26T10:00:00Z',
+      },
+    };
+    const calls = mockFetch(undefined, detail);
+    await mount('activity');
+    await click(button('Booking confirmed (guest)'));
+    expect(document.querySelector('iframe')).toBeNull();
+    await click(button('View retained message'));
+    expect(document.querySelector('iframe')?.getAttribute('sandbox')).toBe('');
+    expect(document.querySelector('iframe')?.getAttribute('srcdoc')).toContain(
+      'Sanitized recorded wording',
+    );
+    expect(document.body.textContent).toContain(
+      'Links, remote images and active content are removed',
+    );
+    await click(button('Hide retained message'));
+    expect(document.querySelector('iframe')).toBeNull();
+    await click(button('Send another copy'));
+    expect(button('Send copy').disabled).toBe(true);
+    expect(document.body.textContent).toContain('duplicate an email they already received');
+    await fill(
+      document.querySelector<HTMLTextAreaElement>('#confirm-reason')!,
+      'Guest requested another copy',
+    );
+    await click(button('Send copy'));
+    const copy = calls.find((call) => call.url.endsWith('/resend-copy'));
+    expect(copy).toMatchObject({
+      method: 'POST',
+      body: { version: 3, reason: 'Guest requested another copy' },
+    });
+    expect(copy!.headers.get('Idempotency-Key')).toBeTruthy();
+    await click(button('View new delivery'));
+    expect(button('View original delivery')).toBeDefined();
+    await click(button('View original delivery'));
+    expect(button('Send another copy')).toBeDefined();
+  });
+  it('keeps another-copy writes disabled for an unverified viewer', async () => {
+    const calls = mockFetch(undefined, {
+      ...message,
+      status: 'SENT',
+      canResend: false,
+      canSendCopy: true,
+    });
+    await mount('activity', false);
+    await click(button('Booking confirmed (guest)'));
+    expect(button('Send another copy').disabled).toBe(true);
+    expect(calls.some((call) => call.method !== 'GET')).toBe(false);
+  });
+  it('does not display a previous viewer cache while the new viewer authorization is pending or denied', async () => {
+    mockFetch();
+    await mount(undefined, true, true);
+    expect(document.body.textContent).toContain('ana@example.test');
+    const pending: ((response: Response) => void)[] = [];
+    vi.stubGlobal('fetch', () => new Promise<Response>((resolve) => pending.push(resolve)));
+    await act(async () =>
+      root!.render(
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(EmailsWorkspace, {
+            tenantId: 't',
+            propertyId: 'p',
+            viewerId: 'different-viewer',
+            canWrite: false,
+          }),
+        ),
+      ),
+    );
+    expect(document.body.textContent).not.toContain('ana@example.test');
+    expect(document.querySelector('table')).toBeNull();
+    await act(async () =>
+      pending.forEach((resolve) =>
+        resolve(Response.json({ message: 'Permission denied' }, { status: 403 })),
+      ),
+    );
+    await settle();
+    expect(document.body.textContent).toContain('Email access unavailable');
+    expect(document.body.textContent).not.toContain('ana@example.test');
+  });
+  it('keeps unsaved template text on background focus and requires confirmation before reloading newer wording', async () => {
+    const calls = mockFetch(),
+      original = fetch;
+    let changed = false;
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const response = await original(input, init);
+      if (
+        changed &&
+        String(input).includes('/email-template-versions/') &&
+        (!init?.method || init.method === 'GET')
+      ) {
+        const value = await response.json();
+        return Response.json({
+          ...value,
+          version: 3,
+          draft: { ...value.draft, body: 'Another staff member saved this wording' },
+        });
+      }
+      return response;
+    });
+    try {
+      await mount('templates');
+      await click(button('Pre-arrival reminder'));
+      await fill(
+        document.querySelector<HTMLTextAreaElement>('#template-body')!,
+        'My unsaved wording',
+      );
+      changed = true;
+      await act(async () => {
+        focusManager.setFocused(false);
+        focusManager.setFocused(true);
+      });
+      await settle();
+      expect(document.querySelector<HTMLTextAreaElement>('#template-body')!.value).toBe(
+        'My unsaved wording',
+      );
+      expect(
+        calls.filter(
+          (call) => call.url.includes('/email-template-versions/') && call.method === 'GET',
+        ),
+      ).toHaveLength(1);
+      await click(button('Reload wording'));
+      expect(button('Keep editing')).toBeDefined();
+      await click(button('Keep editing'));
+      expect(document.querySelector<HTMLTextAreaElement>('#template-body')!.value).toBe(
+        'My unsaved wording',
+      );
+      await click(button('Reload wording'));
+      await click(button('Discard changes'));
+      expect(document.querySelector<HTMLTextAreaElement>('#template-body')!.value).toBe(
+        'Another staff member saved this wording',
+      );
+    } finally {
+      focusManager.setFocused(undefined);
+    }
+  });
+  it('retries the same copy approval after a lost response and a background source-version refresh', async () => {
+    const detail = {
+      ...message,
+      status: 'SENT',
+      lastError: null,
+      canResend: false,
+      canSendCopy: true,
+    };
+    const calls = mockFetch(undefined, detail),
+      original = fetch;
+    let attempts = 0;
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const response = await original(input, init);
+      return String(input).endsWith('/resend-copy') && ++attempts === 1
+        ? Response.json({ message: 'Copy recorded; retry the same request' }, { status: 503 })
+        : response;
+    });
+    try {
+      await mount('activity');
+      await click(button('Booking confirmed (guest)'));
+      await click(button('Send another copy'));
+      await fill(
+        document.querySelector<HTMLTextAreaElement>('#confirm-reason')!,
+        'Guest requested another copy',
+      );
+      await click(button('Send copy'));
+      expect(document.body.textContent).toContain('Copy recorded; retry the same request');
+      detail.version = 4;
+      await act(async () => {
+        focusManager.setFocused(false);
+        focusManager.setFocused(true);
+      });
+      await settle();
+      expect(
+        calls.filter((call) => call.url.endsWith('/email-activity/m1') && call.method === 'GET')
+          .length,
+      ).toBeGreaterThan(1);
+      await click(button('Send copy'));
+      const copies = calls.filter((call) => call.url.endsWith('/resend-copy'));
+      expect(copies.map((call) => call.body?.version)).toEqual([3, 3]);
+      expect(copies[0].headers.get('Idempotency-Key')).toBe(
+        copies[1].headers.get('Idempotency-Key'),
+      );
+    } finally {
+      focusManager.setFocused(undefined);
+    }
+  });
+  it('prevents new edits while a draft save and its authoritative refresh are pending', async () => {
+    mockFetch();
+    const original = fetch;
+    let released = false;
+    let release: (() => void) | undefined;
+    const savedBody = 'Saved edited wording for {guest_name} at {hotel_name}';
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+      const response = await original(input, init),
+        url = String(input);
+      if (url.endsWith('/draft') && init?.method === 'PUT')
+        return new Promise<Response>((resolve) => {
+          release = () => {
+            released = true;
+            resolve(response);
+          };
+        });
+      if (
+        released &&
+        url.includes('/email-template-versions/') &&
+        (!init?.method || init.method === 'GET')
+      ) {
+        const value = await response.json();
+        return Response.json({ ...value, version: 3, draft: { ...value.draft, body: savedBody } });
+      }
+      return response;
+    });
+    await mount('templates');
+    await click(button('Pre-arrival reminder'));
+    await fill(document.querySelector<HTMLTextAreaElement>('#template-body')!, savedBody);
+    await click(button('Save draft'));
+    expect(document.querySelector<HTMLTextAreaElement>('#template-body')!.disabled).toBe(true);
+    expect(button('Reload wording').disabled).toBe(true);
+    expect(button('Back to templates').disabled).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>('[aria-label="Language"]')!.disabled).toBe(
+      true,
+    );
+    await act(async () => release!());
+    await settle();
+    expect(document.querySelector<HTMLTextAreaElement>('#template-body')!.disabled).toBe(false);
+    expect(document.querySelector<HTMLTextAreaElement>('#template-body')!.value).toBe(savedBody);
+    expect(document.body.textContent).toContain('version 3');
   });
 });
