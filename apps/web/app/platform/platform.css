@@ -1,0 +1,38 @@
+/*
+ * Tailwind entry for the platform console (/platform). Same theme and scoped reset as the hotel
+ * dashboard (see ../dashboard/dashboard.css): no global preflight, a zero-specificity reset inside
+ * .ui-root, and the shared components from ../../components.
+ */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities) source(none);
+@source './';
+@source '../../components';
+@import 'tw-animate-css';
+@import '../ui-theme.css';
+
+@layer base {
+  :where(.ui-root, [data-radix-popper-content-wrapper], [role='dialog'], [role='alertdialog']) *,
+  :where(.ui-root, [data-radix-popper-content-wrapper], [role='dialog'], [role='alertdialog'])
+    ::before,
+  :where(.ui-root, [data-radix-popper-content-wrapper], [role='dialog'], [role='alertdialog'])
+    ::after {
+    box-sizing: border-box;
+    border: 0 solid;
+  }
+
+  :where(.ui-root, [data-radix-popper-content-wrapper], [role='dialog'], [role='alertdialog'])
+    :is(button, input, select, textarea) {
+    font: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+  }
+
+  :where([data-radix-popper-content-wrapper], [role='dialog'], [role='alertdialog']) button {
+    background-color: transparent;
+  }
+
+  :where(.ui-root) :is(h1, h2, h3, h4, p, ul, ol, dl, dd, figure) {
+    margin: 0;
+  }
+}
