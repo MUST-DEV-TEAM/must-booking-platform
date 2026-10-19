@@ -111,6 +111,15 @@ enum OrganizationStatus {
   SUSPENDED
 }
 
+enum OrganizationLifecycleState {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  SUSPENDED
+  CANCELLED
+  ARCHIVED
+}
+
 enum AuditActorType {
   TENANT_USER
   PLATFORM_ADMIN
@@ -120,6 +129,17 @@ model Organization {
   id           String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name         String             @db.VarChar(200)
   status       OrganizationStatus @default(ACTIVE)
+  lifecycleState OrganizationLifecycleState @default(ACTIVE) @map("lifecycle_state")
+  lifecycleReason String? @map("lifecycle_reason")
+  lifecycleChangedAt DateTime? @map("lifecycle_changed_at") @db.Timestamptz(6)
+  lifecycleVersion Int @default(0) @map("lifecycle_version")
+  country String? @db.Char(2)
+  timeZone String? @map("time_zone") @db.VarChar(64)
+  currency String? @db.Char(3)
+  onboardingMode String? @map("onboarding_mode") @db.VarChar(20)
+  ownerInvitedEmail String? @map("owner_invited_email") @db.VarChar(320)
+  ownerInvitedAt DateTime? @map("owner_invited_at") @db.Timestamptz(6)
+  createdByPlatformAccountId String? @map("created_by_platform_account_id") @db.Uuid
   planId       String             @default("00000000-0000-0000-0000-000000000001") @map("plan_id") @db.Uuid
   createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
