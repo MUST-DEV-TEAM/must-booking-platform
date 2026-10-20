@@ -1,5 +1,6 @@
 import { currentMailAttempt } from './mail-attempt-context';
 import { EmailMessageArchiveService } from './email-message-archive.service';
+import { PropertyMailDispatcher, type RenderedTransportInput } from './property-mail-dispatcher';
 import { Inject, Optional, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 
 import type {
@@ -36,6 +37,9 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
     @Optional()
     @Inject(EmailMessageArchiveService)
     private readonly archive?: EmailMessageArchiveService,
+    @Optional()
+    @Inject(PropertyMailDispatcher)
+    private readonly transports?: PropertyMailDispatcher,
   ) {}
 
   onModuleInit(): void {
@@ -535,6 +539,11 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
     fromName?: string | null;
   }): Promise<MailSendReceipt> {
     await this.archive?.capture(message);
+    if (this.transports) return this.transports.send(message, () => this.sendDefault(message));
+    return this.sendDefault(message);
+  }
+
+  private async sendDefault(message: RenderedTransportInput): Promise<MailSendReceipt> {
     let response: Response;
     try {
       response = await fetch(resendEmailsUrl(), {

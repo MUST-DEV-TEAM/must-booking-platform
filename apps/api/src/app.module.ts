@@ -61,6 +61,8 @@ import { AuditLogController } from './tenancy/audit-log.controller';
 import { AuditLogService } from './tenancy/audit-log.service';
 import { MAIL_PROVIDER } from './mail/mail.provider';
 import { EmailMessageArchiveService } from './mail/email-message-archive.service';
+import { EmailTransportJournal } from './mail/email-transport-journal';
+import { PropertyMailDispatcher } from './mail/property-mail-dispatcher';
 import { EmailTransportCredentialService } from './mail/email-transport-credentials';
 import { SmtpTransport } from './mail/smtp-transport';
 import { EmailSendingProfileController } from './tenancy/email-sending-profile.controller';
@@ -409,6 +411,8 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     R2StorageProvider,
     { provide: STORAGE_PROVIDER, useExisting: R2StorageProvider },
     EmailMessageArchiveService,
+    EmailTransportJournal,
+    PropertyMailDispatcher,
     ResendMailProvider,
     MailDeliveryService,
     ScheduledEmailService,

@@ -1286,6 +1286,26 @@ enum EmailRecipientKind {
   BCC
 }
 
+model EmailTransportAttempt {
+  tenantId String @map("tenant_id") @db.Uuid
+  propertyId String @map("property_id") @db.Uuid
+  messageId String @map("message_id") @db.Uuid
+  stage String
+  provider String
+  state String @default("READY")
+  encryptedPayload String? @map("encrypted_payload")
+  attempt Int @default(0)
+  fence String? @db.Uuid
+  leaseExpiresAt DateTime? @map("lease_expires_at") @db.Timestamptz(6)
+  retryable Boolean @default(false)
+  providerMessageId String? @map("provider_message_id")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  expiresAt DateTime @default(dbgenerated("now() + interval '7 days'")) @map("expires_at") @db.Timestamptz(6)
+  @@id([tenantId,propertyId,messageId,stage])
+  @@map("email_transport_attempts")
+}
+
 model EmailMessage {
   resendOfMessageId String? @map("resend_of_message_id") @db.Uuid
   workspaceVersion Int @default(1) @map("workspace_version")

@@ -14,6 +14,7 @@ import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant
 import { renderTemplate, savedTemplate, stayTemplateValues } from './email-templates';
 import { MailDeliveryService } from './mail-delivery.service';
 import { EmailSenderVerificationService } from '../tenancy/email-sender-verification.service';
+import { EmailTransportJournal } from './email-transport-journal';
 import { scheduledGuestSettings, staffRecipients } from './notification-recipients';
 import { reviewButtons, storedReviewLinks } from './review-links';
 import {
@@ -105,6 +106,9 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(EmailSenderVerificationService)
     private readonly senderProofs?: EmailSenderVerificationService,
+    @Optional()
+    @Inject(EmailTransportJournal)
+    private readonly transportJournal?: EmailTransportJournal,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -144,6 +148,13 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
     for (const property of properties) {
       const context = { tenantId: property.tenantId, propertyId: property.propertyId };
       const local = localNow(now, property.timezone);
+      try {
+        await this.transportJournal?.cleanup(context);
+      } catch {
+        this.logger.warn(
+          `Expired email transport payload cleanup failed for property ${property.propertyId}.`,
+        );
+      }
       try {
         await this.senderProofs?.recover(context);
         if (local.hour >= OWNER_SUMMARY_HOUR)

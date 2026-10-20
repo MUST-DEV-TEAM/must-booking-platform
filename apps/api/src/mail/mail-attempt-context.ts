@@ -6,6 +6,9 @@ export type MailAttemptContext = {
   messageId: string;
   sensitive: boolean;
   idempotencyKeyOverride?: string;
+  guestTransactional?: boolean;
+  forceDefault?: boolean;
+  finalAttempt?: boolean;
 };
 const attempts = new AsyncLocalStorage<MailAttemptContext>();
 /** Keep concurrent message capture/transport identity inside its own asynchronous attempt. */

@@ -39,6 +39,7 @@ export type EmailActivityItem = {
   deliveredAt: Date | null;
   /** A failed email that is recent enough to be sent again. */
   canResend: boolean;
+  transportBlocked: boolean;
 };
 
 /** Who guest emails come from today, and where replies go. */
@@ -103,7 +104,8 @@ export class EmailActivityService {
         SELECT em.id,em.workspace_version AS version,em.event_type AS "eventType",em.recipient_email AS recipient,em.subject,
           em.status::text AS status,em.last_error AS "lastError",em.attempt_count AS "attemptCount",
           em.booking_id::text AS "bookingId",COALESCE(b.order_reference,b.external_reference) AS "bookingReference",
-          em.created_at AS "createdAt",em.sent_at AS "sentAt",em.delivered_at AS "deliveredAt"
+          em.created_at AS "createdAt",em.sent_at AS "sentAt",em.delivered_at AS "deliveredAt",
+          EXISTS(SELECT 1 FROM email_transport_attempts eta WHERE eta.tenant_id=em.tenant_id AND eta.property_id=em.property_id AND eta.message_id=em.id AND eta.state IN ('SENDING','UNKNOWN')) AS "transportBlocked"
         ${scope} ORDER BY ${filters.order} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`);
       const counts = await tx.$queryRaw<{ total: number }[]>(
         Prisma.sql`SELECT count(*)::int AS total ${scope}`,
@@ -121,6 +123,7 @@ export class EmailActivityService {
           label: LABELS[row.eventType] ?? row.eventType,
           lastError: row.lastError ? safeDeliveryError(row.lastError) : null,
           canResend:
+            !row.transportBlocked &&
             row.status === 'FAILED' &&
             !['staff.invitation', 'email.sender_verification'].includes(row.eventType) &&
             new Date(row.createdAt).getTime() > cutoff,
@@ -443,7 +446,8 @@ export class EmailActivityService {
         SELECT em.id,em.event_type AS "eventType",em.recipient_email AS recipient,em.subject,
           em.status::text AS status,em.last_error AS "lastError",em.attempt_count AS "attemptCount",
           em.booking_id::text AS "bookingId",COALESCE(b.order_reference,b.external_reference) AS "bookingReference",
-          em.created_at AS "createdAt",em.sent_at AS "sentAt",em.delivered_at AS "deliveredAt",em.workspace_version AS version,em.provider,em.provider_message_id AS "providerMessageId",em.resend_of_message_id AS "resendOfMessageId"
+          em.created_at AS "createdAt",em.sent_at AS "sentAt",em.delivered_at AS "deliveredAt",em.workspace_version AS version,em.provider,em.provider_message_id AS "providerMessageId",em.resend_of_message_id AS "resendOfMessageId",
+          EXISTS(SELECT 1 FROM email_transport_attempts eta WHERE eta.tenant_id=em.tenant_id AND eta.property_id=em.property_id AND eta.message_id=em.id AND eta.state IN ('SENDING','UNKNOWN')) AS "transportBlocked"
         FROM email_messages em LEFT JOIN bookings b ON b.tenant_id=em.tenant_id AND b.property_id=em.property_id AND b.id=em.booking_id
         WHERE em.tenant_id=${context.tenantId}::uuid AND em.property_id=${context.propertyId}::uuid AND em.id=${messageId}::uuid
       `;
@@ -480,9 +484,11 @@ export class EmailActivityService {
         timeline: events.slice(0, 200).reverse(),
         timelineTruncated: events.length > 200,
         timelineHasCreation: events.some((e) => e.kind === 'QUEUED' && e.attemptCount === 0),
-        retryUnavailableReason: suppressed.length
-          ? 'Recipient is suppressed. Resolve it in Configuration before retrying.'
-          : null,
+        retryUnavailableReason: row.transportBlocked
+          ? 'Another delivery attempt is active or acceptance is unknown. Automatic resend is stopped.'
+          : suppressed.length
+            ? 'Recipient is suppressed. Resolve it in Configuration before retrying.'
+            : null,
         lastError: row.lastError ? safeDeliveryError(row.lastError) : null,
         label: LABELS[row.eventType] ?? row.eventType,
         canResend:

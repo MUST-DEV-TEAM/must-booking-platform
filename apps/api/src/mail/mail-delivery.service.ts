@@ -17,6 +17,7 @@ import { MailDeliveryError } from './mail-delivery-error';
 import { describeMail, type QueuedMailCommands, type QueuedMailKind } from './mail-descriptors';
 import { MAIL_PROVIDER } from './mail.provider';
 import { SenderVerificationStore } from './sender-verification-store';
+import { TransportAttemptBusyError } from './email-transport-journal';
 
 export const MAIL_QUEUE_NAME = 'mail.transactional';
 /** How long a failed email can still be sent again from the activity screen. */
@@ -186,6 +187,7 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
     messageId: string,
     context: MailDeliveryContext,
   ): Promise<MailJobData | null> {
+    if (!(await this.transportRetryAllowed(messageId, context))) return null;
     const job = await this.queue?.getJob(messageId);
     if (
       !job ||
@@ -212,6 +214,7 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
 
   /** True only when the original non-sensitive approved command is still retained. */
   async canResend(messageId: string, context: MailDeliveryContext): Promise<boolean> {
+    if (!(await this.transportRetryAllowed(messageId, context))) return false;
     const job = await this.queue?.getJob(messageId);
     return Boolean(
       job &&
@@ -231,6 +234,7 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
     messageId: string,
     context: MailDeliveryContext,
   ): Promise<'queued' | 'not_failed' | 'unavailable'> {
+    if (!(await this.transportRetryAllowed(messageId, context))) return 'unavailable';
     if (!this.queue) return 'unavailable';
     const job = await this.queue.getJob(messageId);
     if (!job || !['completed', 'failed'].includes(await job.getState())) return 'unavailable';
@@ -409,10 +413,19 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
           messageId,
           sensitive: describeMail(data.kind, data.command as never).sensitive,
           idempotencyKeyOverride: data.idempotencyKeyOverride,
+          finalAttempt,
+          guestTransactional:
+            descriptor.eventType.startsWith('guest.') ||
+            ['booking.confirmed', 'booking.cancelled', 'booking.refund_processed'].includes(
+              descriptor.eventType,
+            ),
+          forceDefault:
+            descriptor.sensitive || descriptor.eventType === 'owner.email_transport_failure',
         },
         () => this.invoke(data),
       );
     } catch (error) {
+      if (error instanceof TransportAttemptBusyError) throw error;
       const retryable = error instanceof MailDeliveryError ? error.retryable : true;
       const message = (error instanceof Error ? error.message : String(error)).slice(0, 1000);
       if (retryable && !finalAttempt) {
@@ -441,16 +454,31 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
     }
 
     const providerMessageId = (receipt && receipt.providerMessageId) || null;
+    const provider = (receipt && receipt.provider) || 'resend';
     await this.updateMessage(
       data,
       'SENT',
       async (tx) => tx.$executeRaw`
       UPDATE email_messages
-      SET status = 'SENT', provider = 'resend', provider_message_id = ${providerMessageId},
+      SET status = 'SENT', provider = ${provider}, provider_message_id = ${providerMessageId},
           sent_at = now(), last_error = NULL, updated_at = now()
       WHERE id = ${messageId}::uuid AND tenant_id IS NOT DISTINCT FROM ${context.tenantId}::uuid AND property_id IS NOT DISTINCT FROM ${context.propertyId}::uuid AND status = 'QUEUED'
     `,
     );
+  }
+
+  private async transportRetryAllowed(
+    messageId: string,
+    context: MailDeliveryContext,
+  ): Promise<boolean> {
+    if (!context.tenantId || !context.propertyId) return true;
+    const rows = await this.database.withTenantTransaction(
+      { tenantId: context.tenantId, propertyId: context.propertyId },
+      (tx) => tx.$queryRaw<{ messageId: string }[]>`
+      SELECT message_id AS "messageId" FROM email_transport_attempts WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND message_id=${messageId}::uuid AND state IN ('SENDING','UNKNOWN')
+    `,
+    );
+    return !rows.length;
   }
 
   private async updateMessage(
