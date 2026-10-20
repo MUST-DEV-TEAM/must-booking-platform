@@ -19,6 +19,7 @@ import { Input } from '../../components/ui/input';
 import { MultiSelect } from '../../components/ui/multi-select';
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import { emailRequest, createEmailWriter } from '../../lib/email-workspace';
+import { EmailSendingSetup } from './email-sending-profile';
 
 type Configuration = {
   version: number;
@@ -84,6 +85,7 @@ export function EmailConfiguration({
     return <ListSkeleton />;
   return (
     <div className="flex flex-col gap-5">
+      <EmailSendingSetup base={base} canWrite={canWrite} />
       <SenderEditor
         key={`sender/${config.data.version}`}
         base={base}

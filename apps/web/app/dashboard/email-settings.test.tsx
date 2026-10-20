@@ -153,6 +153,26 @@ function mockFetch(failure?: number, detail: object = message) {
           replyTo: null,
           defaultLanguage: 'en',
         });
+      if (url === base + '/email-configuration/sending')
+        return Response.json({
+          version: 1,
+          mode: 'DEFAULT',
+          activeMode: 'DEFAULT',
+          fromName: null,
+          fromAddress: null,
+          domain: null,
+          smtpHost: null,
+          smtpPort: null,
+          smtpSecurity: null,
+          fallbackGuest: true,
+          credentialsPresent: false,
+          fromVerifiedAt: null,
+          connectionCheckedAt: null,
+          connectionStatus: 'unknown',
+          connectionOperationId: null,
+          connectionExpiresAt: null,
+          domainStatus: 'unknown',
+        });
       if (url === base + '/notification-settings') return Response.json(settings);
       if (url === base + '/email-sender')
         return Response.json({

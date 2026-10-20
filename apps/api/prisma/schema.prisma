@@ -1661,6 +1661,9 @@ model EmailSendingProfile {
  fallbackGuest Boolean @default(true) @map("fallback_guest")
  fromVerifiedAt DateTime? @map("from_verified_at") @db.Timestamptz(6)
  connectionCheckedAt DateTime? @map("connection_checked_at") @db.Timestamptz(6)
+ connectionStatus String @default("unknown") @map("connection_status")
+ connectionOperationId String? @map("connection_operation_id") @db.Uuid
+ connectionExpiresAt DateTime? @map("connection_expires_at") @db.Timestamptz(6)
  domainCheckedAt DateTime? @map("domain_checked_at") @db.Timestamptz(6)
  domainStatus String @default("unknown") @map("domain_status")
  dnsRecords Json @default("[]") @map("dns_records")

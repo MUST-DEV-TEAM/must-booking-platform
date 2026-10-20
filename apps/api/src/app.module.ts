@@ -62,6 +62,7 @@ import { AuditLogService } from './tenancy/audit-log.service';
 import { MAIL_PROVIDER } from './mail/mail.provider';
 import { EmailMessageArchiveService } from './mail/email-message-archive.service';
 import { EmailTransportCredentialService } from './mail/email-transport-credentials';
+import { SmtpTransport } from './mail/smtp-transport';
 import { EmailSendingProfileController } from './tenancy/email-sending-profile.controller';
 import { EmailSendingProfileService } from './tenancy/email-sending-profile.service';
 import { ResendMailProvider } from './mail/resend-mail.provider';
@@ -326,6 +327,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     EmailSuppressionsService,
     EmailConfigurationService,
     EmailSendingProfileService,
+    { provide: SmtpTransport, useFactory: () => new SmtpTransport() },
     EmailTransportCredentialService,
     EmailTemplateVersionsService,
     EmailActivityService,

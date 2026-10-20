@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { MailDeliveryService } from '../src/mail/mail-delivery.service';
 import { EmailTransportCredentialService } from '../src/mail/email-transport-credentials';
+import { SmtpTransport } from '../src/mail/smtp-transport';
 import { AuditLogService } from '../src/tenancy/audit-log.service';
 import { TenantDatabaseService } from '../src/tenancy/tenant-database.service';
 import { isolatedMailDelivery } from './helpers/isolated-mail-delivery';
@@ -25,10 +26,14 @@ describe('hotel sender profile storage, not sender activation', () => {
     propertyId = '',
     otherProperty = '',
     rlsProperty = '',
+    checkProperty = '',
+    capProperty = '',
     userId = '',
     cookie = '',
     token = '';
   let originalKey: string | undefined;
+  const smtpCheck = vi.fn<(settings: object) => Promise<void>>(async () => {});
+  const smtpSend = vi.fn();
   const mail: MailProvider = {
     async sendVerificationEmail(command) {
       token = new URL(command.verificationUrl).searchParams.get('token')!;
@@ -58,7 +63,9 @@ describe('hotel sender profile storage, not sender activation', () => {
         .overrideProvider(MAIL_PROVIDER)
         .useValue(mail)
         .overrideProvider(MailDeliveryService)
-        .useFactory(isolatedMailDelivery),
+        .useFactory(isolatedMailDelivery)
+        .overrideProvider(SmtpTransport)
+        .useValue({ check: smtpCheck, send: smtpSend }),
     ).compile();
     app = module.createNestApplication();
     await app.init();
@@ -83,7 +90,9 @@ describe('hotel sender profile storage, not sender activation', () => {
       .expect(204);
     otherProperty = randomUUID();
     rlsProperty = randomUUID();
-    for (const id of [otherProperty, rlsProperty])
+    checkProperty = randomUUID();
+    capProperty = randomUUID();
+    for (const id of [otherProperty, rlsProperty, checkProperty, capProperty])
       await admin.$executeRaw`INSERT INTO properties(id,tenant_id,name,slug) VALUES(${id}::uuid,${tenantId}::uuid,'Other scoped hotel',${randomUUID()})`;
   });
   afterAll(async () => {
@@ -116,6 +125,21 @@ describe('hotel sender profile storage, not sender activation', () => {
     fallbackGuest: true,
     credentials: { username: 'test-only-user', password: 'test-only-password' },
   });
+  const check = (body: object, key: string = randomUUID(), property = checkProperty) =>
+    request(app.getHttpServer())
+      .post(url(property) + '/check')
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', key)
+      .send(body);
+  const operation = (id: string, property = checkProperty) =>
+    request(app.getHttpServer())
+      .get(url(property) + '/operations/' + id)
+      .set('Cookie', cookie);
+  const prepareCheck = async (property = checkProperty) => {
+    smtpCheck.mockReset().mockResolvedValue(undefined);
+    const current = (await get(property).expect(200)).body;
+    return (await put(smtp(current.version), randomUUID(), property).expect(200)).body;
+  };
   it('returns truthful defaults and never authorizes ordinary reads/writes without current scope and capabilities', async () => {
     expect((await get().expect(200)).body).toMatchObject({
       version: 1,
@@ -324,6 +348,9 @@ describe('hotel sender profile storage, not sender activation', () => {
       { activeMode: 'SMTP' },
       { domainStatus: 'verified' },
       { fromVerifiedAt: new Date().toISOString() },
+      { connectionStatus: 'verified' },
+      { connectionOperationId: randomUUID() },
+      { connectionExpiresAt: new Date().toISOString() },
     ])
       await put({ ...smtp(4), ...patch }).expect(400);
     await request(app.getHttpServer()).put(url()).set('Cookie', cookie).send(smtp(4)).expect(400);
@@ -387,9 +414,294 @@ describe('hotel sender profile storage, not sender activation', () => {
         version: 2,
         credentialsPresent: true,
       });
+      const checked = await check(
+        { version: saved.version, reason: 'Check Clock hotel email connection' },
+        randomUUID(),
+        otherProperty,
+      ).expect(201);
+      expect(checked.body.state).toBe('verified');
       expect(fetch).not.toHaveBeenCalled();
     } finally {
       fetch.mockRestore();
     }
+  });
+  it('reserves one real connection operation under equal-key concurrency and safely replays its final result', async () => {
+    const profile = await prepareCheck(),
+      key = randomUUID(),
+      body = { version: profile.version, reason: 'Check the configured connection' };
+    let release!: () => void, started!: () => void;
+    const running = new Promise<void>((r) => {
+        release = r;
+      }),
+      began = new Promise<void>((r) => {
+        started = r;
+      });
+    smtpCheck.mockImplementationOnce(async () => {
+      started();
+      await running;
+    });
+    const first = check(body, key).then((r) => r);
+    await began;
+    try {
+      const pending = (await check(body, key).expect(201)).body;
+      expect(pending).toMatchObject({ state: 'checking', version: profile.version + 1 });
+      expect((await operation(pending.id).expect(200)).body).toEqual(pending);
+      await check(body).expect(409);
+      await check({ ...body, version: pending.version }).expect(409);
+      expect(smtpCheck).toHaveBeenCalledTimes(1);
+    } finally {
+      release();
+    }
+    const finished = await first;
+    expect(finished.status).toBe(201);
+    expect(finished.body).toMatchObject({ state: 'verified', version: profile.version + 2 });
+    expect((await check(body, key).expect(201)).body).toEqual(finished.body);
+    expect((await get(checkProperty).expect(200)).body).toMatchObject({
+      connectionStatus: 'verified',
+      activeMode: 'DEFAULT',
+      fromVerifiedAt: null,
+    });
+    expect(smtpSend).not.toHaveBeenCalled();
+    await admin.$executeRaw`UPDATE users SET email_verified_at=NULL WHERE id=${userId}::uuid`;
+    try {
+      await check(body, key).expect(403);
+    } finally {
+      await admin.$executeRaw`UPDATE users SET email_verified_at=now() WHERE id=${userId}::uuid`;
+    }
+    expect(smtpCheck).toHaveBeenCalledTimes(1);
+  });
+  it('records failed checks without secrets, validates requests, and scopes operation reads and writes', async () => {
+    const profile = await prepareCheck();
+    smtpCheck.mockRejectedValueOnce(new Error('test-only-password raw auth response'));
+    const result = (
+      await check({ version: profile.version, reason: 'Check failure diagnostics' }).expect(201)
+    ).body;
+    expect(result.state).toBe('failed');
+    const stored = await admin.$queryRaw<
+      { response: unknown }[]
+    >`SELECT response FROM email_workspace_operations WHERE tenant_id=${tenantId}::uuid AND property_id=${checkProperty}::uuid AND response->>'id'=${result.id}`;
+    expect(JSON.stringify(stored)).not.toMatch(
+      /test-only-password|raw auth response|encryptedCredentials|credentialRevision/,
+    );
+    expect((await get(checkProperty).expect(200)).body).toMatchObject({
+      connectionStatus: 'failed',
+      connectionCheckedAt: null,
+      activeMode: 'DEFAULT',
+    });
+    await operation(result.id, otherProperty).expect(404);
+    await operation(randomUUID()).expect(404);
+    await operation('invalid-id').expect(400);
+    await request(app.getHttpServer())
+      .get(url(checkProperty) + '/operations/' + result.id)
+      .expect(401);
+    await request(app.getHttpServer())
+      .post(url(checkProperty) + '/check')
+      .send({ version: result.version, reason: 'No session' })
+      .expect(401);
+    await check({ version: result.version, reason: 'no', password: 'forbidden' }).expect(400);
+    await request(app.getHttpServer())
+      .post(url(checkProperty) + '/check')
+      .set('Cookie', cookie)
+      .send({ version: result.version, reason: 'Missing key' })
+      .expect(400);
+    await check({ version: 6, reason: 'Not an SMTP setup' }, randomUUID(), propertyId).expect(400);
+    await admin.$executeRaw`UPDATE tenant_memberships SET role='STAFF' WHERE tenant_id=${tenantId}::uuid AND user_id=${userId}::uuid`;
+    try {
+      await operation(result.id).expect(403);
+      await check({ version: result.version, reason: 'No permission' }).expect(403);
+    } finally {
+      await admin.$executeRaw`UPDATE tenant_memberships SET role='OWNER' WHERE tenant_id=${tenantId}::uuid AND user_id=${userId}::uuid`;
+    }
+    expect(smtpCheck).toHaveBeenCalledTimes(1);
+  });
+  it('rolls back reservation and its receipt when audit fails, before any socket is opened', async () => {
+    const profile = await prepareCheck(),
+      key = randomUUID(),
+      audit = vi
+        .spyOn(app.get(AuditLogService), 'recordInTransaction')
+        .mockRejectedValueOnce(new Error('simulated audit failure'));
+    try {
+      await check({ version: profile.version, reason: 'Audit rollback check' }, key).expect(500);
+    } finally {
+      audit.mockRestore();
+    }
+    expect(smtpCheck).not.toHaveBeenCalled();
+    expect((await get(checkProperty).expect(200)).body.version).toBe(profile.version);
+    const receipts = await admin.$queryRaw<
+      { n: number }[]
+    >`SELECT count(*)::int AS n FROM email_workspace_operations WHERE tenant_id=${tenantId}::uuid AND property_id=${checkProperty}::uuid AND idempotency_key=${key}`;
+    expect(receipts[0].n).toBe(0);
+  });
+  it('fences late check results after credential rotation and preserves unrelated edits', async () => {
+    for (const rotate of [true, false]) {
+      const profile = await prepareCheck();
+      let release!: () => void, started!: () => void;
+      const running = new Promise<void>((r) => {
+          release = r;
+        }),
+        began = new Promise<void>((r) => {
+          started = r;
+        });
+      smtpCheck.mockImplementationOnce(async () => {
+        started();
+        await running;
+      });
+      const first = check({ version: profile.version, reason: 'Check while editing sender' }).then(
+        (r) => r,
+      );
+      await began;
+      try {
+        const { credentials: ignored, ...cosmetic } = smtp(profile.version + 1);
+        void ignored;
+        await put(
+          rotate
+            ? {
+                ...smtp(profile.version + 1),
+                credentials: { username: 'rotated-user', password: 'rotated-password' },
+              }
+            : { ...cosmetic, fromName: 'Updated hotel name' },
+          randomUUID(),
+          checkProperty,
+        ).expect(200);
+      } finally {
+        release();
+      }
+      const result = await first;
+      expect(result.status).toBe(201);
+      expect(result.body.state).toBe(rotate ? 'stale' : 'verified');
+      const final = (await get(checkProperty).expect(200)).body;
+      expect(final).toMatchObject(
+        rotate
+          ? { connectionStatus: 'unknown', connectionCheckedAt: null }
+          : { connectionStatus: 'verified', fromName: 'Updated hotel name' },
+      );
+      expect(final.activeMode).toBe('DEFAULT');
+    }
+  });
+  it('leaves a durable pending operation after final audit failure; expiry projects unknown without resending', async () => {
+    const profile = await prepareCheck(),
+      key = randomUUID(),
+      body = { version: profile.version, reason: 'Check finalization rollback' };
+    const audit = app.get(AuditLogService),
+      original = audit.recordInTransaction.bind(audit);
+    const spy = vi
+      .spyOn(audit, 'recordInTransaction')
+      .mockImplementation((tx, event) =>
+        event.action.endsWith('smtp_check.completed')
+          ? Promise.reject(new Error('simulated final audit failure'))
+          : original(tx, event),
+      );
+    try {
+      await check(body, key).expect(500);
+    } finally {
+      spy.mockRestore();
+    }
+    const pending = (await check(body, key).expect(201)).body;
+    expect(pending.state).toBe('checking');
+    expect((await get(checkProperty).expect(200)).body).toMatchObject({
+      connectionStatus: 'checking',
+      connectionCheckedAt: null,
+      version: profile.version + 1,
+    });
+    const expired = new Date(Date.now() - 1000).toISOString();
+    await admin.$executeRaw`UPDATE email_workspace_operations SET response=jsonb_set(response,'{expiresAt}',${JSON.stringify(expired)}::jsonb) WHERE tenant_id=${tenantId}::uuid AND property_id=${checkProperty}::uuid AND idempotency_key=${key}`;
+    await admin.$executeRaw`UPDATE email_sending_profiles SET connection_expires_at=${new Date(expired)} WHERE tenant_id=${tenantId}::uuid AND property_id=${checkProperty}::uuid`;
+    expect((await operation(pending.id).expect(200)).body.state).toBe('unknown');
+    expect((await check(body, key).expect(201)).body.state).toBe('unknown');
+    expect((await get(checkProperty).expect(200)).body.connectionStatus).toBe('unknown');
+    expect(smtpCheck).toHaveBeenCalledTimes(1);
+    expect(
+      (
+        await check({ version: profile.version + 1, reason: 'Explicit check after expiry' }).expect(
+          201,
+        )
+      ).body.state,
+    ).toBe('verified');
+    expect(smtpCheck).toHaveBeenCalledTimes(2);
+  });
+  it('limits ten actual check intentions per hotel/hour while allowing idempotent retries', async () => {
+    let profile = await prepareCheck(capProperty);
+    let finalBody: Record<string, unknown> = {},
+      finalKey = '';
+    for (let index = 0; index < 10; index++) {
+      finalBody = { version: profile.version, reason: 'Explicit hourly boundary check' };
+      finalKey = randomUUID();
+      const response = await check(finalBody, finalKey, capProperty).expect(201);
+      expect(response.body.state).toBe('verified');
+      profile = (await get(capProperty).expect(200)).body;
+    }
+    await check(finalBody, finalKey, capProperty).expect(201);
+    await check(
+      { version: profile.version, reason: 'Over hourly cap' },
+      randomUUID(),
+      capProperty,
+    ).expect(429);
+    expect(smtpCheck).toHaveBeenCalledTimes(10);
+    await admin.$executeRaw`UPDATE email_workspace_operations SET created_at=now()-interval '1 hour 1 second'
+      WHERE tenant_id=${tenantId}::uuid AND property_id=${capProperty}::uuid AND idempotency_key=(SELECT idempotency_key FROM email_workspace_operations
+      WHERE tenant_id=${tenantId}::uuid AND property_id=${capProperty}::uuid AND response->>'kind'='SMTP_CONNECTION_CHECK' ORDER BY created_at,idempotency_key LIMIT 1)`;
+    expect(
+      (
+        await check(
+          { version: profile.version, reason: 'Check after rolling-hour expiry' },
+          randomUUID(),
+          capProperty,
+        ).expect(201)
+      ).body.state,
+    ).toBe('verified');
+    expect(smtpCheck).toHaveBeenCalledTimes(11);
+  });
+  it('uses the real adapter to refuse private DNS before connecting or sending any mail', async () => {
+    const profile = await prepareCheck(),
+      resolve = vi.fn(async () => [{ address: '127.0.0.1', family: 4 }]),
+      connect = vi.fn();
+    const adapter = new SmtpTransport(resolve, connect);
+    smtpCheck.mockImplementationOnce(() =>
+      adapter.check({
+        host: 'smtp.example.com',
+        port: 587,
+        security: 'STARTTLS',
+        username: 'test',
+        password: 'test',
+      }),
+    );
+    expect(
+      (
+        await check({ version: profile.version, reason: 'Verify private DNS rejection' }).expect(
+          201,
+        )
+      ).body.state,
+    ).toBe('failed');
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(connect).not.toHaveBeenCalled();
+    expect(smtpSend).not.toHaveBeenCalled();
+  });
+  it('does not change an existing sender choice or erase its last successful check during diagnostics', async () => {
+    const profile = await prepareCheck(rlsProperty),
+      lastSuccess = new Date('2026-10-01T10:00:00Z');
+    await admin.$executeRaw`UPDATE email_sending_profiles SET active_mode='SMTP',from_verified_at=now(),connection_status='verified',connection_checked_at=${lastSuccess}
+      WHERE tenant_id=${tenantId}::uuid AND property_id=${rlsProperty}::uuid`;
+    smtpCheck.mockRejectedValueOnce(new Error('diagnostic failure'));
+    await check(
+      { version: profile.version, reason: 'Check existing sender without switching it' },
+      randomUUID(),
+      rlsProperty,
+    ).expect(201);
+    const failed = (await get(rlsProperty).expect(200)).body;
+    expect(failed).toMatchObject({
+      activeMode: 'SMTP',
+      connectionStatus: 'failed',
+      connectionCheckedAt: lastSuccess.toISOString(),
+    });
+    await check(
+      { version: failed.version, reason: 'Check existing sender again' },
+      randomUUID(),
+      rlsProperty,
+    ).expect(201);
+    expect((await get(rlsProperty).expect(200)).body).toMatchObject({
+      activeMode: 'SMTP',
+      connectionStatus: 'verified',
+    });
+    expect(smtpSend).not.toHaveBeenCalled();
   });
 });

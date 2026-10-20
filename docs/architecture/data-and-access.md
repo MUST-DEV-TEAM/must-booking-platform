@@ -50,7 +50,7 @@ Property creation provisions Front Desk, Property Manager and Finance accounts. 
 
 `CredentialCipherService` encrypts integration credentials with AES-256-GCM using `INTEGRATION_CREDENTIALS_KEY`. Tenant-owned connections are assigned through `property_integration_connections`; PMS selection is single-active per property, payment options can coexist. The catalog's existence is not proof of successful connection health.
 
-Property email sender setup reuses that cipher with authenticated tenant/property, endpoint and credential-revision binding. Forced-RLS `email_sending_profiles` exposes credential presence rather than secret values; pending custom setup does not activate a transport. The [M24 email contract](../roadmap/milestones/24-notifications-emails-audit-plan.md#e4-sender-profile-storage-and-contract) owns its setup/verification boundary; SMTP transport ownership and activation are still pending.
+Property email sender setup reuses that cipher with authenticated tenant/property, endpoint and credential-revision binding. Forced-RLS `email_sending_profiles` exposes credential presence rather than secret values; pending custom setup does not activate a transport. The [M24 email contract](../roadmap/milestones/24-notifications-emails-audit-plan.md#e4-sender-profile-storage-and-contract) owns its setup/verification boundary; SMTP diagnostics reserve/finalize a scoped operation with an audited retry receipt; they do not activate a sender or send a message. Transport attempt ownership and activation are still pending.
 
 ADR-0024's structured phone and profile fields remain a **target**: User/Organization lack much of that profile shape and Guest still has a single phone field. Do not invent columns from the ADR.
 
