@@ -732,6 +732,41 @@ export class AvailabilityService {
     `;
   }
 
+  /** Uses creation's stock/room checks. Preview changes are rolled back to the savepoint;
+   * the outer property lock keeps the release/claim invisible and serial with creation. */
+  async amendStayInventory(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    input: {
+      bookingId: string; roomTypeId: string; roomId: string | null;
+      oldStartsOn: string; oldEndsOn: string; startsOn: string; endsOn: string;
+    },
+    apply = false,
+  ): Promise<boolean> {
+    await tx.$executeRawUnsafe('SAVEPOINT booking_amend_inventory');
+    // Assigned rooms are held by the booking row, exactly as in creation.
+    const pooled = !input.roomId;
+    if (pooled) {
+      await this.releaseBookedUnits(tx, tenantId, propertyId, {
+        roomTypeId: input.roomTypeId, startsOn: input.oldStartsOn, endsOn: input.oldEndsOn, units: 1,
+      });
+    }
+    let available = pooled
+      ? await this.reserveBookedUnits(tx, tenantId, propertyId, { ...input, units: 1 })
+      : !!input.roomId;
+    if (available && input.roomId) {
+      await this.lockRoom(tx, tenantId, propertyId, input.roomId);
+      available = await this.roomIsAvailable(
+        tx, tenantId, propertyId, { ...input, roomId: input.roomId }, input.bookingId,
+      );
+    }
+    if (!apply || !available)
+      await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT booking_amend_inventory');
+    await tx.$executeRawUnsafe('RELEASE SAVEPOINT booking_amend_inventory');
+    return available;
+  }
+
   async releaseBookedUnits(
     tx: TenantTransaction,
     tenantId: string,
@@ -884,6 +919,7 @@ export class AvailabilityService {
     tenantId: string,
     propertyId: string,
     input: RoomBookedInput,
+    excludeBookingId?: string,
   ): Promise<boolean> {
     const rows = await tx.$queryRaw<Array<{ isAvailable: boolean }>>`
       SELECT
@@ -910,6 +946,7 @@ export class AvailabilityService {
           WHERE tenant_id = ${tenantId}::uuid
             AND property_id = ${propertyId}::uuid
             AND room_id = ${input.roomId}::uuid
+            AND (${excludeBookingId ?? null}::uuid IS NULL OR id <> ${excludeBookingId ?? null}::uuid)
             AND starts_on < ${input.endsOn}::date
             AND ends_on > ${input.startsOn}::date
             AND status IN (

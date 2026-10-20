@@ -1,4 +1,7 @@
 'use client';
+import { ChangeBookingDatesDialog } from './change-booking-dates-dialog';
+import { minorUnits as paymentMinor, money as decimalMoney } from './payment-status';
+import { Alert, AlertTitle, AlertDescription } from '../../components/ui/alert';
 import { EditBookingDetailsDialog } from './edit-booking-details-dialog';
 import { CancellationDialog } from './cancellation-dialog';
 
@@ -130,6 +133,7 @@ const dateTime = (value: string) =>
 
 const ACTIVITY_LABELS: Record<string, string> = {
   'booking.created': 'Reservation created',
+  'booking.dates_amended': 'Reservation dates changed',
   'booking.details_edited': 'Reservation details edited',
   'booking.cancelled': 'Reservation cancelled',
   'booking.clock_reservation_created': 'Reservation created in Clock',
@@ -156,7 +160,7 @@ function activityIcon(action: string): { icon: LucideIcon; tone: ActivityEntry['
 function activityDetail(details: Record<string, unknown>) {
   const parts: string[] = [];
   if (details.changes && typeof details.changes === 'object') {
-    const labels: Record<string,string> = {firstName:'First name',lastName:'Last name',email:'Email',phone:'Phone',specialRequests:'Notes',estimatedArrivalTime:'Estimated arrival',adults:'Adults',children:'Children'};
+    const labels: Record<string,string> = {firstName:'First name',lastName:'Last name',email:'Email',phone:'Phone',specialRequests:'Notes',estimatedArrivalTime:'Estimated arrival',adults:'Adults',children:'Children',startsOn:'Check-in date',endsOn:'Check-out date',total:'Total'};
     for(const [key,value] of Object.entries(details.changes)) {
       const change=value as {old?:unknown;new?:unknown};
       parts.push(`${labels[key] ?? key}: ${change.old ?? '(empty)'} -> ${change.new ?? '(empty)'}`);
@@ -224,6 +228,7 @@ export function ReservationDetail({
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const queryClient = useQueryClient();
   const [cancelling, setCancelling] = useState(false);
+  const [changingDates, setChangingDates] = useState(false);
   const [editingDetails, setEditingDetails] = useState(false);
   const [showAllActivity, setShowAllActivity] = useState(false);
   const unseen = useUnseenBookings(tenantId, propertyId);
@@ -368,6 +373,7 @@ export function ReservationDetail({
   const hasClock = booking.clockFolios.length > 0 || !!booking.externalBookingId;
   const firstCharge = ledger.data?.find((entry) => entry.kind === 'CHARGE');
   const received = Number(booking.paidAmount) - Number(booking.refundedAmount);
+  const amendmentRefundDue = paymentMinor(booking.paidAmount) - paymentMinor(booking.refundedAmount) - paymentMinor(booking.total.amount);
   const lastClock = booking.activity.find((event) => event.action.startsWith('booking.clock'));
   const methodLabel = booking.paymentMethod.toLowerCase().replaceAll('_', ' ');
   const methodTitle = methodLabel.charAt(0).toUpperCase() + methodLabel.slice(1);
@@ -425,6 +431,11 @@ export function ReservationDetail({
                 <Pencil aria-hidden="true" /> Edit details
               </Button>
             ) : null}
+            {canEditBooking ? (
+              <Button variant="outline" onClick={() => setChangingDates(true)}>
+                <CalendarDays aria-hidden="true" /> Change dates
+              </Button>
+            ) : null}
             {canRefundPayment && refundable ? (
               <Button
                 variant="outline"
@@ -451,6 +462,25 @@ export function ReservationDetail({
         initial={{firstName:booking.guestFirstName??'',lastName:booking.guestLastName??'',email:booking.guestEmail??'',phone:booking.guestPhone??'',specialRequests:booking.specialRequests??'',estimatedArrivalTime:booking.estimatedArrivalTime??'',adults:booking.adults,children:booking.children}}
         maxOccupancy={booking.maxOccupancy} managedInClock={booking.detailsManagedInClock ?? !!booking.externalBookingId}
         onClose={()=>setEditingDetails(false)} onSaved={async()=>{await queryClient.invalidateQueries({queryKey:['dashboard']});}}/> : null}
+      {changingDates ? (
+        <ChangeBookingDatesDialog
+          tenantId={tenantId} propertyId={propertyId} bookingId={booking.id}
+          startsOn={booking.startsOn} endsOn={booking.endsOn}
+          managedInClock={booking.detailsManagedInClock ?? !!booking.externalBookingId}
+          onClose={() => setChangingDates(false)}
+          onSaved={async () => { await queryClient.invalidateQueries({ queryKey: ['dashboard'] }); }}
+        />
+      ) : null}
+      {amendmentRefundDue > 0n ? (
+        <Alert variant="warning">
+          <AlertTitle>Refund due</AlertTitle>
+          <AlertDescription>
+            {booking.total.currency} {decimalMoney(amendmentRefundDue)} is owed to the guest.{' '}
+            {canRefundPayment ? 'Use Refund to issue it separately.' : 'Ask someone with refund permission to issue it.'}{' '}
+            No refund has been issued automatically.
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <BookingReviewCard
         tenantId={tenantId}
         propertyId={propertyId}

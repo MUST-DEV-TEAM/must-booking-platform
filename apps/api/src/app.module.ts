@@ -1,3 +1,5 @@
+import { BookingAmendService } from './booking/booking-amend.service';
+import { BookingAmendController } from './booking/booking-amend.controller';
 import { BookingDetailsService } from './booking/booking-details.service';
 import { BookingDetailsController } from './booking/booking-details.controller';
 import { BookingRequestsService } from './booking/booking-requests.service';
@@ -294,6 +296,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     BookingController,
     BookingRequestsController,
     BookingDetailsController,
+    BookingAmendController,
     StaffBookingController,
     PublicBookingController,
     StripeWebhookController,
@@ -381,6 +384,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     LocalPmsProvider,
     BookingRequestsService,
     BookingDetailsService,
+    BookingAmendService,
     { provide: PMS_PROVIDER, useExisting: LocalPmsProvider },
     StripePaymentProvider,
     PokPayPaymentProvider,

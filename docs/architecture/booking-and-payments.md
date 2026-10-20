@@ -28,6 +28,16 @@ Local nightly snapshots additionally retain calculation component IDs, versions,
 
 QuoteService creates a signed, session-bound snapshot (default 15 minutes) of scope, stay, selection, amount, nightly breakdown and normalized occupancy. Adults/children are primary; `guestCount` is a compatibility total. Validation checks expiry, signature, session binding and input consistency. Display-price caches are advisory and do not replace a quote or the final check.
 
+## Staff date amendments (B2b v1)
+
+`booking/booking-amend.controller.ts` exposes scoped `GET :bookingId/amend-preview?startsOn=&endsOn=` and `PATCH :bookingId/amend`. Both require `bookings.edit`; writes also require verified email. Confirm accepts dates, `expectedVersion`, `previewHash`, a required reason, `notifyGuest` (default false), and an `Idempotency-Key`. A scoped request hash gives identical replays and HTTP 409 for changed payloads. Confirm recomputes the preview under the property/booking locks and uses a booking-version CAS. Preview hashes cover scope, version, ledger balance, rule outcomes and the pricing-v2 calculation.
+
+Only local confirmed/payment-not-required stays are eligible. Clock-managed/imported, cancelled, checked-out and completed stays are read-only; v1 conservatively also refuses stays reaching checkout today in the property timezone. Ambiguous shared order captures fail closed until finance can establish the per-booking payment split. Pending checkout amendments are deferred to avoid leaving a live payment link for an obsolete amount. The same room type, rate plan and assigned room are preserved; room/rate changes are deferred. New dates use current staff-channel pricing and shared property/restriction rules, with a 366-night v1 limit.
+
+Availability reuses creation's pooled-stock and physical-room checks, excluding the booking's own hold. A savepoint rolls preview claims back; confirm releases old pooled nights, claims new nights and updates dates/total/nightly snapshots in one transaction. Assigned-room holds remain booking rows. Failure rolls back inventory, booking, audit and operation together. One audit entry records old/new dates and total, reason and actor. Search, overview, calendar and reports read the shared booking columns; existing report caching still applies.
+
+No card charge or refund is triggered by an amendment, including for refund-capable staff. The new total minus paid less refunded is the resulting balance. Overpayments appear as a derived **Refund due** item on the booking; executing a separate existing refund still requires `payments.refund`. Collection uses existing manual payment/PokPay actions. `notifyGuest` invokes the existing booking-changed email after commit, retaining that service's eligibility, best-effort delivery and deduplication behavior; no new template or outbox is added.
+
 ## Shared booking and block rules
 
 `apps/api/src/booking/booking-rules.ts` owns pure policy decisions. Quote validation, availability preflight, Clock minimum-stay projection and manual block validation call it; database inventory claims and reservation locks remain the final concurrency safeguards. The dashboard consumes evaluated results instead of reimplementing date or stay rules.
