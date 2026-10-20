@@ -481,6 +481,43 @@ describe('hotel detail', () => {
   });
 });
 
+describe('direct owner-level access (temporary)', () => {
+  const directAdmin = {
+    ...superAdmin,
+    capabilities: [...superAdmin.capabilities, 'platform.support.direct'],
+  };
+
+  it('enters at once with no reason, and sends the banner choice', async () => {
+    const { calls } = mockConsoleFetch({
+      'GET /hotels/hotel-1': detail(),
+      'GET /hotels/hotel-1/onboarding': checklist,
+      'GET /support-sessions': { sessions: [] },
+      'POST /support-sessions': {
+        status: 201,
+        body: { id: 's-1', status: 'ACTIVE', kind: 'ACT', direct: true, showBanner: false },
+      },
+      'POST /support-sessions/s-1/enter': { dashboardPath: '/dashboard/hotel-1' },
+    });
+    const view = await mount(
+      withQueries(
+        createElement(ConsoleSessionProvider, { me: directAdmin }, createElement(HotelDetailView)),
+      ),
+    );
+    await flush(6);
+    await click(button(view.container, 'Open as support'));
+    await flush(3);
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain('Enter as the hotel owner');
+    await click(dialog.querySelector('[aria-label="Show the support banner while I am inside"]')!);
+    await click(button(dialog, 'Enter now'));
+    await flush(4);
+    const post = calls.find((call) => call.path === '/support-sessions' && call.method === 'POST');
+    expect(post?.body).toMatchObject({ direct: true, showBanner: false, reason: '' });
+    expect(dialog.textContent).not.toContain('Explain why');
+    await view.unmount();
+  });
+});
+
 describe('team page', () => {
   const members = {
     members: [

@@ -270,6 +270,9 @@ export type SupportSession = {
   approvedAt: string | null;
   endedAt: string | null;
   endedBy: string | null;
+  /** Temporary Super admin shortcut: no approval, reason or expiry. */
+  direct: boolean;
+  showBanner: boolean;
 };
 
 export type TeamMember = {

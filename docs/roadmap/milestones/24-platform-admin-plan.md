@@ -158,6 +158,18 @@ Basic by decision. Implemented: separate cookie (`must_platform`, HttpOnly, Same
 - Console tests 57/57. Full API suite (run in batches against `must_booking_platform` with `vitest.platform.local.config.ts`): only `local-demo-seed`, `local-pms-provider`, `overview-front-desk` and `public-catalog-individual-rooms` fail, all failing before this work. Web: all pass (one `reports.test.tsx` flake passes alone).
 - Before production: set `PLATFORM_TRUSTED_PROXY_HOPS`; confirm the production image can run the migration script (`tsx`, `MIGRATION_DATABASE_URL`).
 
+### Direct access: temporary shortcut (owner decision 2026-10-20)
+
+A Super admin (capability `platform.support.direct`) can enter any hotel as its owner at once. This replaces the approval flow for that role and is **temporary**; the safeguards below are to be restored when the console is hardened.
+
+- No approval, no reason (optional note), no expiry (open until the admin ends it; the cookie is a browser-session cookie), no act-as allow-list, no lifecycle limits.
+- The banner is optional (tick box on entry).
+- Hidden from the hotel: the owner's session list and notice never show it, the owner cannot approve/deny/end it, and hotel audit rows written while it runs are flagged `hidden` by a database trigger and hidden from every hotel read by a restrictive row-level-security policy (only `platform_admin` and `platform_console` roles see them). Everything is recorded in the platform audit log (`platform.support.direct_started` plus one `platform.support.request` row per request).
+- Rows written by the hotel's own services during the session are attributed to the owner's user id (the session acts as the owner); they are flagged hidden, so the owner cannot see them, but they stay in the database for platform roles.
+- Migration `20261020050000_platform_direct_access`. Tests: `test/platform-console-direct.e2e.spec.ts`.
+- **To restore later:** mandatory reason, expiry and re-authentication, owner notice, approval for a second admin, two-factor, the act-as allow-list and protection of hotel-wide actions (hotel deletion, owner credentials, billing), and a console view of the hidden hotel audit rows.
+- Existing admin accounts: `pnpm migrate:platform-admins --apply` carries flagged users over to Super admin console accounts (same email and password). It stays a deliberate one-time step at go-live; it is not run by a migration.
+
 ## Assumptions
 
 - Hotel suspension had no effect before this work; the new effects are defined in State machines. Archived hotels allow read-only sign-in.

@@ -24,6 +24,7 @@ export function SupportBanner({
   expiresAt,
   onEnd,
   ending = false,
+  direct = false,
 }: {
   kind: 'VIEW' | 'ACT';
   /** The platform account's name or email. */
@@ -31,6 +32,8 @@ export function SupportBanner({
   expiresAt: string;
   onEnd: () => void;
   ending?: boolean;
+  /** A direct (owner-level) session: no time limit to show. */
+  direct?: boolean;
 }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -51,10 +54,14 @@ export function SupportBanner({
     >
       <p className="m-0 flex items-center gap-2 font-semibold">
         <Icon aria-hidden="true" className="size-4 shrink-0" />
-        {acting
-          ? `Support access: ${who} can make limited changes on this hotel’s behalf. Every action is recorded.`
-          : `Support access: ${who} is viewing this hotel. Read-only; nothing can be changed.`}
-        <span className="font-normal opacity-80">· {timeLeft(expiresAt, now)}</span>
+        {direct
+          ? `Direct access: ${who} is inside this hotel as its owner. Every action is recorded in the platform log.`
+          : acting
+            ? `Support access: ${who} can make limited changes on this hotel’s behalf. Every action is recorded.`
+            : `Support access: ${who} is viewing this hotel. Read-only; nothing can be changed.`}
+        {direct ? null : (
+          <span className="font-normal opacity-80">· {timeLeft(expiresAt, now)}</span>
+        )}
       </p>
       <Button variant="outline" size="sm" onClick={onEnd} loading={ending}>
         End session

@@ -101,6 +101,13 @@ export const PLATFORM_CAPABILITY_CATALOG: readonly PlatformCapabilityEntry[] = [
     label: 'Export the audit log',
     description: 'Download the audit log as CSV.',
   },
+  {
+    group: 'Support',
+    key: 'platform.support.direct',
+    label: 'Enter a hotel directly as its owner',
+    description:
+      'Temporary: no approval, reason or expiry; hidden from the hotel. Recorded in the platform log only.',
+  },
 ] as const;
 
 export const PLATFORM_CAPABILITY_KEYS: readonly string[] = PLATFORM_CAPABILITY_CATALOG.map(

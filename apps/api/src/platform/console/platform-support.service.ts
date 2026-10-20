@@ -24,6 +24,8 @@ export const SUPPORT_COOKIE = 'must_support';
 export const VIEW_DEFAULT_MINUTES = 60;
 export const VIEW_MAX_MINUTES = 120;
 export const ACT_MAX_MINUTES = 60;
+/** A direct session has no expiry; the stored end date is only a far-future placeholder. */
+const DIRECT_PLACEHOLDER_YEARS = 10;
 /** How long an act-as request waits for approval before it lapses. */
 export const APPROVAL_WINDOW_MINUTES = 30;
 
@@ -47,6 +49,9 @@ export interface SupportSessionSummary {
   approvedAt: string | null;
   endedAt: string | null;
   endedBy: string | null;
+  /** Temporary Super admin shortcut: no approval, reason or expiry; hidden from the hotel. */
+  direct: boolean;
+  showBanner: boolean;
 }
 
 type Row = {
@@ -67,6 +72,8 @@ type Row = {
   approvedAt: string | null;
   endedAt: string | null;
   endedBy: string | null;
+  direct: boolean;
+  showBanner: boolean;
   hotelName?: string;
 };
 
@@ -75,7 +82,7 @@ const COLUMNS = `s."id", s."tenant_id" AS "tenantId", s."platform_account_id" AS
   s."reason", s."duration_minutes" AS "durationMinutes", s."created_at" AS "createdAt",
   s."starts_at" AS "startsAt", s."expires_at" AS "expiresAt", s."approval_method" AS "approvalMethod",
   s."approved_by" AS "approvedBy", s."approved_at" AS "approvedAt", s."ended_at" AS "endedAt",
-  s."ended_by" AS "endedBy"`;
+  s."ended_by" AS "endedBy", s."direct", s."show_banner" AS "showBanner"`;
 
 const COLS = Prisma.raw(COLUMNS);
 
@@ -96,6 +103,8 @@ export const toSummary = (row: Row): SupportSessionSummary => ({
   approvedAt: row.approvedAt,
   endedAt: row.endedAt,
   endedBy: row.endedBy,
+  direct: row.direct,
+  showBanner: row.showBanner,
 });
 
 export interface ResolvedSupportAccess {
@@ -107,6 +116,8 @@ export interface ResolvedSupportAccess {
   expiresAt: string;
   ownerUserId: string;
   lifecycleState: LifecycleState;
+  direct: boolean;
+  showBanner: boolean;
 }
 
 @Injectable()
@@ -126,7 +137,10 @@ export class PlatformSupportService {
       kind?: unknown;
       reason?: unknown;
       durationMinutes?: unknown;
+      direct?: unknown;
+      showBanner?: unknown;
     };
+    if (body.direct === true) return this.createDirect(body, ctx);
     if (body.kind !== 'VIEW' && body.kind !== 'ACT')
       throw new BadRequestException('kind must be VIEW or ACT.');
     const kind: SupportKind = body.kind;
@@ -172,7 +186,8 @@ export class PlatformSupportService {
             account_email AS "accountEmail", account_name AS "accountName", kind, status, reason,
             duration_minutes AS "durationMinutes", created_at AS "createdAt", starts_at AS "startsAt",
             expires_at AS "expiresAt", approval_method AS "approvalMethod", approved_by AS "approvedBy",
-            approved_at AS "approvedAt", ended_at AS "endedAt", ended_by AS "endedBy"
+            approved_at AS "approvedAt", ended_at AS "endedAt", ended_by AS "endedBy", direct,
+            show_banner AS "showBanner"
         `;
       } catch (error) {
         if ((error as { meta?: { code?: string } }).meta?.code === '23505')
@@ -199,6 +214,67 @@ export class PlatformSupportService {
         targetType: 'support_session',
         targetId: session.id,
         details: { kind, reason, performedBy: actor.email, expiresAt: session.expiresAt },
+      });
+      return session;
+    });
+  }
+
+  /**
+   * TEMPORARY Super admin shortcut: enters the hotel as its owner at once. No approval, reason or
+   * expiry; the banner is optional. Only the platform log records it. The hotel never sees it.
+   */
+  private async createDirect(
+    body: { tenantId?: unknown; reason?: unknown; showBanner?: unknown },
+    ctx: PlatformRequestContext,
+  ): Promise<SupportSessionSummary> {
+    const actor = requireActor(ctx);
+    if (!actor.capabilities.includes('platform.support.direct'))
+      throw new ForbiddenException('Your platform role does not allow this.');
+    if (typeof body.tenantId !== 'string' || !/^[0-9a-f-]{36}$/i.test(body.tenantId))
+      throw new BadRequestException('A hotel is required.');
+    const tenantId = body.tenantId;
+    const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 500) : '';
+    const showBanner = body.showBanner !== false;
+    ctx.hint.tenantId = tenantId;
+    if (reason) ctx.hint.reason = reason;
+
+    return this.database.withConsoleTenantTransaction({ tenantId }, async (tx) => {
+      const orgs = await tx.$queryRaw<Array<{ name: string }>>`
+        SELECT "name" FROM "organizations" WHERE "id" = ${tenantId}::uuid FOR SHARE
+      `;
+      if (!orgs[0]) throw new NotFoundException('Hotel not found.');
+      await this.expireStale(tx, tenantId);
+      // One open session per person and hotel: a new direct entry replaces the previous one.
+      await tx.$executeRaw`
+        UPDATE "support_sessions" SET "status" = 'REVOKED', "ended_at" = now(), "ended_by" = ${actor.email},
+          "token_hash" = NULL, "version" = "version" + 1
+        WHERE "tenant_id" = ${tenantId}::uuid AND "platform_account_id" = ${actor.accountId}::uuid
+          AND "status" IN ('PENDING_APPROVAL', 'ACTIVE')
+      `;
+      const created = await tx.$queryRaw<Row[]>`
+        INSERT INTO "support_sessions" ("tenant_id", "platform_account_id", "account_email", "account_name",
+          "kind", "status", "reason", "duration_minutes", "starts_at", "expires_at", "approved_by",
+          "approved_at", "direct", "show_banner")
+        VALUES (${tenantId}::uuid, ${actor.accountId}::uuid, ${actor.email}, ${actor.name}, 'ACT', 'ACTIVE',
+          ${reason}, 120, now(), now() + (${DIRECT_PLACEHOLDER_YEARS} * interval '1 year'), ${actor.email},
+          now(), true, ${showBanner})
+        RETURNING id, tenant_id AS "tenantId", platform_account_id AS "accountId",
+          account_email AS "accountEmail", account_name AS "accountName", kind, status, reason,
+          duration_minutes AS "durationMinutes", created_at AS "createdAt", starts_at AS "startsAt",
+          expires_at AS "expiresAt", approval_method AS "approvalMethod", approved_by AS "approvedBy",
+          approved_at AS "approvedAt", ended_at AS "endedAt", ended_by AS "endedBy", direct,
+          show_banner AS "showBanner"
+      `;
+      const session = toSummary({ ...created[0]!, hotelName: orgs[0].name });
+      ctx.hint.targetId = session.id;
+      await this.audit.recordInTransaction(tx, ctx, {
+        action: 'platform.support.direct_started',
+        tenantId,
+        targetType: 'support_session',
+        targetId: session.id,
+        reason: reason || undefined,
+        supportSessionId: session.id,
+        after: { direct: true, showBanner },
       });
       return session;
     });
@@ -315,15 +391,16 @@ export class PlatformSupportService {
         before: { status: current.status },
         after: { status: 'REVOKED' },
       });
-      await this.hotelAudit.recordInTransaction(tx, {
-        tenantId,
-        actorUserId: actor.accountId,
-        actorType: 'PLATFORM_ADMIN',
-        action: 'support.session.ended',
-        targetType: 'support_session',
-        targetId: id,
-        details: { endedBy: actor.email, by: 'platform', requestedBy: current.accountEmail },
-      });
+      if (!current.direct)
+        await this.hotelAudit.recordInTransaction(tx, {
+          tenantId,
+          actorUserId: actor.accountId,
+          actorType: 'PLATFORM_ADMIN',
+          action: 'support.session.ended',
+          targetType: 'support_session',
+          targetId: id,
+          details: { endedBy: actor.email, by: 'platform', requestedBy: current.accountEmail },
+        });
       return toSummary(row);
     });
   }
@@ -366,7 +443,7 @@ export class PlatformSupportService {
     return this.database.withConsoleTenantTransaction({ tenantId }, async (tx) => {
       await this.expireStale(tx, tenantId);
       const rows = await tx.$queryRaw<Row[]>(
-        Prisma.sql`SELECT ${COLS} FROM "support_sessions" s WHERE s."tenant_id" = ${tenantId}::uuid ORDER BY s."created_at" DESC LIMIT 100`,
+        Prisma.sql`SELECT ${COLS} FROM "support_sessions" s WHERE s."tenant_id" = ${tenantId}::uuid AND s."direct" = false ORDER BY s."created_at" DESC LIMIT 100`,
       );
       return rows.map(toSummary);
     });
@@ -381,7 +458,8 @@ export class PlatformSupportService {
   ): Promise<SupportSessionSummary> {
     return this.database.withConsoleTenantTransaction({ tenantId }, async (tx) => {
       const current = await this.lock(tx, id);
-      if (current.tenantId !== tenantId) throw new NotFoundException('Support session not found.');
+      if (current.tenantId !== tenantId || current.direct)
+        throw new NotFoundException('Support session not found.');
       const row =
         decision === 'approve'
           ? await this.decide(tx, id, 'OWNER', ownerEmail)
@@ -472,15 +550,16 @@ export class PlatformSupportService {
         VALUES ('platform.support.ended', ${access.tenantId}::uuid, 'support_session', ${access.sessionId},
           'succeeded', ${access.sessionId}::uuid, ${access.accountId}::uuid, ${access.accountEmail}, '{"by":"requester"}'::jsonb)
       `;
-      await this.hotelAudit.recordInTransaction(tx, {
-        tenantId: access.tenantId,
-        actorUserId: access.accountId,
-        actorType: 'PLATFORM_ADMIN',
-        action: 'support.session.ended',
-        targetType: 'support_session',
-        targetId: access.sessionId,
-        details: { endedBy: access.accountEmail, by: 'requester' },
-      });
+      if (!access.direct)
+        await this.hotelAudit.recordInTransaction(tx, {
+          tenantId: access.tenantId,
+          actorUserId: access.accountId,
+          actorType: 'PLATFORM_ADMIN',
+          action: 'support.session.ended',
+          targetType: 'support_session',
+          targetId: access.sessionId,
+          details: { endedBy: access.accountEmail, by: 'requester' },
+        });
     });
   }
 
@@ -519,7 +598,12 @@ export class PlatformSupportService {
           ${JSON.stringify({ mode: access.kind, method: entry.method, route: entry.route, reason: entry.reason ?? null })}::jsonb)
       `;
       // The owner sees what an act-as session did in their own audit log.
-      if (access.kind === 'ACT' && entry.method !== 'GET' && entry.method !== 'HEAD')
+      if (
+        !access.direct &&
+        access.kind === 'ACT' &&
+        entry.method !== 'GET' &&
+        entry.method !== 'HEAD'
+      )
         await this.hotelAudit.recordInTransaction(tx, {
           tenantId: access.tenantId,
           actorUserId: access.accountId,
@@ -556,10 +640,12 @@ export class PlatformSupportService {
         capabilities: string[];
         lifecycleState: LifecycleState;
         ownerUserId: string | null;
+        direct: boolean;
+        showBanner: boolean;
       }>
     >`
       SELECT s."id" AS "sessionId", s."kind", a."id" AS "accountId", a."email" AS "accountEmail",
-        s."expires_at" AS "expiresAt", r."capabilities", o."lifecycle_state"::text AS "lifecycleState",
+        s."expires_at" AS "expiresAt", r."capabilities", o."lifecycle_state"::text AS "lifecycleState", s."direct", s."show_banner" AS "showBanner",
         (SELECT tm."user_id" FROM "tenant_memberships" tm
           WHERE tm."tenant_id" = s."tenant_id" AND tm."role" = 'OWNER'::"TenantMembershipRole"
           ORDER BY tm."created_at" LIMIT 1) AS "ownerUserId"
@@ -572,7 +658,11 @@ export class PlatformSupportService {
     `;
     const row = rows[0];
     if (!row || !row.ownerUserId) return null;
-    const needed = row.kind === 'VIEW' ? 'platform.support.view_as' : 'platform.support.act_as';
+    const needed = row.direct
+      ? 'platform.support.direct'
+      : row.kind === 'VIEW'
+        ? 'platform.support.view_as'
+        : 'platform.support.act_as';
     if (!row.capabilities.includes(needed)) return null;
     return {
       sessionId: row.sessionId,
@@ -583,6 +673,8 @@ export class PlatformSupportService {
       expiresAt: row.expiresAt,
       ownerUserId: row.ownerUserId,
       lifecycleState: row.lifecycleState,
+      direct: row.direct,
+      showBanner: row.showBanner,
     };
   }
 

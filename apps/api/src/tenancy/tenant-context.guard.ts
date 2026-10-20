@@ -200,7 +200,10 @@ export class TenantContextGuard implements CanActivate {
       throw new ForbiddenException({ message, code: 'SUPPORT_ACCESS_LIMITED' });
     };
 
-    if (access.kind === 'VIEW') {
+    if (access.direct) {
+      // TEMPORARY Super admin shortcut: full owner-level access, no allow-list and no lifecycle
+      // limits. Every request is still written to the platform log below.
+    } else if (access.kind === 'VIEW') {
       if (!SAFE_METHODS.has(method))
         return refuse('view-only session', 'This is a view-only support session.');
     } else {
@@ -231,6 +234,7 @@ export class TenantContextGuard implements CanActivate {
       platformAccountId: access.accountId,
       performedBy: access.accountEmail,
       mode: access.kind,
+      hidden: access.direct,
     });
     await this.support.recordRequest(access, { ...meta, result: 'succeeded' });
     request.tenantContext = {

@@ -1,11 +1,12 @@
 'use client';
 
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Eye, ShieldAlert } from 'lucide-react';
+import { Eye, KeyRound, ShieldAlert } from 'lucide-react';
 import { useState } from 'react';
 
 import { Alert, AlertDescription, AlertTitle } from '../../../../../components/ui/alert';
 import { Button } from '../../../../../components/ui/button';
+import { Checkbox } from '../../../../../components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -35,7 +36,7 @@ import {
 import { formatDateTime } from '../../../../../lib/platform-format';
 import { useConsoleSession } from '../../console-frame';
 
-type Kind = 'VIEW' | 'ACT';
+type Kind = 'VIEW' | 'ACT' | 'DIRECT';
 
 /** Opens a time-limited support session on this hotel: view-only, or limited changes after approval. */
 export function SupportAccessDialog({
@@ -50,7 +51,9 @@ export function SupportAccessDialog({
   const { can } = useConsoleSession();
   const canView = can('platform.support.view_as');
   const canAct = can('platform.support.act_as');
-  const [kind, setKind] = useState<Kind>(canView ? 'VIEW' : 'ACT');
+  const canDirect = can('platform.support.direct');
+  const [kind, setKind] = useState<Kind>(canDirect ? 'DIRECT' : canView ? 'VIEW' : 'ACT');
+  const [showBanner, setShowBanner] = useState(true);
   const [reason, setReason] = useState('');
   const [minutes, setMinutes] = useState('60');
   const [problem, setProblem] = useState<string | null>(null);
@@ -80,12 +83,17 @@ export function SupportAccessDialog({
 
   const request = useMutation({
     mutationFn: () =>
-      consolePost<SupportSession>('/support-sessions', {
-        tenantId: hotel.id,
-        kind,
-        reason: reason.trim(),
-        durationMinutes: Number(minutes),
-      }),
+      consolePost<SupportSession>(
+        '/support-sessions',
+        kind === 'DIRECT'
+          ? { tenantId: hotel.id, direct: true, reason: reason.trim(), showBanner }
+          : {
+              tenantId: hotel.id,
+              kind,
+              reason: reason.trim(),
+              durationMinutes: Number(minutes),
+            },
+      ),
     onSuccess: (session) => {
       if (session.status === 'ACTIVE') enter.mutate(session.id);
       else setRequested(session);
@@ -127,7 +135,9 @@ export function SupportAccessDialog({
             </AlertTitle>
             <AlertDescription>
               {mine.status === 'ACTIVE'
-                ? `It ends ${formatDateTime(mine.expiresAt)}.`
+                ? mine.direct
+                  ? 'It stays open until you end it.'
+                  : `It ends ${formatDateTime(mine.expiresAt)}.`
                 : 'It is waiting for approval.'}
               {mine.status === 'ACTIVE' ? (
                 <Button size="sm" onClick={() => enter.mutate(mine.id)} loading={enter.isPending}>
@@ -147,6 +157,15 @@ export function SupportAccessDialog({
               </Alert>
             ) : null}
             <div role="radiogroup" aria-label="Kind of access" className="flex flex-col gap-3">
+              <OptionCard
+                icon={KeyRound}
+                title="Enter as the hotel owner"
+                description="Full owner access, straight away. No approval, no time limit. The hotel owner is not told and never sees it; it is recorded only in the platform log."
+                disabled={!canDirect}
+                aside={!canDirect ? 'Super admin only' : undefined}
+                selected={kind === 'DIRECT'}
+                onSelect={() => setKind('DIRECT')}
+              />
               <OptionCard
                 icon={Eye}
                 title="View as the hotel (read-only)"
@@ -173,11 +192,15 @@ export function SupportAccessDialog({
               />
             </div>
             <FormField
-              label="Why do you need access?"
+              label={kind === 'DIRECT' ? 'Note (optional)' : 'Why do you need access?'}
               htmlFor="support-reason"
-              required
+              required={kind !== 'DIRECT'}
               error={problem}
-              hint="Shown to the hotel owner and kept in the audit log."
+              hint={
+                kind === 'DIRECT'
+                  ? 'Kept in the platform log only.'
+                  : 'Shown to the hotel owner and kept in the audit log.'
+              }
             >
               <Textarea
                 id="support-reason"
@@ -187,20 +210,31 @@ export function SupportAccessDialog({
                 placeholder="For example: owner reported double bookings on 12 Nov"
               />
             </FormField>
-            <FormField label="How long">
-              <Select value={minutes} onValueChange={setMinutes}>
-                <SelectTrigger aria-label="Session length" className="w-48">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {durations.map((value) => (
-                    <SelectItem key={value} value={value}>
-                      {value} minutes
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </FormField>
+            {kind === 'DIRECT' ? (
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={showBanner}
+                  onCheckedChange={(value) => setShowBanner(value === true)}
+                  aria-label="Show the support banner while I am inside"
+                />
+                Show the support banner while I am inside
+              </label>
+            ) : (
+              <FormField label="How long">
+                <Select value={minutes} onValueChange={setMinutes}>
+                  <SelectTrigger aria-label="Session length" className="w-48">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {durations.map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {value} minutes
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormField>
+            )}
           </div>
         )}
 
@@ -212,7 +246,7 @@ export function SupportAccessDialog({
             <Button
               loading={request.isPending || enter.isPending}
               onClick={() => {
-                if (reason.trim().length < 10) {
+                if (kind !== 'DIRECT' && reason.trim().length < 10) {
                   setProblem('Explain why in at least 10 characters.');
                   return;
                 }
@@ -220,7 +254,11 @@ export function SupportAccessDialog({
                 request.mutate();
               }}
             >
-              {kind === 'VIEW' ? 'Start viewing' : 'Request approval'}
+              {kind === 'DIRECT'
+                ? 'Enter now'
+                : kind === 'VIEW'
+                  ? 'Start viewing'
+                  : 'Request approval'}
             </Button>
           ) : null}
         </DialogFooter>

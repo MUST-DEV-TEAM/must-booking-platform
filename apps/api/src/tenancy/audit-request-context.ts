@@ -11,6 +11,8 @@ export interface AuditSupportContext {
   platformAccountId: string;
   performedBy: string;
   mode: 'VIEW' | 'ACT';
+  /** Direct sessions are invisible to the hotel: the database hides their audit rows from it. */
+  hidden?: boolean;
 }
 const storage = new AsyncLocalStorage<{
   requestId: string;
@@ -63,6 +65,7 @@ export function currentAuditContext() {
                 performedBy: context.support.performedBy,
                 mode: context.support.mode,
                 onBehalfOfHotel: true,
+                ...(context.support.hidden ? { hidden: true } : {}),
               },
             }
           : {}),

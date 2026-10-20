@@ -16,6 +16,8 @@ type Session = {
   reason: string;
   requestedBy: { email: string; name: string | null };
   expiresAt: string;
+  direct?: boolean;
+  showBanner?: boolean;
 };
 
 function tenantFromPath(pathname: string | null): string | null {
@@ -96,8 +98,9 @@ export function SupportBar() {
 
   return (
     <>
-      {current ? (
+      {current && current.session.showBanner !== false ? (
         <SupportBanner
+          direct={current.session.direct === true}
           kind={current.session.kind}
           who={current.session.requestedBy.name ?? current.session.requestedBy.email}
           expiresAt={current.session.expiresAt}

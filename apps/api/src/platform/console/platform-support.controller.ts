@@ -26,13 +26,14 @@ type CookieResponse = {
   cookie(name: string, value: string, options: Record<string, unknown>): void;
 };
 
-export function supportCookieOptions(expiresAt: string) {
+export function supportCookieOptions(expiresAt: string, direct = false) {
   return {
     httpOnly: true,
     sameSite: 'strict' as const,
     secure: process.env.NODE_ENV === 'production',
     path: '/',
-    expires: new Date(expiresAt),
+    // A direct session has no expiry: its cookie lasts until the browser closes or the session ends.
+    ...(direct ? {} : { expires: new Date(expiresAt) }),
   };
 }
 
@@ -94,7 +95,7 @@ export class PlatformSupportController {
     @Res({ passthrough: true }) response: CookieResponse,
   ) {
     const { session, token } = await this.support.enter(id, ctx);
-    response.cookie(SUPPORT_COOKIE, token, supportCookieOptions(session.expiresAt));
+    response.cookie(SUPPORT_COOKIE, token, supportCookieOptions(session.expiresAt, session.direct));
     return { session, dashboardPath: `/dashboard/${session.tenantId}` };
   }
 }
