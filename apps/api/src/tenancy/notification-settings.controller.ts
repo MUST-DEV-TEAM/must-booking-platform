@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Put, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Param, Post, Put, Req } from '@nestjs/common';
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 import { RequiresCapability } from './capabilities.decorator';
 import { NotificationSettingsService } from './notification-settings.service';
@@ -29,6 +29,15 @@ export class NotificationSettingsController {
   update(@Param('topic') topic: string, @Body() body: unknown, @Req() request: RequestContext) {
     const c = request.tenantContext;
     return this.settings.update(c.tenantId, c.propertyId, c.userId, topic, body);
+  }
+
+  @Post(':topic/preview')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('settings.manage')
+  preview(@Param('topic') topic: string, @Body() body: unknown, @Req() request: RequestContext) {
+    const c = request.tenantContext;
+    return this.settings.preview(c.tenantId, c.propertyId, topic, body);
   }
 }
 

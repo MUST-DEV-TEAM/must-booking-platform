@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import type { UpdateNotificationTopicCommand } from '@must/domain-contracts';
 
 import type { TenantTransaction } from '../tenancy/tenant-database.service';
 import {
@@ -43,8 +44,11 @@ export async function staffRecipients(
   tx: TenantTransaction,
   context: Context,
   topic: NotificationTopic,
+  draft?: UpdateNotificationTopicCommand,
 ): Promise<StaffRecipient[]> {
-  const settings = await tx.$queryRaw<Array<{ custom: boolean; enabled: boolean }>>`
+  const settings = draft
+    ? [{ custom: draft.customStaffRecipients, enabled: draft.staffEnabled ?? true }]
+    : await tx.$queryRaw<Array<{ custom: boolean; enabled: boolean }>>`
     SELECT custom_staff_recipients AS custom, staff_enabled AS enabled FROM notification_topic_settings
     WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
       AND topic = ${topic}
@@ -54,31 +58,37 @@ export async function staffRecipients(
   const ownersOnly = 'defaultStaff' in definition && definition.defaultStaff === 'owners';
   const rows = settings[0]?.custom
     ? await tx.$queryRaw<StaffRecipient[]>`
+        WITH selected_rules AS (
+          SELECT target::text, membership_role::text, role_template_id, user_id, email
+          FROM notification_recipient_rules
+          WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
+            AND topic = ${topic} AND ${!draft}
+          UNION ALL
+          SELECT target, "membershipRole", "roleTemplateId"::uuid, "userId"::uuid, email
+          FROM jsonb_to_recordset(${JSON.stringify(draft?.rules ?? [])}::jsonb)
+            AS r(target text, "membershipRole" text, "roleTemplateId" text, "userId" text, email text)
+        )
         SELECT tm.user_id::text AS "staffUserId", u.email
-        FROM notification_recipient_rules nr
-        JOIN tenant_memberships tm ON tm.tenant_id = nr.tenant_id AND tm.role = nr.membership_role
+        FROM selected_rules nr
+        JOIN tenant_memberships tm ON tm.tenant_id = ${context.tenantId}::uuid AND tm.role::text = nr.membership_role
         JOIN users u ON u.id = tm.user_id
-        WHERE nr.tenant_id = ${context.tenantId}::uuid AND nr.property_id = ${context.propertyId}::uuid
-          AND nr.topic = ${topic} AND nr.target = 'MEMBERSHIP_ROLE'
+        WHERE nr.target = 'MEMBERSHIP_ROLE'
         UNION ALL
         SELECT psa.user_id::text, u.email
-        FROM notification_recipient_rules nr
-        JOIN property_staff_assignments psa ON psa.tenant_id = nr.tenant_id
-          AND psa.property_id = nr.property_id AND psa.role_template_id = nr.role_template_id
+        FROM selected_rules nr
+        JOIN property_staff_assignments psa ON psa.tenant_id = ${context.tenantId}::uuid
+          AND psa.property_id = ${context.propertyId}::uuid AND psa.role_template_id = nr.role_template_id
         JOIN users u ON u.id = psa.user_id
-        WHERE nr.tenant_id = ${context.tenantId}::uuid AND nr.property_id = ${context.propertyId}::uuid
-          AND nr.topic = ${topic} AND nr.target = 'ROLE_TEMPLATE'
+        WHERE nr.target = 'ROLE_TEMPLATE'
         UNION ALL
         SELECT nr.user_id::text, u.email
-        FROM notification_recipient_rules nr
+        FROM selected_rules nr
         JOIN users u ON u.id = nr.user_id
-        WHERE nr.tenant_id = ${context.tenantId}::uuid AND nr.property_id = ${context.propertyId}::uuid
-          AND nr.topic = ${topic} AND nr.target = 'STAFF_USER'
+        JOIN tenant_memberships tm ON tm.tenant_id = ${context.tenantId}::uuid AND tm.user_id = nr.user_id
+        WHERE nr.target = 'STAFF_USER'
         UNION ALL
         SELECT 'email:' || lower(nr.email), lower(nr.email)
-        FROM notification_recipient_rules nr
-        WHERE nr.tenant_id = ${context.tenantId}::uuid AND nr.property_id = ${context.propertyId}::uuid
-          AND nr.topic = ${topic} AND nr.target = 'EMAIL'
+        FROM selected_rules nr WHERE nr.target = 'EMAIL'
       `
     : ownersOnly
       ? await tx.$queryRaw<StaffRecipient[]>`
@@ -126,7 +136,7 @@ export async function staffRecipients(
     seen.add(key);
     return true;
   });
-  if (!recipients.length)
+  if (!recipients.length && !draft)
     logger.warn(
       `No staff recipients for ${topic} at property ${context.propertyId}: nobody at the hotel gets this email.`,
     );

@@ -8,6 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { Alert, AlertDescription } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
+import { Badge } from '../../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { SettingToggle as Toggle } from '../../components/ui/setting-toggle';
 import { Combobox } from '../../components/ui/combobox';
@@ -261,7 +262,7 @@ function fromRuleKey(value: string): NotificationRecipientRule {
   if (value.startsWith('user:')) return { target: 'STAFF_USER', userId: value.slice(5) };
   return { target: 'EMAIL', email: value.slice(6) };
 }
-function TopicEditor({
+export function TopicEditor({
   topic,
   options,
   base,
@@ -284,7 +285,22 @@ function TopicEditor({
     [days, setDays] = useState(topic.daysOffset?.value ?? 0),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
+  const [preview, setPreview] = useState<{
+    input: string;
+    guest: boolean;
+    staff: { email: string }[];
+    suppressed?: { email: string; reason: string }[];
+  } | null>(null);
   const writer = useRef(createEmailWriter()).current;
+  const draft = {
+    guestEnabled: guest,
+    ...(topic.hasStaffEmail ? { staffEnabled: staff } : {}),
+    customStaffRecipients: custom,
+    rules: custom ? rules.map(fromRuleKey) : [],
+    ...(topic.daysOffset ? { daysOffset: days } : {}),
+  };
+  const draftKey = JSON.stringify(draft);
+  const currentPreview = preview?.input === draftKey ? preview : null;
   const choices = [
     { value: 'role:OWNER', label: 'All owners', group: 'Account roles' },
     { value: 'role:ADMIN', label: 'All admins', group: 'Account roles' },
@@ -295,7 +311,8 @@ function TopicEditor({
     })),
     ...options.staff.map((member) => ({
       value: 'user:' + member.userId,
-      label: member.email,
+      label: member.name || member.email,
+      description: member.email,
       group: 'Staff',
     })),
     ...rules
@@ -309,12 +326,18 @@ function TopicEditor({
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {topic.hasGuestEmail ? (
-          <Toggle
-            label="Send guest email"
-            checked={guest}
-            disabled={!canWrite || busy}
-            onChange={setGuest}
-          />
+          <>
+            <Badge variant="outline">Guest (booking email)</Badge>
+            <p className="text-sm text-muted-foreground">
+              The guest address comes from the booking and cannot be replaced here.
+            </p>
+            <Toggle
+              label="Send guest email"
+              checked={guest}
+              disabled={!canWrite || busy}
+              onChange={setGuest}
+            />
+          </>
         ) : null}
         {topic.hasStaffEmail ? (
           <>
@@ -370,9 +393,10 @@ function TopicEditor({
               </>
             ) : null}
             <DetailList
+              stackOnMobile
               items={[
                 {
-                  label: 'Currently resolved recipients',
+                  label: 'Saved recipients',
                   value:
                     topic.staffRecipients.map((row) => row.email).join(', ') || 'No recipients',
                 },
@@ -393,6 +417,89 @@ function TopicEditor({
             />
           </FormField>
         ) : null}
+        <Button
+          variant="outline"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError('');
+            try {
+              const result = await emailRequest<{
+                guest: boolean;
+                staff: { email: string }[];
+                suppressed?: { email: string; reason: string }[];
+              }>(`${base}/notification-settings/${topic.topic}/preview`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: draftKey,
+              });
+              setPreview({ ...result, input: draftKey });
+            } catch (e) {
+              setPreview(null);
+              setError(e instanceof Error ? e.message : 'Recipient preview failed.');
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Preview recipients
+        </Button>
+        {currentPreview ? (
+          <div role="status" className="flex flex-col gap-2">
+            <DetailList
+              stackOnMobile
+              items={[
+                ...(topic.hasGuestEmail
+                  ? [
+                      {
+                        label: 'Guest',
+                        value: currentPreview.guest
+                          ? 'Guest (booking email)'
+                          : 'Guest email switched off',
+                      },
+                    ]
+                  : []),
+                ...(topic.hasStaffEmail
+                  ? [
+                      {
+                        label: 'Staff recipients for these choices',
+                        value:
+                          currentPreview.staff.map((row) => row.email).join(', ') ||
+                          'No recipients',
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+            {topic.hasStaffEmail && staff && !currentPreview.staff.length ? (
+              <Alert variant="warning">
+                <AlertDescription>
+                  No staff will receive this email. Choose recipients or restore the default list.
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            {currentPreview.suppressed?.length ? (
+              <Alert variant="warning">
+                <AlertDescription>
+                  Suppressed addresses will not receive this email:{' '}
+                  {currentPreview.suppressed
+                    .map(({ email, reason }) => `${email} (${reason})`)
+                    .join(', ')}
+                  . Review suppressed recipients below after resolving the delivery problem or
+                  confirming consent.
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            <p className="text-sm text-muted-foreground">
+              Preview only. Nothing was saved or sent. Membership and personal optional-email
+              preferences are checked again when sending.
+            </p>
+          </div>
+        ) : preview ? (
+          <p className="text-sm text-muted-foreground">
+            Choices changed. Preview recipients again.
+          </p>
+        ) : null}
         {error ? (
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
@@ -408,11 +515,7 @@ function TopicEditor({
                 `${base}/email-configuration/topics/${topic.topic}`,
                 {
                   version,
-                  guestEnabled: guest,
-                  ...(topic.hasStaffEmail ? { staffEnabled: staff } : {}),
-                  customStaffRecipients: custom,
-                  rules: custom ? rules.map(fromRuleKey) : [],
-                  ...(topic.daysOffset ? { daysOffset: days } : {}),
+                  ...draft,
                 },
                 'PUT',
               );

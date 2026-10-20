@@ -6,9 +6,11 @@ import { cn } from '../../lib/utils';
 export function DetailList({
   items,
   className,
+  stackOnMobile = false,
 }: {
   items: ReadonlyArray<{ label: string; value: ReactNode | null | undefined }>;
   className?: string;
+  stackOnMobile?: boolean;
 }) {
   const visible = items.filter(
     (item) => item.value !== null && item.value !== undefined && item.value !== '',
@@ -16,9 +18,22 @@ export function DetailList({
   return (
     <dl className={cn('divide-y', className)}>
       {visible.map((item) => (
-        <div key={item.label} className="flex items-start justify-between gap-4 py-2 text-sm">
+        <div
+          key={item.label}
+          className={cn(
+            'flex items-start justify-between gap-4 py-2 text-sm',
+            stackOnMobile && 'flex-col gap-1 sm:flex-row sm:gap-4',
+          )}
+        >
           <dt className="shrink-0 text-muted-foreground">{item.label}</dt>
-          <dd className="min-w-0 text-right font-medium break-words">{item.value}</dd>
+          <dd
+            className={cn(
+              'min-w-0 text-right font-medium break-words',
+              stackOnMobile && 'm-0 max-w-full text-left sm:text-right',
+            )}
+          >
+            {item.value}
+          </dd>
         </div>
       ))}
     </dl>
@@ -41,7 +56,9 @@ export function Field({ label, value }: { label: string; value: ReactNode | null
 export function SectionLabel({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-2">
-      <p className="m-0 text-[10px] font-bold tracking-wide text-muted-foreground uppercase">{children}</p>
+      <p className="m-0 text-[10px] font-bold tracking-wide text-muted-foreground uppercase">
+        {children}
+      </p>
       {action}
     </div>
   );

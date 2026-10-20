@@ -553,3 +553,19 @@ it('explains a check invalidated by credential rotation instead of showing the o
   );
   expect(document.body.textContent).toContain('No current result');
 });
+
+it('shows official Gmail app-password guidance and account-wide sending limits for SMTP', async () => {
+  server(smtp());
+  await render();
+  expect(document.body.textContent).toContain('2-Step Verification');
+  expect(document.body.textContent).toContain('500-message daily limit');
+  expect(document.body.textContent).toContain('up to 2,000 messages');
+  expect(
+    document.querySelector('a[href="https://support.google.com/accounts/answer/185833"]'),
+  ).toBeTruthy();
+  expect(
+    document.querySelector(
+      'a[href="https://knowledge.workspace.google.com/admin/gmail/gmail-sending-limits-in-google-workspace"]',
+    ),
+  ).toBeTruthy();
+});

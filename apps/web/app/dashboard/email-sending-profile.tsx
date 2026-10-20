@@ -345,6 +345,52 @@ function SendingEditor({
                 </FormField>
               </div>
             )}
+            {mode === 'SMTP' ? (
+              <Alert>
+                <AlertDescription className="flex flex-col gap-2">
+                  <span>
+                    Gmail / Google Workspace: enable 2-Step Verification and use an app password, if
+                    your account administrator allows it. Use your full email as the username. Your
+                    normal Google password will not work here.
+                  </span>
+                  <span>
+                    Personal Gmail has a 500-message daily limit. Workspace allows up to 2,000
+                    messages in a rolling 24 hours; trial accounts are limited to 500. Other account
+                    and recipient limits can be lower. These limits include mail sent outside MUST.
+                  </span>
+                  <span>
+                    Google or Microsoft sign-in is not available yet. Check your account policy
+                    before choosing SMTP.
+                  </span>
+                  <div className="flex flex-wrap gap-3">
+                    <a
+                      className="underline"
+                      href="https://support.google.com/accounts/answer/185833"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Google app-password setup
+                    </a>
+                    <a
+                      className="underline"
+                      href="https://support.google.com/mail/answer/22839"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Personal Gmail limits
+                    </a>
+                    <a
+                      className="underline"
+                      href="https://knowledge.workspace.google.com/admin/gmail/gmail-sending-limits-in-google-workspace"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Workspace sending limits
+                    </a>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            ) : null}
             {profile.credentialsPresent && !endpointChanged ? (
               <SettingToggle
                 label="Replace saved credentials"

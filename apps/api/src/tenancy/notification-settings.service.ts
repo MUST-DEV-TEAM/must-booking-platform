@@ -97,7 +97,8 @@ export class NotificationSettingsService {
         ORDER BY kind, name
       `;
       const staff = await tx.$queryRaw<NotificationSettingsResponse['options']['staff']>`
-        SELECT tm.user_id::text AS "userId", u.email, tm.role::text AS role
+        SELECT tm.user_id::text AS "userId", u.email, tm.role::text AS role,
+          COALESCE(NULLIF(trim(concat_ws(' ', u.first_name, u.last_name)), ''), u.email) AS name
         FROM tenant_memberships tm
         JOIN users u ON u.id = tm.user_id
         WHERE tm.tenant_id = ${tenantId}::uuid
@@ -109,6 +110,33 @@ export class NotificationSettingsService {
         ORDER BY tm.role, u.email
       `;
       return { topics, options: { roleTemplates, staff } };
+    });
+  }
+
+  /** Read-only resolution of an unsaved draft, using the production sending resolver. */
+  preview(tenantId: string, propertyId: string, topicParam: string, body: unknown) {
+    if (!isNotificationTopic(topicParam)) throw new NotFoundException('Unknown notification.');
+    const input = this.input(topicParam, body);
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      await this.requireTargetsBelongHere(tx, tenantId, propertyId, input.rules);
+      const recipients = NOTIFICATION_TOPICS[topicParam].staff
+        ? await staffRecipients(tx, { tenantId, propertyId }, topicParam, input)
+        : [];
+      const suppressions = recipients.length
+        ? await tx.$queryRaw<Array<{ email: string; reason: string }>>`
+        SELECT recipient AS email, reason FROM email_suppressions
+        WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND active
+          AND recipient = ANY(${recipients.map(({ email }) => email.toLowerCase())}::text[])
+      `
+        : [];
+      const blocked = new Set(suppressions.map((row) => row.email.toLowerCase()));
+      return {
+        guest: NOTIFICATION_TOPICS[topicParam].guest && input.guestEnabled,
+        staff: recipients
+          .filter(({ email }) => !blocked.has(email.toLowerCase()))
+          .map(({ email }) => ({ email })),
+        suppressed: suppressions,
+      };
     });
   }
 

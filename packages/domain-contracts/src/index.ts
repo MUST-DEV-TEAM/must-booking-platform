@@ -458,7 +458,12 @@ export interface NotificationSettingsResponse {
   topics: NotificationTopicSettings[];
   options: {
     roleTemplates: Array<{ id: string; name: string }>;
-    staff: Array<{ userId: string; email: string; role: 'OWNER' | 'ADMIN' | 'STAFF' }>;
+    staff: Array<{
+      userId: string;
+      email: string;
+      name?: string;
+      role: 'OWNER' | 'ADMIN' | 'STAFF';
+    }>;
   };
 }
 

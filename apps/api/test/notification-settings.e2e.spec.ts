@@ -145,8 +145,8 @@ describe('notification settings (who receives which email)', () => {
     );
     expect(settings.body.options.staff).toEqual(
       expect.arrayContaining([
-        { userId: ownerId, email: ownerEmail, role: 'OWNER' },
-        { userId: staffId, email: staffEmail, role: 'STAFF' },
+        { userId: ownerId, email: ownerEmail, name: ownerEmail, role: 'OWNER' },
+        { userId: staffId, email: staffEmail, name: staffEmail, role: 'STAFF' },
       ]),
     );
 
@@ -252,6 +252,50 @@ describe('notification settings (who receives which email)', () => {
     // The other hotel can't read or change this one.
     const otherCookie = other.headers['set-cookie'][0];
     await request(app!.getHttpServer()).get(url).set('Cookie', otherCookie).expect(403);
+  });
+
+  it('previews unsaved recipients without saving rules or creating audit or email records', async () => {
+    const url = `/tenants/${tenantId}/properties/${propertyId}/notification-settings`;
+    const before = await request(app!.getHttpServer()).get(url).set('Cookie', cookie).expect(200);
+    const [counts] = await admin.$queryRaw<Array<{ audits: bigint; messages: bigint }>>`
+      SELECT (SELECT count(*) FROM audit_logs WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid) AS audits,
+        (SELECT count(*) FROM email_messages WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid) AS messages
+    `;
+    const draft = {
+      guestEnabled: true,
+      staffEnabled: true,
+      customStaffRecipients: true,
+      rules: [
+        { target: 'EMAIL', email: 'preview-only@example.test' },
+        { target: 'EMAIL', email: 'PREVIEW-only@example.test' },
+      ],
+    };
+    const preview = await request(app!.getHttpServer())
+      .post(url + '/new_booking/preview')
+      .set('Cookie', cookie)
+      .send(draft)
+      .expect(200);
+    expect(preview.body).toEqual({
+      guest: true,
+      staff: [{ email: 'preview-only@example.test' }],
+      suppressed: [],
+    });
+    const after = await request(app!.getHttpServer()).get(url).set('Cookie', cookie).expect(200);
+    expect(after.body).toEqual(before.body);
+    const [afterCounts] = await admin.$queryRaw<Array<{ audits: bigint; messages: bigint }>>`
+      SELECT (SELECT count(*) FROM audit_logs WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid) AS audits,
+        (SELECT count(*) FROM email_messages WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid) AS messages
+    `;
+    expect(afterCounts).toEqual(counts);
+    await request(app!.getHttpServer())
+      .post(url + '/new_booking/preview')
+      .set('Cookie', cookie)
+      .send({ ...draft, rules: [{ target: 'STAFF_USER', userId: otherOwnerId }] })
+      .expect(400);
+    await request(app!.getHttpServer())
+      .post(url + '/new_booking/preview')
+      .send(draft)
+      .expect(401);
   });
 
   it('lets each member mute the non-urgent staff emails for themselves', async () => {
