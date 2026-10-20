@@ -36,6 +36,7 @@ import {
 import { fetchSessionUser, type SessionUser } from '../auth-routing';
 import styles from './dashboard-shell.module.css';
 import { NeedsAttentionTab } from './needs-attention';
+import { SystemHealthTab } from './system-health';
 import { useUnseenBookings } from './unseen-bookings';
 import { DashboardOverview, useOverviewQuery } from './overview';
 import { CalendarPage } from './calendar-page';
@@ -190,14 +191,15 @@ const dashboardTabs = [
 ] as const;
 
 type DashboardTab = (typeof dashboardTabs)[number]['key'];
-type UnavailableDashboardTab = Exclude<DashboardTab, 'overview' | 'quick-booking'>;
+type UnavailableDashboardTab = Exclude<
+  DashboardTab,
+  'overview' | 'quick-booking' | 'system-health'
+>;
 
 const unavailableDashboardTabCopy: Record<UnavailableDashboardTab, string> = {
   'needs-attention': 'Needs Attention will be available in a future dashboard update.',
   approvals:
     'Approvals will coordinate review and sign-off for bookings and other workflows; no approval workflow is configured yet.',
-  'system-health':
-    'System Health will summarize operational checks across booking, payments, PMS, notifications, processing, and security; those checks are not available yet.',
 };
 
 // Tenant-administration sections: never delegable to a STAFF-role user via a capability
@@ -224,7 +226,12 @@ function canAccessSection(role: TenantRole, capabilities: readonly string[], sec
 }
 
 // Approvals and System health are planned; their URLs fall back to Overview until they exist.
-const LIVE_TABS: readonly string[] = ['overview', 'needs-attention', 'quick-booking'];
+const LIVE_TABS: readonly string[] = [
+  'overview',
+  'needs-attention',
+  'quick-booking',
+  'system-health',
+];
 
 function isDashboardTab(value: string | null): value is DashboardTab {
   return dashboardTabs.some((tab) => tab.key === value) && LIVE_TABS.includes(value ?? '');
@@ -239,12 +246,14 @@ function DashboardSectionTabs({
   propertyId,
   currentTab,
   canAccessQuickBooking,
+  canAccessSystemHealth,
   onSelectTab,
 }: {
   tenantId: string;
   propertyId: string;
   currentTab: DashboardTab;
   canAccessQuickBooking: boolean;
+  canAccessSystemHealth: boolean;
   onSelectTab: (tab: DashboardTab) => void;
 }) {
   // Approvals and System health are planned features; they stay out of the live tab bar until built.
@@ -252,8 +261,12 @@ function DashboardSectionTabs({
   const tabs = dashboardTabs
     .filter(
       (tab) =>
-        tab.key === 'overview' || tab.key === 'needs-attention' || tab.key === 'quick-booking',
+        tab.key === 'overview' ||
+        tab.key === 'needs-attention' ||
+        tab.key === 'quick-booking' ||
+        tab.key === 'system-health',
     )
+    .filter((tab) => tab.key !== 'system-health' || canAccessSystemHealth)
     .filter((tab) => tab.key !== 'quick-booking' || canAccessQuickBooking)
     .map((tab) => ({
       id: tab.key,
@@ -445,7 +458,12 @@ export function DashboardShell({
   const hasCapability = (capability: string) =>
     role !== 'STAFF' || capabilities?.includes(capability) === true;
   const canAccessQuickBooking = hasCapability('bookings.create');
-  const visibleDashboardTab = tab === 'quick-booking' && !canAccessQuickBooking ? 'overview' : tab;
+  const canAccessSystemHealth = hasCapability('bookings.view');
+  const visibleDashboardTab =
+    (tab === 'quick-booking' && !canAccessQuickBooking) ||
+    (tab === 'system-health' && !canAccessSystemHealth)
+      ? 'overview'
+      : tab;
 
   return (
     <AppShell
@@ -508,6 +526,7 @@ export function DashboardShell({
           <DashboardSectionTabs
             currentTab={visibleDashboardTab}
             canAccessQuickBooking={canAccessQuickBooking}
+            canAccessSystemHealth={canAccessSystemHealth}
             onSelectTab={(next) => {
               setTab(next);
               window.history.pushState(
@@ -528,6 +547,8 @@ export function DashboardShell({
             />
           ) : visibleDashboardTab === 'needs-attention' ? (
             <NeedsAttentionTab tenantId={tenantId} propertyId={selectedProperty.id} />
+          ) : visibleDashboardTab === 'system-health' ? (
+            <SystemHealthTab tenantId={tenantId} propertyId={selectedProperty.id} />
           ) : visibleDashboardTab === 'quick-booking' ? (
             <AddReservation
               tenantId={tenantId}

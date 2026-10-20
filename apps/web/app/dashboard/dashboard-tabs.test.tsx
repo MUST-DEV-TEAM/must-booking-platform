@@ -508,7 +508,7 @@ describe('Dashboard section tabs', () => {
     },
   );
 
-  it.each(['approvals', 'system-health'] as const)(
+  it.each(['approvals'] as const)(
     'does not offer the planned %s tab and falls back to Overview from its direct URL',
     async (tab) => {
       window.history.pushState({}, '', `/dashboard/t?propertyId=p&section=overview&tab=${tab}`);
@@ -592,7 +592,7 @@ describe('Dashboard section tabs', () => {
         (item) => item.textContent,
       );
       expect(labels.some((label) => label?.includes('Approvals'))).toBe(false);
-      expect(labels.some((label) => label?.includes('System health'))).toBe(false);
+      expect(labels.some((label) => label?.includes('System health'))).toBe(true);
       expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain(
         'Overview',
       );
