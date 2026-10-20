@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import {
   BookingPaymentMethod,
@@ -1520,6 +1520,50 @@ export class ClockBookingService {
       `;
       return rows[0] ? this.toBooking(rows[0]) : null;
     });
+  }
+
+  /**
+   * Staff-run, strictly read-only check: does Clock have a booking carrying our reference? It never
+   * links, retries or changes anything locally or in Clock.
+   */
+  async checkRemoteBooking(
+    context: PmsProviderContext,
+    bookingId: string,
+  ): Promise<
+    | { result: 'found'; clockBookingId: string; linked: boolean }
+    | { result: 'not_found' }
+    | { result: 'unavailable'; message: string }
+  > {
+    const rows = await this.database.withTenantTransaction(
+      context,
+      (tx) =>
+        tx.$queryRaw<Array<{ reference: string | null; externalBookingId: string | null }>>`
+        SELECT external_reference AS reference, external_booking_id AS "externalBookingId"
+        FROM bookings
+        WHERE id = ${bookingId}::uuid AND tenant_id = ${context.tenantId}::uuid
+          AND property_id = ${context.propertyId}::uuid
+      `,
+    );
+    if (!rows[0]) throw new NotFoundException('Booking not found.');
+    if (!rows[0].reference)
+      return { result: 'unavailable', message: 'This booking has no reference to search for.' };
+    const credentials = await this.credentials(context);
+    if (!credentials.ok)
+      return { result: 'unavailable', message: 'Clock is not connected for this hotel.' };
+    const found = await this.fetch<Array<{ id: string | number }>>(credentials.value, {
+      method: 'GET',
+      path: '/bookings/',
+      query: { reference_number: rows[0].reference },
+    });
+    if (!found.ok)
+      return { result: 'unavailable', message: 'Clock could not be reached. Try again shortly.' };
+    if (found.value.length === 0) return { result: 'not_found' };
+    const clockBookingId = String(found.value[0]!.id);
+    return {
+      result: 'found',
+      clockBookingId,
+      linked: rows[0].externalBookingId === clockBookingId,
+    };
   }
 
   /** Section 18: after a creation timeout, search Clock itself (not just our

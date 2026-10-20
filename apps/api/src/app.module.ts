@@ -192,6 +192,7 @@ import {
   ClockRateRankingController,
 } from './integrations/clock/clock-rate-ranking.controller';
 import { ClockBookingService } from './integrations/clock/clock-booking.service';
+import { BookingReviewController, BookingReviewService } from './booking/booking-review.service';
 import { ClockBookingConsistencyService } from './integrations/clock/clock-booking-consistency.service';
 import { ClockBookingHydrationService } from './integrations/clock/clock-booking-hydration.service';
 import { ClockFolioHydrationService } from './integrations/clock/clock-folio-hydration.service';
@@ -267,6 +268,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     InventoryRestrictionsController,
     InventoryBlocksController,
     InventoryOverviewController,
+    BookingReviewController,
     SystemHealthController,
     InventoryStockController,
     PricingController,
@@ -399,6 +401,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PrePaymentAvailabilityRegistry,
     ClockRateRankingService,
     ClockBookingService,
+    BookingReviewService,
     ClockBookingConsistencyService,
     ClockBookingHydrationService,
     ClockFolioHydrationService,

@@ -23,6 +23,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { useUnseenBookings } from './unseen-bookings';
+import { BookingReviewCard } from './booking-review-card';
 import { ActionBar } from '../../components/ui/action-bar';
 import { Alert, AlertDescription, AlertTitle } from '../../components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
@@ -42,7 +43,11 @@ import { ActivityFeed, type ActivityEntry } from '../../components/ui/activity-f
 import { DetailList, Field, SectionLabel } from '../../components/ui/detail-list';
 import { StatTile } from '../../components/ui/stat-tile';
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
-import { BookingStatusBadge, PaymentStatusBadge, SourceBadge } from '../../components/ui/status-badge';
+import {
+  BookingStatusBadge,
+  PaymentStatusBadge,
+  SourceBadge,
+} from '../../components/ui/status-badge';
 import {
   balanceDue,
   bookingStatusDisplay,
@@ -86,7 +91,12 @@ type Detail = {
     county: string | null;
     postcode: string | null;
   };
-  clockFolios: Array<{ id: string; isDeposit: boolean; balance: string | null; closedAt: string | null }>;
+  clockFolios: Array<{
+    id: string;
+    isDeposit: boolean;
+    balance: string | null;
+    closedAt: string | null;
+  }>;
   activity: Array<{
     action: string;
     createdAt: string;
@@ -132,7 +142,8 @@ function activityLabel(action: string) {
 function activityIcon(action: string): { icon: LucideIcon; tone: ActivityEntry['tone'] } {
   if (action.includes('cancel')) return { icon: Ban, tone: 'danger' };
   if (action.includes('refund')) return { icon: Undo2, tone: 'danger' };
-  if (action.startsWith('payment') || action.includes('deposit')) return { icon: Wallet, tone: 'success' };
+  if (action.startsWith('payment') || action.includes('deposit'))
+    return { icon: Wallet, tone: 'success' };
   if (action.includes('clock')) return { icon: RefreshCw, tone: 'info' };
   if (action.includes('created')) return { icon: CirclePlus, tone: 'default' };
   return { icon: CircleCheck, tone: 'default' };
@@ -194,8 +205,12 @@ export function ReservationDetail({
   canRefundPayment?: boolean;
   canEditBooking?: boolean;
 }) {
-  const CHECK_IN = /^\d{2}:\d{2}/.test(checkInTime ?? '') ? checkInTime!.slice(0, 5) : DEFAULT_CHECK_IN;
-  const CHECK_OUT = /^\d{2}:\d{2}/.test(checkOutTime ?? '') ? checkOutTime!.slice(0, 5) : DEFAULT_CHECK_OUT;
+  const CHECK_IN = /^\d{2}:\d{2}/.test(checkInTime ?? '')
+    ? checkInTime!.slice(0, 5)
+    : DEFAULT_CHECK_IN;
+  const CHECK_OUT = /^\d{2}:\d{2}/.test(checkOutTime ?? '')
+    ? checkOutTime!.slice(0, 5)
+    : DEFAULT_CHECK_OUT;
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const queryClient = useQueryClient();
   const [cancelling, setCancelling] = useState(false);
@@ -209,7 +224,10 @@ export function ReservationDetail({
   const [refundPick, setRefundPick] = useState<RefundChoiceValue | null>(null);
   const [refundOn, setRefundOn] = useState<boolean | null>(null);
   const [refunding, setRefunding] = useState(false);
-  const [refundOnlyPick, setRefundOnlyPick] = useState<RefundChoiceValue>({ ...noRefund, mode: 'full' });
+  const [refundOnlyPick, setRefundOnlyPick] = useState<RefundChoiceValue>({
+    ...noRefund,
+    mode: 'full',
+  });
 
   const query = useQuery({
     queryKey: ['dashboard', 'reservation-detail', tenantId, propertyId, bookingId],
@@ -273,7 +291,8 @@ export function ReservationDetail({
     paid: booking.paidAmount,
     refunded: booking.refundedAmount,
   });
-  const guest = [booking.guestFirstName, booking.guestLastName].filter(Boolean).join(' ') || 'Unknown guest';
+  const guest =
+    [booking.guestFirstName, booking.guestLastName].filter(Boolean).join(' ') || 'Unknown guest';
   const address = [
     booking.guestAddress.street,
     booking.guestAddress.line2,
@@ -287,7 +306,8 @@ export function ReservationDetail({
   const canCancel = canCancelBooking && !CANCELLED_LIKE.has(booking.status);
   const neighbours = readNeighbours();
   const at = neighbours.indexOf(booking.id);
-  const pageHref = (id: string) => href(tenantId, propertyId, `section=reservations&reservation=${id}`);
+  const pageHref = (id: string) =>
+    href(tenantId, propertyId, `section=reservations&reservation=${id}`);
   const pager =
     at >= 0
       ? {
@@ -317,14 +337,16 @@ export function ReservationDetail({
   const refundChoice: RefundChoiceValue = refundWanted
     ? (refundPick ?? { ...noRefund, mode: 'full' })
     : noRefund;
-  const refundProblem = canRefundPayment && refundable ? refundChoiceError(refundChoice, booking) : null;
+  const refundProblem =
+    canRefundPayment && refundable ? refundChoiceError(refundChoice, booking) : null;
   // A cancelled reservation can be refunded from here for 24 hours after it was cancelled.
   const cancelledEvent = booking.activity.find((event) => event.action === 'booking.cancelled');
   const refundWindowClosed =
     booking.status === 'CANCELLED' &&
     cancelledEvent !== undefined &&
     Date.now() - new Date(cancelledEvent.createdAt).getTime() > 24 * 60 * 60 * 1000;
-  const canRefundHere = canRefundPayment && refundable && !refundWindowClosed && booking.status !== 'EXPIRED';
+  const canRefundHere =
+    canRefundPayment && refundable && !refundWindowClosed && booking.status !== 'EXPIRED';
 
   const refundOnly = async (note: string) => {
     const body = refundRequestBody(refundOnlyPick, booking);
@@ -364,7 +386,9 @@ export function ReservationDetail({
     } | null;
     if (!response.ok || body?.ok === false)
       throw new Error(
-        body?.error?.message ?? body?.message ?? 'The reservation could not be cancelled. Nothing was changed.',
+        body?.error?.message ??
+          body?.message ??
+          'The reservation could not be cancelled. Nothing was changed.',
       );
     if (body?.refundOutcome && !body.refundOutcome.ok) {
       await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
@@ -457,6 +481,12 @@ export function ReservationDetail({
           </>
         }
       />
+      <BookingReviewCard
+        tenantId={tenantId}
+        propertyId={propertyId}
+        bookingId={bookingId}
+        canRunCheck={canEditBooking}
+      />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
@@ -529,7 +559,9 @@ export function ReservationDetail({
               </div>
               {booking.specialRequests ? (
                 <div className="rounded-lg border p-3 text-sm">
-                  <p className="mb-1 text-xs font-semibold text-muted-foreground">Special requests</p>
+                  <p className="mb-1 text-xs font-semibold text-muted-foreground">
+                    Special requests
+                  </p>
                   {booking.specialRequests}
                 </div>
               ) : null}
@@ -542,7 +574,12 @@ export function ReservationDetail({
                 >
                   <ArrowLeftRight aria-hidden="true" /> Move room
                 </Button>
-                <Button variant="ghost" size="sm" disabled title="Provider review is planned, not built yet">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled
+                  title="Provider review is planned, not built yet"
+                >
                   <Plug aria-hidden="true" /> Provider review
                 </Button>
               </ActionBar>
@@ -586,7 +623,10 @@ export function ReservationDetail({
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
-                {field(`${methodTitle} transaction`, firstCharge?.externalPaymentId ?? 'No online payment')}
+                {field(
+                  `${methodTitle} transaction`,
+                  firstCharge?.externalPaymentId ?? 'No online payment',
+                )}
                 {field('Amount received', money(String(received), currency))}
                 {field('Balance due', money(String(due), currency))}
                 {Number(booking.refundedAmount) > 0
@@ -613,7 +653,10 @@ export function ReservationDetail({
               <section className="space-y-3 border-t pt-4">
                 <div className="flex items-center justify-between">
                   <SectionLabel>Clock Pms</SectionLabel>
-                  <Badge variant="info" className="rounded-full px-2 py-0 text-[10px] font-semibold">
+                  <Badge
+                    variant="info"
+                    className="rounded-full px-2 py-0 text-[10px] font-semibold"
+                  >
                     Synced
                   </Badge>
                 </div>
@@ -663,7 +706,9 @@ export function ReservationDetail({
               </Button>
               {booking.guestId ? (
                 <Button variant="outline" size="sm" asChild>
-                  <a href={href(tenantId, propertyId, `section=guests&guest=${booking.guestId}`)}>Open guest</a>
+                  <a href={href(tenantId, propertyId, `section=guests&guest=${booking.guestId}`)}>
+                    Open guest
+                  </a>
                 </Button>
               ) : null}
             </ActionBar>
@@ -709,9 +754,12 @@ export function ReservationDetail({
               <div className="space-y-0.5">
                 <p className="m-0 text-sm font-semibold">Refund the guest too</p>
                 <p className="m-0 text-xs text-muted-foreground">
-                  {money(String(Number(booking.paidAmount) - Number(booking.refundedAmount)), currency)} was paid and
-                  can be refunded now. If you leave this off you can still refund from the Refund button for 24
-                  hours.
+                  {money(
+                    String(Number(booking.paidAmount) - Number(booking.refundedAmount)),
+                    currency,
+                  )}{' '}
+                  was paid and can be refunded now. If you leave this off you can still refund from
+                  the Refund button for 24 hours.
                 </p>
               </div>
               <Switch
