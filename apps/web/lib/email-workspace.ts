@@ -105,6 +105,15 @@ export type EmailOverview = {
   days: number;
   testTrafficExcluded: boolean;
   domainAuthentication: string;
+  domainEvidence?: {
+    activeMode: string;
+    setupMode: string;
+    status: string;
+    checkedAt: string | null;
+    spf: string;
+    dkim: string;
+    dmarc: string;
+  };
 };
 export class EmailRequestError extends Error {
   constructor(

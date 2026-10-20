@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, expect, it, vi } from 'vitest';
 import { EmailSendingSetup, type EmailSendingProfile } from './email-sending-profile';
+import { validEmailDmarc, validEmailDnsRecords } from './email-domain-setup';
 import { UnsavedChangesBoundary } from '../../components/ui/unsaved-changes';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -268,6 +269,128 @@ it('shows current sender separately from saved setup and omits unsupported activ
   await choose('Custom SMTP');
   await click(button('Save sending setup'));
   expect(document.body.textContent).toContain('Enter a valid From email address.');
+});
+
+it('separates checking from explicit registration and displays exact provider DNS with independent DMARC evidence', async () => {
+  const state = server({
+    ...defaults(),
+    version: 2,
+    mode: 'RESEND',
+    domain: 'hotel.example.com',
+    fromAddress: 'booking@hotel.example.com',
+    credentialsPresent: true,
+  });
+  const records = [
+    {
+      record: 'DKIM',
+      name: 'resend._domainkey',
+      type: 'TXT',
+      value: 'p=exact-provider-value',
+      status: 'pending',
+      ttl: 'Auto',
+    },
+  ];
+  state.onWrite = (call) => {
+    expect(call.url).toBe(url + '/domain/check');
+    expect(call.headers.get('idempotency-key')).toMatch(/^[0-9a-f-]{36}$/);
+    const creating = call.body?.allowCreate === true;
+    state.profile = {
+      ...state.profile,
+      version: state.profile.version + 2,
+      domainStatus: creating ? 'pending' : 'not_found',
+      dnsRecords: creating ? records : [],
+    };
+    return Response.json({
+      kind: 'DOMAIN_CHECK',
+      id: 'domain-op',
+      state: creating ? 'pending' : 'not_found',
+      version: state.profile.version,
+      domain: 'hotel.example.com',
+      records: creating ? records : [],
+      message: creating ? 'Publish these exact DNS records.' : 'Domain is not in this account.',
+      dmarc: creating
+        ? {
+            name: '_dmarc.hotel.example.com',
+            type: 'TXT',
+            state: 'absent',
+            values: [],
+            observedAt: '2026-10-20T12:00:00Z',
+            message: 'A parent-domain policy may apply.',
+          }
+        : null,
+    });
+  };
+  await render();
+  expect(document.body.textContent).not.toContain('Register domain in Resend');
+  await click(button('Check saved domain'));
+  await fill('confirm-reason', 'Inspect domain first');
+  await click(button('Check domain'));
+  expect(document.body.textContent).toContain('Domain is not in this account.');
+  await click(button('Register domain in Resend'));
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+    'receiving and tracking disabled',
+  );
+  await fill('confirm-reason', 'Register this hotel domain');
+  await click(button('Register domain'));
+  expect(document.body.textContent).toContain('p=exact-provider-value');
+  expect(document.body.textContent).toContain('resend._domainkey');
+  expect(document.body.textContent).toContain('A parent-domain policy may apply.');
+  expect(document.body.textContent).toContain('do not replace an existing policy');
+  expect(document.querySelector('button[aria-label="Copy DNS value 1"]')).toBeTruthy();
+  const writes = state.calls.filter((c) => c.method === 'POST');
+  expect(writes.map((c) => c.body?.allowCreate)).toEqual([false, true]);
+  expect(
+    writes[0].headers.get('idempotency-key') === writes[1].headers.get('idempotency-key'),
+  ).toBe(false);
+});
+
+it('keeps default-domain diagnostics read-only at the provider and disables unverified/dirty setup operations', async () => {
+  const state = server();
+  state.onWrite = (call) => {
+    expect(call.body?.allowCreate).toBe(false);
+    state.profile = { ...state.profile, version: 3, domainStatus: 'verified' };
+    return Response.json({
+      kind: 'DOMAIN_CHECK',
+      id: 'default-domain',
+      state: 'verified',
+      version: 3,
+      domain: 'must.example.com',
+      records: [],
+      dmarc: null,
+      message: 'Provider verified the shared sender.',
+    });
+  };
+  await render();
+  expect(document.body.textContent).toContain('Hotel staff cannot register it');
+  await click(button('Check MUST sender domain'));
+  await fill('confirm-reason', 'Review shared DNS');
+  await click(button('Check domain'));
+  expect(document.body.textContent).not.toContain('Register domain in Resend');
+  await render(false);
+  expect(button('Check MUST sender domain').disabled).toBe(true);
+  await render(true);
+  await choose('Custom SMTP');
+  expect(button('Check MUST sender domain').disabled).toBe(true);
+});
+
+it('rejects malformed DNS/DMARC evidence and keeps publication separate from alignment', () => {
+  expect(validEmailDnsRecords({ value: 'not-an-array' })).toBe(false);
+  expect(
+    validEmailDnsRecords([
+      { record: 'SPF', name: 'send', type: 'TXT', value: 42, status: 'verified', ttl: 300 },
+    ]),
+  ).toBe(false);
+  expect(
+    validEmailDmarc({
+      name: '_dmarc.example.com',
+      type: 'TXT',
+      state: 'verified',
+      values: [],
+      observedAt: '2026-10-20T12:00:00Z',
+      message: 'bad state',
+    }),
+  ).toBe(false);
+  expect(validEmailDmarc(null)).toBe(true);
 });
 it('uses blank replacement credentials, confirms a versioned setup without exposing its secret, and clears it after save', async () => {
   const state = server();

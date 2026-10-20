@@ -23,6 +23,15 @@ it('opens exact rolling windows, failing topic, message and sender/suppression f
             days: 7,
             testTrafficExcluded: true,
             domainAuthentication: 'UNKNOWN',
+            domainEvidence: {
+              activeMode: 'DEFAULT',
+              setupMode: 'RESEND',
+              status: 'verified',
+              checkedAt: '2026-10-20T12:00:00Z',
+              spf: 'Provider verified',
+              dkim: 'Provider verified',
+              dmarc: 'TXT published; alignment not checked',
+            },
             volume24h: 2,
             volume7d: 4,
             attempted7d: 3,
@@ -67,6 +76,9 @@ it('opens exact rolling windows, failing topic, message and sender/suppression f
     expect(host.textContent).toContain('33.33%');
     expect(host.textContent).toContain('No attempts in this period');
     expect(host.textContent).not.toContain('Delivery health');
+    expect(host.textContent).toContain('Saved custom domain (not active): provider verified');
+    expect(host.textContent).toContain('TXT published; alignment not checked');
+    expect(host.textContent).not.toContain('No provider domain check has been recorded');
   } finally {
     await act(async () => root.unmount());
     host.remove();

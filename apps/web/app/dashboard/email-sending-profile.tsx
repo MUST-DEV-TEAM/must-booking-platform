@@ -1,5 +1,5 @@
 'use client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, AlertDescription } from '../../components/ui/alert';
 import { Badge } from '../../components/ui/badge';
@@ -14,6 +14,14 @@ import { SettingToggle } from '../../components/ui/setting-toggle';
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import { useUnsavedChanges, useUnsavedNavigation } from '../../components/ui/unsaved-changes';
 import { createEmailWriter, emailRequest, EmailRequestError } from '../../lib/email-workspace';
+import {
+  EmailDomainSetup,
+  validEmailDnsRecords,
+  type EmailDnsRecord,
+  type EmailDomainOperation,
+  type EmailDmarcEvidence,
+  validEmailDmarc,
+} from './email-domain-setup';
 
 type Mode = 'DEFAULT' | 'RESEND' | 'SMTP';
 export type EmailSendingProfile = {
@@ -34,6 +42,8 @@ export type EmailSendingProfile = {
   connectionOperationId: string | null;
   connectionExpiresAt: string | null;
   domainStatus: string;
+  dnsRecords?: EmailDnsRecord[];
+  dmarcEvidence?: EmailDmarcEvidence | null;
 };
 type CheckResult = { id: string; state: string; version: number; message: string };
 type ProofResult = CheckResult & { deliveryStatus?: string };
@@ -52,9 +62,11 @@ const connectionLabels: Record<string, string> = {
 
 /** Prepares write-only hotel sender setup and checks saved SMTP without activating custom delivery. */
 export function EmailSendingSetup({ base, canWrite }: { base: string; canWrite: boolean }) {
+  const queryClient = useQueryClient();
   const guard = useUnsavedNavigation();
   const [result, setResult] = useState<CheckResult | null>(null);
   const [proof, setProof] = useState<ProofResult | null>(null);
+  const [domainResult, setDomainResult] = useState<EmailDomainOperation | null>(null);
   const [reloadRevision, setReloadRevision] = useState(0);
   const profile = useQuery({
     queryKey: ['emails', base, 'sending-profile'],
@@ -67,7 +79,9 @@ export function EmailSendingSetup({ base, canWrite }: { base: string; canWrite: 
         !Object.hasOwn(labels, row.mode) ||
         !Object.hasOwn(labels, row.activeMode) ||
         typeof row.credentialsPresent !== 'boolean' ||
-        typeof row.fallbackGuest !== 'boolean'
+        typeof row.fallbackGuest !== 'boolean' ||
+        (row.dnsRecords !== undefined && !validEmailDnsRecords(row.dnsRecords)) ||
+        (row.dmarcEvidence !== undefined && !validEmailDmarc(row.dmarcEvidence))
       )
         throw new EmailRequestError(
           'Sending setup returned an invalid response. Reload before editing.',
@@ -105,13 +119,18 @@ export function EmailSendingSetup({ base, canWrite }: { base: string; canWrite: 
       onResult={setResult}
       proof={proof}
       onProof={setProof}
+      domainResult={domainResult}
+      onDomainResult={setDomainResult}
       reload={() =>
         guard.request(() => {
           setReloadRevision((value) => value + 1);
           void profile.refetch();
         })
       }
-      refresh={() => profile.refetch()}
+      refresh={async () => {
+        await profile.refetch();
+        await queryClient.invalidateQueries({ queryKey: ['emails', base, 'overview'] });
+      }}
     />
   );
 }
@@ -126,6 +145,8 @@ function SendingEditor({
   onResult,
   proof,
   onProof,
+  domainResult,
+  onDomainResult,
 }: {
   base: string;
   profile: EmailSendingProfile;
@@ -136,6 +157,8 @@ function SendingEditor({
   onResult: (result: CheckResult | null) => void;
   proof: ProofResult | null;
   onProof: (result: ProofResult | null) => void;
+  domainResult: EmailDomainOperation | null;
+  onDomainResult: (result: EmailDomainOperation) => void;
 }) {
   const [mode, setMode] = useState<Mode>(profile.mode),
     [name, setName] = useState(profile.fromName ?? ''),
@@ -379,6 +402,22 @@ function SendingEditor({
               </AlertDescription>
             </Alert>
           </>
+        ) : null}
+        {profile.mode !== 'SMTP' ? (
+          <EmailDomainSetup
+            base={base}
+            version={profile.version}
+            mode={profile.mode}
+            status={profile.domainStatus}
+            records={profile.dnsRecords}
+            dmarc={profile.dmarcEvidence}
+            disabled={disabled || dirty || profile.activeMode !== 'DEFAULT'}
+            busy={busy}
+            setBusy={setBusy}
+            result={domainResult}
+            onResult={onDomainResult}
+            refresh={refresh}
+          />
         ) : null}
         {profile.mode === 'SMTP' ? (
           <>

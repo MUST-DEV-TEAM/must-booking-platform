@@ -14,6 +14,7 @@ import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator
 import { RequiresCapability } from './capabilities.decorator';
 import { EmailSendingProfileService } from './email-sending-profile.service';
 import { EmailSenderVerificationService } from './email-sender-verification.service';
+import { EmailDomainVerificationService } from './email-domain-verification.service';
 import { Role, Roles } from './roles.decorator';
 import { TenantScoped } from './tenant-context.decorator';
 
@@ -26,7 +27,26 @@ export class EmailSendingProfileController {
     @Inject(EmailSendingProfileService) private readonly profiles: EmailSendingProfileService,
     @Inject(EmailSenderVerificationService)
     private readonly senderProofs: EmailSenderVerificationService,
+    @Inject(EmailDomainVerificationService)
+    private readonly domains: EmailDomainVerificationService,
   ) {}
+  @Post('domain/check')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('settings.manage')
+  @RequiresVerifiedEmail()
+  domainCheck(
+    @Req() request: Request,
+    @Body() body: Record<string, unknown>,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.domains.check(request.tenantContext, request.tenantContext.userId, body ?? {}, key);
+  }
+  @Get('domain/operations/:operationId')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('settings.manage')
+  domainOperation(@Req() request: Request, @Param('operationId', new ParseUUIDPipe()) id: string) {
+    return this.domains.get(request.tenantContext, id);
+  }
   @Get('verify-from/:verificationId')
   @TenantScoped({ propertyParam: 'propertyId' })
   @RequiresCapability('settings.manage')

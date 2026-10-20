@@ -39,6 +39,7 @@ type ProfileRow = {
   domainCheckedAt: Date | null;
   domainStatus: string;
   dnsRecords: unknown[];
+  dmarcEvidence: unknown | null;
 };
 const defaults = (): ProfileRow => ({
   version: 1,
@@ -61,6 +62,7 @@ const defaults = (): ProfileRow => ({
   domainCheckedAt: null,
   domainStatus: 'unknown',
   dnsRecords: [],
+  dmarcEvidence: null,
 });
 const allowed = new Set([
   'version',
@@ -102,6 +104,7 @@ function publicProfile(row: ProfileRow) {
     domainCheckedAt: row.domainCheckedAt,
     domainStatus: row.domainStatus,
     dnsRecords: row.dnsRecords,
+    dmarcEvidence: row.dmarcEvidence,
     credentialsPresent: !!row.encryptedCredentials,
   };
 }
@@ -129,7 +132,7 @@ const operationView = (row: CheckOperation): CheckOperation => ({
       ? 'No final result was recorded. Run a new connection check.'
       : row.message,
 });
-function binding(
+export function emailSendingCredentialBinding(
   row: Pick<
     ProfileRow,
     | 'mode'
@@ -180,7 +183,7 @@ export class EmailSendingProfileService {
       smtp_host AS "smtpHost",smtp_port AS "smtpPort",smtp_security AS "smtpSecurity",encrypted_credentials AS "encryptedCredentials",credential_revision::text AS "credentialRevision",
       fallback_guest AS "fallbackGuest",from_verified_at AS "fromVerifiedAt",connection_checked_at AS "connectionCheckedAt",domain_checked_at AS "domainCheckedAt",
       connection_status AS "connectionStatus",connection_operation_id::text AS "connectionOperationId",connection_expires_at AS "connectionExpiresAt",
-      domain_status AS "domainStatus",dns_records AS "dnsRecords" FROM email_sending_profiles WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid`;
+      domain_status AS "domainStatus",dns_records AS "dnsRecords",dmarc_evidence AS "dmarcEvidence" FROM email_sending_profiles WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid`;
     return rows[0] ?? defaults();
   }
   async update(scope: EmailContext, userId: string, body: Record<string, unknown>, key?: string) {
@@ -313,12 +316,18 @@ export class EmailSendingProfileService {
         const before = await this.read(tx, scope);
         if (before.version !== body.version)
           throw new ConflictException('Sending configuration changed. Reload before saving.');
-        const unchanged = binding(before).endpoint === binding(next).endpoint;
+        const unchanged =
+          emailSendingCredentialBinding(before).endpoint ===
+          emailSendingCredentialBinding(next).endpoint;
         if (next.mode !== 'DEFAULT') {
           if (replacement) {
             next.credentialRevision = randomUUID();
             try {
-              next.encryptedCredentials = this.credentials.seal(scope, binding(next), replacement);
+              next.encryptedCredentials = this.credentials.seal(
+                scope,
+                emailSendingCredentialBinding(next),
+                replacement,
+              );
             } catch {
               throw new BadRequestException(
                 'Use valid replacement credentials and configured encryption.',
@@ -330,7 +339,11 @@ export class EmailSendingProfileService {
                 'Changing the sender endpoint or From address requires complete replacement credentials.',
               );
             try {
-              this.credentials.open(scope, binding(before), before.encryptedCredentials);
+              this.credentials.open(
+                scope,
+                emailSendingCredentialBinding(before),
+                before.encryptedCredentials,
+              );
             } catch {
               throw new BadRequestException(
                 'Stored sending credentials are unavailable. Replace them and verify the sender again.',
@@ -350,6 +363,7 @@ export class EmailSendingProfileService {
           next.domainCheckedAt = before.domainCheckedAt;
           next.domainStatus = before.domainStatus;
           next.dnsRecords = before.dnsRecords;
+          next.dmarcEvidence = before.dmarcEvidence;
         }
         next.version = before.version + 1;
         await tx.$executeRaw`INSERT INTO email_sending_profiles(tenant_id,property_id,version,mode,active_mode,from_name,from_address,domain,smtp_host,smtp_port,smtp_security,
@@ -360,6 +374,8 @@ export class EmailSendingProfileService {
         smtp_host=EXCLUDED.smtp_host,smtp_port=EXCLUDED.smtp_port,smtp_security=EXCLUDED.smtp_security,encrypted_credentials=EXCLUDED.encrypted_credentials,credential_revision=EXCLUDED.credential_revision,
         fallback_guest=EXCLUDED.fallback_guest,from_verified_at=EXCLUDED.from_verified_at,connection_checked_at=EXCLUDED.connection_checked_at,domain_checked_at=EXCLUDED.domain_checked_at,domain_status=EXCLUDED.domain_status,dns_records=EXCLUDED.dns_records,
         connection_status=EXCLUDED.connection_status,connection_operation_id=EXCLUDED.connection_operation_id,connection_expires_at=EXCLUDED.connection_expires_at,updated_at=now()`;
+        await tx.$executeRaw`UPDATE email_sending_profiles SET dmarc_evidence=${next.dmarcEvidence === null ? null : JSON.stringify(next.dmarcEvidence)}::jsonb
+          WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid`;
         return {
           response: publicProfile(next),
           details: {
@@ -432,7 +448,11 @@ export class EmailSendingProfileService {
           throw new HttpException('Ten connection checks per hotel per hour are allowed.', 429);
         let secret;
         try {
-          secret = this.credentials.open(scope, binding(row), row.encryptedCredentials);
+          secret = this.credentials.open(
+            scope,
+            emailSendingCredentialBinding(row),
+            row.encryptedCredentials,
+          );
         } catch {
           throw new BadRequestException(
             'Stored sending credentials are unavailable. Replace them before checking.',

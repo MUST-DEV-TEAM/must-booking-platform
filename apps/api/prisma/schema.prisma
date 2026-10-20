@@ -1667,6 +1667,7 @@ model EmailSendingProfile {
  domainCheckedAt DateTime? @map("domain_checked_at") @db.Timestamptz(6)
  domainStatus String @default("unknown") @map("domain_status")
  dnsRecords Json @default("[]") @map("dns_records")
+ dmarcEvidence Json? @map("dmarc_evidence")
  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
  @@id([tenantId,propertyId])

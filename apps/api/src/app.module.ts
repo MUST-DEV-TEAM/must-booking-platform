@@ -66,6 +66,7 @@ import { SmtpTransport } from './mail/smtp-transport';
 import { EmailSendingProfileController } from './tenancy/email-sending-profile.controller';
 import { EmailSendingProfileService } from './tenancy/email-sending-profile.service';
 import { EmailSenderVerificationService } from './tenancy/email-sender-verification.service';
+import { EmailDomainVerificationService } from './tenancy/email-domain-verification.service';
 import { SenderVerificationStore } from './mail/sender-verification-store';
 import { SenderVerificationPayloadService } from './mail/sender-verification-secrets';
 import { ResendMailProvider } from './mail/resend-mail.provider';
@@ -331,6 +332,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     EmailConfigurationService,
     EmailSendingProfileService,
     EmailSenderVerificationService,
+    EmailDomainVerificationService,
     SenderVerificationStore,
     SenderVerificationPayloadService,
     { provide: SmtpTransport, useFactory: () => new SmtpTransport() },

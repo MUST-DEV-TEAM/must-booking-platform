@@ -349,11 +349,70 @@ export class EmailActivityService {
         ORDER BY created_at DESC,id DESC LIMIT 10
       `;
       const m = metrics[0]!;
+      const senderRows = await tx.$queryRaw<
+        {
+          mode: string;
+          activeMode: string;
+          status: string;
+          records: unknown;
+          dmarc: unknown;
+          checkedAt: Date | null;
+        }[]
+      >`
+        SELECT mode,active_mode AS "activeMode",domain_status AS status,dns_records AS records,dmarc_evidence AS dmarc,domain_checked_at AS "checkedAt"
+        FROM email_sending_profiles WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid`;
+      const sender = senderRows[0];
+      const dns = sender && Array.isArray(sender.records) ? sender.records : [];
+      const purposeStatus = (purpose: string) => {
+        const matching = dns.filter(
+          (row) => row && typeof row === 'object' && row.record === purpose,
+        );
+        if (!matching.length) return 'No recorded DNS result';
+        return matching.every((row) => row.status === 'verified')
+          ? 'Provider verified'
+          : 'Provider: ' +
+              [
+                ...new Set(
+                  matching.map((row) =>
+                    typeof row.status === 'string' ? row.status : 'not recorded',
+                  ),
+                ),
+              ].join(', ');
+      };
+      const dmarcState =
+        sender?.dmarc && typeof sender.dmarc === 'object' && 'state' in sender.dmarc
+          ? sender.dmarc.state
+          : null;
+      const domainEvidence = {
+        activeMode: sender?.activeMode ?? 'DEFAULT',
+        setupMode: sender?.mode ?? 'DEFAULT',
+        status: sender?.status ?? 'unknown',
+        checkedAt: sender?.checkedAt ?? null,
+        spf: purposeStatus('SPF'),
+        dkim: purposeStatus('DKIM'),
+        dmarc:
+          dmarcState === 'published'
+            ? 'TXT published; alignment not checked'
+            : dmarcState === 'absent'
+              ? 'No TXT at the exact name; parent policy may apply'
+              : dmarcState === 'invalid'
+                ? 'Review conflicting or invalid DNS records'
+                : dmarcState === 'unknown'
+                  ? 'Public DNS check unavailable'
+                  : 'No DMARC check recorded',
+      };
       return {
         days: 7,
         counts,
         testTrafficExcluded: true,
-        domainAuthentication: 'UNKNOWN' as const,
+        domainAuthentication:
+          sender &&
+          sender.mode === sender.activeMode &&
+          sender.mode !== 'SMTP' &&
+          sender.status === 'verified'
+            ? 'VERIFIED'
+            : 'UNKNOWN',
+        domainEvidence,
         ...m,
         bounceRate: m.attempted7d ? (m.bounced7d * 100) / m.attempted7d : null,
         complaintRate: m.attempted7d ? (m.complained7d * 100) / m.attempted7d : null,
