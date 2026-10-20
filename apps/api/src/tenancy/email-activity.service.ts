@@ -75,6 +75,7 @@ const LABELS: Record<string, string> = {
   'owner.daily_summary': 'Daily summary (owner)',
   'template.test': 'Template test',
   'staff.invitation': 'Staff invitation',
+  'email.sender_verification': 'Sender mailbox verification',
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -121,7 +122,7 @@ export class EmailActivityService {
           lastError: row.lastError ? safeDeliveryError(row.lastError) : null,
           canResend:
             row.status === 'FAILED' &&
-            row.eventType !== 'staff.invitation' &&
+            !['staff.invitation', 'email.sender_verification'].includes(row.eventType) &&
             new Date(row.createdAt).getTime() > cutoff,
         })),
         observedAt: properties[0]!.observedAt,

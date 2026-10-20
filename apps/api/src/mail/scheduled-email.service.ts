@@ -1,4 +1,11 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+  Optional,
+} from '@nestjs/common';
 import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
 import type { MailBrand } from '@must/domain-contracts';
@@ -6,6 +13,7 @@ import type { MailBrand } from '@must/domain-contracts';
 import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { renderTemplate, savedTemplate, stayTemplateValues } from './email-templates';
 import { MailDeliveryService } from './mail-delivery.service';
+import { EmailSenderVerificationService } from '../tenancy/email-sender-verification.service';
 import { scheduledGuestSettings, staffRecipients } from './notification-recipients';
 import { reviewButtons, storedReviewLinks } from './review-links';
 import {
@@ -94,6 +102,9 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(MailDeliveryService) private readonly delivery: MailDeliveryService,
+    @Optional()
+    @Inject(EmailSenderVerificationService)
+    private readonly senderProofs?: EmailSenderVerificationService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -134,6 +145,7 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
       const context = { tenantId: property.tenantId, propertyId: property.propertyId };
       const local = localNow(now, property.timezone);
       try {
+        await this.senderProofs?.recover(context);
         if (local.hour >= OWNER_SUMMARY_HOUR)
           await this.sendOwnerSummary(context, property.timezone || 'UTC', local.date);
         if (local.hour >= PRE_ARRIVAL_HOUR)

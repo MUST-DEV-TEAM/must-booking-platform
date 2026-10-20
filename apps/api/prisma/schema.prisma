@@ -1672,3 +1672,24 @@ model EmailSendingProfile {
  @@id([tenantId,propertyId])
  @@map("email_sending_profiles")
 }
+
+model EmailSenderProof {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ id String @db.Uuid
+ credentialRevision String @map("credential_revision") @db.Uuid
+ fromAddress String @map("from_address")
+ codeHash String? @map("code_hash") @db.Char(64)
+ encryptedMessage String? @map("encrypted_message")
+ transportFingerprint String @map("transport_fingerprint") @db.Char(64)
+ state String @default("pending")
+ attempts Int @default(0)
+ guessFingerprints String[] @default([]) @map("guess_fingerprints")
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+ expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+ verifiedAt DateTime? @map("verified_at") @db.Timestamptz(6)
+ verifiedBy String? @map("verified_by") @db.Uuid
+ @@id([tenantId,propertyId,id])
+ @@index([tenantId,propertyId,createdAt],map:"email_sender_proofs_recent")
+ @@map("email_sender_proofs")
+}

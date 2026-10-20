@@ -1,4 +1,11 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+  Optional,
+} from '@nestjs/common';
 import { Queue, Worker, type Job } from 'bullmq';
 import IORedis from 'ioredis';
 import type { MailProvider, MailSendReceipt } from '@must/domain-contracts';
@@ -9,6 +16,7 @@ import { withMailAttempt } from './mail-attempt-context';
 import { MailDeliveryError } from './mail-delivery-error';
 import { describeMail, type QueuedMailCommands, type QueuedMailKind } from './mail-descriptors';
 import { MAIL_PROVIDER } from './mail.provider';
+import { SenderVerificationStore } from './sender-verification-store';
 
 export const MAIL_QUEUE_NAME = 'mail.transactional';
 /** How long a failed email can still be sent again from the activity screen. */
@@ -73,6 +81,9 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(MAIL_PROVIDER) private readonly mail: MailProvider,
+    @Optional()
+    @Inject(SenderVerificationStore)
+    private readonly senderProofs?: SenderVerificationStore,
   ) {}
 
   onModuleInit(): void {
@@ -482,6 +493,23 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
         return this.mail.sendStaffInvitationEmail(command);
       case 'rendered':
         return this.mail.sendRenderedEmail(command);
+      case 'senderVerification': {
+        if (!this.senderProofs || !data.context.tenantId || !data.context.propertyId)
+          return Promise.reject(
+            new MailDeliveryError('Sender verification is unavailable.', false),
+          );
+        const proof = data.command as QueuedMailCommands['senderVerification'];
+        return this.senderProofs
+          .command(
+            { tenantId: data.context.tenantId, propertyId: data.context.propertyId },
+            proof.verificationId,
+          )
+          .then((rendered) => {
+            if (rendered.to !== proof.to)
+              throw new MailDeliveryError('Sender verification recipient changed.', false);
+            return this.mail.sendRenderedEmail(rendered);
+          });
+      }
       default:
         return Promise.reject(
           new MailDeliveryError(`Unknown mail kind: ${String(data.kind)}`, false),

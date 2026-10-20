@@ -1,6 +1,6 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, AlertDescription } from '../../components/ui/alert';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
@@ -36,6 +36,7 @@ export type EmailSendingProfile = {
   domainStatus: string;
 };
 type CheckResult = { id: string; state: string; version: number; message: string };
+type ProofResult = CheckResult & { deliveryStatus?: string };
 const labels: Record<Mode, string> = {
   DEFAULT: 'Default MUST sender',
   RESEND: 'Own domain through Resend',
@@ -53,6 +54,7 @@ const connectionLabels: Record<string, string> = {
 export function EmailSendingSetup({ base, canWrite }: { base: string; canWrite: boolean }) {
   const guard = useUnsavedNavigation();
   const [result, setResult] = useState<CheckResult | null>(null);
+  const [proof, setProof] = useState<ProofResult | null>(null);
   const [reloadRevision, setReloadRevision] = useState(0);
   const profile = useQuery({
     queryKey: ['emails', base, 'sending-profile'],
@@ -101,6 +103,8 @@ export function EmailSendingSetup({ base, canWrite }: { base: string; canWrite: 
       canWrite={canWrite}
       result={result}
       onResult={setResult}
+      proof={proof}
+      onProof={setProof}
       reload={() =>
         guard.request(() => {
           setReloadRevision((value) => value + 1);
@@ -120,6 +124,8 @@ function SendingEditor({
   refresh,
   result,
   onResult,
+  proof,
+  onProof,
 }: {
   base: string;
   profile: EmailSendingProfile;
@@ -128,6 +134,8 @@ function SendingEditor({
   refresh: () => Promise<unknown>;
   result: CheckResult | null;
   onResult: (result: CheckResult | null) => void;
+  proof: ProofResult | null;
+  onProof: (result: ProofResult | null) => void;
 }) {
   const [mode, setMode] = useState<Mode>(profile.mode),
     [name, setName] = useState(profile.fromName ?? ''),
@@ -406,6 +414,16 @@ function SendingEditor({
                 Save or reload setup before checking the saved connection.
               </p>
             ) : null}
+            <MailboxVerification
+              base={base}
+              profile={profile}
+              disabled={disabled || dirty}
+              busy={busy}
+              setBusy={setBusy}
+              result={proof}
+              onResult={onProof}
+              refresh={refresh}
+            />
             {profile.connectionOperationId ? (
               <Button
                 variant="ghost"
@@ -504,5 +522,172 @@ function SendingEditor({
         />
       </CardContent>
     </Card>
+  );
+}
+
+/** Verifies a saved SMTP mailbox without activating sending or retaining its secret in cache. */
+function MailboxVerification({
+  base,
+  profile,
+  disabled,
+  busy,
+  setBusy,
+  result,
+  onResult,
+  refresh,
+}: {
+  base: string;
+  profile: EmailSendingProfile;
+  disabled: boolean;
+  busy: boolean;
+  setBusy: (value: boolean) => void;
+  result: ProofResult | null;
+  onResult: (value: ProofResult | null) => void;
+  refresh: () => Promise<unknown>;
+}) {
+  const [code, setCode] = useState(''),
+    [error, setError] = useState(''),
+    [requesting, setRequesting] = useState(false);
+  const requestWriter = useRef(createEmailWriter()),
+    confirmWriter = useRef(createEmailWriter());
+  const endpoint = base + '/email-configuration/sending/verify-from';
+  useEffect(() => {
+    const fragment = new URLSearchParams(window.location.hash.slice(1));
+    if (!fragment.has('sender-proof')) return;
+    const copied = fragment.get('sender-proof') ?? '';
+    window.history.replaceState(
+      window.history.state,
+      '',
+      window.location.pathname + window.location.search,
+    );
+    if (copied.length <= 100) setCode(copied);
+  }, []);
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="m-0 text-sm text-muted-foreground">
+        Prove that you can receive email at the saved From address. MUST sends a code valid for 30
+        minutes. Verification does not activate custom sending.
+      </p>
+      <Button
+        variant="outline"
+        disabled={disabled || profile.connectionStatus !== 'verified'}
+        onClick={() => setRequesting(true)}
+      >
+        Email a verification code
+      </Button>
+      <FormField
+        label="Sender verification code"
+        htmlFor="sender-verification-code"
+        hint="Paste the complete code from the email."
+      >
+        <Input
+          id="sender-verification-code"
+          value={code}
+          maxLength={100}
+          autoComplete="off"
+          spellCheck={false}
+          disabled={disabled}
+          onChange={(e) => setCode(e.target.value)}
+        />
+      </FormField>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          disabled={disabled || !code.trim()}
+          onClick={async () => {
+            setBusy(true);
+            setError('');
+            try {
+              const response = await confirmWriter.current<ProofResult>(endpoint + '/confirm', {
+                version: profile.version,
+                code: code.trim(),
+              });
+              onResult(response);
+              if (response.state === 'verified') {
+                setCode('');
+                confirmWriter.current = createEmailWriter();
+                await refresh();
+              }
+            } catch (caught) {
+              setError(caught instanceof Error ? caught.message : 'Verification unavailable.');
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Verify From address
+        </Button>
+        {result ? (
+          <Button
+            variant="ghost"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              setError('');
+              try {
+                onResult(await emailRequest<ProofResult>(endpoint + '/' + result.id));
+              } catch (caught) {
+                setError(
+                  caught instanceof Error ? caught.message : 'Verification status unavailable.',
+                );
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Refresh verification status
+          </Button>
+        ) : null}
+      </div>
+      {result ? (
+        <Alert
+          variant={
+            ['invalid', 'locked', 'expired', 'superseded'].includes(result.state)
+              ? 'destructive'
+              : 'default'
+          }
+        >
+          <AlertDescription>
+            {result.version === profile.version
+              ? result.message
+              : 'Saved sender setup changed. Refresh verification status.'}
+            {result.deliveryStatus
+              ? ` Email delivery: ${result.deliveryStatus.toLowerCase()}.`
+              : ''}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {error ? (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+      <ConfirmDialog
+        open={requesting}
+        onOpenChange={setRequesting}
+        title="Verify the saved From address?"
+        description={`MUST will email a code to ${profile.fromAddress ?? 'the saved address'}. This does not activate custom sending. Three requests per rolling hour are allowed.`}
+        confirmLabel="Send verification code"
+        cancelLabel="Cancel"
+        reasonRequired
+        reasonLabel="Reason"
+        reasonPlaceholder="Why this hotel needs mailbox verification"
+        confirmDisabled={disabled}
+        onConfirm={async (reason) => {
+          setBusy(true);
+          setError('');
+          try {
+            const response = await requestWriter.current<ProofResult>(endpoint, {
+              version: profile.version,
+              reason,
+            });
+            onResult(response);
+            setCode('');
+            await refresh();
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+    </div>
   );
 }

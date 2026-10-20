@@ -154,6 +154,102 @@ afterEach(async () => {
   client = null;
   document.body.replaceChildren();
   vi.unstubAllGlobals();
+  window.history.replaceState(null, '', window.location.pathname);
+});
+
+it('requests a From proof only for checked, saved setup and preserves its approved key after a lost response', async () => {
+  const state = server({ ...smtp(), connectionStatus: 'verified' });
+  let attempts = 0;
+  state.onWrite = (call) => {
+    expect(call.url).toBe(url + '/verify-from');
+    if (++attempts === 1)
+      return Response.json({ message: 'Response unavailable' }, { status: 500 });
+    state.profile = { ...state.profile, version: 3 };
+    return Response.json({
+      id: 'proof',
+      state: 'pending',
+      version: 3,
+      message: 'Enter the emailed code within 30 minutes.',
+    });
+  };
+  await render();
+  await click(button('Email a verification code'));
+  await fill('confirm-reason', 'Confirm hotel sender ownership');
+  await click(button('Send verification code'));
+  expect(document.body.textContent).toContain('Response unavailable');
+  await click(button('Send verification code'));
+  const writes = state.calls.filter((c) => c.method === 'POST');
+  expect(writes).toHaveLength(2);
+  expect(writes[0].wire).toBe(writes[1].wire);
+  expect(writes[0].headers.get('idempotency-key')).toBe(writes[1].headers.get('idempotency-key'));
+  expect(document.body.textContent).toContain('Enter the emailed code within 30 minutes.');
+  expect(document.body.textContent).toContain('Default MUST sender');
+  await fill('sending-from-name', 'Unsaved setup');
+  expect(button('Email a verification code').disabled).toBe(true);
+  expect(button('Verify From address').disabled).toBe(true);
+});
+
+it('consumes a fragment code into component memory, clears browser history and clears it after confirmation', async () => {
+  const code = 'test-only-mailbox-proof';
+  window.history.replaceState(null, '', '#sender-proof=' + code);
+  const state = server({ ...smtp(), connectionStatus: 'verified' });
+  state.onWrite = (call) => {
+    expect(call.url).toBe(url + '/verify-from/confirm');
+    expect(call.body).toMatchObject({ version: 2, code });
+    state.profile = { ...state.profile, version: 3, fromVerifiedAt: '2026-10-20T12:00:00Z' };
+    return Response.json({
+      id: 'proof',
+      state: 'verified',
+      version: 3,
+      message: 'From address verified. Custom sending is not yet activated.',
+    });
+  };
+  await render();
+  expect(window.location.hash).toBe('');
+  expect(
+    (document.getElementById('sender-verification-code') as HTMLInputElement).value === code,
+  ).toBe(true);
+  expect(
+    JSON.stringify(
+      client!
+        .getQueryCache()
+        .getAll()
+        .map((q) => q.state.data),
+    ).includes(code),
+  ).toBe(false);
+  await click(button('Verify From address'));
+  expect((document.getElementById('sender-verification-code') as HTMLInputElement).value).toBe('');
+  expect(document.body.textContent).toContain(
+    'From address verified. Custom sending is not yet activated.',
+  );
+  expect(localStorage.length).toBe(0);
+  expect(sessionStorage.length).toBe(0);
+});
+
+it('shows invalid/locked proof results and disables verification when current write access is revoked', async () => {
+  const state = server({ ...smtp(), connectionStatus: 'verified' });
+  state.onWrite = () =>
+    Response.json({
+      id: 'proof',
+      state: 'invalid',
+      version: 2,
+      message: 'That code is not correct.',
+    });
+  await render();
+  await fill('sender-verification-code', 'test-only-wrong-code');
+  await click(button('Verify From address'));
+  expect(document.body.textContent).toContain('That code is not correct.');
+  state.onWrite = () =>
+    Response.json({ id: 'proof', state: 'locked', version: 2, message: 'Request a new email.' });
+  await fill('sender-verification-code', 'another-test-only-wrong-code');
+  await click(button('Verify From address'));
+  expect(document.body.textContent).toContain('Request a new email.');
+  await click(button('Email a verification code'));
+  await render(false);
+  expect(button('Send verification code').disabled).toBe(true);
+  await click(button('Cancel'));
+  expect(button('Email a verification code').disabled).toBe(true);
+  expect(button('Verify From address').disabled).toBe(true);
 });
 
 it('shows current sender separately from saved setup and omits unsupported activation and send controls', async () => {

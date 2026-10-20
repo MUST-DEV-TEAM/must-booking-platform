@@ -13,6 +13,7 @@ import {
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 import { RequiresCapability } from './capabilities.decorator';
 import { EmailSendingProfileService } from './email-sending-profile.service';
+import { EmailSenderVerificationService } from './email-sender-verification.service';
 import { Role, Roles } from './roles.decorator';
 import { TenantScoped } from './tenant-context.decorator';
 
@@ -23,7 +24,47 @@ type Request = { tenantContext: { tenantId: string; propertyId: string; userId: 
 export class EmailSendingProfileController {
   constructor(
     @Inject(EmailSendingProfileService) private readonly profiles: EmailSendingProfileService,
+    @Inject(EmailSenderVerificationService)
+    private readonly senderProofs: EmailSenderVerificationService,
   ) {}
+  @Get('verify-from/:verificationId')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('settings.manage')
+  proof(@Req() request: Request, @Param('verificationId', new ParseUUIDPipe()) id: string) {
+    return this.senderProofs.get(request.tenantContext, id);
+  }
+  @Post('verify-from')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('settings.manage')
+  @RequiresVerifiedEmail()
+  requestProof(
+    @Req() request: Request,
+    @Body() body: Record<string, unknown>,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.senderProofs.request(
+      request.tenantContext,
+      request.tenantContext.userId,
+      body ?? {},
+      key,
+    );
+  }
+  @Post('verify-from/confirm')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('settings.manage')
+  @RequiresVerifiedEmail()
+  confirmProof(
+    @Req() request: Request,
+    @Body() body: Record<string, unknown>,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.senderProofs.confirm(
+      request.tenantContext,
+      request.tenantContext.userId,
+      body ?? {},
+      key,
+    );
+  }
   @Get()
   @TenantScoped({ propertyParam: 'propertyId' })
   @RequiresCapability('settings.manage')
