@@ -6,6 +6,7 @@ import { InventoryStockController } from './tenancy/inventory-stock.controller';
 import { InventoryStockService } from './tenancy/inventory-stock.service';
 import { InventoryOverviewController } from './tenancy/inventory-overview.controller';
 import { SystemHealthController, SystemHealthService } from './tenancy/system-health.service';
+import { GlobalSearchController, GlobalSearchService } from './tenancy/global-search.service';
 import { InventoryOverviewService } from './tenancy/inventory-overview.service';
 import { InventoryBlocksController } from './tenancy/inventory-blocks.controller';
 import { InventoryBlocksService } from './tenancy/inventory-blocks.service';
@@ -270,6 +271,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     InventoryOverviewController,
     BookingReviewController,
     SystemHealthController,
+    GlobalSearchController,
     InventoryStockController,
     PricingController,
     AccommodationsAuditController,
@@ -355,6 +357,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     InventoryBlocksService,
     InventoryOverviewService,
     SystemHealthService,
+    GlobalSearchService,
     InventoryStockService,
     PricingService,
     PricingWrites,

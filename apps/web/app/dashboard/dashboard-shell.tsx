@@ -37,6 +37,7 @@ import { fetchSessionUser, type SessionUser } from '../auth-routing';
 import styles from './dashboard-shell.module.css';
 import { NeedsAttentionTab } from './needs-attention';
 import { SystemHealthTab } from './system-health';
+import { GlobalSearch } from './global-search';
 import { useUnseenBookings } from './unseen-bookings';
 import { DashboardOverview, useOverviewQuery } from './overview';
 import { CalendarPage } from './calendar-page';
@@ -488,6 +489,9 @@ export function DashboardShell({
       userRole={role ? roleLabels[role] : undefined}
       headerActions={
         <>
+          {selectedProperty ? (
+            <GlobalSearch tenantId={tenantId} propertyId={selectedProperty.id} />
+          ) : null}
           {properties && properties.length > 1 && role !== 'STAFF' ? (
             <Select
               value={selectedProperty?.id ?? ''}
