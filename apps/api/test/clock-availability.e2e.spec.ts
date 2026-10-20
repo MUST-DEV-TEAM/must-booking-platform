@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { ClockAvailabilityService } from '../src/integrations/clock/clock-availability.service';
 import { cleanupTenant } from './helpers/cleanup-tenant';
+import { STAY_STARTS_ON, STAY_ENDS_ON, STAY_MONTH, monthDays } from './helpers/future-stay';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 
 // Milestone 11 Task 8's real-sandbox gate: getAvailability isn't reachable
@@ -166,8 +167,8 @@ describe.skipIf(!hasSandboxCredentials)('Clock getAvailability (real sandbox)', 
     const availability = app!.get(ClockAvailabilityService);
     const result = await availability.getAvailability(tenantId, propertyId, {
       roomTypeId: localRoomType[0].id,
-      startsOn: '2026-08-16',
-      endsOn: '2026-08-18',
+      startsOn: STAY_STARTS_ON,
+      endsOn: STAY_ENDS_ON,
     });
 
     // 2026-08-05: DBL has real rate/availability data configured in the
@@ -185,8 +186,8 @@ describe.skipIf(!hasSandboxCredentials)('Clock getAvailability (real sandbox)', 
     // proof) — same dates/room type as the availability assertion above.
     const quote = await availability.getQuote(tenantId, propertyId, {
       roomTypeId: localRoomType[0].id,
-      startsOn: '2026-08-16',
-      endsOn: '2026-08-18',
+      startsOn: STAY_STARTS_ON,
+      endsOn: STAY_ENDS_ON,
     });
     expect(quote.ok).toBe(true);
     if (quote.ok) {
@@ -200,8 +201,8 @@ describe.skipIf(!hasSandboxCredentials)('Clock getAvailability (real sandbox)', 
     const quoteService = app!.get((await import('../src/booking/quote.service')).QuoteService);
     const priced = await quoteService.price(tenantId, propertyId, {
       roomTypeId: localRoomType[0].id,
-      startsOn: '2026-08-16',
-      endsOn: '2026-08-18',
+      startsOn: STAY_STARTS_ON,
+      endsOn: STAY_ENDS_ON,
     });
     expect(Number(priced.amount)).toBeGreaterThan(0);
     expect(priced.currency).toBe('EUR');
@@ -214,14 +215,14 @@ describe.skipIf(!hasSandboxCredentials)('Clock getAvailability (real sandbox)', 
     // inside that larger result set.
     const calendar = await availability.getAvailabilityCalendar(tenantId, propertyId, {
       roomTypeId: localRoomType[0].id,
-      month: '2026-08',
+      month: STAY_MONTH,
     });
     expect(calendar.ok).toBe(true);
     if (calendar.ok) {
-      expect(calendar.value.length).toBe(31);
-      expect(calendar.value[0]!.date).toBe('2026-08-01');
-      expect(calendar.value.at(-1)!.date).toBe('2026-08-31');
-      const knownAvailable = calendar.value.find((day) => day.date === '2026-08-16');
+      expect(calendar.value.length).toBe(monthDays());
+      expect(calendar.value[0]!.date).toBe(`${STAY_MONTH}-01`);
+      expect(calendar.value.at(-1)!.date).toBe(`${STAY_MONTH}-${String(monthDays()).padStart(2, '0')}`);
+      const knownAvailable = calendar.value.find((day) => day.date === STAY_STARTS_ON);
       expect(knownAvailable?.isAvailable).toBe(true);
     }
   }, 30_000);
