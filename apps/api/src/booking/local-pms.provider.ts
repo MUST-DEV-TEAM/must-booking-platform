@@ -972,7 +972,7 @@ export class LocalPmsProvider implements PmsProvider {
 
   async cancelBooking(
     context: PmsProviderContext,
-    command: CancelBookingCommand & { notifyGuest?: boolean },
+    command: CancelBookingCommand & { notifyGuest?: boolean; singleBooking?: boolean },
   ): Promise<Result<Booking>> {
     const refundConfirmations: RefundConfirmation[] = [];
     const cancelledBookingIds: string[] = [];
@@ -997,7 +997,7 @@ export class LocalPmsProvider implements PmsProvider {
                 'Booking has changed; reload it before cancelling.',
                 true,
               );
-            if (row.orderReference) {
+            if (row.orderReference && !(command.staffActorId && command.singleBooking)) {
               const cancelled = await this.cancelMultiRoomOrder(tx, context, command, row);
               refundConfirmations.push(...cancelled.refundConfirmations);
               cancelledBookingIds.push(...cancelled.cancelledBookingIds);

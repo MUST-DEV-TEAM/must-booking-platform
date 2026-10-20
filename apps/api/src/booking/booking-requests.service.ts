@@ -41,6 +41,7 @@ export type CancellationEvidence = {
   method: string;
   legacyPolicy: true;
   previewHash: string;
+  orderReference?: string | null;
 };
 export type CancellationInput = {
   expectedVersion?: number;
@@ -61,6 +62,8 @@ type RequestRow = {
   version: number;
   executionActorId?: string | null;
   executionNote?: string | null;
+  selfApproved: boolean;
+  decisionNote?: string | null;
   payload: Snapshot;
 };
 const money = (n: bigint) => `${n / 100n}.${(n % 100n).toString().padStart(2, '0')}`;
@@ -141,10 +144,9 @@ export class BookingRequestsService {
       WHERE b.tenant_id=${c.tenantId}::uuid AND b.property_id=${c.propertyId}::uuid AND b.id=${bookingId}::uuid`;
     const row = rows[0];
     if (!row) throw new NotFoundException('Booking not found.');
-    if (row.orderReference)
-      throw new ConflictException(
-        'Order cancellation requires the existing whole-order flow; B1 supports individual reservations.',
-      );
+    const orderRemaining = row.orderReference
+      ? await this.orderBalance(tx, c, row.orderReference)
+      : null;
     const { total, evaluatedAt, ...base } = row;
     const isFree = withinFreeWindow(row.cutoffAt, evaluatedAt);
     const evidence = {
@@ -154,10 +156,74 @@ export class BookingRequestsService {
       ...refundPreview(row.paid, row.alreadyRefunded, total, isFree),
       legacyPolicy: true as const,
     };
+    if (orderRemaining !== null) {
+      const share = isFree ? minor(total) : 0n;
+      const eligible = minor(evidence.eligible);
+      evidence.eligible = money(
+        [share, eligible, orderRemaining].reduce((a, b) => (a < b ? a : b)),
+      );
+    }
     return {
       ...evidence,
       previewHash: createHash('sha256').update(JSON.stringify(evidence)).digest('hex'),
     };
+  }
+  /** A booking-owned charge is an explicit split. Do not infer allocations for
+   * pooled charges, mixed currencies, or multiple captures the refund path cannot select. */
+  private async orderBalance(tx: TenantTransaction, c: RequestContext, reference: string) {
+    const rows = await tx.$queryRaw<
+      Array<{
+        total: string;
+        paid: string;
+        refunded: string;
+        charges: bigint;
+        currency: string;
+        currencyMatches: boolean;
+      }>
+    >`
+      SELECT b.total_amount::text AS total,rp.currency,
+        COALESCE(sum(p.amount) FILTER(WHERE p.kind='CHARGE' AND p.status IN ('PAID','LATE_AFTER_EXPIRY','succeeded')),0)::text AS paid,
+        COALESCE(sum(p.amount) FILTER(WHERE p.kind='REFUND' AND p.status='REFUNDED'),0)::text AS refunded,
+        count(p.id) FILTER(WHERE p.kind='CHARGE' AND p.status IN ('PAID','LATE_AFTER_EXPIRY','succeeded')) AS charges,
+        COALESCE(bool_and(p.currency=rp.currency),true) AS "currencyMatches"
+      FROM bookings b JOIN rate_plans rp ON rp.tenant_id=b.tenant_id AND rp.property_id=b.property_id AND rp.id=b.rate_plan_id
+      LEFT JOIN payments p ON p.tenant_id=b.tenant_id AND p.property_id=b.property_id AND p.booking_id=b.id
+      WHERE b.tenant_id=${c.tenantId}::uuid AND b.property_id=${c.propertyId}::uuid AND b.order_reference=${reference}
+      GROUP BY b.id,rp.currency`;
+    if (
+      (rows.filter((r) => minor(r.total) > 0n).length > 1 &&
+        rows.reduce((n, r) => n + r.charges, 0n) === 1n) ||
+      rows.some(
+        (r) =>
+          r.currency !== rows[0]?.currency ||
+          r.charges > 1n ||
+          !r.currencyMatches ||
+          minor(r.paid) > minor(r.total) ||
+          minor(r.refunded) > minor(r.paid),
+      )
+    )
+      throw new ConflictException(
+        'We cannot tell how the order payment is split between reservations. Ask finance to review it before cancelling this reservation.',
+      );
+    return rows.reduce((remaining, r) => remaining + minor(r.paid) - minor(r.refunded), 0n);
+  }
+  private async canSelfApprove(tx: TenantTransaction, c: RequestContext) {
+    const rows = await tx.$queryRaw<{ allowed: boolean }[]>`
+      SELECT m.role IN ('OWNER','ADMIN') AND NOT EXISTS (
+        SELECT 1 FROM tenant_memberships other JOIN users u ON u.id=other.user_id
+        WHERE other.tenant_id=${c.tenantId}::uuid AND other.user_id<>${c.userId}::uuid AND (
+          other.role IN ('OWNER','ADMIN') OR (other.role='STAFF' AND EXISTS (
+            SELECT 1 FROM property_staff_assignments a
+            JOIN capabilities cap ON cap.tenant_id=a.tenant_id AND cap.key='requests.review'
+            LEFT JOIN property_role_template_capabilities rtc ON rtc.tenant_id=a.tenant_id AND rtc.property_id=a.property_id AND rtc.role_template_id=a.role_template_id AND rtc.capability_id=cap.id
+            LEFT JOIN property_staff_capability_overrides o ON o.tenant_id=a.tenant_id AND o.property_id=a.property_id AND o.user_id=a.user_id AND o.capability_id=cap.id
+            WHERE a.tenant_id=${c.tenantId}::uuid AND a.property_id=${c.propertyId}::uuid AND a.user_id=other.user_id
+              AND a.suspended_at IS NULL AND COALESCE(o.granted,rtc.capability_id IS NOT NULL)
+          ))
+        )
+      ) AS allowed FROM tenant_memberships m
+      WHERE m.tenant_id=${c.tenantId}::uuid AND m.user_id=${c.userId}::uuid`;
+    return rows[0]?.allowed === true;
   }
   // Same scoped lock for direct cancellation, request creation, and review. It does not
   // lock booking rows: existing cancellation/refund transactions own those locks.
@@ -262,6 +328,7 @@ export class BookingRequestsService {
       staffActorId: actorId,
       reason: input.details!,
       skipAutomaticRefund: true,
+      ...(e.orderReference ? { singleBooking: true } : {}),
       notifyGuest: input.notifyGuest,
     });
     if (!result.ok) {
@@ -303,13 +370,18 @@ export class BookingRequestsService {
           }
         >
       >`
-        SELECT q.id,q.booking_id AS "bookingId",q.requester_id AS "requesterId",q.status,q.version,q.payload,q.execution_actor_id AS "executionActorId",q.execution_note AS "executionNote",
+        SELECT q.id,q.booking_id AS "bookingId",q.requester_id AS "requesterId",q.status,q.version,q.payload,q.self_approved AS "selfApproved",q.decision_note AS "decisionNote",q.execution_actor_id AS "executionActorId",q.execution_note AS "executionNote",
           q.created_at AS "createdAt",q.reason_category AS "reasonCategory",q.priority,q.details,
           COALESCE(NULLIF(trim(concat_ws(' ',u.first_name,u.last_name)),''),u.email) AS "requesterName"
         FROM booking_requests q JOIN users u ON u.id=q.requester_id
-        WHERE q.tenant_id=${c.tenantId}::uuid AND q.property_id=${c.propertyId}::uuid AND q.status='Pending'
+        WHERE q.tenant_id=${c.tenantId}::uuid AND q.property_id=${c.propertyId}::uuid AND (q.status='Pending' OR q.id IN (SELECT d.id FROM booking_requests d WHERE d.tenant_id=${c.tenantId}::uuid AND d.property_id=${c.propertyId}::uuid AND d.status<>'Pending' ORDER BY d.decided_at DESC,d.id LIMIT 20))
         ORDER BY CASE q.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 ELSE 2 END,q.created_at,q.id`;
-      return { items, count: items.length };
+      const pending = items.filter((q) => q.status === 'Pending');
+      return {
+        items: pending,
+        count: pending.length,
+        decisions: items.filter((q) => q.status !== 'Pending'),
+      };
     });
   }
   async decide(
@@ -343,8 +415,11 @@ export class BookingRequestsService {
         >`SELECT status,version,execution_actor_id AS "executionActorId",execution_note AS "executionNote" FROM booking_requests WHERE tenant_id=${c.tenantId}::uuid AND property_id=${c.propertyId}::uuid AND id=${id}::uuid`;
         if (fresh[0]?.status !== 'Pending' || fresh[0]?.version !== body.version)
           throw new ConflictException('This request has already changed.');
-        if (body.decision === 'Approved' && q.requesterId === c.userId)
-          throw new ForbiddenException('Another reviewer must approve this request.');
+        const selfApproved = body.decision === 'Approved' && q.requesterId === c.userId;
+        if (selfApproved && !(await this.canSelfApprove(tx, c)))
+          throw new ForbiddenException(
+            'Another reviewer must approve this request. Self-approval is limited to the sole active Owner or Admin reviewer.',
+          );
         if (
           body.decision === 'Approved' &&
           q.payload.input.refund === 'custom' &&
@@ -395,7 +470,7 @@ export class BookingRequestsService {
             return outcome; // Still Pending; no refund if Clock failed.
           }
         }
-        await tx.$executeRaw`UPDATE booking_requests SET status=${body.decision},reviewer_id=${c.userId}::uuid,decision_note=${note},decided_at=now(),version=version+1 WHERE tenant_id=${c.tenantId}::uuid AND property_id=${c.propertyId}::uuid AND id=${id}::uuid AND status='Pending'`;
+        await tx.$executeRaw`UPDATE booking_requests SET status=${body.decision},self_approved=${selfApproved},reviewer_id=${c.userId}::uuid,decision_note=${note},decided_at=now(),version=version+1 WHERE tenant_id=${c.tenantId}::uuid AND property_id=${c.propertyId}::uuid AND id=${id}::uuid AND status='Pending'`;
         await tx.$executeRaw`INSERT INTO notification_resolutions(tenant_id,property_id,notification_id,resolved_by_user_id,note)
         SELECT tenant_id,property_id,id,${c.userId}::uuid,${note} FROM notifications
         WHERE tenant_id=${c.tenantId}::uuid AND property_id=${c.propertyId}::uuid AND type='CANCELLATION_REQUESTED' AND payload->>'requestId'=${id}
@@ -406,9 +481,9 @@ export class BookingRequestsService {
           action: 'request.decided',
           targetType: 'booking',
           targetId: q.bookingId,
-          details: { requestId: id, decision: body.decision, note: note, outcome },
+          details: { requestId: id, decision: body.decision, selfApproved, note: note, outcome },
         });
-        return { ok: true, status: body.decision, outcome };
+        return { ok: true, status: body.decision, selfApproved, outcome };
       },
       { timeoutMs: 90000 },
     );

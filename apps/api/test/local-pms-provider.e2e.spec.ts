@@ -2034,47 +2034,53 @@ describe('LocalPmsProvider', () => {
       .send(manualRefundWebhookPayload)
       .expect(200);
     await settleMail();
-    expect(paymentConfirmationEmails).toEqual(
-      expect.arrayContaining([
-        {
-          bookingId: firstBooking.value.id,
-          bookingReference: expect.any(String),
-          paymentId: `cs_test_${firstBooking.value.id}`,
-          to: 'guest@example.test',
-          amount: { amount: '180.00', currency: 'EUR' },
-          brand: {
-            name: 'Local PMS Property',
-            logoUrl: null,
-            supportEmail: null,
-            phone: null,
-            websiteUrl: 'https://hotel.example.test',
-            address: '1 Provider Way',
-          },
-          paymentMethod: 'stripe',
-          guest: { name: 'Different Name' },
-          stay: { startsOn: '2027-09-01', endsOn: '2027-09-03' },
-          roomName: 'Provider Suite',
-          guestCount: 2,
-          nightlyRates: [
-            expect.objectContaining({
-              date: '2027-09-01',
-              amount: '90.00',
-              components: expect.arrayContaining([
-                expect.objectContaining({ kind: 'base', amount: '90.00' }),
-              ]),
-            }),
-            expect.objectContaining({
-              date: '2027-09-02',
-              amount: '90.00',
-              components: expect.arrayContaining([
-                expect.objectContaining({ kind: 'base', amount: '90.00' }),
-              ]),
-            }),
-          ],
-          specialRequests: 'Please provide an accessible room.',
-        },
-      ]),
+    // E4 adds a rendered template to the delivery command. Match this booking,
+    // rather than comparing a legacy command shape against the entire mailbox.
+    const matchingConfirmation = paymentConfirmationEmails.filter(
+      ({ bookingId }) => bookingId === firstBooking.value.id,
     );
+    expect(matchingConfirmation).toHaveLength(1);
+    expect(matchingConfirmation[0]).toMatchObject({
+      bookingId: firstBooking.value.id,
+      bookingReference: expect.any(String),
+      paymentId: `cs_test_${firstBooking.value.id}`,
+      to: 'guest@example.test',
+      amount: { amount: '180.00', currency: 'EUR' },
+      brand: {
+        name: 'Local PMS Property',
+        logoUrl: null,
+        supportEmail: null,
+        phone: null,
+        websiteUrl: 'https://hotel.example.test',
+        address: '1 Provider Way',
+      },
+      paymentMethod: 'stripe',
+      guest: { name: 'Different Name' },
+      stay: { startsOn: '2027-09-01', endsOn: '2027-09-03' },
+      roomName: 'Provider Suite',
+      guestCount: 2,
+      nightlyRates: [
+        expect.objectContaining({
+          date: '2027-09-01',
+          amount: '90.00',
+          components: expect.arrayContaining([
+            expect.objectContaining({ kind: 'base', amount: '90.00' }),
+          ]),
+        }),
+        expect.objectContaining({
+          date: '2027-09-02',
+          amount: '90.00',
+          components: expect.arrayContaining([
+            expect.objectContaining({ kind: 'base', amount: '90.00' }),
+          ]),
+        }),
+      ],
+      specialRequests: 'Please provide an accessible room.',
+      template: expect.objectContaining({
+        subject: expect.stringContaining('Local PMS Property'),
+        text: expect.stringContaining('Hello Different Name'),
+      }),
+    });
     expect(
       paymentConfirmationEmails.filter(
         ({ bookingId }) => bookingId === concurrentWebhookBooking.value.id,

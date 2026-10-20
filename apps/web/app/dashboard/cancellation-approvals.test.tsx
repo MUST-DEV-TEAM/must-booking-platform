@@ -142,6 +142,29 @@ describe('B1 confirmation, refund preview, queue and review panel', () => {
     await act(async () => button('Reject').click());
     expect(decide).toHaveBeenCalledWith('Rejected', 'Policy reviewed');
   });
+  it('shows a persisted Self-approved badge and read-only note on a decided request', async () => {
+    const decided = {
+      ...request,
+      status: 'Approved',
+      selfApproved: true,
+      decisionNote: 'Sole reviewer on duty',
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [], count: 0, decisions: [decided] })),
+      ),
+    );
+    await mount(<ApprovalsQueue tenantId="tenant" propertyId="hotel" />);
+    expect(document.body.textContent).toContain('Self-approved');
+    await act(async () => button('View decision').click());
+    expect(document.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe(
+      'Sole reviewer on duty',
+    );
+    expect(document.querySelector<HTMLTextAreaElement>('textarea')?.readOnly).toBe(true);
+    expect(button('Approve')).toBeUndefined();
+    expect(button('Reject')).toBeUndefined();
+  });
   it('renders the empty queue', async () => {
     vi.stubGlobal(
       'fetch',

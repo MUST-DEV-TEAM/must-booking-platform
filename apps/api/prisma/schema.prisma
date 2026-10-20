@@ -1770,6 +1770,7 @@ model BookingRequest {
   status           String    @default("Pending")
   executionActorId String?   @map("execution_actor_id") @db.Uuid
   executionNote    String?   @map("execution_note") @db.VarChar(1000)
+  selfApproved     Boolean   @default(false) @map("self_approved")
   reviewerId       String?   @map("reviewer_id") @db.Uuid
   decisionNote     String?   @map("decision_note") @db.VarChar(1000)
   decidedAt        DateTime? @map("decided_at") @db.Timestamptz(6)

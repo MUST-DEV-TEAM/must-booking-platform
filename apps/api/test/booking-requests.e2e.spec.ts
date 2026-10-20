@@ -100,9 +100,9 @@ async function fixture(paid = true) {
     await admin.$executeRaw`INSERT INTO payments(tenant_id,property_id,booking_id,kind,provider,external_payment_id,status,amount,currency) VALUES(${tenantId}::uuid,${propertyId}::uuid,${id}::uuid,'CHARGE','manual',${'charge-' + id},'PAID',100,'EUR')`;
   return id;
 }
-async function request(id: string, choice: 'eligible' | 'custom' = 'eligible') {
-  const preview = await service.preview(context, id);
-  const result = await service.submit(context, id, {
+async function request(id: string, choice: 'eligible' | 'custom' = 'eligible', c = context) {
+  const preview = await service.preview(c, id);
+  const result = await service.submit(c, id, {
     expectedVersion: preview.version,
     previewHash: preview.previewHash,
     reasonCategory: 'guest_request',
@@ -133,6 +133,12 @@ beforeAll(async () => {
       );
       for (let run = 0; run < 2; run++)
         for (const statement of statements(sql)) await tx.$executeRawUnsafe(statement);
+      const correction = readFileSync(
+        'prisma/migrations/20261020120000_request_self_approval/migration.sql',
+        'utf8',
+      );
+      for (let run = 0; run < 2; run++)
+        for (const statement of statements(correction)) await tx.$executeRawUnsafe(statement);
       await tx.$executeRawUnsafe(`GRANT USAGE ON SCHEMA "${schema}" TO must_booking_app`);
       await tx.$executeRawUnsafe(
         `GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA "${schema}" TO must_booking_app`,
@@ -375,6 +381,122 @@ describe('B1 risky cancellation paths', () => {
     await admin.$executeRaw`UPDATE properties SET timezone='Pacific/Kiritimati' WHERE id=${propertyId}::uuid`;
     expect((await service.preview(context, id)).cutoffAt).toBe('2030-07-08T10:00:00.000Z');
     await admin.$executeRaw`UPDATE properties SET timezone='Europe/Tirane' WHERE id=${propertyId}::uuid`;
+  });
+  it.each(['OWNER', 'ADMIN'])(
+    'allows self-approval only for the sole active %s reviewer',
+    async (role) => {
+      await admin.$executeRaw`UPDATE tenant_memberships SET role=${role}::public."TenantMembershipRole" WHERE tenant_id=${tenantId}::uuid AND user_id=${reviewer}::uuid`;
+      await admin.$executeRaw`UPDATE tenant_memberships SET role='STAFF' WHERE tenant_id=${tenantId}::uuid AND user_id=${secondReviewer}::uuid`;
+      await admin.$executeRaw`INSERT INTO property_staff_assignments(tenant_id,property_id,user_id,role_template_id,suspended_at) VALUES(${tenantId}::uuid,${propertyId}::uuid,${secondReviewer}::uuid,${randomUUID()}::uuid,now())`;
+      await admin.$executeRaw`INSERT INTO property_staff_capability_overrides(tenant_id,property_id,user_id,capability_id,granted) SELECT ${tenantId}::uuid,${propertyId}::uuid,${secondReviewer}::uuid,id,true FROM capabilities WHERE tenant_id=${tenantId}::uuid AND key='requests.review'`;
+      try {
+        const id = await fixture(),
+          q = await request(id, 'custom', { ...context, userId: reviewer });
+        const result = await approve(q);
+        expect(result).toMatchObject({ ok: true, selfApproved: true, status: 'Approved' });
+        const decision = (await service.list({ ...context, userId: reviewer })).decisions.find(
+          (d) => d.id === q,
+        );
+        expect(decision).toMatchObject({
+          selfApproved: true,
+          decisionNote: 'Reviewed policy and refund',
+        });
+        await expect(
+          db.withTenantTransaction(
+            context,
+            (tx) =>
+              tx.$executeRaw`UPDATE booking_requests SET self_approved=false WHERE id=${q}::uuid`,
+          ),
+        ).rejects.toThrow('decision changed');
+      } finally {
+        await admin.$executeRaw`DELETE FROM property_staff_capability_overrides WHERE tenant_id=${tenantId}::uuid AND user_id=${secondReviewer}::uuid`;
+        await admin.$executeRaw`DELETE FROM property_staff_assignments WHERE tenant_id=${tenantId}::uuid AND user_id=${secondReviewer}::uuid`;
+        await admin.$executeRaw`UPDATE tenant_memberships SET role='ADMIN' WHERE tenant_id=${tenantId}::uuid AND user_id IN (${reviewer}::uuid,${secondReviewer}::uuid)`;
+      }
+    },
+  );
+  it('refuses self-approval when another staff reviewer is granted access after the request', async () => {
+    await admin.$executeRaw`UPDATE tenant_memberships SET role='STAFF' WHERE tenant_id=${tenantId}::uuid AND user_id=${secondReviewer}::uuid`;
+    try {
+      const id = await fixture(),
+        q = await request(id, 'custom', { ...context, userId: reviewer });
+      await admin.$executeRaw`INSERT INTO property_staff_assignments(tenant_id,property_id,user_id,role_template_id) VALUES(${tenantId}::uuid,${propertyId}::uuid,${secondReviewer}::uuid,${randomUUID()}::uuid)`;
+      await admin.$executeRaw`INSERT INTO property_staff_capability_overrides(tenant_id,property_id,user_id,capability_id,granted) SELECT ${tenantId}::uuid,${propertyId}::uuid,${secondReviewer}::uuid,id,true FROM capabilities WHERE tenant_id=${tenantId}::uuid AND key='requests.review'`;
+      await expect(approve(q)).rejects.toThrow('Another reviewer');
+    } finally {
+      await admin.$executeRaw`DELETE FROM property_staff_capability_overrides WHERE tenant_id=${tenantId}::uuid AND user_id=${secondReviewer}::uuid`;
+      await admin.$executeRaw`DELETE FROM property_staff_assignments WHERE tenant_id=${tenantId}::uuid AND user_id=${secondReviewer}::uuid`;
+      await admin.$executeRaw`UPDATE tenant_memberships SET role='ADMIN' WHERE tenant_id=${tenantId}::uuid AND user_id=${secondReviewer}::uuid`;
+    }
+  });
+  it('refuses a sole STAFF reviewer self-approval', async () => {
+    await admin.$executeRaw`UPDATE tenant_memberships SET role='STAFF' WHERE tenant_id=${tenantId}::uuid AND user_id IN (${reviewer}::uuid,${secondReviewer}::uuid)`;
+    await admin.$executeRaw`INSERT INTO property_staff_capability_overrides(tenant_id,property_id,user_id,capability_id,granted) SELECT ${tenantId}::uuid,${propertyId}::uuid,${requester}::uuid,id,true FROM capabilities WHERE tenant_id=${tenantId}::uuid AND key='requests.review'`;
+    try {
+      const id = await fixture(),
+        q = await request(id, 'custom');
+      await expect(approve(q, requester)).rejects.toThrow('sole active Owner or Admin');
+    } finally {
+      await admin.$executeRaw`DELETE FROM property_staff_capability_overrides WHERE tenant_id=${tenantId}::uuid AND user_id=${requester}::uuid AND capability_id IN (SELECT id FROM capabilities WHERE tenant_id=${tenantId}::uuid AND key='requests.review')`;
+      await admin.$executeRaw`UPDATE tenant_memberships SET role='ADMIN' WHERE tenant_id=${tenantId}::uuid AND user_id IN (${reviewer}::uuid,${secondReviewer}::uuid)`;
+    }
+  });
+  it('previews, requests and cancels one booking in a two-booking order with only its remaining share refunded', async () => {
+    const first = await fixture(),
+      second = await fixture(),
+      reference = 'ORDER-' + randomUUID();
+    await admin.$executeRaw`UPDATE bookings SET order_reference=${reference} WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id IN (${first}::uuid,${second}::uuid)`;
+    await admin.$executeRaw`INSERT INTO payments(tenant_id,property_id,booking_id,kind,provider,external_payment_id,status,amount,currency) VALUES(${tenantId}::uuid,${propertyId}::uuid,${second}::uuid,'REFUND','manual',${randomUUID()},'REFUNDED',20,'EUR')`;
+    expect(await service.preview(context, second)).toMatchObject({
+      eligible: '80.00',
+      paid: '100.00',
+      alreadyRefunded: '20.00',
+    });
+    const q = await request(second);
+    expect((await approve(q)).ok).toBe(true);
+    const states = await admin.$queryRaw<
+      { id: string; status: string }[]
+    >`SELECT id,status::text FROM bookings WHERE id IN (${first}::uuid,${second}::uuid)`;
+    expect(states).toEqual(
+      expect.arrayContaining([
+        { id: first, status: 'CONFIRMED' },
+        { id: second, status: 'CANCELLED' },
+      ]),
+    );
+    const rows = await admin.$queryRaw<
+      { amount: string }[]
+    >`SELECT sum(amount)::text AS amount FROM payments WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND booking_id=${second}::uuid AND kind='REFUND'`;
+    expect(rows[0]?.amount).toBe('100.00');
+    // The other booking's direct cancellation has its own key and share.
+    const c = { ...context, userId: reviewer },
+      e = await service.preview(c, first);
+    expect(e.eligible).toBe('100.00');
+    expect(
+      (
+        await service.submit(c, first, {
+          expectedVersion: e.version,
+          previewHash: e.previewHash,
+          reasonCategory: 'other',
+          details: 'Cancel remaining reservation',
+          notifyGuest: false,
+        })
+      ).ok,
+    ).toBe(true);
+  });
+  it('fails closed for an order charge without an unambiguous booking split', async () => {
+    const first = await fixture(),
+      second = await fixture(false),
+      reference = 'AMBIGUOUS-' + randomUUID();
+    await admin.$executeRaw`UPDATE bookings SET order_reference=${reference} WHERE id IN (${first}::uuid,${second}::uuid)`;
+    await admin.$executeRaw`UPDATE payments SET amount=200 WHERE booking_id=${first}::uuid AND kind='CHARGE'`;
+    for (const id of [first, second])
+      await expect(service.preview(context, id)).rejects.toThrow(
+        'cannot tell how the order payment is split',
+      );
+    const rows = await admin.$queryRaw<
+      { status: string }[]
+    >`SELECT status::text FROM bookings WHERE id IN (${first}::uuid,${second}::uuid)`;
+    expect(rows.every((b) => b.status === 'CONFIRMED')).toBe(true);
   });
   it('Clock failure keeps booking confirmed, request pending, and creates sync review without refund', async () => {
     const id = await fixture(),

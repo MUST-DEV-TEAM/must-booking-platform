@@ -26,6 +26,8 @@ import {
 } from '../../components/ui/sheet';
 import { EmptyPanel, ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 export type Approval = {
+  selfApproved?: boolean;
+  decisionNote?: string | null;
   executionActorId?: string | null;
   executionNote?: string | null;
   id: string;
@@ -49,7 +51,7 @@ export function useApprovals(tenantId: string, propertyId: string, enabled = tru
     queryKey: ['dashboard', tenantId, propertyId, 'approvals'],
     enabled,
     queryFn: () =>
-      requestJson<{ items: Approval[]; count: number }>(
+      requestJson<{ items: Approval[]; count: number; decisions?: Approval[] }>(
         `/api/tenants/${tenantId}/properties/${propertyId}/requests`,
       ),
     refetchInterval: 30000,
@@ -64,7 +66,7 @@ export function ApprovalPanel({
   onClose: () => void;
   onDecide: (decision: string, note: string) => Promise<void>;
 }) {
-  const [note, setNote] = useState(q?.executionNote ?? ''),
+  const [note, setNote] = useState(q?.decisionNote ?? q?.executionNote ?? ''),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
   async function decide(decision: string) {
@@ -100,7 +102,8 @@ export function ApprovalPanel({
         </SheetHeader>
         {q ? (
           <div className="space-y-4 px-4 pb-6">
-            {q.executionActorId ? (
+            {q.selfApproved ? <Badge variant="warning">Self-approved</Badge> : null}
+            {q.status === 'Pending' && q.executionActorId ? (
               <p className="text-sm">
                 Approval execution started. The original reviewer must resume with the recorded
                 note. Check any provider sync problem before retrying.
@@ -132,21 +135,26 @@ export function ApprovalPanel({
               id="decision-note"
               value={note}
               maxLength={1000}
+              readOnly={q.status !== 'Pending'}
               onChange={(e) => setNote(e.target.value)}
             />
             {error ? <p role="alert">{error}</p> : null}
-            <div className="flex gap-2">
-              <Button disabled={busy || !note.trim()} onClick={() => void decide('Approved')}>
-                Approve
-              </Button>
-              <Button
-                variant="destructive"
-                disabled={busy || !note.trim() || !!q.executionActorId}
-                onClick={() => void decide('Rejected')}
-              >
-                Reject
-              </Button>
-            </div>
+            {q.status === 'Pending' ? (
+              <div className="flex gap-2">
+                <Button disabled={busy || !note.trim()} onClick={() => void decide('Approved')}>
+                  Approve
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={busy || !note.trim() || !!q.executionActorId}
+                  onClick={() => void decide('Rejected')}
+                >
+                  Reject
+                </Button>
+              </div>
+            ) : (
+              <p>{q.status}</p>
+            )}
           </div>
         ) : null}
       </SheetContent>
@@ -217,6 +225,25 @@ export function ApprovalsQueue({ tenantId, propertyId }: { tenantId: string; pro
           ))}
         </div>
       )}
+      {query.data?.decisions?.length ? (
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold">Recent decisions</h3>
+          {query.data.decisions.map((q) => (
+            <div
+              key={q.id}
+              className="flex items-center justify-between gap-3 rounded-xl border p-3"
+            >
+              <div>
+                {q.payload.evidence.reference} <Badge>{q.status}</Badge>{' '}
+                {q.selfApproved ? <Badge variant="warning">Self-approved</Badge> : null}
+              </div>
+              <Button variant="outline" size="sm" onClick={() => setSelected(q)}>
+                View decision
+              </Button>
+            </div>
+          ))}
+        </section>
+      ) : null}
       <ApprovalPanel
         key={selected?.id ?? 'closed'}
         request={selected}
