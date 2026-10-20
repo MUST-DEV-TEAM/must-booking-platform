@@ -300,6 +300,95 @@ export class AuthService implements OnModuleDestroy {
     });
   }
 
+  /** The signed-in user's own profile (name, email, verification). */
+  async getProfile(sessionId: string | undefined): Promise<{
+    email: string;
+    emailVerified: boolean;
+    firstName: string | null;
+    lastName: string | null;
+  }> {
+    const userId = await this.requireSessionUserId(sessionId);
+    const user = await this.findUserById(userId);
+    if (!user) throw new UnauthorizedException('A valid session is required.');
+    const rows = await this.database.$queryRaw<
+      Array<{ first_name: string | null; last_name: string | null }>
+    >`SELECT first_name, last_name FROM "auth_get_profile"(${userId}::uuid)`;
+    return {
+      email: user.email,
+      emailVerified: user.emailVerifiedAt !== null,
+      firstName: rows[0]?.first_name ?? null,
+      lastName: rows[0]?.last_name ?? null,
+    };
+  }
+
+  async updateProfile(
+    sessionId: string | undefined,
+    input: unknown,
+  ): Promise<{ firstName: string | null; lastName: string | null }> {
+    const userId = await this.requireSessionUserId(sessionId);
+    const value = (typeof input === 'object' && input !== null ? input : {}) as Record<
+      string,
+      unknown
+    >;
+    const clean = (name: string): string | null => {
+      const raw = value[name];
+      if (raw === undefined || raw === null || raw === '') return null;
+      if (typeof raw !== 'string' || raw.trim().length > 100)
+        throw new BadRequestException(`${name} must be text of at most 100 characters.`);
+      return raw.trim() || null;
+    };
+    const firstName = clean('firstName');
+    const lastName = clean('lastName');
+    await this.database.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT "auth_update_profile"(${userId}::uuid, ${firstName}, ${lastName})`;
+      await this.auditLogs.recordAccountEventInTransaction(tx, {
+        actorUserId: userId,
+        action: 'auth.profile_updated',
+        targetType: 'user',
+        targetId: userId,
+        details: { result: 'succeeded' },
+      });
+    });
+    return { firstName, lastName };
+  }
+
+  /** Change the signed-in user's password after proving the current one. */
+  async changePassword(sessionId: string | undefined, input: unknown): Promise<void> {
+    const userId = await this.requireSessionUserId(sessionId);
+    const current = this.field(input, 'currentPassword');
+    const next = this.field(input, 'newPassword');
+    if (next.length < 12) throw new BadRequestException('Password must be at least 12 characters.');
+    if (next === current)
+      throw new BadRequestException('Choose a password different from the current one.');
+    const attempts = await this.countAttempt(
+      this.rateLimitKey('password-change', userId),
+      AUTH_EMAIL_REQUEST_WINDOW_SECONDS,
+    );
+    if (attempts > 5)
+      throw new BadRequestException('Too many attempts. Please wait a few minutes and try again.');
+    const byId = await this.findUserById(userId);
+    const user = byId ? await this.findUser(byId.email) : null;
+    if (!user?.passwordHash || !(await bcrypt.compare(current, user.passwordHash)))
+      throw new BadRequestException('The current password is not correct.');
+    const hash = await bcrypt.hash(next, 12);
+    await this.database.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT "auth_update_password"(${userId}::uuid, ${hash})`;
+      await this.auditLogs.recordAccountEventInTransaction(tx, {
+        actorUserId: userId,
+        action: 'auth.password_changed',
+        targetType: 'user',
+        targetId: userId,
+        details: { result: 'succeeded', method: 'Account change' },
+      });
+    });
+  }
+
+  private async requireSessionUserId(sessionId: string | undefined): Promise<string> {
+    const userId = await this.getSessionUserId(sessionId);
+    if (!userId) throw new UnauthorizedException('A valid session is required.');
+    return userId;
+  }
+
   async requestEmailVerification(input: unknown): Promise<void> {
     const email = this.email(input);
     if (!(await this.allowEmailRequest('email-verification', email))) return;

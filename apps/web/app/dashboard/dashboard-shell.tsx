@@ -621,6 +621,7 @@ export function DashboardShell({
       ) : null}
       {selectedProperty && role && canViewSection && section === 'account' ? (
         <MyAccount
+          tenantId={tenantId}
           email={user?.email}
           role={role ? roleLabels[role] : undefined}
           hotelName={selectedProperty.name}

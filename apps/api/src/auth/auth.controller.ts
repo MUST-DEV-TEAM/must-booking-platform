@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   Inject,
+  Patch,
   Post,
   Req,
   Res,
@@ -89,6 +90,18 @@ export class AuthController {
     );
     if (!user) throw new UnauthorizedException('A valid session is required.');
     return { user };
+  }
+  @Get('profile') async profile(@Req() request: CookieRequest) {
+    return this.auth.getProfile(this.cookie(request.headers.cookie, 'must_session'));
+  }
+  @Patch('profile') async updateProfile(@Body() body: unknown, @Req() request: CookieRequest) {
+    return this.auth.updateProfile(this.cookie(request.headers.cookie, 'must_session'), body);
+  }
+  @Post('change-password') @HttpCode(204) async changePassword(
+    @Body() body: unknown,
+    @Req() request: CookieRequest,
+  ) {
+    await this.auth.changePassword(this.cookie(request.headers.cookie, 'must_session'), body);
   }
   @Get('memberships') async memberships(@Req() request: CookieRequest) {
     const memberships = await this.auth.getSessionMemberships(
