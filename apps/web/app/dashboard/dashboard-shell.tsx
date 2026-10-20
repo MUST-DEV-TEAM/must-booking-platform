@@ -209,7 +209,11 @@ const unavailableDashboardTabCopy: Record<UnavailableDashboardTab, string> = {
 // on every one of these sections' endpoints.
 const ownerAdminOnlySections = new Set(['settings']);
 
-function canAccessSection(role: TenantRole, capabilities: readonly string[], section: string) {
+export function canAccessSection(
+  role: TenantRole,
+  capabilities: readonly string[],
+  section: string,
+) {
   if (section === 'emails') return capabilities.includes('settings.manage');
   if (
     role !== 'STAFF' ||
@@ -521,6 +525,7 @@ export function DashboardShell({
               tenantId={tenantId}
               propertyId={selectedProperty.id}
               canOpen={(target) => canAccessSection(role, capabilities ?? [], target)}
+              userId={user?.id}
               can={(capability) =>
                 capability === 'tenant.admin' ? role !== 'STAFF' : hasCapability(capability)
               }

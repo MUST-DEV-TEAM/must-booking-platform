@@ -168,16 +168,9 @@ describe('Global search', () => {
       .expect(201);
     expect(created.body.id).toBeTruthy();
     const cashier = await staffWithRole('Cashier');
-    // Payments permission alone shows only payments (matched by guest name too), never bookings or guests.
-    expect(
-      (await find(cashier, 'zelda').expect(200)).body.groups.map((g: { key: string }) => g.key),
-    ).toEqual(['payments']);
-    // Payments permission alone shows payments, and nothing about bookings, guests, rates or staff.
-    expect(
-      (await find(cashier, 'pay_zz_9001').expect(200)).body.groups.map(
-        (g: { key: string }) => g.key,
-      ),
-    ).toEqual(['payments']);
+    // Payments alone is not enough: the Payments page needs bookings.view as well.
+    expect((await find(cashier, 'zelda').expect(200)).body.groups).toEqual([]);
+    expect((await find(cashier, 'pay_zz_9001').expect(200)).body.groups).toEqual([]);
     const desk = await staffWithRole('Front Desk');
     const seen = (await find(desk, 'zelda').expect(200)).body.groups.map(
       (g: { key: string }) => g.key,
@@ -194,5 +187,60 @@ describe('Global search', () => {
     const otherGuest = randomUUID();
     await admin.$executeRaw`INSERT INTO guests(id,tenant_id,first_name,last_name,email) VALUES(${otherGuest}::uuid,${tenantId}::uuid,'Yolanda','Elsewhere','yolanda@example.test')`;
     expect((await find(ownerCookie, 'yolanda').expect(200)).body.groups).toEqual([]);
+  });
+
+  it('every single permission shows exactly the groups whose page that permission opens', async () => {
+    const expected: Record<string, string[]> = {
+      'bookings.view': ['bookings'],
+      'guests.view': ['guests'],
+      'accommodations.manage': ['accommodations'],
+      'photos.manage': ['accommodations'],
+      'rates.manage': ['ratePlans'],
+      'staff.view': ['staff'],
+      'settings.manage': ['emails'],
+    };
+    const none = [
+      'bookings.create',
+      'bookings.edit',
+      'bookings.cancel',
+      'calendar.view',
+      'calendar.block',
+      'guests.merge',
+      'payments.view',
+      'payments.record',
+      'payments.refund',
+      'reports.view',
+      'staff.create',
+      'staff.manage_roles',
+      'staff.manage_permissions',
+      'staff.suspend',
+    ];
+    const queries = [
+      'zelda',
+      'srch',
+      'room 204',
+      'sea view',
+      'pay_zz',
+      'early bird',
+      'search-',
+      'confirmed',
+    ];
+    const seenBy = async (capabilities: string[]) => {
+      const name = `Only ${capabilities.join('+')}`;
+      await http()
+        .post(`/tenants/${tenantId}/properties/${propertyId}/role-templates`)
+        .set('Cookie', ownerCookie)
+        .send({ name, capabilities })
+        .expect(201);
+      const cookie = await staffWithRole(name);
+      const keys = new Set<string>();
+      for (const q of queries)
+        for (const g of (await find(cookie, q).expect(200)).body.groups) keys.add(g.key);
+      return [...keys].sort();
+    };
+    for (const [capability, groups] of Object.entries(expected))
+      expect(await seenBy([capability]), capability).toEqual(groups);
+    for (const capability of none) expect(await seenBy([capability]), capability).toEqual([]);
+    expect(await seenBy(['payments.view', 'bookings.view'])).toEqual(['bookings', 'payments']);
   });
 });

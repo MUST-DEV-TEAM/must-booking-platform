@@ -29,7 +29,8 @@ const EXAMPLES = [
   'A staff member, like Ana',
   'An email you sent, like “booking confirmed”',
 ];
-const RECENT_KEY = 'must.search.recent';
+// Recent searches are kept per person, so a shared computer never shows one person's searches to another.
+const recentKey = (userId: string | undefined) => `must.search.recent.${userId ?? 'anonymous'}`;
 
 /** Splits text around the typed words so matches can be shown in bold. */
 export function highlightParts(
@@ -82,9 +83,9 @@ export function searchItemHref(tenantId: string, propertyId: string, item: Item)
 const pageHref = (tenantId: string, propertyId: string, page: SearchPage) =>
   `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=${page.section}${page.extra ? `&${page.extra}` : ''}`;
 
-function readRecent(): string[] {
+function readRecent(userId: string | undefined): string[] {
   try {
-    const value = JSON.parse(window.localStorage.getItem(RECENT_KEY) ?? '[]') as unknown;
+    const value = JSON.parse(window.localStorage.getItem(recentKey(userId)) ?? '[]') as unknown;
     return Array.isArray(value)
       ? value.filter((v): v is string => typeof v === 'string').slice(0, 5)
       : [];
@@ -92,10 +93,10 @@ function readRecent(): string[] {
     return [];
   }
 }
-function rememberSearch(text: string) {
+function rememberSearch(userId: string | undefined, text: string) {
   try {
-    const next = [text, ...readRecent().filter((v) => v !== text)].slice(0, 5);
-    window.localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+    const next = [text, ...readRecent(userId).filter((v) => v !== text)].slice(0, 5);
+    window.localStorage.setItem(recentKey(userId), JSON.stringify(next));
   } catch {
     // Recent searches are a convenience only.
   }
@@ -110,9 +111,12 @@ export function GlobalSearch({
   propertyId,
   canOpen,
   can,
+  userId,
 }: {
   tenantId: string;
   propertyId: string;
+  /** Whose recent searches to keep. */
+  userId?: string;
   /** Whether the person may open a dashboard section. */
   canOpen: (section: string) => boolean;
   /** Whether the person holds a capability. */
@@ -147,10 +151,10 @@ export function GlobalSearch({
 
   useEffect(() => {
     if (!open) return;
-    setRecent(readRecent());
+    setRecent(readRecent(userId));
     const timer = setInterval(() => setExample((value) => (value + 1) % EXAMPLES.length), 2800);
     return () => clearInterval(timer);
-  }, [open]);
+  }, [open, userId]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(text.trim()), 250);
@@ -210,7 +214,7 @@ export function GlobalSearch({
 
   const waiting = typed.length >= 2 && (debounced !== typed || query.isFetching);
   const go = (row: Row) => {
-    if (typed.length >= 2) rememberSearch(typed);
+    if (typed.length >= 2) rememberSearch(userId, typed);
     window.location.href = row.href;
   };
   const close = (next: boolean) => {
@@ -317,7 +321,7 @@ export function GlobalSearch({
                     aria-selected={index === active}
                     href={row.href}
                     onClick={() => {
-                      if (typed.length >= 2) rememberSearch(typed);
+                      if (typed.length >= 2) rememberSearch(userId, typed);
                     }}
                     onMouseEnter={() => setActive(index)}
                     className={

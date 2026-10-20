@@ -128,7 +128,8 @@ export class GlobalSearchService {
           })),
         });
       }
-      if (caps.includes('calendar.view')) {
+      // Same access as the Accommodations page, which these results open.
+      if (caps.includes('accommodations.manage') || caps.includes('photos.manage')) {
         const rooms = await tx.$queryRaw<
           Array<{ id: string; name: string; typeName: string; typeId: string }>
         >`SELECT r.id, r.name, rt.name AS "typeName", rt.id AS "typeId" FROM rooms r
@@ -160,7 +161,8 @@ export class GlobalSearchService {
           ],
         });
       }
-      if (caps.includes('payments.view')) {
+      // Same access as the Payments page (it needs both permissions).
+      if (caps.includes('payments.view') && caps.includes('bookings.view')) {
         const rows = await tx.$queryRaw<
           Array<{
             id: string;

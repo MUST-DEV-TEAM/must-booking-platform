@@ -4,7 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GlobalSearch, highlightParts, searchItemHref } from './global-search';
 import { DashboardQueryProvider } from './query-provider';
-import { matchPages, quickLinks } from './search-pages';
+import { canAccessSection } from './dashboard-shell';
+import { SEARCH_PAGES, matchPages, quickLinks } from './search-pages';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 class Observer {
@@ -35,7 +36,7 @@ async function mount(canOpen = (_section: string) => true, can = (_capability: s
       createElement(
         DashboardQueryProvider,
         undefined,
-        createElement(GlobalSearch, { tenantId: 't', propertyId: 'p', canOpen, can }),
+        createElement(GlobalSearch, { tenantId: 't', propertyId: 'p', canOpen, can, userId: 'u1' }),
       ),
     );
   });
@@ -170,6 +171,87 @@ describe('what each kind of person sees', () => {
   });
 });
 
+const ALL_CAPABILITIES = [
+  'bookings.view',
+  'bookings.create',
+  'bookings.edit',
+  'bookings.cancel',
+  'calendar.view',
+  'calendar.block',
+  'guests.view',
+  'guests.merge',
+  'payments.view',
+  'payments.record',
+  'payments.refund',
+  'accommodations.manage',
+  'photos.manage',
+  'rates.manage',
+  'reports.view',
+  'settings.manage',
+  'staff.view',
+  'staff.create',
+  'staff.manage_roles',
+  'staff.manage_permissions',
+  'staff.suspend',
+];
+
+describe('pages each role can reach (using the real access rules)', () => {
+  const visible = (role: 'OWNER' | 'ADMIN' | 'STAFF', capabilities: string[]) => {
+    // Owners and admins hold every permission, as the server reports them.
+    const held = role === 'STAFF' ? capabilities : ALL_CAPABILITIES;
+    const canOpen = (section: string) => canAccessSection(role, held, section);
+    const can = (capability: string) =>
+      capability === 'tenant.admin'
+        ? role !== 'STAFF'
+        : role !== 'STAFF' || capabilities.includes(capability);
+    return SEARCH_PAGES.filter(
+      (page) => canOpen(page.section) && (!page.requires || can(page.requires)),
+    ).map((page) => page.label);
+  };
+
+  it('gives an owner and an admin the whole hotel, and staff only what their permissions open', () => {
+    const owner = visible('OWNER', []);
+    for (const label of ['Payments', 'Reports', 'Staff', 'Emails', 'Booking rules', 'Hotels'])
+      expect(owner).toContain(label);
+    expect(visible('ADMIN', [])).toEqual(owner);
+  });
+
+  it('shows staff no money page without both payment and booking permissions', () => {
+    expect(visible('STAFF', ['payments.view'])).not.toContain('Payments');
+    expect(visible('STAFF', ['bookings.view'])).not.toContain('Payments');
+    expect(visible('STAFF', ['payments.view', 'bookings.view'])).toContain('Payments');
+  });
+
+  it('keeps settings and hotels away from every staff role, even with settings.manage', () => {
+    const settingsManager = visible('STAFF', ['settings.manage']);
+    expect(settingsManager).toContain('Emails');
+    for (const label of [
+      'Settings',
+      'General settings',
+      'Booking rules',
+      'Payment settings',
+      'Branding',
+      'Billing account',
+      'Hotels',
+    ])
+      expect(settingsManager).not.toContain(label);
+  });
+
+  it('gives each single permission only its own pages', () => {
+    const only = (capability: string) =>
+      visible('STAFF', [capability]).filter(
+        (label) => !['Overview', 'Notifications', 'My account'].includes(label),
+      );
+    expect(only('reports.view')).toEqual(['Reports']);
+    expect(only('staff.view')).toEqual(['Staff']);
+    expect(only('rates.manage')).toEqual(['Rates & Pricing']);
+    expect(only('photos.manage')).toEqual(['Accommodations']);
+    expect(only('guests.view')).toEqual(['Guests']);
+    expect(only('bookings.create')).toEqual(['New booking']);
+    expect(only('payments.refund')).toEqual([]);
+  });
+});
+
 describe('global search popup', () => {
   it('is an icon that opens a popup with a hint, quick links and an example placeholder', async () => {
     vi.stubGlobal('fetch', vi.fn());
@@ -283,6 +365,8 @@ describe('global search popup', () => {
       first.addEventListener('click', (event) => event.preventDefault());
       first.click();
     });
-    expect(JSON.parse(localStorage.getItem('must.search.recent') ?? '[]')).toEqual(['calendar']);
+    expect(JSON.parse(localStorage.getItem('must.search.recent.u1') ?? '[]')).toEqual(['calendar']);
+    // Another person on the same computer has their own, empty list.
+    expect(localStorage.getItem('must.search.recent.u2')).toBeNull();
   });
 });
