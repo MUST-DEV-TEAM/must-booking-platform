@@ -496,106 +496,14 @@ describe('Dashboard section tabs', () => {
       expect(container.textContent).not.toContain(hiddenPanel);
       expect(container.textContent).not.toContain('Email branding');
       expect(container.textContent).not.toContain('Payment methods');
-      if (settingsArea === 'booking-rules') expect(container.textContent).toContain('Booking mode');
+      if (settingsArea === 'booking-rules')
+        expect(container.textContent).toContain('Inventory mode');
       if (settingsArea === 'managed-pages')
         expect(container.textContent).toContain('Generate connection code');
       if (settingsArea === 'billing') {
         expect(container.textContent).toContain('Platform billing is not available yet');
         expect(container.textContent).not.toContain('Milestone 13');
       }
-
-      await act(async () => root.unmount());
-    },
-  );
-
-  it.each(['approvals'] as const)(
-    'does not offer the planned %s tab and falls back to Overview from its direct URL',
-    async (tab) => {
-      window.history.pushState({}, '', `/dashboard/t?propertyId=p&section=overview&tab=${tab}`);
-      const fetch = vi.fn((url: string) => {
-        if (url === '/api/auth/session')
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({
-                user: {
-                  id: 'u',
-                  email: 'owner@example.test',
-                  emailVerified: true,
-                  isPlatformAdmin: false,
-                },
-              }),
-            ),
-          );
-        if (url === '/api/auth/memberships')
-          return Promise.resolve(
-            new Response(JSON.stringify({ memberships: [{ tenantId: 't', role: 'OWNER' }] })),
-          );
-        if (url === '/api/tenants/t/properties')
-          return Promise.resolve(new Response(JSON.stringify([{ id: 'p', name: 'Grand Hotel' }])));
-        if (url === '/api/tenants/t/properties/p/notifications?page=1&pageSize=20')
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({
-                items: [],
-                total: 0,
-                page: 1,
-                pageSize: 20,
-                unreadTotal: 0,
-                version: 0,
-                through: '2026-10-19T10:00:00Z',
-                canMarkRead: true,
-                counts: { critical: 0, today: 0, needsAction: 0 },
-                registry: [],
-              }),
-            ),
-          );
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              kpis: {
-                date: '2026-08-24',
-                arrivals: 0,
-                departures: 0,
-                inHouse: 0,
-                bookedRoomNights: 0,
-                availableRoomNights: 0,
-                occupancyRate: null,
-              },
-              needsAttention: [],
-              recentActivity: [],
-            }),
-          ),
-        );
-      });
-      vi.stubGlobal('fetch', fetch);
-
-      const container = document.createElement('div');
-      const root = createRoot(container);
-      await act(async () => {
-        root.render(
-          createElement(
-            DashboardQueryProvider,
-            undefined,
-            createElement(DashboardShell, { tenantId: 't' }),
-          ),
-        );
-      });
-
-      await act(async () => {
-        await vi.waitFor(() => {
-          if (!container.textContent?.includes('Today at a glance'))
-            throw new Error('Overview has not finished loading yet.');
-        });
-      });
-
-      const labels = Array.from(container.querySelectorAll('[role="tab"]')).map(
-        (item) => item.textContent,
-      );
-      expect(labels.some((label) => label?.includes('Approvals'))).toBe(false);
-      expect(labels.some((label) => label?.includes('System health'))).toBe(true);
-      expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain(
-        'Overview',
-      );
 
       await act(async () => root.unmount());
     },

@@ -67,11 +67,10 @@ describe('Tenant dashboard shell', () => {
         }),
       ),
     );
-    const labels = ['Overview', 'Needs attention', 'Quick booking', 'System health'];
+    const labels = ['Overview', 'Needs attention', 'Approvals', 'Quick booking', 'System health'];
     for (const label of labels) expect(markup).toContain(label);
-    expect(markup.indexOf('Needs attention')).toBeLessThan(markup.indexOf('Quick booking'));
-    expect(markup.indexOf('Quick booking')).toBeLessThan(markup.indexOf('System health'));
-    expect(markup).not.toContain('Approvals');
+    const positions = labels.map((label) => markup.indexOf(label));
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
     expect(markup).toContain('aria-label="Dashboard sections"');
     expect(markup).toContain('aria-selected="true"');
   });

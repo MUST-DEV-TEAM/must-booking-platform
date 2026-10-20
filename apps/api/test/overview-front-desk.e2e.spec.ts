@@ -215,11 +215,20 @@ describe('front-desk overview fields', () => {
       })
       .expect(201);
     const cancelBookingId = toCancel.body.value.id as string;
+    // Staff cancellation now shows the policy and refund first, then confirms against that preview.
+    const cancelPreview = await request(app.getHttpServer())
+      .get(`${propertyUrl}/bookings/${cancelBookingId}/cancellation-preview`)
+      .set('Cookie', ownerCookie)
+      .expect(200);
     const cancelResult = await request(app.getHttpServer())
       .delete(`${propertyUrl}/staff-bookings/${cancelBookingId}`)
       .set('Cookie', ownerCookie)
-      .set('Idempotency-Key', randomUUID())
-      .send({ expectedVersion: toCancel.body.value.version })
+      .send({
+        expectedVersion: cancelPreview.body.version,
+        previewHash: cancelPreview.body.previewHash,
+        reasonCategory: 'guest_request',
+        details: 'Guest asked to cancel.',
+      })
       .expect(200);
     expect(cancelResult.body).toMatchObject({ ok: true });
 

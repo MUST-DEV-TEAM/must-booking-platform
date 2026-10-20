@@ -2330,13 +2330,18 @@ describe('LocalPmsProvider', () => {
       .set('Idempotency-Key', randomUUID())
       .send({ expectedVersion: cancellableStaffBooking.body.value.version })
       .expect(403);
+    const staffCancelPreview = await request(app!.getHttpServer())
+      .get(`${propertyUrl}/bookings/${cancellableStaffBooking.body.value.id}/cancellation-preview`)
+      .set('Cookie', propertyStaffCookie)
+      .expect(200);
     const staffCancellation = await request(app!.getHttpServer())
       .delete(`${propertyUrl}/staff-bookings/${cancellableStaffBooking.body.value.id}`)
       .set('Cookie', propertyStaffCookie)
-      .set('Idempotency-Key', randomUUID())
       .send({
-        expectedVersion: cancellableStaffBooking.body.value.version,
-        reason: 'Guest requested cancellation.',
+        expectedVersion: staffCancelPreview.body.version,
+        previewHash: staffCancelPreview.body.previewHash,
+        reasonCategory: 'guest_request',
+        details: 'Guest requested cancellation.',
       })
       .expect(200);
     expect(staffCancellation.body).toMatchObject({ ok: true, value: { status: 'CANCELLED' } });
