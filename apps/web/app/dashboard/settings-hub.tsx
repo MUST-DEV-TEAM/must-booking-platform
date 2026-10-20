@@ -33,9 +33,13 @@ export function SettingsHub({ tenantId, propertyId }: { tenantId: string; proper
     queryKey: ['dashboard', 'settings-hub', tenantId, propertyId],
     queryFn: async () => {
       const base = `/api/tenants/${tenantId}`;
-      const [properties, plan] = await Promise.all([
+      const [properties, plan, connections, assignments] = await Promise.all([
         fetch(`${base}/properties`, { credentials: 'include' }),
         fetch(`${base}/plan-usage`, { credentials: 'include' }),
+        fetch(`${base}/integration-connections`, { credentials: 'include' }),
+        fetch(`${base}/properties/${propertyId}/integration-connections`, {
+          credentials: 'include',
+        }),
       ]);
       if (!properties.ok) throw new Error('Unable to load the hotel settings.');
       const property = ((await properties.json()) as Property[]).find(
@@ -45,7 +49,22 @@ export function SettingsHub({ tenantId, propertyId }: { tenantId: string; proper
       const planName = plan.ok
         ? (((await plan.json()) as { plan?: { name?: string } }).plan?.name ?? null)
         : null;
-      return { property, planName };
+      const assigned = assignments.ok
+        ? ((await assignments.json()) as Array<{ connectionId: string; enabled: boolean }>)
+        : [];
+      const providers = connections.ok
+        ? ((await connections.json()) as Array<{ id: string; provider: string; status: string }>)
+        : [];
+      const connectedProviders = new Set(
+        providers
+          .filter(
+            (c) =>
+              c.status === 'CONNECTED' &&
+              assigned.some((a) => a.connectionId === c.id && a.enabled),
+          )
+          .map((c) => c.provider),
+      );
+      return { property, planName, connectedProviders };
     },
   });
 
@@ -75,7 +94,11 @@ export function SettingsHub({ tenantId, propertyId }: { tenantId: string; proper
       </div>
     );
 
-  const health = areaHealth(query.data.property, query.data.planName);
+  const health = areaHealth(
+    query.data.property,
+    query.data.planName,
+    query.data.connectedProviders,
+  );
   const link = (area: SettingsArea) => settingsAreaHref(tenantId, propertyId, area);
   const step = (key: SettingsArea, label: string): ChecklistItem => ({
     key,

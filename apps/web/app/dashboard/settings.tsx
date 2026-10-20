@@ -2,8 +2,9 @@
 
 import { Card, Heading, Stack, Text } from '@must/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { type ReactNode, useState } from 'react';
+import { BrandingSettings, PaymentSettings, WebsiteSettings } from './settings-connection-forms';
+import { UnsavedChangesBoundary } from '../../components/ui/unsaved-changes';
 import { toast } from 'sonner';
 import styles from './settings.module.css';
 import { CheckInOutSettings, BookingRulesSettings, GeneralSettings } from './settings-forms';
@@ -28,8 +29,6 @@ type PropertyConnection = { connectionId: string; enabled: boolean };
 
 type PlanUsage = { plan: { name: string } };
 
-type EmailBrandingFields = Pick<Property, 'logoUrl' | 'phone' | 'supportEmail'>;
-
 function dashboardSectionHref(tenantId: string, propertyId: string, section: string) {
   return `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=${section}`;
 }
@@ -50,15 +49,14 @@ export function DashboardSettings({
   tenantId,
   propertyId,
   settingsArea,
+  canWrite = false,
 }: {
   tenantId: string;
   propertyId: string;
   settingsArea?: SettingsArea;
+  canWrite?: boolean;
 }) {
-  const [emailBranding, setEmailBranding] = useState<EmailBrandingFields | null>(null);
-  const [paymentGateways, setPaymentGateways] = useState<PaymentGateways | null>(null);
   const [pairingCode, setPairingCode] = useState<string | null>(null);
-  const [publicWebsiteOrigin, setPublicWebsiteOrigin] = useState('');
   const base = `/api/tenants/${tenantId}`;
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({
@@ -100,22 +98,22 @@ export function DashboardSettings({
       )
       .map((connection) => connection.provider),
   );
-  const unavailablePaymentProviders = [
-    ...(paymentGateways?.stripe && !connectedPaymentProviders.has('STRIPE') ? ['Stripe'] : []),
-    ...(paymentGateways?.pokpay && !connectedPaymentProviders.has('POKPAY') ? ['PokPay'] : []),
-  ];
-
-  useEffect(() => {
-    if (!property) return;
-    setEmailBranding({
-      logoUrl: property.logoUrl,
-      phone: property.phone,
-      supportEmail: property.supportEmail,
+  const clockManaged = (settingsQuery.data?.connections ?? []).some(
+    (c) =>
+      c.provider === 'CLOCK_PMS' &&
+      c.status === 'CONNECTED' &&
+      (settingsQuery.data?.propertyConnections ?? []).some(
+        (a) => a.connectionId === c.id && a.enabled,
+      ),
+  );
+  const refreshSavedViews = () => {
+    void queryClient.invalidateQueries({
+      predicate: (q) =>
+        q.queryKey[0] === 'dashboard' &&
+        q.queryKey.includes(tenantId) &&
+        ['settings-hub', 'overview', 'hotels'].includes(String(q.queryKey[1])),
     });
-    setPaymentGateways(property.paymentGateways);
-    setPublicWebsiteOrigin(property.publicWebsiteOrigin ?? '');
-  }, [property]);
-
+  };
   const saveMutation = useMutation({
     mutationFn: async (update: Partial<Property>) => {
       const response = await fetch(`${base}/properties/${propertyId}`, {
@@ -130,8 +128,10 @@ export function DashboardSettings({
     onSuccess: (updated) => {
       queryClient.setQueryData<{ property: Property; planName: string | null }>(
         ['dashboard', 'settings', tenantId, propertyId],
-        (current) => ({ property: updated, planName: current?.planName ?? null }),
+        (current) =>
+          current ? { ...current, property: { ...current.property, ...updated } } : current,
       );
+      refreshSavedViews();
       toast.success('Settings saved.');
     },
     onError: () => toast.error('Unable to save settings.'),
@@ -161,16 +161,11 @@ export function DashboardSettings({
             ? { ...current, property: { ...current.property, paymentGateways: updated } }
             : current,
       );
+      refreshSavedViews();
       toast.success('Payment methods saved.');
     },
     onError: () => toast.error('Unable to save payment methods.'),
   });
-
-  function savePaymentGateways(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!paymentGateways) return;
-    paymentGatewaysMutation.mutate(paymentGateways);
-  }
 
   const publicWebsiteOriginMutation = useMutation({
     mutationFn: async (origin: string) => {
@@ -186,17 +181,14 @@ export function DashboardSettings({
     onSuccess: (updated) => {
       queryClient.setQueryData<{ property: Property; planName: string | null }>(
         ['dashboard', 'settings', tenantId, propertyId],
-        (current) => (current ? { ...current, property: updated } : current),
+        (current) =>
+          current ? { ...current, property: { ...current.property, ...updated } } : current,
       );
+      refreshSavedViews();
       toast.success('Public website origin saved.');
     },
     onError: () => toast.error('Unable to save the public website origin.'),
   });
-
-  function savePublicWebsiteOrigin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    publicWebsiteOriginMutation.mutate(publicWebsiteOrigin.trim());
-  }
 
   const wordpressPairingMutation = useMutation({
     mutationFn: async () => {
@@ -224,19 +216,6 @@ export function DashboardSettings({
     }
   }
 
-  function saveEmailBranding(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!property || !emailBranding) return;
-    const update = (Object.keys(emailBranding) as Array<keyof EmailBrandingFields>).reduce<
-      Partial<Property>
-    >(
-      (result, key) =>
-        emailBranding[key] === property[key] ? result : { ...result, [key]: emailBranding[key] },
-      {},
-    );
-    void save(update);
-  }
-
   if (settingsQuery.isPending)
     return (
       <section aria-label="Loading settings">
@@ -252,7 +231,7 @@ export function DashboardSettings({
         </button>
       </Card>
     );
-  if (!property || !emailBranding || !paymentGateways)
+  if (!property)
     return (
       <section aria-label="Loading settings">
         <Text>Loading settings…</Text>
@@ -260,283 +239,94 @@ export function DashboardSettings({
     );
 
   return (
-    <Stack gap="lg">
-      {settingsArea ? (
-        <div className="flex flex-col gap-1">
-          <a
-            className="w-fit text-sm font-semibold text-muted-foreground no-underline hover:underline"
-            href={settingsAreaHref(tenantId, propertyId)}
-          >
-            ← Back to Settings overview
-          </a>
-          <h1 className="m-0 text-2xl font-extrabold tracking-tight">
-            {settingsAreas.find((area) => area.key === settingsArea)?.label ?? 'Settings'}
-          </h1>
-          <p className="m-0 text-muted-foreground">
-            {settingsAreas.find((area) => area.key === settingsArea)?.description}
-          </p>
-        </div>
-      ) : null}
-
-      <SettingsAreaPanel activeArea={settingsArea} area="general">
-        <GeneralSettings
-          property={property}
-          saving={saveMutation.isPending}
-          onSave={(update) => void save(update)}
-        />
-      </SettingsAreaPanel>
-      <SettingsAreaPanel activeArea={settingsArea} area="booking-rules">
-        <BookingRulesSettings
-          property={property}
-          saving={saveMutation.isPending}
-          onSave={(update) => void save(update)}
-        />
-      </SettingsAreaPanel>
-      <SettingsAreaPanel activeArea={settingsArea} area="check-in-out">
-        <CheckInOutSettings
-          property={property}
-          saving={saveMutation.isPending}
-          onSave={(update) => void save(update)}
-        />
-      </SettingsAreaPanel>
-      <SettingsAreaPanel activeArea={settingsArea} area="branding">
-        <Card>
-          <Stack gap="md">
-            <Heading level={2}>Email branding</Heading>
-            <Text tone="secondary">
-              Booking emails use this hotel name, logo, and contact information. Leave any optional
-              field empty to omit it from the email.
-            </Text>
-            <form className="must-stack must-stack--md" onSubmit={saveEmailBranding}>
-              <label className="must-field">
-                <span className="must-field__label">Logo URL</span>
-                <input
-                  className="must-input"
-                  aria-label="Logo URL"
-                  type="url"
-                  placeholder="https://your-hotel-site.com/logo.png"
-                  value={emailBranding.logoUrl ?? ''}
-                  onChange={(event) =>
-                    setEmailBranding({ ...emailBranding, logoUrl: event.target.value || null })
-                  }
-                />
-              </label>
-              <label className="must-field">
-                <span className="must-field__label">Support email</span>
-                <input
-                  className="must-input"
-                  aria-label="Support email"
-                  type="email"
-                  value={emailBranding.supportEmail ?? ''}
-                  onChange={(event) =>
-                    setEmailBranding({ ...emailBranding, supportEmail: event.target.value || null })
-                  }
-                />
-              </label>
-              <label className="must-field">
-                <span className="must-field__label">Phone</span>
-                <input
-                  className="must-input"
-                  aria-label="Hotel phone"
-                  type="tel"
-                  value={emailBranding.phone ?? ''}
-                  onChange={(event) =>
-                    setEmailBranding({ ...emailBranding, phone: event.target.value || null })
-                  }
-                />
-              </label>
-              <button
-                className="must-button must-button--primary"
-                disabled={saveMutation.isPending}
-              >
-                {saveMutation.isPending ? (
-                  <>
-                    <Loader2 aria-hidden="true" size={16} /> Saving…
-                  </>
-                ) : (
-                  'Save email branding'
-                )}
-              </button>
-            </form>
-          </Stack>
-        </Card>
-      </SettingsAreaPanel>
-
-      <SettingsAreaPanel activeArea={settingsArea} area="payments">
-        <Card>
-          <Stack gap="md">
-            <Heading level={2}>Payment methods</Heading>
-            <Text tone="secondary">
-              Choose which payment methods guests and staff can use for bookings at this property.
-              Stripe and PokPay also need a working connection under Integrations.
-            </Text>
+    <UnsavedChangesBoundary>
+      <Stack gap="lg">
+        {settingsArea ? (
+          <div className="flex flex-col gap-1">
             <a
-              className="must-button must-button--secondary"
-              href={dashboardSectionHref(tenantId, propertyId, 'payments')}
+              className="w-fit text-sm font-semibold text-muted-foreground no-underline hover:underline"
+              href={settingsAreaHref(tenantId, propertyId)}
             >
-              Open payment operations
+              ← Back to Settings overview
             </a>
-            {unavailablePaymentProviders.length > 0 ? (
-              <div role="alert">
-                <Text>
-                  {unavailablePaymentProviders.join(' and ')}{' '}
-                  {unavailablePaymentProviders.length === 1 ? 'is' : 'are'} enabled but not
-                  connected and assigned to this property. Guests will not be offered{' '}
-                  {unavailablePaymentProviders.join(' or ')} until that is fixed in Integrations.
-                </Text>
-              </div>
-            ) : null}
-            <form className="must-stack must-stack--md" onSubmit={savePaymentGateways}>
-              <label className="must-field">
-                <input
-                  type="checkbox"
-                  checked={paymentGateways.payAtHotel}
-                  onChange={(event) =>
-                    setPaymentGateways({ ...paymentGateways, payAtHotel: event.target.checked })
-                  }
-                />
-                <span className="must-field__label">Pay at hotel</span>
-              </label>
-              <label className="must-field">
-                <input
-                  type="checkbox"
-                  checked={paymentGateways.stripe}
-                  onChange={(event) =>
-                    setPaymentGateways({ ...paymentGateways, stripe: event.target.checked })
-                  }
-                />
-                <span className="must-field__label">Stripe</span>
-              </label>
-              <label className="must-field">
-                <input
-                  type="checkbox"
-                  checked={paymentGateways.pokpay}
-                  onChange={(event) =>
-                    setPaymentGateways({ ...paymentGateways, pokpay: event.target.checked })
-                  }
-                />
-                <span className="must-field__label">PokPay</span>
-              </label>
-              <button
-                className="must-button must-button--primary"
-                disabled={paymentGatewaysMutation.isPending}
-              >
-                {paymentGatewaysMutation.isPending ? (
-                  <>
-                    <Loader2 aria-hidden="true" size={16} /> Saving…
-                  </>
-                ) : (
-                  'Save payment methods'
-                )}
-              </button>
-            </form>
-          </Stack>
-        </Card>
-      </SettingsAreaPanel>
+            <h1 className="m-0 text-2xl font-extrabold tracking-tight">
+              {settingsAreas.find((area) => area.key === settingsArea)?.label ?? 'Settings'}
+            </h1>
+            <p className="m-0 text-muted-foreground">
+              {settingsAreas.find((area) => area.key === settingsArea)?.description}
+            </p>
+          </div>
+        ) : null}
 
-      <SettingsAreaPanel activeArea={settingsArea} area="managed-pages">
-        <Card>
-          <Stack gap="md">
-            <Heading level={2}>Connect WordPress site</Heading>
-            <Text tone="secondary">
-              Generate a one-time connection code and paste it into the MUST Booking plugin's
-              settings screen on your WordPress site to link it to this property.
-            </Text>
-            {property.wordpressConnectedAt && (
-              <Text tone="secondary">
-                Connected on {new Date(property.wordpressConnectedAt).toLocaleString()}
-              </Text>
-            )}
-            <form className="must-stack must-stack--md" onSubmit={savePublicWebsiteOrigin}>
-              <label className="must-field">
-                <span className="must-field__label">Public website origin</span>
-                <input
-                  className="must-input"
-                  aria-label="Public website origin"
-                  type="url"
-                  placeholder="https://your-hotel-site.com"
-                  value={publicWebsiteOrigin}
-                  onChange={(event) => setPublicWebsiteOrigin(event.target.value)}
-                />
-              </label>
-              <Text tone="secondary">
-                Must exactly match your WordPress site&apos;s address (scheme + domain, no path).
-                Required before guests can complete a booking through the connected site — without
-                it, booking creation is rejected.
-              </Text>
-              <button
-                className="must-button must-button--primary"
-                disabled={publicWebsiteOriginMutation.isPending}
-              >
-                {publicWebsiteOriginMutation.isPending ? (
-                  <>
-                    <Loader2 aria-hidden="true" size={16} /> Saving…
-                  </>
-                ) : (
-                  'Save public website origin'
-                )}
-              </button>
-            </form>
-            {pairingCode && (
-              <Stack gap="sm">
-                <label className="must-field">
-                  <span className="must-field__label">Connection code</span>
-                  <input
-                    className="must-input"
-                    aria-label="Connection code"
-                    readOnly
-                    value={pairingCode}
-                    onFocus={(event) => event.target.select()}
-                  />
-                </label>
-                <button
-                  className="must-button"
-                  type="button"
-                  onClick={() => void copyPairingCode()}
-                >
-                  Copy code
-                </button>
-                <Text tone="secondary">
-                  Expires in 30 minutes and can only be used once. Generating a new code invalidates
-                  this one.
-                </Text>
-              </Stack>
-            )}
-            <button
-              className="must-button must-button--primary"
-              type="button"
-              disabled={wordpressPairingMutation.isPending}
-              onClick={() => wordpressPairingMutation.mutate()}
-            >
-              {wordpressPairingMutation.isPending ? (
-                <>
-                  <Loader2 aria-hidden="true" size={16} /> Generating…
-                </>
-              ) : property.wordpressConnectedAt || pairingCode ? (
-                'Generate new code'
-              ) : (
-                'Generate connection code'
-              )}
-            </button>
-          </Stack>
-        </Card>
-      </SettingsAreaPanel>
+        <SettingsAreaPanel activeArea={settingsArea} area="general">
+          <GeneralSettings
+            property={property}
+            saving={saveMutation.isPending}
+            onSave={(update) => void save(update)}
+          />
+        </SettingsAreaPanel>
+        <SettingsAreaPanel activeArea={settingsArea} area="booking-rules">
+          <BookingRulesSettings
+            property={property}
+            saving={saveMutation.isPending}
+            onSave={(update) => void save(update)}
+          />
+        </SettingsAreaPanel>
+        <SettingsAreaPanel activeArea={settingsArea} area="check-in-out">
+          <CheckInOutSettings
+            property={property}
+            saving={saveMutation.isPending}
+            onSave={(update) => void save(update)}
+          />
+        </SettingsAreaPanel>
+        <SettingsAreaPanel activeArea={settingsArea} area="branding">
+          <BrandingSettings
+            property={property}
+            canWrite={canWrite}
+            saving={saveMutation.isPending}
+            onSave={save}
+          />
+        </SettingsAreaPanel>
+        <SettingsAreaPanel activeArea={settingsArea} area="payments">
+          <PaymentSettings
+            property={property}
+            canWrite={canWrite}
+            saving={paymentGatewaysMutation.isPending}
+            connectedProviders={connectedPaymentProviders}
+            onSave={(update) => paymentGatewaysMutation.mutate(update)}
+            operationsHref={dashboardSectionHref(tenantId, propertyId, 'payments')}
+          />
+        </SettingsAreaPanel>
+        <SettingsAreaPanel activeArea={settingsArea} area="managed-pages">
+          <WebsiteSettings
+            property={property}
+            canWrite={canWrite}
+            saving={publicWebsiteOriginMutation.isPending}
+            clockManaged={clockManaged}
+            onSave={(origin) => publicWebsiteOriginMutation.mutate(origin)}
+            pairingCode={pairingCode}
+            pairing={wordpressPairingMutation.isPending}
+            onPair={() => wordpressPairingMutation.mutate()}
+            onCopy={() => void copyPairingCode()}
+          />
+        </SettingsAreaPanel>
 
-      <SettingsAreaPanel activeArea={settingsArea} area="billing">
-        <Card>
-          <Stack gap="md">
-            <Heading level={2}>Billing account</Heading>
-            <Text tone="secondary">Current plan: {planName ?? 'Loading…'}</Text>
-            <button
-              className="must-button must-button--secondary"
-              disabled
-              title="Platform billing is not available yet"
-            >
-              Platform billing is not available yet
-            </button>
-          </Stack>
-        </Card>
-      </SettingsAreaPanel>
-    </Stack>
+        <SettingsAreaPanel activeArea={settingsArea} area="billing">
+          <Card>
+            <Stack gap="md">
+              <Heading level={2}>Billing account</Heading>
+              <Text tone="secondary">Current plan: {planName ?? 'Loading…'}</Text>
+              <button
+                className="must-button must-button--secondary"
+                disabled
+                title="Platform billing is not available yet"
+              >
+                Platform billing is not available yet
+              </button>
+            </Stack>
+          </Card>
+        </SettingsAreaPanel>
+      </Stack>
+    </UnsavedChangesBoundary>
   );
 }

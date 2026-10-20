@@ -3,6 +3,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { DashboardSettings, SettingsHub, isSettingsArea, type SettingsArea } from './settings';
 import { DashboardQueryProvider } from './query-provider';
@@ -67,7 +68,7 @@ describe('DashboardSettings', () => {
       'Payments',
       'Branding',
       'Emails',
-      'Managed Pages',
+      'Website connection',
       'Billing account',
     ])
       expect(text).toContain(area);
@@ -221,7 +222,7 @@ describe('DashboardSettings', () => {
     );
     const { container, root } = await mount('managed-pages');
 
-    expect(container.textContent).toContain('Connect WordPress site');
+    expect(container.textContent).toContain('Website connection');
     expect(container.textContent).toContain('Public website origin');
     expect(container.textContent).toContain('Generate connection code');
     expect(container.textContent).not.toContain('Hotel identity');
@@ -292,13 +293,10 @@ describe('DashboardSettings', () => {
       'Grand Hotel Tirana',
     );
 
-    await value(
-      container.querySelector('[aria-label="Logo URL"]')!,
-      'https://example.test/logo.png',
-    );
-    await value(container.querySelector('[aria-label="Support email"]')!, 'stay@example.test');
-    await value(container.querySelector('[aria-label="Hotel phone"]')!, '+355 69 123 4567');
-    await submit(container, 'Save email branding');
+    await value(container.querySelector('#branding-logoUrl')!, 'https://example.test/logo.png');
+    await value(container.querySelector('#branding-supportEmail')!, 'stay@example.test');
+    await value(container.querySelector('#branding-phone')!, '+355 69 123 4567');
+    await saveChanges(container);
     const brandingRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[1];
     expect(JSON.parse(brandingRequest[1]!.body as string)).toEqual({
       logoUrl: 'https://example.test/logo.png',
@@ -321,14 +319,12 @@ describe('DashboardSettings', () => {
     const timesRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[4];
     expect(JSON.parse(timesRequest[1]!.body as string)).toEqual({ checkInTime: '14:00' });
 
-    const pokpayCheckbox = Array.from(container.querySelectorAll('input[type="checkbox"]')).find(
-      (input) => input.closest('label')?.textContent?.includes('PokPay'),
-    ) as HTMLInputElement;
+    const pokpayCheckbox = container.querySelector('#payment-pokpay') as HTMLButtonElement;
     await act(async () => {
       pokpayCheckbox.click();
       await Promise.resolve();
     });
-    await submit(container, 'Save payment methods');
+    await saveChanges(container);
     const paymentGatewaysRequest = fetch.mock.calls.find(
       ([url, init]) => init?.method === 'PATCH' && url.endsWith('/payment-gateways'),
     )!;
@@ -353,12 +349,211 @@ describe('DashboardSettings', () => {
         ([url, init]) => init?.method === 'POST' && url.endsWith('/wordpress-pairing'),
       ),
     ).toBe(true);
-    expect(
-      (container.querySelector('[aria-label="Connection code"]') as HTMLInputElement).value,
-    ).toBe('MUST-GRANDHOTEL-ABCD-1234');
+    expect((container.querySelector('#website-code') as HTMLInputElement).value).toBe(
+      'MUST-GRANDHOTEL-ABCD-1234',
+    );
     expect(container.textContent).toContain('Expires in 30 minutes');
 
     await act(async () => root.unmount());
+  });
+
+  it.each(['payments', 'branding', 'managed-pages'] as const)(
+    'shows %s values without save or pairing actions for a read-only viewer',
+    async (area) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          async (url: string) =>
+            new Response(
+              JSON.stringify(
+                url.endsWith('/properties')
+                  ? [property]
+                  : url.endsWith('/plan-usage')
+                    ? { plan: { name: 'Free' } }
+                    : [],
+              ),
+            ),
+        ),
+      );
+      const { container, root } = await mount(area, false);
+      expect(
+        container.querySelectorAll('input:disabled, button[role="switch"]:disabled').length,
+      ).toBeGreaterThan(0);
+      expect(container.textContent).not.toContain('Save changes');
+      expect(container.textContent).not.toContain('Generate connection code');
+      await act(async () => root.unmount());
+    },
+  );
+
+  it('validates branding, previews draft contacts, and guards unsaved navigation', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async (url: string) =>
+          new Response(
+            JSON.stringify(
+              url.endsWith('/properties')
+                ? [property]
+                : url.endsWith('/plan-usage')
+                  ? { plan: { name: 'Free' } }
+                  : [],
+            ),
+          ),
+      ),
+    );
+    const { container, root } = await mount('branding');
+    expect(container.querySelector('[aria-label="Unsaved changes"]')).toBeNull();
+    await value(container.querySelector('#branding-supportEmail')!, 'bad-email');
+    await value(container.querySelector('#branding-phone')!, 'abc');
+    expect(container.textContent).toContain('Enter an email address');
+    expect(container.textContent).toContain('Enter a phone number');
+    expect(
+      Array.from(container.querySelectorAll('button')).find(
+        (b) => b.textContent === 'Save changes',
+      )!.disabled,
+    ).toBe(true);
+    expect(container.textContent).toContain('bad-email | abc');
+    const before = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(before);
+    expect(before.defaultPrevented).toBe(true);
+    await act(async () =>
+      Array.from(container.querySelectorAll('button'))
+        .find((b) => b.textContent === 'Discard')!
+        .click(),
+    );
+    expect(container.querySelector('[aria-label="Unsaved changes"]')).toBeNull();
+    await act(async () => root.unmount());
+  });
+
+  it('refuses all payment methods off and discards the draft', async () => {
+    property = { ...property, paymentGateways: { payAtHotel: true, stripe: false, pokpay: false } };
+    const fetch = vi.fn(
+      async (url: string) =>
+        new Response(
+          JSON.stringify(
+            url.endsWith('/properties')
+              ? [property]
+              : url.endsWith('/plan-usage')
+                ? { plan: { name: 'Free' } }
+                : [],
+          ),
+        ),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const { container, root } = await mount('payments');
+    await act(async () =>
+      (container.querySelector('#payment-payAtHotel') as HTMLButtonElement).click(),
+    );
+    expect(container.textContent).toContain('so guests can complete an online booking');
+    expect(
+      Array.from(container.querySelectorAll('button')).find(
+        (b) => b.textContent === 'Save changes',
+      )!.disabled,
+    ).toBe(true);
+    expect(fetch.mock.calls.some(([url]) => url.endsWith('/payment-gateways'))).toBe(false);
+    await act(async () =>
+      Array.from(container.querySelectorAll('button'))
+        .find((b) => b.textContent === 'Discard')!
+        .click(),
+    );
+    expect(container.querySelector('#payment-payAtHotel')?.getAttribute('aria-checked')).toBe(
+      'true',
+    );
+    await act(async () => root.unmount());
+  });
+
+  it('validates and saves the website origin in Clock mode without changing pairing', async () => {
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PATCH') {
+        property = { ...property, ...JSON.parse(init.body as string) };
+        // Existing update responses omit wordpressConnectedAt.
+        const { wordpressConnectedAt, ...response } = property;
+        return new Response(JSON.stringify(response));
+      }
+      if (url.endsWith('/properties')) return new Response(JSON.stringify([property]));
+      if (url.endsWith('/properties/p/integration-connections'))
+        return new Response(JSON.stringify([{ connectionId: 'clock', enabled: true }]));
+      if (url.endsWith('/integration-connections'))
+        return new Response(
+          JSON.stringify([{ id: 'clock', provider: 'CLOCK_PMS', status: 'CONNECTED' }]),
+        );
+      return new Response(JSON.stringify({ plan: { name: 'Free' } }));
+    });
+    property = { ...property, wordpressConnectedAt: '2026-10-01T12:00:00Z' };
+    vi.stubGlobal('fetch', fetch);
+    const { container, root } = await mount('managed-pages');
+    expect(container.textContent).toContain('managed in Clock');
+    await value(container.querySelector('#website-origin')!, 'https://hotel.test/path');
+    expect(container.textContent).toContain('without a path');
+    expect(
+      Array.from(container.querySelectorAll('button')).find(
+        (b) => b.textContent === 'Save changes',
+      )!.disabled,
+    ).toBe(true);
+    await value(container.querySelector('#website-origin')!, 'https://hotel.test');
+    await saveChanges(container);
+    const patch = fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')!;
+    expect(patch[0]).toContain('/public-website-origin');
+    expect(JSON.parse(patch[1]!.body as string)).toEqual({
+      publicWebsiteOrigin: 'https://hotel.test',
+    });
+    expect(container.textContent).toContain('WordPress paired');
+    expect(container.querySelector('[aria-label="Unsaved changes"]')).toBeNull();
+    await act(async () => root.unmount());
+  });
+
+  it('preserves provider state and invalidates saved readiness immediately after branding save', async () => {
+    const connection = { id: 'stripe', kind: 'PAYMENT', provider: 'STRIPE', status: 'CONNECTED' };
+    const assignment = { connectionId: 'stripe', enabled: true };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const hubKey = ['dashboard', 'settings-hub', 't', 'p'];
+    client.setQueryData(hubKey, { property });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === 'PATCH')
+          return new Response(JSON.stringify({ ...property, ...JSON.parse(init.body as string) }));
+        if (url.endsWith('/properties')) return new Response(JSON.stringify([property]));
+        if (url.endsWith('/plan-usage'))
+          return new Response(JSON.stringify({ plan: { name: 'Free' } }));
+        return new Response(
+          JSON.stringify(url.includes('/properties/p/') ? [assignment] : [connection]),
+        );
+      }),
+    );
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    await act(async () =>
+      root.render(
+        createElement(
+          QueryClientProvider,
+          { client },
+          createElement(DashboardSettings, {
+            tenantId: 't',
+            propertyId: 'p',
+            settingsArea: 'branding',
+            canWrite: true,
+          }),
+        ),
+      ),
+    );
+    for (let i = 0; i < 8; i++)
+      await act(async () => {
+        await new Promise((resolve) => window.setTimeout(resolve, 20));
+      });
+    await value(container.querySelector('#branding-supportEmail')!, 'new@hotel.test');
+    await saveChanges(container);
+    const cached = client.getQueryData<{
+      connections: unknown[];
+      propertyConnections: unknown[];
+      property: { supportEmail: string };
+    }>(['dashboard', 'settings', 't', 'p'])!;
+    expect(cached.connections).toEqual([connection]);
+    expect(cached.propertyConnections).toEqual([assignment]);
+    expect(cached.property.supportEmail).toBe('new@hotel.test');
+    expect(client.getQueryState(hubKey)?.isInvalidated).toBe(true);
+    await act(async () => root.unmount());
+    client.clear();
   });
 
   it('warns when an enabled online payment method lacks a connected property integration', async () => {
@@ -385,14 +580,12 @@ describe('DashboardSettings', () => {
     vi.stubGlobal('fetch', fetch);
     const { container, root } = await mount();
 
-    expect(container.textContent).toContain(
-      'PokPay is enabled but not connected and assigned to this property.',
-    );
+    expect(container.textContent).toContain('Not connected - unavailable to guests');
     await act(async () => root.unmount());
   });
 });
 
-async function mount(settingsArea?: SettingsArea) {
+async function mount(settingsArea?: SettingsArea, canWrite = true) {
   const container = document.createElement('div');
   const root = createRoot(container);
   await act(async () => {
@@ -400,7 +593,12 @@ async function mount(settingsArea?: SettingsArea) {
       createElement(
         DashboardQueryProvider,
         undefined,
-        createElement(DashboardSettings, { tenantId: 't', propertyId: 'p', settingsArea }),
+        createElement(DashboardSettings, {
+          tenantId: 't',
+          propertyId: 'p',
+          settingsArea,
+          canWrite,
+        }),
       ),
     );
   });
@@ -419,19 +617,6 @@ async function value(element: Element, next: string) {
     Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!.set!.call(input, next);
     input.dispatchEvent(new Event('change', { bubbles: true }));
     await Promise.resolve();
-  });
-}
-
-async function submit(container: HTMLElement, text: string) {
-  await act(async () => {
-    Array.from(container.querySelectorAll('button'))
-      .find((button) => button.textContent === text)!
-      .closest('form')!
-      .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    for (let iteration = 0; iteration < 4; iteration += 1) {
-      await new Promise((resolve) => window.setTimeout(resolve, 20));
-      await Promise.resolve();
-    }
   });
 }
 

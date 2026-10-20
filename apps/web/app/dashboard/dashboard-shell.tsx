@@ -729,9 +729,11 @@ export function DashboardShell({
           />
         ) : settingsArea ? (
           <DashboardSettings
+            key={selectedProperty.id}
             tenantId={tenantId}
             propertyId={selectedProperty.id}
             settingsArea={settingsArea}
+            canWrite={user?.emailVerified === true && hasCapability('settings.manage')}
           />
         ) : (
           <SettingsHub tenantId={tenantId} propertyId={selectedProperty.id} />

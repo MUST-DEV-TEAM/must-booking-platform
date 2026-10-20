@@ -76,7 +76,7 @@ export function UnsavedChangesBoundary({ children }: { children: ReactNode }) {
           if (!open) setPending(null);
         }}
         title="Discard unsaved changes?"
-        description="Your unsaved wording changes will be lost. Saved drafts are kept."
+        description="Your unsaved changes will be lost. Saved changes are kept."
         confirmLabel="Discard changes"
         cancelLabel="Keep editing"
         destructive

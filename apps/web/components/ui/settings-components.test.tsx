@@ -56,6 +56,27 @@ describe('settings status and checks', () => {
     expect(health.branding.status).toBe('attention');
     expect(health['managed-pages'].status).toBe('todo');
     expect(health.billing.note).toBe('Plan: Free.');
+    expect(
+      areaHealth({ ...property, publicWebsiteOrigin: 'https://hotel.test' }, 'Free')[
+        'managed-pages'
+      ].status,
+    ).toBe('todo');
+    expect(
+      areaHealth(
+        {
+          ...property,
+          publicWebsiteOrigin: 'https://hotel.test',
+          wordpressConnectedAt: '2026-10-01',
+        },
+        'Free',
+      )['managed-pages'].status,
+    ).toBe('done');
+    const onlineOnly = {
+      ...property,
+      paymentGateways: { payAtHotel: false, stripe: true, pokpay: false },
+    };
+    expect(areaHealth(onlineOnly, 'Free', new Set()).payments.status).toBe('attention');
+    expect(areaHealth(onlineOnly, 'Free', new Set(['STRIPE'])).payments.status).toBe('done');
     expect(health.email.status).toBe('none');
     const broken = areaHealth(
       {

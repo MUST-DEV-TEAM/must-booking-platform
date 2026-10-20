@@ -62,7 +62,7 @@ export const settingsAreas = [
   },
   {
     key: 'managed-pages',
-    label: 'Managed Pages',
+    label: 'Website connection',
     scope: 'Property',
     description: 'Connect the property website and manage its WordPress pairing.',
   },
@@ -86,6 +86,7 @@ export type AreaHealth = { status: 'done' | 'attention' | 'todo' | 'none'; note:
 export function areaHealth(
   property: Property,
   planName: string | null,
+  connectedProviders?: Set<string>,
 ): Record<SettingsArea, AreaHealth> {
   const present = (value: string | null | undefined) => !!value && value.trim() !== '';
   const stayOrderWrong =
@@ -106,15 +107,21 @@ export function areaHealth(
         ? { status: 'done', note: `From ${property.checkInTime} to ${property.checkOutTime}.` }
         : { status: 'todo', note: 'Guests are not shown a check-in or check-out time.' },
     payments:
-      gateways.stripe || gateways.pokpay || gateways.payAtHotel
-        ? { status: 'done', note: 'At least one payment method is on.' }
-        : { status: 'attention', note: 'No payment method is switched on.' },
-    branding: present(property.supportEmail)
-      ? { status: 'done', note: 'A support email is set for guests.' }
-      : { status: 'attention', note: 'Guests have no support email in booking emails.' },
+      gateways.payAtHotel ||
+      (gateways.stripe && connectedProviders?.has('STRIPE')) ||
+      (gateways.pokpay && connectedProviders?.has('POKPAY'))
+        ? { status: 'done', note: 'At least one payment method is available to guests.' }
+        : {
+            status: 'attention',
+            note: 'Switch on pay at hotel or connect an enabled online payment provider.',
+          },
+    branding:
+      present(property.supportEmail) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(property.supportEmail!)
+        ? { status: 'done', note: 'A support email is set for guests.' }
+        : { status: 'attention', note: 'Guests have no support email in booking emails.' },
     email: { status: 'none', note: '' },
     'managed-pages':
-      property.wordpressConnectedAt || present(property.publicWebsiteOrigin)
+      property.wordpressConnectedAt && present(property.publicWebsiteOrigin)
         ? { status: 'done', note: 'The hotel website is connected.' }
         : { status: 'todo', note: 'The hotel website is not connected yet.' },
     billing: planName
