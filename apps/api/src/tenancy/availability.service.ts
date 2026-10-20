@@ -1,3 +1,4 @@
+import { bookingContactSql } from '../booking/booking-contact';
 import { pricingContext, pricingFacts } from './pricing.repository';
 import { evaluatePricing, pricingDay } from '../booking/pricing-evaluator';
 import { InventoryStockService } from './inventory-stock.service';
@@ -562,7 +563,7 @@ export class AvailabilityService {
       >`
         SELECT b.id, b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
           b.ends_on::text AS "endsOn",
-          NULLIF(TRIM(CONCAT_WS(' ', g.first_name, g.last_name)), '') AS "guestName",
+          NULLIF(TRIM(CONCAT_WS(' ', ${bookingContactSql.firstName}, ${bookingContactSql.lastName})), '') AS "guestName",
           r.name AS "roomName"
         FROM bookings b
         LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id

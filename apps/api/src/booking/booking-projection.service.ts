@@ -1,3 +1,4 @@
+import { BOOKING_CONTACT_SQL, bookingContactSql } from './booking-contact';
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { BookingPaymentMethod, BookingStatus } from '@must/domain-contracts';
 
@@ -105,6 +106,9 @@ export type BookingActivity = {
 export type BookingDetail = BookingSearchItem & {
   version: number;
   updatedAt: string;
+  detailsManagedInClock: boolean;
+  maxOccupancy: number;
+  estimatedArrivalTime: string | null;
   externalBookingId: string | null;
   nightlyRates: Array<{ date: string; amount: string }> | null;
   cancellation: {
@@ -196,10 +200,11 @@ const BOOKING_BASE_SQL = `
           EXISTS(SELECT 1 FROM booking_requests q WHERE q.tenant_id=b.tenant_id AND q.property_id=b.property_id AND q.booking_id=b.id AND q.type='cancellation' AND q.status='Pending') AS cancellation_pending,
           b.special_requests, b.pms_stay_status, b.room_id, r.name AS room_name,
           b.room_type_id, rt.name AS room_type_name, rp.name AS rate_plan_name, rp.currency,
-          b.guest_id, g.first_name AS guest_first_name, g.last_name AS guest_last_name,
-          g.email AS guest_email, g.phone AS guest_phone,
+          b.guest_id, ${BOOKING_CONTACT_SQL.firstName} AS guest_first_name, ${BOOKING_CONTACT_SQL.lastName} AS guest_last_name,
+          ${BOOKING_CONTACT_SQL.email} AS guest_email, ${BOOKING_CONTACT_SQL.phone} AS guest_phone,
           COALESCE(pt.paid, 0) AS paid, COALESCE(pt.refunded, 0) AS refunded,
-          b.version, b.updated_at, b.external_booking_id, b.nightly_rates,
+          b.version, b.updated_at, b.external_booking_id, b.nightly_rates, b.estimated_arrival_time, rt.max_occupancy,
+          (b.external_booking_id IS NOT NULL OR EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id WHERE pc.tenant_id=b.tenant_id AND pc.property_id=b.property_id AND pc.enabled AND pc.kind='PMS' AND ic.provider='CLOCK_PMS')) AS details_managed_in_clock,
           b.cancellation_is_free, b.cancellation_free_until_hours, b.cancellation_cutoff_at,
           b.order_room_number, g.street_address AS guest_street_address,
           g.address_line_2 AS guest_address_line_2, g.city AS guest_city, g.county AS guest_county,
@@ -361,6 +366,9 @@ export class BookingProjectionService {
         updatedAt:
           row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
         externalBookingId: text(row.external_booking_id),
+        detailsManagedInClock: row.details_managed_in_clock === true,
+        maxOccupancy: Number(row.max_occupancy),
+        estimatedArrivalTime: text(row.estimated_arrival_time),
         nightlyRates: (row.nightly_rates as BookingDetail['nightlyRates']) ?? null,
         cancellation: {
           isFree: (row.cancellation_is_free as boolean | null) ?? null,
@@ -479,8 +487,8 @@ export class BookingProjectionService {
             }
           >
         >`
-        SELECT b.id, b.guest_id AS "guestId", g.first_name AS "guestFirstName",
-          g.last_name AS "guestLastName", g.email AS "guestEmail", g.phone AS "guestPhone",
+        SELECT b.id, b.guest_id AS "guestId", ${bookingContactSql.firstName} AS "guestFirstName",
+          ${bookingContactSql.lastName} AS "guestLastName", ${bookingContactSql.email} AS "guestEmail", ${bookingContactSql.phone} AS "guestPhone",
           g.street_address AS "guestStreetAddress", g.address_line_2 AS "guestAddressLine2",
           g.city AS "guestCity", g.county AS "guestCounty", g.postcode AS "guestPostcode",g.country_code AS "guestCountryCode",g.capture_version AS "guestCaptureVersion",
           b.special_requests AS "specialRequests",

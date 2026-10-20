@@ -1,3 +1,4 @@
+import { bookingContactSql } from '../booking/booking-contact';
 import { NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { TenantTransaction } from './tenant-database.service';
@@ -133,7 +134,7 @@ export async function reportFacts(
     SELECT b.id,b.external_reference AS "externalReference",b.status::text,b.starts_on::text AS "startsOn",b.ends_on::text AS "endsOn",b.created_at::text AS "createdAt",
       b.room_type_id AS "roomTypeId",rt.name AS "roomTypeName",b.room_id AS "roomId",r.name AS "roomName",b.rate_plan_id AS "ratePlanId",rp.name AS "ratePlanName",
       rp.currency,b.total_amount::text AS "totalAmount",b.nightly_rates AS "nightlyRates",b.source,b.payment_method::text AS "paymentMethod",b.guest_id AS "guestId",
-      NULLIF(BTRIM(CONCAT_WS(' ',g.first_name,g.last_name)),'') AS "guestName",g.country_code AS "guestCountry",b.adults,b.children,b.pms_stay_status AS "pmsStayStatus",rp.meal_plan AS "mealPlan",rp.pricing_basis AS "pricingBasis",
+      NULLIF(BTRIM(CONCAT_WS(' ',${bookingContactSql.firstName},${bookingContactSql.lastName})),'') AS "guestName",g.country_code AS "guestCountry",b.adults,b.children,b.pms_stay_status AS "pmsStayStatus",rp.meal_plan AS "mealPlan",rp.pricing_basis AS "pricingBasis",
       cancelled."cancelledAt",
       b.cancellation_is_free AS "cancellationIsFree",b.cancellation_cutoff_at::text AS "cancellationCutoffAt",
       (started.booking_id IS NOT NULL) AS "paymentStarted",

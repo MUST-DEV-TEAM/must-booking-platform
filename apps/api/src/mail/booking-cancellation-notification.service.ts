@@ -1,3 +1,4 @@
+import { bookingContactSql } from '../booking/booking-contact';
 import { Inject, Injectable } from '@nestjs/common';
 import type { PaymentProviderContext } from '@must/domain-contracts';
 
@@ -52,7 +53,7 @@ export class BookingCancellationNotificationService {
     const notifyGuest = options.notifyGuest ?? true;
     const notification = await this.database.withTenantTransaction(context, async (tx) => {
       const rows = await tx.$queryRaw<CancellationRow[]>`
-        SELECT g.email, g.first_name AS "firstName", g.last_name AS "lastName", g.phone,
+        SELECT ${bookingContactSql.email} AS email, ${bookingContactSql.firstName} AS "firstName", ${bookingContactSql.lastName} AS "lastName", ${bookingContactSql.phone} AS phone,
           b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
           b.ends_on::text AS "endsOn", (b.adults + b.children) AS "guestCount",
           b.nightly_rates AS "nightlyRates",

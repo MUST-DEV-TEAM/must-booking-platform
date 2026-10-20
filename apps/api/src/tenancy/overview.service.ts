@@ -1,3 +1,4 @@
+import { BOOKING_CONTACT_SQL } from '../booking/booking-contact';
 import { Inject, Injectable } from '@nestjs/common';
 
 import { BOOKING_NEEDS_ATTENTION_STATUSES } from '../booking/booking-attention';
@@ -238,8 +239,8 @@ export class OverviewService {
       tx.$queryRawUnsafe<NeedsAttentionBooking[]>(
         `SELECT b.id, b.status::text AS status, b.starts_on::text AS "startsOn",
            b.ends_on::text AS "endsOn",
-           NULLIF(CONCAT_WS(' ', g.first_name, g.last_name), '') AS "guestName",
-           COALESCE(g.email, '') AS "guestEmail",
+           NULLIF(CONCAT_WS(' ', ${BOOKING_CONTACT_SQL.firstName}, ${BOOKING_CONTACT_SQL.lastName}), '') AS "guestName",
+           COALESCE(${BOOKING_CONTACT_SQL.email}, '') AS "guestEmail",
            COALESCE(rt.name, '') AS "roomTypeName"
          FROM bookings b
          LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
@@ -273,8 +274,8 @@ export class OverviewService {
            WHERE tenant_id = $1::uuid AND id = $2::uuid
          )
          SELECT b.id, b.external_reference AS "externalReference",
-           NULLIF(CONCAT_WS(' ', g.first_name, g.last_name), '') AS "guestName",
-           g.email AS "guestEmail", rt.name AS "roomTypeName", b.adults, b.children,
+           NULLIF(CONCAT_WS(' ', ${BOOKING_CONTACT_SQL.firstName}, ${BOOKING_CONTACT_SQL.lastName}), '') AS "guestName",
+           ${BOOKING_CONTACT_SQL.email} AS "guestEmail", rt.name AS "roomTypeName", b.adults, b.children,
            (b.special_requests IS NOT NULL AND b.special_requests <> '') AS "hasSpecialRequests",
            b.payment_method::text AS "paymentMethod", b.total_amount::text AS "totalAmount",
            rp.currency
@@ -286,7 +287,7 @@ export class OverviewService {
          WHERE b.tenant_id = $1::uuid AND b.property_id = $2::uuid
            AND b.${dateColumn} = property_today.date
            AND b.status = 'CONFIRMED'::"BookingStatus"
-         ORDER BY COALESCE(NULLIF(CONCAT_WS(' ', g.first_name, g.last_name), ''), g.email) ASC`,
+         ORDER BY COALESCE(NULLIF(CONCAT_WS(' ', ${BOOKING_CONTACT_SQL.firstName}, ${BOOKING_CONTACT_SQL.lastName}), ''), ${BOOKING_CONTACT_SQL.email}) ASC`,
         tenantId,
         propertyId,
       ),
@@ -304,8 +305,8 @@ export class OverviewService {
            WHERE tenant_id = $1::uuid AND id = $2::uuid
          )
          SELECT b.id, b.external_reference AS "externalReference",
-           NULLIF(CONCAT_WS(' ', g.first_name, g.last_name), '') AS "guestName",
-           g.email AS "guestEmail", rt.name AS "roomTypeName", b.adults, b.children,
+           NULLIF(CONCAT_WS(' ', ${BOOKING_CONTACT_SQL.firstName}, ${BOOKING_CONTACT_SQL.lastName}), '') AS "guestName",
+           ${BOOKING_CONTACT_SQL.email} AS "guestEmail", rt.name AS "roomTypeName", b.adults, b.children,
            (b.special_requests IS NOT NULL AND b.special_requests <> '') AS "hasSpecialRequests",
            b.payment_method::text AS "paymentMethod", b.total_amount::text AS "totalAmount",
            rp.currency, b.starts_on::text AS "startsOn"
@@ -318,7 +319,7 @@ export class OverviewService {
            AND b.starts_on > property_today.date AND b.starts_on <= property_today.date + INTERVAL '7 days'
            AND b.status = 'CONFIRMED'::"BookingStatus"
          ORDER BY b.starts_on ASC,
-           COALESCE(NULLIF(CONCAT_WS(' ', g.first_name, g.last_name), ''), g.email) ASC
+           COALESCE(NULLIF(CONCAT_WS(' ', ${BOOKING_CONTACT_SQL.firstName}, ${BOOKING_CONTACT_SQL.lastName}), ''), ${BOOKING_CONTACT_SQL.email}) ASC
          LIMIT 20`,
         tenantId,
         propertyId,
@@ -406,8 +407,8 @@ export class OverviewService {
     return this.database.withTenantTransaction({ tenantId, propertyId }, (tx) =>
       tx.$queryRawUnsafe<RecentCancellation[]>(
         `SELECT b.id, b.external_reference AS "externalReference",
-           NULLIF(CONCAT_WS(' ', g.first_name, g.last_name), '') AS "guestName",
-           g.email AS "guestEmail", rt.name AS "roomTypeName",
+           NULLIF(CONCAT_WS(' ', ${BOOKING_CONTACT_SQL.firstName}, ${BOOKING_CONTACT_SQL.lastName}), '') AS "guestName",
+           ${BOOKING_CONTACT_SQL.email} AS "guestEmail", rt.name AS "roomTypeName",
            b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
            b.updated_at::text AS "cancelledAt"
          FROM bookings b
@@ -444,8 +445,8 @@ export class OverviewService {
           }>
         >(
           `SELECT al.id, al.action, al.created_at::text AS "createdAt",
-             NULLIF(CONCAT_WS(' ', g.first_name, g.last_name), '') AS "guestName",
-             g.email AS "guestEmail", rt.name AS "roomTypeName",
+             NULLIF(CONCAT_WS(' ', ${BOOKING_CONTACT_SQL.firstName}, ${BOOKING_CONTACT_SQL.lastName}), '') AS "guestName",
+             ${BOOKING_CONTACT_SQL.email} AS "guestEmail", rt.name AS "roomTypeName",
              b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn"
            FROM audit_logs al
            LEFT JOIN bookings b ON b.tenant_id = al.tenant_id AND al.target_type = 'booking' AND b.id = al.target_id::uuid

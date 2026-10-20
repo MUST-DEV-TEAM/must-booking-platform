@@ -1,3 +1,4 @@
+import { bookingContactSql } from '../booking/booking-contact';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -230,7 +231,7 @@ export class PaymentRefundService {
         payload: { bookingId, refundId: refunded.value.id, amount: command.amount },
       });
       const guest = await tx.$queryRaw<Array<RefundEmailRow>>`
-        SELECT g.email, g.first_name AS "firstName", g.last_name AS "lastName",
+        SELECT ${bookingContactSql.email} AS email, ${bookingContactSql.firstName} AS "firstName", ${bookingContactSql.lastName} AS "lastName",
           b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
           b.ends_on::text AS "endsOn", (b.adults + b.children) AS "guestCount",
           b.nightly_rates AS "nightlyRates",
@@ -410,7 +411,7 @@ export class PaymentRefundService {
         payload: { bookingId, refundId: externalPaymentId, amount: command.amount },
       });
       const guest = await tx.$queryRaw<Array<RefundEmailRow>>`
-        SELECT g.email, g.first_name AS "firstName", g.last_name AS "lastName",
+        SELECT ${bookingContactSql.email} AS email, ${bookingContactSql.firstName} AS "firstName", ${bookingContactSql.lastName} AS "lastName",
           b.external_reference AS "externalReference", b.starts_on::text AS "startsOn",
           b.ends_on::text AS "endsOn", (b.adults + b.children) AS "guestCount",
           b.nightly_rates AS "nightlyRates",

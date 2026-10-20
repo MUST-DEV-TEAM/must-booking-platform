@@ -1,4 +1,5 @@
 'use client';
+import { EditBookingDetailsDialog } from './edit-booking-details-dialog';
 import { CancellationDialog } from './cancellation-dialog';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -56,6 +57,9 @@ import {
 
 type Detail = {
   cancellationPending?: boolean;
+  detailsManagedInClock?: boolean;
+  maxOccupancy: number;
+  estimatedArrivalTime: string | null;
   id: string;
   externalReference: string;
   status: string;
@@ -126,6 +130,7 @@ const dateTime = (value: string) =>
 
 const ACTIVITY_LABELS: Record<string, string> = {
   'booking.created': 'Reservation created',
+  'booking.details_edited': 'Reservation details edited',
   'booking.cancelled': 'Reservation cancelled',
   'booking.clock_reservation_created': 'Reservation created in Clock',
   'booking.clock_deposit_posted': 'Deposit posted to Clock',
@@ -150,6 +155,13 @@ function activityIcon(action: string): { icon: LucideIcon; tone: ActivityEntry['
 
 function activityDetail(details: Record<string, unknown>) {
   const parts: string[] = [];
+  if (details.changes && typeof details.changes === 'object') {
+    const labels: Record<string,string> = {firstName:'First name',lastName:'Last name',email:'Email',phone:'Phone',specialRequests:'Notes',estimatedArrivalTime:'Estimated arrival',adults:'Adults',children:'Children'};
+    for(const [key,value] of Object.entries(details.changes)) {
+      const change=value as {old?:unknown;new?:unknown};
+      parts.push(`${labels[key] ?? key}: ${change.old ?? '(empty)'} -> ${change.new ?? '(empty)'}`);
+    }
+  }
   const amount = details.amount as { amount?: string; currency?: string } | string | undefined;
   if (typeof amount === 'string') parts.push(amount);
   else if (amount?.amount) parts.push(`${amount.amount} ${amount.currency ?? ''}`.trim());
@@ -212,6 +224,7 @@ export function ReservationDetail({
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const queryClient = useQueryClient();
   const [cancelling, setCancelling] = useState(false);
+  const [editingDetails, setEditingDetails] = useState(false);
   const [showAllActivity, setShowAllActivity] = useState(false);
   const unseen = useUnseenBookings(tenantId, propertyId);
   const wasNew = unseen.ids.has(bookingId);
@@ -408,8 +421,8 @@ export function ReservationDetail({
         actions={
           <>
             {canEditBooking ? (
-              <Button disabled title="Editing a reservation is planned, not built yet">
-                <Pencil aria-hidden="true" /> Edit reservation
+              <Button onClick={() => setEditingDetails(true)}>
+                <Pencil aria-hidden="true" /> Edit details
               </Button>
             ) : null}
             {canRefundPayment && refundable ? (
@@ -434,6 +447,10 @@ export function ReservationDetail({
           </>
         }
       />
+      {editingDetails ? <EditBookingDetailsDialog tenantId={tenantId} propertyId={propertyId} bookingId={booking.id} version={booking.version}
+        initial={{firstName:booking.guestFirstName??'',lastName:booking.guestLastName??'',email:booking.guestEmail??'',phone:booking.guestPhone??'',specialRequests:booking.specialRequests??'',estimatedArrivalTime:booking.estimatedArrivalTime??'',adults:booking.adults,children:booking.children}}
+        maxOccupancy={booking.maxOccupancy} managedInClock={booking.detailsManagedInClock ?? !!booking.externalBookingId}
+        onClose={()=>setEditingDetails(false)} onSaved={async()=>{await queryClient.invalidateQueries({queryKey:['dashboard']});}}/> : null}
       <BookingReviewCard
         tenantId={tenantId}
         propertyId={propertyId}
@@ -510,6 +527,7 @@ export function ReservationDetail({
                 {address ? field('Guest address', address) : null}
                 {field('Last updated', dateTime(booking.updatedAt))}
               </div>
+              {booking.estimatedArrivalTime ? field('Estimated arrival (hotel local time)',booking.estimatedArrivalTime) : null}
               {booking.specialRequests ? (
                 <div className="rounded-lg border p-3 text-sm">
                   <p className="mb-1 text-xs font-semibold text-muted-foreground">

@@ -1,3 +1,4 @@
+import { bookingContactSql } from '../booking/booking-contact';
 import {
   Inject,
   Injectable,
@@ -204,7 +205,7 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
       const rows = await tx.$queryRaw<StayRow[]>`
         SELECT b.id::text, COALESCE(b.order_reference, b.id::text) AS "groupKey",
           COALESCE(b.order_reference, b.external_reference) AS reference,
-          g.email, g.first_name AS "firstName", g.last_name AS "lastName",
+          ${bookingContactSql.email} AS email, ${bookingContactSql.firstName} AS "firstName", ${bookingContactSql.lastName} AS "lastName",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
           COALESCE(r.name, rt.name) AS "roomName", (b.adults + b.children) AS "guestCount",
           b.payment_method::text AS "paymentMethod", b.total_amount::text AS amount, rp.currency,b.nightly_rates AS "nightlyRates"
@@ -217,7 +218,7 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
           AND b.status = 'CONFIRMED'::"BookingStatus" AND b.starts_on = ${arrival}::date
           AND b.external_reference NOT LIKE 'CLOCK-%'
           AND (b.created_at AT TIME ZONE ${timeZone})::date < ${today}::date
-          AND COALESCE(g.email, '') <> ''
+          AND COALESCE(${bookingContactSql.email}, '') <> ''
         ORDER BY "groupKey", b.order_room_number NULLS FIRST, b.id
       `;
       if (!rows.length) return null;
@@ -269,7 +270,7 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
       const rows = await tx.$queryRaw<StayRow[]>`
         SELECT b.id::text, COALESCE(b.order_reference, b.id::text) AS "groupKey",
           COALESCE(b.order_reference, b.external_reference) AS reference,
-          g.email, g.first_name AS "firstName", g.last_name AS "lastName",
+          ${bookingContactSql.email} AS email, ${bookingContactSql.firstName} AS "firstName", ${bookingContactSql.lastName} AS "lastName",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
           COALESCE(r.name, rt.name) AS "roomName", (b.adults + b.children) AS "guestCount",
           b.payment_method::text AS "paymentMethod", b.total_amount::text AS amount, rp.currency,b.nightly_rates AS "nightlyRates"
@@ -282,7 +283,7 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
           AND b.status = 'CONFIRMED'::"BookingStatus" AND b.ends_on = ${departure}::date
           AND b.external_reference NOT LIKE 'CLOCK-%'
           AND COALESCE(b.pms_stay_status, '') <> 'no_show'
-          AND COALESCE(g.email, '') <> ''
+          AND COALESCE(${bookingContactSql.email}, '') <> ''
         ORDER BY "groupKey", b.order_room_number NULLS FIRST, b.id
       `;
       if (!rows.length) return null;
@@ -384,7 +385,7 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
     >`
       SELECT CASE WHEN b.starts_on = ${today}::date THEN 'arrival'
           WHEN b.ends_on = ${today}::date THEN 'departure' ELSE 'in_house' END AS kind,
-        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', g.first_name, g.last_name)), ''), g.email, b.external_reference) AS "guestName",
+        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', ${bookingContactSql.firstName}, ${bookingContactSql.lastName})), ''), ${bookingContactSql.email}, b.external_reference) AS "guestName",
         COALESCE(r.name, rt.name) AS "roomName", (b.ends_on - b.starts_on) AS nights
       FROM bookings b
       LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id

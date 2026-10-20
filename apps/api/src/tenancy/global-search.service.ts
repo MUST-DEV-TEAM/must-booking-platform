@@ -1,3 +1,4 @@
+import { bookingContactSql } from '../booking/booking-contact';
 import {
   BadRequestException,
   Controller,
@@ -83,15 +84,15 @@ export class GlobalSearchService {
           }>
         >`SELECT b.id, b.external_reference AS ref, b.status::text AS status,
             b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
-            NULLIF(TRIM(CONCAT_WS(' ', g.first_name, g.last_name)), '') AS guest, g.email
+            NULLIF(TRIM(CONCAT_WS(' ', ${bookingContactSql.firstName}, ${bookingContactSql.lastName})), '') AS guest, ${bookingContactSql.email} AS email
           FROM bookings b
           LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
           WHERE b.tenant_id = ${tenantId}::uuid AND b.property_id = ${propertyId}::uuid
             AND (COALESCE(b.external_reference, '') ILIKE ${like} ESCAPE '\\'
-              OR CONCAT_WS(' ', g.first_name, g.last_name) ILIKE ${like} ESCAPE '\\'
-              OR COALESCE(g.email, '') ILIKE ${like} ESCAPE '\\'
-              OR COALESCE(g.phone, '') ILIKE ${like} ESCAPE '\\'
-              OR regexp_replace(COALESCE(g.phone, ''), '[^0-9]', '', 'g') LIKE ${digitsLike})
+              OR CONCAT_WS(' ', ${bookingContactSql.firstName}, ${bookingContactSql.lastName}) ILIKE ${like} ESCAPE '\\'
+              OR COALESCE(${bookingContactSql.email}, '') ILIKE ${like} ESCAPE '\\'
+              OR COALESCE(${bookingContactSql.phone}, '') ILIKE ${like} ESCAPE '\\'
+              OR regexp_replace(COALESCE(${bookingContactSql.phone}, ''), '[^0-9]', '', 'g') LIKE ${digitsLike})
           ORDER BY b.created_at DESC LIMIT ${PER_GROUP}`;
         out.push({
           key: 'bookings',
@@ -182,8 +183,8 @@ export class GlobalSearchService {
           WHERE p.tenant_id = ${tenantId}::uuid AND p.property_id = ${propertyId}::uuid
             AND (p.external_payment_id ILIKE ${like} ESCAPE '\\'
               OR COALESCE(b.external_reference, '') ILIKE ${like} ESCAPE '\\'
-              OR CONCAT_WS(' ', g.first_name, g.last_name) ILIKE ${like} ESCAPE '\\'
-              OR COALESCE(g.email, '') ILIKE ${like} ESCAPE '\\')
+              OR CONCAT_WS(' ', ${bookingContactSql.firstName}, ${bookingContactSql.lastName}) ILIKE ${like} ESCAPE '\\'
+              OR COALESCE(${bookingContactSql.email}, '') ILIKE ${like} ESCAPE '\\')
           ORDER BY p.created_at DESC LIMIT ${PER_GROUP}`;
         out.push({
           key: 'payments',

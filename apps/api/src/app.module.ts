@@ -1,3 +1,5 @@
+import { BookingDetailsService } from './booking/booking-details.service';
+import { BookingDetailsController } from './booking/booking-details.controller';
 import { BookingRequestsService } from './booking/booking-requests.service';
 import { BookingRequestsController } from './booking/booking-requests.controller';
 import { ReportOtbService } from './tenancy/report-otb.service';
@@ -291,6 +293,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     QuoteController,
     BookingController,
     BookingRequestsController,
+    BookingDetailsController,
     StaffBookingController,
     PublicBookingController,
     StripeWebhookController,
@@ -377,6 +380,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     QuoteService,
     LocalPmsProvider,
     BookingRequestsService,
+    BookingDetailsService,
     { provide: PMS_PROVIDER, useExisting: LocalPmsProvider },
     StripePaymentProvider,
     PokPayPaymentProvider,

@@ -1,3 +1,4 @@
+import { bookingContactSql } from '../booking/booking-contact';
 import { createHash } from 'node:crypto';
 import {
   BadRequestException,
@@ -64,7 +65,7 @@ export class NotificationInboxService {
   private base(c: InboxContext, types: NotificationType[]) {
     return Prisma.sql`
   SELECT n.id,n.type,r.read_at AS "readAt",n.created_at AS "createdAt",b.id AS "bookingId",b.status::text AS "bookingStatus",b.external_reference AS reference,
-   NULLIF(TRIM(CONCAT_WS(' ',g.first_name,g.last_name)),'') AS "guestName",b.starts_on::text AS "startsOn",b.ends_on::text AS "endsOn",
+   NULLIF(TRIM(CONCAT_WS(' ',${bookingContactSql.firstName},${bookingContactSql.lastName})),'') AS "guestName",b.starts_on::text AS "startsOn",b.ends_on::text AS "endsOn",
    n.payload->>'emailMessageId' AS "emailMessageId",
    (nr.notification_id IS NOT NULL) AS "manuallyResolved",nr.resolved_at AS "resolvedAt",
    COALESCE(NULLIF(TRIM(CONCAT_WS(' ',ru.first_name,ru.last_name)),''),ru.email) AS "resolvedByName",nr.note AS "resolutionNote",

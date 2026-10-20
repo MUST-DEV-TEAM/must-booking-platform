@@ -94,6 +94,14 @@ Cancellation is orchestrated through LocalPmsProvider, including Clock cancellat
 
 For Clock-attached manual refunds, mirroring happens after the local refund transaction; failures produce manual review and do not reverse a completed refund. Clock requires a human Deposit Adjustment step: see the [Clock lifecycle](../integrations/clock/booking-lifecycle.md). No general settlement/payout system exists.
 
+### Staff edit details (B2a)
+
+`PATCH bookings/:id/details` requires `bookings.edit`, verified email, `expectedVersion` and `Idempotency-Key` (up to 200 characters). It accepts only `firstName`, `lastName`, `email`, `phone`, `specialRequests`, `estimatedArrivalTime` (HH:mm in hotel local time), `adults` and `children`. Stale versions return 409; identical key/payload replays return the original version without another history entry. Dates, room, rate, amounts and payment state are rejected.
+
+Contact edits live in the booking's `guest_contact` snapshot, leaving the tenant-wide guest directory and other reservations unchanged. Booking projections, permission-gated global search, operational lists and later booking emails read this scoped contact. The edit itself sends no email; no explicit confirmation-resend route exists. The existing booking audit stores actor, timestamp and each field's old/new values. Clock-connected properties and bookings with a Clock reference are read-only, including when no provider request is needed.
+
+Guest counts must fit the room. For count changes, both current and proposed occupancy are evaluated using current local pricing facts in the edit transaction; both totals/currencies must match the stored booking total. Unavailable or changed pricing fails closed and points to the future amend stay flow. Other details can be corrected without repricing. Detail reads include `detailsManagedInClock`, `maxOccupancy` and `estimatedArrivalTime` for the shared Edit details dialog.
+
 ### Staff cancellation and approval (B1)
 
 `GET bookings/:id/cancellation-preview` evaluates the current rate plan at property-local arrival midnight minus its free-cancellation hours. The deadline is inclusive; a missing or expired free window retains the booking total. Amounts use integer minor units. `POST bookings/:id/cancellation` requires `bookings.view`, a matching preview hash/version, reason, priority and details. Staff with `bookings.cancel` cancel within policy directly; missing permission, outside-policy and custom-refund cases create a Pending request instead. Custom amounts additionally require `payments.refund`. The existing staff DELETE route delegates to this contract.

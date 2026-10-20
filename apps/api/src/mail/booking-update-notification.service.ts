@@ -1,3 +1,4 @@
+import { BOOKING_CONTACT_SQL } from '../booking/booking-contact';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { MailBrand } from '@must/domain-contracts';
 
@@ -155,7 +156,7 @@ export class BookingUpdateNotificationService {
   ): Promise<Array<StayRow & { roomTypeId: string }>> {
     return tx.$queryRawUnsafe(
       `SELECT b.id::text, COALESCE(b.order_reference, b.external_reference) AS reference,
-         g.email, g.first_name AS "firstName", g.last_name AS "lastName",
+         ${BOOKING_CONTACT_SQL.email} AS email, ${BOOKING_CONTACT_SQL.firstName} AS "firstName", ${BOOKING_CONTACT_SQL.lastName} AS "lastName",
          b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn",
          COALESCE(r.name, rt.name) AS "roomName", (b.adults + b.children)::int AS "guestCount",
          b.room_type_id::text AS "roomTypeId",b.nightly_rates AS "nightlyRates",rp.currency
@@ -166,7 +167,7 @@ export class BookingUpdateNotificationService {
        LEFT JOIN rooms r ON r.tenant_id = b.tenant_id AND r.property_id = b.property_id AND r.id = b.room_id
        WHERE b.tenant_id = $1::uuid AND b.property_id = $2::uuid AND ${where}
          AND b.status = $4::"BookingStatus" AND b.external_reference NOT LIKE 'CLOCK-%'
-         AND COALESCE(g.email, '') <> ''
+         AND COALESCE(${BOOKING_CONTACT_SQL.email}, '') <> ''
        ORDER BY b.order_room_number NULLS FIRST, b.id`,
       context.tenantId,
       context.propertyId,
