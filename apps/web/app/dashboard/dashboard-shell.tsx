@@ -1,4 +1,5 @@
 'use client';
+import { ApprovalsQueue, useApprovals } from './approvals';
 
 import { InventorySection } from './inventory';
 
@@ -230,11 +231,12 @@ export function canAccessSection(
   return !!item?.capabilities?.every((capability) => capabilities.includes(capability));
 }
 
-// Approvals and System health are planned; their URLs fall back to Overview until they exist.
+// Only implemented tabs resolve from the URL.
 const LIVE_TABS: readonly string[] = [
   'overview',
   'needs-attention',
   'quick-booking',
+  'approvals',
   'system-health',
 ];
 
@@ -252,6 +254,7 @@ function DashboardSectionTabs({
   currentTab,
   canAccessQuickBooking,
   canAccessSystemHealth,
+  canReviewRequests,
   onSelectTab,
 }: {
   tenantId: string;
@@ -259,9 +262,11 @@ function DashboardSectionTabs({
   currentTab: DashboardTab;
   canAccessQuickBooking: boolean;
   canAccessSystemHealth: boolean;
+  canReviewRequests: boolean;
   onSelectTab: (tab: DashboardTab) => void;
 }) {
-  // Approvals and System health are planned features; they stay out of the live tab bar until built.
+  // Review data is fetched only for people allowed to review requests.
+  const approvals = useApprovals(tenantId, propertyId, canReviewRequests).data?.count;
   const attention = useOverviewQuery(tenantId, propertyId).data?.needsAttentionCount;
   const tabs = dashboardTabs
     .filter(
@@ -269,14 +274,15 @@ function DashboardSectionTabs({
         tab.key === 'overview' ||
         tab.key === 'needs-attention' ||
         tab.key === 'quick-booking' ||
-        tab.key === 'system-health',
+        tab.key === 'system-health' || tab.key === 'approvals',
     )
+    .filter((tab) => tab.key !== 'approvals' || canReviewRequests)
     .filter((tab) => tab.key !== 'system-health' || canAccessSystemHealth)
     .filter((tab) => tab.key !== 'quick-booking' || canAccessQuickBooking)
     .map((tab) => ({
       id: tab.key,
       label: tab.label,
-      count: tab.key === 'needs-attention' ? attention : undefined,
+      count: tab.key === 'needs-attention' ? attention : tab.key === 'approvals' ? approvals : undefined,
     }));
   return (
     <TabBar
@@ -468,7 +474,8 @@ export function DashboardShell({
   const canAccessSystemHealth = hasCapability('bookings.view');
   const visibleDashboardTab =
     (tab === 'quick-booking' && !canAccessQuickBooking) ||
-    (tab === 'system-health' && !canAccessSystemHealth)
+    (tab === 'system-health' && !canAccessSystemHealth) ||
+    (tab === 'approvals' && !hasCapability('requests.review'))
       ? 'overview'
       : tab;
 
@@ -545,6 +552,7 @@ export function DashboardShell({
             currentTab={visibleDashboardTab}
             canAccessQuickBooking={canAccessQuickBooking}
             canAccessSystemHealth={canAccessSystemHealth}
+            canReviewRequests={hasCapability('requests.review')}
             onSelectTab={(next) => {
               setTab(next);
               window.history.pushState(
@@ -563,6 +571,8 @@ export function DashboardShell({
               propertyId={selectedProperty.id}
               role={role}
             />
+          ) : visibleDashboardTab === 'approvals' ? (
+            <ApprovalsQueue tenantId={tenantId} propertyId={selectedProperty.id}/>
           ) : visibleDashboardTab === 'needs-attention' ? (
             <NeedsAttentionTab tenantId={tenantId} propertyId={selectedProperty.id} />
           ) : visibleDashboardTab === 'system-health' ? (

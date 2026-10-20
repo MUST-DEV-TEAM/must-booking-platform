@@ -20,7 +20,7 @@ import {
   type NotificationType,
 } from './notification-registry';
 import { BOOKING_NEEDS_ATTENTION_STATUSES } from '../booking/booking-attention';
-const ACTIONABLE_TYPES: NotificationType[] = ['EMAIL_DELIVERY_FAILED', 'BOOKING_NEEDS_ATTENTION'];
+const ACTIONABLE_TYPES: NotificationType[] = ['EMAIL_DELIVERY_FAILED', 'BOOKING_NEEDS_ATTENTION', 'CANCELLATION_REQUESTED'];
 export type InboxContext = { tenantId: string; propertyId: string; userId: string };
 type Row = {
   id: string;
@@ -67,8 +67,8 @@ export class NotificationInboxService {
    NULLIF(TRIM(CONCAT_WS(' ',g.first_name,g.last_name)),'') AS "guestName",b.starts_on::text AS "startsOn",b.ends_on::text AS "endsOn",
    n.payload->>'emailMessageId' AS "emailMessageId",
    (nr.notification_id IS NOT NULL) AS "manuallyResolved",nr.resolved_at AS "resolvedAt",
-   NULLIF(TRIM(CONCAT_WS(' ',ru.first_name,ru.last_name)),'') AS "resolvedByName",nr.note AS "resolutionNote",
-   CASE WHEN nr.notification_id IS NOT NULL THEN false WHEN n.type='EMAIL_DELIVERY_FAILED' THEN true WHEN n.type<>'BOOKING_NEEDS_ATTENTION' THEN false WHEN b.id IS NULL THEN NULL ELSE
+   COALESCE(NULLIF(TRIM(CONCAT_WS(' ',ru.first_name,ru.last_name)),''),ru.email) AS "resolvedByName",nr.note AS "resolutionNote",
+   CASE WHEN nr.notification_id IS NOT NULL THEN false WHEN n.type='CANCELLATION_REQUESTED' THEN EXISTS(SELECT 1 FROM booking_requests q WHERE q.tenant_id=n.tenant_id AND q.property_id=n.property_id AND q.id::text=n.payload->>'requestId' AND q.status='Pending') WHEN n.type='EMAIL_DELIVERY_FAILED' THEN true WHEN n.type<>'BOOKING_NEEDS_ATTENTION' THEN false WHEN b.id IS NULL THEN NULL ELSE
     (b.status::text=ANY(${[...BOOKING_NEEDS_ATTENTION_STATUSES]}::text[]) OR EXISTS(SELECT 1 FROM manual_review_items m WHERE m.tenant_id=${c.tenantId}::uuid AND m.property_id=${c.propertyId}::uuid AND m.reference_type='booking' AND m.reference_id=b.id::text AND m.status='OPEN')) END AS "needsAction"
   FROM notifications n
   LEFT JOIN notification_reads r ON r.tenant_id=n.tenant_id AND r.property_id=n.property_id AND r.notification_id=n.id AND r.user_id=${c.userId}::uuid
@@ -84,7 +84,9 @@ export class NotificationInboxService {
     const canBooking = caps.includes('bookings.view'),
       canStaff = caps.includes('staff.view');
     const href =
-      row.type === 'EMAIL_DELIVERY_FAILED' &&
+      row.type === 'CANCELLATION_REQUESTED' && caps.includes('requests.review')
+        ? `/dashboard/${c.tenantId}?propertyId=${c.propertyId}&section=overview&tab=approvals`
+        : row.type === 'EMAIL_DELIVERY_FAILED' &&
       caps.includes('settings.manage') &&
       row.emailMessageId &&
       NOTIFICATION_UUID.test(row.emailMessageId)
@@ -364,6 +366,7 @@ export class NotificationInboxService {
         Prisma.sql`SELECT n.type FROM notifications n WHERE n.tenant_id=${c.tenantId}::uuid AND n.property_id=${c.propertyId}::uuid AND n.id=${id}::uuid AND n.type=ANY(${types}::text[]) FOR UPDATE`,
       );
       if (!rows[0]) throw new NotFoundException('Notification not found.');
+      if (rows[0].type === 'CANCELLATION_REQUESTED') throw new BadRequestException('Decide the request in Approvals.');
       if (!ACTIONABLE_TYPES.includes(rows[0].type))
         throw new BadRequestException('Only needs-action notifications can be resolved.');
       const changed =

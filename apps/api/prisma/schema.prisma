@@ -1755,3 +1755,28 @@ model EmailSenderProof {
  @@index([tenantId,propertyId,createdAt],map:"email_sender_proofs_recent")
  @@map("email_sender_proofs")
 }
+
+// SQL migration owns composite FKs, checks, partial uniqueness and immutable-decision trigger.
+model BookingRequest {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  propertyId       String    @map("property_id") @db.Uuid
+  bookingId        String    @map("booking_id") @db.Uuid
+  type             String    @default("cancellation")
+  requesterId      String    @map("requester_id") @db.Uuid
+  reasonCategory   String    @map("reason_category")
+  priority         String
+  details          String    @db.VarChar(2000)
+  status           String    @default("Pending")
+  executionActorId String?   @map("execution_actor_id") @db.Uuid
+  executionNote    String?   @map("execution_note") @db.VarChar(1000)
+  reviewerId       String?   @map("reviewer_id") @db.Uuid
+  decisionNote     String?   @map("decision_note") @db.VarChar(1000)
+  decidedAt        DateTime? @map("decided_at") @db.Timestamptz(6)
+  payload          Json
+  version          Int       @default(1)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, propertyId, id])
+  @@map("booking_requests")
+}

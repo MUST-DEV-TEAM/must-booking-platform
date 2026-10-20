@@ -1,3 +1,4 @@
+import { BookingRequestsService, type CancellationInput } from './booking-requests.service';
 import { countryCode } from '@must/domain-contracts';
 import {
   BadRequestException,
@@ -18,16 +19,15 @@ import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator
 import { RequiresCapability } from '../tenancy/capabilities.decorator';
 import { Role, Roles } from '../tenancy/roles.decorator';
 import { TenantScoped } from '../tenancy/tenant-context.decorator';
-import { PaymentRefundService } from '../payments/payment-refund.service';
 import { LocalPmsProvider } from './local-pms.provider';
 import { QuoteService } from './quote.service';
 
 @Controller('tenants/:tenantId/properties/:propertyId/staff-bookings')
 export class StaffBookingController {
   constructor(
+    @Inject(BookingRequestsService) private readonly requests: BookingRequestsService,
     @Inject(LocalPmsProvider) private readonly provider: LocalPmsProvider,
     @Inject(QuoteService) private readonly quotes: QuoteService,
-    @Inject(PaymentRefundService) private readonly refunds: PaymentRefundService,
   ) {}
 
   @Delete(':bookingId')
@@ -39,40 +39,9 @@ export class StaffBookingController {
   async cancel(
     @Param('bookingId') bookingId: string,
     @Body() body: unknown,
-    @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Req() request: { tenantContext: { tenantId: string; propertyId: string; userId: string } },
   ) {
-    const value = (body ?? {}) as Record<string, unknown>;
-    const key = this.idempotencyKey(idempotencyKey);
-    const refund = this.refundChoice(value.refund);
-    const result = await this.provider.cancelBooking(request.tenantContext, {
-      idempotencyKey: key,
-      bookingId,
-      expectedVersion: typeof value.expectedVersion === 'number' ? value.expectedVersion : NaN,
-      reason: typeof value.reason === 'string' ? value.reason : null,
-      staffActorId: request.tenantContext.userId,
-      // When staff pick the refund themselves the policy's automatic refund must not also run.
-      skipAutomaticRefund: refund !== undefined,
-    });
-    if (!result.ok && result.error.code === 'IDEMPOTENCY_KEY_CONFLICT')
-      throw new ConflictException(
-        'This idempotency key was already used with a different request.',
-      );
-    if (!result.ok || !refund || refund.kind === 'none') return result;
-    // Cancel first, then refund: a refund that fails must never leave the room held.
-    const refunded = await this.refunds.manualRefund(request.tenantContext, {
-      bookingId,
-      idempotencyKey: `cancel-refund:${key}`,
-      ...(refund.kind === 'fixed'
-        ? { amount: refund.amount }
-        : { percentage: refund.kind === 'full' ? 100 : refund.percentage }),
-      note: `Cancellation: ${typeof value.reason === 'string' ? value.reason : ''}`.slice(0, 500),
-      actorUserId: request.tenantContext.userId,
-    });
-    return {
-      ...result,
-      refundOutcome: refunded.ok ? { ok: true } : { ok: false, message: refunded.error.message },
-    };
+    return this.requests.submit(request.tenantContext, bookingId, body as CancellationInput);
   }
 
   @Post()
@@ -126,33 +95,6 @@ export class StaffBookingController {
       throw new BadRequestException(
         'The guest phone number may contain only digits and a country prefix.',
       );
-  }
-
-  /** What staff chose to do with money already paid: nothing, everything left, a percentage or an amount. */
-  private refundChoice(
-    value: unknown,
-  ):
-    | { kind: 'none' }
-    | { kind: 'full' }
-    | { kind: 'percentage'; percentage: number }
-    | { kind: 'fixed'; amount: { amount: string; currency: string } }
-    | undefined {
-    if (value === undefined || value === null) return undefined;
-    const choice = value as Record<string, unknown>;
-    if (choice.kind === 'none' || choice.kind === 'full') return { kind: choice.kind };
-    if (choice.kind === 'percentage') {
-      const percentage = Number(choice.percentage);
-      if (!Number.isFinite(percentage) || percentage < 1 || percentage > 100)
-        throw new BadRequestException('The refund percentage must be between 1 and 100.');
-      return { kind: 'percentage', percentage };
-    }
-    if (choice.kind === 'fixed') {
-      const amount = choice.amount as Record<string, unknown> | undefined;
-      if (typeof amount?.amount !== 'string' || typeof amount.currency !== 'string')
-        throw new BadRequestException('A refund amount with a currency is required.');
-      return { kind: 'fixed', amount: { amount: amount.amount, currency: amount.currency } };
-    }
-    throw new BadRequestException('The refund must be none, full, percentage or fixed.');
   }
 
   private input(body: unknown) {

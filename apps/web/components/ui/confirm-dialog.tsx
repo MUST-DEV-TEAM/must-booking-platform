@@ -32,6 +32,7 @@ export function ConfirmDialog({
   reasonPlaceholder = "Visible in the reservation's activity",
   typedWord,
   confirmDisabled = false,
+  contentClassName,
   children,
   onConfirm,
 }: {
@@ -50,6 +51,7 @@ export function ConfirmDialog({
   typedWord?: string;
   /** Keeps the confirm button off while something in `children` is not valid yet. */
   confirmDisabled?: boolean;
+  contentClassName?: string;
   /** Extra content, such as an impact summary, shown above the reason. */
   children?: ReactNode;
   onConfirm: (reason: string) => Promise<void>;
@@ -92,7 +94,7 @@ export function ConfirmDialog({
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent>
+      <DialogContent className={contentClassName}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription asChild>

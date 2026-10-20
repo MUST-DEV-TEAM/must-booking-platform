@@ -103,6 +103,7 @@ type SortKey = 'stay' | 'created' | 'total' | 'guest';
 type DateType = 'arrival' | 'departure' | 'stay' | 'created';
 
 export type ReservationRow = {
+  cancellationPending?: boolean;
   id: string;
   externalReference: string;
   status: string;
@@ -933,6 +934,7 @@ export function ReservationsPage({
                         ) : null}
                         <TableCell className="px-2 py-2">
                           <BookingStatusBadge status={row.status} />
+                          {row.cancellationPending ? <Badge variant="warning">Cancellation pending</Badge> : null}
                         </TableCell>
                         {columns.payment ? (
                           <TableCell className="px-2 py-2">
@@ -1227,6 +1229,7 @@ export function ReservationSheet({
             <div className="space-y-4 px-4 pb-6">
               <div className="flex flex-wrap items-center gap-2">
                 <BookingStatusBadge status={row.status} />
+                          {row.cancellationPending ? <Badge variant="warning">Cancellation pending</Badge> : null}
                 <PaymentStatusBadge
                   status={row.status}
                   paymentMethod={row.paymentMethod}

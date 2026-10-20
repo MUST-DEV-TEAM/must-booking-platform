@@ -1,3 +1,5 @@
+import { BookingRequestsService } from './booking/booking-requests.service';
+import { BookingRequestsController } from './booking/booking-requests.controller';
 import { ReportOtbService } from './tenancy/report-otb.service';
 import { PricingController } from './tenancy/pricing.controller';
 import { PricingService } from './tenancy/pricing.service';
@@ -288,6 +290,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     WordpressPairingRedeemController,
     QuoteController,
     BookingController,
+    BookingRequestsController,
     StaffBookingController,
     PublicBookingController,
     StripeWebhookController,
@@ -373,6 +376,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     MultiRoomBookingService,
     QuoteService,
     LocalPmsProvider,
+    BookingRequestsService,
     { provide: PMS_PROVIDER, useExisting: LocalPmsProvider },
     StripePaymentProvider,
     PokPayPaymentProvider,

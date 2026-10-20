@@ -5,6 +5,7 @@
 export type CatalogEntry = { group: string; key: string; label: string; description: string };
 
 export const CAPABILITY_CATALOG: readonly CatalogEntry[] = [
+  { group: 'Requests', key: 'requests.review', label: 'Review requests', description: 'Approve or reject cancellation exceptions.' },
   { group: 'Bookings', key: 'bookings.view', label: 'View bookings', description: 'See reservations, their details and history.' },
   { group: 'Bookings', key: 'bookings.create', label: 'Create bookings', description: 'Add reservations for guests.' },
   { group: 'Bookings', key: 'bookings.edit', label: 'Edit bookings', description: 'Change reservation details and resend payment links.' },
@@ -38,7 +39,7 @@ export const BUILT_IN_ROLES: ReadonlyArray<{ name: string; description: string; 
   {
     name: 'Property Manager',
     description: 'Runs the hotel day to day: everything except changing who is an owner.',
-    capabilities: CAPABILITY_KEYS,
+    capabilities: CAPABILITY_KEYS.filter((key) => key !== 'requests.review'),
   },
   {
     name: 'Front Desk',

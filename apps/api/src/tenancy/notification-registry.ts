@@ -8,6 +8,7 @@ export const NOTIFICATION_CATEGORIES = [
 ] as const;
 export const NOTIFICATION_PRIORITIES = ['Critical', 'High', 'Medium', 'Low'] as const;
 export const NOTIFICATION_REGISTRY = {
+  CANCELLATION_REQUESTED: { title: 'Cancellation needs approval', description: 'Review the policy and refund evidence before deciding.', category: 'Reservations', priority: 'High', capability: 'requests.review' },
   EMAIL_DELIVERY_FAILED: {
     title: 'Hotel email sending needs attention',
     description: 'Review the sending configuration and the linked delivery outcome.',

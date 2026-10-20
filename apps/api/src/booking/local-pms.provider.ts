@@ -972,7 +972,7 @@ export class LocalPmsProvider implements PmsProvider {
 
   async cancelBooking(
     context: PmsProviderContext,
-    command: CancelBookingCommand,
+    command: CancelBookingCommand & { notifyGuest?: boolean },
   ): Promise<Result<Booking>> {
     const refundConfirmations: RefundConfirmation[] = [];
     const cancelledBookingIds: string[] = [];
@@ -1109,7 +1109,7 @@ export class LocalPmsProvider implements PmsProvider {
     for (const refundConfirmation of refundConfirmations)
       await this.notifications.sendRefundConfirmationEmailSafely(refundConfirmation, context);
     for (const cancelledBookingId of cancelledBookingIds)
-      await this.cancellations.sendAfterCancellation(context, cancelledBookingId);
+      await this.cancellations.sendAfterCancellation(context, cancelledBookingId, { notifyGuest: command.notifyGuest });
     return result;
   }
 

@@ -1,4 +1,5 @@
 'use client';
+import { CancellationDialog } from './cancellation-dialog';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -25,15 +26,12 @@ import { Button } from '../../components/ui/button';
 import { useUnseenBookings } from './unseen-bookings';
 import { BookingReviewCard } from './booking-review-card';
 import { ActionBar } from '../../components/ui/action-bar';
-import { Alert, AlertDescription, AlertTitle } from '../../components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { DetailHeader } from '../../components/ui/detail-header';
 import { RowList } from '../../components/ui/row-list';
-import { Switch } from '../../components/ui/switch';
 import {
   noRefund,
   RefundChoice,
-  refundPayload,
   refundRequestBody,
   refundChoiceError,
   type RefundChoiceValue,
@@ -57,6 +55,7 @@ import {
 } from '../../lib/reservation-display';
 
 type Detail = {
+  cancellationPending?: boolean;
   id: string;
   externalReference: string;
   status: string;
@@ -163,7 +162,6 @@ function activityDetail(details: Record<string, unknown>) {
 const DEFAULT_CHECK_IN = '15:00';
 const DEFAULT_CHECK_OUT = '11:00';
 
-const CANCELLED_LIKE = new Set(['CANCELLED', 'EXPIRED']);
 
 /** Ids of the reservations on the list page the user came from, for the previous / next arrows. */
 export const NEIGHBOURS_KEY = 'must.reservations.neighbours';
@@ -221,8 +219,6 @@ export function ReservationDetail({
   useEffect(() => {
     if (wasNew) unseen.markSeen(bookingId);
   }, [wasNew, bookingId]);
-  const [refundPick, setRefundPick] = useState<RefundChoiceValue | null>(null);
-  const [refundOn, setRefundOn] = useState<boolean | null>(null);
   const [refunding, setRefunding] = useState(false);
   const [refundOnlyPick, setRefundOnlyPick] = useState<RefundChoiceValue>({
     ...noRefund,
@@ -303,7 +299,7 @@ export function ReservationDetail({
     .filter(Boolean)
     .join(', ');
   const cancellation = booking.cancellation;
-  const canCancel = canCancelBooking && !CANCELLED_LIKE.has(booking.status);
+  const canCancel = !booking.cancellationPending && ['PAYMENT_PENDING','PMS_CONFIRMATION_PENDING','CONFIRMED'].includes(booking.status);
   const neighbours = readNeighbours();
   const at = neighbours.indexOf(booking.id);
   const pageHref = (id: string) =>
@@ -317,11 +313,6 @@ export function ReservationDetail({
           nextHref: at < neighbours.length - 1 ? pageHref(neighbours[at + 1]!) : undefined,
         }
       : undefined;
-  const hasClockLink = booking.clockFolios.length > 0 || !!booking.externalBookingId;
-  const freeWindowOpen =
-    cancellation.isFree === true &&
-    (cancellation.cutoffAt === null || new Date(cancellation.cutoffAt).getTime() > Date.now());
-
   const feed: ActivityEntry[] = booking.activity.map((event, index) => ({
     key: `${event.action}-${event.createdAt}-${index}`,
     title: activityLabel(event.action),
@@ -333,12 +324,6 @@ export function ReservationDetail({
 
   // Money still refundable: offer a refund, and start from "full" when the guest cancels for free.
   const refundable = Number(booking.paidAmount) - Number(booking.refundedAmount) > 0;
-  const refundWanted = canRefundPayment && (refundOn ?? (refundable && freeWindowOpen));
-  const refundChoice: RefundChoiceValue = refundWanted
-    ? (refundPick ?? { ...noRefund, mode: 'full' })
-    : noRefund;
-  const refundProblem =
-    canRefundPayment && refundable ? refundChoiceError(refundChoice, booking) : null;
   // A cancelled reservation can be refunded from here for 24 hours after it was cancelled.
   const cancelledEvent = booking.activity.find((event) => event.action === 'booking.cancelled');
   const refundWindowClosed =
@@ -364,38 +349,6 @@ export function ReservationDetail({
     } | null;
     if (!response.ok || result?.ok === false)
       throw new Error(result?.error?.message ?? result?.message ?? 'The refund could not be made.');
-    await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-  };
-
-  const cancelReservation = async (reason: string) => {
-    const response = await fetch(`${base}/staff-bookings/${booking.id}`, {
-      method: 'DELETE',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
-      body: JSON.stringify({
-        expectedVersion: booking.version,
-        reason,
-        ...(canRefundPayment && refundable ? { refund: refundPayload(refundChoice, booking) } : {}),
-      }),
-    });
-    const body = (await response.json().catch(() => null)) as {
-      ok?: boolean;
-      error?: { message?: string };
-      message?: string;
-      refundOutcome?: { ok: boolean; message?: string };
-    } | null;
-    if (!response.ok || body?.ok === false)
-      throw new Error(
-        body?.error?.message ??
-          body?.message ??
-          'The reservation could not be cancelled. Nothing was changed.',
-      );
-    if (body?.refundOutcome && !body.refundOutcome.ok) {
-      await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      throw new Error(
-        `The reservation was cancelled, but the refund failed: ${body.refundOutcome.message ?? 'please try again'}. Refund it from the Payments page.`,
-      );
-    }
     await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
   };
 
@@ -475,7 +428,7 @@ export function ReservationDetail({
             ) : null}
             {canCancel ? (
               <Button variant="destructive" onClick={() => setCancelling(true)}>
-                <Ban aria-hidden="true" /> Cancel reservation
+                <Ban aria-hidden="true" /> {canCancelBooking ? 'Cancel reservation' : 'Request cancellation'}
               </Button>
             ) : null}
           </>
@@ -716,77 +669,8 @@ export function ReservationDetail({
         </Card>
       </div>
 
-      <ConfirmDialog
-        open={cancelling}
-        onOpenChange={(open) => {
-          setCancelling(open);
-          if (!open) {
-            setRefundPick(null);
-            setRefundOn(null);
-          }
-        }}
-        confirmDisabled={!!refundProblem}
-        title={`Cancel ${booking.externalReference}?`}
-        description={`${guest}, ${longDate(booking.startsOn)} – ${longDate(booking.endsOn)}.`}
-        confirmLabel="Cancel reservation"
-        destructive
-        reasonLabel="Reason"
-        reasonRequired
-        onConfirm={cancelReservation}
-      >
-        <Alert variant={freeWindowOpen ? 'info' : 'warning'}>
-          <AlertTitle>What happens next</AlertTitle>
-          <AlertDescription>
-            <span>The room goes back on sale and the guest is no longer expected.</span>
-            {cancellation.isFree !== null ? (
-              <span>
-                {freeWindowOpen
-                  ? 'Still inside the free-cancellation window.'
-                  : 'The free-cancellation window has passed; the rate plan may keep a charge.'}
-              </span>
-            ) : null}
-            {hasClockLink ? <span>The reservation is also cancelled in Clock.</span> : null}
-          </AlertDescription>
-        </Alert>
-        {canRefundPayment && refundable ? (
-          <div className="space-y-3 rounded-xl border p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-0.5">
-                <p className="m-0 text-sm font-semibold">Refund the guest too</p>
-                <p className="m-0 text-xs text-muted-foreground">
-                  {money(
-                    String(Number(booking.paidAmount) - Number(booking.refundedAmount)),
-                    currency,
-                  )}{' '}
-                  was paid and can be refunded now. If you leave this off you can still refund from
-                  the Refund button for 24 hours.
-                </p>
-              </div>
-              <Switch
-                aria-label="Refund the guest too"
-                checked={refundWanted}
-                onCheckedChange={(checked) => setRefundOn(checked)}
-              />
-            </div>
-            {refundWanted ? (
-              <RefundChoice
-                booking={booking}
-                heading="How much"
-                allowNone={false}
-                value={refundChoice}
-                onChange={setRefundPick}
-                policyNote={
-                  cancellation.isFree === null
-                    ? undefined
-                    : freeWindowOpen
-                      ? 'The guest is inside the free-cancellation window, so a full refund is normally due.'
-                      : 'The free-cancellation window has passed; the rate plan allows the hotel to keep some or all of the payment.'
-                }
-              />
-            ) : null}
-          </div>
-        ) : null}
-      </ConfirmDialog>
+      {booking.cancellationPending ? <Badge variant="warning">Cancellation pending approval</Badge> : null}
+      <CancellationDialog tenantId={tenantId} propertyId={propertyId} bookingId={booking.id} open={cancelling} onOpenChange={setCancelling} canCancel={canCancelBooking} canRefund={canRefundPayment}/>
 
       <ConfirmDialog
         open={canRefundPayment && refunding}

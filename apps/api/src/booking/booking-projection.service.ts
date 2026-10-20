@@ -65,6 +65,7 @@ export type ClockFolioProjection = {
 };
 
 export type BookingSearchItem = {
+  cancellationPending: boolean;
   id: string;
   externalReference: string;
   orderReference: string | null;
@@ -159,6 +160,7 @@ function toSearchItem(row: Record<string, unknown>): BookingSearchItem {
     externalReference: String(row.external_reference),
     orderReference: (row.order_reference as string | null) ?? null,
     status: String(row.status),
+    cancellationPending: row.cancellation_pending === true,
     paymentMethod: String(row.payment_method),
     paymentState: String(row.payment_state),
     source: (row.source as string | null) ?? null,
@@ -191,6 +193,7 @@ const BOOKING_BASE_SQL = `
       SELECT x.*, ${PAYMENT_STATE_SQL} AS payment_state FROM (
         SELECT b.id, b.external_reference, b.order_reference, b.status, b.payment_method, b.source,
           b.starts_on, b.ends_on, b.created_at, b.total_amount, b.adults, b.children,
+          EXISTS(SELECT 1 FROM booking_requests q WHERE q.tenant_id=b.tenant_id AND q.property_id=b.property_id AND q.booking_id=b.id AND q.type='cancellation' AND q.status='Pending') AS cancellation_pending,
           b.special_requests, b.pms_stay_status, b.room_id, r.name AS room_name,
           b.room_type_id, rt.name AS room_type_name, rp.name AS rate_plan_name, rp.currency,
           b.guest_id, g.first_name AS guest_first_name, g.last_name AS guest_last_name,
