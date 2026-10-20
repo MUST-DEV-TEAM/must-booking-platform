@@ -1139,6 +1139,34 @@ function EmailDeliveryDetail({
               { label: 'Failure', value: query.data.lastError },
             ]}
           />
+          {query.data.recipientEnvelope ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Staff recipients</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                <DetailList
+                  stackOnMobile
+                  items={(['to', 'cc', 'bcc'] as const)
+                    .filter((channel) => query.data!.recipientEnvelope![channel].length > 0)
+                    .map((channel) => ({
+                      label: channel === 'to' ? 'To' : channel.toUpperCase(),
+                      value: query
+                        .data!.recipientEnvelope![channel].map(
+                          (email) =>
+                            `${email} - ${query.data!.recipientOutcomes?.[email] ?? 'No delivery confirmation'}`,
+                        )
+                        .join(', '),
+                    }))}
+                />
+                <p className="text-sm text-muted-foreground">
+                  One separate staff email. BCC addresses are shown only in this authorized delivery
+                  view and are hidden from the other email recipients. Delivered means every
+                  recipient has a delivery confirmation; a problem may affect only one recipient.
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
           <DetailList
             items={[
               { label: 'Provider', value: query.data.provider ?? 'Not recorded' },
@@ -1246,7 +1274,11 @@ function EmailDeliveryDetail({
             open={copy}
             onOpenChange={setCopy}
             title="Send another copy?"
-            description="Sends the original approved wording to the same recipient as a new delivery. This can duplicate an email they already received. Booking and payment details are not recalculated."
+            description={
+              query.data.recipientEnvelope
+                ? 'Sends the original approved staff wording to EVERY saved To, CC and BCC recipient as a new delivery, keeping the same visible/hidden headers. This deliberately duplicates an email they may already have received. Private guest links are not included.'
+                : 'Sends the original approved wording to the same recipient as a new delivery. This can duplicate an email they already received. Booking and payment details are not recalculated.'
+            }
             confirmLabel="Send copy"
             reasonRequired
             reasonLabel="Reason for another copy"

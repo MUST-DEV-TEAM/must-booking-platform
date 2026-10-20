@@ -90,7 +90,7 @@ it('previews unsaved choices through the scoped read-only endpoint', async () =>
         guestEnabled: true,
         staffEnabled: true,
         customStaffRecipients: true,
-        rules: [{ target: 'STAFF_USER', userId: 'staff' }],
+        rules: [{ target: 'STAFF_USER', userId: 'staff', channel: 'TO' }],
       },
     },
   ]);
@@ -119,4 +119,34 @@ it('shows endpoint errors without a fabricated recipient result', async () => {
   await click(button('Preview recipients'));
   expect(document.body.textContent).toContain('Not allowed');
   expect(document.querySelector('[role="status"]')).toBeNull();
+});
+
+it('offers separate shared To, CC and BCC selectors and submits an external BCC choice', async () => {
+  await mount();
+  for (const channel of ['TO', 'CC', 'BCC'])
+    expect(
+      document.querySelector(`[aria-label="New booking ${channel} recipients"]`),
+    ).not.toBeNull();
+  const channelPicker = document.querySelector<HTMLButtonElement>(
+    '[aria-label="New booking extra address channel"]',
+  )!;
+  await click(channelPicker);
+  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (node) => node.textContent?.trim() === 'BCC',
+  )!;
+  await click(option.querySelector('button')!);
+  const input = document.querySelector<HTMLInputElement>('[aria-label="New booking extra email"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+      input,
+      'private@example.test',
+    );
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await click(button('Add address'));
+  await click(button('Preview recipients'));
+  expect(calls[0].body.rules).toEqual([
+    { target: 'STAFF_USER', userId: 'staff', channel: 'TO' },
+    { target: 'EMAIL', email: 'private@example.test', channel: 'BCC' },
+  ]);
 });

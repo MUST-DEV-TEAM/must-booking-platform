@@ -1,9 +1,11 @@
+import type { RecipientEnvelope } from './recipient-envelope';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 export type MailAttemptContext = {
   tenantId: string | null;
   propertyId: string | null;
   messageId: string;
+  recipientEnvelope?: RecipientEnvelope;
   sensitive: boolean;
   idempotencyKeyOverride?: string;
   guestTransactional?: boolean;

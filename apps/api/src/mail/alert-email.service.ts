@@ -14,7 +14,7 @@ import {
   type PlatformDailyStats,
 } from './alert-email-content';
 import { MailDeliveryService } from './mail-delivery.service';
-import { staffRecipients } from './notification-recipients';
+import { staffDeliveryGroups, staffRecipients } from './notification-recipients';
 import type { NotificationTopic } from './notification-topics';
 import { addDays, localNow } from './scheduled-email.service';
 
@@ -162,7 +162,7 @@ export class AlertEmailService implements OnModuleInit, OnModuleDestroy {
     const { timezone, ...brand } = work.property;
     const render = topic === 'refund_processed' ? refundAlertEmail : ownerAlertEmail;
     const prefix = topic === 'refund_processed' ? 'refund-alert' : 'owner-alert';
-    for (const recipient of work.recipients) {
+    for (const recipient of staffDeliveryGroups(work.recipients)) {
       const key = topic === 'refund_processed' ? 'staff_refund_processed' : 'owner_alerts';
       const message = renderTemplate(key, work.template, {
         ...Object.fromEntries(
@@ -198,6 +198,7 @@ export class AlertEmailService implements OnModuleInit, OnModuleDestroy {
           idempotencyKey: `${prefix}/${context.propertyId}/${windowStart.toISOString()}/${recipient.staffUserId}`,
         },
         context,
+        { recipientEnvelope: recipient.envelope },
       );
     }
   }

@@ -306,6 +306,27 @@ describe('Emails workspace and legacy links', () => {
     expect(host.textContent).toContain('Controlled tests are excluded');
     expect(host.textContent).toContain('Booking MH-1');
   });
+  it('shows individual staff outcomes and confirms all To/CC/BCC recipients for a deliberate copy', async () => {
+    mockFetch(undefined, {
+      ...message,
+      status: 'SENT',
+      canResend: false,
+      canSendCopy: true,
+      recipientEnvelope: {
+        to: ['ana@example.test'],
+        cc: ['copy@example.test'],
+        bcc: ['private@example.test'],
+      },
+      recipientOutcomes: { 'ana@example.test': 'DELIVERED' },
+    });
+    await mount('activity');
+    await click(button('Booking confirmed (guest)'));
+    expect(document.body.textContent).toContain('private@example.test - No delivery confirmation');
+    expect(document.body.textContent).toContain('ana@example.test - DELIVERED');
+    await click(button('Send another copy'));
+    expect(document.body.textContent).toContain('EVERY saved To, CC and BCC recipient');
+    expect(button('Send copy').disabled).toBe(true);
+  });
   it('preserves recipient timing, sender, review links and personal mute configuration', async () => {
     const calls = mockFetch();
     const host = await mount('recipients');

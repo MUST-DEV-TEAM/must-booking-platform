@@ -1,3 +1,9 @@
+import {
+  deduplicateRecipients,
+  recipientEnvelope,
+  type RecipientChannel,
+  type RecipientEnvelope,
+} from './recipient-envelope';
 import { Logger } from '@nestjs/common';
 import type { UpdateNotificationTopicCommand } from '@must/domain-contracts';
 
@@ -10,7 +16,7 @@ import {
 } from './notification-topics';
 
 /** `staffUserId` is the user id, or `email:<address>` for an extra address that has no account. */
-export type StaffRecipient = { staffUserId: string; email: string };
+export type StaffRecipient = { staffUserId: string; email: string; channel?: RecipientChannel };
 
 const logger = new Logger('NotificationRecipients');
 
@@ -59,35 +65,35 @@ export async function staffRecipients(
   const rows = settings[0]?.custom
     ? await tx.$queryRaw<StaffRecipient[]>`
         WITH selected_rules AS (
-          SELECT target::text, membership_role::text, role_template_id, user_id, email
+          SELECT target::text, membership_role::text, role_template_id, user_id, email, channel
           FROM notification_recipient_rules
           WHERE tenant_id = ${context.tenantId}::uuid AND property_id = ${context.propertyId}::uuid
             AND topic = ${topic} AND ${!draft}
           UNION ALL
-          SELECT target, "membershipRole", "roleTemplateId"::uuid, "userId"::uuid, email
+          SELECT target, "membershipRole", "roleTemplateId"::uuid, "userId"::uuid, email, COALESCE(channel,'TO')
           FROM jsonb_to_recordset(${JSON.stringify(draft?.rules ?? [])}::jsonb)
-            AS r(target text, "membershipRole" text, "roleTemplateId" text, "userId" text, email text)
+            AS r(target text, "membershipRole" text, "roleTemplateId" text, "userId" text, email text, channel text)
         )
-        SELECT tm.user_id::text AS "staffUserId", u.email
+        SELECT tm.user_id::text AS "staffUserId", u.email, nr.channel
         FROM selected_rules nr
         JOIN tenant_memberships tm ON tm.tenant_id = ${context.tenantId}::uuid AND tm.role::text = nr.membership_role
         JOIN users u ON u.id = tm.user_id
         WHERE nr.target = 'MEMBERSHIP_ROLE'
         UNION ALL
-        SELECT psa.user_id::text, u.email
+        SELECT psa.user_id::text, u.email, nr.channel
         FROM selected_rules nr
         JOIN property_staff_assignments psa ON psa.tenant_id = ${context.tenantId}::uuid
           AND psa.property_id = ${context.propertyId}::uuid AND psa.role_template_id = nr.role_template_id
         JOIN users u ON u.id = psa.user_id
-        WHERE nr.target = 'ROLE_TEMPLATE'
+        WHERE nr.target = 'ROLE_TEMPLATE' AND psa.suspended_at IS NULL
         UNION ALL
-        SELECT nr.user_id::text, u.email
+        SELECT nr.user_id::text, u.email, nr.channel
         FROM selected_rules nr
         JOIN users u ON u.id = nr.user_id
         JOIN tenant_memberships tm ON tm.tenant_id = ${context.tenantId}::uuid AND tm.user_id = nr.user_id
-        WHERE nr.target = 'STAFF_USER'
+        WHERE nr.target = 'STAFF_USER' AND (tm.role IN ('OWNER','ADMIN') OR EXISTS(SELECT 1 FROM property_staff_assignments psa WHERE psa.tenant_id=${context.tenantId}::uuid AND psa.property_id=${context.propertyId}::uuid AND psa.user_id=nr.user_id AND psa.suspended_at IS NULL))
         UNION ALL
-        SELECT 'email:' || lower(nr.email), lower(nr.email)
+        SELECT 'email:' || lower(nr.email), lower(nr.email), nr.channel
         FROM selected_rules nr WHERE nr.target = 'EMAIL'
       `
     : ownersOnly
@@ -103,7 +109,7 @@ export async function staffRecipients(
           FROM property_staff_assignments psa
           JOIN users u ON u.id = psa.user_id
           WHERE psa.tenant_id = ${context.tenantId}::uuid
-            AND psa.property_id = ${context.propertyId}::uuid
+            AND psa.property_id = ${context.propertyId}::uuid AND psa.suspended_at IS NULL
         )
         SELECT "staffUserId", email FROM assigned
         UNION ALL
@@ -128,14 +134,15 @@ export async function staffRecipients(
     : new Set<string>();
   // The same person can match several rules (e.g. an owner who is also assigned):
   // they get the email once.
-  const seen = new Set<string>();
-  const recipients = rows.filter((row) => {
-    if (muted.has(row.staffUserId)) return false;
-    const key = row.email.toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const recipients = deduplicateRecipients(
+    rows
+      .filter((row) => !muted.has(row.staffUserId))
+      .map(({ staffUserId, email, channel }) => ({
+        staffUserId,
+        email,
+        ...(channel ? { channel } : {}),
+      })),
+  );
   if (!recipients.length && !draft)
     logger.warn(
       `No staff recipients for ${topic} at property ${context.propertyId}: nobody at the hotel gets this email.`,
@@ -158,4 +165,23 @@ export async function scheduledGuestSettings(
     enabled: rows[0]?.guestEnabled ?? true,
     daysOffset: rows[0]?.daysOffset ?? topicDaysOffset(topic)?.default ?? 0,
   };
+}
+
+/** Default recipients retain private copies; explicitly configured headers form one staff envelope. */
+export function staffDeliveryGroups(
+  rows: StaffRecipient[],
+): Array<StaffRecipient & { envelope?: RecipientEnvelope }> {
+  if (!rows.some((row) => row.channel)) return rows;
+  if (!rows.length) return [];
+  let envelope: RecipientEnvelope;
+  try {
+    envelope = recipientEnvelope(rows);
+  } catch {
+    logger.warn(
+      'Configured staff email has no valid To envelope or exceeds the recipient limit; core booking/payment work continues without sending this staff email.',
+    );
+    return [];
+  }
+  const anchor = rows.find((row) => row.email.toLowerCase() === envelope.to[0])!;
+  return [{ ...anchor, staffUserId: 'configured-staff-envelope', envelope }];
 }

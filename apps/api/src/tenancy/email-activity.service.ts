@@ -1,3 +1,5 @@
+import type { RecipientEnvelope } from '../mail/recipient-envelope';
+import type { RecipientOutcomes } from '../mail/recipient-outcomes';
 import {
   BadRequestException,
   ConflictException,
@@ -28,6 +30,8 @@ export type EmailActivityItem = {
   eventType: string;
   label: string;
   recipient: string;
+  recipientEnvelope?: RecipientEnvelope | null;
+  recipientOutcomes?: RecipientOutcomes;
   subject: string;
   status: Status;
   lastError: string | null;
@@ -102,11 +106,11 @@ export class EmailActivityService {
       const rows = await tx.$queryRaw<
         Array<Omit<EmailActivityItem, 'label' | 'canResend'>>
       >(Prisma.sql`
-        SELECT em.id,em.workspace_version AS version,em.event_type AS "eventType",em.recipient_email AS recipient,em.subject,
+        SELECT em.id,em.workspace_version AS version,em.event_type AS "eventType",em.recipient_email AS recipient,em.recipient_envelope AS "recipientEnvelope",em.recipient_outcomes AS "recipientOutcomes",em.subject,
           em.status::text AS status,em.last_error AS "lastError",em.attempt_count AS "attemptCount",
           em.booking_id::text AS "bookingId",COALESCE(b.order_reference,b.external_reference) AS "bookingReference",
           em.created_at AS "createdAt",em.sent_at AS "sentAt",em.delivered_at AS "deliveredAt",
-          EXISTS(SELECT 1 FROM email_transport_attempts eta WHERE eta.tenant_id=em.tenant_id AND eta.property_id=em.property_id AND eta.message_id=em.id AND eta.state IN ('SENDING','UNKNOWN')) AS "transportBlocked"
+          EXISTS(SELECT 1 FROM email_transport_attempts eta WHERE eta.tenant_id=em.tenant_id AND eta.property_id=em.property_id AND eta.message_id=em.id AND (eta.state IN ('SENDING','UNKNOWN') OR (eta.state='ACCEPTED' AND em.recipient_envelope IS NOT NULL))) AS "transportBlocked"
         ${scope} ORDER BY ${filters.order} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`);
       const counts = await tx.$queryRaw<{ total: number }[]>(
         Prisma.sql`SELECT count(*)::int AS total ${scope}`,
@@ -231,6 +235,8 @@ export class EmailActivityService {
           id: string;
           topic: string;
           recipient: string;
+          recipientEnvelope?: RecipientEnvelope | null;
+          recipientOutcomes?: RecipientOutcomes;
           subject: string;
           status: string;
           attempts: number;
@@ -240,7 +246,7 @@ export class EmailActivityService {
           delivered: Date | null;
         }[]
       >(
-        Prisma.sql`SELECT em.id,em.event_type AS topic,em.recipient_email AS recipient,em.subject,em.status::text AS status,em.attempt_count AS attempts,COALESCE(b.order_reference,b.external_reference) AS booking,em.created_at AS created,em.sent_at AS sent,em.delivered_at AS delivered ${this.deliveryScope(context, filters)} AND (${ids === undefined} OR em.id=ANY(${ids ?? []}::uuid[])) ORDER BY ${filters.order} LIMIT 5001`,
+        Prisma.sql`SELECT em.id,em.event_type AS topic,em.recipient_email AS recipient,em.recipient_envelope AS "recipientEnvelope",em.recipient_outcomes AS "recipientOutcomes",em.subject,em.status::text AS status,em.attempt_count AS attempts,COALESCE(b.order_reference,b.external_reference) AS booking,em.created_at AS created,em.sent_at AS sent,em.delivered_at AS delivered ${this.deliveryScope(context, filters)} AND (${ids === undefined} OR em.id=ANY(${ids ?? []}::uuid[])) ORDER BY ${filters.order} LIMIT 5001`,
       );
       if (rows.length > 5000)
         throw new BadRequestException('More than 5,000 messages match. Narrow the filters.');
@@ -251,6 +257,10 @@ export class EmailActivityService {
           'Message ID',
           'Topic',
           'Recipient',
+          'To',
+          'CC',
+          'BCC',
+          'Recipient outcomes',
           'Subject',
           'Status',
           'Attempts',
@@ -263,6 +273,10 @@ export class EmailActivityService {
           row.id,
           row.topic,
           row.recipient,
+          row.recipientEnvelope?.to.join('; ') ?? row.recipient,
+          row.recipientEnvelope?.cc.join('; ') ?? '',
+          row.recipientEnvelope?.bcc.join('; ') ?? '',
+          row.recipientEnvelope ? JSON.stringify(row.recipientOutcomes ?? {}) : '',
           row.subject,
           row.status,
           row.attempts,
@@ -446,11 +460,11 @@ export class EmailActivityService {
           resendOfMessageId: string | null;
         })[]
       >`
-        SELECT em.id,em.event_type AS "eventType",em.recipient_email AS recipient,em.subject,
+        SELECT em.id,em.event_type AS "eventType",em.recipient_email AS recipient,em.recipient_envelope AS "recipientEnvelope",em.recipient_outcomes AS "recipientOutcomes",em.subject,
           em.status::text AS status,em.last_error AS "lastError",em.attempt_count AS "attemptCount",
           em.booking_id::text AS "bookingId",COALESCE(b.order_reference,b.external_reference) AS "bookingReference",
           em.created_at AS "createdAt",em.sent_at AS "sentAt",em.delivered_at AS "deliveredAt",em.workspace_version AS version,em.provider,em.provider_message_id AS "providerMessageId",em.resend_of_message_id AS "resendOfMessageId",
-          EXISTS(SELECT 1 FROM email_transport_attempts eta WHERE eta.tenant_id=em.tenant_id AND eta.property_id=em.property_id AND eta.message_id=em.id AND eta.state IN ('SENDING','UNKNOWN')) AS "transportBlocked"
+          EXISTS(SELECT 1 FROM email_transport_attempts eta WHERE eta.tenant_id=em.tenant_id AND eta.property_id=em.property_id AND eta.message_id=em.id AND (eta.state IN ('SENDING','UNKNOWN') OR (eta.state='ACCEPTED' AND em.recipient_envelope IS NOT NULL))) AS "transportBlocked"
         FROM email_messages em LEFT JOIN bookings b ON b.tenant_id=em.tenant_id AND b.property_id=em.property_id AND b.id=em.booking_id
         WHERE em.tenant_id=${context.tenantId}::uuid AND em.property_id=${context.propertyId}::uuid AND em.id=${messageId}::uuid
       `;
@@ -472,11 +486,11 @@ export class EmailActivityService {
         ORDER BY observed_at DESC,id DESC LIMIT 201`;
       const suppressed = await tx.$queryRaw<
         { recipient: string }[]
-      >`SELECT recipient FROM email_suppressions WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND recipient=${row.recipient.toLowerCase()} AND active`;
+      >`SELECT recipient FROM email_suppressions WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND (recipient=${row.recipient.toLowerCase()} OR EXISTS(SELECT 1 FROM email_messages m WHERE m.tenant_id=${context.tenantId}::uuid AND m.property_id=${context.propertyId}::uuid AND m.id=${messageId}::uuid AND (m.recipient_envelope->'to' ? recipient OR m.recipient_envelope->'cc' ? recipient OR m.recipient_envelope->'bcc' ? recipient))) AND active`;
       const retained =
         !suppressed.length &&
         Date.now() - new Date(row.createdAt).getTime() < RESEND_WINDOW_DAYS * 86400000 &&
-        (await this.delivery.canResend(messageId, context));
+        (await this.delivery.canResend(messageId, context, true));
       return {
         ...row,
         renderedPreview: await this.archive.read(context, messageId, tx),
@@ -488,7 +502,9 @@ export class EmailActivityService {
         timelineTruncated: events.length > 200,
         timelineHasCreation: events.some((e) => e.kind === 'QUEUED' && e.attemptCount === 0),
         retryUnavailableReason: row.transportBlocked
-          ? 'Another delivery attempt is active or acceptance is unknown. Automatic resend is stopped.'
+          ? row.recipientEnvelope
+            ? 'A grouped staff email cannot be retried after acceptance or while acceptance is uncertain. Review individual recipient outcomes; a deliberate new copy is available only for sent or fully delivered messages.'
+            : 'Another delivery attempt is active or acceptance is unknown. Automatic resend is stopped.'
           : suppressed.length
             ? 'Recipient is suppressed. Resolve it in Configuration before retrying.'
             : row.eventType === 'sender.test'
@@ -497,6 +513,7 @@ export class EmailActivityService {
         lastError: row.lastError ? safeDeliveryError(row.lastError) : null,
         label: LABELS[row.eventType] ?? row.eventType,
         canResend:
+          !row.transportBlocked &&
           !suppressed.length &&
           row.status === 'FAILED' &&
           Date.now() - new Date(row.createdAt).getTime() < RESEND_WINDOW_DAYS * 86400000 &&
@@ -561,7 +578,7 @@ export class EmailActivityService {
           );
         const suppressed = await tx.$queryRaw<
           { recipient: string }[]
-        >`SELECT es.recipient FROM email_suppressions es JOIN email_messages em ON em.tenant_id=es.tenant_id AND em.property_id=es.property_id AND lower(em.recipient_email)=es.recipient WHERE es.tenant_id=${context.tenantId}::uuid AND es.property_id=${context.propertyId}::uuid AND em.id=${messageId}::uuid AND es.active`;
+        >`SELECT es.recipient FROM email_suppressions es JOIN email_messages em ON em.tenant_id=es.tenant_id AND em.property_id=es.property_id AND (lower(em.recipient_email)=es.recipient OR em.recipient_envelope->'to' ? es.recipient OR em.recipient_envelope->'cc' ? es.recipient OR em.recipient_envelope->'bcc' ? es.recipient) WHERE es.tenant_id=${context.tenantId}::uuid AND es.property_id=${context.propertyId}::uuid AND em.id=${messageId}::uuid AND es.active`;
         if (suppressed.length)
           throw new ConflictException(
             'This recipient is suppressed. Resolve the suppression before retrying.',
@@ -658,7 +675,7 @@ export class EmailActivityService {
             );
           const suppressions = await tx.$queryRaw<
             { recipient: string }[]
-          >`SELECT recipient FROM email_suppressions WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND recipient=${row.recipient.toLowerCase()} AND active`;
+          >`SELECT recipient FROM email_suppressions WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND (recipient=${row.recipient.toLowerCase()} OR EXISTS(SELECT 1 FROM email_messages m WHERE m.tenant_id=${context.tenantId}::uuid AND m.property_id=${context.propertyId}::uuid AND m.id=${message.id}::uuid AND (m.recipient_envelope->'to' ? recipient OR m.recipient_envelope->'cc' ? recipient OR m.recipient_envelope->'bcc' ? recipient))) AND active`;
           if (suppressions.length)
             throw new ConflictException(
               'A selected recipient is suppressed. Resolve it in Configuration first.',
@@ -751,19 +768,19 @@ export class EmailActivityService {
           );
         const suppressions = await tx.$queryRaw<
           { recipient: string }[]
-        >`SELECT recipient FROM email_suppressions WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND recipient=${row.recipient.toLowerCase()} AND active`;
+        >`SELECT recipient FROM email_suppressions WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND (recipient=${row.recipient.toLowerCase()} OR EXISTS(SELECT 1 FROM email_messages m WHERE m.tenant_id=${context.tenantId}::uuid AND m.property_id=${context.propertyId}::uuid AND m.id=${messageId}::uuid AND (m.recipient_envelope->'to' ? recipient OR m.recipient_envelope->'cc' ? recipient OR m.recipient_envelope->'bcc' ? recipient))) AND active`;
         if (suppressions.length)
           throw new ConflictException(
             'The recipient is suppressed. Resolve it in Configuration first.',
           );
         if (
           Date.now() - row.createdAt.getTime() >= RESEND_WINDOW_DAYS * 86400000 ||
-          !(await this.delivery.retainedCommand(messageId, context))
+          !(await this.delivery.retainedCommand(messageId, context, true))
         )
           throw new ConflictException('The original approved message is no longer retained.');
         const copyId = randomUUID(),
           version = row.version + 1;
-        await tx.$executeRaw`INSERT INTO email_messages(id,tenant_id,property_id,booking_id,event_type,recipient_email,recipient_kind,subject,template_version,idempotency_key,resend_of_message_id) SELECT ${copyId}::uuid,tenant_id,property_id,booking_id,event_type,recipient_email,recipient_kind,subject,template_version,${'manual-resend/' + copyId},id FROM email_messages WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${messageId}::uuid`;
+        await tx.$executeRaw`INSERT INTO email_messages(id,tenant_id,property_id,booking_id,event_type,recipient_email,recipient_kind,subject,template_version,idempotency_key,resend_of_message_id,recipient_envelope) SELECT ${copyId}::uuid,tenant_id,property_id,booking_id,event_type,recipient_email,recipient_kind,subject,template_version,${'manual-resend/' + copyId},id,recipient_envelope FROM email_messages WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${messageId}::uuid`;
         await tx.$executeRaw`UPDATE email_messages SET workspace_version=${version},updated_at=now() WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${messageId}::uuid`;
         return {
           response: {
@@ -789,7 +806,7 @@ export class EmailActivityService {
     );
     if (pending.length) {
       try {
-        const approved = await this.delivery.retainedCommand(messageId, context);
+        const approved = await this.delivery.retainedCommand(messageId, context, true);
         if (!approved) throw new Error('Retained command unavailable.');
         await this.delivery.enqueueApproved(
           {

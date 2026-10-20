@@ -1,3 +1,4 @@
+import { envelopeAddresses, recipientEnvelope } from './recipient-envelope';
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import type { MailSendReceipt } from '@must/domain-contracts';
@@ -110,6 +111,11 @@ export class PropertyMailDispatcher {
   ): Promise<PreparedMailReceipt | MailSendReceipt> {
     const attempt = currentMailAttempt();
     if (
+      attempt?.recipientEnvelope &&
+      (!attempt.tenantId || !attempt.propertyId || attempt.sensitive || attempt.forceDefault)
+    )
+      throw new MailDeliveryError('Staff routing requires an ordinary scoped notification.', false);
+    if (
       attempt?.senderTestVersion !== undefined &&
       (!attempt.tenantId || !attempt.propertyId || attempt.sensitive || attempt.forceDefault)
     )
@@ -164,7 +170,32 @@ export class PropertyMailDispatcher {
         'Saved sender setup changed. Create a new test from the current configuration.',
         false,
       );
-    if (!profile || (profile.activeMode === 'DEFAULT' && testing === undefined)) return null;
+    const routed = currentMailAttempt()?.recipientEnvelope;
+    if (routed && (!envelopeAddresses(routed).length || testing !== undefined))
+      throw new MailDeliveryError('Invalid custom recipient routing.', false);
+    if (!profile || (profile.activeMode === 'DEFAULT' && testing === undefined)) {
+      if (!routed) return null;
+      const configured = process.env.MAIL_FROM_EMAIL?.trim() ?? '';
+      const apiKey = process.env.RESEND_API_KEY?.trim() ?? '';
+      if (!configured || !apiKey) throw new PreparedMailError('rejected', false);
+      const address = /<([^>]+)>/.exec(configured)?.[1]?.trim() ?? configured;
+      const plan: Plan = {
+        message: {
+          ...routed,
+          from: sender(input.fromName, address),
+          subject: input.subject,
+          html: input.html,
+          text: input.text,
+          ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+          messageId: `<${scope.messageId}@mustbooking.com>`,
+        },
+        key: `hotel-mail/${scope.messageId}/primary`,
+        displayName: input.fromName ?? null,
+        credentials: { provider: 'default', fingerprint: fingerprint(apiKey) },
+        fallbackGuest: false,
+      };
+      return { provider: 'resend' as const, contents: JSON.stringify(plan) };
+    }
     if (
       (testing === undefined && profile.mode !== profile.activeMode) ||
       !profile.fromAddress ||
@@ -186,7 +217,7 @@ export class PropertyMailDispatcher {
     const displayName = profile.fromName ?? input.fromName ?? null;
     const message: PreparedTransportMessage = {
       from: sender(displayName, profile.fromAddress),
-      to: [input.to],
+      ...(routed ?? recipientEnvelope([{ email: input.to }])),
       subject: input.subject,
       html: input.html,
       text: input.text,

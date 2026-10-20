@@ -73,8 +73,8 @@ export function emailDeliveryQuery(query: Record<string, unknown>, observedAt?: 
     direction,
     where: Prisma.sql`em.created_at<=${anchor} AND em.status::text=ANY(${statuses}::text[])
       AND (${topic}='' OR em.event_type=${topic})
-      AND (${recipient}='' OR strpos(lower(em.recipient_email),${recipient})>0)
-      AND (${search}='' OR strpos(lower(concat_ws(' ',em.subject,em.recipient_email,em.event_type,b.order_reference,b.external_reference)),${search})>0)
+      AND (${recipient}='' OR strpos(lower(concat_ws(' ',em.recipient_email,em.recipient_envelope::text)),${recipient})>0)
+      AND (${search}='' OR strpos(lower(concat_ws(' ',em.subject,em.recipient_email,em.recipient_envelope::text,em.event_type,b.order_reference,b.external_reference)),${search})>0)
       AND (${hours}::int IS NULL OR em.created_at>=${anchor}-make_interval(hours=>${hours}::int))
       AND (${from}::date IS NULL OR (em.created_at AT TIME ZONE p.timezone)::date>=${from}::date)
       AND (${to}::date IS NULL OR (em.created_at AT TIME ZONE p.timezone)::date<=${to}::date)`,

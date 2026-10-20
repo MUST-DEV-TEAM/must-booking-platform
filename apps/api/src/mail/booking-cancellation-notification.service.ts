@@ -3,7 +3,7 @@ import type { PaymentProviderContext } from '@must/domain-contracts';
 
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { PaymentNotificationService } from './payment-notification.service';
-import { staffRecipients } from './notification-recipients';
+import { staffDeliveryGroups, staffRecipients } from './notification-recipients';
 
 type CancellationRow = {
   email: string | null;
@@ -144,11 +144,12 @@ export class BookingCancellationNotificationService {
         { to: row.email, ...details },
         context,
       );
-    for (const recipient of staff)
+    for (const recipient of staffDeliveryGroups(staff))
       await this.notifications.sendBookingCancelledStaffNotificationSafely(
         {
           ...details,
           staffUserId: recipient.staffUserId,
+          ...(recipient.envelope ? { recipientEnvelope: recipient.envelope } : {}),
           to: recipient.email,
           guest: { name: guestName, email: row.email ?? '', phone: row.phone },
           ...(refundDetails ? { refund: refundDetails } : {}),

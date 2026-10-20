@@ -52,6 +52,8 @@ export type EmailVersions = {
   history: EmailRevision[];
 };
 export type EmailMessage = {
+  recipientEnvelope?: { to: string[]; cc: string[]; bcc: string[] } | null;
+  recipientOutcomes?: Record<string, string>;
   canSendCopy?: boolean;
   resendOfMessageId?: string | null;
   renderedPreview?: {

@@ -434,11 +434,13 @@ export interface PaymentProvider {
 }
 
 /** Email plan Step 1: who receives each notification at a property. */
-export type NotificationRecipientRule =
+export type NotificationRecipientChannel = 'TO' | 'CC' | 'BCC';
+export type NotificationRecipientRule = { channel?: NotificationRecipientChannel } & (
   | { target: 'MEMBERSHIP_ROLE'; membershipRole: 'OWNER' | 'ADMIN' }
   | { target: 'ROLE_TEMPLATE'; roleTemplateId: string }
   | { target: 'STAFF_USER'; userId: string }
-  | { target: 'EMAIL'; email: string };
+  | { target: 'EMAIL'; email: string }
+);
 
 export interface NotificationTopicSettings {
   topic: string;
@@ -451,11 +453,13 @@ export interface NotificationTopicSettings {
   staffEnabled: boolean;
   /** False: staff recipients follow the topic's default (e.g. assigned staff, else owners/admins). */
   customStaffRecipients: boolean;
+  /** Existing lists stay private until explicit header choices are saved. */
+  staffDeliveryMode?: 'PRIVATE' | 'HEADERS';
   /** For scheduled emails: days before arrival / after departure, with its allowed range. */
   daysOffset: { value: number; min: number; max: number; label: string } | null;
   rules: NotificationRecipientRule[];
   /** Who gets the staff email today, after applying the rules. */
-  staffRecipients: Array<{ email: string }>;
+  staffRecipients: Array<{ email: string; channel?: NotificationRecipientChannel }>;
 }
 
 export interface NotificationSettingsResponse {

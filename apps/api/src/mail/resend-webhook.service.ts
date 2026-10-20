@@ -1,3 +1,5 @@
+import { applyRecipientOutcome, type RecipientOutcomes } from './recipient-outcomes';
+import type { RecipientEnvelope } from './recipient-envelope';
 import { createHash } from 'node:crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 
@@ -36,17 +38,39 @@ export class ResendWebhookService {
       return 'ignored';
 
     const occurredAt = this.occurredAt(event.created_at);
+    const eventType = event.type;
 
     return this.database.withEmailWebhookTransaction(async (tx) => {
       const existing = await tx.$queryRaw<
-        { id: string; tenantId: string | null; propertyId: string | null; recipient: string }[]
+        {
+          id: string;
+          tenantId: string | null;
+          propertyId: string | null;
+          recipient: string;
+          envelope?: RecipientEnvelope | null;
+          outcomes?: RecipientOutcomes;
+        }[]
       >`
-        SELECT id,tenant_id::text AS "tenantId",property_id::text AS "propertyId",recipient_email AS recipient FROM email_messages WHERE provider_message_id = ${providerMessageId} LIMIT 1
+        SELECT id,tenant_id::text AS "tenantId",property_id::text AS "propertyId",recipient_email AS recipient,recipient_envelope AS envelope,recipient_outcomes AS outcomes FROM email_messages WHERE provider_message_id = ${providerMessageId} LIMIT 1
       `;
       if (existing.length === 0) return 'unmatched';
       const scope = existing[0]!;
       if (scope.tenantId && scope.propertyId) {
         await tx.$executeRaw`SELECT set_config('app.tenant_id',${scope.tenantId},true),set_config('app.property_id',${scope.propertyId},true)`;
+      }
+      if (scope.envelope) {
+        if (!scope.tenantId || !scope.propertyId) return 'ignored';
+        const [locked] = await tx.$queryRaw<{ outcomes: RecipientOutcomes }[]>`
+          SELECT recipient_outcomes AS outcomes FROM email_messages WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${scope.id}::uuid FOR UPDATE`;
+        if (!locked) return 'unmatched';
+        scope.outcomes = locked.outcomes;
+      }
+      const grouped = scope.envelope
+        ? applyRecipientOutcome(scope.envelope, scope.outcomes ?? {}, eventType, event.data?.to)
+        : null;
+      if (scope.envelope && !grouped) return 'ignored';
+      const recipient = grouped?.recipient ?? scope.recipient.toLowerCase();
+      if (scope.tenantId && scope.propertyId) {
         const reason =
           event.type === 'email.complained'
             ? 'complaint'
@@ -60,6 +84,7 @@ export class ResendWebhookService {
             .update(
               JSON.stringify({
                 type: event.type,
+                recipient,
                 createdAt: event.created_at ?? null,
                 bounce: {
                   type: event.data?.bounce?.type ?? null,
@@ -75,16 +100,26 @@ export class ResendWebhookService {
           if (receipt.length) {
             const activated = await tx.$executeRaw`
           INSERT INTO email_suppressions(tenant_id,property_id,recipient,reason,latest_event_at)
-          VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${scope.recipient.toLowerCase()},${reason},${occurredAt})
+          VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${recipient},${reason},${occurredAt})
           ON CONFLICT(tenant_id,property_id,recipient) DO UPDATE SET reason=EXCLUDED.reason,active=true,version=email_suppressions.version+1,latest_event_at=EXCLUDED.latest_event_at,updated_at=now()
           WHERE EXCLUDED.latest_event_at>email_suppressions.latest_event_at AND (email_suppressions.cleared_at IS NULL OR EXCLUDED.latest_event_at>email_suppressions.cleared_at)
         `;
             if (activated)
-              await tx.$executeRaw`INSERT INTO audit_logs(tenant_id,property_id,actor_user_id,actor_type,action,target_type,target_id,details) VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,NULL,'TENANT_USER'::"AuditActorType",'email.suppression.activated','email_suppression',${scope.recipient.toLowerCase()},${JSON.stringify({ reason, messageId: scope.id, source: 'delivery_webhook' })}::jsonb)`;
+              await tx.$executeRaw`INSERT INTO audit_logs(tenant_id,property_id,actor_user_id,actor_type,action,target_type,target_id,details) VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,NULL,'TENANT_USER'::"AuditActorType",'email.suppression.activated','email_suppression',${recipient},${JSON.stringify({ reason, messageId: scope.id, source: 'delivery_webhook' })}::jsonb)`;
           }
         }
       }
 
+      if (grouped) {
+        const changed = await tx.$executeRaw`
+          UPDATE email_messages SET recipient_outcomes=${JSON.stringify(grouped.outcomes)}::jsonb,
+            status=${grouped.status}::"EmailMessageStatus", delivered_at=CASE WHEN ${grouped.status}='DELIVERED' THEN ${occurredAt} ELSE delivered_at END,
+            last_error=CASE WHEN ${['BOUNCED', 'COMPLAINED', 'FAILED'].includes(grouped.status)} THEN 'One or more staff recipients reported a delivery problem. Review recipient outcomes.' ELSE NULL END,
+            workspace_version=workspace_version+1,updated_at=clock_timestamp()
+          WHERE tenant_id IS NOT DISTINCT FROM ${scope.tenantId}::uuid AND property_id IS NOT DISTINCT FROM ${scope.propertyId}::uuid AND id=${scope.id}::uuid
+            AND recipient_outcomes IS DISTINCT FROM ${JSON.stringify(grouped.outcomes)}::jsonb`;
+        return changed ? 'applied' : 'ignored';
+      }
       let changed = 0;
       switch (event.type) {
         case 'email.delivered':

@@ -540,6 +540,11 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
   }): Promise<MailSendReceipt> {
     await this.archive?.capture(message);
     if (this.transports) return this.transports.send(message, () => this.sendDefault(message));
+    if (currentMailAttempt()?.recipientEnvelope)
+      throw new MailDeliveryError(
+        'Grouped staff delivery requires the durable transport dispatcher.',
+        false,
+      );
     if (currentMailAttempt()?.senderTestVersion !== undefined)
       throw new MailDeliveryError(
         'Custom sender tests are unavailable. No default-sender test was sent.',

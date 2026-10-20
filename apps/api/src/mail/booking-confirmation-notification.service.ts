@@ -4,7 +4,7 @@ import type { MailOrderRoom, PaymentProviderContext } from '@must/domain-contrac
 import { CancellationLinkService } from '../booking/cancellation-link.service';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { PaymentNotificationService } from './payment-notification.service';
-import { staffRecipients } from './notification-recipients';
+import { staffDeliveryGroups, staffRecipients } from './notification-recipients';
 
 type BookingEmailRow = {
   email: string;
@@ -138,13 +138,14 @@ export class BookingConfirmationNotificationService {
       },
       context,
     );
-    for (const recipient of staff) {
+    for (const recipient of staffDeliveryGroups(staff)) {
       await this.notifications.sendNewBookingStaffNotificationSafely(
         {
           bookingId,
           bookingReference: row.externalReference,
           paymentId,
           staffUserId: recipient.staffUserId,
+          ...(recipient.envelope ? { recipientEnvelope: recipient.envelope } : {}),
           to: recipient.email,
           guest: { name: guestName, email: row.email, phone: row.phone },
           stay: { startsOn: row.startsOn, endsOn: row.endsOn },

@@ -97,8 +97,10 @@ export function EmailConfiguration({
       />
       <Alert>
         <AlertDescription>
-          Each matching recipient receives a separate private message. Duplicate addresses are sent
-          once. Optional personal mute never silences urgent alerts. Clock hotels use these same
+          Custom To/CC/BCC choices send one staff email. To and CC are visible to its recipients;
+          BCC stays hidden. Existing lists keep separate private copies until To/CC/BCC choices are
+          saved. Duplicate addresses are sent once. Staff copies never contain private guest booking
+          links. Optional personal mute never silences urgent alerts. Clock hotels use these same
           MUST email settings.
         </AlertDescription>
       </Alert>
@@ -160,7 +162,6 @@ function SenderEditor({
           items={[
             { label: 'From address (platform managed)', value: sender.fromAddress ?? 'Unknown' },
             { label: 'Property name', value: sender.hotelName },
-            { label: 'Domain authentication', value: 'Unknown - no diagnostic recorded' },
           ]}
         />
         <FormField
@@ -280,15 +281,18 @@ export function TopicEditor({
   const [guest, setGuest] = useState(topic.guestEnabled),
     [staff, setStaff] = useState(topic.staffEnabled),
     [custom, setCustom] = useState(topic.customStaffRecipients),
-    [rules, setRules] = useState(topic.rules.map(ruleKey)),
+    [rules, setRules] = useState(
+      topic.rules.map((rule) => `${rule.channel ?? 'TO'}|${ruleKey(rule)}`),
+    ),
     [address, setAddress] = useState(''),
+    [addressChannel, setAddressChannel] = useState('TO'),
     [days, setDays] = useState(topic.daysOffset?.value ?? 0),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
   const [preview, setPreview] = useState<{
     input: string;
     guest: boolean;
-    staff: { email: string }[];
+    staff: { email: string; channel?: 'TO' | 'CC' | 'BCC' }[];
     suppressed?: { email: string; reason: string }[];
   } | null>(null);
   const writer = useRef(createEmailWriter()).current;
@@ -296,7 +300,12 @@ export function TopicEditor({
     guestEnabled: guest,
     ...(topic.hasStaffEmail ? { staffEnabled: staff } : {}),
     customStaffRecipients: custom,
-    rules: custom ? rules.map(fromRuleKey) : [],
+    rules: custom
+      ? rules.map((value) => {
+          const [channel, ...key] = value.split('|');
+          return { ...fromRuleKey(key.join('|')), channel: channel as 'TO' | 'CC' | 'BCC' };
+        })
+      : [],
     ...(topic.daysOffset ? { daysOffset: days } : {}),
   };
   const draftKey = JSON.stringify(draft);
@@ -315,7 +324,7 @@ export function TopicEditor({
       description: member.email,
       group: 'Staff',
     })),
-    ...rules
+    ...[...new Set(rules.map((value) => value.slice(value.indexOf('|') + 1)))]
       .filter((value) => value.startsWith('email:'))
       .map((value) => ({ value, label: value.slice(6), group: 'Extra addresses' })),
   ];
@@ -355,15 +364,50 @@ export function TopicEditor({
             />
             {custom ? (
               <>
-                <MultiSelect
-                  label={`${topic.label} recipients`}
-                  options={choices}
-                  value={rules}
-                  onChange={setRules}
-                  disabled={!canWrite || busy}
-                  placeholder="Choose recipients"
-                />
-                <div className="flex gap-2">
+                <p className="text-sm text-muted-foreground">
+                  To, CC and BCC apply to the separate staff version. Private guest booking links
+                  are not included.
+                </p>
+                {(['TO', 'CC', 'BCC'] as const).map((channel) => (
+                  <FormField
+                    key={channel}
+                    label={channel === 'TO' ? 'To' : channel}
+                    hint={
+                      channel === 'BCC'
+                        ? 'Hidden from the other recipients.'
+                        : channel === 'TO'
+                          ? 'At least one available To recipient is required.'
+                          : 'Visible to all To and CC recipients.'
+                    }
+                  >
+                    <MultiSelect
+                      label={`${topic.label} ${channel} recipients`}
+                      options={choices}
+                      value={rules
+                        .filter((value) => value.startsWith(channel + '|'))
+                        .map((value) => value.slice(channel.length + 1))}
+                      onChange={(values) =>
+                        setRules((current) => [
+                          ...current.filter((value) => !value.startsWith(channel + '|')),
+                          ...values.map((value) => channel + '|' + value),
+                        ])
+                      }
+                      disabled={!canWrite || busy}
+                      placeholder={`Choose ${channel === 'TO' ? 'To' : channel} recipients`}
+                    />
+                  </FormField>
+                ))}
+                <div className="flex flex-wrap gap-2">
+                  <Combobox
+                    label={`${topic.label} extra address channel`}
+                    value={addressChannel}
+                    onChange={setAddressChannel}
+                    options={['TO', 'CC', 'BCC'].map((value) => ({
+                      value,
+                      label: value === 'TO' ? 'To' : value,
+                    }))}
+                    disabled={!canWrite || busy}
+                  />
                   <Input
                     aria-label={`${topic.label} extra email`}
                     type="email"
@@ -381,7 +425,10 @@ export function TopicEditor({
                         return;
                       }
                       setRules((current) => [
-                        ...new Set([...current, 'email:' + address.trim().toLowerCase()]),
+                        ...new Set([
+                          ...current,
+                          addressChannel + '|email:' + address.trim().toLowerCase(),
+                        ]),
                       ]);
                       setAddress('');
                       setError('');
@@ -395,10 +442,23 @@ export function TopicEditor({
             <DetailList
               stackOnMobile
               items={[
+                ...(topic.staffDeliveryMode
+                  ? [
+                      {
+                        label: 'Saved delivery',
+                        value:
+                          topic.staffDeliveryMode === 'HEADERS'
+                            ? 'One staff email with To/CC/BCC headers'
+                            : 'Separate private copies',
+                      },
+                    ]
+                  : []),
                 {
                   label: 'Saved recipients',
                   value:
-                    topic.staffRecipients.map((row) => row.email).join(', ') || 'No recipients',
+                    topic.staffRecipients
+                      .map((row) => `${row.channel ?? 'TO'}: ${row.email}`)
+                      .join(', ') || 'No recipients',
                 },
               ]}
             />
@@ -426,7 +486,7 @@ export function TopicEditor({
             try {
               const result = await emailRequest<{
                 guest: boolean;
-                staff: { email: string }[];
+                staff: { email: string; channel?: 'TO' | 'CC' | 'BCC' }[];
                 suppressed?: { email: string; reason: string }[];
               }>(`${base}/notification-settings/${topic.topic}/preview`, {
                 method: 'POST',
@@ -464,8 +524,9 @@ export function TopicEditor({
                       {
                         label: 'Staff recipients for these choices',
                         value:
-                          currentPreview.staff.map((row) => row.email).join(', ') ||
-                          'No recipients',
+                          currentPreview.staff
+                            .map((row) => `${row.channel ?? 'TO'}: ${row.email}`)
+                            .join(', ') || 'No recipients',
                       },
                     ]
                   : []),
@@ -475,6 +536,16 @@ export function TopicEditor({
               <Alert variant="warning">
                 <AlertDescription>
                   No staff will receive this email. Choose recipients or restore the default list.
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            {custom &&
+            staff &&
+            currentPreview.staff.length > 0 &&
+            !currentPreview.staff.some((row) => !row.channel || row.channel === 'TO') ? (
+              <Alert variant="warning">
+                <AlertDescription>
+                  No available To recipient. Add one before saving or sending this staff email.
                 </AlertDescription>
               </Alert>
             ) : null}

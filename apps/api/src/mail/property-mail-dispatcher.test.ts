@@ -278,3 +278,62 @@ it('does not fall back when the receipt/audit transaction could not commit', asy
   ).rejects.toMatchObject({ acceptance: 'unknown' });
   expect(f.journal.claim).toHaveBeenCalledTimes(1);
 });
+
+it('sends custom staff To/CC/BCC once with genuine headers and no guest fallback', async () => {
+  const f = fixture();
+  const recipientEnvelope = {
+    to: ['to@example.test'],
+    cc: ['copy@example.test'],
+    bcc: ['private@example.test'],
+  };
+  f.send.mockResolvedValue({
+    provider: 'smtp',
+    providerMessageId: 'group-receipt',
+    accepted: [...recipientEnvelope.to, ...recipientEnvelope.cc, ...recipientEnvelope.bcc],
+    rejected: [],
+  });
+  const receipt = await withMailAttempt(
+    { ...scope, guestTransactional: false, recipientEnvelope },
+    () => f.dispatcher.send(input, f.defaultSend),
+  );
+  expect(receipt).toEqual({ provider: 'smtp', providerMessageId: 'group-receipt' });
+  expect(f.send).toHaveBeenCalledOnce();
+  expect(f.send.mock.calls[0][1]).toMatchObject(recipientEnvelope);
+  expect(f.send.mock.calls[0][1].text).not.toContain('private@example.test');
+  expect(f.defaultSend).not.toHaveBeenCalled();
+});
+it('uses the durable journal for grouped default-MUST mail as well as custom senders', async () => {
+  const f = fixture();
+  f.profile.activeMode = 'DEFAULT';
+  vi.stubEnv('RESEND_API_KEY', 're_fake_default_key');
+  vi.stubEnv('MAIL_FROM_EMAIL', 'MUST <noreply@example.test>');
+  const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ id: 'group-default' }));
+  vi.stubGlobal('fetch', request);
+  const recipientEnvelope = {
+    to: ['to@example.test'],
+    cc: ['copy@example.test'],
+    bcc: ['private@example.test'],
+  };
+  await withMailAttempt({ ...scope, guestTransactional: false, recipientEnvelope }, () =>
+    f.dispatcher.send(input, f.defaultSend),
+  );
+  expect(request).toHaveBeenCalledOnce();
+  expect(JSON.parse(String(request.mock.calls[0][1]?.body))).toMatchObject(recipientEnvelope);
+  expect(f.journal.finish).toHaveBeenCalledOnce();
+  expect(f.defaultSend).not.toHaveBeenCalled();
+});
+it('refuses grouped routing for sensitive account mail', async () => {
+  const f = fixture();
+  await expect(
+    withMailAttempt(
+      {
+        ...scope,
+        sensitive: true,
+        recipientEnvelope: { to: ['staff@example.test'], cc: [], bcc: [] },
+      },
+      () => f.dispatcher.send(input, f.defaultSend),
+    ),
+  ).rejects.toThrow('ordinary scoped');
+  expect(f.journal.claim).not.toHaveBeenCalled();
+  expect(f.defaultSend).not.toHaveBeenCalled();
+});

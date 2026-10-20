@@ -277,7 +277,7 @@ describe('notification settings (who receives which email)', () => {
       .expect(200);
     expect(preview.body).toEqual({
       guest: true,
-      staff: [{ email: 'preview-only@example.test' }],
+      staff: [{ email: 'preview-only@example.test', channel: 'TO' }],
       suppressed: [],
     });
     const after = await request(app!.getHttpServer()).get(url).set('Cookie', cookie).expect(200);
@@ -296,6 +296,78 @@ describe('notification settings (who receives which email)', () => {
       .post(url + '/new_booking/preview')
       .send(draft)
       .expect(401);
+  });
+
+  it('persists To/CC/BCC, previews precedence, and rejects CC-only staff routing', async () => {
+    const url = `/tenants/${tenantId}/properties/${propertyId}/notification-settings/new_booking`;
+    const rules = [
+      { target: 'MEMBERSHIP_ROLE', membershipRole: 'OWNER', channel: 'TO' },
+      { target: 'STAFF_USER', userId: ownerId, channel: 'BCC' },
+      { target: 'EMAIL', email: 'copy@example.test', channel: 'CC' },
+      { target: 'EMAIL', email: 'private@example.test', channel: 'BCC' },
+    ];
+    const input = { guestEnabled: true, staffEnabled: true, customStaffRecipients: true, rules };
+    const configUrl = `/tenants/${tenantId}/properties/${propertyId}/email-configuration`;
+    const config = await request(app!.getHttpServer())
+      .get(configUrl)
+      .set('Cookie', cookie)
+      .expect(200);
+    const key = randomUUID();
+    const write = () =>
+      request(app!.getHttpServer())
+        .put(configUrl + '/topics/new_booking')
+        .set('Cookie', cookie)
+        .set('Idempotency-Key', key)
+        .send({ ...input, version: config.body.version });
+    const writes = await Promise.all([write().expect(200), write().expect(200)]);
+    expect(writes[0].body).toEqual(writes[1].body);
+    await request(app!.getHttpServer()).put(url).set('Cookie', cookie).send(input).expect(400);
+    const saved = await request(app!.getHttpServer())
+      .get(url.replace('/new_booking', ''))
+      .set('Cookie', cookie)
+      .expect(200);
+    const setting = saved.body.topics.find((topic: TopicBody) => topic.topic === 'new_booking');
+    expect(setting.rules).toEqual(expect.arrayContaining(rules));
+    expect(setting.staffRecipients).toEqual(
+      expect.arrayContaining([
+        { email: ownerEmail, channel: 'TO' },
+        { email: 'copy@example.test', channel: 'CC' },
+        { email: 'private@example.test', channel: 'BCC' },
+      ]),
+    );
+    expect(setting.staffRecipients).toHaveLength(3);
+    const preview = await request(app!.getHttpServer())
+      .post(url + '/preview')
+      .set('Cookie', cookie)
+      .send(input)
+      .expect(200);
+    expect(preview.body.staff).toEqual(setting.staffRecipients);
+    await request(app!.getHttpServer())
+      .put(configUrl + '/topics/new_booking')
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ ...input, version: config.body.version })
+      .expect(409);
+    await request(app!.getHttpServer())
+      .put(configUrl + '/topics/new_booking')
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({
+        ...input,
+        version: writes[0].body.version,
+        rules: [{ target: 'EMAIL', email: 'copy@example.test', channel: 'CC' }],
+      })
+      .expect(400);
+    const otherProperty = randomUUID();
+    await admin.$executeRaw`INSERT INTO properties(id,tenant_id,name,slug) VALUES(${otherProperty}::uuid,${tenantId}::uuid,'Other property',${'channel-' + otherProperty})`;
+    const other = await request(app!.getHttpServer())
+      .get(`/tenants/${tenantId}/properties/${otherProperty}/notification-settings`)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(
+      other.body.topics.find((topic: TopicBody) => topic.topic === 'new_booking')
+        .customStaffRecipients,
+    ).toBe(false);
   });
 
   it('lets each member mute the non-urgent staff emails for themselves', async () => {

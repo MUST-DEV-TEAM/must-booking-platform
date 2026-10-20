@@ -16,7 +16,11 @@ import { MailDeliveryService } from './mail-delivery.service';
 import { EmailSenderVerificationService } from '../tenancy/email-sender-verification.service';
 import { EmailTransportJournal } from './email-transport-journal';
 import { EmailSenderTestService } from '../tenancy/email-sender-test.service';
-import { scheduledGuestSettings, staffRecipients } from './notification-recipients';
+import {
+  scheduledGuestSettings,
+  staffDeliveryGroups,
+  staffRecipients,
+} from './notification-recipients';
 import { reviewButtons, storedReviewLinks } from './review-links';
 import {
   ownerDailySummaryEmail,
@@ -326,7 +330,9 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
 
   async sendOwnerSummary(context: Context, timeZone: string, today: string): Promise<void> {
     const work = await this.database.withTenantTransaction(context, async (tx) => {
-      const recipients = await staffRecipients(tx, context, 'owner_daily_summary');
+      const recipients = staffDeliveryGroups(
+        await staffRecipients(tx, context, 'owner_daily_summary'),
+      );
       if (!recipients.length) return null;
       const pending = [];
       for (const recipient of recipients) {
@@ -361,6 +367,7 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         'rendered',
         { ...email, idempotencyKey: recipient.key },
         context,
+        { recipientEnvelope: recipient.envelope },
       );
     }
   }

@@ -85,3 +85,49 @@ it('applies existing input validation without creating a transaction', () => {
   );
   expect(fixture.transaction).not.toHaveBeenCalled();
 });
+
+it('previews actual recipient channels without treating BCC as To', async () => {
+  const fixture = service(
+    [
+      { staffUserId: 'owner', email: 'to@example.test', channel: 'TO' },
+      { staffUserId: 'external', email: 'hidden@example.test', channel: 'BCC' },
+    ],
+    [],
+  );
+  const result = await fixture.settings.preview('tenant', 'property', 'new_booking', {
+    ...draft,
+    rules: [
+      { target: 'EMAIL', email: 'to@example.test', channel: 'TO' },
+      { target: 'EMAIL', email: 'hidden@example.test', channel: 'BCC' },
+    ],
+  });
+  expect(result.staff).toEqual([
+    { email: 'to@example.test', channel: 'TO' },
+    { email: 'hidden@example.test', channel: 'BCC' },
+  ]);
+  expect(fixture.execute).not.toHaveBeenCalled();
+});
+it.each(['cc', 'X', {}, 1])(
+  'rejects malformed routing channels without querying: %j',
+  (channel) => {
+    const fixture = service();
+    expect(() =>
+      fixture.settings.preview('tenant', 'property', 'new_booking', {
+        ...draft,
+        rules: [{ target: 'EMAIL', email: 'to@example.test', channel }],
+      }),
+    ).toThrow('channel must be');
+    expect(fixture.transaction).not.toHaveBeenCalled();
+  },
+);
+
+it('does not let the legacy unversioned write route save explicit header routing', async () => {
+  const fixture = service();
+  await expect(
+    fixture.settings.update('tenant', 'property', 'actor', 'new_booking', {
+      ...draft,
+      rules: [{ target: 'EMAIL', email: 'staff@example.test', channel: 'CC' }],
+    }),
+  ).rejects.toThrow('versioned');
+  expect(fixture.transaction).not.toHaveBeenCalled();
+});

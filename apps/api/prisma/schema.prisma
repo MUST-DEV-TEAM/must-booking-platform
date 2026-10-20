@@ -572,6 +572,7 @@ model EmailTemplate {
 }
 
 model NotificationRecipientRule {
+  channel String? @db.VarChar(3)
   id             String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId       String                      @map("tenant_id") @db.Uuid
   propertyId     String                      @map("property_id") @db.Uuid
@@ -1333,6 +1334,8 @@ model EmailTransportAttempt {
 }
 
 model EmailMessage {
+  recipientEnvelope Json? @map("recipient_envelope")
+  recipientOutcomes Json @default("{}") @map("recipient_outcomes")
   resendOfMessageId String? @map("resend_of_message_id") @db.Uuid
   workspaceVersion Int @default(1) @map("workspace_version")
   id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -1631,6 +1634,7 @@ model EmailSuppression {
 }
 
 model EmailDeliverySlot {
+  recipientCount Int @default(1) @map("recipient_count")
  tenantId String @map("tenant_id") @db.Uuid
  propertyId String @map("property_id") @db.Uuid
  messageId String @map("message_id") @db.Uuid

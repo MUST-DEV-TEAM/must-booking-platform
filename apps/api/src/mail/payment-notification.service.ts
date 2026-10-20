@@ -1,3 +1,4 @@
+import type { RecipientEnvelope } from './recipient-envelope';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { MailTemplateOverride } from '@must/domain-contracts';
 
@@ -57,11 +58,17 @@ export class PaymentNotificationService {
   }
 
   async sendNewBookingStaffNotificationSafely(
-    command: QueuedMailCommands['newBookingStaff'],
+    command: QueuedMailCommands['newBookingStaff'] & { recipientEnvelope?: RecipientEnvelope },
     context: NotificationContext,
   ): Promise<void> {
     const template = await this.staffTemplate(context, 'staff_new_booking', command);
-    return this.delivery.dispatch('newBookingStaff', { ...command, template }, this.scope(context));
+    const { recipientEnvelope, ...content } = command;
+    return this.delivery.dispatch(
+      'newBookingStaff',
+      { ...content, template },
+      this.scope(context),
+      { recipientEnvelope },
+    );
   }
 
   async sendRefundConfirmationEmailSafely(
@@ -99,14 +106,18 @@ export class PaymentNotificationService {
   }
 
   async sendBookingCancelledStaffNotificationSafely(
-    command: QueuedMailCommands['bookingCancelledStaff'],
+    command: QueuedMailCommands['bookingCancelledStaff'] & {
+      recipientEnvelope?: RecipientEnvelope;
+    },
     context: NotificationContext,
   ): Promise<void> {
     const template = await this.staffTemplate(context, 'staff_booking_cancelled', command);
+    const { recipientEnvelope, ...content } = command;
     return this.delivery.dispatch(
       'bookingCancelledStaff',
-      { ...command, template },
+      { ...content, template },
       this.scope(context),
+      { recipientEnvelope },
     );
   }
 

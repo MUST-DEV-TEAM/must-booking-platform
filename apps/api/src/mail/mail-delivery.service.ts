@@ -1,3 +1,4 @@
+import { recipientEnvelope, envelopeAddresses, type RecipientEnvelope } from './recipient-envelope';
 import {
   Inject,
   Injectable,
@@ -35,6 +36,7 @@ export interface MailDeliveryContext {
 }
 
 export interface DispatchOptions {
+  recipientEnvelope?: RecipientEnvelope;
   /** Server-created self-test intention; never accepted from a public mail body. */
   senderTestVersion?: number;
   senderTestActorId?: string;
@@ -49,6 +51,7 @@ export interface DispatchOptions {
 }
 
 export interface MailJobData {
+  recipientEnvelope?: RecipientEnvelope;
   senderTestVersion?: number;
   senderTestActorId?: string;
   messageId: string;
@@ -160,14 +163,69 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
           };
         }
       }
-      const descriptor = describeMail(kind, command);
-      const messageId = await this.recordMessage(context, descriptor);
+      let descriptor = describeMail(kind, command);
+      if (options.recipientEnvelope) {
+        if (
+          !context.tenantId ||
+          !context.propertyId ||
+          descriptor.sensitive ||
+          descriptor.eventType.startsWith('guest.') ||
+          [
+            'booking.confirmed',
+            'booking.cancelled',
+            'booking.refund_processed',
+            'sender.test',
+            'template.test',
+            'owner.email_transport_failure',
+          ].includes(descriptor.eventType)
+        )
+          throw new MailDeliveryError(
+            'Recipient routing is restricted to ordinary staff notifications.',
+            false,
+          );
+        const supplied = recipientEnvelope(
+          ['TO', 'CC', 'BCC'].flatMap((channel) =>
+            options.recipientEnvelope![channel.toLowerCase() as 'to' | 'cc' | 'bcc'].map(
+              (email) => ({ email, channel: channel as 'TO' | 'CC' | 'BCC' }),
+            ),
+          ),
+        );
+        const suppressed = await this.database.withTenantTransaction(
+          { tenantId: context.tenantId, propertyId: context.propertyId },
+          (tx) =>
+            tx.$queryRaw<
+              { recipient: string }[]
+            >`SELECT recipient FROM email_suppressions WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND active AND recipient=ANY(${envelopeAddresses(supplied)}::text[])`,
+        );
+        const blocked = new Set(suppressed.map((row) => row.recipient.toLowerCase()));
+        const approved = recipientEnvelope(
+          ['TO', 'CC', 'BCC'].flatMap((channel) =>
+            supplied[channel.toLowerCase() as 'to' | 'cc' | 'bcc']
+              .filter((email) => !blocked.has(email))
+              .map((email) => ({ email, channel: channel as 'TO' | 'CC' | 'BCC' })),
+          ),
+        );
+        options = { ...options, recipientEnvelope: approved };
+        descriptor = { ...descriptor, recipient: approved.to[0]! };
+      }
+      const messageId = await this.recordMessage(context, descriptor, options.recipientEnvelope);
       if (!messageId) return; // already sent / failed / delivered: never re-send on a replay
+      if (options.recipientEnvelope) {
+        const [stored] = await this.withContext(
+          context,
+          (tx) => tx.$queryRaw<{ envelope: RecipientEnvelope | null }[]>`
+          SELECT recipient_envelope AS envelope FROM email_messages WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${messageId}::uuid`,
+        );
+        if (!stored?.envelope)
+          throw new MailDeliveryError('Approved recipient envelope is unavailable.', false);
+        options = { ...options, recipientEnvelope: stored.envelope };
+      }
       const data: MailJobData = {
         messageId,
         context,
         kind,
         command,
+        ...(options.recipientEnvelope ? { recipientEnvelope: options.recipientEnvelope } : {}),
         ...(options.senderTestVersion === undefined
           ? {}
           : {
@@ -211,8 +269,9 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
   async retainedCommand(
     messageId: string,
     context: MailDeliveryContext,
+    deliberateCopy = false,
   ): Promise<MailJobData | null> {
-    if (!(await this.transportRetryAllowed(messageId, context))) return null;
+    if (!(await this.transportRetryAllowed(messageId, context, deliberateCopy))) return null;
     const job = await this.queue?.getJob(messageId);
     if (
       !job ||
@@ -238,8 +297,12 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** True only when the original non-sensitive approved command is still retained. */
-  async canResend(messageId: string, context: MailDeliveryContext): Promise<boolean> {
-    if (!(await this.transportRetryAllowed(messageId, context))) return false;
+  async canResend(
+    messageId: string,
+    context: MailDeliveryContext,
+    deliberateCopy = false,
+  ): Promise<boolean> {
+    if (!(await this.transportRetryAllowed(messageId, context, deliberateCopy))) return false;
     const job = await this.queue?.getJob(messageId);
     return Boolean(
       job &&
@@ -320,15 +383,16 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
   private async recordMessage(
     context: MailDeliveryContext,
     descriptor: ReturnType<typeof describeMail>,
+    envelope?: RecipientEnvelope,
   ): Promise<string | null> {
     return this.withContext(context, async (tx) => {
       const { tenantId, propertyId } = context;
       const inserted = tenantId
         ? await tx.$queryRaw<{ id: string }[]>`
             INSERT INTO email_messages
-              (tenant_id, property_id, booking_id, event_type, recipient_email, subject, idempotency_key)
+              (tenant_id, property_id, booking_id, event_type, recipient_email, subject, idempotency_key, recipient_envelope)
             VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${descriptor.bookingId}::uuid,
-              ${descriptor.eventType}, ${descriptor.recipient}, ${descriptor.subject}, ${descriptor.idempotencyKey})
+              ${descriptor.eventType}, ${descriptor.recipient}, ${descriptor.subject}, ${descriptor.idempotencyKey}, ${envelope ? JSON.stringify(envelope) : null}::jsonb)
             ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
             RETURNING id
           `
@@ -374,7 +438,10 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
   private async attempt(data: MailJobData, finalAttempt: boolean): Promise<void> {
     const { messageId, context } = data;
     const descriptor = describeMail(data.kind, data.command as never);
-    if (process.env.NODE_ENV === 'production' && isReservedEmail(descriptor.recipient)) {
+    const addresses = data.recipientEnvelope
+      ? envelopeAddresses(data.recipientEnvelope)
+      : [descriptor.recipient.toLowerCase()];
+    if (process.env.NODE_ENV === 'production' && addresses.some(isReservedEmail)) {
       await this.withContext(
         context,
         (tx) =>
@@ -443,12 +510,11 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
       const blocked = await this.database.withTenantTransaction(
         { tenantId: context.tenantId, propertyId: context.propertyId },
         async (tx) => {
-          const descriptor = describeMail(data.kind, data.command as never);
           const rows = await tx.$queryRaw<
             { reason: string }[]
-          >`SELECT reason FROM email_suppressions WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND recipient=${descriptor.recipient.toLowerCase()} AND active`;
+          >`SELECT reason FROM email_suppressions WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND recipient=ANY(${addresses}::text[]) AND active`;
           if (!rows[0]) return false;
-          await tx.$executeRaw`UPDATE email_messages SET status='SUPPRESSED',last_error=${'Suppressed: ' + rows[0].reason},workspace_version=workspace_version+1,updated_at=now() WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${messageId}::uuid AND status='QUEUED'`;
+          await tx.$executeRaw`UPDATE email_messages SET status='SUPPRESSED',last_error=${data.recipientEnvelope ? 'A recipient became suppressed after approval. Review the staff routing before a new send.' : 'Suppressed: ' + rows[0].reason},workspace_version=workspace_version+1,updated_at=now() WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${messageId}::uuid AND status='QUEUED'`;
           return true;
         },
       );
@@ -475,10 +541,10 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
             await tx.$executeRaw`DELETE FROM email_delivery_slots WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND created_at<now()-interval '25 hours'`;
             const slots = await tx.$queryRaw<
               { own: boolean; count: number }[]
-            >`SELECT EXISTS(SELECT 1 FROM email_delivery_slots WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND message_id=${messageId}::uuid) AS own,(SELECT count(*)::int FROM email_delivery_slots WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND created_at>now()-interval '1 hour') AS count`;
+            >`SELECT EXISTS(SELECT 1 FROM email_delivery_slots WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND message_id=${messageId}::uuid) AS own,(SELECT COALESCE(sum(recipient_count),0)::int FROM email_delivery_slots WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND created_at>now()-interval '1 hour') AS count`;
             if (slots[0]!.own) return true;
-            if (slots[0]!.count >= propertyEmailHourlyCap()) return false;
-            await tx.$executeRaw`INSERT INTO email_delivery_slots(tenant_id,property_id,message_id) VALUES(${context.tenantId}::uuid,${context.propertyId}::uuid,${messageId}::uuid) ON CONFLICT DO NOTHING`;
+            if (slots[0]!.count + addresses.length > propertyEmailHourlyCap()) return false;
+            await tx.$executeRaw`INSERT INTO email_delivery_slots(tenant_id,property_id,message_id,recipient_count) VALUES(${context.tenantId}::uuid,${context.propertyId}::uuid,${messageId}::uuid,${addresses.length}) ON CONFLICT DO NOTHING`;
             return true;
           },
         );
@@ -493,6 +559,7 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
         {
           ...context,
           messageId,
+          recipientEnvelope: data.recipientEnvelope,
           sensitive: describeMail(data.kind, data.command as never).sensitive,
           idempotencyKeyOverride: data.idempotencyKeyOverride,
           finalAttempt,
@@ -594,12 +661,13 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
   private async transportRetryAllowed(
     messageId: string,
     context: MailDeliveryContext,
+    deliberateCopy = false,
   ): Promise<boolean> {
     if (!context.tenantId || !context.propertyId) return true;
     const rows = await this.database.withTenantTransaction(
       { tenantId: context.tenantId, propertyId: context.propertyId },
       (tx) => tx.$queryRaw<{ messageId: string }[]>`
-      SELECT message_id AS "messageId" FROM email_transport_attempts WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND message_id=${messageId}::uuid AND state IN ('SENDING','UNKNOWN')
+      SELECT message_id AS "messageId" FROM email_transport_attempts WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND message_id=${messageId}::uuid AND (state IN ('SENDING','UNKNOWN') OR (state='ACCEPTED' AND ${!deliberateCopy} AND EXISTS(SELECT 1 FROM email_messages m WHERE m.tenant_id=${context.tenantId}::uuid AND m.property_id=${context.propertyId}::uuid AND m.id=${messageId}::uuid AND m.recipient_envelope IS NOT NULL)))
     `,
     );
     return !rows.length;
