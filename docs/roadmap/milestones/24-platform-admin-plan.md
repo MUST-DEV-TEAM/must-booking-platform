@@ -149,6 +149,15 @@ Basic by decision. Implemented: separate cookie (`must_platform`, HttpOnly, Same
 - API build, Prisma validate, API and web type-check: pass (one pre-existing type error in `test/room-types.e2e.spec.ts`, untouched).
 - Existing guard-related e2e (auth, capabilities, page visibility, admin staff, onboarding) pass with the guard changes.
 
+### Review and integration check (2026-10-20, Claude)
+
+- Code review of the guard, support sessions, login, team and migration code found no blocking issue.
+- The branch is built on `codex/design-dashboard-latest`, not `main`; it was merged with that line (one docs conflict) and must land with it, not into `main` on its own.
+- All migrations apply from an empty database with Codex's newer email migrations interleaved (same timestamps, different names).
+- `pnpm migrate:platform-admins` run for real on a throwaway database: dry run, apply, re-run (skips), rollback (account suspended; re-apply skips it, so reactivation is a Team-screen action).
+- Console tests 57/57. Full API suite (run in batches against `must_booking_platform` with `vitest.platform.local.config.ts`): only `local-demo-seed`, `local-pms-provider`, `overview-front-desk` and `public-catalog-individual-rooms` fail, all failing before this work. Web: all pass (one `reports.test.tsx` flake passes alone).
+- Before production: set `PLATFORM_TRUSTED_PROXY_HOPS`; confirm the production image can run the migration script (`tsx`, `MIGRATION_DATABASE_URL`).
+
 ## Assumptions
 
 - Hotel suspension had no effect before this work; the new effects are defined in State machines. Archived hotels allow read-only sign-in.
