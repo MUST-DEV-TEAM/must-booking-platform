@@ -3,6 +3,8 @@ export type StaffTemplate = {
   name: string;
   kind: 'BUILT_IN' | 'CUSTOM';
   description: string | null;
+  /** Which Overview this role sees (auto, owner_manager, front_desk, finance, reservations, minimal). */
+  overviewType?: string;
   capabilities: string[];
   memberCount: number;
 };

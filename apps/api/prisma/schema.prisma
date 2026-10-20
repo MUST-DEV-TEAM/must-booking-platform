@@ -278,6 +278,7 @@ model PropertyRoleTemplate {
   name             String                           @db.VarChar(100)
   kind             PropertyRoleTemplateKind
   description      String?                          @db.VarChar(300)
+  overviewType     String                           @default("auto") @map("overview_type") @db.VarChar(20)
   createdAt        DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime                         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   property         Property                         @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Restrict)

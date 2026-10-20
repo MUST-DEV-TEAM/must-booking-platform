@@ -333,6 +333,9 @@ describe('Staff', () => {
     expect(createBody.name === 'Front Desk custom' && createBody.copyFromId === 'a').toBe(true);
     expect(createBody.capabilities.includes('payments.refund')).toBe(true);
     expect(createBody.capabilities.includes('staff.manage_permissions')).toBe(true);
+    // A role keeps an Overview type; a copy of a role without one starts as Automatic.
+    expect((createBody as { overviewType?: string }).overviewType).toBe('auto');
+    expect(document.body.textContent).toContain('Overview: Automatic');
 
     await openButtonInCard(cardWithTitle('Front Desk custom'), 'Edit role');
     await setValue(

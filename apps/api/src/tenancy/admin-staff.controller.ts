@@ -93,11 +93,19 @@ export class AdminStaffController {
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
   @RequiresCapability('staff.create')
   @RequiresVerifiedEmail()
-  async createStaff(@Body() body: unknown, @Req() request: ActorRequest): Promise<{ userId: string }> {
+  async createStaff(
+    @Body() body: unknown,
+    @Req() request: ActorRequest,
+  ): Promise<{ userId: string }> {
     const value = (body ?? {}) as Record<string, unknown>;
-    const text = (field: string): string => (typeof value[field] === 'string' ? (value[field] as string) : '');
+    const text = (field: string): string =>
+      typeof value[field] === 'string' ? (value[field] as string) : '';
     const list = (field: string): string[] =>
-      Array.isArray(value[field]) ? (value[field] as string[]) : value[field] === undefined ? [] : (value[field] as never);
+      Array.isArray(value[field])
+        ? (value[field] as string[])
+        : value[field] === undefined
+          ? []
+          : (value[field] as never);
     const actor = await this.actorCapabilities(request);
     return this.access.createStaff(
       request.tenantContext.tenantId,
@@ -244,7 +252,10 @@ export class AdminStaffController {
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
   @RequiresCapability('staff.manage_roles')
   @RequiresVerifiedEmail()
-  async deleteRoleTemplate(@Param('roleId') roleId: string, @Req() request: ActorRequest): Promise<void> {
+  async deleteRoleTemplate(
+    @Param('roleId') roleId: string,
+    @Req() request: ActorRequest,
+  ): Promise<void> {
     await this.access.deleteRole(
       request.tenantContext.tenantId,
       request.tenantContext.propertyId,
@@ -268,7 +279,9 @@ export class AdminStaffController {
     if (!body.roleTemplateId) throw new BadRequestException('roleTemplateId is required.');
     const actor = await this.actorCapabilities(request);
     const { tenantId, propertyId } = request.tenantContext;
-    const role = (await this.access.listRoles(tenantId, propertyId)).find((entry) => entry.id === body.roleTemplateId);
+    const role = (await this.access.listRoles(tenantId, propertyId)).find(
+      (entry) => entry.id === body.roleTemplateId,
+    );
     if (!role) throw new NotFoundException('Role not found.');
     await this.access.assertCanManageTarget(tenantId, propertyId, userId, actor, role.capabilities);
     await this.staff.assignPropertyStaff(
@@ -296,7 +309,13 @@ export class AdminStaffController {
       throw new BadRequestException('granted must be boolean.');
     const actor = await this.actorCapabilities(request);
     const { tenantId, propertyId } = request.tenantContext;
-    await this.access.assertCanManageTarget(tenantId, propertyId, userId, actor, body.granted ? [capabilityKey] : []);
+    await this.access.assertCanManageTarget(
+      tenantId,
+      propertyId,
+      userId,
+      actor,
+      body.granted ? [capabilityKey] : [],
+    );
     await this.staff.setCapabilityOverride(
       tenantId,
       propertyId,
@@ -339,6 +358,7 @@ export class AdminStaffController {
     return {
       name: value.name as string | undefined,
       description: value.description as string | null | undefined,
+      overviewType: value.overviewType as string | undefined,
       capabilities: value.capabilities as string[] | undefined,
       copyFromId: typeof value.copyFromId === 'string' ? value.copyFromId : undefined,
     };

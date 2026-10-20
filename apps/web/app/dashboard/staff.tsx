@@ -1254,6 +1254,31 @@ function AddStaffDialog({
   );
 }
 
+const OVERVIEW_TYPE_OPTIONS = [
+  { value: 'auto', label: 'Automatic', hint: "Chosen from the role's permissions." },
+  {
+    value: 'owner_manager',
+    label: 'Owner / Manager',
+    hint: 'Hotel health, approvals, alerts, arrivals and departures.',
+  },
+  {
+    value: 'front_desk',
+    label: 'Front desk',
+    hint: 'Arrivals, departures, in house, unpaid bookings, quick booking.',
+  },
+  {
+    value: 'finance',
+    label: 'Finance',
+    hint: 'Payments needing action, refunds, money still owed.',
+  },
+  {
+    value: 'reservations',
+    label: 'Reservations',
+    hint: 'New bookings, requests, cancellations, upcoming arrivals.',
+  },
+  { value: 'minimal', label: 'Minimal', hint: 'Only their own tasks and the date.' },
+] as const;
+
 function RoleManagement({
   tenantId,
   propertyId,
@@ -1275,6 +1300,7 @@ function RoleManagement({
   >(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [overviewType, setOverviewType] = useState('auto');
   const [capabilities, setCapabilities] = useState<string[]>([]);
   const [viewingRole, setViewingRole] = useState<StaffTemplate | null>(null);
   const permissionOptions = permissionMultiSelectOptions(catalog, myCapabilities);
@@ -1284,6 +1310,7 @@ function RoleManagement({
     setDialog(null);
     setName('');
     setDescription('');
+    setOverviewType('auto');
     setCapabilities([]);
     saveMutation.reset();
   };
@@ -1291,6 +1318,7 @@ function RoleManagement({
     saveMutation.reset();
     setName('');
     setDescription('');
+    setOverviewType('auto');
     setCapabilities([]);
     setDialog({ mode: 'create' });
   };
@@ -1298,6 +1326,7 @@ function RoleManagement({
     saveMutation.reset();
     setName(`${role.name} copy`);
     setDescription(role.description ?? '');
+    setOverviewType(role.overviewType ?? 'auto');
     setCapabilities(role.capabilities.filter((key) => myCapabilities.includes(key)));
     setDialog({ mode: 'create', copyFromId: role.id });
   };
@@ -1305,6 +1334,7 @@ function RoleManagement({
     saveMutation.reset();
     setName(role.name);
     setDescription(role.description ?? '');
+    setOverviewType(role.overviewType ?? 'auto');
     setCapabilities(role.capabilities);
     setDialog({ mode: 'edit', role });
   };
@@ -1316,6 +1346,7 @@ function RoleManagement({
         name: name.trim(),
         ...(description.trim() ? { description: description.trim() } : {}),
         capabilities,
+        overviewType,
         ...(dialog.mode === 'create' && dialog.copyFromId ? { copyFromId: dialog.copyFromId } : {}),
       };
       const response = await fetch(dialog.mode === 'edit' ? `${base}/${dialog.role.id}` : base, {
@@ -1391,6 +1422,12 @@ function RoleManagement({
                     <span>{role.memberCount} staff members</span>
                     <span aria-hidden="true">·</span>
                     <span>{role.capabilities.length} permissions</span>
+                    <span aria-hidden="true">·</span>
+                    <span>
+                      Overview:{' '}
+                      {OVERVIEW_TYPE_OPTIONS.find((o) => o.value === (role.overviewType ?? 'auto'))
+                        ?.label ?? 'Automatic'}
+                    </span>
                   </div>
                   {blocked && !builtIn ? (
                     <p className="m-0 text-xs text-warning">
@@ -1470,6 +1507,31 @@ function RoleManagement({
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
               />
+            </FormField>
+            <FormField
+              label="Overview type"
+              htmlFor="staff-role-overview"
+              hint={
+                OVERVIEW_TYPE_OPTIONS.find((o) => o.value === overviewType)?.hint +
+                ' Parts that need a permission this role does not have are hidden automatically.'
+              }
+            >
+              <Select value={overviewType} onValueChange={setOverviewType}>
+                <SelectTrigger
+                  id="staff-role-overview"
+                  aria-label="Overview type"
+                  className="w-full"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {OVERVIEW_TYPE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </FormField>
             <MultiSelect
               options={permissionOptions}

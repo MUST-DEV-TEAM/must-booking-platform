@@ -254,10 +254,9 @@ describe('front-desk overview fields', () => {
     // Balance due at the desk: sum of today's pay-at-hotel arrivals (2 x 100.00).
     expect(overview.body.balanceDueAtDesk).toMatchObject({ amount: '200.00', currency: 'EUR' });
 
-    // Today's revenue: every non-cancelled booking created today, regardless
-    // of arrival date (4 of the 5 bookings created today — the 5th was
-    // cancelled and must not count toward revenue).
-    expect(overview.body.revenue.today).toMatchObject({ amount: '400.00', currency: 'EUR' });
+    // "Collected today" is cash: successful charge postings today (shared metrics layer, same
+    // figure as Payments and Reports). These fixture bookings carry no payments yet.
+    expect(overview.body.revenue.today).toMatchObject({ amount: '0.00', currency: 'EUR' });
 
     // 4, not 5 — same as revenue, the cancelled booking is excluded.
     expect(overview.body.newBookingsSinceYesterday).toBeGreaterThanOrEqual(4);

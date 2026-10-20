@@ -182,6 +182,37 @@ describe('DashboardOverview', () => {
     await act(async () => root.unmount());
   });
 
+  it('shows only the widgets the server lists for this person and always offers My tasks', async () => {
+    const fetch = vi.fn(async () => Response.json({ items: [] }));
+    vi.stubGlobal('fetch', fetch);
+    const { container, root } = await mount({
+      initialOverview: {
+        ...overview,
+        view: {
+          type: 'finance',
+          widgets: ['tile.collectedToday', 'tile.needsAttention', 'panel.myTasks'],
+        },
+      },
+    });
+    const text = container.textContent ?? '';
+    expect(text).toContain('Collected today');
+    expect(text).toContain('My tasks');
+    expect(text).toContain('Your tasks and the parts of the hotel you work with.');
+    for (const hidden of [
+      'Arrivals',
+      'Departures',
+      'In house',
+      'Occupancy',
+      'Due at the desk',
+      'New bookings',
+      'Today’s arrivals',
+      'Upcoming arrivals',
+      'Sold out tonight',
+      'Recent activity',
+    ])
+      expect(text).not.toContain(hidden);
+    await act(async () => root.unmount());
+  });
   it('hides booking creation when the capability prop is omitted', async () => {
     vi.stubGlobal('fetch', vi.fn());
     const { container, root } = await mount({ initialOverview: overview });

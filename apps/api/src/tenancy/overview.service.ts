@@ -1,7 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 
 import { BOOKING_NEEDS_ATTENTION_STATUSES } from '../booking/booking-attention';
+import { CapabilitiesService } from './capabilities.service';
 import { DashboardMetricsService } from './dashboard-metrics.service';
+import { resolveOverviewType, visibleWidgets, type WidgetKey } from './overview-widgets';
 import { TenantDatabaseService } from './tenant-database.service';
 
 type Kpis = {
@@ -90,6 +92,8 @@ export type PropertyOverview = {
   soldOutRooms: SoldOutRoom[];
   recentCancellations: RecentCancellation[];
   recentActivity: ActivityItem[];
+  /** Which widgets this person sees. Data of every other widget is left out, not just hidden. */
+  view: { type: string; widgets: WidgetKey[] };
 };
 
 // Every non-terminal-failure booking status that occupies a room/rate for a
@@ -118,7 +122,45 @@ export class OverviewService {
   constructor(
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(DashboardMetricsService) private readonly metrics: DashboardMetricsService,
+    @Inject(CapabilitiesService) private readonly capabilities: CapabilitiesService,
   ) {}
+
+  private async viewFor(tenantId: string, propertyId: string, userId: string, source: string) {
+    const capabilities = await this.capabilities.effective({ tenantId, propertyId, userId });
+    const rows = await this.database.withTenantTransaction(
+      { tenantId, propertyId },
+      (tx) =>
+        tx.$queryRaw<
+          Array<{
+            role: 'OWNER' | 'ADMIN' | 'STAFF';
+            roleName: string | null;
+            roleKind: 'BUILT_IN' | 'CUSTOM' | null;
+            overviewType: string | null;
+          }>
+        >`SELECT tm.role::text AS role, prt.name AS "roleName", prt.kind::text AS "roleKind",
+          prt.overview_type AS "overviewType"
+        FROM tenant_memberships tm
+        LEFT JOIN property_staff_assignments psa ON psa.tenant_id = tm.tenant_id
+          AND psa.property_id = ${propertyId}::uuid AND psa.user_id = tm.user_id AND psa.suspended_at IS NULL
+        LEFT JOIN property_role_templates prt ON prt.tenant_id = psa.tenant_id
+          AND prt.property_id = psa.property_id AND prt.id = psa.role_template_id
+        WHERE tm.tenant_id = ${tenantId}::uuid AND tm.user_id = ${userId}::uuid`,
+    );
+    const row = rows[0];
+    const type = resolveOverviewType({
+      tenantRole: row?.role ?? 'STAFF',
+      roleName: row?.roleName,
+      roleKind: row?.roleKind,
+      storedType: row?.overviewType,
+      capabilities,
+    });
+    return {
+      type,
+      widgets: visibleWidgets(type, capabilities, {
+        source: source === 'CLOCK' ? 'CLOCK' : 'LOCAL',
+      }),
+    };
+  }
 
   async get(tenantId: string, propertyId: string, userId: string): Promise<PropertyOverview> {
     const [
@@ -142,16 +184,32 @@ export class OverviewService {
       this.recentCancellations(tenantId, propertyId),
       this.recentActivity(tenantId, propertyId),
     ]);
+    const view = await this.viewFor(tenantId, propertyId, userId, metrics.metricBasis.source);
+    const has = (key: WidgetKey) => view.widgets.includes(key);
+    // Data of widgets the person may not (or need not) see is left out of the response entirely.
     return {
       ...metrics,
-      needsAttentionCount,
-      needsAttention,
-      todaysArrivals,
-      todaysDepartures,
-      upcomingArrivals,
-      soldOutRooms: metrics.metricBasis.source === 'CLOCK' ? [] : soldOutRooms,
-      recentCancellations,
-      recentActivity,
+      kpis: {
+        ...metrics.kpis,
+        arrivals: has('tile.arrivals') ? metrics.kpis.arrivals : 0,
+        departures: has('tile.departures') ? metrics.kpis.departures : 0,
+        inHouse: has('tile.inHouse') ? metrics.kpis.inHouse : 0,
+        occupancyRate: has('tile.occupancy') ? metrics.kpis.occupancyRate : null,
+      },
+      revenue: has('tile.collectedToday') ? metrics.revenue : { today: null, byCurrency: [] },
+      balanceDueAtDesk: has('tile.dueAtDesk') ? metrics.balanceDueAtDesk : null,
+      balancesDueAtDesk: has('tile.dueAtDesk') ? metrics.balancesDueAtDesk : [],
+      newBookingsSinceYesterday: has('tile.newBookings') ? metrics.newBookingsSinceYesterday : 0,
+      needsAttentionCount: has('tile.needsAttention') ? needsAttentionCount : 0,
+      needsAttention: has('list.needsAttention') ? needsAttention : [],
+      todaysArrivals: has('list.arrivals') ? todaysArrivals : [],
+      todaysDepartures: has('list.departures') ? todaysDepartures : [],
+      upcomingArrivals: has('list.upcomingArrivals') ? upcomingArrivals : [],
+      soldOutRooms:
+        metrics.metricBasis.source === 'CLOCK' || !has('list.soldOut') ? [] : soldOutRooms,
+      recentCancellations: has('list.cancellations') ? recentCancellations : [],
+      recentActivity: has('list.activity') ? recentActivity : [],
+      view,
     };
   }
 

@@ -1,3 +1,4 @@
+import { OVERVIEW_TYPES } from './overview-widgets';
 import {
   BadRequestException,
   ConflictException,
@@ -17,6 +18,7 @@ export type RoleView = {
   name: string;
   kind: 'BUILT_IN' | 'CUSTOM';
   description: string | null;
+  overviewType: string;
   capabilities: string[];
   memberCount: number;
 };
@@ -27,7 +29,13 @@ export type EffectiveCapability = {
   source: 'role' | 'extra' | 'denied' | 'none';
 };
 
-export type RoleInput = { name?: string; description?: string | null; capabilities?: string[]; copyFromId?: string };
+export type RoleInput = {
+  name?: string;
+  description?: string | null;
+  overviewType?: string;
+  capabilities?: string[];
+  copyFromId?: string;
+};
 
 export type CreateStaffInput = {
   firstName: string;
@@ -73,6 +81,7 @@ export class StaffAccessService {
   ): Promise<RoleView> {
     const name = this.roleName(input.name);
     const description = this.roleDescription(input.description);
+    const overviewType = this.overviewType(input.overviewType, 'auto');
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       let capabilities = input.capabilities;
       if (input.copyFromId) {
@@ -90,8 +99,8 @@ export class StaffAccessService {
       `;
       if (existing[0]) throw new ConflictException('A role with this name already exists.');
       const created = await tx.$queryRaw<Array<{ id: string }>>`
-        INSERT INTO "property_role_templates" ("tenant_id", "property_id", "name", "kind", "description")
-        VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${name}, 'CUSTOM', ${description})
+        INSERT INTO "property_role_templates" ("tenant_id", "property_id", "name", "kind", "description", "overview_type")
+        VALUES (${tenantId}::uuid, ${propertyId}::uuid, ${name}, 'CUSTOM', ${description}, ${overviewType})
         RETURNING "id"
       `;
       await this.replaceRoleCapabilities(tx, tenantId, propertyId, created[0]!.id, keys);
@@ -130,7 +139,13 @@ export class StaffAccessService {
       this.assertCanGrant(actor, [...new Set([...role.capabilities, ...keys])]);
       const name = input.name !== undefined ? this.roleName(input.name) : role.name;
       const description =
-        input.description !== undefined ? this.roleDescription(input.description) : role.description;
+        input.description !== undefined
+          ? this.roleDescription(input.description)
+          : role.description;
+      const overviewType =
+        input.overviewType !== undefined
+          ? this.overviewType(input.overviewType, role.overviewType)
+          : role.overviewType;
       if (name.toLowerCase() !== role.name.toLowerCase()) {
         const clash = await tx.$queryRaw<Array<{ found: number }>>`
           SELECT 1 AS found FROM "property_role_templates"
@@ -140,10 +155,11 @@ export class StaffAccessService {
         if (clash[0]) throw new ConflictException('A role with this name already exists.');
       }
       await tx.$executeRaw`
-        UPDATE "property_role_templates" SET "name" = ${name}, "description" = ${description}, "updated_at" = CURRENT_TIMESTAMP
+        UPDATE "property_role_templates" SET "name" = ${name}, "description" = ${description}, "overview_type" = ${overviewType}, "updated_at" = CURRENT_TIMESTAMP
         WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid AND "id" = ${roleId}::uuid
       `;
-      if (input.capabilities) await this.replaceRoleCapabilities(tx, tenantId, propertyId, roleId, keys);
+      if (input.capabilities)
+        await this.replaceRoleCapabilities(tx, tenantId, propertyId, roleId, keys);
       await this.auditLogs.recordInTransaction(tx, {
         tenantId,
         propertyId,
@@ -151,9 +167,11 @@ export class StaffAccessService {
         action: 'role.updated',
         targetType: 'role',
         targetId: roleId,
-        details: { name, capabilityCount: keys.length },
+        details: { name, capabilityCount: keys.length, overviewType },
       });
-      return (await this.listRolesInTransaction(tx, tenantId, propertyId)).find((entry) => entry.id === roleId)!;
+      return (await this.listRolesInTransaction(tx, tenantId, propertyId)).find(
+        (entry) => entry.id === roleId,
+      )!;
     });
   }
 
@@ -169,7 +187,8 @@ export class StaffAccessService {
         (entry) => entry.id === roleId,
       );
       if (!role) throw new NotFoundException('Role not found.');
-      if (role.kind === 'BUILT_IN') throw new ConflictException('Built-in roles cannot be deleted.');
+      if (role.kind === 'BUILT_IN')
+        throw new ConflictException('Built-in roles cannot be deleted.');
       if (role.memberCount > 0)
         throw new ConflictException(
           `This role is used by ${role.memberCount} staff member${role.memberCount === 1 ? '' : 's'}. Move them to another role first.`,
@@ -208,8 +227,10 @@ export class StaffAccessService {
     const firstName = input.firstName.trim();
     const lastName = input.lastName?.trim() || null;
     const email = input.email.trim().toLowerCase();
-    if (!firstName || firstName.length > 100) throw new BadRequestException('A first name is required.');
-    if (lastName && lastName.length > 100) throw new BadRequestException('The last name is too long.');
+    if (!firstName || firstName.length > 100)
+      throw new BadRequestException('A first name is required.');
+    if (lastName && lastName.length > 100)
+      throw new BadRequestException('The last name is too long.');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 320)
       throw new BadRequestException('A valid email is required.');
     this.assertPasswordPolicy(input.password);
@@ -329,8 +350,10 @@ export class StaffAccessService {
     return CAPABILITY_CATALOG.map((entry): EffectiveCapability => {
       const inRole = role.has(entry.key);
       const override = byKey.get(entry.key);
-      if (override === true) return { key: entry.key, granted: true, source: inRole ? 'role' : 'extra' };
-      if (override === false) return { key: entry.key, granted: false, source: inRole ? 'denied' : 'none' };
+      if (override === true)
+        return { key: entry.key, granted: true, source: inRole ? 'role' : 'extra' };
+      if (override === false)
+        return { key: entry.key, granted: false, source: inRole ? 'denied' : 'none' };
       return { key: entry.key, granted: inRole, source: inRole ? 'role' : 'none' };
     });
   }
@@ -346,11 +369,12 @@ export class StaffAccessService {
         name: string;
         kind: 'BUILT_IN' | 'CUSTOM';
         description: string | null;
+        overviewType: string;
         capabilities: string[];
         memberCount: number;
       }>
     >`
-      SELECT prt."id", prt."name", prt."kind"::text AS "kind", prt."description",
+      SELECT prt."id", prt."name", prt."kind"::text AS "kind", prt."description", prt."overview_type" AS "overviewType",
         COALESCE(array_agg(c."key" ORDER BY c."key") FILTER (WHERE c."key" IS NOT NULL), ARRAY[]::text[]) AS "capabilities",
         (SELECT COUNT(*)::int FROM "property_staff_assignments" psa
           WHERE psa."tenant_id" = prt."tenant_id" AND psa."property_id" = prt."property_id" AND psa."role_template_id" = prt."id") AS "memberCount"
@@ -389,16 +413,26 @@ export class StaffAccessService {
     if (!Array.isArray(value) || !value.every((key) => typeof key === 'string'))
       throw new BadRequestException('Permissions must be a list of keys.');
     const keys = value.map((key) => key.trim());
-    if (new Set(keys).size !== keys.length) throw new BadRequestException('Permissions must not repeat.');
+    if (new Set(keys).size !== keys.length)
+      throw new BadRequestException('Permissions must not repeat.');
     const unknown = keys.filter((key) => !CAPABILITY_KEYS.includes(key));
-    if (unknown.length) throw new BadRequestException(`Unknown permission(s): ${unknown.join(', ')}.`);
+    if (unknown.length)
+      throw new BadRequestException(`Unknown permission(s): ${unknown.join(', ')}.`);
     return keys;
   }
 
   private roleName(value: unknown): string {
-    if (typeof value !== 'string' || !value.trim()) throw new BadRequestException('A role name is required.');
+    if (typeof value !== 'string' || !value.trim())
+      throw new BadRequestException('A role name is required.');
     if (value.trim().length > 100) throw new BadRequestException('The role name is too long.');
     return value.trim();
+  }
+
+  private overviewType(value: unknown, fallback: string): string {
+    if (value === undefined || value === null || value === '') return fallback;
+    if (typeof value !== 'string' || !(OVERVIEW_TYPES as readonly string[]).includes(value))
+      throw new BadRequestException('Choose a valid Overview type.');
+    return value;
   }
 
   private roleDescription(value: unknown): string | null {
