@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 
-import { cleanSearchText, likePattern } from './global-search.service';
+import { cleanSearchText, likePattern, phoneDigits } from './global-search.service';
 
 describe('global search text', () => {
   it('escapes LIKE wildcards so typed % and _ are plain characters', () => {
@@ -13,5 +13,14 @@ describe('global search text', () => {
     expect(cleanSearchText('  ana   arrival ')).toBe('ana arrival');
     expect(cleanSearchText(undefined)).toBe('');
     expect(() => cleanSearchText('x'.repeat(81))).toThrow(BadRequestException);
+  });
+});
+
+describe('phone-like searches', () => {
+  it('uses the digits of phone-like text only', () => {
+    expect(phoneDigits('+355 69 12')).toBe('3556912');
+    expect(phoneDigits('(069) 123-4567')).toBe('0691234567');
+    expect(phoneDigits('691')).toBeNull();
+    expect(phoneDigits('zelda 6912')).toBeNull();
   });
 });

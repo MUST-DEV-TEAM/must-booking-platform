@@ -14,13 +14,13 @@ import { TenantScoped } from './tenant-context.decorator';
 import { TenantDatabaseService } from './tenant-database.service';
 
 export type SearchItem = {
-  type: 'booking' | 'guest' | 'room' | 'room_type';
+  type: 'booking' | 'guest' | 'room' | 'room_type' | 'staff' | 'email';
   id: string;
   title: string;
   subtitle: string;
 };
 export type SearchGroup = {
-  key: 'bookings' | 'guests' | 'accommodations';
+  key: 'bookings' | 'guests' | 'accommodations' | 'staff' | 'emails';
   label: string;
   items: SearchItem[];
 };
@@ -32,6 +32,16 @@ const PER_GROUP = 5;
 /** Makes user text safe inside a LIKE pattern (no wildcard injection). */
 export function likePattern(text: string): string {
   return `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
+
+/**
+ * A phone-like search ("0691 234", "+355 69 12") becomes its digits so it matches numbers stored
+ * with any spacing or dashes. Returns null when the text is not phone-like.
+ */
+export function phoneDigits(text: string): string | null {
+  if (!/^[\d\s+().-]+$/.test(text)) return null;
+  const digits = text.replace(/\D/g, '');
+  return digits.length >= 4 ? digits : null;
 }
 
 export function cleanSearchText(value: unknown): string {
@@ -53,6 +63,9 @@ export class GlobalSearchService {
     if (query.length < MIN_LENGTH) return { query, groups: [] as SearchGroup[] };
     const caps = await this.capabilities.effective({ tenantId, propertyId, userId });
     const like = likePattern(query);
+    // Never matches when the text is not phone-like, so name searches are unaffected.
+    const digits = phoneDigits(query);
+    const digitsLike = digits ? `%${digits}%` : 'not-a-phone-search';
     const groups = await this.db.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const out: SearchGroup[] = [];
       if (caps.includes('bookings.view')) {
@@ -75,7 +88,8 @@ export class GlobalSearchService {
             AND (COALESCE(b.external_reference, '') ILIKE ${like} ESCAPE '\\'
               OR CONCAT_WS(' ', g.first_name, g.last_name) ILIKE ${like} ESCAPE '\\'
               OR COALESCE(g.email, '') ILIKE ${like} ESCAPE '\\'
-              OR COALESCE(g.phone, '') ILIKE ${like} ESCAPE '\\')
+              OR COALESCE(g.phone, '') ILIKE ${like} ESCAPE '\\'
+              OR regexp_replace(COALESCE(g.phone, ''), '[^0-9]', '', 'g') LIKE ${digitsLike})
           ORDER BY b.created_at DESC LIMIT ${PER_GROUP}`;
         out.push({
           key: 'bookings',
@@ -98,7 +112,8 @@ export class GlobalSearchService {
               AND b.property_id = ${propertyId}::uuid AND b.guest_id = g.id)
             AND (CONCAT_WS(' ', g.first_name, g.last_name) ILIKE ${like} ESCAPE '\\'
               OR COALESCE(g.email, '') ILIKE ${like} ESCAPE '\\'
-              OR COALESCE(g.phone, '') ILIKE ${like} ESCAPE '\\')
+              OR COALESCE(g.phone, '') ILIKE ${like} ESCAPE '\\'
+              OR regexp_replace(COALESCE(g.phone, ''), '[^0-9]', '', 'g') LIKE ${digitsLike})
           ORDER BY g.updated_at DESC LIMIT ${PER_GROUP}`;
         out.push({
           key: 'guests',
@@ -140,6 +155,58 @@ export class GlobalSearchService {
               subtitle: `Room type · ${r.status.toLowerCase()}`,
             })),
           ],
+        });
+      }
+      if (caps.includes('staff.view')) {
+        const rows = await tx.$queryRaw<
+          Array<{
+            id: string;
+            name: string | null;
+            email: string;
+            role: string;
+            roleName: string | null;
+          }>
+        >`SELECT u.id, NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), '') AS name, u.email,
+            tm.role::text AS role, prt.name AS "roleName"
+          FROM tenant_memberships tm
+          JOIN users u ON u.id = tm.user_id
+          LEFT JOIN property_staff_assignments psa ON psa.tenant_id = tm.tenant_id
+            AND psa.property_id = ${propertyId}::uuid AND psa.user_id = tm.user_id
+          LEFT JOIN property_role_templates prt ON prt.tenant_id = psa.tenant_id
+            AND prt.property_id = psa.property_id AND prt.id = psa.role_template_id
+          WHERE tm.tenant_id = ${tenantId}::uuid
+            AND (tm.role::text IN ('OWNER', 'ADMIN') OR psa.id IS NOT NULL)
+            AND (CONCAT_WS(' ', u.first_name, u.last_name) ILIKE ${like} ESCAPE '\\'
+              OR u.email ILIKE ${like} ESCAPE '\\')
+          ORDER BY u.email LIMIT ${PER_GROUP}`;
+        out.push({
+          key: 'staff',
+          label: 'Staff',
+          items: rows.map((r) => ({
+            type: 'staff' as const,
+            id: r.id,
+            title: r.name ?? r.email,
+            subtitle: `${r.email} · ${r.roleName ?? r.role.toLowerCase()}`,
+          })),
+        });
+      }
+      if (caps.includes('settings.manage')) {
+        const rows = await tx.$queryRaw<
+          Array<{ id: string; subject: string; recipient: string; status: string; createdAt: Date }>
+        >`SELECT id, subject, recipient_email AS recipient, status::text AS status, created_at AS "createdAt"
+          FROM email_messages
+          WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+            AND (recipient_email ILIKE ${like} ESCAPE '\\' OR subject ILIKE ${like} ESCAPE '\\')
+          ORDER BY created_at DESC LIMIT ${PER_GROUP}`;
+        out.push({
+          key: 'emails',
+          label: 'Emails sent',
+          items: rows.map((r) => ({
+            type: 'email' as const,
+            id: r.id,
+            title: r.subject,
+            subtitle: `${r.recipient} · ${r.status.toLowerCase()} · ${r.createdAt.toISOString().slice(0, 10)}`,
+          })),
         });
       }
       return out;

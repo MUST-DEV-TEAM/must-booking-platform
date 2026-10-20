@@ -489,9 +489,6 @@ export function DashboardShell({
       userRole={role ? roleLabels[role] : undefined}
       headerActions={
         <>
-          {selectedProperty ? (
-            <GlobalSearch tenantId={tenantId} propertyId={selectedProperty.id} />
-          ) : null}
           {properties && properties.length > 1 && role !== 'STAFF' ? (
             <Select
               value={selectedProperty?.id ?? ''}
@@ -518,6 +515,14 @@ export function DashboardShell({
             </Select>
           ) : selectedProperty ? (
             <Chip icon={Layers}>{selectedProperty.name}</Chip>
+          ) : null}
+          {selectedProperty && role ? (
+            <GlobalSearch
+              tenantId={tenantId}
+              propertyId={selectedProperty.id}
+              canOpen={(target) => canAccessSection(role, capabilities ?? [], target)}
+              can={hasCapability}
+            />
           ) : null}
           {selectedProperty && role ? (
             <DashboardNotifications tenantId={tenantId} propertyId={selectedProperty.id} />

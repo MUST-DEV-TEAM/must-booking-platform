@@ -4,20 +4,30 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GlobalSearch, searchItemHref } from './global-search';
 import { DashboardQueryProvider } from './query-provider';
+import { matchPages, quickLinks } from './search-pages';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+class Observer {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver ??= Observer as unknown as typeof ResizeObserver;
+Element.prototype.scrollIntoView ??= () => {};
+
 const roots: Root[] = [];
 afterEach(async () => {
   for (const root of roots.splice(0)) await act(async () => root.unmount());
   vi.unstubAllGlobals();
   document.body.replaceChildren();
+  localStorage.clear();
 });
 const wait = async (ms: number) => {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, ms));
   });
 };
-async function mount() {
+async function mount(canOpen = (_section: string) => true, can = (_capability: string) => true) {
   const root = createRoot(document.body.appendChild(document.createElement('div')));
   roots.push(root);
   await act(async () => {
@@ -25,123 +35,166 @@ async function mount() {
       createElement(
         DashboardQueryProvider,
         undefined,
-        createElement(GlobalSearch, { tenantId: 't', propertyId: 'p' }),
+        createElement(GlobalSearch, { tenantId: 't', propertyId: 'p', canOpen, can }),
       ),
     );
   });
 }
+async function openPopup() {
+  await act(async () => {
+    document.querySelector<HTMLButtonElement>('button[aria-label="Search"]')!.click();
+  });
+  await wait(30);
+}
 async function type(value: string) {
   const el = document.querySelector<HTMLInputElement>('input[type="search"]')!;
   await act(async () => {
-    el.focus();
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, value);
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await wait(350);
-}
-async function settled() {
-  for (let i = 0; i < 40; i++) {
-    if (!(document.body.textContent ?? '').includes('Searching…')) return;
+  for (let i = 0; i < 40 && (document.body.textContent ?? '').includes('Searching…'); i++)
     await wait(50);
-  }
 }
+const options = () =>
+  [...document.querySelectorAll<HTMLAnchorElement>('[role="option"]')].map((a) => ({
+    title: a.querySelector('span')?.textContent,
+    href: a.getAttribute('href'),
+  }));
 
-describe('global search', () => {
-  it('builds links to the right pages', () => {
-    expect(searchItemHref('t', 'p', { type: 'booking', id: 'b1', title: '', subtitle: '' })).toBe(
-      '/dashboard/t?propertyId=p&section=reservations&reservation=b1',
-    );
-    expect(searchItemHref('t', 'p', { type: 'guest', id: 'g1', title: '', subtitle: '' })).toBe(
-      '/dashboard/t?propertyId=p&section=guests&guest=g1',
-    );
-    expect(searchItemHref('t', 'p', { type: 'room', id: 'r1', title: '', subtitle: '' })).toBe(
-      '/dashboard/t?propertyId=p&section=accommodations',
-    );
+describe('search pages', () => {
+  const all = () => true;
+  it('finds pages and settings by name or by the words people use', () => {
+    expect(matchPages('pay', all, all)[0]!.label).toBe('Payments');
+    expect(matchPages('check-in time', all, all).map((p) => p.label)).toContain('Booking rules');
+    expect(matchPages('smtp', all, all).map((p) => p.label)).toContain('Emails');
+    expect(matchPages('password', all, all)[0]!.label).toBe('My account');
+    expect(matchPages('p', all, all)).toEqual([]);
   });
 
-  it('waits for two letters, then shows grouped results with links', async () => {
-    const fetch = vi.fn(async () =>
-      Response.json({
-        query: 'zelda',
-        groups: [
-          {
-            key: 'bookings',
-            label: 'Reservations',
-            items: [
-              {
-                type: 'booking',
-                id: 'b1',
-                title: 'SRCH-1001 · Zelda',
-                subtitle: '2027-05-01 – 2027-05-03 · confirmed',
-              },
-            ],
-          },
-          {
-            key: 'guests',
-            label: 'Guests',
-            items: [
-              {
-                type: 'guest',
-                id: 'g1',
-                title: 'Zelda Searchable',
-                subtitle: 'zelda@example.test',
-              },
-            ],
-          },
-        ],
-      }),
+  it('never offers what the person may not open or do', () => {
+    const noSettings = (section: string) => section !== 'settings';
+    expect(matchPages('check-in time', noSettings, all)).toEqual([]);
+    expect(matchPages('new booking', all, () => false).map((p) => p.label)).not.toContain(
+      'New booking',
     );
+    expect(quickLinks(all, () => false).map((p) => p.label)).not.toContain('New booking');
+  });
+
+  it('links staff and email results to their pages', () => {
+    expect(searchItemHref('t', 'p', { type: 'staff', id: 'u1', title: '', subtitle: '' })).toBe(
+      '/dashboard/t?propertyId=p&section=staff&staffUser=u1',
+    );
+    expect(searchItemHref('t', 'p', { type: 'email', id: 'm1', title: '', subtitle: '' })).toBe(
+      '/dashboard/t?propertyId=p&section=emails&emailMessageId=m1',
+    );
+  });
+});
+
+describe('global search popup', () => {
+  it('is an icon that opens a popup with a hint, quick links and an example placeholder', async () => {
+    vi.stubGlobal('fetch', vi.fn());
+    await mount();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await openPopup();
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    const input = document.querySelector<HTMLInputElement>('input[type="search"]')!;
+    expect(input.placeholder.length).toBeGreaterThan(8);
+    expect(document.body.textContent).toContain('guests (by name, email or phone)');
+    expect(document.body.textContent).toContain('Quick links');
+    expect(options().map((o) => o.title)).toContain('New booking');
+  });
+
+  it('opens with the / key and waits for two letters before asking the server', async () => {
+    const fetch = vi.fn(async () => Response.json({ query: 'ze', groups: [] }));
     vi.stubGlobal('fetch', fetch);
     await mount();
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: '/', bubbles: true }));
+    });
+    await wait(30);
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
     await type('z');
     expect(fetch).not.toHaveBeenCalled();
     await type('ze');
-    await settled();
     expect(String(fetch.mock.calls.at(-1)![0])).toContain('/search?q=ze');
-    const text = document.body.textContent ?? '';
-    expect(text).toContain('Reservations');
-    expect(text).toContain('Guests');
-    expect(text).toContain('SRCH-1001 · Zelda');
-    const links = [...document.querySelectorAll<HTMLAnchorElement>('[role="option"]')].map((a) =>
-      a.getAttribute('href'),
+  });
+
+  it('shows pages and settings together with record results, each with its own link', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          query: 'pay',
+          groups: [
+            {
+              key: 'bookings',
+              label: 'Reservations',
+              items: [
+                { type: 'booking', id: 'b1', title: 'SRCH-1001 · Zelda', subtitle: 'confirmed' },
+              ],
+            },
+            {
+              key: 'emails',
+              label: 'Emails sent',
+              items: [
+                {
+                  type: 'email',
+                  id: 'm1',
+                  title: 'Payment received',
+                  subtitle: 'zelda@example.test · sent',
+                },
+              ],
+            },
+          ],
+        }),
+      ),
     );
-    expect(links).toEqual([
-      '/dashboard/t?propertyId=p&section=reservations&reservation=b1',
-      '/dashboard/t?propertyId=p&section=guests&guest=g1',
+    await mount();
+    await openPopup();
+    await type('pay');
+    expect(options()).toEqual([
+      { title: 'Payments', href: '/dashboard/t?propertyId=p&section=payments' },
+      {
+        title: 'Payment settings',
+        href: '/dashboard/t?propertyId=p&section=settings&settingsArea=payments',
+      },
+      {
+        title: 'SRCH-1001 · Zelda',
+        href: '/dashboard/t?propertyId=p&section=reservations&reservation=b1',
+      },
+      {
+        title: 'Payment received',
+        href: '/dashboard/t?propertyId=p&section=emails&emailMessageId=m1',
+      },
     ]);
+    const text = document.body.textContent ?? '';
+    for (const heading of ['Pages and settings', 'Reservations', 'Emails sent'])
+      expect(text).toContain(heading);
   });
 
-  it('says so when nothing matches and when search fails', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Response.json({ query: 'nomatch', groups: [] })),
-    );
+  it('says so when nothing matches and keeps pages when the record search fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ query: 'qqqq', groups: [] })));
     await mount();
-    await type('nomatch');
-    await settled();
-    expect(document.body.textContent).toContain('No results for “nomatch”.');
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response('{}', { status: 500 })),
-    );
-    await type('another');
-    await settled();
-    expect(document.body.textContent).toContain('Search is unavailable.');
+    await openPopup();
+    await type('qqqq');
+    expect(document.body.textContent).toContain('No results for “qqqq”.');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500 })));
+    await type('payments');
+    expect(document.body.textContent).toContain('Search for records is unavailable.');
+    expect(options().map((o) => o.title)).toContain('Payments');
   });
 
-  it('closes on Escape', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Response.json({ query: 'ab', groups: [] })),
-    );
+  it('remembers what was opened and offers it again next time', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ query: 'calendar', groups: [] })));
     await mount();
-    await type('ab');
-    expect(document.querySelector('[role="listbox"]')).not.toBeNull();
+    await openPopup();
+    await type('calendar');
+    const first = document.querySelector<HTMLAnchorElement>('[role="option"]')!;
     await act(async () => {
-      document
-        .querySelector('input[type="search"]')!
-        .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      first.addEventListener('click', (event) => event.preventDefault());
+      first.click();
     });
-    expect(document.querySelector('[role="listbox"]')).toBeNull();
+    expect(JSON.parse(localStorage.getItem('must.search.recent') ?? '[]')).toEqual(['calendar']);
   });
 });
