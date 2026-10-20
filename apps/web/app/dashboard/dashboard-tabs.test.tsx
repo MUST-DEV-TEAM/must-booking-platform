@@ -391,7 +391,7 @@ describe('Dashboard section tabs', () => {
   it.each([
     ['general', 'Hotel identity', 'Booking rules'],
     ['booking-rules', 'Booking rules', 'Hotel identity'],
-    ['managed-pages', 'Connect WordPress site', 'Hotel identity'],
+    ['managed-pages', 'Generate connection code', 'Hotel identity'],
     ['billing', 'Billing account', 'Hotel identity'],
   ] as const)(
     'restores the %s Settings sub-view from the direct URL and supports back navigation',
