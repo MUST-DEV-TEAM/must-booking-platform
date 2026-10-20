@@ -253,13 +253,11 @@ it('shows invalid/locked proof results and disables verification when current wr
   expect(button('Verify From address').disabled).toBe(true);
 });
 
-it('shows current sender separately from saved setup and omits unsupported activation and send controls', async () => {
+it('shows the default sender separately and hides custom activation until setup is saved', async () => {
   server();
   await render();
   expect(document.body.textContent).toContain('Currently sending with');
-  expect(document.body.textContent).toContain(
-    'Saving prepares your setup; it does not activate custom sending.',
-  );
+  expect(document.body.textContent).toContain('Saving does not activate a sender.');
   expect(button('Save sending setup').disabled).toBe(true);
   expect(
     [...document.querySelectorAll('button')].some((n) =>

@@ -75,14 +75,12 @@ function fixture() {
     open: vi.fn(() => ({ provider: 'smtp', username: 'test-user', password: 'test-password' })),
   };
   const smtp = new SmtpTransport();
-  const send = vi
-    .spyOn(smtp, 'send')
-    .mockResolvedValue({
-      provider: 'smtp',
-      providerMessageId: 'smtp-receipt',
-      accepted: ['guest@example.test'],
-      rejected: [],
-    });
+  const send = vi.spyOn(smtp, 'send').mockResolvedValue({
+    provider: 'smtp',
+    providerMessageId: 'smtp-receipt',
+    accepted: ['guest@example.test'],
+    rejected: [],
+  });
   const audit = { recordInTransaction: vi.fn(async () => {}) };
   const dispatcher = new PropertyMailDispatcher(
     journal as unknown as EmailTransportJournal,
@@ -176,6 +174,7 @@ it('audits a guest fallback after proven rejection, preserving content with a se
   expect(await withMailAttempt(scope, () => f.dispatcher.send(input, f.defaultSend))).toEqual({
     provider: 'resend',
     providerMessageId: 'fallback-receipt',
+    usedFallback: true,
   });
   const request = fetcher.mock.calls[0]?.[1];
   expect(new Headers(request?.headers).get('idempotency-key')).toBe('hotel-mail/message/fallback');

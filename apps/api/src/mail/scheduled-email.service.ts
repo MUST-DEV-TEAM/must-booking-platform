@@ -156,6 +156,13 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
         );
       }
       try {
+        await this.delivery.recoverSenderFailures(context);
+      } catch {
+        this.logger.warn(
+          `Owner sender-alert publication is pending recovery for property ${property.propertyId}.`,
+        );
+      }
+      try {
         await this.senderProofs?.recover(context);
         if (local.hour >= OWNER_SUMMARY_HOUR)
           await this.sendOwnerSummary(context, property.timezone || 'UTC', local.date);

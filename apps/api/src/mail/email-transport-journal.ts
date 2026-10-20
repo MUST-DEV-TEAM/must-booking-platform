@@ -47,6 +47,8 @@ export class EmailTransportJournal {
     prepare: (tx: TenantTransaction) => Promise<FrozenTransport | null>,
   ): Promise<TransportClaim> {
     return this.db.withTenantTransaction(scope, async (tx) => {
+      // Acquire the future FK key lock before message ownership, avoiding an inversion with settings writes.
+      await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${scope.tenantId}::uuid AND id=${scope.propertyId}::uuid FOR KEY SHARE`;
       const messages = await tx.$queryRaw<{ id: string }[]>`
         SELECT id FROM email_messages WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${scope.messageId}::uuid FOR UPDATE
       `;
@@ -101,11 +103,16 @@ export class EmailTransportJournal {
           providerMessageId: null,
         };
       }
-      if (row.state === 'ACCEPTED' && row.providerMessageId)
-        return {
-          kind: 'accepted',
-          receipt: { provider: row.provider, providerMessageId: row.providerMessageId },
-        };
+      if (row.state === 'ACCEPTED') {
+        if (row.providerMessageId)
+          return {
+            kind: 'accepted',
+            receipt: { provider: row.provider, providerMessageId: row.providerMessageId },
+          };
+        await tx.$executeRaw`UPDATE email_transport_attempts SET state='UNKNOWN',retryable=false,updated_at=clock_timestamp()
+          WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND message_id=${scope.messageId}::uuid AND stage=${stage}`;
+        return { kind: 'unknown' };
+      }
       if (row.state === 'SENDING' && !row.elapsed) return { kind: 'busy' };
       if (row.state === 'UNKNOWN') return { kind: 'unknown' };
       if (row.expired || !row.encrypted || row.state === 'SENDING') {
@@ -181,6 +188,7 @@ export class EmailTransportJournal {
     result: PreparedMailReceipt | PreparedMailError,
   ): Promise<boolean> {
     return this.db.withTenantTransaction(scope, async (tx) => {
+      await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${scope.tenantId}::uuid AND id=${scope.propertyId}::uuid FOR KEY SHARE`;
       const success = !(result instanceof PreparedMailError);
       const state = success ? 'ACCEPTED' : result.acceptance === 'unknown' ? 'UNKNOWN' : 'REJECTED';
       const rows = await tx.$queryRaw<{ provider: string; attempt: number }[]>`
@@ -212,18 +220,26 @@ export class EmailTransportJournal {
   /** Expire encrypted bodies/credential snapshots without deleting deduplication tombstones. */
   cleanup(scope: { tenantId: string; propertyId: string }) {
     return this.db.withTenantTransaction(scope, async (tx) => {
+      await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${scope.tenantId}::uuid AND id=${scope.propertyId}::uuid FOR KEY SHARE`;
       const elapsed = await tx.$queryRaw<
         { messageId: string; stage: string; provider: string; attempt: number }[]
       >`
         WITH stale AS (
-          SELECT message_id,stage FROM email_transport_attempts WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid
-            AND state='SENDING' AND lease_expires_at<=clock_timestamp() ORDER BY lease_expires_at LIMIT 100 FOR UPDATE SKIP LOCKED
+          SELECT a.message_id,a.stage FROM email_transport_attempts a
+          JOIN email_messages m ON m.tenant_id=a.tenant_id AND m.property_id=a.property_id AND m.id=a.message_id
+          WHERE a.tenant_id=${scope.tenantId}::uuid AND a.property_id=${scope.propertyId}::uuid
+            AND a.state='SENDING' AND a.lease_expires_at<=clock_timestamp() ORDER BY a.lease_expires_at LIMIT 100 FOR UPDATE OF m SKIP LOCKED
         )
         UPDATE email_transport_attempts a SET state='UNKNOWN',retryable=false,updated_at=clock_timestamp() FROM stale s
         WHERE a.tenant_id=${scope.tenantId}::uuid AND a.property_id=${scope.propertyId}::uuid AND a.message_id=s.message_id AND a.stage=s.stage
+          AND a.state='SENDING' AND a.lease_expires_at<=clock_timestamp()
         RETURNING a.message_id AS "messageId",a.stage,a.provider,a.attempt
       `;
-      for (const row of elapsed)
+      for (const row of elapsed) {
+        await tx.$executeRaw`
+          UPDATE email_messages SET status='FAILED',last_error='Delivery acceptance is unknown. Automatic retry and fallback are stopped.',workspace_version=workspace_version+1,updated_at=clock_timestamp()
+          WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${row.messageId}::uuid AND status='QUEUED'
+        `;
         await this.audit.recordInTransaction(tx, {
           ...scope,
           actorUserId: null,
@@ -240,6 +256,7 @@ export class EmailTransportJournal {
             reason: 'Exclusive send lease expired without a durable receipt',
           },
         });
+      }
       return tx.$executeRaw`
         WITH expired AS (
           SELECT message_id,stage FROM email_transport_attempts WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid

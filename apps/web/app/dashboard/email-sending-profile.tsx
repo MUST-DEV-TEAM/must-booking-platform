@@ -13,6 +13,7 @@ import { Input } from '../../components/ui/input';
 import { SettingToggle } from '../../components/ui/setting-toggle';
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import { useUnsavedChanges, useUnsavedNavigation } from '../../components/ui/unsaved-changes';
+import { EmailSenderActivation } from './email-sender-activation';
 import { createEmailWriter, emailRequest, EmailRequestError } from '../../lib/email-workspace';
 import {
   EmailDomainSetup,
@@ -42,6 +43,7 @@ export type EmailSendingProfile = {
   connectionOperationId: string | null;
   connectionExpiresAt: string | null;
   domainStatus: string;
+  domainCheckedAt?: string | null;
   dnsRecords?: EmailDnsRecord[];
   dmarcEvidence?: EmailDmarcEvidence | null;
 };
@@ -252,8 +254,9 @@ function SendingEditor({
         />
         <Alert>
           <AlertDescription>
-            Saving prepares your setup; it does not activate custom sending. Current delivery
-            continues with the sender shown above.
+            Saving does not activate a sender. Changing credentials, endpoint or From address pauses
+            new custom delivery and requires verification again. Already frozen attempts keep their
+            original sender.
           </AlertDescription>
         </Alert>
         <FormField label="Sending option">
@@ -449,6 +452,14 @@ function SendingEditor({
             </Alert>
           </>
         ) : null}
+        {profile.activeMode !== 'DEFAULT' ? (
+          <Alert>
+            <AlertDescription>
+              Pause custom sending before running saved domain or connection diagnostics. The
+              current verification evidence is shown below.
+            </AlertDescription>
+          </Alert>
+        ) : null}
         {profile.mode !== 'SMTP' ? (
           <EmailDomainSetup
             base={base}
@@ -489,7 +500,12 @@ function SendingEditor({
             />
             <Button
               variant="outline"
-              disabled={disabled || dirty || profile.connectionStatus === 'checking'}
+              disabled={
+                disabled ||
+                dirty ||
+                profile.activeMode !== 'DEFAULT' ||
+                profile.connectionStatus === 'checking'
+              }
               onClick={() => setApproval({ kind: 'check', version: profile.version })}
             >
               Check saved SMTP connection
@@ -538,6 +554,13 @@ function SendingEditor({
             ) : null}
           </>
         ) : null}
+        <EmailSenderActivation
+          base={base}
+          profile={profile}
+          disabled={disabled || dirty}
+          setBusy={setBusy}
+          refresh={refresh}
+        />
         {result &&
         (result.id === profile.connectionOperationId ||
           (result.state === 'stale' && result.version === profile.version)) ? (
@@ -569,7 +592,7 @@ function SendingEditor({
           description={
             approval?.kind === 'check'
               ? 'Checks DNS, encrypted connection and authentication only. No email is sent and the selected sender is unchanged.'
-              : 'This stores pending setup. It does not activate custom delivery. Credentials are encrypted and never included in this confirmation.'
+              : 'Saving does not activate a sender. Changing credentials, endpoint or From address pauses new custom sending and clears verification. Cosmetic edits preserve activation. Frozen attempts keep their original sender. Credentials are encrypted and never included here.'
           }
           confirmLabel={approval?.kind === 'check' ? 'Check connection' : 'Save setup'}
           reasonLabel="Reason"

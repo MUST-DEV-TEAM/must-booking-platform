@@ -399,6 +399,85 @@ export class EmailSendingProfileService {
       return operationView(rows[0].response);
     });
   }
+  setActive(
+    scope: EmailContext,
+    userId: string,
+    body: Record<string, unknown>,
+    activate: boolean,
+    key?: string,
+  ) {
+    if (
+      Object.keys(body).some((field) => !['version', 'reason'].includes(field)) ||
+      !Number.isSafeInteger(body.version) ||
+      Number(body.version) < 1 ||
+      typeof body.reason !== 'string' ||
+      body.reason.trim().length < 3 ||
+      body.reason.trim().length > 300
+    )
+      throw new BadRequestException('Use the current version and a reason of 3-300 characters.');
+    const intent = { version: body.version, reason: body.reason.trim() };
+    return emailWrite(
+      this.db,
+      this.audit,
+      scope,
+      userId,
+      key,
+      activate ? 'email_sender.activated' : 'email_sender.paused',
+      scope.propertyId,
+      intent,
+      async (tx) => {
+        const before = await this.read(tx, scope);
+        if (before.version !== intent.version)
+          throw new ConflictException('Sending configuration changed. Reload before continuing.');
+        if (activate) {
+          if (
+            before.mode === 'DEFAULT' ||
+            !before.encryptedCredentials ||
+            !before.credentialRevision ||
+            !before.fromAddress ||
+            (before.mode === 'SMTP' &&
+              (!before.fromVerifiedAt ||
+                !before.connectionCheckedAt ||
+                before.connectionStatus !== 'verified')) ||
+            (before.mode === 'RESEND' &&
+              (!before.domainCheckedAt ||
+                before.domainStatus !== 'verified' ||
+                before.fromAddress.split('@')[1] !== before.domain))
+          )
+            throw new BadRequestException('Verify the current custom sender before activating it.');
+          try {
+            const opened = this.credentials.open(
+              scope,
+              emailSendingCredentialBinding(before),
+              before.encryptedCredentials,
+            );
+            if ((before.mode === 'SMTP') !== (opened.provider === 'smtp')) throw Error();
+          } catch {
+            throw new BadRequestException(
+              'Replace the sending credentials and verify the sender again.',
+            );
+          }
+        }
+        const activeMode = activate ? before.mode : 'DEFAULT';
+        if (before.activeMode === activeMode)
+          return {
+            response: publicProfile(before),
+            details: { reason: intent.reason, unchanged: true, activeMode },
+          };
+        await tx.$executeRaw`UPDATE email_sending_profiles SET active_mode=${activeMode},version=version+1,updated_at=clock_timestamp() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid`;
+        const after = { ...before, activeMode, version: before.version + 1 };
+        return {
+          response: publicProfile(after),
+          details: {
+            reason: intent.reason,
+            before: { activeMode: before.activeMode, version: before.version },
+            after: { activeMode, version: after.version },
+            frozenAttemptsKeepOriginalRoute: true,
+          },
+        };
+      },
+    );
+  }
   async check(scope: EmailContext, userId: string, body: Record<string, unknown>, key?: string) {
     if (
       Object.keys(body).some((k) => !['version', 'reason'].includes(k)) ||
@@ -433,6 +512,8 @@ export class EmailSendingProfileService {
           !row.smtpSecurity
         )
           throw new BadRequestException('Save an SMTP sender before checking its connection.');
+        if (row.activeMode !== 'DEFAULT')
+          throw new ConflictException('Pause custom sending before checking its saved connection.');
         if (
           row.connectionStatus === 'checking' &&
           row.connectionExpiresAt &&

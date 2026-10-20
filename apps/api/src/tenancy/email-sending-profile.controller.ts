@@ -41,6 +41,40 @@ export class EmailSendingProfileController {
   ) {
     return this.domains.check(request.tenantContext, request.tenantContext.userId, body ?? {}, key);
   }
+  @Post('activate')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('settings.manage')
+  @RequiresVerifiedEmail()
+  activate(
+    @Req() request: Request,
+    @Body() body: Record<string, unknown>,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.profiles.setActive(
+      request.tenantContext,
+      request.tenantContext.userId,
+      body ?? {},
+      true,
+      key,
+    );
+  }
+  @Post('pause')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('settings.manage')
+  @RequiresVerifiedEmail()
+  pause(
+    @Req() request: Request,
+    @Body() body: Record<string, unknown>,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.profiles.setActive(
+      request.tenantContext,
+      request.tenantContext.userId,
+      body ?? {},
+      false,
+      key,
+    );
+  }
   @Get('domain/operations/:operationId')
   @TenantScoped({ propertyParam: 'propertyId' })
   @RequiresCapability('settings.manage')

@@ -1,7 +1,11 @@
 import type { PreparedTransportMessage } from './smtp-transport';
 import { MailDeliveryError } from './mail-delivery-error';
 
-export type PreparedMailReceipt = { provider: 'resend' | 'smtp'; providerMessageId: string };
+export type PreparedMailReceipt = {
+  provider: 'resend' | 'smtp';
+  providerMessageId: string;
+  usedFallback?: boolean;
+};
 /** Unknown acceptance must never cross an automatic transport/account boundary. */
 export class PreparedMailError extends MailDeliveryError {
   constructor(

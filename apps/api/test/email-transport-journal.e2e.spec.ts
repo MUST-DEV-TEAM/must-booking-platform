@@ -147,6 +147,13 @@ describe('transport journal: real PostgreSQL locks, RLS, uncertainty and audit a
       kind: 'unknown',
     });
   });
+  it('does not resend an accepted record with a missing receipt', async () => {
+    await journal.claim(scope, 'PRIMARY', async () => prepare());
+    await admin.$executeRaw`UPDATE email_transport_attempts SET state='ACCEPTED',provider_message_id=NULL WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND message_id=${scope.messageId}::uuid`;
+    const neverPrepare = vi.fn(async () => prepare());
+    expect(await journal.claim(scope, 'PRIMARY', neverPrepare)).toEqual({ kind: 'unknown' });
+    expect(neverPrepare).not.toHaveBeenCalled();
+  });
   it('makes fallback creation exclusive and prevents primary delivery restarting afterward', async () => {
     const first = sending(await journal.claim(scope, 'PRIMARY', async () => prepare()));
     await journal.finish(scope, 'PRIMARY', first.fence, new PreparedMailError('rejected', false));

@@ -18,6 +18,7 @@ import { describeMail, type QueuedMailCommands, type QueuedMailKind } from './ma
 import { MAIL_PROVIDER } from './mail.provider';
 import { SenderVerificationStore } from './sender-verification-store';
 import { TransportAttemptBusyError } from './email-transport-journal';
+import { EmailTransportFailures } from './email-transport-failures';
 
 export const MAIL_QUEUE_NAME = 'mail.transactional';
 /** How long a failed email can still be sent again from the activity screen. */
@@ -85,6 +86,9 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(SenderVerificationStore)
     private readonly senderProofs?: SenderVerificationStore,
+    @Optional()
+    @Inject(EmailTransportFailures)
+    private readonly senderFailures?: EmailTransportFailures,
   ) {}
 
   onModuleInit(): void {
@@ -357,6 +361,26 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
       );
       return;
     }
+    if (descriptor.eventType === 'owner.email_transport_failure') {
+      const eligible =
+        context.tenantId &&
+        context.propertyId &&
+        data.kind === 'rendered' &&
+        (await this.senderFailures?.allowed(
+          { tenantId: context.tenantId, propertyId: context.propertyId },
+          data.command as QueuedMailCommands['rendered'],
+        ));
+      if (!eligible) {
+        await this.withContext(
+          context,
+          (tx) => tx.$executeRaw`
+            UPDATE email_messages SET status='SUPPRESSED',last_error='Owner alert proof expired or recipient no longer qualifies.',workspace_version=workspace_version+1,updated_at=clock_timestamp()
+            WHERE tenant_id IS NOT DISTINCT FROM ${context.tenantId}::uuid AND property_id IS NOT DISTINCT FROM ${context.propertyId}::uuid AND id=${messageId}::uuid AND status='QUEUED'
+          `,
+        );
+        return;
+      }
+    }
     if (context.tenantId && context.propertyId) {
       const blocked = await this.database.withTenantTransaction(
         { tenantId: context.tenantId, propertyId: context.propertyId },
@@ -450,6 +474,7 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
         WHERE id = ${messageId}::uuid AND tenant_id IS NOT DISTINCT FROM ${context.tenantId}::uuid AND property_id IS NOT DISTINCT FROM ${context.propertyId}::uuid AND status = 'QUEUED'
       `,
       );
+      await this.alertSenderFailure(data);
       return;
     }
 
@@ -462,9 +487,48 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
       UPDATE email_messages
       SET status = 'SENT', provider = ${provider}, provider_message_id = ${providerMessageId},
           sent_at = now(), last_error = NULL, updated_at = now()
-      WHERE id = ${messageId}::uuid AND tenant_id IS NOT DISTINCT FROM ${context.tenantId}::uuid AND property_id IS NOT DISTINCT FROM ${context.propertyId}::uuid AND status = 'QUEUED'
+      WHERE id = ${messageId}::uuid AND tenant_id IS NOT DISTINCT FROM ${context.tenantId}::uuid AND property_id IS NOT DISTINCT FROM ${context.propertyId}::uuid
+        AND (status='QUEUED' OR (status='FAILED' AND EXISTS(SELECT 1 FROM email_transport_attempts a WHERE a.tenant_id=${context.tenantId}::uuid AND a.property_id=${context.propertyId}::uuid AND a.message_id=${messageId}::uuid AND a.state='ACCEPTED' AND a.provider=${provider} AND a.provider_message_id=${providerMessageId})))
     `,
     );
+    if (receipt && receipt.usedFallback) await this.alertSenderFailure(data);
+  }
+
+  private async alertSenderFailure(data: MailJobData) {
+    if (
+      !this.senderFailures ||
+      !data.context.tenantId ||
+      !data.context.propertyId ||
+      describeMail(data.kind, data.command as never).sensitive ||
+      describeMail(data.kind, data.command as never).eventType === 'owner.email_transport_failure'
+    )
+      return;
+    try {
+      const scope = { tenantId: data.context.tenantId, propertyId: data.context.propertyId };
+      await this.senderFailures.record({ ...scope, messageId: data.messageId });
+      await this.recoverSenderFailures(scope);
+    } catch {
+      this.logger.warn('Owner email-sender alert is pending recovery.');
+    }
+  }
+
+  async recoverSenderFailures(scope: { tenantId: string; propertyId: string }): Promise<void> {
+    if (!this.senderFailures) return;
+    await this.senderFailures.cleanup(scope);
+    await this.senderFailures.discover(scope);
+    for (const alert of await this.senderFailures.pending(scope)) {
+      if (alert.command.eventType !== 'owner.email_transport_failure') continue;
+      await this.dispatch('rendered', alert.command, scope, { preserveIdentity: true });
+      const rows = await this.database.withTenantTransaction(
+        scope,
+        (tx) => tx.$queryRaw<{ id: string; status: string }[]>`
+        SELECT id,status::text AS status FROM email_messages WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND idempotency_key=${alert.command.idempotencyKey} AND lower(recipient_email)=lower(${alert.command.to})
+      `,
+      );
+      const row = rows[0];
+      if (row && (row.status !== 'QUEUED' || (await this.queue?.getJob(row.id))))
+        await this.senderFailures.confirm(scope, alert, row.id);
+    }
   }
 
   private async transportRetryAllowed(

@@ -1286,6 +1286,32 @@ enum EmailRecipientKind {
   BCC
 }
 
+model EmailTransportFailure {
+  tenantId String @map("tenant_id") @db.Uuid
+  propertyId String @map("property_id") @db.Uuid
+  messageId String @map("message_id") @db.Uuid
+  notificationId String @map("notification_id") @db.Uuid
+  outcome String
+  alertStartedAt DateTime @default(now()) @map("alert_started_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@id([tenantId,propertyId,messageId])
+  @@index([tenantId,propertyId,alertStartedAt(sort: Desc)],map:"email_transport_failure_recent")
+  @@map("email_transport_failures")
+}
+model EmailTransportFailureOutbox {
+  tenantId String @map("tenant_id") @db.Uuid
+  propertyId String @map("property_id") @db.Uuid
+  messageId String @map("message_id") @db.Uuid
+  ownerUserId String @map("owner_user_id") @db.Uuid
+  recipientEmail String @map("recipient_email")
+  command Json
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt DateTime @default(dbgenerated("now() + interval '7 days'")) @map("expires_at") @db.Timestamptz(6)
+  @@id([tenantId,propertyId,messageId,ownerUserId])
+  @@map("email_transport_failure_outbox")
+}
+
 model EmailTransportAttempt {
   tenantId String @map("tenant_id") @db.Uuid
   propertyId String @map("property_id") @db.Uuid

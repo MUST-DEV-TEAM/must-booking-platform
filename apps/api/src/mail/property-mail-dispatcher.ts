@@ -231,7 +231,7 @@ export class PropertyMailDispatcher {
       });
       return { provider: 'resend', contents: JSON.stringify(plan) };
     });
-    return this.execute(scope, 'FALLBACK', claim);
+    return { ...(await this.execute(scope, 'FALLBACK', claim)), usedFallback: true };
   }
   private async execute(
     scope: TransportScope,

@@ -69,6 +69,7 @@ export type EmailMessage = {
   deliveredAt: string | null;
   canResend: boolean;
   retryUnavailableReason?: string | null;
+  transportBlocked?: boolean;
   version: number;
 };
 export type EmailPage = {

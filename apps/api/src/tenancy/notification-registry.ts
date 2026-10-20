@@ -8,6 +8,13 @@ export const NOTIFICATION_CATEGORIES = [
 ] as const;
 export const NOTIFICATION_PRIORITIES = ['Critical', 'High', 'Medium', 'Low'] as const;
 export const NOTIFICATION_REGISTRY = {
+  EMAIL_DELIVERY_FAILED: {
+    title: 'Hotel email sending needs attention',
+    description: 'Review the sending configuration and the linked delivery outcome.',
+    category: 'Emails',
+    priority: 'High',
+    capability: 'settings.manage',
+  },
   BOOKING_CREATED: {
     title: 'Booking created',
     description: 'A new reservation was made.',

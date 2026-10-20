@@ -20,7 +20,7 @@ const admin = new PrismaClient({
     db: { url: 'postgresql://must_booking:must_booking_dev@localhost:5432/must_booking' },
   },
 });
-describe('hotel sender profile storage, not sender activation', () => {
+describe('hotel sender profiles, diagnostics and explicit activation', () => {
   let app: INestApplication,
     tenantId = '',
     propertyId = '',
@@ -676,20 +676,32 @@ describe('hotel sender profile storage, not sender activation', () => {
     expect(connect).not.toHaveBeenCalled();
     expect(smtpSend).not.toHaveBeenCalled();
   });
-  it('does not change an existing sender choice or erase its last successful check during diagnostics', async () => {
+  it('requires an explicit pause before diagnostics and retains prior successful evidence', async () => {
     const profile = await prepareCheck(rlsProperty),
       lastSuccess = new Date('2026-10-01T10:00:00Z');
     await admin.$executeRaw`UPDATE email_sending_profiles SET active_mode='SMTP',from_verified_at=now(),connection_status='verified',connection_checked_at=${lastSuccess}
       WHERE tenant_id=${tenantId}::uuid AND property_id=${rlsProperty}::uuid`;
+    await check(
+      { version: profile.version, reason: 'Active diagnostics must not interrupt delivery' },
+      randomUUID(),
+      rlsProperty,
+    ).expect(409);
+    expect(smtpCheck).not.toHaveBeenCalled();
+    const paused = await request(app.getHttpServer())
+      .post(url(rlsProperty) + '/pause')
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ version: profile.version, reason: 'Pause before diagnostics' })
+      .expect(201);
     smtpCheck.mockRejectedValueOnce(new Error('diagnostic failure'));
     await check(
-      { version: profile.version, reason: 'Check existing sender without switching it' },
+      { version: paused.body.version, reason: 'Check explicitly paused sender' },
       randomUUID(),
       rlsProperty,
     ).expect(201);
     const failed = (await get(rlsProperty).expect(200)).body;
     expect(failed).toMatchObject({
-      activeMode: 'SMTP',
+      activeMode: 'DEFAULT',
       connectionStatus: 'failed',
       connectionCheckedAt: lastSuccess.toISOString(),
     });
@@ -699,9 +711,83 @@ describe('hotel sender profile storage, not sender activation', () => {
       rlsProperty,
     ).expect(201);
     expect((await get(rlsProperty).expect(200)).body).toMatchObject({
-      activeMode: 'SMTP',
+      activeMode: 'DEFAULT',
       connectionStatus: 'verified',
     });
     expect(smtpSend).not.toHaveBeenCalled();
+  });
+  it('activates only verified saved setup, serializes races and replays the original receipt', async () => {
+    const profile = await prepareCheck(checkProperty);
+    const body = { version: profile.version, reason: 'Activate verified custom sender' };
+    const activate = (value: object, key = randomUUID()) =>
+      request(app.getHttpServer())
+        .post(url(checkProperty) + '/activate')
+        .set('Cookie', cookie)
+        .set('Idempotency-Key', key)
+        .send(value);
+    await activate(body).expect(400);
+    await admin.$executeRaw`UPDATE email_sending_profiles SET connection_status='verified',connection_checked_at=now() WHERE tenant_id=${tenantId}::uuid AND property_id=${checkProperty}::uuid`;
+    await activate(body).expect(400);
+    await admin.$executeRaw`UPDATE email_sending_profiles SET from_verified_at=now() WHERE tenant_id=${tenantId}::uuid AND property_id=${checkProperty}::uuid`;
+    await request(app.getHttpServer())
+      .post(url(checkProperty) + '/activate')
+      .set('Cookie', cookie)
+      .send(body)
+      .expect(400);
+    const keys = [randomUUID(), randomUUID()];
+    const results = await Promise.all(keys.map((key) => activate(body, key)));
+    expect(results.map((result) => result.status).sort()).toEqual([201, 409]);
+    const winner = results.findIndex((result) => result.status === 201);
+    expect(results[winner]!.body).toMatchObject({
+      activeMode: 'SMTP',
+      version: profile.version + 1,
+    });
+    expect((await activate(body, keys[winner]!).expect(201)).body).toEqual(results[winner]!.body);
+    await activate({ ...body, reason: 'Changed approval' }, keys[winner]!).expect(409);
+    expect((await get(checkProperty).expect(200)).body.activeMode).toBe('SMTP');
+    expect(smtpSend).not.toHaveBeenCalled();
+    const current = (await get(checkProperty).expect(200)).body;
+    await request(app.getHttpServer())
+      .post(url(checkProperty) + '/pause')
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ version: current.version, reason: 'Return new deliveries to MUST' })
+      .expect(201);
+    expect((await get(checkProperty).expect(200)).body.activeMode).toBe('DEFAULT');
+  });
+  it('rolls activation back on audit failure and refuses an unverified actor', async () => {
+    const profile = await prepareCheck(checkProperty);
+    await admin.$executeRaw`UPDATE email_sending_profiles SET from_verified_at=now(),connection_status='verified',connection_checked_at=now() WHERE tenant_id=${tenantId}::uuid AND property_id=${checkProperty}::uuid`;
+    const activate = () =>
+      request(app.getHttpServer())
+        .post(url(checkProperty) + '/activate')
+        .set('Cookie', cookie)
+        .set('Idempotency-Key', randomUUID())
+        .send({ version: profile.version, reason: 'Check activation boundary' });
+    const spy = vi
+      .spyOn(app.get(AuditLogService), 'recordInTransaction')
+      .mockRejectedValueOnce(Error('Simulated activation audit failure'));
+    try {
+      await activate().expect(500);
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await get(checkProperty).expect(200)).body).toMatchObject({
+      activeMode: 'DEFAULT',
+      version: profile.version,
+    });
+    const [owner] = await admin.$queryRaw<
+      { verified: Date }[]
+    >`SELECT email_verified_at AS verified FROM users WHERE id=${userId}::uuid`;
+    try {
+      await admin.$executeRaw`UPDATE users SET email_verified_at=NULL WHERE id=${userId}::uuid`;
+      await activate().expect(403);
+    } finally {
+      await admin.$executeRaw`UPDATE users SET email_verified_at=${owner!.verified} WHERE id=${userId}::uuid`;
+    }
+    await request(app.getHttpServer())
+      .post(url(checkProperty) + '/activate')
+      .send({ version: profile.version, reason: 'Unauthenticated request' })
+      .expect(401);
   });
 });
