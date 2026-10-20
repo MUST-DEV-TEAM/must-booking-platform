@@ -1306,6 +1306,52 @@ enum EmailRecipientKind {
   BCC
 }
 
+model EmailTransportFailure {
+  tenantId String @map("tenant_id") @db.Uuid
+  propertyId String @map("property_id") @db.Uuid
+  messageId String @map("message_id") @db.Uuid
+  notificationId String @map("notification_id") @db.Uuid
+  outcome String
+  alertStartedAt DateTime @default(now()) @map("alert_started_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@id([tenantId,propertyId,messageId])
+  @@index([tenantId,propertyId,alertStartedAt(sort: Desc)],map:"email_transport_failure_recent")
+  @@map("email_transport_failures")
+}
+model EmailTransportFailureOutbox {
+  tenantId String @map("tenant_id") @db.Uuid
+  propertyId String @map("property_id") @db.Uuid
+  messageId String @map("message_id") @db.Uuid
+  ownerUserId String @map("owner_user_id") @db.Uuid
+  recipientEmail String @map("recipient_email")
+  command Json
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt DateTime @default(dbgenerated("now() + interval '7 days'")) @map("expires_at") @db.Timestamptz(6)
+  @@id([tenantId,propertyId,messageId,ownerUserId])
+  @@map("email_transport_failure_outbox")
+}
+
+model EmailTransportAttempt {
+  tenantId String @map("tenant_id") @db.Uuid
+  propertyId String @map("property_id") @db.Uuid
+  messageId String @map("message_id") @db.Uuid
+  stage String
+  provider String
+  state String @default("READY")
+  encryptedPayload String? @map("encrypted_payload")
+  attempt Int @default(0)
+  fence String? @db.Uuid
+  leaseExpiresAt DateTime? @map("lease_expires_at") @db.Timestamptz(6)
+  retryable Boolean @default(false)
+  providerMessageId String? @map("provider_message_id")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  expiresAt DateTime @default(dbgenerated("now() + interval '7 days'")) @map("expires_at") @db.Timestamptz(6)
+  @@id([tenantId,propertyId,messageId,stage])
+  @@map("email_transport_attempts")
+}
+
 model EmailMessage {
   resendOfMessageId String? @map("resend_of_message_id") @db.Uuid
   workspaceVersion Int @default(1) @map("workspace_version")
@@ -1662,4 +1708,55 @@ model EmailMessagePreview {
  @@id([tenantId,propertyId,messageId])
  @@index([tenantId,propertyId,expiresAt],map:"email_message_previews_expiry")
  @@map("email_message_previews")
+}
+
+model EmailSendingProfile {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ version Int @default(1)
+ mode String @default("DEFAULT")
+ activeMode String @default("DEFAULT") @map("active_mode")
+ fromName String? @map("from_name")
+ fromAddress String? @map("from_address")
+ domain String?
+ smtpHost String? @map("smtp_host")
+ smtpPort Int? @map("smtp_port")
+ smtpSecurity String? @map("smtp_security")
+ encryptedCredentials String? @map("encrypted_credentials")
+ credentialRevision String? @map("credential_revision") @db.Uuid
+ fallbackGuest Boolean @default(true) @map("fallback_guest")
+ fromVerifiedAt DateTime? @map("from_verified_at") @db.Timestamptz(6)
+ connectionCheckedAt DateTime? @map("connection_checked_at") @db.Timestamptz(6)
+ connectionStatus String @default("unknown") @map("connection_status")
+ connectionOperationId String? @map("connection_operation_id") @db.Uuid
+ connectionExpiresAt DateTime? @map("connection_expires_at") @db.Timestamptz(6)
+ domainCheckedAt DateTime? @map("domain_checked_at") @db.Timestamptz(6)
+ domainStatus String @default("unknown") @map("domain_status")
+ dnsRecords Json @default("[]") @map("dns_records")
+ dmarcEvidence Json? @map("dmarc_evidence")
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+ updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+ @@id([tenantId,propertyId])
+ @@map("email_sending_profiles")
+}
+
+model EmailSenderProof {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ id String @db.Uuid
+ credentialRevision String @map("credential_revision") @db.Uuid
+ fromAddress String @map("from_address")
+ codeHash String? @map("code_hash") @db.Char(64)
+ encryptedMessage String? @map("encrypted_message")
+ transportFingerprint String @map("transport_fingerprint") @db.Char(64)
+ state String @default("pending")
+ attempts Int @default(0)
+ guessFingerprints String[] @default([]) @map("guess_fingerprints")
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+ expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+ verifiedAt DateTime? @map("verified_at") @db.Timestamptz(6)
+ verifiedBy String? @map("verified_by") @db.Uuid
+ @@id([tenantId,propertyId,id])
+ @@index([tenantId,propertyId,createdAt],map:"email_sender_proofs_recent")
+ @@map("email_sender_proofs")
 }

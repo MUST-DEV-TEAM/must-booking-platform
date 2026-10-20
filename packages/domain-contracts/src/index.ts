@@ -5,7 +5,11 @@ export type BillingProviderContext = TenantContext;
 export type PaymentProviderContext = PropertyContext;
 
 /** Returned by transports that can report the provider-side message id (used by the email log). */
-export type MailSendReceipt = { providerMessageId?: string };
+export type MailSendReceipt = {
+  providerMessageId?: string;
+  provider?: 'resend' | 'smtp';
+  usedFallback?: boolean;
+};
 
 export interface MailProvider {
   sendVerificationEmail(command: {
@@ -458,7 +462,12 @@ export interface NotificationSettingsResponse {
   topics: NotificationTopicSettings[];
   options: {
     roleTemplates: Array<{ id: string; name: string }>;
-    staff: Array<{ userId: string; email: string; role: 'OWNER' | 'ADMIN' | 'STAFF' }>;
+    staff: Array<{
+      userId: string;
+      email: string;
+      name?: string;
+      role: 'OWNER' | 'ADMIN' | 'STAFF';
+    }>;
   };
 }
 

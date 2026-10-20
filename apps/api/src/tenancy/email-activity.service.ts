@@ -39,6 +39,7 @@ export type EmailActivityItem = {
   deliveredAt: Date | null;
   /** A failed email that is recent enough to be sent again. */
   canResend: boolean;
+  transportBlocked: boolean;
 };
 
 /** Who guest emails come from today, and where replies go. */
@@ -75,6 +76,8 @@ const LABELS: Record<string, string> = {
   'owner.daily_summary': 'Daily summary (owner)',
   'template.test': 'Template test',
   'staff.invitation': 'Staff invitation',
+  'email.sender_verification': 'Sender mailbox verification',
+  'sender.test': 'Custom sender test',
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -102,7 +105,8 @@ export class EmailActivityService {
         SELECT em.id,em.workspace_version AS version,em.event_type AS "eventType",em.recipient_email AS recipient,em.subject,
           em.status::text AS status,em.last_error AS "lastError",em.attempt_count AS "attemptCount",
           em.booking_id::text AS "bookingId",COALESCE(b.order_reference,b.external_reference) AS "bookingReference",
-          em.created_at AS "createdAt",em.sent_at AS "sentAt",em.delivered_at AS "deliveredAt"
+          em.created_at AS "createdAt",em.sent_at AS "sentAt",em.delivered_at AS "deliveredAt",
+          EXISTS(SELECT 1 FROM email_transport_attempts eta WHERE eta.tenant_id=em.tenant_id AND eta.property_id=em.property_id AND eta.message_id=em.id AND eta.state IN ('SENDING','UNKNOWN')) AS "transportBlocked"
         ${scope} ORDER BY ${filters.order} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`);
       const counts = await tx.$queryRaw<{ total: number }[]>(
         Prisma.sql`SELECT count(*)::int AS total ${scope}`,
@@ -120,8 +124,11 @@ export class EmailActivityService {
           label: LABELS[row.eventType] ?? row.eventType,
           lastError: row.lastError ? safeDeliveryError(row.lastError) : null,
           canResend:
+            !row.transportBlocked &&
             row.status === 'FAILED' &&
-            row.eventType !== 'staff.invitation' &&
+            !['staff.invitation', 'email.sender_verification', 'sender.test'].includes(
+              row.eventType,
+            ) &&
             new Date(row.createdAt).getTime() > cutoff,
         })),
         observedAt: properties[0]!.observedAt,
@@ -301,7 +308,7 @@ export class EmailActivityService {
           count(*) FILTER(WHERE em.created_at >= date_trunc('day',now() AT TIME ZONE p.timezone) AT TIME ZONE p.timezone)::int AS today
         FROM email_messages em JOIN properties p ON p.tenant_id=em.tenant_id AND p.id=em.property_id
         WHERE em.tenant_id=${context.tenantId}::uuid AND em.property_id=${context.propertyId}::uuid
-          AND em.event_type<>'template.test' AND em.created_at>=now()-interval '7 days'
+          AND em.event_type NOT IN ('template.test','sender.test') AND em.created_at>=now()-interval '7 days'
         GROUP BY status,p.timezone
       `;
       const metrics = await tx.$queryRaw<
@@ -324,12 +331,12 @@ export class EmailActivityService {
           count(*) FILTER(WHERE em.status='QUEUED')::int AS queued,
           min(em.created_at) FILTER(WHERE em.status='QUEUED') AS "oldestQueued",
           (SELECT count(*)::int FROM email_suppressions WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND active) AS "suppressedAddresses"
-        FROM email_messages em WHERE em.tenant_id=${context.tenantId}::uuid AND em.property_id=${context.propertyId}::uuid AND em.event_type<>'template.test'
+        FROM email_messages em WHERE em.tenant_id=${context.tenantId}::uuid AND em.property_id=${context.propertyId}::uuid AND em.event_type NOT IN ('template.test','sender.test')
       `;
       const failingTopics = await tx.$queryRaw<{ topic: string; count: number }[]>`
         SELECT event_type AS topic,count(*)::int AS count FROM email_messages
         WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid
-          AND event_type<>'template.test' AND created_at>=now()-interval '7 days' AND status IN('FAILED','BOUNCED','COMPLAINED')
+          AND event_type NOT IN ('template.test','sender.test') AND created_at>=now()-interval '7 days' AND status IN('FAILED','BOUNCED','COMPLAINED')
         GROUP BY event_type ORDER BY count(*) DESC,event_type LIMIT 10
       `;
       const actionNeeded = await tx.$queryRaw<
@@ -344,15 +351,74 @@ export class EmailActivityService {
       >`
         SELECT id,event_type AS "eventType",recipient_email AS recipient,status::text AS status,last_error AS "lastError",created_at AS "createdAt"
         FROM email_messages WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid
-          AND event_type<>'template.test' AND status IN('FAILED','BOUNCED','COMPLAINED')
+          AND event_type NOT IN ('template.test','sender.test') AND status IN('FAILED','BOUNCED','COMPLAINED')
         ORDER BY created_at DESC,id DESC LIMIT 10
       `;
       const m = metrics[0]!;
+      const senderRows = await tx.$queryRaw<
+        {
+          mode: string;
+          activeMode: string;
+          status: string;
+          records: unknown;
+          dmarc: unknown;
+          checkedAt: Date | null;
+        }[]
+      >`
+        SELECT mode,active_mode AS "activeMode",domain_status AS status,dns_records AS records,dmarc_evidence AS dmarc,domain_checked_at AS "checkedAt"
+        FROM email_sending_profiles WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid`;
+      const sender = senderRows[0];
+      const dns = sender && Array.isArray(sender.records) ? sender.records : [];
+      const purposeStatus = (purpose: string) => {
+        const matching = dns.filter(
+          (row) => row && typeof row === 'object' && row.record === purpose,
+        );
+        if (!matching.length) return 'No recorded DNS result';
+        return matching.every((row) => row.status === 'verified')
+          ? 'Provider verified'
+          : 'Provider: ' +
+              [
+                ...new Set(
+                  matching.map((row) =>
+                    typeof row.status === 'string' ? row.status : 'not recorded',
+                  ),
+                ),
+              ].join(', ');
+      };
+      const dmarcState =
+        sender?.dmarc && typeof sender.dmarc === 'object' && 'state' in sender.dmarc
+          ? sender.dmarc.state
+          : null;
+      const domainEvidence = {
+        activeMode: sender?.activeMode ?? 'DEFAULT',
+        setupMode: sender?.mode ?? 'DEFAULT',
+        status: sender?.status ?? 'unknown',
+        checkedAt: sender?.checkedAt ?? null,
+        spf: purposeStatus('SPF'),
+        dkim: purposeStatus('DKIM'),
+        dmarc:
+          dmarcState === 'published'
+            ? 'TXT published; alignment not checked'
+            : dmarcState === 'absent'
+              ? 'No TXT at the exact name; parent policy may apply'
+              : dmarcState === 'invalid'
+                ? 'Review conflicting or invalid DNS records'
+                : dmarcState === 'unknown'
+                  ? 'Public DNS check unavailable'
+                  : 'No DMARC check recorded',
+      };
       return {
         days: 7,
         counts,
         testTrafficExcluded: true,
-        domainAuthentication: 'UNKNOWN' as const,
+        domainAuthentication:
+          sender &&
+          sender.mode === sender.activeMode &&
+          sender.mode !== 'SMTP' &&
+          sender.status === 'verified'
+            ? 'VERIFIED'
+            : 'UNKNOWN',
+        domainEvidence,
         ...m,
         bounceRate: m.attempted7d ? (m.bounced7d * 100) / m.attempted7d : null,
         complaintRate: m.attempted7d ? (m.complained7d * 100) / m.attempted7d : null,
@@ -383,7 +449,8 @@ export class EmailActivityService {
         SELECT em.id,em.event_type AS "eventType",em.recipient_email AS recipient,em.subject,
           em.status::text AS status,em.last_error AS "lastError",em.attempt_count AS "attemptCount",
           em.booking_id::text AS "bookingId",COALESCE(b.order_reference,b.external_reference) AS "bookingReference",
-          em.created_at AS "createdAt",em.sent_at AS "sentAt",em.delivered_at AS "deliveredAt",em.workspace_version AS version,em.provider,em.provider_message_id AS "providerMessageId",em.resend_of_message_id AS "resendOfMessageId"
+          em.created_at AS "createdAt",em.sent_at AS "sentAt",em.delivered_at AS "deliveredAt",em.workspace_version AS version,em.provider,em.provider_message_id AS "providerMessageId",em.resend_of_message_id AS "resendOfMessageId",
+          EXISTS(SELECT 1 FROM email_transport_attempts eta WHERE eta.tenant_id=em.tenant_id AND eta.property_id=em.property_id AND eta.message_id=em.id AND eta.state IN ('SENDING','UNKNOWN')) AS "transportBlocked"
         FROM email_messages em LEFT JOIN bookings b ON b.tenant_id=em.tenant_id AND b.property_id=em.property_id AND b.id=em.booking_id
         WHERE em.tenant_id=${context.tenantId}::uuid AND em.property_id=${context.propertyId}::uuid AND em.id=${messageId}::uuid
       `;
@@ -420,9 +487,13 @@ export class EmailActivityService {
         timeline: events.slice(0, 200).reverse(),
         timelineTruncated: events.length > 200,
         timelineHasCreation: events.some((e) => e.kind === 'QUEUED' && e.attemptCount === 0),
-        retryUnavailableReason: suppressed.length
-          ? 'Recipient is suppressed. Resolve it in Configuration before retrying.'
-          : null,
+        retryUnavailableReason: row.transportBlocked
+          ? 'Another delivery attempt is active or acceptance is unknown. Automatic resend is stopped.'
+          : suppressed.length
+            ? 'Recipient is suppressed. Resolve it in Configuration before retrying.'
+            : row.eventType === 'sender.test'
+              ? 'Create a new sender test in Configuration. Sender tests have a separate hotel-wide rate limit.'
+              : null,
         lastError: row.lastError ? safeDeliveryError(row.lastError) : null,
         label: LABELS[row.eventType] ?? row.eventType,
         canResend:

@@ -18,9 +18,9 @@ describe('registered in-app alert routing', () => {
     expect(registeredNotificationTypes(['payments.view'])).toEqual(['PAYMENT_REFUNDED']);
     expect(registeredNotificationTypes(['staff.view'])).toEqual(['STAFF_SEAT_CAP_REACHED']);
   });
-  it('owner/admin breadth includes only the four real producers', () => {
+  it('owner/admin breadth includes only registered real producers', () => {
     expect(registeredNotificationTypes([], true)).toEqual(Object.keys(NOTIFICATION_REGISTRY));
-    expect(registeredNotificationTypes([], true)).toHaveLength(4);
+    expect(registeredNotificationTypes([], true)).toHaveLength(5);
   });
   it('keeps all design categories/priorities without fabricating producers', () => {
     expect(NOTIFICATION_CATEGORIES).toHaveLength(5);

@@ -16,6 +16,7 @@ export interface QueuedMailCommands {
   passwordReset: CommandOf<'sendPasswordResetEmail'>;
   staffInvitation: CommandOf<'sendStaffInvitationEmail'>;
   rendered: CommandOf<'sendRenderedEmail'>;
+  senderVerification: { verificationId: string; to: string };
 }
 export type QueuedMailKind = keyof QueuedMailCommands;
 
@@ -147,6 +148,17 @@ export function describeMail<K extends QueuedMailKind>(
         bookingId: c.bookingId,
         sensitive: false,
       };
+    case 'senderVerification': {
+      const proof = command as QueuedMailCommands['senderVerification'];
+      return {
+        eventType: 'email.sender_verification',
+        recipient: proof.to,
+        subject: 'Verify your hotel email sender',
+        idempotencyKey: `sender-verification/${proof.verificationId}`,
+        bookingId: null,
+        sensitive: true,
+      };
+    }
     case 'staffInvitation':
       return {
         eventType: 'staff.invitation',

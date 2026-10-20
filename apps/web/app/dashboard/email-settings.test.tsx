@@ -135,7 +135,11 @@ function mockFetch(failure?: number, detail: object = message) {
           page: 1,
           pageSize: 100,
         });
-      if (url === base + '/email-activity/m1') return Response.json(detail);
+      if (
+        url === base + '/email-activity/m1' ||
+        ('id' in detail && url === `${base}/email-activity/${String(detail.id)}`)
+      )
+        return Response.json(detail);
       if (url === base + '/email-activity/m2')
         return Response.json({
           ...message,
@@ -152,6 +156,26 @@ function mockFetch(failure?: number, detail: object = message) {
           senderName: null,
           replyTo: null,
           defaultLanguage: 'en',
+        });
+      if (url === base + '/email-configuration/sending')
+        return Response.json({
+          version: 1,
+          mode: 'DEFAULT',
+          activeMode: 'DEFAULT',
+          fromName: null,
+          fromAddress: null,
+          domain: null,
+          smtpHost: null,
+          smtpPort: null,
+          smtpSecurity: null,
+          fallbackGuest: true,
+          credentialsPresent: false,
+          fromVerifiedAt: null,
+          connectionCheckedAt: null,
+          connectionStatus: 'unknown',
+          connectionOperationId: null,
+          connectionExpiresAt: null,
+          domainStatus: 'unknown',
         });
       if (url === base + '/notification-settings') return Response.json(settings);
       if (url === base + '/email-sender')
@@ -236,6 +260,43 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 describe('Emails workspace and legacy links', () => {
+  it('opens an authorized scoped delivery deep link and explains an uncertain transport without a retry', async () => {
+    const oldUrl = window.location.href,
+      id = 'ab9e6247-ff17-43d6-80b3-96c291801118';
+    try {
+      window.history.replaceState(null, '', `?emailMessageId=${id}`);
+      const calls = mockFetch(undefined, {
+        ...message,
+        id,
+        canResend: false,
+        canSendCopy: false,
+        transportBlocked: true,
+        retryUnavailableReason:
+          'Another delivery attempt is active or acceptance is unknown. Automatic resend is stopped.',
+      });
+      await mount(undefined, true, true);
+      expect(calls.some((call) => call.url === `${base}/email-activity/${id}`)).toBe(true);
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+        'acceptance is unknown',
+      );
+      expect(button('Review sender setup')).toBeTruthy();
+      expect(document.body.textContent).not.toContain('Review suppression');
+    } finally {
+      window.history.replaceState(null, '', oldUrl);
+    }
+  });
+  it('ignores a malformed message deep link', async () => {
+    const oldUrl = window.location.href;
+    try {
+      window.history.replaceState(null, '', '?emailMessageId=not-a-message');
+      const calls = mockFetch();
+      await mount(undefined, true, true);
+      expect(calls.some((call) => call.url.endsWith('/email-activity/not-a-message'))).toBe(false);
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    } finally {
+      window.history.replaceState(null, '', oldUrl);
+    }
+  });
   it('recognizes saved tabs and shows actual delivery evidence in the new overview', async () => {
     expect(isEmailTab('activity')).toBe(true);
     expect(isEmailTab('bad')).toBe(false);

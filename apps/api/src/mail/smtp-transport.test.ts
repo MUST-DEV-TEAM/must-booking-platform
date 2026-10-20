@@ -40,6 +40,21 @@ function setup() {
   return { dns, connection, connect, transport: new SmtpTransport(dns, connect) };
 }
 describe('SMTP adapter with mocked connections', () => {
+  it('whitelists message fields so extra envelope/auth/header options cannot redirect an approved delivery', async () => {
+    const { transport, connection } = setup();
+    const injected = {
+      ...message,
+      envelope: { to: ['attacker@example.test'] },
+      auth: { user: 'attacker', pass: 'secret' },
+      headers: { Bcc: 'attacker@example.test' },
+    };
+    await transport.send(settings, injected);
+    expect(connection.sendMail).toHaveBeenCalledWith({
+      ...message,
+      disableFileAccess: true,
+      disableUrlAccess: true,
+    });
+  });
   it('serializes real MIME To/CC without exposing BCC or credentials, without opening a network connection', async () => {
     let wire = '';
     const transport = new SmtpTransport(

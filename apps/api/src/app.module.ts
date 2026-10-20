@@ -77,6 +77,18 @@ import { AuditLogController } from './tenancy/audit-log.controller';
 import { AuditLogService } from './tenancy/audit-log.service';
 import { MAIL_PROVIDER } from './mail/mail.provider';
 import { EmailMessageArchiveService } from './mail/email-message-archive.service';
+import { EmailTransportJournal } from './mail/email-transport-journal';
+import { EmailTransportFailures } from './mail/email-transport-failures';
+import { EmailSenderTestService } from './tenancy/email-sender-test.service';
+import { PropertyMailDispatcher } from './mail/property-mail-dispatcher';
+import { EmailTransportCredentialService } from './mail/email-transport-credentials';
+import { SmtpTransport } from './mail/smtp-transport';
+import { EmailSendingProfileController } from './tenancy/email-sending-profile.controller';
+import { EmailSendingProfileService } from './tenancy/email-sending-profile.service';
+import { EmailSenderVerificationService } from './tenancy/email-sender-verification.service';
+import { EmailDomainVerificationService } from './tenancy/email-domain-verification.service';
+import { SenderVerificationStore } from './mail/sender-verification-store';
+import { SenderVerificationPayloadService } from './mail/sender-verification-secrets';
 import { ResendMailProvider } from './mail/resend-mail.provider';
 import { MailDeliveryService } from './mail/mail-delivery.service';
 import { AlertEmailService } from './mail/alert-email.service';
@@ -259,6 +271,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     EmailTemplatesController,
     EmailSuppressionsController,
     EmailConfigurationController,
+    EmailSendingProfileController,
     EmailTemplateVersionsController,
     EmailActivityController,
     EmailSenderController,
@@ -353,6 +366,13 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     EmailTemplatesService,
     EmailSuppressionsService,
     EmailConfigurationService,
+    EmailSendingProfileService,
+    EmailSenderVerificationService,
+    EmailDomainVerificationService,
+    SenderVerificationStore,
+    SenderVerificationPayloadService,
+    { provide: SmtpTransport, useFactory: () => new SmtpTransport() },
+    EmailTransportCredentialService,
     EmailTemplateVersionsService,
     EmailActivityService,
     ReviewLinksService,
@@ -425,6 +445,10 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     R2StorageProvider,
     { provide: STORAGE_PROVIDER, useExisting: R2StorageProvider },
     EmailMessageArchiveService,
+    EmailTransportJournal,
+    EmailTransportFailures,
+    EmailSenderTestService,
+    PropertyMailDispatcher,
     ResendMailProvider,
     MailDeliveryService,
     ScheduledEmailService,

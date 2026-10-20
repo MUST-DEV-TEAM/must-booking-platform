@@ -73,6 +73,16 @@ function EmailsWorkspaceContent({
   const [tab, setTab] = useState(initialTab);
   const [template, setTemplate] = useState<EmailTemplate | null>(null);
   const [messageId, setMessageId] = useState<string | null>(null);
+  useEffect(() => {
+    const value = new URLSearchParams(window.location.search).get('emailMessageId');
+    if (
+      value &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ) {
+      setTab('delivery');
+      setMessageId(value);
+    }
+  }, [tenantId, propertyId]);
   const [deliveryPage, setDeliveryPage] = useState(1),
     [deliverySize, setDeliverySize] = useState(25),
     [deliveryFilter, setDeliveryFilter] = useState('all'),
@@ -1200,7 +1210,9 @@ function EmailDeliveryDetail({
           ) : null}
           {query.data.retryUnavailableReason ? (
             <Button variant="outline" onClick={onConfiguration}>
-              Review suppression
+              {query.data.transportBlocked || query.data.eventType === 'sender.test'
+                ? 'Review sender setup'
+                : 'Review suppression'}
             </Button>
           ) : null}
           {query.data.canSendCopy === true ? (

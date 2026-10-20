@@ -33,6 +33,7 @@ type Row = {
   startsOn: string | null;
   endsOn: string | null;
   needsAction: boolean | null;
+  emailMessageId: string | null;
 };
 /** Personal awareness over existing operational facts; reading never resolves an issue. */
 @Injectable()
@@ -59,7 +60,8 @@ export class NotificationInboxService {
     return Prisma.sql`
   SELECT n.id,n.type,r.read_at AS "readAt",n.created_at AS "createdAt",b.id AS "bookingId",b.status::text AS "bookingStatus",b.external_reference AS reference,
    NULLIF(TRIM(CONCAT_WS(' ',g.first_name,g.last_name)),'') AS "guestName",b.starts_on::text AS "startsOn",b.ends_on::text AS "endsOn",
-   CASE WHEN n.type<>'BOOKING_NEEDS_ATTENTION' THEN false WHEN b.id IS NULL THEN NULL ELSE
+   n.payload->>'emailMessageId' AS "emailMessageId",
+   CASE WHEN n.type='EMAIL_DELIVERY_FAILED' THEN true WHEN n.type<>'BOOKING_NEEDS_ATTENTION' THEN false WHEN b.id IS NULL THEN NULL ELSE
     (b.status::text=ANY(${[...BOOKING_NEEDS_ATTENTION_STATUSES]}::text[]) OR EXISTS(SELECT 1 FROM manual_review_items m WHERE m.tenant_id=${c.tenantId}::uuid AND m.property_id=${c.propertyId}::uuid AND m.reference_type='booking' AND m.reference_id=b.id::text AND m.status='OPEN')) END AS "needsAction"
   FROM notifications n
   LEFT JOIN notification_reads r ON r.tenant_id=n.tenant_id AND r.property_id=n.property_id AND r.notification_id=n.id AND r.user_id=${c.userId}::uuid
@@ -73,11 +75,16 @@ export class NotificationInboxService {
     const canBooking = caps.includes('bookings.view'),
       canStaff = caps.includes('staff.view');
     const href =
-      canBooking && row.bookingId
-        ? `/dashboard/${c.tenantId}?propertyId=${c.propertyId}&section=reservations&reservation=${row.bookingId}`
-        : row.type === 'STAFF_SEAT_CAP_REACHED' && canStaff
-          ? `/dashboard/${c.tenantId}?propertyId=${c.propertyId}&section=staff`
-          : null;
+      row.type === 'EMAIL_DELIVERY_FAILED' &&
+      caps.includes('settings.manage') &&
+      row.emailMessageId &&
+      NOTIFICATION_UUID.test(row.emailMessageId)
+        ? `/dashboard/${c.tenantId}?propertyId=${c.propertyId}&section=emails&emailMessageId=${row.emailMessageId}`
+        : canBooking && row.bookingId
+          ? `/dashboard/${c.tenantId}?propertyId=${c.propertyId}&section=reservations&reservation=${row.bookingId}`
+          : row.type === 'STAFF_SEAT_CAP_REACHED' && canStaff
+            ? `/dashboard/${c.tenantId}?propertyId=${c.propertyId}&section=staff`
+            : null;
     return {
       id: row.id,
       type: row.type,
@@ -98,11 +105,17 @@ export class NotificationInboxService {
           : null,
       href,
       limitedContext:
-        !canBooking && row.type !== 'STAFF_SEAT_CAP_REACHED'
-          ? 'bookings.view'
-          : !row.bookingId && row.type !== 'STAFF_SEAT_CAP_REACHED'
-            ? 'Related reservation is unavailable'
-            : null,
+        row.type === 'EMAIL_DELIVERY_FAILED'
+          ? !caps.includes('settings.manage')
+            ? 'settings.manage'
+            : !href
+              ? 'Related email is unavailable'
+              : null
+          : !canBooking && row.type !== 'STAFF_SEAT_CAP_REACHED'
+            ? 'bookings.view'
+            : !row.bookingId && row.type !== 'STAFF_SEAT_CAP_REACHED'
+              ? 'Related reservation is unavailable'
+              : null,
     };
   }
   async list(c: InboxContext, query: Record<string, unknown> = {}) {

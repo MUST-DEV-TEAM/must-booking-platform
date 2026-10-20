@@ -30,12 +30,23 @@ export function UnsavedChangesBoundary({ children }: { children: ReactNode }) {
         event.ctrlKey ||
         event.metaKey ||
         event.shiftKey ||
+        event.altKey ||
         anchor.getAttribute('target') === '_blank' ||
         anchor.hasAttribute('download')
       )
         return;
       const href = (anchor as HTMLAnchorElement).href;
       if (!href || href === window.location.href || !/^https?:/.test(href)) return;
+      const destination = new URL(href),
+        current = new URL(window.location.href);
+      // Skip links and in-page anchors retain the editor. Do not offer to discard its draft.
+      if (
+        destination.origin === current.origin &&
+        destination.pathname === current.pathname &&
+        destination.search === current.search &&
+        (destination.hash || href.endsWith('#'))
+      )
+        return;
       event.preventDefault();
       event.stopImmediatePropagation();
       setPending(() => () => window.location.assign(href));

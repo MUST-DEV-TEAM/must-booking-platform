@@ -18,6 +18,12 @@ export function EmailHealthOverview({
 }) {
   const rate = (v: number | null) =>
     v === null ? 'No attempts in this period' : `${v.toFixed(2)}%`;
+  const senderNames: Record<string, string> = {
+    DEFAULT: 'Default MUST sender',
+    RESEND: 'Own domain through Resend',
+    SMTP: 'Custom SMTP',
+  };
+  const domain = data.domainEvidence;
   return (
     <>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -59,7 +65,7 @@ export function EmailHealthOverview({
           onClick={onConfiguration}
         />
       </div>
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid items-start gap-4 xl:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>What to fix next</CardTitle>
@@ -107,11 +113,42 @@ export function EmailHealthOverview({
           <CardContent className="flex flex-col gap-4">
             <DetailList
               items={[
-                { label: 'Sender', value: 'Default MUST sender' },
+                {
+                  label: 'Current sender',
+                  value: senderNames[domain?.activeMode ?? 'DEFAULT'] ?? 'No recorded sender',
+                },
+                ...(domain
+                  ? [
+                      {
+                        label: 'Saved setup',
+                        value: senderNames[domain.setupMode] ?? 'No saved setup',
+                      },
+                    ]
+                  : []),
                 {
                   label: 'Domain checks',
-                  value: 'No provider domain check has been recorded for this hotel.',
+                  value: domain?.checkedAt
+                    ? `${domain.setupMode === 'RESEND' && domain.activeMode !== 'RESEND' ? 'Saved custom domain (not active): ' : ''}${domain.status === 'verified' ? 'provider verified' : domain.status === 'pending' ? 'DNS pending' : domain.status === 'not_found' ? 'domain not found' : 'check needs attention'}`
+                    : domain?.setupMode === 'SMTP'
+                      ? 'Use the SMTP connection and mailbox checks in Configuration.'
+                      : 'No provider domain check has been recorded for this hotel.',
                 },
+                ...(domain?.checkedAt
+                  ? [
+                      {
+                        label: 'Last checked',
+                        value:
+                          new Intl.DateTimeFormat('en-GB', {
+                            timeZone: 'UTC',
+                            dateStyle: 'medium',
+                            timeStyle: 'short',
+                          }).format(new Date(domain.checkedAt)) + ' UTC',
+                      },
+                      { label: 'SPF', value: domain.spf },
+                      { label: 'DKIM', value: domain.dkim },
+                      { label: 'DMARC', value: domain.dmarc },
+                    ]
+                  : []),
               ]}
             />
             <Button variant="outline" onClick={onConfiguration}>
