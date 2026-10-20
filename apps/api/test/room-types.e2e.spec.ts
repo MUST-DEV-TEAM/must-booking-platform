@@ -50,6 +50,7 @@ describe('room types', () => {
     publicUrl(key: string) {
       return `https://media.example.test/${key}`;
     },
+    async deleteObject() {},
   };
 
   beforeAll(async () => {
