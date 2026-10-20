@@ -50,11 +50,15 @@ export function DashboardSettings({
   propertyId,
   settingsArea,
   canWrite = false,
+  canManagePhotos = false,
+  onPropertySaved,
 }: {
   tenantId: string;
   propertyId: string;
   settingsArea?: SettingsArea;
   canWrite?: boolean;
+  canManagePhotos?: boolean;
+  onPropertySaved?: (property: Property) => void;
 }) {
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const base = `/api/tenants/${tenantId}`;
@@ -132,6 +136,7 @@ export function DashboardSettings({
           current ? { ...current, property: { ...current.property, ...updated } } : current,
       );
       refreshSavedViews();
+      onPropertySaved?.(updated);
       toast.success('Settings saved.');
     },
     onError: () => toast.error('Unable to save settings.'),
@@ -141,31 +146,6 @@ export function DashboardSettings({
     if (!property || Object.keys(update).length === 0) return;
     saveMutation.mutate(update);
   }
-
-  const paymentGatewaysMutation = useMutation({
-    mutationFn: async (update: PaymentGateways) => {
-      const response = await fetch(`${base}/properties/${propertyId}/payment-gateways`, {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(update),
-      });
-      if (!response.ok) throw new Error('Unable to save payment methods.');
-      return update;
-    },
-    onSuccess: (updated) => {
-      queryClient.setQueryData<{ property: Property; planName: string | null }>(
-        ['dashboard', 'settings', tenantId, propertyId],
-        (current) =>
-          current
-            ? { ...current, property: { ...current.property, paymentGateways: updated } }
-            : current,
-      );
-      refreshSavedViews();
-      toast.success('Payment methods saved.');
-    },
-    onError: () => toast.error('Unable to save payment methods.'),
-  });
 
   const publicWebsiteOriginMutation = useMutation({
     mutationFn: async (origin: string) => {
@@ -282,6 +262,8 @@ export function DashboardSettings({
         <SettingsAreaPanel activeArea={settingsArea} area="branding">
           <BrandingSettings
             property={property}
+            tenantId={tenantId}
+            canManagePhotos={canManagePhotos}
             canWrite={canWrite}
             saving={saveMutation.isPending}
             onSave={save}
@@ -291,9 +273,35 @@ export function DashboardSettings({
           <PaymentSettings
             property={property}
             canWrite={canWrite}
-            saving={paymentGatewaysMutation.isPending}
+            saving={saveMutation.isPending}
             connectedProviders={connectedPaymentProviders}
-            onSave={(update) => paymentGatewaysMutation.mutate(update)}
+            tenantId={tenantId}
+            onPropertySave={(update, gateways) =>
+              saveMutation.mutate({ ...update, paymentGateways: gateways })
+            }
+            connection={settingsQuery.data?.connections.find(
+              (c) =>
+                c.provider === 'POKPAY' &&
+                settingsQuery.data?.propertyConnections.some(
+                  (a) => a.connectionId === c.id && a.enabled,
+                ),
+            )}
+            assigned={settingsQuery.data?.propertyConnections.some(
+              (a) =>
+                a.enabled &&
+                a.connectionId ===
+                  settingsQuery.data?.connections.find(
+                    (c) =>
+                      c.provider === 'POKPAY' &&
+                      settingsQuery.data?.propertyConnections.some(
+                        (a) => a.connectionId === c.id && a.enabled,
+                      ),
+                  )?.id,
+            )}
+            onConnectionChanged={async () => {
+              await settingsQuery.refetch();
+              refreshSavedViews();
+            }}
             operationsHref={dashboardSectionHref(tenantId, propertyId, 'payments')}
           />
         </SettingsAreaPanel>

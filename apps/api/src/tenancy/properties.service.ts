@@ -16,6 +16,11 @@ type Property = {
   name: string;
   address: string;
   timezone: string;
+  onlinePaymentHoldMinutes: number;
+  autoRefundOnFreeCancellation: boolean;
+  brandColour: string | null;
+  emailFooterText: string | null;
+  termsUrl: string | null;
   logoUrl: string | null;
   phone: string | null;
   supportEmail: string | null;
@@ -44,7 +49,7 @@ export class PropertiesService {
       { tenantId },
       (tx) =>
         tx.$queryRaw<Property[]>`SELECT id, name, address, timezone,
-          logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -96,7 +101,7 @@ export class PropertiesService {
       const rows = await tx.$queryRaw<
         Property[]
       >`INSERT INTO properties (id, tenant_id, name, slug, address, timezone, logo_url, phone, support_email) VALUES (${id}::uuid, ${tenantId}::uuid, ${input.name}, ${slug}, ${input.address}, ${input.timezone}, ${input.logoUrl}, ${input.phone}, ${input.supportEmail}) RETURNING id, name, address, timezone,
-        logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+        online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",logo_url AS "logoUrl", phone, support_email AS "supportEmail",
         booking_mode AS "bookingMode",
         min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
         check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -125,7 +130,7 @@ export class PropertiesService {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const existing = await tx.$queryRaw<Array<Property>>`
         SELECT id, name, address, timezone,
-          logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -149,7 +154,13 @@ export class PropertiesService {
         throw new BadRequestException('minStayNights cannot exceed maxStayNights.');
       const rows = await tx.$queryRaw<Property[]>`
         UPDATE properties
-        SET name = CASE WHEN ${input.name !== undefined} THEN ${input.name} ELSE name END,
+        SET stripe_enabled=COALESCE(${input.paymentGateways?.stripe},stripe_enabled),pokpay_enabled=COALESCE(${input.paymentGateways?.pokpay},pokpay_enabled),pay_at_hotel_enabled=COALESCE(${input.paymentGateways?.payAtHotel},pay_at_hotel_enabled),
+          online_payment_hold_minutes=COALESCE(${input.onlinePaymentHoldMinutes},online_payment_hold_minutes),
+          auto_refund_on_free_cancellation=COALESCE(${input.autoRefundOnFreeCancellation},auto_refund_on_free_cancellation),
+          brand_colour=CASE WHEN ${input.brandColour !== undefined} THEN ${input.brandColour} ELSE brand_colour END,
+          email_footer_text=CASE WHEN ${input.emailFooterText !== undefined} THEN ${input.emailFooterText} ELSE email_footer_text END,
+          terms_url=CASE WHEN ${input.termsUrl !== undefined} THEN ${input.termsUrl} ELSE terms_url END,
+          name = CASE WHEN ${input.name !== undefined} THEN ${input.name} ELSE name END,
           address = CASE WHEN ${input.address !== undefined} THEN ${input.address} ELSE address END,
           timezone = CASE WHEN ${input.timezone !== undefined} THEN ${input.timezone} ELSE timezone END,
           logo_url = CASE WHEN ${input.logoUrl !== undefined} THEN ${input.logoUrl} ELSE logo_url END,
@@ -165,7 +176,7 @@ export class PropertiesService {
           free_cancellation_days_before_arrival = CASE WHEN ${input.freeCancellationDaysBeforeArrival !== undefined} THEN ${input.freeCancellationDaysBeforeArrival} ELSE free_cancellation_days_before_arrival END
         WHERE id = ${propertyId}::uuid
         RETURNING id, name, address, timezone,
-          logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -246,7 +257,7 @@ export class PropertiesService {
         SET public_website_origin = ${origin}
         WHERE id = ${propertyId}::uuid
         RETURNING id, name, address, timezone,
-          logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -282,7 +293,7 @@ export class PropertiesService {
           pay_at_hotel_enabled = ${gateways.payAtHotel}
         WHERE id = ${propertyId}::uuid
         RETURNING id, name, address, timezone,
-          logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -430,6 +441,12 @@ export class PropertiesService {
     rules?: string | null;
     advanceBookingDays?: number | null;
     freeCancellationDaysBeforeArrival?: number;
+    paymentGateways?: Property['paymentGateways'];
+    onlinePaymentHoldMinutes?: number;
+    autoRefundOnFreeCancellation?: boolean;
+    brandColour?: string | null;
+    emailFooterText?: string | null;
+    termsUrl?: string | null;
     logoUrl?: string | null;
     phone?: string | null;
     supportEmail?: string | null;
@@ -451,12 +468,45 @@ export class PropertiesService {
         'rules',
         'advanceBookingDays',
         'freeCancellationDaysBeforeArrival',
+        'paymentGateways',
+        'onlinePaymentHoldMinutes',
+        'autoRefundOnFreeCancellation',
+        'brandColour',
+        'emailFooterText',
+        'termsUrl',
         'logoUrl',
         'phone',
         'supportEmail',
       ].some(has)
     )
       throw new BadRequestException('At least one property field is required.');
+    if (
+      has('onlinePaymentHoldMinutes') &&
+      (!Number.isInteger(value.onlinePaymentHoldMinutes) ||
+        Number(value.onlinePaymentHoldMinutes) < 10 ||
+        Number(value.onlinePaymentHoldMinutes) > 1440)
+    )
+      throw new BadRequestException('Choose a payment hold between 10 and 1440 minutes.');
+    if (
+      has('autoRefundOnFreeCancellation') &&
+      typeof value.autoRefundOnFreeCancellation !== 'boolean'
+    )
+      throw new BadRequestException(
+        'Choose whether free cancellations are refunded automatically.',
+      );
+    const brandColour = this.optionalBrandText(value, 'brandColour', 7, true);
+    if (brandColour && !/^#[0-9a-fA-F]{6}$/.test(brandColour))
+      throw new BadRequestException('Enter a colour such as #123ABC.');
+    const emailFooterText = this.optionalBrandText(value, 'emailFooterText', 300, true);
+    const termsUrl = this.optionalBrandText(value, 'termsUrl', 2048, true);
+    if (termsUrl) {
+      try {
+        const u = new URL(termsUrl);
+        if (u.protocol !== 'https:' || u.username || u.password) throw new Error();
+      } catch {
+        throw new BadRequestException('Enter a full https terms and conditions link.');
+      }
+    }
     const text = (key: 'name' | 'address' | 'timezone', maxLength: number) => {
       if (!has(key)) return undefined;
       if (
@@ -533,6 +583,18 @@ export class PropertiesService {
       rules,
       advanceBookingDays: optionalInteger('advanceBookingDays'),
       freeCancellationDaysBeforeArrival,
+      paymentGateways: has('paymentGateways')
+        ? this.paymentGateways(value.paymentGateways)
+        : undefined,
+      onlinePaymentHoldMinutes: has('onlinePaymentHoldMinutes')
+        ? (value.onlinePaymentHoldMinutes as number)
+        : undefined,
+      autoRefundOnFreeCancellation: has('autoRefundOnFreeCancellation')
+        ? (value.autoRefundOnFreeCancellation as boolean)
+        : undefined,
+      brandColour,
+      emailFooterText,
+      termsUrl,
       logoUrl: this.optionalLogoUrl(value, true),
       phone: this.optionalBrandText(value, 'phone', 100, true),
       supportEmail: this.optionalSupportEmail(value, true),
@@ -550,16 +612,24 @@ export class PropertiesService {
       throw new BadRequestException('Invalid logoUrl.');
     try {
       const url = new URL(logoUrl.trim());
-      if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error();
+      if (
+        url.protocol !== 'https:' ||
+        url.username ||
+        url.password ||
+        !/\.(png|jpe?g|webp)$/i.test(url.pathname)
+      )
+        throw new Error();
       return url.toString();
     } catch {
-      throw new BadRequestException('logoUrl must be a valid HTTP or HTTPS URL.');
+      throw new BadRequestException(
+        'Choose a public https PNG, JPG or WebP logo from the photo library.',
+      );
     }
   }
 
   private optionalBrandText(
     value: Record<string, unknown>,
-    key: 'phone',
+    key: 'phone' | 'brandColour' | 'emailFooterText' | 'termsUrl',
     maxLength: number,
     allowAbsent: boolean,
   ): string | null | undefined {

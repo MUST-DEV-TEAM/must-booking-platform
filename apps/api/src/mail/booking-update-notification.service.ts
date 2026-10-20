@@ -221,7 +221,7 @@ export class BookingUpdateNotificationService {
 
   private async brand(tx: TenantTransaction, context: Context): Promise<MailBrand> {
     const rows = await tx.$queryRaw<MailBrand[]>`
-      SELECT name, logo_url AS "logoUrl", support_email AS "supportEmail", phone,
+      SELECT name, brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",logo_url AS "logoUrl", support_email AS "supportEmail", phone,
         public_website_origin AS "websiteUrl", address
       FROM properties WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
     `;

@@ -116,6 +116,7 @@ type CancellationPolicy = {
   freeCancellationUntilHours: number | null;
   cutoffAt: Date | null;
   isFree: boolean;
+  autoRefund?: boolean;
 };
 
 type MultiRoomCancellation = {
@@ -911,6 +912,8 @@ export class LocalPmsProvider implements PmsProvider {
     bookingId: string,
     cutoffAt: Date,
   ): Promise<boolean> {
+    const settings = await tx.$queryRaw<{minutes:number}[]>`SELECT online_payment_hold_minutes AS minutes FROM properties WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid FOR UPDATE`;
+    cutoffAt = new Date(cutoffAt.getTime() + (30-(settings[0]?.minutes ?? 30))*60000);
     const row = await this.bookingById(tx, context, bookingId);
     if (
       !row ||
@@ -1042,7 +1045,7 @@ export class LocalPmsProvider implements PmsProvider {
             }
 
             const cancellationPolicy = await this.cancellationPolicy(tx, context, row.id);
-            if (cancellationPolicy.isFree && !command.skipAutomaticRefund) {
+            if (cancellationPolicy.isFree && cancellationPolicy.autoRefund !== false && !command.skipAutomaticRefund) {
               const refunded = await this.refunds.refundPaidChargeForBooking(
                 tx,
                 context,
@@ -1221,7 +1224,7 @@ export class LocalPmsProvider implements PmsProvider {
 
     let refundableMinorUnits = 0n;
     for (const { row, cancellationPolicy } of cancelledChildren) {
-      if (!cancellationPolicy.isFree) continue;
+      if (!cancellationPolicy.isFree || cancellationPolicy.autoRefund === false) continue;
       refundableMinorUnits += this.minorUnits(row.totalAmount);
     }
 
@@ -1588,9 +1591,10 @@ export class LocalPmsProvider implements PmsProvider {
         freeCancellationUntilHours: number | null;
         cutoffAt: Date | null;
         isFree: boolean;
+        autoRefund: boolean;
       }>
     >`
-      SELECT COALESCE(cp.free_cancellation_days_before_arrival * 24, rp.free_cancellation_until_hours) AS "freeCancellationUntilHours",
+      SELECT p.auto_refund_on_free_cancellation AS "autoRefund", COALESCE(cp.free_cancellation_days_before_arrival * 24, rp.free_cancellation_until_hours) AS "freeCancellationUntilHours",
         CASE
           WHEN COALESCE(cp.free_cancellation_days_before_arrival * 24, rp.free_cancellation_until_hours) IS NULL THEN NULL
           ELSE (b.starts_on::timestamp AT TIME ZONE p.timezone)

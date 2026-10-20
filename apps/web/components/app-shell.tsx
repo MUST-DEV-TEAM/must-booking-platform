@@ -4,6 +4,7 @@ import { ChevronDown, ChevronsLeft, LogOut, Menu, X, type LucideIcon } from 'luc
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { cn } from '../lib/utils';
+import { HotelBrand } from './ui/hotel-brand';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Button } from './ui/button';
 import { IconButton } from './ui/icon-button';
@@ -224,6 +225,7 @@ export function AppShell({
   userRole,
   homeHref = '/dashboard',
   headerActions,
+  hotelBrand,
   accountLinks,
   children,
 }: {
@@ -233,6 +235,7 @@ export function AppShell({
   userRole?: string;
   homeHref?: string;
   headerActions?: ReactNode;
+  hotelBrand?: {name:string;logoUrl?:string|null};
   accountLinks?: readonly AccountLink[];
   children: ReactNode;
 }) {
@@ -297,7 +300,7 @@ export function AppShell({
               aria-label="MUST Hotel home"
               className="rounded-md text-inherit no-underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
             >
-              <Brand compact={collapsed} />
+              {hotelBrand ? <HotelBrand {...hotelBrand} compact={collapsed}/> : <Brand compact={collapsed} />}
             </a>
           </div>
           <IconButton
@@ -352,7 +355,7 @@ export function AppShell({
           <div className="flex h-full flex-col gap-4 bg-card p-3">
             <div className="flex items-center justify-between px-1 pt-1">
               <a href={homeHref} aria-label="MUST Hotel home" className="text-inherit no-underline">
-                <Brand />
+                {hotelBrand ? <HotelBrand {...hotelBrand}/> : <Brand />}
               </a>
               <Button
                 variant="ghost"

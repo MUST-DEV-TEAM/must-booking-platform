@@ -25,6 +25,9 @@ type BookingEmailRow = {
   guestCount: number;
   nightlyRates: Array<{ date: string; amount: string }> | null;
   propertyName: string;
+  brandColour: string | null;
+  emailFooterText: string | null;
+  termsUrl: string | null;
   logoUrl: string | null;
   supportEmail: string | null;
   propertyPhone: string | null;
@@ -57,7 +60,7 @@ export class BookingConfirmationNotificationService {
           COALESCE(r.name, rt.name) AS "roomName", b.payment_method AS "paymentMethod",
           (b.adults + b.children) AS "guestCount",
           b.nightly_rates AS "nightlyRates",
-          p.name AS "propertyName", p.logo_url AS "logoUrl", p.support_email AS "supportEmail",
+          p.name AS "propertyName", p.brand_colour AS "brandColour",p.email_footer_text AS "emailFooterText",p.terms_url AS "termsUrl",p.logo_url AS "logoUrl", p.support_email AS "supportEmail",
           p.phone AS "propertyPhone", p.public_website_origin AS "publicWebsiteOrigin",
           p.address AS "propertyAddress", b.order_reference AS "orderReference"
         FROM bookings b
@@ -102,6 +105,7 @@ export class BookingConfirmationNotificationService {
         : undefined;
     const brand = {
       name: row.propertyName,
+      brandColour: row.brandColour,emailFooterText: row.emailFooterText,termsUrl: row.termsUrl,
       logoUrl: row.logoUrl,
       supportEmail: row.supportEmail,
       phone: row.propertyPhone,

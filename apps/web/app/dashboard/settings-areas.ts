@@ -7,6 +7,11 @@ export type Property = {
   name: string;
   address: string;
   timezone: string;
+  onlinePaymentHoldMinutes?: number;
+  autoRefundOnFreeCancellation?: boolean;
+  brandColour?: string | null;
+  emailFooterText?: string | null;
+  termsUrl?: string | null;
   logoUrl: string | null;
   phone: string | null;
   supportEmail: string | null;

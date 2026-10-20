@@ -69,6 +69,7 @@ type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: boolean }
 type Property = {
   id: string;
   name: string;
+  logoUrl?: string | null;
   bookingMode?: BookingMode;
   paymentGateways?: PaymentGateways;
   checkInTime?: string | null;
@@ -481,6 +482,7 @@ export function DashboardShell({
 
   return (
     <AppShell
+      hotelBrand={selectedProperty ? {name:selectedProperty.name,logoUrl:selectedProperty.logoUrl} : undefined}
       homeHref="/dashboard"
       navigation={navigation}
       title={sectionLabel}
@@ -734,6 +736,8 @@ export function DashboardShell({
             propertyId={selectedProperty.id}
             settingsArea={settingsArea}
             canWrite={user?.emailVerified === true && hasCapability('settings.manage')}
+            canManagePhotos={hasCapability('photos.manage')}
+            onPropertySaved={updated=>setProperties(current=>current?.map(p=>p.id===updated.id?{...p,...updated}:p))}
           />
         ) : (
           <SettingsHub tenantId={tenantId} propertyId={selectedProperty.id} />

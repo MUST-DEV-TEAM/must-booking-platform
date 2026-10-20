@@ -42,6 +42,9 @@ const POST_STAY_HOUR = 10;
 type Context = { tenantId: string; propertyId: string };
 type PropertyRow = {
   name: string;
+  brandColour: string | null;
+  emailFooterText: string | null;
+  termsUrl: string | null;
   logoUrl: string | null;
   supportEmail: string | null;
   phone: string | null;
@@ -466,7 +469,7 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
     context: Context,
   ): Promise<MailBrand & { checkInTime: string | null }> {
     const rows = await tx.$queryRaw<PropertyRow[]>`
-      SELECT name, logo_url AS "logoUrl", support_email AS "supportEmail", phone,
+      SELECT name, brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",logo_url AS "logoUrl", support_email AS "supportEmail", phone,
         public_website_origin AS "websiteUrl", address, check_in_time AS "checkInTime"
       FROM properties WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
     `;

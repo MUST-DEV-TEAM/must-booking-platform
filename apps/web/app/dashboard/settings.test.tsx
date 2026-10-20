@@ -293,13 +293,11 @@ describe('DashboardSettings', () => {
       'Grand Hotel Tirana',
     );
 
-    await value(container.querySelector('#branding-logoUrl')!, 'https://example.test/logo.png');
     await value(container.querySelector('#branding-supportEmail')!, 'stay@example.test');
     await value(container.querySelector('#branding-phone')!, '+355 69 123 4567');
     await saveChanges(container);
     const brandingRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[1];
     expect(JSON.parse(brandingRequest[1]!.body as string)).toEqual({
-      logoUrl: 'https://example.test/logo.png',
       supportEmail: 'stay@example.test',
       phone: '+355 69 123 4567',
     });
@@ -326,12 +324,10 @@ describe('DashboardSettings', () => {
     });
     await saveChanges(container);
     const paymentGatewaysRequest = fetch.mock.calls.find(
-      ([url, init]) => init?.method === 'PATCH' && url.endsWith('/payment-gateways'),
+      ([, init]) => init?.method === 'PATCH' && !!JSON.parse(init.body as string).paymentGateways,
     )!;
     expect(JSON.parse(paymentGatewaysRequest[1]!.body as string)).toEqual({
-      stripe: false,
-      pokpay: true,
-      payAtHotel: true,
+      paymentGateways:{stripe:false,pokpay:true,payAtHotel:true},onlinePaymentHoldMinutes:30,autoRefundOnFreeCancellation:true,
     });
 
     const generateCodeButton = Array.from(container.querySelectorAll('button')).find(

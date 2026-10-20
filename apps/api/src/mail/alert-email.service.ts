@@ -144,7 +144,7 @@ export class AlertEmailService implements OnModuleInit, OnModuleDestroy {
       const recipients = await staffRecipients(tx, context, topic);
       if (!recipients.length) return null;
       const rows = await tx.$queryRaw<Array<MailBrand & { timezone: string | null }>>`
-        SELECT name, logo_url AS "logoUrl", support_email AS "supportEmail", phone,
+        SELECT name, brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",logo_url AS "logoUrl", support_email AS "supportEmail", phone,
           public_website_origin AS "websiteUrl", address, timezone
         FROM properties WHERE tenant_id = ${context.tenantId}::uuid AND id = ${context.propertyId}::uuid
       `;

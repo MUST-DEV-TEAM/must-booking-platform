@@ -163,6 +163,11 @@ model User {
 }
 
 model Property {
+  onlinePaymentHoldMinutes Int @default(30) @map("online_payment_hold_minutes")
+  autoRefundOnFreeCancellation Boolean @default(true) @map("auto_refund_on_free_cancellation")
+  brandColour String? @map("brand_colour") @db.VarChar(7)
+  emailFooterText String? @map("email_footer_text") @db.VarChar(300)
+  termsUrl String? @map("terms_url") @db.VarChar(2048)
   emailDeliveryExportVersion Int @default(0) @map("email_delivery_export_version")
   emailConfigurationVersion Int @default(1) @map("email_configuration_version")
   emailSenderName String? @map("email_sender_name") @db.VarChar(120)

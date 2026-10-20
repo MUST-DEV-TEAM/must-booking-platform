@@ -4,6 +4,11 @@ import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import { FormField } from '../../components/ui/form-field';
 import { FormSection } from '../../components/ui/form-section';
+import { HotelLogoPicker } from '../../components/ui/hotel-logo-picker';
+import {
+  PokpayConnectionPanel,
+  type PokpayConnection,
+} from '../../components/ui/pokpay-connection-panel';
 import { Input } from '../../components/ui/input';
 import { Switch } from '../../components/ui/switch';
 import { SaveBar } from '../../components/ui/save-bar';
@@ -37,18 +42,46 @@ export function BrandingSettings({
   saving,
   canWrite,
   onSave,
-}: Common & { onSave: (update: Partial<Property>) => void }) {
+  tenantId,
+  canManagePhotos = false,
+}: Common & {
+  tenantId: string;
+  canManagePhotos?: boolean;
+  onSave: (update: Partial<Property>) => void;
+}) {
   const initial = {
     logoUrl: property.logoUrl ?? '',
+    brandColour: property.brandColour ?? '',
+    emailFooterText: property.emailFooterText ?? '',
+    termsUrl: property.termsUrl ?? '',
     supportEmail: property.supportEmail ?? '',
     phone: property.phone ?? '',
   };
   const [draft, setDraft] = useState(initial);
-  useEffect(() => setDraft(initial), [property.logoUrl, property.supportEmail, property.phone]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(
+    () => setDraft(initial),
+    [
+      property.logoUrl,
+      property.supportEmail,
+      property.phone,
+      property.brandColour,
+      property.emailFooterText,
+      property.termsUrl,
+    ],
+  ); // eslint-disable-line react-hooks/exhaustive-deps
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
   useUnsavedChanges(canWrite && dirty);
   const errors = {
-    logoUrl: webUrl(draft.logoUrl.trim()) ? null : 'Enter a full http or https logo URL.',
+    brandColour:
+      !draft.brandColour || /^#[0-9a-f]{6}$/i.test(draft.brandColour)
+        ? null
+        : 'Enter a colour such as #123ABC.',
+    emailFooterText:
+      draft.emailFooterText.length <= 300 ? null : 'Keep the footer to 300 characters or fewer.',
+    termsUrl:
+      !draft.termsUrl || (webUrl(draft.termsUrl) && draft.termsUrl.startsWith('https://'))
+        ? null
+        : 'Enter a full https terms link.',
     supportEmail: validEmail(draft.supportEmail.trim())
       ? null
       : 'Enter an email address such as hello@hotel.com.',
@@ -62,29 +95,46 @@ export function BrandingSettings({
         title="Email branding"
         description="Booking emails use these hotel details. Leave optional fields empty to omit them."
       >
-        {(['logoUrl', 'supportEmail', 'phone'] as const).map((key) => (
-          <FormField
-            key={key}
-            htmlFor={`branding-${key}`}
-            label={
-              { logoUrl: 'Logo URL', supportEmail: 'Support email', phone: 'Hotel phone' }[key]
-            }
-            error={dirty ? errors[key] : null}
-          >
-            <Input
-              id={`branding-${key}`}
-              disabled={!canWrite}
-              value={draft[key]}
-              onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
-            />
-          </FormField>
-        ))}
+        <HotelLogoPicker
+          tenantId={tenantId}
+          propertyId={property.id}
+          value={draft.logoUrl}
+          onChange={(logoUrl) => setDraft({ ...draft, logoUrl })}
+          canManage={canWrite && canManagePhotos}
+        />
+        {(['supportEmail', 'phone', 'brandColour', 'emailFooterText', 'termsUrl'] as const).map(
+          (key) => (
+            <FormField
+              key={key}
+              htmlFor={`branding-${key}`}
+              label={
+                {
+                  supportEmail: 'Support email',
+                  phone: 'Hotel phone',
+                  brandColour: 'Brand colour',
+                  emailFooterText: 'Email footer text',
+                  termsUrl: 'Terms and conditions link',
+                }[key]
+              }
+              error={dirty ? errors[key] : null}
+            >
+              <Input
+                id={`branding-${key}`}
+                disabled={!canWrite}
+                value={draft[key]}
+                onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
+              />
+            </FormField>
+          ),
+        )}
       </FormSection>
       <EmailBrandingPreview
         name={property.name}
         logoUrl={webUrl(draft.logoUrl.trim()) ? draft.logoUrl.trim() : null}
         email={draft.supportEmail}
         phone={draft.phone}
+        colour={draft.brandColour}
+        footer={draft.emailFooterText}
       />
       {canWrite ? (
         <SaveBar
@@ -94,7 +144,14 @@ export function BrandingSettings({
           onDiscard={() => setDraft(initial)}
           onSave={() => {
             const update: Partial<Property> = {};
-            for (const key of ['logoUrl', 'supportEmail', 'phone'] as const)
+            for (const key of [
+              'logoUrl',
+              'supportEmail',
+              'phone',
+              'brandColour',
+              'emailFooterText',
+              'termsUrl',
+            ] as const)
               if (draft[key] !== initial[key]) update[key] = draft[key].trim() || null;
             onSave(update);
           }}
@@ -107,20 +164,41 @@ export function PaymentSettings({
   property,
   saving,
   canWrite,
-  onSave,
   connectedProviders,
   operationsHref,
+  tenantId,
+  onPropertySave,
+  connection,
+  assigned = false,
+  onConnectionChanged,
 }: Common & {
-  onSave: (update: PaymentGateways) => void;
   connectedProviders: Set<string>;
   operationsHref: string;
+  tenantId: string;
+  onPropertySave: (update: Partial<Property>, gateways: PaymentGateways) => void;
+  connection?: PokpayConnection;
+  assigned?: boolean;
+  onConnectionChanged: () => Promise<void>;
 }) {
   const [draft, setDraft] = useState(property.paymentGateways);
   useEffect(() => setDraft(property.paymentGateways), [property.paymentGateways]);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(property.paymentGateways);
+  const [hold, setHold] = useState(String(property.onlinePaymentHoldMinutes ?? 30)),
+    [autoRefund, setAutoRefund] = useState(property.autoRefundOnFreeCancellation ?? true);
+  useEffect(() => {
+    setHold(String(property.onlinePaymentHoldMinutes ?? 30));
+    setAutoRefund(property.autoRefundOnFreeCancellation ?? true);
+  }, [property.onlinePaymentHoldMinutes, property.autoRefundOnFreeCancellation]);
+  const holdError =
+    !/^\d+$/.test(hold) || Number(hold) < 10 || Number(hold) > 1440
+      ? 'Choose a hold between 10 and 1440 minutes.'
+      : null;
+  const dirty =
+    JSON.stringify(draft) !== JSON.stringify(property.paymentGateways) ||
+    hold !== String(property.onlinePaymentHoldMinutes ?? 30) ||
+    autoRefund !== (property.autoRefundOnFreeCancellation ?? true);
   useUnsavedChanges(canWrite && dirty);
   // There is no independent online-booking enable switch in the property contract.
-  const error = !Object.values(draft).some(Boolean)
+  const error = !(draft.payAtHotel || draft.pokpay)
     ? 'Keep at least one payment method on so guests can complete an online booking.'
     : null;
   return (
@@ -129,11 +207,13 @@ export function PaymentSettings({
         title="Payment methods"
         description="Choose how guests can pay for bookings at this hotel."
       >
-        {(['payAtHotel', 'stripe', 'pokpay'] as const).map((key) => (
+        {(['pokpay', 'payAtHotel'] as const).map((key) => (
           <FormField
             key={key}
             htmlFor={`payment-${key}`}
-            label={{ payAtHotel: 'Pay at hotel', stripe: 'Stripe', pokpay: 'PokPay' }[key]}
+            label={
+              { payAtHotel: 'Pay at hotel', stripe: 'Stripe', pokpay: 'Pay online in full' }[key]
+            }
             hint={
               {
                 payAtHotel: 'Guests pay the hotel directly when they arrive.',
@@ -150,7 +230,7 @@ export function PaymentSettings({
             />
             {key !== 'payAtHotel' ? (
               <Badge variant="outline">
-                {connectedProviders.has(key === 'stripe' ? 'STRIPE' : 'POKPAY')
+                {connectedProviders.has('POKPAY')
                   ? 'Connected to this hotel'
                   : 'Not connected - unavailable to guests'}
               </Badge>
@@ -162,17 +242,61 @@ export function PaymentSettings({
             {error}
           </p>
         ) : null}
+        <FormField
+          label="Unpaid online booking hold (minutes)"
+          htmlFor="payment-hold"
+          error={holdError}
+        >
+          <Input
+            id="payment-hold"
+            type="number"
+            min={10}
+            max={1440}
+            value={hold}
+            disabled={!canWrite}
+            onChange={(e) => setHold(e.target.value)}
+          />
+        </FormField>
+        <FormField
+          label="Automatically refund free cancellations"
+          htmlFor="payment-auto-refund"
+          hint="When off, a refund must be issued separately by staff with refund permission."
+        >
+          <Switch
+            id="payment-auto-refund"
+            checked={autoRefund}
+            disabled={!canWrite}
+            onCheckedChange={setAutoRefund}
+          />
+        </FormField>
         <Button variant="outline" asChild>
           <a href={operationsHref}>Open payment operations</a>
         </Button>
       </FormSection>
+      <PokpayConnectionPanel
+        tenantId={tenantId}
+        propertyId={property.id}
+        connection={connection}
+        assigned={assigned}
+        canManage={canWrite}
+        onChanged={onConnectionChanged}
+      />
       {canWrite ? (
         <SaveBar
           dirty={dirty}
           saving={saving}
-          canSave={!error}
-          onDiscard={() => setDraft(property.paymentGateways)}
-          onSave={() => onSave(draft)}
+          canSave={!error && !holdError}
+          onDiscard={() => {
+            setDraft(property.paymentGateways);
+            setHold(String(property.onlinePaymentHoldMinutes ?? 30));
+            setAutoRefund(property.autoRefundOnFreeCancellation ?? true);
+          }}
+          onSave={() =>
+            onPropertySave(
+              { onlinePaymentHoldMinutes: Number(hold), autoRefundOnFreeCancellation: autoRefund },
+              draft,
+            )
+          }
         />
       ) : null}
     </div>

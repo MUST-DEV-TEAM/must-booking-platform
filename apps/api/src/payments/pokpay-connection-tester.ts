@@ -50,16 +50,12 @@ export class PokpayConnectionTester implements ConnectionTester, OnModuleInit {
         }
       })();
       if (!login.ok || !body?.data?.accessToken) {
-        this.logger.warn(
-          `PokPay auth test failed for keyId ${keyId}: status=${login.status} body=${rawBody.slice(0, 500)}`,
-        );
+        this.logger.warn(`PokPay authentication failed: status=${login.status}`);
         return { ok: false, message: 'PokPay authentication failed.' };
       }
       return { ok: true, message: 'Connected to PokPay successfully.' };
     } catch (error) {
-      this.logger.warn(
-        `PokPay auth test threw for keyId ${keyId}: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      this.logger.warn('PokPay authentication could not be completed.');
       return { ok: false, message: 'Could not reach PokPay.' };
     }
   }

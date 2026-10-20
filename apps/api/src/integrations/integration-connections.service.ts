@@ -282,12 +282,18 @@ export class IntegrationConnectionsService {
     enabled: boolean,
   ): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      const connection = await tx.$queryRawUnsafe<Array<{ kind: ConnectionKind }>>(
-        `SELECT kind FROM integration_connections WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+      await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
+
+      const connection = await tx.$queryRawUnsafe<Array<{ kind: ConnectionKind; provider: ConnectionProvider }>>(
+        `SELECT kind,provider FROM integration_connections WHERE tenant_id = $1::uuid AND id = $2::uuid`,
         tenantId,
         connectionId,
       );
       if (!connection[0]) throw new BadRequestException('Connection not found.');
+      if(enabled && connection[0].provider==='POKPAY') {
+        await tx.$executeRaw`UPDATE property_integration_connections pc SET enabled=false,updated_at=now() FROM integration_connections c
+        WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.connection_id=c.id AND c.tenant_id=pc.tenant_id AND c.provider='POKPAY' AND c.id<>${connectionId}::uuid AND pc.enabled`;
+      }
       try {
         await tx.$executeRawUnsafe(
           `INSERT INTO property_integration_connections (tenant_id, property_id, connection_id, kind, enabled)

@@ -46,7 +46,7 @@ export type RefundConfirmation = {
   refundId: string;
   to: string;
   amount: Money;
-  brand: MailBrand;
+  brand: MailBrand & {brandColour?:string|null;emailFooterText?:string|null;termsUrl?:string|null};
   guest: { name: string };
   stay: { startsOn: string; endsOn: string };
   roomName: string;
@@ -74,6 +74,9 @@ type RefundEmailRow = {
   nightlyRates: Array<{ date: string; amount: string }> | null;
   roomName: string;
   propertyName: string;
+  brandColour: string | null;
+  emailFooterText: string | null;
+  termsUrl: string | null;
   logoUrl: string | null;
   supportEmail: string | null;
   phone: string | null;
@@ -236,7 +239,7 @@ export class PaymentRefundService {
           b.ends_on::text AS "endsOn", (b.adults + b.children) AS "guestCount",
           b.nightly_rates AS "nightlyRates",
           COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
-          p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
+          p.brand_colour AS "brandColour",p.email_footer_text AS "emailFooterText",p.terms_url AS "termsUrl",p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
           p.public_website_origin AS "websiteUrl", p.address
         FROM bookings b
         JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
@@ -416,7 +419,7 @@ export class PaymentRefundService {
           b.ends_on::text AS "endsOn", (b.adults + b.children) AS "guestCount",
           b.nightly_rates AS "nightlyRates",
           COALESCE(r.name, rt.name) AS "roomName", p.name AS "propertyName",
-          p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
+          p.brand_colour AS "brandColour",p.email_footer_text AS "emailFooterText",p.terms_url AS "termsUrl",p.logo_url AS "logoUrl", p.support_email AS "supportEmail", p.phone,
           p.public_website_origin AS "websiteUrl", p.address
         FROM bookings b
         JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
@@ -640,6 +643,7 @@ export class PaymentRefundService {
       amount,
       brand: {
         name: row.propertyName,
+        brandColour: row.brandColour,emailFooterText: row.emailFooterText,termsUrl: row.termsUrl,
         logoUrl: row.logoUrl,
         supportEmail: row.supportEmail,
         phone: row.phone,
