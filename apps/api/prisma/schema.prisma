@@ -387,6 +387,16 @@ model NotificationRead {
  @@id([tenantId,propertyId,userId,notificationId])
  @@map("notification_reads")
 }
+model NotificationResolution {
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ notificationId String @map("notification_id") @db.Uuid
+ resolvedByUserId String @map("resolved_by_user_id") @db.Uuid
+ resolvedAt DateTime @default(now()) @map("resolved_at") @db.Timestamptz(6)
+ note String? @db.VarChar(1000)
+ @@id([tenantId,propertyId,notificationId])
+ @@map("notification_resolutions")
+}
 model NotificationOperation {
  tenantId String @map("tenant_id") @db.Uuid
  propertyId String @map("property_id") @db.Uuid

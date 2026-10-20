@@ -1,12 +1,13 @@
 'use client';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bell } from 'lucide-react';
+import { Bell, Check, CheckCheck } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Alert, AlertDescription } from '../../components/ui/alert';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Combobox } from '../../components/ui/combobox';
+import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { DetailList } from '../../components/ui/detail-list';
 import { FormField } from '../../components/ui/form-field';
 import { Input } from '../../components/ui/input';
@@ -87,7 +88,8 @@ export function DashboardNotifications({
   tenantId: string;
   propertyId: string;
 }) {
-  const { query } = useInbox(tenantId, propertyId, 'page=1&pageSize=10&unread=1');
+  const { query, mark } = useInbox(tenantId, propertyId, 'page=1&pageSize=10');
+  const canMark = !!query.data?.canMarkRead && !mark.isPending;
   const unread = query.error ? undefined : query.data?.unreadTotal;
   return (
     <DropdownMenu>
@@ -107,27 +109,61 @@ export function DashboardNotifications({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[min(24rem,calc(100vw-1rem))]">
-        <DropdownMenuLabel>Personal notifications</DropdownMenuLabel>
+        <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+          <span className="text-sm font-semibold">Notifications</span>
+          {unread ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!canMark}
+              onClick={() => mark.mutate({ kind: 'all' })}
+            >
+              <CheckCheck aria-hidden="true" /> Mark all as read
+            </Button>
+          ) : null}
+        </div>
         <DropdownMenuSeparator />
         {query.isPending ? (
           <DropdownMenuLabel>Loading notifications...</DropdownMenuLabel>
         ) : query.error ? (
           <DropdownMenuLabel>Unable to load notifications.</DropdownMenuLabel>
         ) : query.data?.items.length ? (
-          query.data.items.map((row) => (
-            <DropdownMenuItem key={row.id} asChild>
-              <a href={`${notificationsInboxHref(tenantId, propertyId)}&notification=${row.id}`}>
-                <span className="flex flex-col gap-1 py-1">
-                  <span className="font-semibold">{row.title}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {row.category} / {row.priority} / {new Date(row.createdAt).toLocaleString()}
+          query.data.items.slice(0, 10).map((row) => (
+            <div key={row.id} className="flex items-center gap-1">
+              <DropdownMenuItem asChild className="flex-1">
+                <a href={`${notificationsInboxHref(tenantId, propertyId)}&notification=${row.id}`}>
+                  <span className="flex flex-col gap-1 py-1">
+                    <span className={row.readAt ? 'font-normal' : 'font-semibold'}>
+                      {!row.readAt ? (
+                        <span
+                          aria-hidden="true"
+                          className="mr-2 inline-block size-2 rounded-full bg-primary"
+                        />
+                      ) : null}
+                      {row.title}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {row.category} / {row.priority} / {new Date(row.createdAt).toLocaleString()}
+                    </span>
                   </span>
-                </span>
-              </a>
-            </DropdownMenuItem>
+                </a>
+              </DropdownMenuItem>
+              {!row.readAt && query.data?.canMarkRead ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  aria-label={`Mark "${row.title}" as read`}
+                  disabled={!canMark}
+                  onClick={() => mark.mutate({ kind: 'single', ids: [row.id] })}
+                >
+                  <Check aria-hidden="true" />
+                </Button>
+              ) : null}
+            </div>
           ))
         ) : (
-          <DropdownMenuLabel>You are all caught up.</DropdownMenuLabel>
+          <DropdownMenuLabel>No notifications yet.</DropdownMenuLabel>
         )}
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
@@ -160,7 +196,13 @@ export function NotificationsInbox({
   const params = new URLSearchParams({
     page: String(page),
     pageSize: String(pageSize),
-    ...(tab === 'unread' ? { unread: '1' } : tab === 'action' ? { needsAction: '1' } : {}),
+    ...(tab === 'unread'
+      ? { unread: '1' }
+      : tab === 'action'
+        ? { needsAction: '1' }
+        : tab === 'resolved'
+          ? { resolved: '1' }
+          : {}),
     ...(category ? { category } : {}),
     ...(priority ? { priority } : {}),
     ...(search ? { search } : {}),
@@ -169,6 +211,29 @@ export function NotificationsInbox({
   });
   const { base, query, mark } = useInbox(tenantId, propertyId, params.toString()),
     data = query.error ? undefined : query.data;
+  const client = useQueryClient();
+  const [confirm, setConfirm] = useState<'resolve' | 'reopen' | null>(null);
+  const resolution = useMutation({
+    mutationFn: ({
+      id,
+      action,
+      note,
+    }: {
+      id: string;
+      action: 'resolve' | 'reopen';
+      note?: string;
+    }) =>
+      inboxRequest(`${base}/${id}/${action}`, {
+        method: 'PATCH',
+        body: JSON.stringify(action === 'resolve' ? { note: note || undefined } : {}),
+      }),
+    onSettled: async () => {
+      await client.invalidateQueries({
+        queryKey: ['dashboard', 'notifications', tenantId, propertyId],
+      });
+      await client.invalidateQueries({ queryKey: ['notification-detail', base] });
+    },
+  });
   const detail = useQuery({
     queryKey: ['notification-detail', base, selected],
     queryFn: () => inboxRequest<InboxNotification>(`${base}/${selected}`),
@@ -227,6 +292,7 @@ export function NotificationsInbox({
           { id: 'all', label: 'All' },
           { id: 'unread', label: 'Unread', count: data?.unreadTotal },
           { id: 'action', label: 'Needs action', count: data?.counts?.needsAction },
+          { id: 'resolved', label: 'Resolved' },
         ]}
       />
       <div className="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -339,12 +405,12 @@ export function NotificationsInbox({
               id: 'action',
               label: 'Issue',
               value: (r) =>
-                r.needsAction === true
-                  ? 'Needs action'
-                  : r.needsAction === null
-                    ? 'Unknown'
-                    : r.type === 'BOOKING_NEEDS_ATTENTION'
-                      ? 'Resolved'
+                r.resolution?.state === 'resolved'
+                  ? 'Resolved'
+                  : r.needsAction === true
+                    ? 'Needs action'
+                    : r.needsAction === null
+                      ? 'Unknown'
                       : 'Information',
             },
             {
@@ -422,6 +488,11 @@ export function NotificationsInbox({
               <Badge variant={row.readAt ? 'secondary' : 'info'}>
                 {row.readAt ? 'Read' : 'Unread'}
               </Badge>
+              {row.resolution?.state === 'resolved' ? (
+                <Badge variant="success">Resolved</Badge>
+              ) : row.resolution?.state === 'open' ? (
+                <Badge variant="warning">Needs action</Badge>
+              ) : null}
             </>
           ) : null
         }
@@ -442,6 +513,18 @@ export function NotificationsInbox({
                   onClick={() => mark.mutate({ kind: 'single', ids: [row.id] })}
                 >
                   Mark as read
+                </Button>
+              ) : null}
+              {data?.canMarkRead && row.actionable && row.resolution?.state === 'open' ? (
+                <Button variant="outline" onClick={() => setConfirm('resolve')}>
+                  Mark as resolved
+                </Button>
+              ) : null}
+              {data?.canMarkRead &&
+              row.resolution?.state === 'resolved' &&
+              row.resolution.source === 'manual' ? (
+                <Button variant="outline" onClick={() => setConfirm('reopen')}>
+                  Reopen
                 </Button>
               ) : null}
             </>
@@ -468,13 +551,37 @@ export function NotificationsInbox({
                 {
                   label: 'Issue',
                   value:
-                    row.needsAction === true
-                      ? 'Needs action - reading does not resolve it'
-                      : row.needsAction === null
-                        ? 'Unknown - related context unavailable'
-                        : row.type === 'BOOKING_NEEDS_ATTENTION'
-                          ? 'Resolved in the underlying record'
+                    row.resolution?.state === 'resolved'
+                      ? row.resolution.source === 'manual'
+                        ? 'Resolved by a person'
+                        : 'Resolved in the underlying record'
+                      : row.needsAction === true
+                        ? 'Needs action - reading does not resolve it'
+                        : row.needsAction === null
+                          ? 'Unknown - related context unavailable'
                           : 'Information',
+                },
+                {
+                  label: 'Resolved by',
+                  value:
+                    row.resolution?.state === 'resolved' && row.resolution.source === 'manual'
+                      ? `${row.resolution.by}${row.resolution.at ? `, ${new Date(row.resolution.at).toLocaleString()}` : ''}`
+                      : null,
+                },
+                {
+                  label: 'Resolution note',
+                  value: row.resolution?.state === 'resolved' ? row.resolution.note : null,
+                },
+                {
+                  label: 'Read by',
+                  value: row.readBy?.length
+                    ? row.readBy
+                        .map(
+                          (r) =>
+                            `${r.name ?? 'A staff member'} (${new Date(r.readAt).toLocaleString()})`,
+                        )
+                        .join(', ')
+                    : null,
                 },
                 { label: 'Reservation', value: row.booking?.externalReference },
                 { label: 'Status', value: row.booking?.status },
@@ -492,6 +599,32 @@ export function NotificationsInbox({
           <EmptyPanel title="Notification unavailable" />
         )}
       </QuickPeek>
+      <ConfirmDialog
+        open={confirm === 'resolve'}
+        onOpenChange={(open) => !open && setConfirm(null)}
+        title="Mark as resolved?"
+        description="The alert is marked resolved for everyone, with your name and the time. The underlying issue is not changed."
+        confirmLabel="Mark as resolved"
+        cancelLabel="Cancel"
+        reasonLabel="Note (optional)"
+        reasonPlaceholder="What was done?"
+        onConfirm={async (note) => {
+          if (row) await resolution.mutateAsync({ id: row.id, action: 'resolve', note });
+          setConfirm(null);
+        }}
+      />
+      <ConfirmDialog
+        open={confirm === 'reopen'}
+        onOpenChange={(open) => !open && setConfirm(null)}
+        title="Reopen this alert?"
+        description="It will show as needing action again for everyone."
+        confirmLabel="Reopen"
+        cancelLabel="Cancel"
+        onConfirm={async () => {
+          if (row) await resolution.mutateAsync({ id: row.id, action: 'reopen' });
+          setConfirm(null);
+        }}
+      />
     </div>
   );
 }

@@ -240,6 +240,53 @@ describe('personal notification inbox over real scoped Postgres records', () => 
     expect(action.body.items[0]).toMatchObject({ id: attention, needsAction: true });
     expect(action.body.items[0].readAt).not.toBeNull();
   });
+  it('resolves a needs-action item for everyone with who, when and a note, and reopens it', async () => {
+    const patch = (path: string, user = owner, body: object = {}) =>
+      http().patch(`${base}/${path}`).set('Cookie', cookies.get(user)!).send(body);
+    await patch(`${created}/resolve`).expect(400);
+    await patch(`${foreign}/resolve`).expect(404);
+    await patch(`${attention}/resolve`, unverified).expect(403);
+    const first = await patch(`${attention}/resolve`, owner, { note: 'Called the guest.' }).expect(
+      200,
+    );
+    expect(first.body).toEqual({ changed: true, resolved: true });
+    expect((await patch(`${attention}/resolve`).expect(200)).body.changed).toBe(false);
+    const detail = (await http().get(`${base}/${attention}`).set('Cookie', cookies.get(owner)!))
+      .body;
+    expect(detail.resolution).toMatchObject({
+      state: 'resolved',
+      source: 'manual',
+      note: 'Called the guest.',
+    });
+    expect(detail.resolution.at).toBeTruthy();
+    expect(Array.isArray(detail.readBy)).toBe(true);
+    expect(
+      (await get(owner, '?needsAction=1')).body.items.some(
+        (r: { id: string }) => r.id === attention,
+      ),
+    ).toBe(false);
+    expect(
+      (await get(owner, '?resolved=1')).body.items.some((r: { id: string }) => r.id === attention),
+    ).toBe(true);
+    expect((await patch(`${attention}/reopen`).expect(200)).body.changed).toBe(true);
+    expect((await patch(`${attention}/reopen`).expect(200)).body.changed).toBe(false);
+    expect(
+      (await get(owner, '?needsAction=1')).body.items.some(
+        (r: { id: string }) => r.id === attention,
+      ),
+    ).toBe(true);
+    const race = await Promise.all([
+      patch(`${attention}/resolve`, owner),
+      patch(`${attention}/resolve`, second),
+    ]);
+    expect(race.map((r) => r.status)).toEqual([200, 200]);
+    expect(race.filter((r) => r.body.changed).length).toBe(1);
+    await patch(`${attention}/reopen`).expect(200);
+    const events = await admin.$queryRaw<{ action: string }[]>`
+      SELECT action FROM audit_logs WHERE tenant_id=${tenantId}::uuid AND target_id=${attention}
+        AND action IN ('notifications.resolve','notifications.reopen')`;
+    expect(events.length).toBeGreaterThanOrEqual(4);
+  });
   it('uses current stored review/status evidence; missing booking stays Unknown', async () => {
     await admin.$executeRaw`UPDATE bookings SET status='CONFIRMED' WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${booking}::uuid`;
     await admin.$executeRaw`INSERT INTO manual_review_items(tenant_id,property_id,category,reference_type,reference_id,message) VALUES(${tenantId}::uuid,${propertyId}::uuid,'PAYMENT_BOOKING_MISMATCH','booking',${booking},'Fixture issue')`;

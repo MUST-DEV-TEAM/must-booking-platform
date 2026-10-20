@@ -51,4 +51,20 @@ export class NotificationsController {
   ) {
     return this.inbox.mark(req.tenantContext, 'single', body, key, id);
   }
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Patch(':notificationId/resolve')
+  @RequiresVerifiedEmail()
+  resolve(
+    @Param('notificationId') id: string,
+    @Body() body: Record<string, unknown>,
+    @Req() req: Request,
+  ) {
+    return this.inbox.resolve(req.tenantContext, id, body);
+  }
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Patch(':notificationId/reopen')
+  @RequiresVerifiedEmail()
+  reopen(@Param('notificationId') id: string, @Req() req: Request) {
+    return this.inbox.reopen(req.tenantContext, id);
+  }
 }

@@ -20,6 +20,7 @@ import {
   type NotificationType,
 } from './notification-registry';
 import { BOOKING_NEEDS_ATTENTION_STATUSES } from '../booking/booking-attention';
+const ACTIONABLE_TYPES: NotificationType[] = ['EMAIL_DELIVERY_FAILED', 'BOOKING_NEEDS_ATTENTION'];
 export type InboxContext = { tenantId: string; propertyId: string; userId: string };
 type Row = {
   id: string;
@@ -34,6 +35,10 @@ type Row = {
   endsOn: string | null;
   needsAction: boolean | null;
   emailMessageId: string | null;
+  manuallyResolved: boolean;
+  resolvedAt: Date | null;
+  resolvedByName: string | null;
+  resolutionNote: string | null;
 };
 /** Personal awareness over existing operational facts; reading never resolves an issue. */
 @Injectable()
@@ -61,10 +66,14 @@ export class NotificationInboxService {
   SELECT n.id,n.type,r.read_at AS "readAt",n.created_at AS "createdAt",b.id AS "bookingId",b.status::text AS "bookingStatus",b.external_reference AS reference,
    NULLIF(TRIM(CONCAT_WS(' ',g.first_name,g.last_name)),'') AS "guestName",b.starts_on::text AS "startsOn",b.ends_on::text AS "endsOn",
    n.payload->>'emailMessageId' AS "emailMessageId",
-   CASE WHEN n.type='EMAIL_DELIVERY_FAILED' THEN true WHEN n.type<>'BOOKING_NEEDS_ATTENTION' THEN false WHEN b.id IS NULL THEN NULL ELSE
+   (nr.notification_id IS NOT NULL) AS "manuallyResolved",nr.resolved_at AS "resolvedAt",
+   NULLIF(TRIM(CONCAT_WS(' ',ru.first_name,ru.last_name)),'') AS "resolvedByName",nr.note AS "resolutionNote",
+   CASE WHEN nr.notification_id IS NOT NULL THEN false WHEN n.type='EMAIL_DELIVERY_FAILED' THEN true WHEN n.type<>'BOOKING_NEEDS_ATTENTION' THEN false WHEN b.id IS NULL THEN NULL ELSE
     (b.status::text=ANY(${[...BOOKING_NEEDS_ATTENTION_STATUSES]}::text[]) OR EXISTS(SELECT 1 FROM manual_review_items m WHERE m.tenant_id=${c.tenantId}::uuid AND m.property_id=${c.propertyId}::uuid AND m.reference_type='booking' AND m.reference_id=b.id::text AND m.status='OPEN')) END AS "needsAction"
   FROM notifications n
   LEFT JOIN notification_reads r ON r.tenant_id=n.tenant_id AND r.property_id=n.property_id AND r.notification_id=n.id AND r.user_id=${c.userId}::uuid
+  LEFT JOIN notification_resolutions nr ON nr.tenant_id=n.tenant_id AND nr.property_id=n.property_id AND nr.notification_id=n.id
+  LEFT JOIN users ru ON ru.id=nr.resolved_by_user_id
   LEFT JOIN bookings b ON b.tenant_id=n.tenant_id AND b.property_id=n.property_id AND b.id::text=n.payload->>'bookingId'
   LEFT JOIN guests g ON g.tenant_id=b.tenant_id AND g.id=b.guest_id
   WHERE n.tenant_id=${c.tenantId}::uuid AND n.property_id=${c.propertyId}::uuid AND n.type=ANY(${types}::text[])
@@ -92,6 +101,8 @@ export class NotificationInboxService {
       readAt: row.readAt,
       createdAt: row.createdAt,
       needsAction: row.needsAction,
+      actionable: ACTIONABLE_TYPES.includes(row.type),
+      resolution: this.resolution(row),
       booking:
         canBooking && row.bookingId
           ? {
@@ -117,6 +128,27 @@ export class NotificationInboxService {
               ? 'Related reservation is unavailable'
               : null,
     };
+  }
+  /** Open, resolved (by a person or automatically by the underlying record), or null for information. */
+  private resolution(row: Row) {
+    if (row.manuallyResolved)
+      return {
+        state: 'resolved' as const,
+        source: 'manual' as const,
+        by: row.resolvedByName ?? 'A staff member',
+        at: row.resolvedAt,
+        note: row.resolutionNote,
+      };
+    if (!ACTIONABLE_TYPES.includes(row.type)) return null;
+    if (row.needsAction === false)
+      return {
+        state: 'resolved' as const,
+        source: 'system' as const,
+        by: 'System',
+        at: null,
+        note: null,
+      };
+    return row.needsAction === true ? { state: 'open' as const } : null;
   }
   async list(c: InboxContext, query: Record<string, unknown> = {}) {
     const page = Number(query.page ?? 1),
@@ -160,6 +192,7 @@ export class NotificationInboxService {
         const where = Prisma.sql`type=ANY(${matched}::text[])
     AND (${query.unread === '1' || query.unread === 'true' || query.unread === true} = false OR "readAt" IS NULL)
     AND (${query.needsAction === '1' || query.needsAction === 'true'} = false OR "needsAction" IS DISTINCT FROM false)
+    AND (${query.resolved === '1' || query.resolved === 'true'} = false OR ("manuallyResolved" OR (type=ANY(${ACTIONABLE_TYPES}::text[]) AND "needsAction" = false)))
     AND (${from}::date IS NULL OR ("createdAt" AT TIME ZONE ${property[0].timezone})::date>=${from}::date)
     AND (${to}::date IS NULL OR ("createdAt" AT TIME ZONE ${property[0].timezone})::date<=${to}::date)
     AND (${search}='' OR replace(type,'_',' ') ILIKE ${'%' + search + '%'} OR (${caps.includes('bookings.view')} AND (COALESCE(reference,'') ILIKE ${'%' + search + '%'} OR COALESCE("guestName",'') ILIKE ${'%' + search + '%'})))`;
@@ -208,7 +241,17 @@ export class NotificationInboxService {
         Prisma.sql`WITH inbox AS (${this.base(c, types)}) SELECT * FROM inbox WHERE id=${id}::uuid`,
       );
       if (!rows[0]) throw new NotFoundException('Notification not found.');
-      return this.present(rows[0], c, caps);
+      const shown = this.present(rows[0], c, caps);
+      // Who has read an action item is shared only with staff managers; others see their own state.
+      const readBy =
+        caps.includes('staff.view') && ACTIONABLE_TYPES.includes(rows[0].type)
+          ? await tx.$queryRaw<{ name: string | null; readAt: Date }[]>`
+              SELECT NULLIF(TRIM(CONCAT_WS(' ',u.first_name,u.last_name)),'') AS name, r.read_at AS "readAt"
+              FROM notification_reads r JOIN users u ON u.id=r.user_id
+              WHERE r.tenant_id=${c.tenantId}::uuid AND r.property_id=${c.propertyId}::uuid
+                AND r.notification_id=${id}::uuid ORDER BY r.read_at LIMIT 50`
+          : undefined;
+      return readBy ? { ...shown, readBy } : shown;
     });
   }
   async mark(
@@ -289,6 +332,55 @@ export class NotificationInboxService {
       },
       { timeoutMs: 15000 },
     );
+  }
+  /** Shared resolution of a needs-action item. Repeating the same call is a harmless no-op. */
+  async resolve(c: InboxContext, id: string, body: Record<string, unknown> = {}) {
+    return this.changeResolution(c, id, 'resolve', this.note(body?.note));
+  }
+  async reopen(c: InboxContext, id: string) {
+    return this.changeResolution(c, id, 'reopen', null);
+  }
+  private note(value: unknown) {
+    if (value === undefined || value === null || value === '') return null;
+    if (typeof value !== 'string' || value.trim().length > 1000)
+      throw new BadRequestException('The note must be text of at most 1000 characters.');
+    return value.trim() || null;
+  }
+  private async changeResolution(
+    c: InboxContext,
+    id: string,
+    action: 'resolve' | 'reopen',
+    note: string | null,
+  ) {
+    if (!NOTIFICATION_UUID.test(id)) throw new BadRequestException('Invalid notification id.');
+    const { types } = await this.access(c);
+    return this.db.withTenantTransaction(c, async (tx) => {
+      const verified = await tx.$queryRaw<
+        { ok: boolean }[]
+      >`SELECT email_verified_at IS NOT NULL AS ok FROM users WHERE id=${c.userId}::uuid`;
+      if (!verified[0]?.ok)
+        throw new ForbiddenException('Verify your email before resolving notifications.');
+      const rows = await tx.$queryRaw<{ type: NotificationType }[]>(
+        Prisma.sql`SELECT n.type FROM notifications n WHERE n.tenant_id=${c.tenantId}::uuid AND n.property_id=${c.propertyId}::uuid AND n.id=${id}::uuid AND n.type=ANY(${types}::text[]) FOR UPDATE`,
+      );
+      if (!rows[0]) throw new NotFoundException('Notification not found.');
+      if (!ACTIONABLE_TYPES.includes(rows[0].type))
+        throw new BadRequestException('Only needs-action notifications can be resolved.');
+      const changed =
+        action === 'resolve'
+          ? await tx.$executeRaw`INSERT INTO notification_resolutions(tenant_id,property_id,notification_id,resolved_by_user_id,note) VALUES(${c.tenantId}::uuid,${c.propertyId}::uuid,${id}::uuid,${c.userId}::uuid,${note}) ON CONFLICT DO NOTHING`
+          : await tx.$executeRaw`DELETE FROM notification_resolutions WHERE tenant_id=${c.tenantId}::uuid AND property_id=${c.propertyId}::uuid AND notification_id=${id}::uuid`;
+      if (changed)
+        await this.audit.recordInTransaction(tx, {
+          ...c,
+          actorUserId: c.userId,
+          action: action === 'resolve' ? 'notifications.resolve' : 'notifications.reopen',
+          targetType: 'notification',
+          targetId: id,
+          details: { type: rows[0].type, ...(note ? { note } : {}) },
+        });
+      return { changed: changed > 0, resolved: action === 'resolve' };
+    });
   }
   private day(value: unknown) {
     if (value === undefined || value === '') return null;

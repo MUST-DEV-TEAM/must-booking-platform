@@ -9,6 +9,20 @@ export type InboxNotification = {
   readAt: string | null;
   createdAt: string;
   needsAction: boolean | null;
+  /** True for items that can be resolved (not plain information). */
+  actionable?: boolean;
+  resolution?:
+    | { state: 'open' }
+    | {
+        state: 'resolved';
+        source: 'manual' | 'system';
+        by: string;
+        at: string | null;
+        note: string | null;
+      }
+    | null;
+  /** Shown only to staff managers, for action items. */
+  readBy?: { name: string | null; readAt: string }[];
   href: string | null;
   limitedContext: string | null;
   booking: {

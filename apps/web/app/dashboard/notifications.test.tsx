@@ -198,6 +198,91 @@ describe('personal notification workspace', () => {
     });
     expect(fetch.mock.calls.some(([url]) => url.includes('search=MUST-123'))).toBe(true);
   });
+  it('bell lists up to 10, marks one item read and marks all read', async () => {
+    const items = Array.from({ length: 12 }, (_, i) => ({
+      ...row,
+      id: `n-${i + 1}`,
+      title: `Alert ${i + 1}`,
+      readAt: i === 1 ? '2026-10-19T09:30:00Z' : null,
+    }));
+    const fetch = fixture({ items, pageSize: 10 });
+    await mount(true);
+    await act(async () => {
+      document
+        .querySelector('[aria-label="Notifications (7 unread)"]')!
+        .dispatchEvent(
+          new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }),
+        );
+      await settle();
+    });
+    expect(document.querySelectorAll('a[href*="&notification="]').length).toBe(10);
+    expect(document.querySelector(`[aria-label='Mark "Alert 2" as read']`)).toBeNull();
+    await click(
+      document.querySelector<HTMLButtonElement>(`[aria-label='Mark "Alert 1" as read']`)!,
+    );
+    const single = fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')!;
+    expect(single[0]).toBe('/api/tenants/t/properties/p/notifications/n-1');
+    expect(JSON.parse(single[1]!.body as string)).toEqual({ version: 3 });
+  });
+  it('resolves an action item with a note and reopens a manual resolution', async () => {
+    let item: InboxNotification = {
+      ...row,
+      actionable: true,
+      resolution: { state: 'open' },
+      readBy: [{ name: 'Front Desk', readAt: '2026-10-19T09:10:00Z' }],
+    };
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push([url, init]);
+        if (init?.method === 'PATCH' && url.endsWith('/resolve'))
+          item = {
+            ...item,
+            needsAction: false,
+            resolution: {
+              state: 'resolved',
+              source: 'manual',
+              by: 'Ana Owner',
+              at: '2026-10-19T11:00:00Z',
+              note: JSON.parse(String(init.body)).note ?? null,
+            },
+          };
+        if (init?.method === 'PATCH' && url.endsWith('/reopen'))
+          item = { ...item, needsAction: true, resolution: { state: 'open' } };
+        if (init?.method === 'PATCH') return Response.json({ changed: true });
+        return Response.json(url.endsWith('/n-1') ? item : page({ items: [item] }));
+      }),
+    );
+    await mount();
+    await click(button(row.title));
+    expect(document.body.textContent).toContain('Front Desk');
+    await click(button('Mark as resolved'));
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>('button')]
+      .filter((b) => b.textContent?.trim() === 'Mark as resolved')
+      .at(-1)!;
+    const note = document.querySelector<HTMLTextAreaElement>('textarea')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
+        note,
+        'Called the guest.',
+      );
+      note.dispatchEvent(new Event('input', { bubbles: true }));
+      await settle();
+    });
+    await click(confirm);
+    const resolveCall = calls.find(([url]) => url.endsWith('/n-1/resolve'))!;
+    expect(JSON.parse(String(resolveCall[1]!.body))).toEqual({ note: 'Called the guest.' });
+    expect(document.body.textContent).toContain('Ana Owner');
+    expect(document.body.textContent).toContain('Called the guest.');
+    await click(button('Reopen'));
+    await click(
+      [...document.querySelectorAll<HTMLButtonElement>('button')]
+        .filter((b) => b.textContent?.trim() === 'Reopen')
+        .at(-1)!,
+    );
+    expect(calls.some(([url]) => url.endsWith('/n-1/reopen'))).toBe(true);
+  });
   it('read-only and limited context hide unauthorized links and disable read writes', async () => {
     fixture({
       canMarkRead: false,
