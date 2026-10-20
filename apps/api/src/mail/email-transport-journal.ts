@@ -125,6 +125,8 @@ export class EmailTransportJournal {
       if (row.state === 'REJECTED' && !row.retryable) return { kind: 'rejected', retryable: false };
       const contents = this.open(scope, stage, row.provider, row.encrypted);
       const fence = randomUUID();
+      await tx.$executeRaw`UPDATE email_messages SET provider=${row.provider},updated_at=clock_timestamp()
+        WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${scope.messageId}::uuid AND status='QUEUED'`;
       await tx.$executeRaw`
         UPDATE email_transport_attempts SET state='SENDING',attempt=attempt+1,fence=${fence}::uuid,lease_expires_at=clock_timestamp()+interval '70 seconds',retryable=false,updated_at=clock_timestamp()
         WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND message_id=${scope.messageId}::uuid AND stage=${stage}

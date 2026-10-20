@@ -77,6 +77,7 @@ const LABELS: Record<string, string> = {
   'template.test': 'Template test',
   'staff.invitation': 'Staff invitation',
   'email.sender_verification': 'Sender mailbox verification',
+  'sender.test': 'Custom sender test',
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -125,7 +126,9 @@ export class EmailActivityService {
           canResend:
             !row.transportBlocked &&
             row.status === 'FAILED' &&
-            !['staff.invitation', 'email.sender_verification'].includes(row.eventType) &&
+            !['staff.invitation', 'email.sender_verification', 'sender.test'].includes(
+              row.eventType,
+            ) &&
             new Date(row.createdAt).getTime() > cutoff,
         })),
         observedAt: properties[0]!.observedAt,
@@ -305,7 +308,7 @@ export class EmailActivityService {
           count(*) FILTER(WHERE em.created_at >= date_trunc('day',now() AT TIME ZONE p.timezone) AT TIME ZONE p.timezone)::int AS today
         FROM email_messages em JOIN properties p ON p.tenant_id=em.tenant_id AND p.id=em.property_id
         WHERE em.tenant_id=${context.tenantId}::uuid AND em.property_id=${context.propertyId}::uuid
-          AND em.event_type<>'template.test' AND em.created_at>=now()-interval '7 days'
+          AND em.event_type NOT IN ('template.test','sender.test') AND em.created_at>=now()-interval '7 days'
         GROUP BY status,p.timezone
       `;
       const metrics = await tx.$queryRaw<
@@ -328,12 +331,12 @@ export class EmailActivityService {
           count(*) FILTER(WHERE em.status='QUEUED')::int AS queued,
           min(em.created_at) FILTER(WHERE em.status='QUEUED') AS "oldestQueued",
           (SELECT count(*)::int FROM email_suppressions WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND active) AS "suppressedAddresses"
-        FROM email_messages em WHERE em.tenant_id=${context.tenantId}::uuid AND em.property_id=${context.propertyId}::uuid AND em.event_type<>'template.test'
+        FROM email_messages em WHERE em.tenant_id=${context.tenantId}::uuid AND em.property_id=${context.propertyId}::uuid AND em.event_type NOT IN ('template.test','sender.test')
       `;
       const failingTopics = await tx.$queryRaw<{ topic: string; count: number }[]>`
         SELECT event_type AS topic,count(*)::int AS count FROM email_messages
         WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid
-          AND event_type<>'template.test' AND created_at>=now()-interval '7 days' AND status IN('FAILED','BOUNCED','COMPLAINED')
+          AND event_type NOT IN ('template.test','sender.test') AND created_at>=now()-interval '7 days' AND status IN('FAILED','BOUNCED','COMPLAINED')
         GROUP BY event_type ORDER BY count(*) DESC,event_type LIMIT 10
       `;
       const actionNeeded = await tx.$queryRaw<
@@ -348,7 +351,7 @@ export class EmailActivityService {
       >`
         SELECT id,event_type AS "eventType",recipient_email AS recipient,status::text AS status,last_error AS "lastError",created_at AS "createdAt"
         FROM email_messages WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid
-          AND event_type<>'template.test' AND status IN('FAILED','BOUNCED','COMPLAINED')
+          AND event_type NOT IN ('template.test','sender.test') AND status IN('FAILED','BOUNCED','COMPLAINED')
         ORDER BY created_at DESC,id DESC LIMIT 10
       `;
       const m = metrics[0]!;
@@ -488,7 +491,9 @@ export class EmailActivityService {
           ? 'Another delivery attempt is active or acceptance is unknown. Automatic resend is stopped.'
           : suppressed.length
             ? 'Recipient is suppressed. Resolve it in Configuration before retrying.'
-            : null,
+            : row.eventType === 'sender.test'
+              ? 'Create a new sender test in Configuration. Sender tests have a separate hotel-wide rate limit.'
+              : null,
         lastError: row.lastError ? safeDeliveryError(row.lastError) : null,
         label: LABELS[row.eventType] ?? row.eventType,
         canResend:

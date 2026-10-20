@@ -31,11 +31,12 @@ const input = {
 };
 function fixture() {
   const profile = {
+    version: 4,
     mode: 'SMTP',
     activeMode: 'SMTP',
     fromName: 'Custom Hotel',
     fromAddress: 'hotel@example.test',
-    domain: null,
+    domain: null as string | null,
     smtpHost: 'smtp.example.com',
     smtpPort: 587,
     smtpSecurity: 'STARTTLS',
@@ -72,7 +73,11 @@ function fixture() {
     frozen: vi.fn(async () => frozen),
   };
   const credentials = {
-    open: vi.fn(() => ({ provider: 'smtp', username: 'test-user', password: 'test-password' })),
+    open: vi.fn<EmailTransportCredentialService['open']>(() => ({
+      provider: 'smtp',
+      username: 'test-user',
+      password: 'test-password',
+    })),
   };
   const smtp = new SmtpTransport();
   const send = vi.spyOn(smtp, 'send').mockResolvedValue({
@@ -95,6 +100,74 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
+});
+it('uses verified pending SMTP for an explicit self-test without activating or using MUST', async () => {
+  const f = fixture();
+  f.profile.activeMode = 'DEFAULT';
+  const receipt = await withMailAttempt(
+    { ...scope, senderTestVersion: 4, senderTestActorId: 'actor' },
+    () => f.dispatcher.send(input, f.defaultSend),
+  );
+  expect(receipt).toMatchObject({ provider: 'smtp' });
+  expect(f.send).toHaveBeenCalledOnce();
+  expect(f.defaultSend).not.toHaveBeenCalled();
+  expect(f.profile.activeMode).toBe('DEFAULT');
+});
+it('uses verified pending Resend for a custom self-test with the hotel key and identity', async () => {
+  const f = fixture();
+  f.profile.activeMode = 'DEFAULT';
+  f.profile.mode = 'RESEND';
+  f.profile.domain = 'example.test';
+  f.profile.domainStatus = 'verified';
+  f.credentials.open.mockReturnValue({ provider: 'resend', apiKey: 're_fake_hotel_key' });
+  const request = vi
+    .fn<typeof fetch>()
+    .mockResolvedValue(Response.json({ id: 'resend-self-test' }));
+  vi.stubGlobal('fetch', request);
+  expect(
+    await withMailAttempt({ ...scope, senderTestVersion: 4 }, () =>
+      f.dispatcher.send(input, f.defaultSend),
+    ),
+  ).toEqual({ provider: 'resend', providerMessageId: 'resend-self-test' });
+  expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toMatchObject({
+    from: '"Custom Hotel" <hotel@example.test>',
+  });
+  expect(f.defaultSend).not.toHaveBeenCalled();
+  expect(f.send).not.toHaveBeenCalled();
+});
+it('fails an outdated sender test before any transport or default sender request', async () => {
+  const f = fixture();
+  await expect(
+    withMailAttempt({ ...scope, senderTestVersion: 5 }, () =>
+      f.dispatcher.send(input, f.defaultSend),
+    ),
+  ).rejects.toThrow('Saved sender setup changed');
+  expect(f.send).not.toHaveBeenCalled();
+  expect(f.defaultSend).not.toHaveBeenCalled();
+});
+it.each([{ forceDefault: true }, { sensitive: true }])(
+  'never reports a default/security send as a successful custom test',
+  async (flags) => {
+    const f = fixture();
+    await expect(
+      withMailAttempt({ ...scope, ...flags, senderTestVersion: 4 }, () =>
+        f.dispatcher.send(input, f.defaultSend),
+      ),
+    ).rejects.toThrow('No default-sender test was sent');
+    expect(f.defaultSend).not.toHaveBeenCalled();
+    expect(f.send).not.toHaveBeenCalled();
+  },
+);
+it('never falls back a controlled test even when an unrelated caller marks it guest mail', async () => {
+  const f = fixture();
+  f.send.mockRejectedValue(new SmtpTransportError('rejected', false));
+  await expect(
+    withMailAttempt({ ...scope, senderTestVersion: 4 }, () =>
+      f.dispatcher.send(input, f.defaultSend),
+    ),
+  ).rejects.toMatchObject({ acceptance: 'rejected' });
+  expect(f.journal.claim).toHaveBeenCalledTimes(1);
+  expect(f.defaultSend).not.toHaveBeenCalled();
 });
 it('bypasses custom delivery for sensitive and explicitly platform-owned messages', async () => {
   const f = fixture();

@@ -15,6 +15,7 @@ import { RequiresCapability } from './capabilities.decorator';
 import { EmailSendingProfileService } from './email-sending-profile.service';
 import { EmailSenderVerificationService } from './email-sender-verification.service';
 import { EmailDomainVerificationService } from './email-domain-verification.service';
+import { EmailSenderTestService } from './email-sender-test.service';
 import { Role, Roles } from './roles.decorator';
 import { TenantScoped } from './tenant-context.decorator';
 
@@ -29,7 +30,25 @@ export class EmailSendingProfileController {
     private readonly senderProofs: EmailSenderVerificationService,
     @Inject(EmailDomainVerificationService)
     private readonly domains: EmailDomainVerificationService,
+    @Inject(EmailSenderTestService) private readonly tests: EmailSenderTestService,
   ) {}
+  @Post('test')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('settings.manage')
+  @RequiresVerifiedEmail()
+  test(
+    @Req() request: Request,
+    @Body() body: Record<string, unknown>,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    return this.tests.request(request.tenantContext, request.tenantContext.userId, body ?? {}, key);
+  }
+  @Get('tests/:testId')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('settings.manage')
+  testStatus(@Req() request: Request, @Param('testId', new ParseUUIDPipe()) id: string) {
+    return this.tests.status(request.tenantContext, request.tenantContext.userId, id);
+  }
   @Post('domain/check')
   @TenantScoped({ propertyParam: 'propertyId' })
   @RequiresCapability('settings.manage')

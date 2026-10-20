@@ -14,6 +14,7 @@ import { SettingToggle } from '../../components/ui/setting-toggle';
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import { useUnsavedChanges, useUnsavedNavigation } from '../../components/ui/unsaved-changes';
 import { EmailSenderActivation } from './email-sender-activation';
+import { EmailSenderTest } from './email-sender-test';
 import { createEmailWriter, emailRequest, EmailRequestError } from '../../lib/email-workspace';
 import {
   EmailDomainSetup,
@@ -560,6 +561,14 @@ function SendingEditor({
           disabled={disabled || dirty}
           setBusy={setBusy}
           refresh={refresh}
+        />
+        <EmailSenderTest
+          key={base}
+          base={base}
+          profile={profile}
+          disabled={disabled || dirty}
+          busy={busy}
+          setBusy={setBusy}
         />
         {result &&
         (result.id === profile.connectionOperationId ||

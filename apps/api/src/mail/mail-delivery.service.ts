@@ -35,6 +35,9 @@ export interface MailDeliveryContext {
 }
 
 export interface DispatchOptions {
+  /** Server-created self-test intention; never accepted from a public mail body. */
+  senderTestVersion?: number;
+  senderTestActorId?: string;
   /** A controlled test already persisted its approved identity with the send intention. */
   preserveIdentity?: boolean;
   /**
@@ -46,6 +49,8 @@ export interface DispatchOptions {
 }
 
 export interface MailJobData {
+  senderTestVersion?: number;
+  senderTestActorId?: string;
   messageId: string;
   idempotencyKeyOverride?: string;
   context: MailDeliveryContext;
@@ -56,6 +61,11 @@ export interface MailJobData {
 export interface MailRetryPolicy {
   attempts: number;
   backoffMs: number;
+}
+
+function nonResendable(data: MailJobData): boolean {
+  const descriptor = describeMail(data.kind, data.command as never);
+  return descriptor.sensitive || descriptor.eventType === 'sender.test';
 }
 
 /**
@@ -153,7 +163,18 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
       const descriptor = describeMail(kind, command);
       const messageId = await this.recordMessage(context, descriptor);
       if (!messageId) return; // already sent / failed / delivered: never re-send on a replay
-      const data: MailJobData = { messageId, context, kind, command };
+      const data: MailJobData = {
+        messageId,
+        context,
+        kind,
+        command,
+        ...(options.senderTestVersion === undefined
+          ? {}
+          : {
+              senderTestVersion: options.senderTestVersion,
+              senderTestActorId: options.senderTestActorId,
+            }),
+      };
       if (!this.queue) {
         await this.attempt(data, true);
         return;
@@ -198,7 +219,7 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
       !['completed', 'failed'].includes(await job.getState()) ||
       job.data.context.tenantId !== context.tenantId ||
       job.data.context.propertyId !== context.propertyId ||
-      describeMail(job.data.kind, job.data.command as never).sensitive
+      nonResendable(job.data)
     )
       return null;
     return job.data;
@@ -225,7 +246,7 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
       ['completed', 'failed'].includes(await job.getState()) &&
       job.data.context.tenantId === context.tenantId &&
       job.data.context.propertyId === context.propertyId &&
-      !describeMail(job.data.kind, job.data.command as never).sensitive,
+      !nonResendable(job.data),
     );
   }
 
@@ -246,7 +267,7 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
     if (
       data.context.tenantId !== context.tenantId ||
       data.context.propertyId !== context.propertyId ||
-      describeMail(data.kind, data.command as never).sensitive
+      nonResendable(data)
     )
       return 'unavailable';
     const claimed = await this.withContext(
@@ -361,6 +382,19 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
       );
       return;
     }
+    if (
+      ['owner.email_transport_failure', 'sender.test'].includes(descriptor.eventType) &&
+      (!context.tenantId || !context.propertyId)
+    ) {
+      await this.withContext(
+        context,
+        (
+          tx,
+        ) => tx.$executeRaw`UPDATE email_messages SET status='SUPPRESSED',last_error='A scoped hotel context is required for this controlled message.',workspace_version=workspace_version+1,updated_at=clock_timestamp()
+        WHERE tenant_id IS NOT DISTINCT FROM ${context.tenantId}::uuid AND property_id IS NOT DISTINCT FROM ${context.propertyId}::uuid AND id=${messageId}::uuid AND status='QUEUED'`,
+      );
+      return;
+    }
     if (descriptor.eventType === 'owner.email_transport_failure') {
       const eligible =
         context.tenantId &&
@@ -382,6 +416,30 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
       }
     }
     if (context.tenantId && context.propertyId) {
+      if (descriptor.eventType === 'sender.test') {
+        const eligible =
+          Number.isSafeInteger(data.senderTestVersion) &&
+          Number(data.senderTestVersion) > 0 &&
+          data.senderTestActorId &&
+          (await this.database.withTenantTransaction(
+            { tenantId: context.tenantId, propertyId: context.propertyId },
+            (tx) => tx.$queryRaw<{ id: string }[]>`
+            SELECT u.id FROM users u JOIN tenant_memberships tm ON tm.user_id=u.id AND tm.tenant_id=${context.tenantId}::uuid
+            WHERE u.id=${data.senderTestActorId}::uuid AND u.email_verified_at IS NOT NULL AND lower(u.email)=lower(${descriptor.recipient})
+              AND (tm.role IN ('OWNER','ADMIN') OR EXISTS(SELECT 1 FROM property_staff_assignments psa WHERE psa.tenant_id=${context.tenantId}::uuid AND psa.property_id=${context.propertyId}::uuid AND psa.user_id=u.id AND psa.suspended_at IS NULL))
+          `,
+          ));
+        if (!eligible || !eligible.length) {
+          await this.withContext(
+            context,
+            (
+              tx,
+            ) => tx.$executeRaw`UPDATE email_messages SET status='SUPPRESSED',last_error='Sender test recipient is no longer a current verified member.',workspace_version=workspace_version+1,updated_at=clock_timestamp()
+            WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${messageId}::uuid AND status='QUEUED'`,
+          );
+          return;
+        }
+      }
       const blocked = await this.database.withTenantTransaction(
         { tenantId: context.tenantId, propertyId: context.propertyId },
         async (tx) => {
@@ -438,6 +496,8 @@ export class MailDeliveryService implements OnModuleInit, OnModuleDestroy {
           sensitive: describeMail(data.kind, data.command as never).sensitive,
           idempotencyKeyOverride: data.idempotencyKeyOverride,
           finalAttempt,
+          senderTestVersion: data.senderTestVersion,
+          senderTestActorId: data.senderTestActorId,
           guestTransactional:
             descriptor.eventType.startsWith('guest.') ||
             ['booking.confirmed', 'booking.cancelled', 'booking.refund_processed'].includes(

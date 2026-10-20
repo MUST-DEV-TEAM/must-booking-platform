@@ -8,6 +8,7 @@ import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { MailDeliveryService } from '../src/mail/mail-delivery.service';
 import { EmailTransportCredentialService } from '../src/mail/email-transport-credentials';
 import { SmtpTransport } from '../src/mail/smtp-transport';
+import { ResendMailProvider } from '../src/mail/resend-mail.provider';
 import { AuditLogService } from '../src/tenancy/audit-log.service';
 import { TenantDatabaseService } from '../src/tenancy/tenant-database.service';
 import { isolatedMailDelivery } from './helpers/isolated-mail-delivery';
@@ -33,7 +34,17 @@ describe('hotel sender profiles, diagnostics and explicit activation', () => {
     token = '';
   let originalKey: string | undefined;
   const smtpCheck = vi.fn<(settings: object) => Promise<void>>(async () => {});
-  const smtpSend = vi.fn();
+  const smtpSend = vi.fn<
+    (
+      settings: object,
+      message: { to: string[] },
+    ) => Promise<{
+      provider: 'smtp';
+      providerMessageId: string;
+      accepted: string[];
+      rejected: string[];
+    }>
+  >();
   const mail: MailProvider = {
     async sendVerificationEmail(command) {
       token = new URL(command.verificationUrl).searchParams.get('token')!;
@@ -46,7 +57,10 @@ describe('hotel sender profiles, diagnostics and explicit activation', () => {
     async sendRefundConfirmationEmail() {},
     async sendBookingCancelledEmail() {},
     async sendBookingCancelledStaffNotification() {},
-    async sendRenderedEmail() {},
+    async sendRenderedEmail(command) {
+      if (command.eventType === 'sender.test')
+        return app.get(ResendMailProvider).sendRenderedEmail(command);
+    },
   };
   beforeAll(async () => {
     process.env.APP_PORT = '3000';
@@ -789,5 +803,85 @@ describe('hotel sender profiles, diagnostics and explicit activation', () => {
       .post(url(checkProperty) + '/activate')
       .send({ version: profile.version, reason: 'Unauthenticated request' })
       .expect(401);
+  });
+  it('sends concurrent self-test retries through pending custom SMTP once, caps new intentions and keeps GET read-only', async () => {
+    const profile = await prepareCheck(checkProperty);
+    await admin.$executeRaw`UPDATE email_sending_profiles SET from_verified_at=now(),connection_status='verified',connection_checked_at=now() WHERE tenant_id=${tenantId}::uuid AND property_id=${checkProperty}::uuid`;
+    smtpSend.mockReset().mockImplementation(async (_settings, message) => ({
+      provider: 'smtp',
+      providerMessageId: 'smtp-test-' + randomUUID(),
+      accepted: message.to,
+      rejected: [],
+    }));
+    const http = app.getHttpServer(),
+      body = { version: profile.version, reason: 'Verify actual custom self-test routing' },
+      key = randomUUID();
+    const send = (requestKey: string, extra: object = {}) =>
+      request(http)
+        .post(url(checkProperty) + '/test')
+        .set('Cookie', cookie)
+        .set('Idempotency-Key', requestKey)
+        .send({ ...body, ...extra });
+    vi.stubEnv('RESEND_API_KEY', 're_fake_custom_test_fallback_forbidden');
+    vi.stubEnv('MAIL_FROM_EMAIL', 'MUST <mail@must.example.test>');
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      throw Error('Live HTTP is forbidden in sender tests.');
+    });
+    vi.stubGlobal('fetch', fetcher);
+    try {
+      await send(randomUUID(), { to: 'guest@example.test' }).expect(400);
+      const responses = await Promise.all(Array.from({ length: 6 }, () => send(key)));
+      expect(responses.every((response) => response.status === 201)).toBe(true);
+      const id: string = responses[0]!.body.id;
+      expect(responses.every((response) => response.body.id === id)).toBe(true);
+      const poll = async (testId: string) => {
+        for (let attempt = 0; attempt < 100; attempt++) {
+          const response = await request(http)
+            .get(url(checkProperty) + '/tests/' + testId)
+            .set('Cookie', cookie)
+            .expect(200);
+          if (response.body.status === 'SENT') return response.body;
+          await new Promise((resolve) => setTimeout(resolve, 30));
+        }
+        throw Error('Custom test did not reach accepted status');
+      };
+      const accepted = await poll(id);
+      expect(accepted).toMatchObject({ mode: 'SMTP', provider: 'smtp', activationChanged: false });
+      expect(smtpSend).toHaveBeenCalledTimes(1);
+      expect(smtpSend.mock.calls[0]![1].to).toEqual([accepted.recipient]);
+      const [owner] = await admin.$queryRaw<
+        { email: string }[]
+      >`SELECT email FROM users WHERE id=${userId}::uuid`;
+      expect(accepted.recipient).toBe(owner!.email);
+      expect((await get(checkProperty).expect(200)).body.activeMode).toBe('DEFAULT');
+      await request(http)
+        .get(url(checkProperty) + '/tests/' + id)
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(smtpSend).toHaveBeenCalledTimes(1);
+      for (let count = 0; count < 2; count++) {
+        const queued = await send(randomUUID()).expect(201);
+        await poll(queued.body.id);
+      }
+      await send(randomUUID()).expect(429);
+      expect(smtpSend).toHaveBeenCalledTimes(3);
+      await request(http)
+        .get(url(otherProperty) + '/tests/' + id)
+        .set('Cookie', cookie)
+        .expect(404);
+      expect(fetcher).not.toHaveBeenCalled();
+      const [before] = await admin.$queryRaw<
+        { verified: Date }[]
+      >`SELECT email_verified_at AS verified FROM users WHERE id=${userId}::uuid`;
+      try {
+        await admin.$executeRaw`UPDATE users SET email_verified_at=NULL WHERE id=${userId}::uuid`;
+        await send(randomUUID()).expect(403);
+      } finally {
+        await admin.$executeRaw`UPDATE users SET email_verified_at=${before!.verified} WHERE id=${userId}::uuid`;
+      }
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
   });
 });

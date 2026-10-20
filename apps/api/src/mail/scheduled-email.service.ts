@@ -15,6 +15,7 @@ import { renderTemplate, savedTemplate, stayTemplateValues } from './email-templ
 import { MailDeliveryService } from './mail-delivery.service';
 import { EmailSenderVerificationService } from '../tenancy/email-sender-verification.service';
 import { EmailTransportJournal } from './email-transport-journal';
+import { EmailSenderTestService } from '../tenancy/email-sender-test.service';
 import { scheduledGuestSettings, staffRecipients } from './notification-recipients';
 import { reviewButtons, storedReviewLinks } from './review-links';
 import {
@@ -109,6 +110,9 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(EmailTransportJournal)
     private readonly transportJournal?: EmailTransportJournal,
+    @Optional()
+    @Inject(EmailSenderTestService)
+    private readonly senderTests?: EmailSenderTestService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -160,6 +164,13 @@ export class ScheduledEmailService implements OnModuleInit, OnModuleDestroy {
       } catch {
         this.logger.warn(
           `Owner sender-alert publication is pending recovery for property ${property.propertyId}.`,
+        );
+      }
+      try {
+        await this.senderTests?.recover(context);
+      } catch {
+        this.logger.warn(
+          `Custom sender-test publication is pending recovery for property ${property.propertyId}.`,
         );
       }
       try {

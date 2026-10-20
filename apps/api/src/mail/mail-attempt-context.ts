@@ -9,6 +9,8 @@ export type MailAttemptContext = {
   guestTransactional?: boolean;
   forceDefault?: boolean;
   finalAttempt?: boolean;
+  senderTestVersion?: number;
+  senderTestActorId?: string;
 };
 const attempts = new AsyncLocalStorage<MailAttemptContext>();
 /** Keep concurrent message capture/transport identity inside its own asynchronous attempt. */

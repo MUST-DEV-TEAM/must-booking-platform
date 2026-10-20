@@ -4,7 +4,7 @@ import { Button } from '../../components/ui/button';
 import { Alert, AlertDescription } from '../../components/ui/alert';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { SectionLabel } from '../../components/ui/detail-list';
-import { createEmailWriter } from '../../lib/email-workspace';
+import { createEmailWriter, verifiedEmailSenderSetup } from '../../lib/email-workspace';
 import type { EmailSendingProfile } from './email-sending-profile';
 
 /** Explicit activation of saved verified setup; pausing preserves frozen delivery intentions. */
@@ -27,12 +27,7 @@ export function EmailSenderActivation({
   if (profile.mode === 'DEFAULT') return null;
   const active = profile.activeMode !== 'DEFAULT';
   const approvedActive = approval?.active ?? active;
-  const ready =
-    profile.credentialsPresent &&
-    (profile.mode === 'SMTP'
-      ? profile.connectionStatus === 'verified' &&
-        Boolean(profile.connectionCheckedAt && profile.fromVerifiedAt)
-      : profile.domainStatus === 'verified' && Boolean(profile.domainCheckedAt));
+  const ready = verifiedEmailSenderSetup(profile);
   return (
     <div className="flex flex-col gap-3">
       <SectionLabel>Sender activation</SectionLabel>

@@ -63,6 +63,7 @@ import { MAIL_PROVIDER } from './mail/mail.provider';
 import { EmailMessageArchiveService } from './mail/email-message-archive.service';
 import { EmailTransportJournal } from './mail/email-transport-journal';
 import { EmailTransportFailures } from './mail/email-transport-failures';
+import { EmailSenderTestService } from './tenancy/email-sender-test.service';
 import { PropertyMailDispatcher } from './mail/property-mail-dispatcher';
 import { EmailTransportCredentialService } from './mail/email-transport-credentials';
 import { SmtpTransport } from './mail/smtp-transport';
@@ -414,6 +415,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     EmailMessageArchiveService,
     EmailTransportJournal,
     EmailTransportFailures,
+    EmailSenderTestService,
     PropertyMailDispatcher,
     ResendMailProvider,
     MailDeliveryService,

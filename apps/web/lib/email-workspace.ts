@@ -1,3 +1,23 @@
+/** Non-secret saved evidence required for either activation or a controlled custom test. */
+export function verifiedEmailSenderSetup(profile: {
+  mode: string;
+  credentialsPresent: boolean;
+  connectionStatus: string;
+  connectionCheckedAt: string | null;
+  fromVerifiedAt: string | null;
+  domainStatus: string;
+  domainCheckedAt?: string | null;
+}): boolean {
+  return (
+    profile.credentialsPresent &&
+    (profile.mode === 'SMTP'
+      ? profile.connectionStatus === 'verified' &&
+        Boolean(profile.connectionCheckedAt && profile.fromVerifiedAt)
+      : profile.mode === 'RESEND' &&
+        profile.domainStatus === 'verified' &&
+        Boolean(profile.domainCheckedAt))
+  );
+}
 export type EmailTemplate = {
   previewText?: string;
   audience?: string;

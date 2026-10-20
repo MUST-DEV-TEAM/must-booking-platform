@@ -16,6 +16,7 @@ import {
   type TransportStage,
 } from './email-transport-journal';
 import { currentMailAttempt } from './mail-attempt-context';
+import { MailDeliveryError } from './mail-delivery-error';
 import { PreparedMailError, type PreparedMailReceipt } from './prepared-mail-transport';
 import { ResendPreparedTransport } from './resend-prepared.transport';
 import { SmtpNetworkPolicyError } from './smtp-network-policy';
@@ -31,6 +32,7 @@ export type RenderedTransportInput = {
   replyTo?: string | null;
 };
 type Profile = {
+  version: number;
   mode: 'DEFAULT' | 'RESEND' | 'SMTP';
   activeMode: 'DEFAULT' | 'RESEND' | 'SMTP';
   fromName: string | null;
@@ -107,6 +109,14 @@ export class PropertyMailDispatcher {
     defaultSend: () => Promise<MailSendReceipt>,
   ): Promise<PreparedMailReceipt | MailSendReceipt> {
     const attempt = currentMailAttempt();
+    if (
+      attempt?.senderTestVersion !== undefined &&
+      (!attempt.tenantId || !attempt.propertyId || attempt.sensitive || attempt.forceDefault)
+    )
+      throw new MailDeliveryError(
+        'Custom sender test could not use its scoped transport. No default-sender test was sent.',
+        false,
+      );
     if (!attempt?.tenantId || !attempt.propertyId || attempt.sensitive || attempt.forceDefault)
       return defaultSend();
     const scope = {
@@ -139,15 +149,24 @@ export class PropertyMailDispatcher {
     input: RenderedTransportInput,
   ) {
     const rows = await tx.$queryRaw<Profile[]>`
-      SELECT mode,active_mode AS "activeMode",from_name AS "fromName",from_address AS "fromAddress",domain,
+      SELECT version,mode,active_mode AS "activeMode",from_name AS "fromName",from_address AS "fromAddress",domain,
         smtp_host AS "smtpHost",smtp_port AS "smtpPort",smtp_security AS "smtpSecurity",credential_revision AS "credentialRevision",
         encrypted_credentials AS "encryptedCredentials",from_verified_at AS "fromVerifiedAt",connection_status AS "connectionStatus",domain_status AS "domainStatus",fallback_guest AS "fallbackGuest"
       FROM email_sending_profiles WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid
     `;
     const profile = rows[0];
-    if (!profile || profile.activeMode === 'DEFAULT') return null;
+    const testing = currentMailAttempt()?.senderTestVersion;
     if (
-      profile.mode !== profile.activeMode ||
+      testing !== undefined &&
+      (!profile || profile.version !== testing || profile.mode === 'DEFAULT')
+    )
+      throw new MailDeliveryError(
+        'Saved sender setup changed. Create a new test from the current configuration.',
+        false,
+      );
+    if (!profile || (profile.activeMode === 'DEFAULT' && testing === undefined)) return null;
+    if (
+      (testing === undefined && profile.mode !== profile.activeMode) ||
       !profile.fromAddress ||
       !profile.encryptedCredentials ||
       (profile.mode === 'SMTP' &&
@@ -179,7 +198,9 @@ export class PropertyMailDispatcher {
       key: `hotel-mail/${scope.messageId}/primary`,
       displayName,
       credentials,
-      fallbackGuest: Boolean(currentMailAttempt()?.guestTransactional && profile.fallbackGuest),
+      fallbackGuest: Boolean(
+        testing === undefined && currentMailAttempt()?.guestTransactional && profile.fallbackGuest,
+      ),
       ...(credentials.provider === 'smtp' &&
       profile.smtpHost &&
       profile.smtpPort &&

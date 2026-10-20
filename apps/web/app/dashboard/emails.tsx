@@ -1210,7 +1210,9 @@ function EmailDeliveryDetail({
           ) : null}
           {query.data.retryUnavailableReason ? (
             <Button variant="outline" onClick={onConfiguration}>
-              {query.data.transportBlocked ? 'Review sender setup' : 'Review suppression'}
+              {query.data.transportBlocked || query.data.eventType === 'sender.test'
+                ? 'Review sender setup'
+                : 'Review suppression'}
             </Button>
           ) : null}
           {query.data.canSendCopy === true ? (
