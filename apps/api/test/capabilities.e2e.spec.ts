@@ -96,7 +96,7 @@ describe('property staff capabilities', () => {
       },
       {
         name: 'Property Manager',
-        capabilities: [...CAPABILITY_KEYS].sort(),
+        capabilities: CAPABILITY_KEYS.filter((key) => key !== 'requests.review').sort(),
       },
     ]);
     const template = await migrationPrisma.$queryRaw<

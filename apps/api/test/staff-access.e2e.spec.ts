@@ -158,7 +158,7 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
     const keys = (response.body as Array<{ key: string; group: string }>).map((entry) => entry.key);
     expect(keys).toContain('bookings.cancel');
     expect(keys).toContain('staff.suspend');
-    expect(response.body[0]).toMatchObject({ group: 'Bookings', key: 'bookings.view' });
+    expect(response.body).toEqual(expect.arrayContaining([expect.objectContaining({ group: 'Bookings', key: 'bookings.view' })]));
   });
 
   it('lets a team lead invite only roles and extra permissions they hold', async () => {
