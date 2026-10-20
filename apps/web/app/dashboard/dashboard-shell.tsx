@@ -457,8 +457,10 @@ export function DashboardShell({
   const sectionLabel =
     section === 'account'
       ? 'My account'
-      : (dashboardSections.find((candidate) => candidate.section === section)?.label ??
-        'Dashboard');
+      : section === 'notifications'
+        ? 'Notifications'
+        : (dashboardSections.find((candidate) => candidate.section === section)?.label ??
+          'Dashboard');
   const canViewSection = role ? canAccessSection(role, capabilities ?? [], section) : false;
   const hasCapability = (capability: string) =>
     role !== 'STAFF' || capabilities?.includes(capability) === true;

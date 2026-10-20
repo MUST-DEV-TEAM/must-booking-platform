@@ -253,26 +253,28 @@ export function GlobalSearch({
         <Search aria-hidden="true" />
       </Button>
       <Dialog open={open} onOpenChange={close}>
-        <DialogContent className="top-[20%] max-h-[75vh] translate-y-0 gap-3 overflow-hidden p-4 sm:max-w-2xl">
+        <DialogContent className="top-[18%] max-h-[75vh] max-w-[min(42rem,calc(100%-2rem))] translate-y-0 gap-3 overflow-hidden p-4">
           <DialogTitle className="sr-only">Search</DialogTitle>
           <DialogDescription className="sr-only">
             Search reservations, guests, rooms, staff, emails, pages and settings.
           </DialogDescription>
-          <SearchInput
-            autoFocus
-            aria-label="Search"
-            placeholder={EXAMPLES[example]}
-            role="combobox"
-            aria-expanded="true"
-            aria-controls={listId}
-            autoComplete="off"
-            value={text}
-            onChange={(event) => {
-              setText(event.target.value);
-              setActive(0);
-            }}
-            onKeyDown={onKeyDown}
-          />
+          <div className="pr-8">
+            <SearchInput
+              autoFocus
+              aria-label="Search"
+              placeholder={EXAMPLES[example]}
+              role="combobox"
+              aria-expanded="true"
+              aria-controls={listId}
+              autoComplete="off"
+              value={text}
+              onChange={(event) => {
+                setText(event.target.value);
+                setActive(0);
+              }}
+              onKeyDown={onKeyDown}
+            />
+          </div>
           <p className="m-0 text-xs text-muted-foreground">
             Find reservations, guests (by name, email or phone), rooms, staff, sent emails, pages
             and settings.
