@@ -521,7 +521,9 @@ export function DashboardShell({
               tenantId={tenantId}
               propertyId={selectedProperty.id}
               canOpen={(target) => canAccessSection(role, capabilities ?? [], target)}
-              can={hasCapability}
+              can={(capability) =>
+                capability === 'tenant.admin' ? role !== 'STAFF' : hasCapability(capability)
+              }
             />
           ) : null}
           {selectedProperty && role ? (

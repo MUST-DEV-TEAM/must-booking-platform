@@ -10,8 +10,9 @@ import { SearchInput } from '../../components/ui/search-input';
 import { matchPages, quickLinks, type SearchPage } from './search-pages';
 
 type Item = {
-  type: 'booking' | 'guest' | 'room' | 'room_type' | 'staff' | 'email';
+  type: 'booking' | 'guest' | 'room' | 'room_type' | 'staff' | 'email' | 'payment' | 'rate_plan';
   id: string;
+  target?: string;
   title: string;
   subtitle: string;
 };
@@ -30,13 +31,52 @@ const EXAMPLES = [
 ];
 const RECENT_KEY = 'must.search.recent';
 
+/** Splits text around the typed words so matches can be shown in bold. */
+export function highlightParts(
+  text: string,
+  query: string,
+): Array<{ text: string; match: boolean }> {
+  const words = query
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word.length >= 2)
+    .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  if (!words.length) return [{ text, match: false }];
+  const parts = text.split(new RegExp(`(${words.join('|')})`, 'gi'));
+  return parts
+    .filter((part) => part !== '')
+    .map((part) => ({
+      text: part,
+      match: words.some((w) => new RegExp(`^${w}$`, 'i').test(part)),
+    }));
+}
+
+function Highlight({ text, query }: { text: string; query: string }) {
+  return (
+    <>
+      {highlightParts(text, query).map((part, index) =>
+        part.match ? (
+          <mark key={index} className="rounded-xs bg-primary/15 px-0.5 text-inherit">
+            {part.text}
+          </mark>
+        ) : (
+          <span key={index}>{part.text}</span>
+        ),
+      )}
+    </>
+  );
+}
+
 export function searchItemHref(tenantId: string, propertyId: string, item: Item): string {
   const base = `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}`;
   if (item.type === 'booking') return `${base}&section=reservations&reservation=${item.id}`;
   if (item.type === 'guest') return `${base}&section=guests&guest=${item.id}`;
   if (item.type === 'staff') return `${base}&section=staff&staffUser=${item.id}`;
   if (item.type === 'email') return `${base}&section=emails&emailMessageId=${item.id}`;
-  return `${base}&section=accommodations`;
+  if (item.type === 'payment') return `${base}&section=payments&payment=${item.target ?? item.id}`;
+  if (item.type === 'rate_plan') return `${base}&section=rates-pricing`;
+  // A room opens its room type (rooms live inside it); a room type opens itself.
+  return `${base}&section=accommodations&roomType=${item.type === 'room' ? (item.target ?? '') : item.id}`;
 }
 
 const pageHref = (tenantId: string, propertyId: string, page: SearchPage) =>
@@ -285,8 +325,12 @@ export function GlobalSearch({
                       (index === active ? 'bg-accent' : '')
                     }
                   >
-                    <span className="text-sm font-semibold">{row.title}</span>
-                    <span className="text-xs text-muted-foreground">{row.subtitle}</span>
+                    <span className="text-sm font-semibold">
+                      <Highlight text={row.title} query={typed} />
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      <Highlight text={row.subtitle} query={typed} />
+                    </span>
                   </a>
                 </div>
               );

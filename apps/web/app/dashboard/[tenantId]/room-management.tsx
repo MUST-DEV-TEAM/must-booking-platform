@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
@@ -183,6 +183,16 @@ export function RoomManagement({
     roomTypeAmenities: {},
     roomAmenities: {},
   };
+
+  // A link such as ?roomType=<id> (from the search) opens that room type once, after the data is loaded.
+  const deepLinkApplied = useRef(false);
+  useEffect(() => {
+    if (deepLinkApplied.current || !roomManagementQuery.data) return;
+    deepLinkApplied.current = true;
+    const id = new URLSearchParams(window.location.search).get('roomType');
+    if (id && roomManagementQuery.data.roomTypes.some((roomType) => roomType.id === id))
+      setRoomTypeDetailId(id);
+  }, [roomManagementQuery.data]);
 
   function requireAccommodationManagement() {
     if (!canManageAccommodations) throw new Error('You do not hold accommodations.manage.');

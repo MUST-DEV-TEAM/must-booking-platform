@@ -112,8 +112,40 @@ describe('Global search', () => {
     expect(rooms.groups).toHaveLength(1);
     expect(rooms.groups[0]).toMatchObject({ key: 'accommodations' });
     expect(rooms.groups[0].items[0]).toMatchObject({ type: 'room_type', title: 'Sea View Suite' });
-    expect((await find(ownerCookie, 'room 204').expect(200)).body.groups[0].items[0].type).toBe(
-      'room',
+    const roomHit = (await find(ownerCookie, 'room 204').expect(200)).body.groups[0].items[0];
+    expect(roomHit.type).toBe('room');
+    // A room opens its room type.
+    expect(roomHit.target).toBe(roomType);
+
+    // A phone typed with different spacing still finds the guest.
+    await admin.$executeRaw`UPDATE guests SET phone='+355 69 123 4567' WHERE id=${guest}::uuid`;
+    for (const typed of ['691234', '+355 69 12', '(691) 234'])
+      expect(
+        (await find(ownerCookie, typed).expect(200)).body.groups.map((g: { key: string }) => g.key),
+      ).toContain('guests');
+
+    // Payments are found by their reference and open the booking; rate plans by name.
+    await admin.$executeRaw`INSERT INTO payments(tenant_id,property_id,booking_id,kind,provider,external_payment_id,status,amount,currency) VALUES(${tenantId}::uuid,${propertyId}::uuid,${booking}::uuid,'CHARGE','POKPAY','pay_zz_9001','succeeded',150,'EUR')`;
+    await admin.$executeRaw`UPDATE rate_plans SET name='Early bird flex' WHERE id=${ratePlan}::uuid`;
+    const pay = (await find(ownerCookie, 'pay_zz_9001').expect(200)).body;
+    expect(pay.groups.find((g: { key: string }) => g.key === 'payments').items[0]).toMatchObject({
+      type: 'payment',
+      target: booking,
+    });
+    const plan = (await find(ownerCookie, 'early bird').expect(200)).body;
+    expect(plan.groups.find((g: { key: string }) => g.key === 'ratePlans').items[0].title).toBe(
+      'Early bird flex',
+    );
+
+    // Staff and sent emails.
+    const staff = (await find(ownerCookie, 'search-owner').expect(200)).body;
+    expect(
+      staff.groups.find((g: { key: string }) => g.key === 'staff').items[0].subtitle,
+    ).toContain('search-owner');
+    await admin.$executeRaw`INSERT INTO email_messages(tenant_id,property_id,event_type,recipient_email,subject,idempotency_key) VALUES(${tenantId}::uuid,${propertyId}::uuid,'BOOKING_CONFIRMATION','zelda@example.test','Your booking SRCH-1001 is confirmed',${randomUUID()})`;
+    const mail = (await find(ownerCookie, 'is confirmed').expect(200)).body;
+    expect(mail.groups.find((g: { key: string }) => g.key === 'emails').items[0].title).toContain(
+      'SRCH-1001',
     );
   });
 
@@ -136,12 +168,26 @@ describe('Global search', () => {
       .expect(201);
     expect(created.body.id).toBeTruthy();
     const cashier = await staffWithRole('Cashier');
-    expect((await find(cashier, 'zelda').expect(200)).body.groups).toEqual([]);
+    // Payments permission alone shows only payments (matched by guest name too), never bookings or guests.
+    expect(
+      (await find(cashier, 'zelda').expect(200)).body.groups.map((g: { key: string }) => g.key),
+    ).toEqual(['payments']);
+    // Payments permission alone shows payments, and nothing about bookings, guests, rates or staff.
+    expect(
+      (await find(cashier, 'pay_zz_9001').expect(200)).body.groups.map(
+        (g: { key: string }) => g.key,
+      ),
+    ).toEqual(['payments']);
     const desk = await staffWithRole('Front Desk');
     const seen = (await find(desk, 'zelda').expect(200)).body.groups.map(
       (g: { key: string }) => g.key,
     );
     expect(seen).toContain('bookings');
+    expect(seen).not.toContain('staff');
+    expect(seen).not.toContain('emails');
+    expect(
+      (await find(desk, 'early bird').expect(200)).body.groups.map((g: { key: string }) => g.key),
+    ).not.toContain('ratePlans');
     // A guest with the same name in another hotel of the same tenant must not appear.
     const otherProperty = randomUUID();
     await admin.$executeRaw`INSERT INTO properties(id,tenant_id,name,slug,timezone) VALUES(${otherProperty}::uuid,${tenantId}::uuid,'Other hotel',${'other-' + otherProperty},'Europe/Tirane')`;

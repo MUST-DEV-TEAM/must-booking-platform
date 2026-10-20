@@ -14,13 +14,15 @@ import { TenantScoped } from './tenant-context.decorator';
 import { TenantDatabaseService } from './tenant-database.service';
 
 export type SearchItem = {
-  type: 'booking' | 'guest' | 'room' | 'room_type' | 'staff' | 'email';
+  type: 'booking' | 'guest' | 'room' | 'room_type' | 'staff' | 'email' | 'payment' | 'rate_plan';
   id: string;
+  /** Id of the record the link should open when it is not the item itself (a room's type, a payment's booking). */
+  target?: string;
   title: string;
   subtitle: string;
 };
 export type SearchGroup = {
-  key: 'bookings' | 'guests' | 'accommodations' | 'staff' | 'emails';
+  key: 'bookings' | 'guests' | 'accommodations' | 'staff' | 'emails' | 'payments' | 'ratePlans';
   label: string;
   items: SearchItem[];
 };
@@ -128,8 +130,8 @@ export class GlobalSearchService {
       }
       if (caps.includes('calendar.view')) {
         const rooms = await tx.$queryRaw<
-          Array<{ id: string; name: string; typeName: string }>
-        >`SELECT r.id, r.name, rt.name AS "typeName" FROM rooms r
+          Array<{ id: string; name: string; typeName: string; typeId: string }>
+        >`SELECT r.id, r.name, rt.name AS "typeName", rt.id AS "typeId" FROM rooms r
           JOIN room_types rt ON rt.tenant_id = r.tenant_id AND rt.property_id = r.property_id AND rt.id = r.room_type_id
           WHERE r.tenant_id = ${tenantId}::uuid AND r.property_id = ${propertyId}::uuid
             AND (r.name ILIKE ${like} ESCAPE '\\' OR COALESCE(r.title, '') ILIKE ${like} ESCAPE '\\')
@@ -145,6 +147,7 @@ export class GlobalSearchService {
             ...rooms.map((r) => ({
               type: 'room' as const,
               id: r.id,
+              target: r.typeId,
               title: r.name,
               subtitle: `Room · ${r.typeName}`,
             })),
@@ -155,6 +158,57 @@ export class GlobalSearchService {
               subtitle: `Room type · ${r.status.toLowerCase()}`,
             })),
           ],
+        });
+      }
+      if (caps.includes('payments.view')) {
+        const rows = await tx.$queryRaw<
+          Array<{
+            id: string;
+            bookingId: string;
+            ref: string | null;
+            amount: string;
+            currency: string;
+            kind: string;
+            status: string;
+            createdAt: Date;
+          }>
+        >`SELECT p.id, p.booking_id AS "bookingId", b.external_reference AS ref, p.amount::text AS amount,
+            p.currency, p.kind::text AS kind, p.status, p.created_at AS "createdAt"
+          FROM payments p
+          JOIN bookings b ON b.tenant_id = p.tenant_id AND b.property_id = p.property_id AND b.id = p.booking_id
+          LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
+          WHERE p.tenant_id = ${tenantId}::uuid AND p.property_id = ${propertyId}::uuid
+            AND (p.external_payment_id ILIKE ${like} ESCAPE '\\'
+              OR COALESCE(b.external_reference, '') ILIKE ${like} ESCAPE '\\'
+              OR CONCAT_WS(' ', g.first_name, g.last_name) ILIKE ${like} ESCAPE '\\'
+              OR COALESCE(g.email, '') ILIKE ${like} ESCAPE '\\')
+          ORDER BY p.created_at DESC LIMIT ${PER_GROUP}`;
+        out.push({
+          key: 'payments',
+          label: 'Payments',
+          items: rows.map((r) => ({
+            type: 'payment' as const,
+            id: r.id,
+            target: r.bookingId,
+            title: `${r.ref ?? 'Payment'} · ${r.amount} ${r.currency}`,
+            subtitle: `${r.kind.toLowerCase()} · ${r.status.toLowerCase()} · ${r.createdAt.toISOString().slice(0, 10)}`,
+          })),
+        });
+      }
+      if (caps.includes('rates.manage')) {
+        const rows = await tx.$queryRaw<Array<{ id: string; name: string; currency: string }>>`
+          SELECT id, name, currency FROM rate_plans
+          WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
+            AND name ILIKE ${like} ESCAPE '\\' ORDER BY name LIMIT ${PER_GROUP}`;
+        out.push({
+          key: 'ratePlans',
+          label: 'Rate plans',
+          items: rows.map((r) => ({
+            type: 'rate_plan' as const,
+            id: r.id,
+            title: r.name,
+            subtitle: `Rate plan · ${r.currency}`,
+          })),
         });
       }
       if (caps.includes('staff.view')) {

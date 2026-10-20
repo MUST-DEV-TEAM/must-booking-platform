@@ -25,6 +25,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Page',
     hint: 'Bookings that need a person',
     section: 'overview',
+    requires: 'bookings.view',
     extra: 'tab=needs-attention',
     keywords: ['problems', 'failed', 'review', 'issues', 'alerts'],
   },
@@ -33,6 +34,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Page',
     hint: 'Live status of this hotel',
     section: 'overview',
+    requires: 'bookings.view',
     extra: 'tab=system-health',
     keywords: ['status', 'sync', 'errors', 'monitoring'],
   },
@@ -41,6 +43,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Page',
     hint: 'All bookings',
     section: 'reservations',
+    requires: 'bookings.view',
     keywords: ['bookings', 'booking', 'reservation', 'guests staying'],
   },
   {
@@ -57,6 +60,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Page',
     hint: 'Reservations by room and day',
     section: 'calendar',
+    requires: 'calendar.view',
     keywords: ['availability', 'timeline', 'block dates', 'tape chart'],
   },
   {
@@ -64,6 +68,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Page',
     hint: 'Payments, refunds and balances',
     section: 'payments',
+    requires: 'payments.view',
     keywords: ['bill', 'invoice', 'refund', 'money', 'paid', 'balance', 'card', 'receipt'],
   },
   {
@@ -71,6 +76,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Page',
     hint: 'Guest directory',
     section: 'guests',
+    requires: 'guests.view',
     keywords: ['customers', 'contacts', 'duplicates', 'phone', 'email'],
   },
   {
@@ -93,6 +99,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Page',
     hint: 'Prices, plans, taxes and fees',
     section: 'rates-pricing',
+    requires: 'rates.manage',
     keywords: ['price', 'rate plan', 'seasons', 'taxes', 'fees', 'vat', 'discount'],
   },
   {
@@ -100,6 +107,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Page',
     hint: 'Stock, restrictions and blocks',
     section: 'inventory',
+    requires: 'calendar.view',
     keywords: [
       'stock',
       'availability',
@@ -115,6 +123,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Page',
     hint: 'Occupancy, revenue and more',
     section: 'reports',
+    requires: 'reports.view',
     keywords: ['occupancy', 'revenue', 'adr', 'revpar', 'statistics', 'export'],
   },
   {
@@ -122,6 +131,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Page',
     hint: 'People, roles and permissions',
     section: 'staff',
+    requires: 'staff.view',
     keywords: ['users', 'team', 'roles', 'permissions', 'invite', 'access'],
   },
   {
@@ -129,6 +139,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Page',
     hint: 'Templates, delivery and sender',
     section: 'emails',
+    requires: 'settings.manage',
     keywords: ['templates', 'delivery', 'sender', 'smtp', 'domain', 'notifications emails'],
   },
   {
@@ -150,6 +161,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Page',
     hint: 'Your hotels',
     section: 'hotels',
+    requires: 'tenant.admin',
     keywords: ['properties', 'switch hotel'],
   },
   {
@@ -157,6 +169,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Page',
     hint: 'Hotel settings',
     section: 'settings',
+    requires: 'tenant.admin',
     keywords: ['preferences', 'configuration'],
   },
   {
@@ -164,6 +177,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Setting',
     hint: 'Hotel name, address, time zone',
     section: 'settings',
+    requires: 'tenant.admin',
     extra: 'settingsArea=general',
     keywords: ['hotel name', 'address', 'time zone', 'timezone', 'currency', 'contact'],
   },
@@ -172,6 +186,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Setting',
     hint: 'Check-in time, minimum stay, same-day cutoff',
     section: 'settings',
+    requires: 'tenant.admin',
     extra: 'settingsArea=booking-rules',
     keywords: [
       'check-in time',
@@ -189,6 +204,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Setting',
     hint: 'Card, pay at hotel, gateways',
     section: 'settings',
+    requires: 'tenant.admin',
     extra: 'settingsArea=payments',
     keywords: [
       'stripe',
@@ -204,6 +220,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Setting',
     hint: 'Logo and appearance',
     section: 'settings',
+    requires: 'tenant.admin',
     extra: 'settingsArea=branding',
     keywords: ['logo', 'colours', 'colors', 'theme', 'website look'],
   },
@@ -212,6 +229,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Setting',
     hint: 'Who gets which emails',
     section: 'settings',
+    requires: 'tenant.admin',
     extra: 'settingsArea=email',
     keywords: ['recipients', 'sender name', 'reply-to', 'mute emails'],
   },
@@ -220,6 +238,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Setting',
     hint: 'Connect the hotel website',
     section: 'settings',
+    requires: 'tenant.admin',
     extra: 'settingsArea=managed-pages',
     keywords: ['wordpress', 'plugin', 'connection code', 'managed pages', 'website'],
   },
@@ -228,6 +247,7 @@ export const SEARCH_PAGES: readonly SearchPage[] = [
     kind: 'Setting',
     hint: 'Plan and invoices',
     section: 'settings',
+    requires: 'tenant.admin',
     extra: 'settingsArea=billing',
     keywords: ['plan', 'subscription', 'invoices'],
   },
@@ -250,7 +270,12 @@ export function matchPages(
     if (label.startsWith(q)) return 1;
     if (label.split(/\s+/).some((word) => word.startsWith(q))) return 2;
     if (page.keywords.some((word) => norm(word).startsWith(q))) return 3;
-    if (label.includes(q) || page.keywords.some((word) => norm(word).includes(q))) return 4;
+    // Looser "contains" matching only for longer text, so "vat" does not match "reservations".
+    if (
+      q.length >= 4 &&
+      (label.includes(q) || page.keywords.some((word) => norm(word).includes(q)))
+    )
+      return 4;
     return 99;
   };
   return SEARCH_PAGES.filter(

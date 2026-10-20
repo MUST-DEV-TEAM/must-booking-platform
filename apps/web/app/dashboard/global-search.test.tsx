@@ -2,7 +2,7 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GlobalSearch, searchItemHref } from './global-search';
+import { GlobalSearch, highlightParts, searchItemHref } from './global-search';
 import { DashboardQueryProvider } from './query-provider';
 import { matchPages, quickLinks } from './search-pages';
 
@@ -91,6 +91,85 @@ describe('search pages', () => {
   });
 });
 
+describe('what each kind of person sees', () => {
+  const open = () => true;
+  const frontDesk = new Set([
+    'bookings.view',
+    'bookings.create',
+    'bookings.edit',
+    'calendar.view',
+    'guests.view',
+    'payments.record',
+  ]);
+  const asFrontDesk = (capability: string) => frontDesk.has(capability);
+  const titles = (query: string, can: (c: string) => boolean) =>
+    matchPages(query, open, can, 20).map((p) => p.label);
+
+  it('hides settings, hotels, reports, staff, rates, payments and emails from the front desk', () => {
+    for (const query of [
+      'settings',
+      'booking rules',
+      'check-in time',
+      'branding',
+      'hotels',
+      'report',
+      'revenue',
+      'staff',
+      'roles',
+      'rates',
+      'vat',
+      'payments',
+      'refund',
+      'emails',
+      'smtp',
+      'billing',
+    ])
+      expect(titles(query, asFrontDesk), query).toEqual([]);
+    expect(titles('calendar', asFrontDesk)).toContain('Calendar');
+    expect(titles('new booking', asFrontDesk)).toContain('New booking');
+    expect(titles('guests', asFrontDesk)).toContain('Guests');
+  });
+
+  it('shows hotel settings to an owner or admin but money pages only with the permission', () => {
+    const admin = (capability: string) => capability !== 'none';
+    expect(titles('check-in time', admin)).toContain('Booking rules');
+    expect(titles('hotels', admin)).toContain('Hotels');
+    const finance = (capability: string) => capability === 'payments.view';
+    expect(titles('payments', finance)).toContain('Payments');
+    expect(titles('reports', finance)).toEqual([]);
+  });
+
+  it('links payments, rate plans and rooms to the right place', () => {
+    expect(
+      searchItemHref('t', 'p', {
+        type: 'payment',
+        id: 'pay1',
+        target: 'b9',
+        title: '',
+        subtitle: '',
+      }),
+    ).toBe('/dashboard/t?propertyId=p&section=payments&payment=b9');
+    expect(searchItemHref('t', 'p', { type: 'rate_plan', id: 'r1', title: '', subtitle: '' })).toBe(
+      '/dashboard/t?propertyId=p&section=rates-pricing',
+    );
+    expect(
+      searchItemHref('t', 'p', { type: 'room', id: 'rm1', target: 'rt1', title: '', subtitle: '' }),
+    ).toBe('/dashboard/t?propertyId=p&section=accommodations&roomType=rt1');
+    expect(
+      searchItemHref('t', 'p', { type: 'room_type', id: 'rt2', title: '', subtitle: '' }),
+    ).toBe('/dashboard/t?propertyId=p&section=accommodations&roomType=rt2');
+  });
+
+  it('marks the typed words in a result, ignoring case and special characters', () => {
+    expect(highlightParts('Zelda Searchable', 'zel')).toEqual([
+      { text: 'Zel', match: true },
+      { text: 'da Searchable', match: false },
+    ]);
+    expect(highlightParts('MLDH-2610 (VIP)', 'mldh-26 (vip)').map((p) => p.match)).toContain(true);
+    expect(highlightParts('Anything', 'x')).toEqual([{ text: 'Anything', match: false }]);
+  });
+});
+
 describe('global search popup', () => {
   it('is an icon that opens a popup with a hint, quick links and an example placeholder', async () => {
     vi.stubGlobal('fetch', vi.fn());
@@ -174,19 +253,28 @@ describe('global search popup', () => {
   });
 
   it('says so when nothing matches and keeps pages when the record search fails', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ query: 'qqqq', groups: [] })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ query: 'qqqq', groups: [] })),
+    );
     await mount();
     await openPopup();
     await type('qqqq');
     expect(document.body.textContent).toContain('No results for “qqqq”.');
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{}', { status: 500 })),
+    );
     await type('payments');
     expect(document.body.textContent).toContain('Search for records is unavailable.');
     expect(options().map((o) => o.title)).toContain('Payments');
   });
 
   it('remembers what was opened and offers it again next time', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ query: 'calendar', groups: [] })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ query: 'calendar', groups: [] })),
+    );
     await mount();
     await openPopup();
     await type('calendar');
