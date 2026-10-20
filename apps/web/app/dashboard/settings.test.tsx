@@ -33,52 +33,78 @@ let property = {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('DashboardSettings', () => {
-  it('renders a hub for every implemented settings area and omits unimplemented areas', () => {
-    const markup = renderToStaticMarkup(
-      createElement(SettingsHub, { tenantId: 't', propertyId: 'p' }),
+  it('renders a hub with the real status of every implemented settings area', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.endsWith('/properties')) return new Response(JSON.stringify([property]));
+        if (url.endsWith('/plan-usage'))
+          return new Response(JSON.stringify({ plan: { name: 'Free' }, usage: {} }));
+        return new Response(JSON.stringify([]));
+      }),
     );
-    const areas = [
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(SettingsHub, { tenantId: 't', propertyId: 'p' }),
+        ),
+      );
+    });
+    for (let i = 0; i < 60 && !container.textContent?.includes('Ready to take bookings'); i += 1)
+      await act(async () => {
+        await new Promise((resolve) => window.setTimeout(resolve, 30));
+      });
+    const text = container.textContent ?? '';
+    for (const area of [
       'General',
       'Booking rules',
+      'Check-in & check-out',
       'Payments',
       'Branding',
       'Emails',
       'Managed Pages',
       'Billing account',
-    ];
-    for (const area of areas) expect(markup).toContain(area);
+    ])
+      expect(text).toContain(area);
     for (const area of [
-      'Check-in & Check-out',
       'Staff & Access',
       'Notifications & Emails',
       'Provider',
       'Diagnostics & Maintenance',
       'Dangerous Reset',
     ])
-      expect(markup).not.toContain(area);
-    expect(markup).toContain(
-      'href="/dashboard/t?propertyId=p&amp;section=settings&amp;settingsArea=general"',
-    );
-    expect(markup).toContain(
-      'href="/dashboard/t?propertyId=p&amp;section=settings&amp;settingsArea=booking-rules"',
-    );
-    expect(markup).toContain(
-      'href="/dashboard/t?propertyId=p&amp;section=settings&amp;settingsArea=payments"',
-    );
-    expect(markup).toContain(
-      'href="/dashboard/t?propertyId=p&amp;section=settings&amp;settingsArea=branding"',
-    );
-    expect(markup).toContain(
-      'href="/dashboard/t?propertyId=p&amp;section=settings&amp;settingsArea=managed-pages"',
-    );
-    expect(markup).toContain(
-      'href="/dashboard/t?propertyId=p&amp;section=settings&amp;settingsArea=billing"',
-    );
-    expect(markup).not.toContain('settingsArea=booking-mode');
+      expect(text).not.toContain(area);
+    for (const area of [
+      'general',
+      'booking-rules',
+      'check-in-out',
+      'payments',
+      'branding',
+      'managed-pages',
+      'billing',
+    ])
+      expect(
+        container.querySelector(
+          `a[href="/dashboard/t?propertyId=p&section=settings&settingsArea=${area}"]`,
+        ),
+      ).not.toBeNull();
+    expect(container.querySelector('a[href*="settingsArea=booking-mode"]')).toBeNull();
+    // Real status, not decoration: the demo hotel has no support email and no website yet.
+    expect(text).toContain('Ready to take bookings');
+    expect(text).toContain('Guests have no support email in booking emails.');
+    expect(text).toContain('The hotel website is not connected yet.');
+    expect(text).toContain('Plan: Free.');
     expect(isSettingsArea('general')).toBe(true);
-    expect(isSettingsArea('booking-rules')).toBe(true);
+    expect(isSettingsArea('check-in-out')).toBe(true);
     expect(isSettingsArea('booking-mode')).toBe(false);
     expect(isSettingsArea('dangerous-reset')).toBe(false);
+    await act(async () => root.unmount());
+    container.remove();
   });
 
   it('shows only the selected area with a link back to the Settings hub', async () => {
@@ -106,7 +132,7 @@ describe('DashboardSettings', () => {
     await act(async () => root.unmount());
   });
 
-  it('renders Booking rules and Booking mode together in the booking-rules sub-view', async () => {
+  it('renders the stay limits, cancellation, inventory mode and house rules sections', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
@@ -119,10 +145,16 @@ describe('DashboardSettings', () => {
     );
     const { container, root } = await mount('booking-rules');
 
-    expect(container.textContent).toContain('Booking rules');
-    expect(container.textContent).toContain('Booking mode');
-    expect(container.textContent).toContain('Save booking rules');
-    expect(container.textContent).toContain('Save booking mode');
+    for (const section of [
+      'Stay limits',
+      'Cancellation',
+      'Inventory mode',
+      'House rules',
+      'How online checkout works',
+    ])
+      expect(container.textContent).toContain(section);
+    // Nothing is saved until something changes.
+    expect(container.textContent).not.toContain('Save changes');
     expect(container.textContent).not.toContain('Hotel identity');
     expect(container.textContent).not.toContain('Payment methods');
 
@@ -245,18 +277,18 @@ describe('DashboardSettings', () => {
     const { container, root } = await mount();
 
     expect(container.textContent).toContain('Current plan: Free');
-    expect(container.textContent).toContain('do not validate or block bookings');
+    expect(container.textContent).toContain('do not block or validate bookings');
     expect(container.textContent).not.toContain('Manage properties');
     expect(container.textContent).not.toContain('Add property');
     expect(container.querySelector('button[disabled]')?.textContent).toContain(
       'Platform billing is not available yet',
     );
 
-    await value(container.querySelector('[aria-label="Hotel name"]')!, 'Grand Hotel Tirana');
-    await submit(container, 'Save hotel identity');
+    await value(container.querySelector('#settings-name')!, 'Grand Hotel Tirana');
+    await saveChanges(container);
     const identityRequest = fetch.mock.calls.find(([, init]) => init?.method === 'PATCH')!;
     expect(JSON.parse(identityRequest[1]!.body as string)).toEqual({ name: 'Grand Hotel Tirana' });
-    expect((container.querySelector('[aria-label="Hotel name"]') as HTMLInputElement).value).toBe(
+    expect((container.querySelector('#settings-name') as HTMLInputElement).value).toBe(
       'Grand Hotel Tirana',
     );
 
@@ -274,22 +306,20 @@ describe('DashboardSettings', () => {
       phone: '+355 69 123 4567',
     });
 
-    await value(container.querySelector('[aria-label="Minimum stay (nights)"]')!, '3');
-    await submit(container, 'Save booking rules');
+    await value(container.querySelector('#rules-min')!, '3');
+    await saveChanges(container);
     const patchCalls = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH');
     expect(JSON.parse(patchCalls[2][1]!.body as string)).toEqual({ minStayNights: 3 });
 
-    await value(container.querySelector('[aria-label="Room rules"]')!, 'Adults only.');
-    await submit(container, 'Save booking rules');
+    await value(container.querySelector('#rules-text')!, 'Adults only.');
+    await saveChanges(container);
     const rulesRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[3];
     expect(JSON.parse(rulesRequest[1]!.body as string)).toEqual({ rules: 'Adults only.' });
 
-    await select(container.querySelector('[aria-label="Booking mode"]')!, 'INDIVIDUAL_ROOM_ONLY');
-    await submit(container, 'Save booking mode');
-    const bookingModeRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[4];
-    expect(JSON.parse(bookingModeRequest[1]!.body as string)).toEqual({
-      bookingMode: 'INDIVIDUAL_ROOM_ONLY',
-    });
+    await value(container.querySelector('#times-in')!, '14:00');
+    await saveChanges(container);
+    const timesRequest = fetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')[4];
+    expect(JSON.parse(timesRequest[1]!.body as string)).toEqual({ checkInTime: '14:00' });
 
     const pokpayCheckbox = Array.from(container.querySelectorAll('input[type="checkbox"]')).find(
       (input) => input.closest('label')?.textContent?.includes('PokPay'),
@@ -398,6 +428,18 @@ async function submit(container: HTMLElement, text: string) {
       .find((button) => button.textContent === text)!
       .closest('form')!
       .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    for (let iteration = 0; iteration < 4; iteration += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
+      await Promise.resolve();
+    }
+  });
+}
+
+async function saveChanges(container: HTMLElement) {
+  await act(async () => {
+    Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Save changes')!
+      .click();
     for (let iteration = 0; iteration < 4; iteration += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, 20));
       await Promise.resolve();

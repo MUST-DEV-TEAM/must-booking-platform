@@ -6,8 +6,18 @@ import { type FormEvent, type ReactNode, useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import styles from './settings.module.css';
+import { CheckInOutSettings, BookingRulesSettings, GeneralSettings } from './settings-forms';
+import { settingsAreaHref } from './settings-hub';
+import {
+  settingsAreas,
+  type PaymentGateways,
+  type Property,
+  type SettingsArea,
+} from './settings-areas';
 
-type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
+export { isSettingsArea, settingsAreas, type SettingsArea } from './settings-areas';
+export { SettingsHub } from './settings-hub';
+
 type Connection = {
   id: string;
   kind: 'PAYMENT' | 'PMS';
@@ -15,142 +25,13 @@ type Connection = {
   status: 'PENDING' | 'CONNECTED' | 'FAILED';
 };
 type PropertyConnection = { connectionId: string; enabled: boolean };
-type Property = {
-  id: string;
-  name: string;
-  address: string;
-  timezone: string;
-  logoUrl: string | null;
-  phone: string | null;
-  supportEmail: string | null;
-  minStayNights: number | null;
-  maxStayNights: number | null;
-  checkInTime: string | null;
-  checkOutTime: string | null;
-  rules: string | null;
-  advanceBookingDays: number | null;
-  freeCancellationDaysBeforeArrival: number;
-  bookingMode: BookingMode;
-  paymentGateways: PaymentGateways;
-  wordpressConnectedAt: string | null;
-  publicWebsiteOrigin: string | null;
-};
-
-type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
 
 type PlanUsage = { plan: { name: string } };
 
-export const settingsAreas = [
-  { key: 'general', label: 'General', description: 'Hotel identity and core property details.' },
-  {
-    key: 'booking-rules',
-    label: 'Booking rules',
-    description: 'Stay restrictions, booking mode, cancellation windows, and guest-facing rules.',
-  },
-  {
-    key: 'payments',
-    label: 'Payments',
-    description: 'Choose the payment methods available for this property.',
-  },
-  {
-    key: 'branding',
-    label: 'Branding',
-    description: 'Customize the identity and contact details used in booking emails.',
-  },
-  {
-    key: 'email',
-    label: 'Emails',
-    description:
-      'Choose who gets which emails, edit guest email wording, and see every email sent.',
-  },
-  {
-    key: 'managed-pages',
-    label: 'Managed Pages',
-    description: 'Connect the property website and manage its WordPress pairing.',
-  },
-  {
-    key: 'billing',
-    label: 'Billing account',
-    description: 'View the current platform plan and future billing controls.',
-  },
-] as const;
-
-export type SettingsArea = (typeof settingsAreas)[number]['key'];
-
-export function isSettingsArea(value: string | null): value is SettingsArea {
-  return settingsAreas.some((area) => area.key === value);
-}
-
-type IdentityFields = Pick<Property, 'name' | 'address' | 'timezone'>;
 type EmailBrandingFields = Pick<Property, 'logoUrl' | 'phone' | 'supportEmail'>;
-type RuleFields = Pick<
-  Property,
-  | 'minStayNights'
-  | 'maxStayNights'
-  | 'checkInTime'
-  | 'checkOutTime'
-  | 'rules'
-  | 'advanceBookingDays'
-  | 'freeCancellationDaysBeforeArrival'
->;
-
-const ruleKeys = [
-  'minStayNights',
-  'maxStayNights',
-  'checkInTime',
-  'checkOutTime',
-  'rules',
-  'advanceBookingDays',
-  'freeCancellationDaysBeforeArrival',
-] as const;
-
-function rulesFrom(property: Property): RuleFields {
-  return {
-    minStayNights: property.minStayNights,
-    maxStayNights: property.maxStayNights,
-    checkInTime: property.checkInTime,
-    checkOutTime: property.checkOutTime,
-    rules: property.rules,
-    advanceBookingDays: property.advanceBookingDays,
-    freeCancellationDaysBeforeArrival: property.freeCancellationDaysBeforeArrival,
-  };
-}
 
 function dashboardSectionHref(tenantId: string, propertyId: string, section: string) {
   return `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=${section}`;
-}
-
-function settingsAreaHref(tenantId: string, propertyId: string, area?: SettingsArea) {
-  const href = dashboardSectionHref(tenantId, propertyId, 'settings');
-  return area ? `${href}&settingsArea=${area}` : href;
-}
-
-export function SettingsHub({ tenantId, propertyId }: { tenantId: string; propertyId: string }) {
-  return (
-    <Stack className={styles.hub} gap="lg">
-      <header className={styles.hubHeading}>
-        <div>
-          <Text tone="secondary">PROPERTY SETTINGS</Text>
-          <Heading>Settings</Heading>
-          <Text tone="secondary">Manage the settings currently available for this property.</Text>
-        </div>
-      </header>
-      <div className={styles.hubGrid}>
-        {settingsAreas.map((area) => (
-          <Card className={styles.hubCard} key={area.key}>
-            <a
-              className={styles.hubCardLink}
-              href={settingsAreaHref(tenantId, propertyId, area.key)}
-            >
-              <Heading level={2}>{area.label}</Heading>
-              <Text tone="secondary">{area.description}</Text>
-              <span className={styles.hubCardAction}>Open {area.label}</span>
-            </a>
-          </Card>
-        ))}
-      </div>
-    </Stack>
-  );
 }
 
 function SettingsAreaPanel({
@@ -174,10 +55,7 @@ export function DashboardSettings({
   propertyId: string;
   settingsArea?: SettingsArea;
 }) {
-  const [identity, setIdentity] = useState<IdentityFields | null>(null);
   const [emailBranding, setEmailBranding] = useState<EmailBrandingFields | null>(null);
-  const [rules, setRules] = useState<RuleFields | null>(null);
-  const [bookingMode, setBookingMode] = useState<BookingMode | null>(null);
   const [paymentGateways, setPaymentGateways] = useState<PaymentGateways | null>(null);
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [publicWebsiteOrigin, setPublicWebsiteOrigin] = useState('');
@@ -229,14 +107,11 @@ export function DashboardSettings({
 
   useEffect(() => {
     if (!property) return;
-    setIdentity({ name: property.name, address: property.address, timezone: property.timezone });
     setEmailBranding({
       logoUrl: property.logoUrl,
       phone: property.phone,
       supportEmail: property.supportEmail,
     });
-    setRules(rulesFrom(property));
-    setBookingMode(property.bookingMode);
     setPaymentGateways(property.paymentGateways);
     setPublicWebsiteOrigin(property.publicWebsiteOrigin ?? '');
   }, [property]);
@@ -349,27 +224,6 @@ export function DashboardSettings({
     }
   }
 
-  function saveIdentity(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!property || !identity) return;
-    const update = (Object.keys(identity) as Array<keyof IdentityFields>).reduce<Partial<Property>>(
-      (result, key) =>
-        identity[key] === property[key] ? result : { ...result, [key]: identity[key] },
-      {},
-    );
-    void save(update);
-  }
-
-  function saveRules(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!property || !rules) return;
-    const update = ruleKeys.reduce<Partial<Property>>(
-      (result, key) => (rules[key] === property[key] ? result : { ...result, [key]: rules[key] }),
-      {},
-    );
-    void save(update);
-  }
-
   function saveEmailBranding(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!property || !emailBranding) return;
@@ -382,15 +236,6 @@ export function DashboardSettings({
     );
     void save(update);
   }
-
-  function saveBookingMode(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!property || !bookingMode || bookingMode === property.bookingMode) return;
-    void save({ bookingMode });
-  }
-
-  const numberRule = (key: 'minStayNights' | 'maxStayNights' | 'advanceBookingDays') =>
-    rules?.[key] === null || rules?.[key] === undefined ? '' : String(rules[key]);
 
   if (settingsQuery.isPending)
     return (
@@ -407,7 +252,7 @@ export function DashboardSettings({
         </button>
       </Card>
     );
-  if (!property || !identity || !emailBranding || !rules || !bookingMode || !paymentGateways)
+  if (!property || !emailBranding || !paymentGateways)
     return (
       <section aria-label="Loading settings">
         <Text>Loading settings…</Text>
@@ -417,68 +262,43 @@ export function DashboardSettings({
   return (
     <Stack gap="lg">
       {settingsArea ? (
-        <a className={styles.backLink} href={settingsAreaHref(tenantId, propertyId)}>
-          Back to Settings overview
-        </a>
+        <div className="flex flex-col gap-1">
+          <a
+            className="w-fit text-sm font-semibold text-muted-foreground no-underline hover:underline"
+            href={settingsAreaHref(tenantId, propertyId)}
+          >
+            ← Back to Settings overview
+          </a>
+          <h1 className="m-0 text-2xl font-extrabold tracking-tight">
+            {settingsAreas.find((area) => area.key === settingsArea)?.label ?? 'Settings'}
+          </h1>
+          <p className="m-0 text-muted-foreground">
+            {settingsAreas.find((area) => area.key === settingsArea)?.description}
+          </p>
+        </div>
       ) : null}
-      <Heading level={1}>
-        {settingsArea
-          ? (settingsAreas.find((area) => area.key === settingsArea)?.label ?? 'Settings')
-          : 'Settings'}
-      </Heading>
 
       <SettingsAreaPanel activeArea={settingsArea} area="general">
-        <Card>
-          <Stack gap="md">
-            <Heading level={2}>Hotel identity</Heading>
-            <form className="must-stack must-stack--md" onSubmit={saveIdentity}>
-              <label className="must-field">
-                <span className="must-field__label">Hotel name</span>
-                <input
-                  className="must-input"
-                  aria-label="Hotel name"
-                  required
-                  value={identity.name}
-                  onChange={(event) => setIdentity({ ...identity, name: event.target.value })}
-                />
-              </label>
-              <label className="must-field">
-                <span className="must-field__label">Address</span>
-                <input
-                  className="must-input"
-                  aria-label="Address"
-                  required
-                  value={identity.address}
-                  onChange={(event) => setIdentity({ ...identity, address: event.target.value })}
-                />
-              </label>
-              <label className="must-field">
-                <span className="must-field__label">Timezone</span>
-                <input
-                  className="must-input"
-                  aria-label="Timezone"
-                  required
-                  value={identity.timezone}
-                  onChange={(event) => setIdentity({ ...identity, timezone: event.target.value })}
-                />
-              </label>
-              <button
-                className="must-button must-button--primary"
-                disabled={saveMutation.isPending}
-              >
-                {saveMutation.isPending ? (
-                  <>
-                    <Loader2 aria-hidden="true" size={16} /> Saving…
-                  </>
-                ) : (
-                  'Save hotel identity'
-                )}
-              </button>
-            </form>
-          </Stack>
-        </Card>
+        <GeneralSettings
+          property={property}
+          saving={saveMutation.isPending}
+          onSave={(update) => void save(update)}
+        />
       </SettingsAreaPanel>
-
+      <SettingsAreaPanel activeArea={settingsArea} area="booking-rules">
+        <BookingRulesSettings
+          property={property}
+          saving={saveMutation.isPending}
+          onSave={(update) => void save(update)}
+        />
+      </SettingsAreaPanel>
+      <SettingsAreaPanel activeArea={settingsArea} area="check-in-out">
+        <CheckInOutSettings
+          property={property}
+          saving={saveMutation.isPending}
+          onSave={(update) => void save(update)}
+        />
+      </SettingsAreaPanel>
       <SettingsAreaPanel activeArea={settingsArea} area="branding">
         <Card>
           <Stack gap="md">
@@ -535,181 +355,6 @@ export function DashboardSettings({
                   </>
                 ) : (
                   'Save email branding'
-                )}
-              </button>
-            </form>
-          </Stack>
-        </Card>
-      </SettingsAreaPanel>
-
-      <SettingsAreaPanel activeArea={settingsArea} area="booking-rules">
-        <Card>
-          <Stack gap="md">
-            <Heading level={2}>Booking rules</Heading>
-            <Text tone="secondary">
-              Configure booking restrictions and guest-facing stay information.
-            </Text>
-            <form className="must-stack must-stack--md" onSubmit={saveRules}>
-              <label className="must-field">
-                <span className="must-field__label">Minimum stay (nights)</span>
-                <input
-                  className="must-input"
-                  aria-label="Minimum stay (nights)"
-                  type="number"
-                  min="1"
-                  value={numberRule('minStayNights')}
-                  onChange={(event) =>
-                    setRules({
-                      ...rules,
-                      minStayNights: event.target.value === '' ? null : Number(event.target.value),
-                    })
-                  }
-                />
-              </label>
-              <label className="must-field">
-                <span className="must-field__label">Maximum stay (nights)</span>
-                <input
-                  className="must-input"
-                  aria-label="Maximum stay (nights)"
-                  type="number"
-                  min="1"
-                  value={numberRule('maxStayNights')}
-                  onChange={(event) =>
-                    setRules({
-                      ...rules,
-                      maxStayNights: event.target.value === '' ? null : Number(event.target.value),
-                    })
-                  }
-                />
-              </label>
-              <label className="must-field">
-                <span className="must-field__label">Advance booking window (days)</span>
-                <input
-                  className="must-input"
-                  aria-label="Advance booking window (days)"
-                  type="number"
-                  min="0"
-                  value={numberRule('advanceBookingDays')}
-                  onChange={(event) =>
-                    setRules({
-                      ...rules,
-                      advanceBookingDays:
-                        event.target.value === '' ? null : Number(event.target.value),
-                    })
-                  }
-                />
-              </label>
-              <label className="must-field">
-                <span className="must-field__label">
-                  Free cancellation window (days before arrival)
-                </span>
-                <input
-                  className="must-input"
-                  aria-label="Free cancellation window (days before arrival)"
-                  type="number"
-                  min="0"
-                  value={String(rules.freeCancellationDaysBeforeArrival)}
-                  onChange={(event) =>
-                    setRules({
-                      ...rules,
-                      freeCancellationDaysBeforeArrival:
-                        event.target.value === '' ? 0 : Number(event.target.value),
-                    })
-                  }
-                />
-              </label>
-              <Text tone="secondary">
-                Cancellations requested at least this many days before arrival are refunded
-                automatically. Closer to arrival, the guest is directed to contact the hotel and
-                staff handle the cancellation manually.
-              </Text>
-              <Text tone="secondary">
-                Check-in and check-out times are displayed to guests. They do not validate or block
-                bookings.
-              </Text>
-              <label className="must-field">
-                <span className="must-field__label">Check-in time</span>
-                <input
-                  className="must-input"
-                  aria-label="Check-in time"
-                  value={rules.checkInTime ?? ''}
-                  onChange={(event) =>
-                    setRules({ ...rules, checkInTime: event.target.value || null })
-                  }
-                />
-              </label>
-              <label className="must-field">
-                <span className="must-field__label">Check-out time</span>
-                <input
-                  className="must-input"
-                  aria-label="Check-out time"
-                  value={rules.checkOutTime ?? ''}
-                  onChange={(event) =>
-                    setRules({ ...rules, checkOutTime: event.target.value || null })
-                  }
-                />
-              </label>
-              <label className="must-field">
-                <span className="must-field__label">Room rules</span>
-                <textarea
-                  className="must-input"
-                  aria-label="Room rules"
-                  placeholder="Age restrictions, cancellation details, and house rules."
-                  value={rules.rules ?? ''}
-                  onChange={(event) => setRules({ ...rules, rules: event.target.value || null })}
-                />
-              </label>
-              <Text tone="secondary">
-                Shown on individual room detail pages unless that room has its own full replacement.
-              </Text>
-              <button
-                className="must-button must-button--primary"
-                disabled={saveMutation.isPending}
-              >
-                {saveMutation.isPending ? (
-                  <>
-                    <Loader2 aria-hidden="true" size={16} /> Saving…
-                  </>
-                ) : (
-                  'Save booking rules'
-                )}
-              </button>
-            </form>
-          </Stack>
-        </Card>
-      </SettingsAreaPanel>
-
-      <SettingsAreaPanel activeArea={settingsArea} area="booking-rules">
-        <Card>
-          <Stack gap="md">
-            <Heading level={2}>Booking mode</Heading>
-            <Text tone="secondary">
-              Choose whether guests book a room type, a specific room, or either option.
-            </Text>
-            <form className="must-stack must-stack--md" onSubmit={saveBookingMode}>
-              <label className="must-field">
-                <span className="must-field__label">Booking mode</span>
-                <select
-                  className="must-input"
-                  aria-label="Booking mode"
-                  value={bookingMode}
-                  onChange={(event) => setBookingMode(event.target.value as BookingMode)}
-                >
-                  <option value="ROOM_TYPE_ONLY">Room-Type-Only</option>
-                  <option value="INDIVIDUAL_ROOM_ONLY">Individual-Room-Only</option>
-                  <option value="MIXED">Mixed</option>
-                </select>
-              </label>
-              <button
-                className="must-button must-button--primary"
-                disabled={saveMutation.isPending}
-              >
-                {saveMutation.isPending ? (
-                  <>
-                    <Loader2 aria-hidden="true" size={16} /> Saving…
-                  </>
-                ) : (
-                  'Save booking mode'
                 )}
               </button>
             </form>
