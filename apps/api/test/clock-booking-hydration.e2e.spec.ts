@@ -253,6 +253,8 @@ describe('Clock booking hydration', () => {
       await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144990', undefined, {
         notify: false,
       });
+      if (n === 0)
+        await admin.$executeRaw`UPDATE bookings SET created_at=now(),updated_at=now() WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND external_booking_id='38144990'`;
     }
     const rows = await admin.$queryRaw<
       Array<{ createdAt: Date; updatedAt: Date; mail: bigint }>

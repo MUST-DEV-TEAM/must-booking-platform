@@ -1,3 +1,4 @@
+import { ClockBookingReadError } from './clock-booking-consistency.service';
 import { describe, expect, it, vi } from 'vitest';
 import { ClockImportService } from './clock-import.service';
 const scope = { tenantId: 't', propertyId: 'p', userId: 'u' };
@@ -70,6 +71,27 @@ describe('bounded Clock import', () => {
       service.batch(scope, { startsOn: '2027-01-01', endsOn: '2027-02-01' }),
     ).rejects.toThrow('only for a connected Clock');
     expect(reader.listBookingIds).not.toHaveBeenCalled();
+  });
+  it('pauses safely after a read interruption without claiming completion or skipping records', async () => {
+    const { service, hydration, audit } = setup();
+    hydration.hydrateBooking.mockRejectedValueOnce(
+      new ClockBookingReadError({
+        category: 'rate_limited',
+        code: 'clock_rate_limited',
+        message: 'private upstream detail',
+        retryable: true,
+      }),
+    );
+    await expect(
+      service.batch(scope, { startsOn: '2027-01-01', endsOn: '2027-02-01' }),
+    ).rejects.toThrow('Your progress is saved');
+    expect(hydration.hydrateBooking).toHaveBeenCalledTimes(1);
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'clock.import_read_failed',
+        details: { category: 'rate_limited', code: 'clock_rate_limited' },
+      }),
+    );
   });
   it('rejects invalid dates, excessive ranges, and cursors outside the range', async () => {
     const { service, reader } = setup();

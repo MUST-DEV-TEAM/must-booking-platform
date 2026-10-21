@@ -13,7 +13,10 @@ import { Role, Roles } from '../../tenancy/roles.decorator';
 import { TenantScoped } from '../../tenancy/tenant-context.decorator';
 import { AuditLogService } from '../../tenancy/audit-log.service';
 import { IntegrationConnectionsService } from '../integration-connections.service';
-import { ClockBookingConsistencyService } from './clock-booking-consistency.service';
+import {
+  ClockBookingReadError,
+  ClockBookingConsistencyService,
+} from './clock-booking-consistency.service';
 import { ClockBookingHydrationService } from './clock-booking-hydration.service';
 import { parseClockCredentials } from './clock-credentials';
 
@@ -38,6 +41,26 @@ export class ClockImportService {
     @Inject(AuditLogService) private readonly audit: AuditLogService,
   ) {}
   async batch(scope: Scope, body: Record<string, unknown>) {
+    try {
+      return await this.readBatch(scope, body);
+    } catch (error) {
+      if (!(error instanceof ClockBookingReadError)) throw error;
+      await this.audit.record({
+        ...scope,
+        actorUserId: scope.userId,
+        action: 'clock.import_read_failed',
+        targetType: 'property',
+        targetId: scope.propertyId,
+        details: { category: error.classified.category, code: error.classified.code },
+      });
+      throw new BadRequestException(
+        error.classified.retryable
+          ? 'Clock read did not finish. Your progress is saved; resume this import shortly.'
+          : 'Clock could not supply this batch. Check the connection and mappings before resuming.',
+      );
+    }
+  }
+  private async readBatch(scope: Scope, body: Record<string, unknown>) {
     const { startsOn, endsOn } = body;
     const windowStart = body.windowStart ?? startsOn;
     const cursor = body.cursor ?? '0';

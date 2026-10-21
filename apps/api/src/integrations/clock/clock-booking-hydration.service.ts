@@ -1,3 +1,4 @@
+import { ClockBookingReadError } from './clock-booking-consistency.service';
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 
@@ -288,6 +289,7 @@ export class ClockBookingHydrationService {
            nightly_rates = EXCLUDED.nightly_rates,
            pms_stay_status = EXCLUDED.pms_stay_status,
            version = bookings.version + 1,
+           created_at = CASE WHEN $18::boolean AND bookings.external_reference LIKE 'CLOCK-%' THEN COALESCE($19::timestamptz,bookings.created_at) ELSE bookings.created_at END,
            updated_at = CASE WHEN $18::boolean THEN COALESCE($20::timestamptz,bookings.updated_at) ELSE CURRENT_TIMESTAMP END
          RETURNING id, (xmax = 0) AS inserted`,
           tenantId,
@@ -552,7 +554,12 @@ export class ClockBookingHydrationService {
       this.circuitBreaker.assertClosed(breakerKey);
     } catch (error) {
       if (error instanceof CircuitOpenError)
-        throw new Error(`Clock booking hydration unavailable: ${error.message}`);
+        throw new ClockBookingReadError({
+          category: 'provider_unavailable',
+          code: 'clock_provider_unavailable',
+          message: 'Clock booking reads are temporarily unavailable.',
+          retryable: true,
+        });
       throw error;
     }
     // Retry only safe GETs; never replay a booking or payment write.
@@ -576,16 +583,17 @@ export class ClockBookingHydrationService {
         }
         if (response.status < 200 || response.status >= 300) {
           this.circuitBreaker.recordFailure(breakerKey);
-          throw new Error(classifyClockHttpResponse(response.status, response.body).message);
+          throw new ClockBookingReadError(
+            classifyClockHttpResponse(response.status, response.body),
+          );
         }
         this.circuitBreaker.recordSuccess(breakerKey);
         return response.body;
       } catch (error) {
         if (error instanceof ClockHttpError) {
           this.circuitBreaker.recordFailure(breakerKey);
-          throw new Error(
-            classifyClockClientFailure(error.isTimeout ? 'timeout' : 'network', error.message)
-              .message,
+          throw new ClockBookingReadError(
+            classifyClockClientFailure(error.isTimeout ? 'timeout' : 'network', error.message),
           );
         }
         throw error;
