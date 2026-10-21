@@ -15,7 +15,7 @@ afterEach(async () => {
 const settle = async () => {
   for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 15));
 };
-async function mount() {
+async function mount(canOpen?: (section: string) => boolean) {
   const root = createRoot(document.body.appendChild(document.createElement('div')));
   roots.push(root);
   await act(async () => {
@@ -23,7 +23,7 @@ async function mount() {
       createElement(
         DashboardQueryProvider,
         undefined,
-        createElement(SystemHealthTab, { tenantId: 't', propertyId: 'p' }),
+        createElement(SystemHealthTab, { tenantId: 't', propertyId: 'p', canOpen }),
       ),
     );
     await settle();
@@ -32,7 +32,7 @@ async function mount() {
 }
 
 describe('System health tab', () => {
-  it('shows each live signal with a fix link only where something needs attention', async () => {
+  it.each([true, false])('filters attention links by section access (%s)', async (allowed) => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
@@ -76,7 +76,7 @@ describe('System health tab', () => {
         }),
       ),
     );
-    await mount();
+    await mount(() => allowed);
     const text = document.body.textContent ?? '';
     for (const label of ['Reservations', 'Property system', 'Payments', 'Emails'])
       expect(text).toContain(label);
@@ -85,7 +85,7 @@ describe('System health tab', () => {
     const links = [...document.querySelectorAll<HTMLAnchorElement>('a')].map((a) =>
       a.getAttribute('href'),
     );
-    expect(links).toEqual(['/dashboard/t?propertyId=p&section=settings']);
+    expect(links).toEqual(allowed ? ['/dashboard/t?propertyId=p&section=settings'] : []);
   });
 
   it('shows a clear error when the signals cannot be loaded', async () => {

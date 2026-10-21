@@ -213,6 +213,12 @@ describe('DashboardOverview', () => {
       expect(text).not.toContain(hidden);
     await act(async () => root.unmount());
   });
+  it('hides the calendar shortcut when the role cannot open calendar', async () => {
+    const { container, root } = await mount({ initialOverview: overview, canOpen: () => false });
+    expect(container.textContent).not.toContain('Open calendar');
+    await act(async () => root.unmount());
+  });
+
   it('hides booking creation when the capability prop is omitted', async () => {
     vi.stubGlobal('fetch', vi.fn());
     const { container, root } = await mount({ initialOverview: overview });
@@ -264,9 +270,11 @@ describe('DashboardOverview', () => {
 async function mount({
   initialOverview,
   canManageQuickBooking,
+  canOpen,
 }: {
   initialOverview?: Overview;
   canManageQuickBooking?: boolean;
+  canOpen?: (section: string) => boolean;
 } = {}) {
   const container = document.createElement('div');
   const root = createRoot(container);
@@ -280,6 +288,7 @@ async function mount({
           propertyId: 'property-1',
           role: 'OWNER',
           initialOverview,
+          canOpen,
           ...(canManageQuickBooking === undefined ? {} : { canManageQuickBooking }),
         }),
       ),

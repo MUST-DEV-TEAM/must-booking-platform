@@ -1,4 +1,5 @@
 'use client';
+import { SectionAccess } from '../../components/ui/state-panel';
 import { ApprovalsQueue, useApprovals } from './approvals';
 
 import { InventorySection } from './inventory';
@@ -259,7 +260,8 @@ function DashboardSectionTabs({
         tab.key === 'overview' ||
         tab.key === 'needs-attention' ||
         tab.key === 'quick-booking' ||
-        tab.key === 'system-health' || tab.key === 'approvals',
+        tab.key === 'system-health' ||
+        tab.key === 'approvals',
     )
     .filter((tab) => tab.key !== 'approvals' || canReviewRequests)
     .filter((tab) => tab.key !== 'system-health' || canAccessSystemHealth)
@@ -267,7 +269,8 @@ function DashboardSectionTabs({
     .map((tab) => ({
       id: tab.key,
       label: tab.label,
-      count: tab.key === 'needs-attention' ? attention : tab.key === 'approvals' ? approvals : undefined,
+      count:
+        tab.key === 'needs-attention' ? attention : tab.key === 'approvals' ? approvals : undefined,
     }));
   return (
     <TabBar
@@ -466,7 +469,11 @@ export function DashboardShell({
 
   return (
     <AppShell
-      hotelBrand={selectedProperty ? {name:selectedProperty.name,logoUrl:selectedProperty.logoUrl} : undefined}
+      hotelBrand={
+        selectedProperty
+          ? { name: selectedProperty.name, logoUrl: selectedProperty.logoUrl }
+          : undefined
+      }
       homeHref="/dashboard"
       navigation={navigation}
       title={sectionLabel}
@@ -532,6 +539,12 @@ export function DashboardShell({
         </>
       }
     >
+      {selectedProperty && role && capabilities !== undefined && !canViewSection ? (
+        <SectionAccess
+          allowed={false}
+          backHref={dashboardTabHref(tenantId, selectedProperty.id, 'overview')}
+        />
+      ) : null}
       {selectedProperty && role && canViewSection && section === 'overview' ? (
         <Stack gap="lg">
           <DashboardSectionTabs
@@ -553,16 +566,21 @@ export function DashboardShell({
           {visibleDashboardTab === 'overview' ? (
             <DashboardOverview
               canManageQuickBooking={canAccessQuickBooking}
+              canOpen={(target) => canAccessSection(role, capabilities ?? [], target)}
               tenantId={tenantId}
               propertyId={selectedProperty.id}
               role={role}
             />
           ) : visibleDashboardTab === 'approvals' ? (
-            <ApprovalsQueue tenantId={tenantId} propertyId={selectedProperty.id}/>
+            <ApprovalsQueue tenantId={tenantId} propertyId={selectedProperty.id} />
           ) : visibleDashboardTab === 'needs-attention' ? (
             <NeedsAttentionTab tenantId={tenantId} propertyId={selectedProperty.id} />
           ) : visibleDashboardTab === 'system-health' ? (
-            <SystemHealthTab tenantId={tenantId} propertyId={selectedProperty.id} />
+            <SystemHealthTab
+              tenantId={tenantId}
+              propertyId={selectedProperty.id}
+              canOpen={(target) => canAccessSection(role, capabilities ?? [], target)}
+            />
           ) : visibleDashboardTab === 'quick-booking' ? (
             <AddReservation
               tenantId={tenantId}
@@ -580,7 +598,11 @@ export function DashboardShell({
         </Stack>
       ) : null}
       {properties && role && canViewSection && section === 'hotels' ? (
-        <HotelsSection tenantId={tenantId} role={role} emailVerified={user?.emailVerified === true} />
+        <HotelsSection
+          tenantId={tenantId}
+          role={role}
+          emailVerified={user?.emailVerified === true}
+        />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'inventory' ? (
         <InventorySection
@@ -721,7 +743,11 @@ export function DashboardShell({
             settingsArea={settingsArea}
             canWrite={user?.emailVerified === true && hasCapability('settings.manage')}
             canManagePhotos={hasCapability('photos.manage')}
-            onPropertySaved={updated=>setProperties(current=>current?.map(p=>p.id===updated.id?{...p,...updated}:p))}
+            onPropertySaved={(updated) =>
+              setProperties((current) =>
+                current?.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)),
+              )
+            }
           />
         ) : (
           <SettingsHub tenantId={tenantId} propertyId={selectedProperty.id} />

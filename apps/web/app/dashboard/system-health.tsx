@@ -51,9 +51,11 @@ async function loadHealth(url: string): Promise<Health> {
 export function SystemHealthTab({
   tenantId,
   propertyId,
+  canOpen = () => true,
 }: {
   tenantId: string;
   propertyId: string;
+  canOpen?: (section: string) => boolean;
 }) {
   const query = useQuery({
     queryKey: ['dashboard', 'system-health', tenantId, propertyId],
@@ -116,7 +118,7 @@ export function SystemHealthTab({
                     {line}
                   </p>
                 ))}
-                {signal.action ? (
+                {signal.action && canOpen(signal.action.section) ? (
                   <div className="pt-1">
                     <Button asChild variant="outline" size="sm">
                       <a href={href(signal.action.section)}>{signal.action.label}</a>

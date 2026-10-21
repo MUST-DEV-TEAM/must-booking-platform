@@ -55,7 +55,11 @@ export function EmptyPanel({
   action?: ReactNode;
 }) {
   return (
-    <PanelFrame icon={<Inbox aria-hidden="true" className="size-5" />} title={title} description={description}>
+    <PanelFrame
+      icon={<Inbox aria-hidden="true" className="size-5" />}
+      title={title}
+      description={description}
+    >
       {action}
     </PanelFrame>
   );
@@ -116,5 +120,30 @@ export function ListSkeleton({ rows = 6 }: { rows?: number }) {
         <Skeleton key={index} className="h-14 w-full" />
       ))}
     </div>
+  );
+}
+
+/** A denied route is a visible shared state with a safe way back. */
+export function SectionAccess({
+  allowed,
+  backHref,
+  children,
+}: {
+  allowed: boolean;
+  backHref: string;
+  children?: ReactNode;
+}) {
+  return allowed ? (
+    children
+  ) : (
+    <EmptyPanel
+      title="You don't have access to this section"
+      description="Choose a section available to your role."
+      action={
+        <Button asChild variant="outline">
+          <a href={backHref}>Back to dashboard</a>
+        </Button>
+      }
+    />
   );
 }

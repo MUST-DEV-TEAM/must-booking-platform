@@ -138,12 +138,14 @@ export function DashboardOverview({
   role,
   canManageQuickBooking = false,
   initialOverview,
+  canOpen = () => true,
 }: {
   tenantId: string;
   propertyId: string;
   role: 'OWNER' | 'ADMIN' | 'STAFF';
   canManageQuickBooking?: boolean;
   initialOverview?: Overview;
+  canOpen?: (section: string) => boolean;
 }) {
   const overviewQuery = useOverviewQuery(tenantId, propertyId, initialOverview);
   const canShowQuickBooking = canManageQuickBooking;
@@ -218,11 +220,13 @@ export function DashboardOverview({
                 </a>
               </Button>
             ) : null}
-            <Button variant="outline" asChild>
-              <a href={link('calendar')}>
-                <CalendarDays aria-hidden="true" /> Open calendar
-              </a>
-            </Button>
+            {canOpen('calendar') ? (
+              <Button variant="outline" asChild>
+                <a href={link('calendar')}>
+                  <CalendarDays aria-hidden="true" /> Open calendar
+                </a>
+              </Button>
+            ) : null}
             {role !== 'STAFF' ? (
               <Button variant="outline" asChild>
                 <a href={link('staff')}>
