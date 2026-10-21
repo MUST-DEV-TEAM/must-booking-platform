@@ -558,6 +558,29 @@ it('Clock unknown policy: privileged staff must acknowledge terms and choose an 
   >`SELECT b.status::text,(SELECT sum(amount)::text FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='REFUND') AS refunds,(SELECT count(*) FROM booking_requests WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id) AS requests FROM bookings b WHERE b.tenant_id=${tenantId}::uuid AND b.property_id=${propertyId}::uuid AND b.id=${id}::uuid`;
   expect(rows[0]).toMatchObject({ status: 'CANCELLED', refunds: '30.00', requests: 0n });
 });
+it('commits a refund and idempotent replay when Clock posting exceeds the default five seconds', async () => {
+  const id = await fixture();
+  clock.postRefund.mockImplementationOnce(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 5500));
+    return { ok: true, value: null };
+  });
+  const command = {
+    bookingId: id,
+    idempotencyKey: 'slow-clock-' + id,
+    amount: { amount: '30.00', currency: 'EUR' },
+    actorUserId: reviewer,
+    note: 'Slow successful Clock refund regression',
+  };
+  const first = await refunds.manualRefund({ tenantId, propertyId }, command);
+  expect(first.ok).toBe(true);
+  const replay = await refunds.manualRefund({ tenantId, propertyId }, command);
+  expect(replay).toEqual(first);
+  const rows = await admin.$queryRaw<
+    { count: bigint; amount: string }[]
+  >`SELECT count(*),sum(amount)::text AS amount FROM payments WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND booking_id=${id}::uuid AND kind='REFUND'`;
+  expect(rows[0]).toEqual({ count: 1n, amount: '30.00' });
+}, 15000);
+
 it('Clock no-refund choice never automatically refunds; staff without refund capability request review', async () => {
   for (const userId of [reviewer, requester]) {
     if (userId === requester) {

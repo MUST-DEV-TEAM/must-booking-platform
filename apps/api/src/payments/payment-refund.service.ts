@@ -46,7 +46,11 @@ export type RefundConfirmation = {
   refundId: string;
   to: string;
   amount: Money;
-  brand: MailBrand & {brandColour?:string|null;emailFooterText?:string|null;termsUrl?:string|null};
+  brand: MailBrand & {
+    brandColour?: string | null;
+    emailFooterText?: string | null;
+    termsUrl?: string | null;
+  };
   guest: { name: string };
   stay: { startsOn: string; endsOn: string };
   roomName: string;
@@ -303,70 +307,75 @@ export class PaymentRefundService {
     if (command.note !== undefined && command.note.length > 500)
       return this.failure('INVALID_REFUND_NOTE', 'Refund note must be 500 characters or fewer.');
     let confirmation: RefundConfirmation | null = null;
-    const result = await this.database.withTenantTransaction(context, (tx) =>
-      this.withIdempotency(tx, context, command, async () => {
-        await this.lockBooking(tx, context, command.bookingId);
-        if (command.amount && command.percentage !== undefined)
-          return this.failure(
-            'INVALID_REFUND_REQUEST',
-            'Provide a fixed amount or a percentage, not both.',
-          );
-        if (command.percentage !== undefined && !this.validPercentage(command.percentage))
-          return this.failure(
-            'INVALID_REFUND_PERCENTAGE',
-            'Refund percentage must be between 1 and 100.',
-          );
-        const charge = await this.chargeForBooking(tx, context, command.bookingId, [
-          'PAID',
-          'LATE_AFTER_EXPIRY',
-          'succeeded',
-        ]);
-        if (!charge) return this.failure('CHARGE_NOT_FOUND', 'No refundable charge was found.');
-        const alreadyRefunded = await this.refundedAmount(tx, context, command.bookingId);
-        const remaining = this.minorUnits(charge.amount) - alreadyRefunded;
-        if (remaining <= 0n)
-          return this.failure(
-            'REFUND_NOT_AVAILABLE',
-            'The charge has already been fully refunded.',
-          );
-        if (
-          command.amount &&
-          (command.amount.currency !== charge.currency || !this.validMoney(command.amount.amount))
-        )
-          return this.failure(
-            'INVALID_REFUND_AMOUNT',
-            'Refund amount must be positive and use the charge currency.',
-          );
-        const requestedAmount = command.amount
-          ? this.minorUnits(command.amount.amount)
-          : command.percentage !== undefined
-            ? // A staff percentage means a share of what can still be refunded, not of the
-              // original charge: 50% after a 50 refund of 250 is 100, not 125.
-              this.percentageAmount(this.money(remaining), command.percentage)
-            : remaining;
-        if (requestedAmount === null || requestedAmount <= 0n) {
-          return this.failure(
-            'INVALID_REFUND_AMOUNT',
-            'Refund amount must be positive and use the charge currency.',
-          );
-        }
-        const amount = {
-          amount: this.money(requestedAmount > remaining ? remaining : requestedAmount),
-          currency: charge.currency,
-        };
-        const outcome = await this.refundCharge(tx, context, command.bookingId, charge, {
-          amount,
-          idempotencyKey: `manual-refund:${command.idempotencyKey}`,
-          actorUserId: command.actorUserId,
-          note: command.note,
-          ...(command.reasonCode ? { reasonCode: command.reasonCode } : {}),
-        });
-        confirmation = outcome.confirmation;
-        if (outcome.result.ok && outcome.clockRefund) {
-          await this.syncManualRefundToClock(tx, context, command.bookingId, outcome.clockRefund);
-        }
-        return outcome.result;
-      }),
+    const result = await this.database.withTenantTransaction(
+      context,
+      (tx) =>
+        this.withIdempotency(tx, context, command, async () => {
+          await this.lockBooking(tx, context, command.bookingId);
+          if (command.amount && command.percentage !== undefined)
+            return this.failure(
+              'INVALID_REFUND_REQUEST',
+              'Provide a fixed amount or a percentage, not both.',
+            );
+          if (command.percentage !== undefined && !this.validPercentage(command.percentage))
+            return this.failure(
+              'INVALID_REFUND_PERCENTAGE',
+              'Refund percentage must be between 1 and 100.',
+            );
+          const charge = await this.chargeForBooking(tx, context, command.bookingId, [
+            'PAID',
+            'LATE_AFTER_EXPIRY',
+            'succeeded',
+          ]);
+          if (!charge) return this.failure('CHARGE_NOT_FOUND', 'No refundable charge was found.');
+          const alreadyRefunded = await this.refundedAmount(tx, context, command.bookingId);
+          const remaining = this.minorUnits(charge.amount) - alreadyRefunded;
+          if (remaining <= 0n)
+            return this.failure(
+              'REFUND_NOT_AVAILABLE',
+              'The charge has already been fully refunded.',
+            );
+          if (
+            command.amount &&
+            (command.amount.currency !== charge.currency || !this.validMoney(command.amount.amount))
+          )
+            return this.failure(
+              'INVALID_REFUND_AMOUNT',
+              'Refund amount must be positive and use the charge currency.',
+            );
+          const requestedAmount = command.amount
+            ? this.minorUnits(command.amount.amount)
+            : command.percentage !== undefined
+              ? // A staff percentage means a share of what can still be refunded, not of the
+                // original charge: 50% after a 50 refund of 250 is 100, not 125.
+                this.percentageAmount(this.money(remaining), command.percentage)
+              : remaining;
+          if (requestedAmount === null || requestedAmount <= 0n) {
+            return this.failure(
+              'INVALID_REFUND_AMOUNT',
+              'Refund amount must be positive and use the charge currency.',
+            );
+          }
+          const amount = {
+            amount: this.money(requestedAmount > remaining ? remaining : requestedAmount),
+            currency: charge.currency,
+          };
+          const outcome = await this.refundCharge(tx, context, command.bookingId, charge, {
+            amount,
+            idempotencyKey: `manual-refund:${command.idempotencyKey}`,
+            actorUserId: command.actorUserId,
+            note: command.note,
+            ...(command.reasonCode ? { reasonCode: command.reasonCode } : {}),
+          });
+          confirmation = outcome.confirmation;
+          if (outcome.result.ok && outcome.clockRefund) {
+            await this.syncManualRefundToClock(tx, context, command.bookingId, outcome.clockRefund);
+          }
+          return outcome.result;
+        }),
+      // Gateway refund plus Clock reads/posting can legitimately exceed Prisma
+      // default 5s. Do not roll back its ledger after money has been returned.
+      { timeoutMs: 90_000 },
     );
     if (confirmation)
       await this.notifications.sendRefundConfirmationEmailSafely(confirmation, context);
@@ -645,7 +654,9 @@ export class PaymentRefundService {
       amount,
       brand: {
         name: row.propertyName,
-        brandColour: row.brandColour,emailFooterText: row.emailFooterText,termsUrl: row.termsUrl,
+        brandColour: row.brandColour,
+        emailFooterText: row.emailFooterText,
+        termsUrl: row.termsUrl,
         logoUrl: row.logoUrl,
         supportEmail: row.supportEmail,
         phone: row.phone,
