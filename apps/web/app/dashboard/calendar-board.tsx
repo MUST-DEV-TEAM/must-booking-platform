@@ -556,10 +556,10 @@ export function CalendarBoard({
           </div>
           <div className="flex items-center gap-2">
             <Badge
-              variant={board.isFetching ? 'muted' : 'success'}
+              variant={board.isFetching || !stockKnown ? 'muted' : 'success'}
               className="rounded-full px-2 py-0 text-[11px]"
             >
-              {board.isFetching ? 'Updating…' : 'Live'}
+              {board.isFetching ? 'Updating…' : stockKnown ? 'Live' : 'Stored bookings'}
             </Badge>
             <IconButton label="Refresh" onClick={() => void board.refetch()}>
               <RefreshCw aria-hidden="true" />

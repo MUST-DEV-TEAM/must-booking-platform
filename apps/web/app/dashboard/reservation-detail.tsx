@@ -590,13 +590,15 @@ export function ReservationDetail({
                 {field('Rate plan', booking.ratePlanName)}
                 {field(
                   'Cancellation policy',
-                  cancellation.isFree === null
-                    ? null
-                    : cancellation.isFree
-                      ? cancellation.cutoffAt
-                        ? `Free until ${dateTime(cancellation.cutoffAt)} · Non-refundable after`
-                        : 'Free cancellation'
-                      : 'Non-refundable',
+                  (booking.detailsManagedInClock ?? !!booking.externalBookingId)
+                    ? 'Cancellation terms are managed in Clock'
+                    : cancellation.isFree === null
+                      ? null
+                      : cancellation.isFree
+                        ? cancellation.cutoffAt
+                          ? `Free until ${dateTime(cancellation.cutoffAt)} · Non-refundable after`
+                          : 'Free cancellation'
+                        : 'Non-refundable',
                 )}
                 {field('Internal status', statusLabel)}
                 {field('Guest email', booking.guestEmail)}

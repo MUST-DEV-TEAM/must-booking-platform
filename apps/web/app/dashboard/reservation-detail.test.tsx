@@ -18,6 +18,7 @@ describe('ReservationDetail permissions', () => {
         id: 'booking-1',
         externalReference: 'MB-1',
         status,
+        detailsManagedInClock: status === 'CONFIRMED',
         paymentMethod: 'PAY_AT_HOTEL',
         source: null,
         startsOn: '2026-11-01',
@@ -92,6 +93,10 @@ describe('ReservationDetail permissions', () => {
 
       if (status === 'AVAILABILITY_FAILED')
         expect(container.textContent).toContain('No balance - booking was not created');
+      if (status === 'CONFIRMED') {
+        expect(container.textContent).toContain('Cancellation terms are managed in Clock');
+        expect(container.textContent).not.toContain('Non-refundable');
+      }
       expect(container.textContent).not.toContain('Cancel reservation');
       expect(container.textContent).not.toContain('Refund');
       expect(container.textContent).not.toContain('Edit reservation');

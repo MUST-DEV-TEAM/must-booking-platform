@@ -64,6 +64,7 @@ describe('CalendarBoard permissions', () => {
 
       if (provider === 'CLOCK_PMS') {
         expect(container.textContent).toContain('Unknown - managed in Clock');
+        expect(container.textContent).toContain('Stored bookings');
         expect(container.textContent).not.toContain('Rooms free');
         expect(container.textContent).not.toContain('0%');
       }
