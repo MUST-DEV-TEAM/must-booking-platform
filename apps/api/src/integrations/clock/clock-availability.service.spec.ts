@@ -1105,8 +1105,8 @@ describe('ClockAvailabilityService.getQuote', () => {
     expect(result).toEqual({
       ok: false,
       error: {
-        category: 'configuration',
-        code: 'clock_configuration',
+        category: 'validation',
+        code: 'clock_rate_unavailable',
         message: 'Clock has no available price for the requested stay.',
         retryable: false,
       },

@@ -612,9 +612,12 @@ export class ClockAvailabilityService {
           `No available Clock offer for room type ${entry.query.roomTypeId} (${entry.query.startsOn} to ${entry.query.endsOn}): ${JSON.stringify(rejectionReasons(roomType?.rates))}`,
           rejectionReasons(roomType?.rates),
         );
-        results[entry.query.roomTypeId] = failure(
-          classifyConfigurationError('Clock has no available price for the requested stay.'),
-        );
+        results[entry.query.roomTypeId] = failure({
+          category: 'validation',
+          code: 'clock_rate_unavailable',
+          message: 'Clock has no available price for the requested stay.',
+          retryable: false,
+        });
         return;
       }
       const value = {
@@ -728,9 +731,12 @@ export class ClockAvailabilityService {
         `No available Clock offer for room type ${query.roomTypeId} (${query.startsOn} to ${query.endsOn}): ${JSON.stringify(rejectionReasons(roomType?.rates))}`,
         rejectionReasons(roomType?.rates),
       );
-      return failure(
-        classifyConfigurationError('Clock has no available price for the requested stay.'),
-      );
+      return failure({
+        category: 'validation',
+        code: 'clock_rate_unavailable',
+        message: 'Clock has no available price for the requested stay.',
+        retryable: false,
+      });
     }
 
     return {

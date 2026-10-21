@@ -307,6 +307,17 @@ export class ClockBookingService {
             occupancy.children,
           );
           if (!rate.ok) {
+            if (rate.error.code === 'clock_rate_unavailable') {
+              // No booking POST was attempted: this is a definite availability failure.
+              await this.transition(
+                tx,
+                context,
+                bookingId,
+                status,
+                BookingStatus.AVAILABILITY_FAILED,
+              );
+              return rate;
+            }
             await this.transition(tx, context, bookingId, status, BookingStatus.PMS_UNKNOWN_RESULT);
             await this.recordPostCommitFailure(tx, context, bookingId, {
               category: 'UNKNOWN_RESULT',
@@ -579,6 +590,17 @@ export class ClockBookingService {
       row.children,
     );
     if (!rate.ok) {
+      if (rate.error.code === 'clock_rate_unavailable') {
+        // A sold-out/restricted offer is known before any Clock booking POST.
+        await this.transition(
+          tx,
+          context,
+          bookingId,
+          BookingStatus.PMS_CREATION_PENDING,
+          BookingStatus.AVAILABILITY_FAILED,
+        );
+        return rate;
+      }
       await this.transition(
         tx,
         context,
