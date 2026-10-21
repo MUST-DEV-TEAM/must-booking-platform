@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { RoomManagement } from './room-management';
-import { RoomEditorDialog } from './room-management-dialogs';
+import { RoomEditorDialog, RoomTypeEditorDialog } from './room-management-dialogs';
 import { DashboardQueryProvider } from '../query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -110,6 +110,87 @@ function accommodationFetch() {
 }
 
 describe('RoomManagement', () => {
+  it('locks the Clock room name while keeping the local display title editable', async () => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const root = createRoot(document.createElement('div'));
+    await act(async () =>
+      root.render(
+        createElement(RoomEditorDialog, {
+          roomType: null,
+          room: {
+            id: 'room',
+            name: '101',
+            title: 'Local title',
+            roomSize: null,
+            rules: null,
+            description: null,
+            floor: null,
+            viewType: null,
+            isActive: true,
+          },
+          canManageAccommodations: true,
+          managedInClock: true,
+          open: true,
+          saving: false,
+          onOpenChange: vi.fn(),
+          onSave: vi.fn(),
+        }),
+      ),
+    );
+    expect((document.querySelector('#physical-room-name') as HTMLInputElement).disabled).toBe(true);
+    expect((document.querySelector('#physical-room-title') as HTMLInputElement).disabled).toBe(
+      false,
+    );
+    await act(async () => root.unmount());
+  });
+  it('locks Clock-owned type fields and preserves editable local description', async () => {
+    const root = createRoot(document.createElement('div'));
+    await act(async () =>
+      root.render(
+        createElement(RoomTypeEditorDialog, {
+          tenantId: 't',
+          propertyId: 'p',
+          roomType: {
+            id: 'type',
+            name: 'Double',
+            description: 'Local description',
+            amenitiesIntro: null,
+            rules: null,
+            mainImageUrl: null,
+            galleryImageUrls: [],
+            maxOccupancy: 2,
+            status: 'PUBLISHED',
+          },
+          images: [],
+          categories: [],
+          canManageAccommodations: true,
+          canManagePhotos: false,
+          managedInClock: true,
+          open: true,
+          saving: false,
+          onOpenChange: vi.fn(),
+          onSave: vi.fn(),
+        }),
+      ),
+    );
+    expect(document.body.textContent).toContain('Managed in Clock');
+    expect((document.querySelector('#room-type-name') as HTMLInputElement).disabled).toBe(true);
+    expect((document.querySelector('#room-type-max-occupancy') as HTMLInputElement).disabled).toBe(
+      true,
+    );
+    expect((document.querySelector('#room-type-description') as HTMLTextAreaElement).disabled).toBe(
+      false,
+    );
+    await act(async () => root.unmount());
+  });
+
   it('uses shared loading skeletons during the initial load', () => {
     const markup = renderToStaticMarkup(
       createElement(

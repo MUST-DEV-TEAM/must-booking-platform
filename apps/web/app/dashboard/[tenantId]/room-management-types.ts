@@ -1,7 +1,7 @@
 import { amenityIcons, amenityIconLabel } from './amenity-icon-catalog';
 import type { AmenityIcon } from './amenity-icon-catalog';
 
-export type Property = { id: string; name: string };
+export type Property = { id: string; name: string; pmsSource?: 'MUST' | 'CLOCK_PMS' };
 export { amenityIcons, amenityIconLabel };
 export type { AmenityIcon };
 export type Amenity = { id: string; name: string; icon: AmenityIcon | null };

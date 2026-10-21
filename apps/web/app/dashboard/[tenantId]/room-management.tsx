@@ -93,6 +93,8 @@ export function RoomManagement({
   }, [selectedPropertyId]);
   useEffect(() => setRoomTypeDetailId(null), [propertyId]);
 
+  const managedInClock =
+    propertiesQuery.data?.find((property) => property.id === propertyId)?.pmsSource === 'CLOCK_PMS';
   const propertyUrl = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const roomTypesUrl = `${propertyUrl}/room-types`;
   const roomManagementQueryKey = ['dashboard', 'room-management', tenantId, propertyId] as const;
@@ -891,6 +893,7 @@ export function RoomManagement({
         }}
       />
       <RoomTypeEditorDialog
+        managedInClock={managedInClock}
         key={`${editingRoomType?.id ?? 'new'}-${roomTypeDialogOpen ? 'open' : 'closed'}`}
         tenantId={tenantId}
         propertyId={propertyId}
@@ -908,6 +911,7 @@ export function RoomManagement({
         onSave={(form) => saveRoomTypeMutation.mutate({ roomType: editingRoomType, form })}
       />
       <RoomEditorDialog
+        managedInClock={managedInClock}
         key={`${roomTargetType?.id ?? 'none'}-${editingRoom?.id ?? 'new'}-${roomDialogOpen ? 'open' : 'closed'}`}
         roomType={roomTargetType}
         room={editingRoom}

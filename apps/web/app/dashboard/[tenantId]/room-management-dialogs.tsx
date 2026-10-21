@@ -51,6 +51,7 @@ export function RoomTypeEditorDialog({
   images,
   categories,
   canManageAccommodations,
+  managedInClock = false,
   canManagePhotos,
   open,
   saving,
@@ -63,6 +64,7 @@ export function RoomTypeEditorDialog({
   images: RoomTypeImage[];
   categories: RoomCategory[];
   canManageAccommodations: boolean;
+  managedInClock?: boolean;
   canManagePhotos: boolean;
   open: boolean;
   saving: boolean;
@@ -70,6 +72,7 @@ export function RoomTypeEditorDialog({
   onSave: (form: RoomTypeForm) => void;
 }) {
   const [form, setForm] = useState<RoomTypeForm>(() => roomTypeForm(roomType));
+  const coreReadOnly = managedInClock && roomType !== null;
   const [libraryOpen, setLibraryOpen] = useState(false);
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -87,11 +90,17 @@ export function RoomTypeEditorDialog({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="flex flex-col gap-4">
+          {coreReadOnly ? (
+            <p className="text-sm text-muted-foreground">
+              Managed in Clock. Name and maximum occupancy are read-only; local presentation fields
+              can be edited here.
+            </p>
+          ) : null}
           <FormField label="Name" htmlFor="room-type-name" required>
             <Input
               id="room-type-name"
               required
-              disabled={!canManageAccommodations}
+              disabled={!canManageAccommodations || coreReadOnly}
               value={form.name}
               onChange={(event) => setForm({ ...form, name: event.target.value })}
             />
@@ -130,7 +139,7 @@ export function RoomTypeEditorDialog({
               required
               min="1"
               type="number"
-              disabled={!canManageAccommodations}
+              disabled={!canManageAccommodations || coreReadOnly}
               value={form.maxOccupancy}
               onChange={(event) => setForm({ ...form, maxOccupancy: event.target.value })}
             />
@@ -243,6 +252,7 @@ export function RoomEditorDialog({
   roomType,
   room,
   canManageAccommodations,
+  managedInClock = false,
   open,
   saving,
   onOpenChange,
@@ -251,6 +261,7 @@ export function RoomEditorDialog({
   roomType: RoomType | null;
   room: Room | null;
   canManageAccommodations: boolean;
+  managedInClock?: boolean;
   open: boolean;
   saving: boolean;
   onOpenChange: (open: boolean) => void;
@@ -258,6 +269,7 @@ export function RoomEditorDialog({
 }) {
   const [form, setForm] = useState<RoomForm>(() => roomForm(room));
   const [editingOwnRules, setEditingOwnRules] = useState(() => Boolean(room?.rules?.trim()));
+  const coreReadOnly = managedInClock && room !== null;
   const inheritedRules = roomType?.effectiveRules ?? roomType?.rules ?? null;
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -272,11 +284,17 @@ export function RoomEditorDialog({
           <DialogDescription>{roomType?.name ?? 'Choose a room type first'}</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
+          {coreReadOnly ? (
+            <p className="text-sm text-muted-foreground sm:col-span-2">
+              Managed in Clock. Room name is read-only; local presentation fields can be edited
+              here.
+            </p>
+          ) : null}
           <FormField label="Room name" htmlFor="physical-room-name" required>
             <Input
               id="physical-room-name"
               required
-              disabled={!canManageAccommodations}
+              disabled={!canManageAccommodations || coreReadOnly}
               value={form.name}
               onChange={(event) => setForm({ ...form, name: event.target.value })}
             />
