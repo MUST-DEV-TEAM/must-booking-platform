@@ -15,6 +15,12 @@ describe('CalendarBoard permissions', () => {
     'keeps capacity and block controls correct for %s',
     async (provider) => {
       const fetch = vi.fn(async (url: string) => {
+        if (url.endsWith('/clock-catalog/room-counts'))
+          return Response.json({
+            configuredRooms: 1,
+            byRoomType: { 'type-1': 1 },
+            readAt: '2026-10-21T00:00:00Z',
+          });
         if (url.endsWith('/pms-connection-status')) return Response.json({ provider });
         if (url.includes('/booking-rules/evaluate'))
           return new Response(
@@ -63,7 +69,12 @@ describe('CalendarBoard permissions', () => {
       });
 
       if (provider === 'CLOCK_PMS') {
-        expect(container.textContent).toContain('Unknown - managed in Clock');
+        for (let n = 0; n < 20 && !container.textContent?.includes('1 rooms in Clock'); n++)
+          await act(async () => {
+            await new Promise((r) => setTimeout(r, 25));
+          });
+        expect(container.textContent).toContain('Rooms in Clock');
+        expect(container.textContent).toContain('1 rooms in Clock');
         expect(container.textContent).toContain('Stored bookings');
         expect(container.textContent).not.toContain('Rooms free');
         expect(container.textContent).not.toContain('0%');

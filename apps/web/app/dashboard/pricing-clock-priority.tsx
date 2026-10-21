@@ -18,7 +18,13 @@ import {
   TableCell,
 } from '../../components/ui/table';
 import { inventoryRequest } from './inventory-api';
-type Rate = { externalRateId: string; name: string; rank: number | null };
+type Rate = {
+  externalRateId: string;
+  name: string;
+  rank: number | null;
+  maxAdults?: number | null;
+  maxChildren?: number | null;
+};
 /** Existing MUST-owned Clock preference: changes only local priority, never the provider's prices. */
 export function ClockPricingPriority({
   root,
@@ -36,10 +42,11 @@ export function ClockPricingPriority({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>MUST rate priority for Clock</CardTitle>
+        <CardTitle>Clock rates by room type</CardTitle>
         <CardDescription>
           Only the preferred order is stored in MUST. Prices and rate definitions remain managed in
-          Clock. Requires Settings access.
+          Clock. Listed rates are published to the booking engine. Date and stay restrictions are
+          checked separately for each quote.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -74,6 +81,7 @@ export function ClockPricingPriority({
                   <TableHeader>
                     <TableRow>
                       <TableHead>Provider rate</TableHead>
+                      <TableHead>Guest limits</TableHead>
                       <TableHead>Priority</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
@@ -82,6 +90,15 @@ export function ClockPricingPriority({
                     {(data[t.id] ?? []).map((r, i) => (
                       <TableRow key={r.externalRateId}>
                         <TableCell>{r.name}</TableCell>
+                        <TableCell>
+                          {r.maxAdults == null
+                            ? 'Adults: not supplied'
+                            : `Up to ${r.maxAdults} adults`}
+                          ;{' '}
+                          {r.maxChildren == null
+                            ? 'children: not supplied'
+                            : `up to ${r.maxChildren} children`}
+                        </TableCell>
                         <TableCell>{r.rank === null ? 'Not yet ranked' : i + 1}</TableCell>
                         <TableCell>
                           <Button
@@ -113,6 +130,14 @@ export function ClockPricingPriority({
                         </TableCell>
                       </TableRow>
                     ))}
+                    {(data[t.id] ?? []).length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={4}>
+                          No published Clock rates returned for this room type. Check its rate setup
+                          in Clock.
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
                   </TableBody>
                 </Table>
                 {canWrite && (data[t.id]?.length ?? 0) > 0 ? (

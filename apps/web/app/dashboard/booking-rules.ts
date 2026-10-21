@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
 export type BookingRulesEvaluation = {
   today: string;
@@ -25,6 +25,7 @@ export function useBookingRulesEvaluation(
   return useQuery({
     queryKey: ['dashboard', 'booking-rules', tenantId, propertyId, params.toString()],
     enabled: enabled && Boolean(propertyId),
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const response = await fetch(
         `/api/tenants/${tenantId}/properties/${propertyId}/booking-rules/evaluate?${params}`,

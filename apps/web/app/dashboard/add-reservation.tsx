@@ -299,98 +299,77 @@ export function AddReservation({
   // Search every room type for the chosen stay once the form is complete.
   const [searchKey, setSearchKey] = useState('');
   const currentKey = stayReady
-    ? `${startsOn}|${endsOn}|${adults}|${children}|${ratePlanId}|${isClock}|${byRoom}`
+    ? `${startsOn}|${endsOn}|${adults}|${children}|${ratePlanId}|${isClock}`
     : '';
   useEffect(() => {
     const timer = window.setTimeout(() => setSearchKey(currentKey), 400);
     return () => window.clearTimeout(timer);
   }, [currentKey]);
 
-  const offersQuery = useQuery({
+  const [checkIndividual, setCheckIndividual] = useState(false);
+  const loadOffers = async (items: Array<{ key: string; roomTypeId: string; roomId?: string }>) => {
+    const result = (await post(`${base}/staff-bookings/offers`, {
+      startsOn,
+      endsOn,
+      adults,
+      children,
+      items: items.map((i) => ({ ...i, ratePlanId: isClock ? undefined : ratePlanId })),
+    })) as { offers: Record<string, Offer> };
+    return result.offers;
+  };
+  const typeOffers = useQuery({
+    queryKey: ['dashboard', 'add-reservation-type-offers', tenantId, propertyId, searchKey],
+    enabled: searchKey !== '' && searchKey === currentKey,
+    queryFn: () => loadOffers(roomTypes.map((t) => ({ key: t.id, roomTypeId: t.id }))),
+    staleTime: 30000,
+    refetchOnWindowFocus: false,
+  });
+  const roomOffers = useQuery({
     queryKey: [
       'dashboard',
-      'add-reservation-offers',
+      'add-reservation-room-offers',
       tenantId,
       propertyId,
       searchKey,
-      roomTypes.map((type) => type.id).join(','),
+      roomTypeId,
     ],
-    enabled: searchKey !== '' && searchKey === currentKey,
-    queryFn: async (): Promise<Record<string, Offer>> => {
-      const targets = byRoom
-        ? bookableRooms.map((room) => ({
-            key: room.id,
-            roomTypeId: room.roomTypeId,
-            roomId: room.id,
-          }))
-        : roomTypes.map((type) => ({ key: type.id, roomTypeId: type.id, roomId: undefined }));
-      // The hotel system limits how fast it can be asked, so ask a few at a time and retry
-      // politely when it says "too many requests" (otherwise rooms look unavailable by mistake).
-      const quoteOne = async (target: (typeof targets)[number]): Promise<[string, Offer]> => {
-        for (let attempt = 0; attempt < 4; attempt += 1) {
-          try {
-            const quote = (await post(`${base}/quotes`, {
-              roomTypeId: target.roomTypeId,
-              roomId: target.roomId,
-              ratePlanId: isClock ? undefined : ratePlanId,
-              startsOn,
-              endsOn,
-              adults,
-              children,
-            })) as { total: Money };
-            return [target.key, { ok: true, total: quote.total }];
-          } catch (error) {
-            const reason = errorMessage(error);
-            if (/too many|try again/i.test(reason)) {
-              if (attempt < 3) {
-                await new Promise((resolve) => window.setTimeout(resolve, 1200 * (attempt + 1)));
-                continue;
-              }
-              return [
-                target.key,
-                {
-                  ok: false,
-                  reason: 'The hotel system is busy. Check again in a moment.',
-                  transient: true,
-                },
-              ];
-            }
-            return [target.key, { ok: false, reason }];
-          }
-        }
-        return [
-          target.key,
-          { ok: false, reason: 'Could not check availability.', transient: true },
-        ];
-      };
-      const results: Array<[string, Offer]> = [];
-      let next = 0;
-      const worker = async () => {
-        while (next < targets.length) {
-          const target = targets[next++]!;
-          results.push(await quoteOne(target));
-        }
-      };
-      await Promise.all(Array.from({ length: isClock ? 1 : 3 }, worker));
-      return Object.fromEntries(results);
-    },
-    staleTime: 30_000,
+    enabled:
+      searchKey !== '' &&
+      searchKey === currentKey &&
+      !!roomTypeId &&
+      (byRoom || checkIndividual || !!roomId),
+    queryFn: () =>
+      loadOffers(
+        bookableRooms
+          .filter((r) => r.roomTypeId === roomTypeId)
+          .map((r) => ({ key: r.id, roomTypeId: r.roomTypeId, roomId: r.id })),
+      ),
+    staleTime: 30000,
+    refetchOnWindowFocus: false,
   });
-  const offers = offersQuery.data ?? {};
-  const searching = stayReady && (searchKey !== currentKey || offersQuery.isFetching);
+  const offers: Record<string, Offer> = { ...typeOffers.data, ...roomOffers.data };
+  const searching =
+    stayReady && (searchKey !== currentKey || typeOffers.isFetching || roomOffers.isFetching);
   const selectedType = roomTypes.find((type) => type.id === roomTypeId) ?? null;
   const selectedOffer = byRoom
     ? roomId
       ? offers[roomId]
       : undefined
-    : roomTypeId
-      ? offers[roomTypeId]
-      : undefined;
-  const total = selectedOffer?.ok ? selectedOffer.total : null;
+    : roomId
+      ? offers[roomId]
+      : roomTypeId
+        ? offers[roomTypeId]
+        : undefined;
+  const total = searchKey === currentKey && selectedOffer?.ok ? selectedOffer.total : null;
   const roomOptions = rooms.filter((room) => room.roomTypeId === roomTypeId);
   const selectedRoom = rooms.find((room) => room.id === roomId) ?? null;
 
-  const stayComplete = !!total && (!byRoom || !!roomId);
+  const stayComplete =
+    !!total &&
+    !stayRules.isFetching &&
+    !stayRules.isPlaceholderData &&
+    !!stayRules.data?.booking.valid &&
+    (!byRoom || !!roomId);
   const guestErrors = {
     firstName: nameError(guest.firstName, 'first name'),
     lastName: nameError(guest.lastName, 'last name'),
@@ -668,7 +647,6 @@ export function AddReservation({
                         value={dates}
                         onChange={(next) => {
                           setDates(next);
-                          setRoomTypeId('');
                           setRoomId('');
                         }}
                         className="w-full justify-between"
@@ -724,7 +702,14 @@ export function AddReservation({
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => void offersQuery.refetch()}
+                        onClick={() =>
+                          void Promise.all([
+                            typeOffers.refetch(),
+                            ...(roomTypeId && (byRoom || checkIndividual)
+                              ? [roomOffers.refetch()]
+                              : []),
+                          ])
+                        }
                       >
                         Check again
                       </Button>
@@ -732,7 +717,7 @@ export function AddReservation({
                       <span className="flex items-center gap-1 text-xs text-muted-foreground">
                         <Loader2 aria-hidden="true" className="size-3.5 animate-spin" /> Checking…
                       </span>
-                    ) : stayReady && offersQuery.data ? (
+                    ) : stayReady && Object.keys(offers).length > 0 ? (
                       <Badge variant="success" className="rounded-full px-2 py-0 text-[11px]">
                         {Object.values(offers).filter((offer) => offer.ok).length} match
                         {Object.values(offers).filter((offer) => offer.ok).length === 1 ? '' : 'es'}
@@ -748,7 +733,6 @@ export function AddReservation({
                         current={chooseBy}
                         onSelect={(id) => {
                           setChooseBy(id as 'type' | 'room');
-                          setRoomTypeId('');
                           setRoomId('');
                         }}
                         tabs={[
@@ -757,6 +741,9 @@ export function AddReservation({
                         ]}
                       />
                     </div>
+                  ) : null}
+                  {typeOffers.error || roomOffers.error ? (
+                    <p role="alert">{(typeOffers.error || roomOffers.error)?.message}</p>
                   ) : null}
                   {!stayReady ? (
                     <EmptyPanel
@@ -769,62 +756,82 @@ export function AddReservation({
                     />
                   ) : byRoom ? (
                     <div role="radiogroup" aria-label="Rooms" className="space-y-5">
-                      {roomTypes.map((type) => {
-                        const typeRooms = bookableRooms.filter(
-                          (room) => room.roomTypeId === type.id,
-                        );
-                        if (typeRooms.length === 0) return null;
-                        return (
-                          <div key={type.id} className="space-y-2">
-                            <SectionLabel>{type.name}</SectionLabel>
-                            {typeRooms.map((room) => {
-                              const offer = offers[room.id];
-                              const ok = offer?.ok === true;
-                              return (
-                                <OptionCard
-                                  key={room.id}
-                                  title={room.name}
-                                  badges={
-                                    <Badge
-                                      variant="secondary"
-                                      className="rounded-full px-2 py-0 text-[10px]"
-                                    >
-                                      {type.name}
-                                    </Badge>
-                                  }
-                                  description={
-                                    offer && !offer.ok
-                                      ? offer.reason
-                                      : `${nights} night${nights === 1 ? '' : 's'}`
-                                  }
-                                  aside={
-                                    ok ? (
-                                      <span className="block text-base font-extrabold">
-                                        {money(offer.total)}
-                                      </span>
-                                    ) : offer ? (
+                      <Select
+                        value={roomTypeId}
+                        onValueChange={(id) => {
+                          setRoomTypeId(id);
+                          setRoomId('');
+                        }}
+                      >
+                        <SelectTrigger aria-label="Room type for individual rooms">
+                          <SelectValue placeholder="Choose a room type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {roomTypes.map((type) => (
+                            <SelectItem key={type.id} value={type.id}>
+                              {type.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {roomTypes
+                        .filter((type) => type.id === roomTypeId)
+                        .map((type) => {
+                          const typeRooms = bookableRooms.filter(
+                            (room) => room.roomTypeId === type.id,
+                          );
+                          if (typeRooms.length === 0) return null;
+                          return (
+                            <div key={type.id} className="space-y-2">
+                              <SectionLabel>{type.name}</SectionLabel>
+                              {typeRooms.map((room) => {
+                                const offer = offers[room.id];
+                                const ok = offer?.ok === true;
+                                return (
+                                  <OptionCard
+                                    key={room.id}
+                                    title={room.name}
+                                    badges={
                                       <Badge
-                                        variant="muted"
+                                        variant="secondary"
                                         className="rounded-full px-2 py-0 text-[10px]"
                                       >
-                                        {offer && !offer.ok && offer.transient
-                                          ? 'Busy'
-                                          : 'Not available'}
+                                        {type.name}
                                       </Badge>
-                                    ) : null
-                                  }
-                                  selected={roomId === room.id}
-                                  disabled={!ok}
-                                  onSelect={() => {
-                                    setRoomTypeId(room.roomTypeId);
-                                    setRoomId(room.id);
-                                  }}
-                                />
-                              );
-                            })}
-                          </div>
-                        );
-                      })}
+                                    }
+                                    description={
+                                      offer && !offer.ok
+                                        ? offer.reason
+                                        : `${nights} night${nights === 1 ? '' : 's'}`
+                                    }
+                                    aside={
+                                      ok ? (
+                                        <span className="block text-base font-extrabold">
+                                          {money(offer.total)}
+                                        </span>
+                                      ) : offer ? (
+                                        <Badge
+                                          variant="muted"
+                                          className="rounded-full px-2 py-0 text-[10px]"
+                                        >
+                                          {offer && !offer.ok && offer.transient
+                                            ? 'Busy'
+                                            : 'Not available'}
+                                        </Badge>
+                                      ) : null
+                                    }
+                                    selected={roomId === room.id}
+                                    disabled={!ok}
+                                    onSelect={() => {
+                                      setRoomTypeId(room.roomTypeId);
+                                      setRoomId(room.id);
+                                    }}
+                                  />
+                                );
+                              })}
+                            </div>
+                          );
+                        })}
                     </div>
                   ) : (
                     <div role="radiogroup" aria-label="Room types" className="space-y-3">
@@ -840,7 +847,7 @@ export function AddReservation({
                                 variant="secondary"
                                 className="rounded-full px-2 py-0 text-[10px]"
                               >
-                                {type.roomCount} room{type.roomCount === 1 ? '' : 's'}
+                                {type.roomCount} room{type.roomCount === 1 ? '' : 's'} total
                               </Badge>
                             }
                             description={
@@ -890,6 +897,9 @@ export function AddReservation({
                         }
                       >
                         <Select
+                          onOpenChange={(open) => {
+                            if (open) setCheckIndividual(true);
+                          }}
                           value={roomId || (mustPickRoom ? '' : 'auto')}
                           onValueChange={(value) => setRoomId(value === 'auto' ? '' : value)}
                         >
@@ -901,8 +911,17 @@ export function AddReservation({
                               <SelectItem value="auto">Auto-assign</SelectItem>
                             )}
                             {roomOptions.map((room) => (
-                              <SelectItem key={room.id} value={room.id}>
+                              <SelectItem
+                                key={room.id}
+                                value={room.id}
+                                disabled={!offers[room.id]?.ok}
+                              >
                                 {room.name}
+                                {!offers[room.id]
+                                  ? ' ? Checking?'
+                                  : !offers[room.id]?.ok
+                                    ? ' ? Not available'
+                                    : ''}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -1125,6 +1144,7 @@ export function AddReservation({
                         label="Estimated arrival time"
                         value={guest.arrivalTime}
                         onChange={(arrivalTime) => setGuest({ ...guest, arrivalTime })}
+                        min={hotelCheckIn || undefined}
                         defaultValue={hotelCheckIn || undefined}
                         defaultLabel="Use check-in time"
                       />

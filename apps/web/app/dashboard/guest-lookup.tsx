@@ -20,6 +20,7 @@ export type KnownGuest = {
   postcode?: string | null;
   countryCode?: string | null;
   bookingCount: number;
+  source?: 'CLOCK';
   mostRecentStartsOn?: string;
 };
 
@@ -60,7 +61,24 @@ export function GuestLookup({
       );
       if (response.status === 403) return null;
       if (!response.ok) return [];
-      return (await response.json()) as KnownGuest[];
+      const local = (await response.json()) as KnownGuest[];
+      const clock = await fetch(
+        `/api/tenants/${tenantId}/properties/${propertyId}/clock-guests?search=${encodeURIComponent(term)}`,
+        { credentials: 'include' },
+      ).catch(() => null);
+      if (!clock?.ok) return local;
+      const profiles = (await clock.json()) as Array<
+        Omit<KnownGuest, 'email' | 'bookingCount'> & { email: string | null }
+      >;
+      if (!Array.isArray(profiles)) return local;
+      return [
+        ...local,
+        ...profiles
+          .filter(
+            (g) => !g.email || !local.some((l) => l.email.toLowerCase() === g.email!.toLowerCase()),
+          )
+          .map((g) => ({ ...g, email: g.email ?? '', bookingCount: 0, source: 'CLOCK' as const })),
+      ];
     },
     enabled: term.length >= 2 && !selected,
     staleTime: 30_000,
@@ -76,9 +94,15 @@ export function GuestLookup({
           <div className="min-w-0">
             <p className="m-0 truncate text-sm font-bold">{nameOf(selected)}</p>
             <p className="m-0 text-xs text-muted-foreground">
-              Existing guest · {selected.bookingCount} previous stay
-              {selected.bookingCount === 1 ? '' : 's'} · details filled in below, change anything
-              for this reservation only.
+              {selected.source === 'CLOCK' ? (
+                'Clock profile. Confirm the contact details below with the guest.'
+              ) : (
+                <>
+                  Existing guest; {selected.bookingCount} previous stay
+                  {selected.bookingCount === 1 ? '' : 's'}. Details are filled in below for this
+                  reservation.
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -124,7 +148,9 @@ export function GuestLookup({
                     </span>
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground">
-                    {guest.bookingCount} stay{guest.bookingCount === 1 ? '' : 's'}
+                    {guest.source === 'CLOCK'
+                      ? 'Clock profile'
+                      : `${guest.bookingCount} stay${guest.bookingCount === 1 ? '' : 's'}`}
                   </span>
                 </button>
               </li>

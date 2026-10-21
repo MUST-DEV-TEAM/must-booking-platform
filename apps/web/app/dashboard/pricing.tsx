@@ -28,6 +28,7 @@ import { inventoryRequest, createInventoryWriter } from './inventory-api';
 import { PricingEditor } from './pricing-editor';
 import { PricingBaseEditor } from './pricing-base-editor';
 import { PricingPreviewPanel } from './pricing-preview';
+import { ClockAvailabilityPanel } from './clock-availability-panel';
 import { ClockPricingPriority } from './pricing-clock-priority';
 import {
   priceDay,
@@ -421,7 +422,11 @@ export function PricingSection({
                 <StatTile
                   label="Coverage"
                   value={
-                    data.coverage?.percentage == null ? 'Unknown' : `${data.coverage.percentage}%`
+                    data.readOnly
+                      ? 'Check a stay'
+                      : data.coverage?.percentage == null
+                        ? 'Unknown'
+                        : `${data.coverage.percentage}%`
                   }
                   note={
                     data.coverage
@@ -435,13 +440,13 @@ export function PricingSection({
                   label="Active rules"
                   value={
                     data.readOnly
-                      ? 'Unknown'
+                      ? 'See Clock snapshot'
                       : data.rules.filter((r) => r.lifecycle === 'Active').length
                   }
                 />
                 <StatTile
                   label="Pricing issues"
-                  value={data.readOnly ? 'Unknown' : data.issues.length}
+                  value={data.readOnly ? 'Review in Clock' : data.issues.length}
                   onClick={() => setTab('issues')}
                 />
               </div>
@@ -454,120 +459,141 @@ export function PricingSection({
                 </Alert>
               ) : null}
               <PricingPreviewPanel base={base} data={data} />
-              {data.readOnly && caps.data?.includes('settings.manage') ? (
-                <ClockPricingPriority root={root} types={data.roomTypes} canWrite={emailVerified} />
+              {data.readOnly ? (
+                <ClockPricingPriority
+                  root={root}
+                  types={data.roomTypes}
+                  canWrite={emailVerified && !!caps.data?.includes('settings.manage')}
+                />
               ) : null}
             </>
           ) : null}
           {tab === 'base' ? (
-            <>
-              <div className="flex flex-wrap items-end gap-3">
-                {!data.readOnly ? (
-                  <FormField label="Rate plan">
-                    <Combobox
-                      label="Grid rate plan"
-                      value={
-                        plan || data.plans.find((p) => p.isFallback)?.id || data.plans[0]?.id || ''
-                      }
-                      onChange={setPlan}
-                      options={data.plans.map((p) => ({ value: p.id, label: p.name }))}
+            data.readOnly ? (
+              <PricingPreviewPanel base={base} data={data} />
+            ) : (
+              <>
+                <div className="flex flex-wrap items-end gap-3">
+                  {!data.readOnly ? (
+                    <FormField label="Rate plan">
+                      <Combobox
+                        label="Grid rate plan"
+                        value={
+                          plan ||
+                          data.plans.find((p) => p.isFallback)?.id ||
+                          data.plans[0]?.id ||
+                          ''
+                        }
+                        onChange={setPlan}
+                        options={data.plans.map((p) => ({ value: p.id, label: p.name }))}
+                      />
+                    </FormField>
+                  ) : null}
+                  <FormField label="Start date">
+                    <Input
+                      aria-label="Price grid start date"
+                      type="date"
+                      value={start || data.today}
+                      onChange={(e) => setStart(e.target.value)}
                     />
                   </FormField>
-                ) : null}
-                <FormField label="Start date">
-                  <Input
-                    aria-label="Price grid start date"
-                    type="date"
-                    value={start || data.today}
-                    onChange={(e) => setStart(e.target.value)}
-                  />
-                </FormField>
-                <FormField label="Days">
-                  <Combobox
-                    label="Price grid days"
-                    value={days}
-                    onChange={setDays}
-                    options={['7', '14', '30'].map((d) => ({ value: d, label: `${d} days` }))}
-                  />
-                </FormField>
-                <Button
-                  variant="outline"
-                  onClick={() => setStart(priceDay(start || data.today, -Number(days)))}
-                >
-                  Previous
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => setStart(priceDay(start || data.today, Number(days)))}
-                >
-                  Next
-                </Button>
-                {canWrite &&
-                data.plans.some(
-                  (p) => p.pricingBasis === 'independent' && p.lifecycle !== 'Archived',
-                ) ? (
-                  <Button onClick={() => setBaseEdit({ planId: plan || undefined })}>
-                    Bulk edit base prices
+                  <FormField label="Days">
+                    <Combobox
+                      label="Price grid days"
+                      value={days}
+                      onChange={setDays}
+                      options={['7', '14', '30'].map((d) => ({ value: d, label: `${d} days` }))}
+                    />
+                  </FormField>
+                  <Button
+                    variant="outline"
+                    onClick={() => setStart(priceDay(start || data.today, -Number(days)))}
+                  >
+                    Previous
                   </Button>
-                ) : null}
-              </div>
-              <Alert>
-                <AlertTitle>
-                  {data.readOnly ? 'Managed in Clock' : 'Nightly customer totals'}
-                </AlertTitle>
-                <AlertDescription>
-                  {data.readOnly
-                    ? 'Unknown until Clock supplies an actual quote.'
-                    : 'One adult, one night, staff channel; includes saved mandatory charges. Cell editing changes the underlying accommodation base. Past dates are read-only.'}
-                </AlertDescription>
-              </Alert>
-              {calendar.error ? (
-                <ErrorPanel
-                  title="Prices could not be loaded"
-                  description={calendar.error.message}
-                  onRetry={() => void calendar.refetch()}
-                />
-              ) : calendar.isPending ? (
-                <ListSkeleton />
-              ) : calendar.data?.rows.length ? (
-                <PriceGrid
-                  rows={calendar.data.rows}
-                  canEditCell={(_, date) => date >= data.today}
-                  onCell={
-                    canWrite &&
-                    data.plans.find(
-                      (p) =>
-                        p.id ===
-                        (plan || data.plans.find((p) => p.isFallback)?.id || data.plans[0]?.id),
-                    )?.pricingBasis === 'independent'
-                      ? (roomTypeId, date) => {
-                          if (date >= data.today)
-                            setBaseEdit({
-                              roomTypeId,
-                              date,
-                              planId:
-                                plan ||
-                                data.plans.find((p) => p.isFallback)?.id ||
-                                data.plans[0]?.id,
-                            });
-                        }
-                      : undefined
-                  }
-                />
-              ) : (
-                <EmptyPanel
-                  title="No base prices yet"
-                  description="Create an independent rate plan, then configure its room-type prices."
-                />
-              )}
-            </>
+                  <Button
+                    variant="outline"
+                    onClick={() => setStart(priceDay(start || data.today, Number(days)))}
+                  >
+                    Next
+                  </Button>
+                  {canWrite &&
+                  data.plans.some(
+                    (p) => p.pricingBasis === 'independent' && p.lifecycle !== 'Archived',
+                  ) ? (
+                    <Button onClick={() => setBaseEdit({ planId: plan || undefined })}>
+                      Bulk edit base prices
+                    </Button>
+                  ) : null}
+                </div>
+                <Alert>
+                  <AlertTitle>
+                    {data.readOnly ? 'Managed in Clock' : 'Nightly customer totals'}
+                  </AlertTitle>
+                  <AlertDescription>
+                    {data.readOnly
+                      ? 'Unknown until Clock supplies an actual quote.'
+                      : 'One adult, one night, staff channel; includes saved mandatory charges. Cell editing changes the underlying accommodation base. Past dates are read-only.'}
+                  </AlertDescription>
+                </Alert>
+                {calendar.error ? (
+                  <ErrorPanel
+                    title="Prices could not be loaded"
+                    description={calendar.error.message}
+                    onRetry={() => void calendar.refetch()}
+                  />
+                ) : calendar.isPending ? (
+                  <ListSkeleton />
+                ) : calendar.data?.rows.length ? (
+                  <PriceGrid
+                    rows={calendar.data.rows}
+                    canEditCell={(_, date) => date >= data.today}
+                    onCell={
+                      canWrite &&
+                      data.plans.find(
+                        (p) =>
+                          p.id ===
+                          (plan || data.plans.find((p) => p.isFallback)?.id || data.plans[0]?.id),
+                      )?.pricingBasis === 'independent'
+                        ? (roomTypeId, date) => {
+                            if (date >= data.today)
+                              setBaseEdit({
+                                roomTypeId,
+                                date,
+                                planId:
+                                  plan ||
+                                  data.plans.find((p) => p.isFallback)?.id ||
+                                  data.plans[0]?.id,
+                              });
+                          }
+                        : undefined
+                    }
+                  />
+                ) : (
+                  <EmptyPanel
+                    title="No base prices yet"
+                    description="Create an independent rate plan, then configure its room-type prices."
+                  />
+                )}
+              </>
+            )
           ) : null}
           {kind ? (
             data.readOnly ? (
-              <EmptyPanel
-                title={`${titles[kind]} are managed in Clock`}
-                description="Local pricing controls do not apply to this hotel."
-              />
+              kind === 'plans' ? (
+                <ClockPricingPriority
+                  root={root}
+                  types={data.roomTypes}
+                  canWrite={emailVerified && !!caps.data?.includes('settings.manage')}
+                />
+              ) : kind === 'rules' ? (
+                <ClockAvailabilityPanel tenantId={tenantId} propertyId={propertyId} />
+              ) : (
+                <EmptyPanel
+                  title="Clock taxes and fees"
+                  description="The stay quote includes the provider total. A complete tax and fee catalogue is managed in Clock; local fee settings are not applied."
+                />
+              )
             ) : (
               <>
                 <TabBar

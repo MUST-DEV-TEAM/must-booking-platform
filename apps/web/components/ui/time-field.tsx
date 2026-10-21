@@ -51,13 +51,15 @@ function Wheel({
           const element = event.currentTarget;
           window.clearTimeout(settle.current);
           settle.current = window.setTimeout(() => {
-            const item = items[Math.min(items.length - 1, Math.max(0, Math.round(element.scrollTop / ROW)))];
+            const item =
+              items[Math.min(items.length - 1, Math.max(0, Math.round(element.scrollTop / ROW)))];
             if (item && item !== value) onPick(item);
           }, 80);
         }}
         onKeyDown={(event) => {
           const index = items.indexOf(value);
-          const next = event.key === 'ArrowDown' ? index + 1 : event.key === 'ArrowUp' ? index - 1 : index;
+          const next =
+            event.key === 'ArrowDown' ? index + 1 : event.key === 'ArrowUp' ? index - 1 : index;
           if (next !== index && items[next]) {
             event.preventDefault();
             onPick(items[next]!);
@@ -109,6 +111,7 @@ export function TimeField({
   placeholder = 'Select a time',
   defaultValue,
   defaultLabel = 'Use default',
+  min,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -117,8 +120,10 @@ export function TimeField({
   placeholder?: string;
   defaultValue?: string;
   defaultLabel?: string;
+  min?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const pick = (next: string) => onChange(min && next && next < min ? min : next);
   const [hour = '12', minute = '00'] = value ? value.split(':') : [];
   // Remount the wheels when a shortcut changes the value from outside so they jump to it.
   const [wheelKey, setWheelKey] = useState(0);
@@ -128,11 +133,16 @@ export function TimeField({
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (next && !value) onChange('12:00');
+        if (next && !value) pick(min || '12:00');
       }}
     >
       <PopoverTrigger asChild>
-        <Button id={id} variant="outline" aria-label={label} className="w-full justify-between font-normal">
+        <Button
+          id={id}
+          variant="outline"
+          aria-label={label}
+          className="w-full justify-between font-normal"
+        >
           <span className={value ? '' : 'text-muted-foreground'}>{value || placeholder}</span>
           <Clock aria-hidden="true" />
         </Button>
@@ -149,17 +159,21 @@ export function TimeField({
               key={`h-${wheelKey}`}
               label="Hours"
               unit="hours"
-              items={hours}
+              items={min ? hours.filter((h) => h >= min.slice(0, 2)) : hours}
               value={hour}
-              onPick={(next) => onChange(`${next}:${minute}`)}
+              onPick={(next) => pick(`${next}:${minute}`)}
             />
             <Wheel
               key={`m-${wheelKey}`}
               label="Minutes"
               unit="min"
-              items={minutes}
+              items={
+                min && hour === min.slice(0, 2)
+                  ? minutes.filter((m) => m >= min.slice(3, 5))
+                  : minutes
+              }
               value={minute}
-              onPick={(next) => onChange(`${hour}:${next}`)}
+              onPick={(next) => pick(`${hour}:${next}`)}
             />
           </div>
         </div>

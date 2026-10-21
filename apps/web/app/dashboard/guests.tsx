@@ -1,4 +1,6 @@
 'use client';
+import { ClockGuestDirectory } from './clock-guest-directory';
+import { ClockImportPanel } from './clock-import-panel';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, MoreHorizontal } from 'lucide-react';
@@ -24,10 +26,22 @@ import { PageHeader } from '../../components/ui/page-header';
 import { Pagination } from '../../components/ui/pagination';
 import { SearchInput } from '../../components/ui/search-input';
 import { SortableTableHead } from '../../components/ui/sortable-table-head';
-import { EmptyPanel, ErrorPanel, ListSkeleton, NoResultsPanel } from '../../components/ui/state-panel';
+import {
+  EmptyPanel,
+  ErrorPanel,
+  ListSkeleton,
+  NoResultsPanel,
+} from '../../components/ui/state-panel';
 import { TabBar } from '../../components/ui/tab-bar';
 import { BulkBar, ColumnChooser, DensityToggle } from '../../components/ui/table-toolbar';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../components/ui/table';
 import { useTablePreferences } from '../../lib/use-table-preferences';
 import { cn } from '../../lib/utils';
 import { formatMoneyList, guestStatsById, guestsCsv, type GuestStats } from './guest-stats';
@@ -98,7 +112,9 @@ function guestInitials(guest: Pick<Guest, 'firstName' | 'lastName' | 'email'>) {
     .filter(Boolean)
     .map((part) => part![0])
     .join('');
-  return initials ? initials.slice(0, 2).toLocaleUpperCase() : guest.email.slice(0, 1).toLocaleUpperCase();
+  return initials
+    ? initials.slice(0, 2).toLocaleUpperCase()
+    : guest.email.slice(0, 1).toLocaleUpperCase();
 }
 
 export function DashboardGuests({
@@ -115,7 +131,10 @@ export function DashboardGuests({
   const [selected, setSelected] = useState<Guest>();
   const [ticked, setTicked] = useState<string[]>([]);
   const [notice, setNotice] = useState('');
-  const { columns, density, toggleColumn, toggleDensity } = useTablePreferences('must.guests.table', DEFAULT_COLUMNS);
+  const { columns, density, toggleColumn, toggleDensity } = useTablePreferences(
+    'must.guests.table',
+    DEFAULT_COLUMNS,
+  );
   const [canonicalByGuest, setCanonicalByGuest] = useState<Record<string, string>>({});
   const [mergeCandidate, setMergeCandidate] = useState<MergeCandidate | null>(null);
   const [view, setView] = useState<GuestView>('all');
@@ -262,11 +281,15 @@ export function DashboardGuests({
   const allTicked = pageGuests.length > 0 && pageGuests.every((guest) => ticked.includes(guest.id));
   const someTicked = pageGuests.some((guest) => ticked.includes(guest.id));
   const tick = (id: string, checked: boolean) =>
-    setTicked((current) => (checked ? [...new Set([...current, id])] : current.filter((value) => value !== id)));
+    setTicked((current) =>
+      checked ? [...new Set([...current, id])] : current.filter((value) => value !== id),
+    );
   const tickAll = (checked: boolean) =>
     setTicked((current) => {
       const pageIds = pageGuests.map((guest) => guest.id);
-      return checked ? [...new Set([...current, ...pageIds])] : current.filter((id) => !pageIds.includes(id));
+      return checked
+        ? [...new Set([...current, ...pageIds])]
+        : current.filter((id) => !pageIds.includes(id));
     });
   const copyEmails = async () => {
     try {
@@ -277,7 +300,9 @@ export function DashboardGuests({
     }
   };
   const exportCsv = (list: Guest[]) => {
-    const blob = new Blob([String.fromCharCode(0xfeff), guestsCsv(list, stats)], { type: 'text/csv;charset=utf-8' });
+    const blob = new Blob([String.fromCharCode(0xfeff), guestsCsv(list, stats)], {
+      type: 'text/csv;charset=utf-8',
+    });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -309,6 +334,8 @@ export function DashboardGuests({
   if (guestsQuery.isPending || bookingsQuery.isPending || duplicateQuery.isPending)
     return (
       <div className="space-y-5">
+        <ClockImportPanel tenantId={tenantId} propertyId={propertyId} />
+        <ClockGuestDirectory tenantId={tenantId} propertyId={propertyId} />
         <PageHeader title="Guests" description="Guest directory and property booking history." />
         <ListSkeleton rows={6} />
       </div>
@@ -337,7 +364,11 @@ export function DashboardGuests({
         title="Guests"
         description="Everyone who has booked this hotel, with their stays and what they owe."
         actions={
-          <Button variant="outline" disabled={sortedGuests.length === 0} onClick={() => exportCsv(sortedGuests)}>
+          <Button
+            variant="outline"
+            disabled={sortedGuests.length === 0}
+            onClick={() => exportCsv(sortedGuests)}
+          >
             <Download /> Export CSV
           </Button>
         }
@@ -395,125 +426,135 @@ export function DashboardGuests({
                 Suspected duplicates
               </h3>
               <p className="m-0 text-sm text-muted-foreground">
-                Review profiles that matched on one contact signal. Merging moves the other profile&apos;s
-                bookings to the profile you keep.
+                Review profiles that matched on one contact signal. Merging moves the other
+                profile&apos;s bookings to the profile you keep.
               </p>
             </div>
             {duplicatePairs.length ? (
-      <div className="flex flex-col gap-4">
-        {duplicatePairs.map((pair) => {
-          const selectedCanonical = canonicalByGuest[pair.guest.id];
-          const pending =
-            reviewMutation.isPending && reviewMutation.variables?.guestId === pair.guest.id;
-          const differing = differingFields(pair.guest, pair.suspectedDuplicate);
-          const canonicalProfile =
-            selectedCanonical === pair.guest.id
-              ? pair.guest
-              : selectedCanonical === pair.suspectedDuplicate.id
-                ? pair.suspectedDuplicate
-                : null;
-          const otherProfile =
-            canonicalProfile === pair.guest
-              ? pair.suspectedDuplicate
-              : canonicalProfile === pair.suspectedDuplicate
-                ? pair.guest
-                : null;
-          return (
-            <Card className="gap-4 bg-muted/20 p-4" key={pair.guest.id}>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <Badge variant="warning">{matchReason(pair.guest, pair.suspectedDuplicate)}</Badge>
-                <span className="text-xs text-muted-foreground">
-                  Select which profile to keep
-                </span>
-              </div>
-              <div
-                className="grid gap-3 md:grid-cols-2"
-                role="radiogroup"
-                aria-label={`Choose the profile to keep for ${guestName(pair.guest)}`}
-              >
-                {[pair.guest, pair.suspectedDuplicate].map((profile) => {
-                  const selectedProfile = selectedCanonical === profile.id;
+              <div className="flex flex-col gap-4">
+                {duplicatePairs.map((pair) => {
+                  const selectedCanonical = canonicalByGuest[pair.guest.id];
+                  const pending =
+                    reviewMutation.isPending && reviewMutation.variables?.guestId === pair.guest.id;
+                  const differing = differingFields(pair.guest, pair.suspectedDuplicate);
+                  const canonicalProfile =
+                    selectedCanonical === pair.guest.id
+                      ? pair.guest
+                      : selectedCanonical === pair.suspectedDuplicate.id
+                        ? pair.suspectedDuplicate
+                        : null;
+                  const otherProfile =
+                    canonicalProfile === pair.guest
+                      ? pair.suspectedDuplicate
+                      : canonicalProfile === pair.suspectedDuplicate
+                        ? pair.guest
+                        : null;
                   return (
-                    <OptionCard
-                      key={profile.id}
-                      title={guestName(profile)}
-                      badges={selectedProfile ? <Badge variant="success">Selected to keep</Badge> : null}
-                      selected={selectedProfile}
-                      disabled={pending}
-                      description={
-                        <div className="flex flex-col gap-1">
-                          <span className="break-all">
-                            Email: {profile.email}
-                            {differing.has('email') ? ' · different' : ''}
+                    <Card className="gap-4 bg-muted/20 p-4" key={pair.guest.id}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Badge variant="warning">
+                          {matchReason(pair.guest, pair.suspectedDuplicate)}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          Select which profile to keep
+                        </span>
+                      </div>
+                      <div
+                        className="grid gap-3 md:grid-cols-2"
+                        role="radiogroup"
+                        aria-label={`Choose the profile to keep for ${guestName(pair.guest)}`}
+                      >
+                        {[pair.guest, pair.suspectedDuplicate].map((profile) => {
+                          const selectedProfile = selectedCanonical === profile.id;
+                          return (
+                            <OptionCard
+                              key={profile.id}
+                              title={guestName(profile)}
+                              badges={
+                                selectedProfile ? (
+                                  <Badge variant="success">Selected to keep</Badge>
+                                ) : null
+                              }
+                              selected={selectedProfile}
+                              disabled={pending}
+                              description={
+                                <div className="flex flex-col gap-1">
+                                  <span className="break-all">
+                                    Email: {profile.email}
+                                    {differing.has('email') ? ' · different' : ''}
+                                  </span>
+                                  <span>
+                                    Phone: {profile.phone || '—'}
+                                    {differing.has('phone') ? ' · different' : ''}
+                                  </span>
+                                  <span>
+                                    Name: {guestName(profile)}
+                                    {differing.has('name') ? ' · different' : ''}
+                                  </span>
+                                  <span>
+                                    {profile.bookingCount} booking
+                                    {profile.bookingCount === 1 ? '' : 's'}
+                                  </span>
+                                </div>
+                              }
+                              onSelect={() =>
+                                setCanonicalByGuest((current) => ({
+                                  ...current,
+                                  [pair.guest.id]: profile.id,
+                                }))
+                              }
+                            />
+                          );
+                        })}
+                      </div>
+                      {canonicalProfile && otherProfile ? (
+                        <p className="m-0 text-sm text-muted-foreground">
+                          Keeping{' '}
+                          <strong className="text-foreground">{guestName(canonicalProfile)}</strong>{' '}
+                          — the {otherProfile.bookingCount} booking
+                          {otherProfile.bookingCount === 1 ? '' : 's'} on the other profile move
+                          here. {mergePreviewNote(canonicalProfile, otherProfile)}
+                        </p>
+                      ) : null}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {canMergeGuests ? (
+                          <>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              disabled={!selectedCanonical || pending}
+                              loading={pending}
+                              onClick={() => {
+                                if (!selectedCanonical || !canonicalProfile || !otherProfile)
+                                  return;
+                                setMergeCandidate({ pair, canonicalProfile, otherProfile });
+                              }}
+                            >
+                              Merge profiles
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={pending}
+                              onClick={() =>
+                                reviewMutation.mutate({ kind: 'dismiss', guestId: pair.guest.id })
+                              }
+                            >
+                              Not a duplicate
+                            </Button>
+                          </>
+                        ) : null}
+                        {reviewMutation.error &&
+                        reviewMutation.variables?.guestId === pair.guest.id ? (
+                          <span role="alert" className="text-sm text-destructive">
+                            {reviewMutation.error.message}
                           </span>
-                          <span>
-                            Phone: {profile.phone || '—'}
-                            {differing.has('phone') ? ' · different' : ''}
-                          </span>
-                          <span>
-                            Name: {guestName(profile)}
-                            {differing.has('name') ? ' · different' : ''}
-                          </span>
-                          <span>
-                            {profile.bookingCount} booking{profile.bookingCount === 1 ? '' : 's'}
-                          </span>
-                        </div>
-                      }
-                      onSelect={() =>
-                        setCanonicalByGuest((current) => ({
-                          ...current,
-                          [pair.guest.id]: profile.id,
-                        }))
-                      }
-                    />
+                        ) : null}
+                      </div>
+                    </Card>
                   );
                 })}
               </div>
-              {canonicalProfile && otherProfile ? (
-                <p className="m-0 text-sm text-muted-foreground">
-                  Keeping <strong className="text-foreground">{guestName(canonicalProfile)}</strong>{' '}
-                  — the {otherProfile.bookingCount} booking
-                  {otherProfile.bookingCount === 1 ? '' : 's'} on the other profile move here.{' '}
-                  {mergePreviewNote(canonicalProfile, otherProfile)}
-                </p>
-              ) : null}
-              <div className="flex flex-wrap items-center gap-2">
-                {canMergeGuests ? (
-                  <>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  disabled={!selectedCanonical || pending}
-                  loading={pending}
-                  onClick={() => {
-                    if (!selectedCanonical || !canonicalProfile || !otherProfile) return;
-                    setMergeCandidate({ pair, canonicalProfile, otherProfile });
-                  }}
-                >
-                  Merge profiles
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={pending}
-                  onClick={() =>
-                    reviewMutation.mutate({ kind: 'dismiss', guestId: pair.guest.id })
-                  }
-                >
-                  Not a duplicate
-                </Button>
-                  </>
-                ) : null}
-                {reviewMutation.error && reviewMutation.variables?.guestId === pair.guest.id ? (
-                  <span role="alert" className="text-sm text-destructive">
-                    {reviewMutation.error.message}
-                  </span>
-                ) : null}
-              </div>
-            </Card>
-          );
-        })}
-      </div>
             ) : (
               <EmptyPanel
                 title="No suspected duplicates"
@@ -552,21 +593,60 @@ export function DashboardGuests({
                       onCheckedChange={(value) => tickAll(value === true)}
                     />
                   </TableHead>
-                  <SortableTableHead label="Guest" active={sort.key === 'guest'} direction={sort.direction} onSort={() => toggleSort('guest')} />
-                  {columns.contact ? <TableHead className="px-2 py-2 normal-case tracking-normal">Contact</TableHead> : null}
-                  {columns.type ? <TableHead className="px-2 py-2 normal-case tracking-normal">Guest type</TableHead> : null}
-                  <SortableTableHead label="Stays" active={sort.key === 'stays'} direction={sort.direction} onSort={() => toggleSort('stays')} align="right" />
+                  <SortableTableHead
+                    label="Guest"
+                    active={sort.key === 'guest'}
+                    direction={sort.direction}
+                    onSort={() => toggleSort('guest')}
+                  />
+                  {columns.contact ? (
+                    <TableHead className="px-2 py-2 normal-case tracking-normal">Contact</TableHead>
+                  ) : null}
+                  {columns.type ? (
+                    <TableHead className="px-2 py-2 normal-case tracking-normal">
+                      Guest type
+                    </TableHead>
+                  ) : null}
+                  <SortableTableHead
+                    label="Stays"
+                    active={sort.key === 'stays'}
+                    direction={sort.direction}
+                    onSort={() => toggleSort('stays')}
+                    align="right"
+                  />
                   {columns.lastStay ? (
-                    <SortableTableHead label="Last stay" active={sort.key === 'lastStay'} direction={sort.direction} onSort={() => toggleSort('lastStay')} />
+                    <SortableTableHead
+                      label="Last stay"
+                      active={sort.key === 'lastStay'}
+                      direction={sort.direction}
+                      onSort={() => toggleSort('lastStay')}
+                    />
                   ) : null}
                   {columns.nextStay ? (
-                    <SortableTableHead label="Next stay" active={sort.key === 'nextStay'} direction={sort.direction} onSort={() => toggleSort('nextStay')} />
+                    <SortableTableHead
+                      label="Next stay"
+                      active={sort.key === 'nextStay'}
+                      direction={sort.direction}
+                      onSort={() => toggleSort('nextStay')}
+                    />
                   ) : null}
                   {columns.value ? (
-                    <SortableTableHead label="Net paid" active={sort.key === 'value'} direction={sort.direction} onSort={() => toggleSort('value')} align="right" />
+                    <SortableTableHead
+                      label="Net paid"
+                      active={sort.key === 'value'}
+                      direction={sort.direction}
+                      onSort={() => toggleSort('value')}
+                      align="right"
+                    />
                   ) : null}
                   {columns.owed ? (
-                    <SortableTableHead label="Still owed" active={sort.key === 'owed'} direction={sort.direction} onSort={() => toggleSort('owed')} align="right" />
+                    <SortableTableHead
+                      label="Still owed"
+                      active={sort.key === 'owed'}
+                      direction={sort.direction}
+                      onSort={() => toggleSort('owed')}
+                      align="right"
+                    />
                   ) : null}
                   <TableHead className="w-10 px-2 py-2 text-right">
                     <span className="sr-only">Actions</span>
@@ -588,7 +668,12 @@ export function DashboardGuests({
                         isTicked && 'bg-primary/10 hover:bg-primary/10',
                       )}
                       onClick={(event) => {
-                        if ((event.target as HTMLElement).closest('button, a, input, label, [role="checkbox"], [role="menuitem"]')) return;
+                        if (
+                          (event.target as HTMLElement).closest(
+                            'button, a, input, label, [role="checkbox"], [role="menuitem"]',
+                          )
+                        )
+                          return;
                         setSelected(guest);
                       }}
                     >
@@ -621,13 +706,20 @@ export function DashboardGuests({
                       </TableCell>
                       {columns.contact ? (
                         <TableCell className="max-w-56 px-2 py-2">
-                          <span className="block truncate">{guest.phone ?? <span className="text-muted-foreground">No phone on file</span>}</span>
+                          <span className="block truncate">
+                            {guest.phone ?? (
+                              <span className="text-muted-foreground">No phone on file</span>
+                            )}
+                          </span>
                         </TableCell>
                       ) : null}
                       {columns.type ? (
                         <TableCell className="px-2 py-2">
                           <span className="flex flex-wrap gap-1">
-                            <GuestBadges stats={entry} duplicate={duplicateGuestIds.has(guest.id)} />
+                            <GuestBadges
+                              stats={entry}
+                              duplicate={duplicateGuestIds.has(guest.id)}
+                            />
                           </span>
                         </TableCell>
                       ) : null}
@@ -641,7 +733,9 @@ export function DashboardGuests({
                       </TableCell>
                       {columns.lastStay ? (
                         <TableCell className="px-2 py-2 whitespace-nowrap">
-                          {stayLabel(entry?.last) ?? <span className="text-muted-foreground">—</span>}
+                          {stayLabel(entry?.last) ?? (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                       ) : null}
                       {columns.nextStay ? (
@@ -649,7 +743,9 @@ export function DashboardGuests({
                           {entry?.current ? (
                             <span className="font-semibold text-info">Staying now</span>
                           ) : (
-                            (stayLabel(entry?.next) ?? <span className="text-muted-foreground">—</span>)
+                            (stayLabel(entry?.next) ?? (
+                              <span className="text-muted-foreground">—</span>
+                            ))
                           )}
                         </TableCell>
                       ) : null}
@@ -662,7 +758,9 @@ export function DashboardGuests({
                         <TableCell
                           className={cn(
                             'px-2 py-2 text-right whitespace-nowrap tabular-nums',
-                            entry?.hasBalance ? 'font-semibold text-warning' : 'text-muted-foreground',
+                            entry?.hasBalance
+                              ? 'font-semibold text-warning'
+                              : 'text-muted-foreground',
                           )}
                         >
                           {entry?.hasBalance ? formatMoneyList(entry.outstanding) : '—'}
@@ -671,14 +769,21 @@ export function DashboardGuests({
                       <TableCell className="px-2 py-1 text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon-sm" aria-label={`More actions for ${name}`} className="size-7">
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`More actions for ${name}`}
+                              className="size-7"
+                            >
                               <MoreHorizontal aria-hidden="true" className="size-4" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuLabel>{name}</DropdownMenuLabel>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem onSelect={() => setSelected(guest)}>Quick view</DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => setSelected(guest)}>
+                              Quick view
+                            </DropdownMenuItem>
                             <DropdownMenuItem asChild>
                               <a href={detailHref}>Open profile</a>
                             </DropdownMenuItem>
@@ -728,14 +833,11 @@ export function DashboardGuests({
         description={
           mergeCandidate ? (
             <>
-              Keep <strong>{guestName(mergeCandidate.canonicalProfile)}</strong>. The other profile&apos;s{' '}
-              {mergeCandidate.otherProfile.bookingCount} booking
-              {mergeCandidate.otherProfile.bookingCount === 1 ? '' : 's'} will move to this profile.
-              {' '}
-              This action cannot be undone from this screen. {mergePreviewNote(
-                mergeCandidate.canonicalProfile,
-                mergeCandidate.otherProfile,
-              )}
+              Keep <strong>{guestName(mergeCandidate.canonicalProfile)}</strong>. The other
+              profile&apos;s {mergeCandidate.otherProfile.bookingCount} booking
+              {mergeCandidate.otherProfile.bookingCount === 1 ? '' : 's'} will move to this profile.{' '}
+              This action cannot be undone from this screen.{' '}
+              {mergePreviewNote(mergeCandidate.canonicalProfile, mergeCandidate.otherProfile)}
             </>
           ) : null
         }

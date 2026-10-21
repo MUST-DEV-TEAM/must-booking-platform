@@ -1,4 +1,7 @@
 'use client';
+import { useClockRoomCounts } from './clock-room-counts';
+import { ClockAvailabilityPanel } from './clock-availability-panel';
+import { ClockImportPanel } from './clock-import-panel';
 
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronLeft, ChevronRight, CirclePlus, Lock, RefreshCw } from 'lucide-react';
@@ -117,6 +120,7 @@ export function CalendarBoard({
 }) {
   const source = usePmsSource(tenantId, propertyId);
   const stockKnown = source.data === 'LOCAL';
+  const clockCounts = useClockRoomCounts(tenantId, propertyId, source.data === 'CLOCK_PMS');
   const capacityLabel = source.data === 'CLOCK_PMS' ? 'Unknown - managed in Clock' : 'Unknown';
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const [start, setStart] = useState(() => addDays(todayIso(), -1));
@@ -575,9 +579,13 @@ export function CalendarBoard({
         </div>
       ) : null}
 
+      <ClockImportPanel tenantId={tenantId} propertyId={propertyId} />
+      {source.data === 'CLOCK_PMS' && !embedded ? (
+        <ClockAvailabilityPanel tenantId={tenantId} propertyId={propertyId} />
+      ) : null}
       {!stockKnown ? (
         <p role="note" className="text-sm text-muted-foreground">
-          {capacityLabel}. Availability blocks are read-only here.
+          Room counts and availability are read from Clock. Availability blocks are read-only here.
           {source.data === 'CLOCK_PMS' ? ' Manage them in Clock.' : ''}
         </p>
       ) : null}
@@ -585,20 +593,24 @@ export function CalendarBoard({
         <section aria-label="Tonight" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <StatTile
             size="sm"
-            label="Occupancy tonight"
+            label={stockKnown ? 'Occupancy tonight' : 'Rooms in Clock'}
             value={
               !stockKnown
-                ? capacityLabel
+                ? (clockCounts.data?.configuredRooms ?? 'Reading Clock...')
                 : totalUnits > 0
                   ? `${Math.round((occupiedOn(today) / totalUnits) * 100)}%`
                   : '—'
             }
-            note={stockKnown ? `${occupiedOn(today)} of ${totalUnits} rooms` : undefined}
+            note={
+              stockKnown
+                ? `${occupiedOn(today)} of ${totalUnits} rooms`
+                : 'Configured rooms; occupancy is managed in Clock'
+            }
           />
           <StatTile
             size="sm"
             label="Available tonight"
-            value={stockKnown ? freeOn(today) : capacityLabel}
+            value={stockKnown ? freeOn(today) : 'See Clock snapshot'}
             note={stockKnown ? 'Rooms free' : undefined}
           />
           <StatTile size="sm" label="Arrivals today" value={arrivals} />
@@ -814,7 +826,11 @@ export function CalendarBoard({
                               : 'text-muted-foreground',
                       )}
                     >
-                      {stockKnown ? free : <span title={capacityLabel}>Unknown</span>}
+                      {stockKnown ? (
+                        free
+                      ) : (
+                        <span title="Use the Clock availability snapshot above">See snapshot</span>
+                      )}
                     </div>
                   );
                 })}
@@ -853,7 +869,9 @@ export function CalendarBoard({
                     <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px]">
                       {stockKnown
                         ? `${occupiedOn(today, type.id)} / ${target?.roomId ? 1 : type.roomCount} tonight`
-                        : capacityLabel}
+                        : clockCounts.data?.byRoomType[type.id] === undefined
+                          ? 'Reading Clock...'
+                          : `${clockCounts.data.byRoomType[type.id]} rooms in Clock`}
                     </Badge>
                   </button>
                   {isCollapsed ? null : (

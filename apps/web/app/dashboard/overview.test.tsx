@@ -93,6 +93,25 @@ const overview = {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('DashboardOverview', () => {
+  it('shows nothing due today rather than unknown when there are no desk arrivals', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ ...overview, balancesDueAtDesk: [], balanceDueAtDesk: null }),
+          ),
+        ),
+    );
+    const { container, root } = await mount();
+    await act(async () => {
+      await settle();
+    });
+    expect(container.textContent).toContain('Nothing due today');
+    await act(async () => root.unmount());
+  });
+
   it('renders an accessible skeleton before overview data is available', async () => {
     let resolveFetch!: (value: Response) => void;
     vi.stubGlobal(
@@ -225,8 +244,15 @@ describe('DashboardOverview', () => {
     expect(container.querySelector('a[href*="tab=quick-booking"]')).toBeNull();
     await act(async () => root.unmount());
   });
-  it('keeps multi-currency cash separate and Clock capacity Unknown', async () => {
-    vi.stubGlobal('fetch', vi.fn());
+  it('keeps currencies separate and reads actual configured Clock rooms', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          Response.json({ configuredRooms: 81, byRoomType: {}, readAt: '2026-10-21' }),
+        ),
+    );
     const { container, root } = await mount({
       initialOverview: {
         ...overview,
@@ -248,8 +274,13 @@ describe('DashboardOverview', () => {
     });
     expect(container.textContent).toContain('EUR 1.01 / USD 2.02');
     expect(container.textContent).not.toContain('3.03');
-    expect(container.textContent).toContain('Unknown gross room-nights');
-    expect(container.textContent).toContain('synced from Clock');
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(container.textContent).toContain('Rooms in Clock');
+    expect(container.textContent).toContain('81');
+    expect(container.textContent).not.toContain('Unknown gross room-nights');
+    expect(container.textContent).toContain('Configured rooms from Clock');
     await act(async () => root.unmount());
   });
   it('hides financial headline cards when the server denies money access', async () => {

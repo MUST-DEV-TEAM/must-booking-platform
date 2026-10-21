@@ -1,4 +1,6 @@
 'use client';
+import { ClockRoomsTile } from './clock-room-counts';
+import { ClockAvailabilityPanel } from './clock-availability-panel';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 import { Button } from '../../components/ui/button';
@@ -375,8 +377,9 @@ export function InventorySection({
         <Alert>
           <AlertTitle>Clock is the source of availability</AlertTitle>
           <AlertDescription>
-            Local changes are disabled. Full provider restrictions, mismatch records and inventory
-            health are Unknown. Existing local block history does not represent Clock inventory.
+            Local changes are disabled. Load Clock availability below to see supported room counts
+            and day restrictions. Complete block history and inventory health remain managed in
+            Clock.
           </AlertDescription>
         </Alert>
       ) : !canWrite ? (
@@ -390,34 +393,47 @@ export function InventorySection({
         </Alert>
       ) : null}
       {tab === 'stock' ? (
-        <InventoryStock
-          base={base}
-          canWrite={canWrite}
-          onCreate={(kind, initial) => setEditor({ kind, initial })}
-        />
+        external ? (
+          <ClockAvailabilityPanel tenantId={tenantId} propertyId={propertyId} />
+        ) : (
+          <InventoryStock
+            base={base}
+            canWrite={canWrite}
+            onCreate={(kind, initial) => setEditor({ kind, initial })}
+          />
+        )
       ) : null}
       {tab === 'overview' ? (
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <StatTile
-              label="Available room nights"
-              value={
-                overview.sellablePercentage === null ? 'Unknown' : `${overview.sellablePercentage}%`
-              }
-              note={
-                overview.totalNights === null
-                  ? 'Provider data unavailable'
-                  : `${overview.sellableNights} of ${overview.totalNights} - next 30 days`
-              }
-            />
+            {external ? (
+              <ClockRoomsTile tenantId={tenantId} propertyId={propertyId} canOpenCalendar />
+            ) : (
+              <StatTile
+                label="Available room nights"
+                value={
+                  overview.sellablePercentage === null
+                    ? 'Unknown'
+                    : `${overview.sellablePercentage}%`
+                }
+                note={
+                  overview.totalNights === null
+                    ? 'Provider data unavailable'
+                    : `${overview.sellableNights} of ${overview.totalNights} - next 30 days`
+                }
+              />
+            )}
             <StatTile
               label="Active restrictions"
-              value={overview.activeRestrictions ?? 'Unknown'}
+              value={external ? 'See day snapshot' : (overview.activeRestrictions ?? 'Unknown')}
             />
-            <StatTile label="Active manual blocks" value={overview.activeBlocks ?? 'Unknown'} />
+            <StatTile
+              label="Active manual blocks"
+              value={external ? 'Managed in Clock' : (overview.activeBlocks ?? 'Unknown')}
+            />
             <StatTile
               label="Needs attention"
-              value={external ? 'Unknown' : overview.needsAttention.length}
+              value={external ? 'Review in Clock' : overview.needsAttention.length}
               tone="warning"
             />
           </div>
@@ -473,17 +489,7 @@ export function InventorySection({
               </CardContent>
             </Card>
           ) : external ? (
-            <EmptyPanel
-              title="Provider availability Unknown"
-              description="Use Calendar for supported provider availability data."
-              action={
-                <Button asChild variant="outline">
-                  <a href={`/dashboard/${tenantId}?propertyId=${propertyId}&section=calendar`}>
-                    Open Calendar
-                  </a>
-                </Button>
-              }
-            />
+            <ClockAvailabilityPanel tenantId={tenantId} propertyId={propertyId} />
           ) : (
             <EmptyPanel
               title="No published inventory"
@@ -571,14 +577,7 @@ export function InventorySection({
             </Card>
           ) : null}
           {external ? (
-            <EmptyPanel
-              title={
-                kind === 'restrictions'
-                  ? 'Clock restrictions Unknown'
-                  : 'Clock manual blocks Unknown'
-              }
-              description="Complete provider rule and room-level closure records are unavailable here. Supported day restrictions remain visible in Calendar."
-            />
+            <ClockAvailabilityPanel tenantId={tenantId} propertyId={propertyId} />
           ) : (
             <>
               <TabBar

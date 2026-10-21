@@ -1,4 +1,5 @@
 'use client';
+import { ClockRoomsTile } from './clock-room-counts';
 
 import { reportValue } from '../../lib/report-presentation';
 import { useQuery } from '@tanstack/react-query';
@@ -305,7 +306,13 @@ export function DashboardOverview({
             />
           </>
         ) : null}
-        {show('tile.occupancy') ? (
+        {show('tile.occupancy') && overview.metricBasis?.source === 'CLOCK' ? (
+          <ClockRoomsTile
+            tenantId={tenantId}
+            propertyId={propertyId}
+            canOpenCalendar={canOpen('calendar')}
+          />
+        ) : show('tile.occupancy') ? (
           <>
             <StatTile
               label="Occupancy"
@@ -339,7 +346,7 @@ export function DashboardOverview({
                     (overview.balanceDueAtDesk ? [overview.balanceDueAtDesk] : [])
                   )
                     .map(formatMoney)
-                    .join(' / ') || 'Unknown'
+                    .join(' / ') || 'Nothing due today'
                 }
                 note="Confirmed pay-at-hotel arrivals today; net balances."
               />
@@ -358,7 +365,7 @@ export function DashboardOverview({
                     (overview.revenue?.today ? [overview.revenue.today] : [])
                   )
                     .map(formatMoney)
-                    .join(' / ') || 'Unknown'
+                    .join(' / ') || 'No payments today'
                 }
                 note="Successful charge postings today, per currency."
                 href={link('payments')}
