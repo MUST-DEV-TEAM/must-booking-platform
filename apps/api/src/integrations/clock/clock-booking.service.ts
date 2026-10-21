@@ -1572,15 +1572,50 @@ export class ClockBookingService {
     const credentials = await this.credentials(context);
     if (!credentials.ok)
       return { result: 'unavailable', message: 'Clock is not connected for this hotel.' };
-    const found = await this.fetch<Array<{ id: string | number }>>(credentials.value, {
-      method: 'GET',
-      path: '/bookings/',
-      query: { reference_number: rows[0].reference },
-    });
-    if (!found.ok)
-      return { result: 'unavailable', message: 'Clock could not be reached. Try again shortly.' };
-    if (found.value.length === 0) return { result: 'not_found' };
-    const clockBookingId = String(found.value[0]!.id);
+    const found = await this.fetch<Array<number | string | { id: string | number }>>(
+      credentials.value,
+      {
+        method: 'GET',
+        path: '/bookings/',
+        query: { reference_number: rows[0].reference },
+      },
+    );
+    if (!found.ok || !Array.isArray(found.value))
+      return { result: 'unavailable', message: 'Clock could not be checked. Try again shortly.' };
+    // Clock lists numeric IDs. Verify each reference rather than trusting a fuzzy filter.
+    if (found.value.length > 50)
+      return {
+        result: 'unavailable',
+        message: 'Clock returned too many matches. Review the reference in Clock.',
+      };
+    const matches: string[] = [];
+    for (const item of found.value) {
+      const id = typeof item === 'object' && item !== null ? item.id : item;
+      if (!/^\d+$/.test(String(id)))
+        return {
+          result: 'unavailable',
+          message: 'Clock returned an unreadable result. Please check in Clock.',
+        };
+      const detail = await this.fetch<{ id: string | number; reference_number?: string }>(
+        credentials.value,
+        { method: 'GET', path: `/bookings/${id}` },
+      );
+      if (!detail.ok)
+        return {
+          result: 'unavailable',
+          message: 'A Clock booking could not be checked. Try again shortly.',
+        };
+      if (detail.value.reference_number === rows[0].reference)
+        matches.push(String(detail.value.id));
+    }
+    if (matches.length === 0) return { result: 'not_found' };
+    if (matches.length > 1)
+      return {
+        result: 'unavailable',
+        message:
+          'Clock has multiple bookings with this reference. Review them in Clock before proceeding.',
+      };
+    const clockBookingId = matches[0]!;
     return {
       result: 'found',
       clockBookingId,

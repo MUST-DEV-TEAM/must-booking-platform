@@ -76,6 +76,8 @@ type ClockRateAvailabilityResponse = Array<{
 export type CalendarDayStatus = 'available' | 'sold_out' | 'closed' | 'unavailable';
 
 export interface CalendarDay {
+  /** Clock-reported physical free rooms, independent of stop-sale restrictions. */
+  availableUnits?: number;
   date: string;
   isAvailable: boolean;
   status: CalendarDayStatus;
@@ -184,6 +186,7 @@ type ClockRateRow = {
 @Injectable()
 export class ClockAvailabilityService {
   private readonly logger = new Logger(ClockAvailabilityService.name);
+  private readonly calendarCache = new Map<string, CacheEntry<CalendarDay[]>>();
   private readonly availabilityCache = new Map<string, CacheEntry<AvailabilityResult>>();
   private readonly ratesCache = new Map<string, CacheEntry<RoomTypeRates>>();
   private readonly displayPriceCache = new Map<string, CacheEntry<Money>>();
@@ -942,6 +945,19 @@ export class ClockAvailabilityService {
         ),
       );
 
+    const calendarKey = JSON.stringify([
+      tenantId,
+      propertyId,
+      connection.connectionId,
+      externalRoomTypeId,
+      query.month,
+      query.adultCount ?? 1,
+      query.childrenCount ?? 0,
+      query.roomCount ?? 1,
+    ]);
+    const cachedCalendar = this.calendarCache.get(calendarKey);
+    if (cachedCalendar && cachedCalendar.expiresAt > Date.now())
+      return { ok: true, value: cachedCalendar.value };
     const rateIds = await this.ratesForRoomType(parsed.value, externalRoomTypeId);
     if (!rateIds.ok) return failure(rateIds.error);
     if (rateIds.value.ids.length === 0) return failure(noRatesError(rateIds.value));
@@ -973,6 +989,11 @@ export class ClockAvailabilityService {
       const cells = rateEntries.flatMap((entry) => (entry[date] ? [entry[date]] : []));
       // Open means at least one rate can be sold for that night to a party of
       // this size in this many rooms; stop-sale always wins over free rooms.
+      const counts = cells
+        .map((cell) => cell.room_type_free_rooms)
+        .filter((n) => Number.isSafeInteger(n) && n >= 0);
+      const availableUnits =
+        counts.length === cells.length && counts.length > 0 ? Math.max(...counts) : undefined;
       const openCells = cells.filter(
         (cell) =>
           cell.free &&
@@ -980,7 +1001,12 @@ export class ClockAvailabilityService {
           cell.room_type_free_rooms >= roomsNeeded,
       );
       if (openCells.length > 0) {
-        const day: CalendarDay = { date, isAvailable: true, status: 'available' };
+        const day: CalendarDay = {
+          date,
+          isAvailable: true,
+          status: 'available',
+          ...(availableUnits === undefined ? {} : { availableUnits }),
+        };
         // Restrictions only count when every open rate carries them, since a
         // guest can pick whichever rate is unrestricted.
         if (openCells.every((cell) => cell.rate_restriction?.close_for_arrival))
@@ -1001,8 +1027,16 @@ export class ClockAvailabilityService {
           cell.rate_restriction?.stop_from_sale &&
           cell.room_type_free_rooms >= roomsNeeded,
       );
-      return { date, isAvailable: false, status: stoppedWithRooms ? 'closed' : 'sold_out' };
+      return {
+        date,
+        isAvailable: false,
+        status: cells.length === 0 ? 'unavailable' : stoppedWithRooms ? 'closed' : 'sold_out',
+        ...(availableUnits === undefined ? {} : { availableUnits }),
+      };
     });
+    if (this.calendarCache.size >= 1000)
+      this.calendarCache.delete(this.calendarCache.keys().next().value!);
+    this.calendarCache.set(calendarKey, { value: days, expiresAt: Date.now() + CACHE_TTL_MS });
     return { ok: true, value: days };
   }
 

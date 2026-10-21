@@ -64,3 +64,13 @@ These are findings for planning/review, not new authorized implementation tasks.
 | Hardening incomplete | No dedicated WAF detector or full metrics system; retry policy helpers are not uniformly wired; some network calls remain inside transactions. |
 
 Historical comments that say "skeleton only," "single rate," or "postDeposit closes the folio" are stale where executable branches now disagree. Current docs follow the branches and preserve earlier claims only in dated history.
+
+## Staff read projections and imports (2026-10-21)
+
+Owner-authorized Demo Beach improvements add resumable read-only imports. `ClockImportService` reads stays overlapping bounded date windows and uses the existing hydrator with notifications disabled; repeat batches update existing external booking identities and do not recreate payments. Bulk import preserves supplied provider creation/update timestamps so old records do not manufacture current booking/cancellation events. `ClockGuestImportService` imports the documented `/guests` numeric index and `/guests/{id}` contacts into a separate tenant/property/connection-scoped projection. Missing email is retained, never fabricated; selecting a profile for a new reservation still requires the booking's contact validation. No automatic local identity merge is added.
+
+Guest endpoints and `family_id` are CONFIRMED_BY_DOCS in the [official Clock Postman workspace](https://www.postman.com/clockintegrations/clock-pms-integrations-s-public-workspace/documentation/pperm12/clock-pms-api-docs?entity=request-8389346-1fe52a79-026d-445a-beea-e7c7602c782e); the numeric index, details and bounded import are CONFIRMED_IN_SANDBOX on Demo Beach. Import pauses on unknown booking statuses or missing mappings rather than dropping records. Owner/admin controls require existing settings management permission; guest reads require guest viewing permission.
+
+The shared booking consistency and hydration GET readers retry actual HTTP 429 responses at most three times with 0.5/1/2-second backoff, reacquiring the local limiter. Exhaustion remains an error, never an empty result. This adds no retry to provider writes.
+
+Room-count tiles read actual configured `/rooms`, not hotel occupancy. Read-only day snapshots expose supported Clock free-room counts and restrictions, with Closed distinct from Sold out. Complete block history and occupancy remain managed in Clock. These snapshots and configured counts are cached for at most 20 minutes and are not final booking authorization. Actual-stay quotes and existing final booking checks remain authoritative. Published booking-engine rates are listed per room type with guest limits and existing preferred ordering; this is not a complete tax, fee or restriction catalogue.

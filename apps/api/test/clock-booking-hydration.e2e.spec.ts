@@ -238,6 +238,31 @@ describe('Clock booking hydration', () => {
     expect(row.ratePlanId).toBe(shadowRatePlan[0]!.id);
   });
 
+  it('preserves Clock chronology and sends no historical mail during a repeat bulk import', async () => {
+    const detail = realBookingDetail({
+      id: 38144990,
+      number: 'bulk-history',
+      status: 'canceled',
+      created_at: '2024-01-02T10:00:00Z',
+      updated_at: '2024-02-03T11:00:00Z',
+      guest_e_mail: 'history@example.test',
+    });
+    const hydration = app!.get(ClockBookingHydrationService);
+    for (let n = 0; n < 2; n++) {
+      queuedResponses = [{ status: 200, body: detail }];
+      await hydration.hydrateBooking(tenantId, propertyId, connectionId, '38144990', undefined, {
+        notify: false,
+      });
+    }
+    const rows = await admin.$queryRaw<
+      Array<{ createdAt: Date; updatedAt: Date; mail: bigint }>
+    >`SELECT b.created_at AS "createdAt",b.updated_at AS "updatedAt",(SELECT COUNT(*) FROM email_messages m WHERE m.tenant_id=b.tenant_id AND m.booking_id=b.id) AS mail FROM bookings b WHERE b.tenant_id=${tenantId}::uuid AND b.property_id=${propertyId}::uuid AND b.external_booking_id='38144990'`;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].createdAt.toISOString()).toBe('2024-01-02T10:00:00.000Z');
+    expect(rows[0].updatedAt.toISOString()).toBe('2024-02-03T11:00:00.000Z');
+    expect(rows[0].mail).toBe(0n);
+  });
+
   it('is idempotent — re-hydrating the same Clock booking updates the same row instead of duplicating', async () => {
     queuedResponses = [{ status: 200, body: realBookingDetail({ departure: '2026-09-25' }) }];
     const hydration = app!.get(ClockBookingHydrationService);

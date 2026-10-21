@@ -1,3 +1,12 @@
+import {
+  ClockGuestImportController,
+  ClockGuestImportService,
+} from './integrations/clock/clock-guest-import.service';
+import { StaffAvailabilityService } from './booking/staff-availability.service';
+import {
+  ClockImportController,
+  ClockImportService,
+} from './integrations/clock/clock-import.service';
 import { BookingAmendService } from './booking/booking-amend.service';
 import { BookingAmendController } from './booking/booking-amend.controller';
 import { BookingDetailsService } from './booking/booking-details.service';
@@ -245,6 +254,8 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     }),
   ],
   controllers: [
+    ClockImportController,
+    ClockGuestImportController,
     HealthController,
     AuthController,
     StaffInviteController,
@@ -381,6 +392,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     CancellationLinkService,
     MultiRoomBookingService,
     QuoteService,
+    StaffAvailabilityService,
     LocalPmsProvider,
     BookingRequestsService,
     BookingDetailsService,
@@ -418,6 +430,8 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ClockBookingService,
     BookingReviewService,
     ClockBookingConsistencyService,
+    ClockImportService,
+    ClockGuestImportService,
     ClockBookingHydrationService,
     ClockFolioHydrationService,
     ClockPaymentReconciliationService,

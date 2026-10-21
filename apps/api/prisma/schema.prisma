@@ -257,6 +257,7 @@ model Property {
 
   auditExportVersion Int @default(0) @map("audit_export_version")
 
+  clockGuestProfiles ClockGuestProfile[]
 }
 
 enum PropertyBookingMode {
@@ -1094,6 +1095,7 @@ model IntegrationConnection {
   @@unique([tenantId, id])
   @@index([tenantId, kind])
   @@map("integration_connections")
+  clockGuestProfiles ClockGuestProfile[]
 }
 
 // Join table: which properties have which connections enabled. `kind` is
@@ -1812,4 +1814,23 @@ model BookingRequest {
 
   @@unique([tenantId, propertyId, id])
   @@map("booking_requests")
+}
+
+// Provider projection only; nullable contact fields preserve Clock profiles without an email.
+model ClockGuestProfile {
+ id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ connectionId String @map("connection_id") @db.Uuid
+ externalGuestId String @map("external_guest_id") @db.VarChar(64)
+ email String? @db.VarChar(320)
+ firstName String? @map("first_name") @db.VarChar(100)
+ lastName String? @map("last_name") @db.VarChar(100)
+ phone String? @db.VarChar(100)
+ providerUpdatedAt DateTime? @map("provider_updated_at") @db.Timestamptz(6)
+ syncedAt DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+ property Property @relation(fields:[tenantId,propertyId],references:[tenantId,id],onDelete:Restrict,onUpdate:NoAction,map:"clock_guest_profiles_property_fk")
+ connection IntegrationConnection @relation(fields:[tenantId,connectionId],references:[tenantId,id],onDelete:Restrict,onUpdate:NoAction,map:"clock_guest_profiles_connection_fk")
+ @@unique([tenantId,propertyId,connectionId,externalGuestId],map:"clock_guest_profiles_identity")
+ @@map("clock_guest_profiles")
 }

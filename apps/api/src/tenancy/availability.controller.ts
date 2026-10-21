@@ -1,5 +1,7 @@
+import { CapabilitiesService } from './capabilities.service';
 import {
   Body,
+  ForbiddenException,
   Controller,
   Delete,
   Get,
@@ -30,6 +32,7 @@ export class AvailabilityController {
     @Inject(InventoryStockService) private readonly stock: InventoryStockService,
     @Inject(IntegrationConnectionsService)
     private readonly connections: IntegrationConnectionsService,
+    @Inject(CapabilitiesService) private readonly capabilities: CapabilitiesService,
   ) {}
 
   /** Staff-accessible (calendar.view, not settings.manage) — the walk-in
@@ -37,8 +40,21 @@ export class AvailabilityController {
    * pricing needs one) or derive it automatically (Clock-priced). */
   @Get('pms-connection-status')
   @TenantScoped({ propertyParam: 'propertyId' })
-  @RequiresCapability('calendar.view')
-  async getPmsConnectionStatus(@Req() request: TenantPropertyRequest) {
+  async getPmsConnectionStatus(
+    @Req() request: TenantPropertyRequest & { tenantContext: { userId: string } },
+  ) {
+    const capabilities = await this.capabilities.effective(request.tenantContext);
+    if (
+      ![
+        'calendar.view',
+        'bookings.view',
+        'guests.view',
+        'rates.manage',
+        'rooms.manage',
+        'settings.manage',
+      ].some((c) => capabilities.includes(c))
+    )
+      throw new ForbiddenException('Hotel source information is not available to this role.');
     const connection = await this.connections.activePmsConnectionCredentials(
       request.tenantContext.tenantId,
       request.tenantContext.propertyId,

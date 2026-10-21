@@ -363,6 +363,28 @@ export class ClockBookingConsistencyService {
    * waits and retries safely; it never retries a write because this checker
    * has no write path.
    */
+  /** CONFIRMED_BY_DOCS: Clock public Guests VIEW/index + first-level filter contract. */
+  async guestIds(
+    credentials: ClockConnectionCredentials,
+    updatedFrom: string,
+    updatedUntil: string,
+  ): Promise<string[]> {
+    const ids = await this.fetchClock<unknown>(credentials, '/guests', {
+      'updated_at.gteq': updatedFrom,
+      'updated_at.lt': updatedUntil,
+    });
+    if (!Array.isArray(ids) || !ids.every(isClockBookingId))
+      throw new Error('Clock returned an unreadable guest index.');
+    return [...new Set(ids.map(String))];
+  }
+  async guestDetail(
+    credentials: ClockConnectionCredentials,
+    id: string,
+  ): Promise<Record<string, unknown>> {
+    if (!/^\d+$/.test(id)) throw new Error('Invalid Clock guest ID.');
+    return this.fetchClock(credentials, `/guests/${id}`);
+  }
+
   private async fetchClock<T>(
     credentials: ClockConnectionCredentials,
     path: string,
@@ -381,35 +403,44 @@ export class ClockBookingConsistencyService {
         });
       throw error;
     }
-    for (;;) {
-      const rateLimit = await this.rateLimiter.consume(breakerKey);
-      if (rateLimit.allowed) break;
-      await wait(rateLimit.retryAfterSeconds * 1_000);
-    }
+    // Retry only safe GETs; never replay a booking or payment write.
+    for (let retry = 0; ; retry += 1) {
+      for (;;) {
+        const rateLimit = await this.rateLimiter.consume(breakerKey);
+        if (rateLimit.allowed) break;
+        await wait(rateLimit.retryAfterSeconds * 1_000);
+      }
 
-    try {
-      const response = await this.client.request<T>(credentials, {
-        api: 'pms_api',
-        method: 'GET',
-        path,
-        query,
-        timeoutMs: 15_000,
-      });
-      if (response.status < 200 || response.status >= 300) {
-        this.circuitBreaker.recordFailure(breakerKey);
-        throw new ClockBookingReadError(classifyClockHttpResponse(response.status, response.body));
+      try {
+        const response = await this.client.request<T>(credentials, {
+          api: 'pms_api',
+          method: 'GET',
+          path,
+          query,
+          timeoutMs: 15_000,
+        });
+        if (response.status === 429 && retry < 3) {
+          await wait(500 * 2 ** retry);
+          continue;
+        }
+        if (response.status < 200 || response.status >= 300) {
+          this.circuitBreaker.recordFailure(breakerKey);
+          throw new ClockBookingReadError(
+            classifyClockHttpResponse(response.status, response.body),
+          );
+        }
+        this.circuitBreaker.recordSuccess(breakerKey);
+        return response.body;
+      } catch (error) {
+        if (error instanceof ClockBookingReadError) throw error;
+        if (error instanceof ClockHttpError) {
+          this.circuitBreaker.recordFailure(breakerKey);
+          throw new ClockBookingReadError(
+            classifyClockClientFailure(error.isTimeout ? 'timeout' : 'network', error.message),
+          );
+        }
+        throw error;
       }
-      this.circuitBreaker.recordSuccess(breakerKey);
-      return response.body;
-    } catch (error) {
-      if (error instanceof ClockBookingReadError) throw error;
-      if (error instanceof ClockHttpError) {
-        this.circuitBreaker.recordFailure(breakerKey);
-        throw new ClockBookingReadError(
-          classifyClockClientFailure(error.isTimeout ? 'timeout' : 'network', error.message),
-        );
-      }
-      throw error;
     }
   }
 

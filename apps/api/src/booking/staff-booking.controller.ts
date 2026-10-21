@@ -1,3 +1,4 @@
+import { StaffAvailabilityService } from './staff-availability.service';
 import { BookingRequestsService, type CancellationInput } from './booking-requests.service';
 import { countryCode } from '@must/domain-contracts';
 import {
@@ -28,7 +29,20 @@ export class StaffBookingController {
     @Inject(BookingRequestsService) private readonly requests: BookingRequestsService,
     @Inject(LocalPmsProvider) private readonly provider: LocalPmsProvider,
     @Inject(QuoteService) private readonly quotes: QuoteService,
+    @Inject(StaffAvailabilityService) private readonly availability: StaffAvailabilityService,
   ) {}
+
+  @Post('offers')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.create')
+  offers(
+    @Req() req: { tenantContext: { tenantId: string; propertyId: string } },
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.availability.search(req.tenantContext, body ?? {});
+  }
 
   @Delete(':bookingId')
   @HttpCode(200)

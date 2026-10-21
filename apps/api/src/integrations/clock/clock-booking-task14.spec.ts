@@ -193,3 +193,50 @@ describe('ClockBookingService.attachRealReservation Task 14 failure handling', (
     },
   );
 });
+
+describe('Clock review lookup', () => {
+  function setup(list: unknown[], details: Record<string, unknown>) {
+    const service = Object.create(ClockBookingService.prototype) as ClockBookingService;
+    Object.assign(service, {
+      database: {
+        withTenantTransaction: vi
+          .fn()
+          .mockResolvedValue([{ reference: 'MUST-1', externalBookingId: '42' }]),
+      },
+      credentials: vi.fn().mockResolvedValue({ ok: true, value: credentials }),
+      fetch: vi
+        .fn()
+        .mockImplementation((_c: unknown, input: { path: string }) =>
+          Promise.resolve({
+            ok: true,
+            value: input.path === '/bookings/' ? list : details[input.path],
+          }),
+        ),
+    });
+    return service;
+  }
+  it('reads numeric IDs and verifies an exact reference before reporting a match', async () => {
+    const service = setup([41, 42], {
+      '/bookings/41': { id: 41, reference_number: 'OTHER' },
+      '/bookings/42': { id: 42, reference_number: 'MUST-1' },
+    });
+    await expect(service.checkRemoteBooking(context, 'b')).resolves.toEqual({
+      result: 'found',
+      clockBookingId: '42',
+      linked: true,
+    });
+  });
+  it('does not treat unrelated fuzzy matches as this booking', async () => {
+    const service = setup([41], { '/bookings/41': { id: 41, reference_number: 'OTHER' } });
+    await expect(service.checkRemoteBooking(context, 'b')).resolves.toEqual({
+      result: 'not_found',
+    });
+  });
+  it('keeps duplicate matches uncertain', async () => {
+    const service = setup([41, 42], {
+      '/bookings/41': { id: 41, reference_number: 'MUST-1' },
+      '/bookings/42': { id: 42, reference_number: 'MUST-1' },
+    });
+    expect((await service.checkRemoteBooking(context, 'b')).result).toBe('unavailable');
+  });
+});

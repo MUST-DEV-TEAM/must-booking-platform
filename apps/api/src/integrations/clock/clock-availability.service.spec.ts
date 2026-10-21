@@ -605,7 +605,9 @@ describe('ClockAvailabilityService.getAvailabilityCalendar', () => {
 
     expect(result).toEqual({
       ok: true,
-      value: expect.arrayContaining([{ date: '2026-08-10', isAvailable: false, status: 'closed' }]),
+      value: expect.arrayContaining([
+        { date: '2026-08-10', isAvailable: false, status: 'closed', availableUnits: 1 },
+      ]),
     });
   });
 

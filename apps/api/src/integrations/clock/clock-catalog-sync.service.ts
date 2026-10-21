@@ -43,6 +43,52 @@ export class ClockCatalogSyncService {
     @Inject(ClockCircuitBreakerService) private readonly circuitBreaker: ClockCircuitBreakerService,
   ) {}
 
+  /** Read-only current configured room counts; this is capacity, never an occupancy claim. */
+  async roomCounts(tenantId: string, propertyId: string) {
+    const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
+    if (!connection || connection.provider !== 'CLOCK_PMS')
+      throw new BadRequestException('This hotel is not connected to Clock.');
+    const parsed = parseClockCredentials(connection.credentials);
+    if (!parsed.ok) throw new BadRequestException('Clock connection needs attention.');
+    const key = [tenantId, propertyId, connection.connectionId].join(':');
+    const cached = this.roomCountCache.get(key);
+    if (cached && cached.expires > Date.now()) return cached.value;
+    const rooms = await this.fetch<ClockRoom[]>(parsed.value, '/rooms');
+    if (
+      !Array.isArray(rooms) ||
+      rooms.some((r) => !r || !/^\d+$/.test(String(r.id)) || !/^\d+$/.test(String(r.room_type_id)))
+    )
+      throw new BadRequestException('Clock room counts could not be verified.');
+    const mappings = await this.database.withTenantTransaction(
+      { tenantId, propertyId },
+      (tx) =>
+        tx.$queryRaw<
+          Array<{ localId: string; externalId: string }>
+        >`SELECT local_entity_id::text AS "localId",external_entity_id AS "externalId" FROM clock_catalog_mappings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${connection.connectionId}::uuid AND entity_type='ROOM_TYPE' AND sync_status='CONFIRMED' AND local_entity_id IS NOT NULL`,
+    );
+    const byRoomType = Object.fromEntries(
+      mappings.map((m) => [
+        m.localId,
+        rooms.filter((r) => String(r.room_type_id) === m.externalId).length,
+      ]),
+    );
+    const value = {
+      configuredRooms: new Set(rooms.map((r) => String(r.id))).size,
+      byRoomType,
+      readAt: new Date().toISOString(),
+    };
+    if (this.roomCountCache.size >= 100) this.roomCountCache.clear();
+    this.roomCountCache.set(key, { value, expires: Date.now() + 1200000 });
+    return value;
+  }
+  private readonly roomCountCache = new Map<
+    string,
+    {
+      expires: number;
+      value: { configuredRooms: number; byRoomType: Record<string, number>; readAt: string };
+    }
+  >();
+
   async sync(
     tenantId: string,
     propertyId: string,
