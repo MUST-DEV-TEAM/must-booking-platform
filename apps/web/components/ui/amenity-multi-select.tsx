@@ -65,8 +65,9 @@ export function AmenityMultiSelect({
 
   const availableSuggestions = suggestions.filter(
     (suggestion) =>
-      !options.some(
-        (option) => option.label.toLocaleLowerCase() === suggestion.label.toLocaleLowerCase(),
+      !combinedOptions.some(
+        (option) =>
+          option.label.trim().toLocaleLowerCase() === suggestion.label.trim().toLocaleLowerCase(),
       ),
   );
   return (

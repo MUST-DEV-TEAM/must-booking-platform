@@ -92,4 +92,23 @@ describe('AmenityMultiSelect', () => {
     expect(document.body.querySelector('button')).toBeNull();
     await unmount();
   });
+  it('removes a suggestion immediately after creating it, before saving', async () => {
+    const onCreate = vi.fn().mockResolvedValue('new-safe');
+    const unmount = await render({
+      options: [],
+      value: [],
+      onChange: vi.fn(),
+      onCreate,
+      suggestions: [{ value: 'safe', label: 'Safe' }],
+    });
+    await click('[role="combobox"]');
+    const suggestion = [
+      ...document.body.querySelectorAll('section[aria-label="Suggested amenities"] button'),
+    ].find((b) => b.textContent === 'Safe') as HTMLButtonElement;
+    await act(async () => suggestion.click());
+    expect(onCreate).toHaveBeenCalledOnce();
+    expect(document.body.querySelector('section[aria-label="Suggested amenities"]')).toBeNull();
+    expect(document.body.querySelector('[aria-label="Remove Safe"]')).not.toBeNull();
+    await unmount();
+  });
 });
