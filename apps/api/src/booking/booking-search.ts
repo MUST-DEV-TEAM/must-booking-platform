@@ -166,7 +166,7 @@ export const VIEW_SQL: Record<BookingView, string> = {
   in_house: `x.status = 'CONFIRMED' AND x.starts_on <= x.today AND x.ends_on > x.today`,
   departing_today: `x.status = 'CONFIRMED' AND x.ends_on = x.today`,
   upcoming: `${LIVE_SQL} AND x.starts_on > x.today`,
-  needs_attention: `x.status IN (${quoted(ATTENTION_STATUSES)})`,
+  needs_attention: `x.attention_open AND x.status IN (${quoted(ATTENTION_STATUSES)})`,
   unpaid: `${LIVE_SQL} AND x.payment_state IN ('unpaid', 'deposit')`,
   cancelled: `x.status IN ('CANCELLED', 'EXPIRED')`,
 };

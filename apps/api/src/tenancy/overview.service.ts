@@ -220,7 +220,7 @@ export class OverviewService {
         tx.$queryRawUnsafe<Array<{ count: number }>>(
           `SELECT COUNT(*)::int AS count FROM bookings b
            WHERE b.tenant_id = $1::uuid AND b.property_id = $2::uuid
-             AND b.status = ANY($3::"BookingStatus"[])`,
+             AND b.status = ANY($3::"BookingStatus"[]) AND NOT EXISTS (SELECT 1 FROM audit_logs a WHERE a.tenant_id=b.tenant_id AND a.property_id=b.property_id AND a.target_type='booking' AND a.target_id=b.id::text AND a.action='booking.attention_dismissed' AND a.details->>'version'=b.version::text AND a.details->>'status'=b.status::text)`,
           tenantId,
           propertyId,
           BOOKING_NEEDS_ATTENTION_STATUSES,
@@ -246,7 +246,7 @@ export class OverviewService {
          LEFT JOIN guests g ON g.tenant_id = b.tenant_id AND g.id = b.guest_id
          LEFT JOIN room_types rt ON rt.tenant_id = b.tenant_id AND rt.property_id = b.property_id AND rt.id = b.room_type_id
          WHERE b.tenant_id = $1::uuid AND b.property_id = $2::uuid
-           AND b.status = ANY($3::"BookingStatus"[])
+           AND b.status = ANY($3::"BookingStatus"[]) AND NOT EXISTS (SELECT 1 FROM audit_logs a WHERE a.tenant_id=b.tenant_id AND a.property_id=b.property_id AND a.target_type='booking' AND a.target_id=b.id::text AND a.action='booking.attention_dismissed' AND a.details->>'version'=b.version::text AND a.details->>'status'=b.status::text)
          ORDER BY b.created_at DESC
          LIMIT 50`,
         tenantId,
@@ -374,7 +374,7 @@ export class OverviewService {
                SELECT 1 FROM bookings b
                WHERE b.tenant_id = r.tenant_id AND b.property_id = r.property_id AND b.room_id = r.id
                  AND b.starts_on <= property_today.date AND b.ends_on > property_today.date
-                 AND b.status = ANY($3::"BookingStatus"[])
+                 AND b.status = ANY($3::"BookingStatus"[]) AND NOT EXISTS (SELECT 1 FROM audit_logs a WHERE a.tenant_id=b.tenant_id AND a.property_id=b.property_id AND a.target_type='booking' AND a.target_id=b.id::text AND a.action='booking.attention_dismissed' AND a.details->>'version'=b.version::text AND a.details->>'status'=b.status::text)
              )
              OR EXISTS (
                SELECT 1 FROM availability_blocks ab

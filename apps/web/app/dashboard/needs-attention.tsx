@@ -1,9 +1,11 @@
 'use client';
 
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, CalendarClock, CreditCard, TriangleAlert, Zap } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
+import { BookingReviewCard } from './booking-review-card';
+import { Input } from '../../components/ui/input';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
@@ -94,10 +96,35 @@ function openRecord(tenantId: string, propertyId: string, id: string) {
 export function NeedsAttentionTab({
   tenantId,
   propertyId,
+  canEdit = false,
 }: {
   tenantId: string;
   propertyId: string;
+  canEdit?: boolean;
 }) {
+  const client = useQueryClient();
+  const [note, setNote] = useState('');
+  const dismiss = useMutation({
+    mutationFn: async (bookingId: string) => {
+      const response = await fetch(
+        `/api/tenants/${tenantId}/properties/${propertyId}/bookings/${bookingId}/review/dismiss`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ note }),
+        },
+      );
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || 'Could not close this issue.');
+      }
+    },
+    onSuccess: async () => {
+      setNote('');
+      await client.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
   const [focus, setFocus] = useState<Focus>('all');
   const [priority, setPriority] = useState<'all' | AttentionPriority>('all');
   const [sort, setSort] = useState<Sort>('priority');
@@ -468,6 +495,43 @@ export function NeedsAttentionTab({
                 </p>
                 <p className="m-0 text-sm">{selected.issue.nextStep}</p>
               </div>
+              {['PMS_UNKNOWN_RESULT', 'MANUAL_REVIEW'].includes(selected.status) ? (
+                <BookingReviewCard
+                  key={selected.id}
+                  tenantId={tenantId}
+                  propertyId={propertyId}
+                  bookingId={selected.id}
+                  canRunCheck={canEdit}
+                />
+              ) : null}
+              {canEdit &&
+              bookingWasNotCreated(selected.status) &&
+              Number(selected.paidAmount) <= Number(selected.refundedAmount) ? (
+                <div className="space-y-2">
+                  <Input
+                    aria-label="Review note"
+                    placeholder="Why can this unsuccessful attempt be closed?"
+                    value={note}
+                    maxLength={300}
+                    onChange={(e) => setNote(e.target.value)}
+                  />
+                  <Button
+                    variant="outline"
+                    disabled={note.trim().length < 3 || dismiss.isPending}
+                    onClick={() => dismiss.mutate(selected.id)}
+                  >
+                    Close unsuccessful attempt
+                  </Button>
+                  <Button variant="outline" asChild>
+                    <a
+                      href={`/dashboard/${tenantId}?propertyId=${propertyId}&section=overview&tab=quick-booking`}
+                    >
+                      Search availability again
+                    </a>
+                  </Button>
+                </div>
+              ) : null}
+              {dismiss.error ? <p role="alert">{dismiss.error.message}</p> : null}
               <Button className="w-full" asChild>
                 <a href={openRecord(tenantId, propertyId, selected.id)}>
                   Open reservation record <ArrowRight aria-hidden="true" />

@@ -124,4 +124,57 @@ describe('staff view of a booking that needs review', () => {
       .expect(404);
     await request(app.getHttpServer()).get(`${base()}/${needsReview}/review`).expect(401);
   });
+  it('closes only failed unpaid attempts, keeps history, and resurfaces changed bookings', async () => {
+    await admin.$executeRaw`UPDATE users SET email_verified_at=now() WHERE id=${userId}::uuid`;
+    await request(app.getHttpServer())
+      .post(`${base()}/${needsReview}/review/dismiss`)
+      .set('Cookie', cookie)
+      .send({ note: 'Reviewed uncertain result' })
+      .expect(409);
+    await admin.$executeRaw`UPDATE bookings SET status='AVAILABILITY_FAILED',version=version+1 WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${fine}::uuid`;
+    const search = () =>
+      request(app.getHttpServer())
+        .get(`${base()}/search?view=needs_attention`)
+        .set('Cookie', cookie)
+        .expect(200);
+    expect((await search()).body.items.some((b: { id: string }) => b.id === fine)).toBe(true);
+    await request(app.getHttpServer())
+      .post(`${base()}/${fine}/review/dismiss`)
+      .set('Cookie', cookie)
+      .send({ note: 'No reservation created; test attempt reviewed' })
+      .expect(200);
+    expect((await search()).body.items.some((b: { id: string }) => b.id === fine)).toBe(false);
+    const row = await admin.$queryRaw<
+      Array<{ status: string; count: number }>
+    >`SELECT b.status::text AS status,(SELECT COUNT(*)::int FROM audit_logs a WHERE a.tenant_id=b.tenant_id AND a.property_id=b.property_id AND a.target_id=b.id::text AND a.action='booking.attention_dismissed') AS count FROM bookings b WHERE b.tenant_id=${tenantId}::uuid AND b.property_id=${propertyId}::uuid AND b.id=${fine}::uuid`;
+    expect(row[0]).toEqual({ status: 'AVAILABILITY_FAILED', count: 1 });
+    await admin.$executeRaw`UPDATE bookings SET version=version+1 WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${fine}::uuid`;
+    expect((await search()).body.items.some((b: { id: string }) => b.id === fine)).toBe(true);
+    await admin.$executeRaw`INSERT INTO payments(tenant_id,property_id,booking_id,kind,provider,external_payment_id,status,amount,currency) VALUES(${tenantId}::uuid,${propertyId}::uuid,${fine}::uuid,'CHARGE','manual',${'review-money-' + fine},'succeeded',10,'EUR')`;
+    await request(app.getHttpServer())
+      .post(`${base()}/${fine}/review/dismiss`)
+      .set('Cookie', cookie)
+      .send({ note: 'Money held must remain visible' })
+      .expect(409);
+  });
+  it('keeps Clock guest profiles without email and enforces property RLS', async () => {
+    const connection = randomUUID();
+    await admin.$executeRaw`INSERT INTO integration_connections(id,tenant_id,kind,provider,name,encrypted_credentials,status) VALUES(${connection}::uuid,${tenantId}::uuid,'PMS','CLOCK_PMS','Projection fixture','never-decrypted-test','CONNECTED')`;
+    await admin.$executeRaw`INSERT INTO property_integration_connections(tenant_id,property_id,connection_id,kind) VALUES(${tenantId}::uuid,${propertyId}::uuid,${connection}::uuid,'PMS')`;
+    await admin.$executeRaw`INSERT INTO clock_guest_profiles(tenant_id,property_id,connection_id,external_guest_id,first_name) VALUES(${tenantId}::uuid,${propertyId}::uuid,${connection}::uuid,'123','No Email Guest')`;
+    const profiles = await request(app.getHttpServer())
+      .get(`/tenants/${tenantId}/properties/${propertyId}/clock-guests`)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(profiles.body).toHaveLength(1);
+    expect(profiles.body[0]).toMatchObject({ firstName: 'No Email Guest', email: null });
+    const { TenantDatabaseService } = await import('../src/tenancy/tenant-database.service');
+    const hidden = await app
+      .get(TenantDatabaseService)
+      .withTenantTransaction(
+        { tenantId, propertyId: randomUUID() },
+        (tx) => tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM clock_guest_profiles`,
+      );
+    expect(hidden).toEqual([]);
+  });
 });

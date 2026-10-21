@@ -195,7 +195,7 @@ function toSearchItem(row: Record<string, unknown>): BookingSearchItem {
 /** One row per booking with its guest, room, rate plan and payment totals. Used by list and detail. */
 const BOOKING_BASE_SQL = `
       SELECT x.*, ${PAYMENT_STATE_SQL} AS payment_state FROM (
-        SELECT b.id, b.external_reference, b.order_reference, b.status, b.payment_method, b.source,
+        SELECT NOT EXISTS (SELECT 1 FROM audit_logs a WHERE a.tenant_id=b.tenant_id AND a.property_id=b.property_id AND a.target_type='booking' AND a.target_id=b.id::text AND a.action='booking.attention_dismissed' AND a.details->>'version'=b.version::text AND a.details->>'status'=b.status::text) AS attention_open, b.id, b.external_reference, b.order_reference, b.status, b.payment_method, b.source,
           b.starts_on, b.ends_on, b.created_at, b.total_amount, b.adults, b.children,
           EXISTS(SELECT 1 FROM booking_requests q WHERE q.tenant_id=b.tenant_id AND q.property_id=b.property_id AND q.booking_id=b.id AND q.type='cancellation' AND q.status='Pending') AS cancellation_pending,
           b.special_requests, b.pms_stay_status, b.room_id, r.name AS room_name,

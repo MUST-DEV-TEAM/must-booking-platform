@@ -1,5 +1,9 @@
+import { Prisma } from '@prisma/client';
 import {
   Controller,
+  Body,
+  BadRequestException,
+  ConflictException,
   Get,
   HttpCode,
   HttpException,
@@ -12,6 +16,7 @@ import {
   Req,
 } from '@nestjs/common';
 
+import { AuditLogService } from '../tenancy/audit-log.service';
 import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator';
 import { ClockBookingService } from '../integrations/clock/clock-booking.service';
 import { RequiresCapability } from '../tenancy/capabilities.decorator';
@@ -39,6 +44,7 @@ export class BookingReviewService {
   constructor(
     @Inject(TenantDatabaseService) private readonly db: TenantDatabaseService,
     @Inject(ClockBookingService) private readonly clock: ClockBookingService,
+    @Inject(AuditLogService) private readonly audit: AuditLogService,
   ) {}
 
   async get(tenantId: string, propertyId: string, bookingId: string) {
@@ -78,6 +84,47 @@ export class BookingReviewService {
     });
   }
 
+  async dismiss(
+    scope: { tenantId: string; propertyId: string; userId: string },
+    bookingId: string,
+    body: Record<string, unknown>,
+  ) {
+    if (
+      typeof body.note !== 'string' ||
+      body.note.trim().length < 3 ||
+      body.note.trim().length > 300
+    )
+      throw new BadRequestException('Add a review note of 3-300 characters.');
+    const note = body.note.trim();
+    return this.db.withTenantTransaction(scope, async (tx) => {
+      const rows = await tx.$queryRaw<
+        Array<{ status: string; version: number; paid: string; refunded: string }>
+      >`
+        SELECT b.status::text AS status,b.version,
+          COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.tenant_id=b.tenant_id AND p.property_id=b.property_id AND p.booking_id=b.id AND p.kind='CHARGE' AND p.status IN ('PAID','succeeded')),0)::text AS paid,
+          COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.tenant_id=b.tenant_id AND p.property_id=b.property_id AND p.booking_id=b.id AND p.kind='REFUND' AND p.status IN ('REFUNDED','succeeded')),0)::text AS refunded
+        FROM bookings b WHERE b.tenant_id=${scope.tenantId}::uuid AND b.property_id=${scope.propertyId}::uuid AND b.id=${bookingId}::uuid FOR UPDATE`;
+      const row = rows[0];
+      if (!row) throw new NotFoundException('Booking not found.');
+      if (
+        !['AVAILABILITY_FAILED', 'PMS_REJECTED', 'PAYMENT_FAILED'].includes(row.status) ||
+        new Prisma.Decimal(row.paid).gt(row.refunded)
+      )
+        throw new ConflictException(
+          'Check uncertain bookings and settle any money held before closing this issue.',
+        );
+      await this.audit.recordInTransaction(tx, {
+        ...scope,
+        actorUserId: scope.userId,
+        action: 'booking.attention_dismissed',
+        targetType: 'booking',
+        targetId: bookingId,
+        details: { version: row.version, status: row.status, note },
+      });
+      return { ok: true };
+    });
+  }
+
   async check(tenantId: string, propertyId: string, bookingId: string) {
     const review = await this.get(tenantId, propertyId, bookingId);
     if (!review.canCheck)
@@ -97,7 +144,7 @@ export class BookingReviewService {
   }
 }
 
-type Request = { tenantContext: { tenantId: string; propertyId: string } };
+type Request = { tenantContext: { tenantId: string; propertyId: string; userId: string } };
 
 @Controller('tenants/:tenantId/properties/:propertyId/bookings/:bookingId/review')
 export class BookingReviewController {
@@ -109,6 +156,20 @@ export class BookingReviewController {
   @RequiresCapability('bookings.view')
   get(@Param('bookingId') bookingId: string, @Req() r: Request) {
     return this.review.get(r.tenantContext.tenantId, r.tenantContext.propertyId, bookingId);
+  }
+
+  @Post('dismiss')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.edit')
+  @RequiresVerifiedEmail()
+  dismiss(
+    @Param('bookingId') id: string,
+    @Req() r: Request,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.review.dismiss(r.tenantContext, id, body ?? {});
   }
 
   @Post('check')

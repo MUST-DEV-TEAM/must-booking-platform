@@ -574,7 +574,11 @@ export function DashboardShell({
           ) : visibleDashboardTab === 'approvals' ? (
             <ApprovalsQueue tenantId={tenantId} propertyId={selectedProperty.id} />
           ) : visibleDashboardTab === 'needs-attention' ? (
-            <NeedsAttentionTab tenantId={tenantId} propertyId={selectedProperty.id} />
+            <NeedsAttentionTab
+              tenantId={tenantId}
+              propertyId={selectedProperty.id}
+              canEdit={hasCapability('bookings.edit')}
+            />
           ) : visibleDashboardTab === 'system-health' ? (
             <SystemHealthTab
               tenantId={tenantId}
