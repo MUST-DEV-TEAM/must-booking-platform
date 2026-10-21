@@ -47,8 +47,13 @@ export class BookingReviewService {
         SELECT status::text AS status FROM bookings
         WHERE id = ${bookingId}::uuid AND tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid`;
       if (!booking[0]) throw new NotFoundException('Booking not found.');
-      const items = await tx.$queryRaw<Array<{ category: string; createdAt: Date }>>`
-        SELECT category::text AS category, created_at AS "createdAt" FROM manual_review_items
+      const items = await tx.$queryRaw<
+        Array<{ category: string; createdAt: Date; clockDepositAdjustment: boolean }>
+      >`
+        SELECT category::text AS category, created_at AS "createdAt",
+          (category = 'PAYMENT_BOOKING_MISMATCH' AND context->>'message' =
+            'Clock refund payment was posted. In Clock, issue the Deposit Adjustment to create the required correction document.') AS "clockDepositAdjustment"
+          FROM manual_review_items
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
           AND status = 'OPEN' AND reference_type = 'booking' AND reference_id = ${bookingId}
         ORDER BY created_at DESC LIMIT 5`;
@@ -64,7 +69,9 @@ export class BookingReviewService {
         needsReview,
         canCheck: pms[0]?.provider === 'CLOCK_PMS',
         reasons: items.map((item) => ({
-          text: CATEGORY_TEXT[item.category] ?? 'The booking needs a manual review.',
+          text: item.clockDepositAdjustment
+            ? 'Refund posted to Clock. Complete the Deposit Adjustment document in Clock.'
+            : (CATEGORY_TEXT[item.category] ?? 'The booking needs a manual review.'),
           openedAt: item.createdAt,
         })),
       };

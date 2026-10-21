@@ -89,6 +89,24 @@ describe('staff view of a booking that needs review', () => {
     expect(ok.body).toMatchObject({ needsReview: false, reasons: [] });
   });
 
+  it('explains a posted Clock refund document follow-up without calling it a mismatch', async () => {
+    const message =
+      'Clock refund payment was posted. In Clock, issue the Deposit Adjustment to create the required correction document.';
+    await admin.$executeRaw`INSERT INTO manual_review_items(tenant_id,property_id,category,reference_type,reference_id,message,context) VALUES(${tenantId}::uuid,${propertyId}::uuid,'PAYMENT_BOOKING_MISMATCH'::"ManualReviewCategory",'booking',${fine},${message},${JSON.stringify({ message })}::jsonb)`;
+    try {
+      const res = await request(app.getHttpServer())
+        .get(`${base()}/${fine}/review`)
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(res.body.reasons[0].text).toBe(
+        'Refund posted to Clock. Complete the Deposit Adjustment document in Clock.',
+      );
+      expect(res.body.reasons[0].text).not.toContain('do not agree');
+    } finally {
+      await admin.$executeRaw`DELETE FROM manual_review_items WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND reference_id=${fine}`;
+    }
+  });
+
   it('cannot run a provider check at a hotel without an external system, and is scoped', async () => {
     await request(app.getHttpServer())
       .post(`${base()}/${needsReview}/review/check`)
