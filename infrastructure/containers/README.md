@@ -123,19 +123,26 @@ no host access is needed to prepare the change. No database migration is added.
    listings and writes, and sets `Cache-Control: public, max-age=31536000, immutable` on
    successful image responses. Do not use `docker compose down -v`: it deletes durable data.
 
-3. Add this location to the existing host nginx HTTPS server for `booking.must.al`:
+3. Route `/photos/` to the `photos` container and allow 10 MB uploads. The `photos` service
+   joins the external `proxy` network, so a reverse proxy on that network reaches it as
+   `photos:80`.
 
-   ```nginx
-   location ^~ /photos/ {
-       proxy_pass http://127.0.0.1:4012;
-   }
-   ```
+   - **Nginx Proxy Manager (booking.must.al host):** its proxy-host config includes
+     `/data/nginx/custom/server_proxy.conf` inside the server block. Put this there:
 
-   Keep the URI prefix (no trailing slash on `proxy_pass`). In the location forwarding
-   `/api/` uploads, allow `client_max_body_size 10m;` (or a larger existing limit).
-   If another reverse proxy is installed, apply equivalent path routing and body limits.
-   Validate with `sudo nginx -t` before `sudo systemctl reload nginx`.
-   To revert a proxy edit, restore the preceding server config, validate and reload again.
+     ```nginx
+     client_max_body_size 10m;
+     location ^~ /photos/ {
+         proxy_pass http://photos:80;
+     }
+     ```
+
+     Keep the URI prefix (no trailing slash on `proxy_pass`). Validate with
+     `docker exec nginx-proxy-manager-app-1 nginx -t`, then
+     `docker exec nginx-proxy-manager-app-1 nginx -s reload`. To revert, remove the file
+     content, validate and reload again.
+   - **Plain host nginx:** the same `location` with `proxy_pass http://127.0.0.1:4012;`
+     (the service also publishes `127.0.0.1:4012`).
 
 4. As a verified owner/admin in local dev or the approved target, upload a JPEG/PNG/WebP,
    attach it to a room, open its public URL and check the WebP response and cache header.
