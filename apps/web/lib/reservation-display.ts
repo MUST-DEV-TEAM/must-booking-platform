@@ -51,6 +51,11 @@ export type PaymentInput = {
   refunded: string;
 };
 
+export const NO_BOOKING_BALANCE = 'No balance - booking was not created';
+export function bookingWasNotCreated(status: string): boolean {
+  return ['AVAILABILITY_FAILED', 'PAYMENT_FAILED', 'PMS_REJECTED'].includes(status);
+}
+
 const cents = (amount: string): number => Math.round(Number(amount) * 100);
 
 /**
@@ -67,6 +72,10 @@ export function paymentDisplay(input: PaymentInput): Display {
   const total = cents(input.total);
   const paid = cents(input.paid);
   const refunded = cents(input.refunded);
+  if (bookingWasNotCreated(input.status) && paid <= refunded)
+    return { label: NO_BOOKING_BALANCE, tone: 'muted' };
+  if (bookingWasNotCreated(input.status) && paid > refunded)
+    return { label: 'Refund due', tone: 'warning' };
   if (refunded > 0) {
     return paid > 0 && refunded >= paid
       ? { label: 'Refunded', tone: 'warning' }
@@ -75,15 +84,19 @@ export function paymentDisplay(input: PaymentInput): Display {
   if (input.status === 'PAYMENT_FAILED') return { label: 'Failed', tone: 'danger' };
   if (total > 0 && paid >= total) return { label: 'Paid', tone: 'success' };
   if (paid > 0) return { label: 'Deposit paid', tone: 'info' };
-  if (total === 0 || input.paymentMethod === 'FREE') return { label: 'No payment due', tone: 'muted' };
+  if (total === 0 || input.paymentMethod === 'FREE')
+    return { label: 'No payment due', tone: 'muted' };
   if (input.paymentMethod === 'PAY_AT_HOTEL') return { label: 'Pay at hotel', tone: 'secondary' };
   if (input.status === 'PAYMENT_PENDING') return { label: 'Pending', tone: 'warning' };
   return { label: 'Unpaid', tone: 'warning' };
 }
 
-/** Money still to collect: total minus what was paid and kept (never below zero). */
-export function balanceDue(input: Pick<PaymentInput, 'total' | 'paid' | 'refunded'>): number {
-  return Math.max(0, cents(input.total) - (cents(input.paid) - cents(input.refunded))) / 100;
+/** Money still to collect; a refund does not create a new guest debt. Matches Payments. */
+export function balanceDue(
+  input: Pick<PaymentInput, 'total' | 'paid' | 'refunded'> & { status?: string },
+): number {
+  if (input.status && bookingWasNotCreated(input.status)) return 0;
+  return Math.max(0, cents(input.total) - cents(input.paid)) / 100;
 }
 
 const sourceLabels: Record<string, string> = { DIRECT: 'Direct', WEBSITE: 'Website' };

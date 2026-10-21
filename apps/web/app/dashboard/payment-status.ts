@@ -1,3 +1,4 @@
+import { bookingWasNotCreated, NO_BOOKING_BALANCE } from '../../lib/reservation-display';
 import type { Reservation } from './reservations';
 
 export type PaymentBadgeState = 'pending' | 'paid' | 'refunded' | 'unpaid';
@@ -99,6 +100,8 @@ export function paymentStatus(
   const refunded = minorUnits(booking.refundedAmount);
   const total = minorUnits(booking.total.amount);
 
+  if (bookingWasNotCreated(booking.status) && paid <= refunded)
+    return { label: NO_BOOKING_BALANCE, state: 'unpaid' };
   if (refunded > 0n) {
     return refunded >= paid
       ? { label: 'Refunded', state: 'refunded' }

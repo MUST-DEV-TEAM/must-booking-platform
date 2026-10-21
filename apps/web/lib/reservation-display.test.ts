@@ -8,7 +8,13 @@ import {
   sourceDisplay,
 } from './reservation-display';
 
-const base = { status: 'CONFIRMED', paymentMethod: 'POKPAY', total: '200.00', paid: '0', refunded: '0' };
+const base = {
+  status: 'CONFIRMED',
+  paymentMethod: 'POKPAY',
+  total: '200.00',
+  paid: '0',
+  refunded: '0',
+};
 
 describe('paymentDisplay', () => {
   it('is Paid when the total is covered', () => {
@@ -27,8 +33,10 @@ describe('paymentDisplay', () => {
     expect(paymentDisplay({ ...base, paymentMethod: 'PAY_AT_HOTEL' }).label).toBe('Pay at hotel');
     expect(paymentDisplay({ ...base, status: 'PAYMENT_PENDING' }).label).toBe('Pending');
   });
-  it('is Failed for a failed payment and No payment due for a free booking', () => {
-    expect(paymentDisplay({ ...base, status: 'PAYMENT_FAILED' }).label).toBe('Failed');
+  it('shows no balance for a failed booking and No payment due for a free booking', () => {
+    expect(paymentDisplay({ ...base, status: 'PAYMENT_FAILED' }).label).toBe(
+      'No balance - booking was not created',
+    );
     expect(paymentDisplay({ ...base, paymentMethod: 'FREE', total: '0' }).label).toBe(
       'No payment due',
     );
@@ -39,9 +47,10 @@ describe('paymentDisplay', () => {
 });
 
 describe('balanceDue', () => {
-  it('subtracts the net amount paid and never goes below zero', () => {
+  it('subtracts the amount paid, never creates debt after a refund, and never goes below zero', () => {
     expect(balanceDue({ total: '200.00', paid: '60.00', refunded: '0' })).toBe(140);
     expect(balanceDue({ total: '200.00', paid: '260.00', refunded: '0' })).toBe(0);
+    expect(balanceDue({status:'CONFIRMED',total:'220.00',paid:'220.00',refunded:'55.00'})).toBe(0);
   });
 });
 
@@ -61,4 +70,22 @@ describe('sourceDisplay and nightsBetween', () => {
   it('counts nights by calendar day across a month end', () => {
     expect(nightsBetween('2026-10-30', '2026-11-02')).toBe(3);
   });
+});
+
+describe('failed booking balances', () => {
+  it.each(['AVAILABILITY_FAILED', 'PMS_REJECTED', 'PAYMENT_FAILED'])(
+    'does not collect a balance for %s',
+    (status) => {
+      const input = {
+        status,
+        paymentMethod: 'PAY_AT_HOTEL',
+        total: '220.00',
+        paid: '0.00',
+        refunded: '0.00',
+      };
+      expect(paymentDisplay(input).label).toBe('No balance - booking was not created');
+      expect(balanceDue(input)).toBe(0);
+      expect(paymentDisplay({ ...input, paid: '10.00' }).label).toBe('Refund due');
+    },
+  );
 });

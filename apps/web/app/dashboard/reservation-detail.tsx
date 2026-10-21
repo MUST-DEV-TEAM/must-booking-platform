@@ -52,6 +52,8 @@ import {
 } from '../../components/ui/status-badge';
 import {
   balanceDue,
+  bookingWasNotCreated,
+  NO_BOOKING_BALANCE,
   bookingStatusDisplay,
   nightsBetween,
   paymentDisplay,
@@ -160,9 +162,21 @@ function activityIcon(action: string): { icon: LucideIcon; tone: ActivityEntry['
 function activityDetail(details: Record<string, unknown>) {
   const parts: string[] = [];
   if (details.changes && typeof details.changes === 'object') {
-    const labels: Record<string,string> = {firstName:'First name',lastName:'Last name',email:'Email',phone:'Phone',specialRequests:'Notes',estimatedArrivalTime:'Estimated arrival',adults:'Adults',children:'Children',startsOn:'Check-in date',endsOn:'Check-out date',total:'Total'};
-    for(const [key,value] of Object.entries(details.changes)) {
-      const change=value as {old?:unknown;new?:unknown};
+    const labels: Record<string, string> = {
+      firstName: 'First name',
+      lastName: 'Last name',
+      email: 'Email',
+      phone: 'Phone',
+      specialRequests: 'Notes',
+      estimatedArrivalTime: 'Estimated arrival',
+      adults: 'Adults',
+      children: 'Children',
+      startsOn: 'Check-in date',
+      endsOn: 'Check-out date',
+      total: 'Total',
+    };
+    for (const [key, value] of Object.entries(details.changes)) {
+      const change = value as { old?: unknown; new?: unknown };
       parts.push(`${labels[key] ?? key}: ${change.old ?? '(empty)'} -> ${change.new ?? '(empty)'}`);
     }
   }
@@ -177,7 +191,6 @@ function activityDetail(details: Record<string, unknown>) {
 // Shown when the hotel has not set its own check-in and check-out times in Settings.
 const DEFAULT_CHECK_IN = '15:00';
 const DEFAULT_CHECK_OUT = '11:00';
-
 
 /** Ids of the reservations on the list page the user came from, for the previous / next arrows. */
 export const NEIGHBOURS_KEY = 'must.reservations.neighbours';
@@ -301,6 +314,7 @@ export function ReservationDetail({
 
   const currency = booking.total.currency;
   const due = balanceDue({
+    status: booking.status,
     total: booking.total.amount,
     paid: booking.paidAmount,
     refunded: booking.refundedAmount,
@@ -317,7 +331,9 @@ export function ReservationDetail({
     .filter(Boolean)
     .join(', ');
   const cancellation = booking.cancellation;
-  const canCancel = !booking.cancellationPending && ['PAYMENT_PENDING','PMS_CONFIRMATION_PENDING','CONFIRMED'].includes(booking.status);
+  const canCancel =
+    !booking.cancellationPending &&
+    ['PAYMENT_PENDING', 'PMS_CONFIRMATION_PENDING', 'CONFIRMED'].includes(booking.status);
   const neighbours = readNeighbours();
   const at = neighbours.indexOf(booking.id);
   const pageHref = (id: string) =>
@@ -373,7 +389,10 @@ export function ReservationDetail({
   const hasClock = booking.clockFolios.length > 0 || !!booking.externalBookingId;
   const firstCharge = ledger.data?.find((entry) => entry.kind === 'CHARGE');
   const received = Number(booking.paidAmount) - Number(booking.refundedAmount);
-  const amendmentRefundDue = paymentMinor(booking.paidAmount) - paymentMinor(booking.refundedAmount) - paymentMinor(booking.total.amount);
+  const amendmentRefundDue =
+    paymentMinor(booking.paidAmount) -
+    paymentMinor(booking.refundedAmount) -
+    paymentMinor(booking.total.amount);
   const lastClock = booking.activity.find((event) => event.action.startsWith('booking.clock'));
   const methodLabel = booking.paymentMethod.toLowerCase().replaceAll('_', ' ');
   const methodTitle = methodLabel.charAt(0).toUpperCase() + methodLabel.slice(1);
@@ -452,23 +471,49 @@ export function ReservationDetail({
             ) : null}
             {canCancel ? (
               <Button variant="destructive" onClick={() => setCancelling(true)}>
-                <Ban aria-hidden="true" /> {canCancelBooking ? 'Cancel reservation' : 'Request cancellation'}
+                <Ban aria-hidden="true" />{' '}
+                {canCancelBooking ? 'Cancel reservation' : 'Request cancellation'}
               </Button>
             ) : null}
           </>
         }
       />
-      {editingDetails ? <EditBookingDetailsDialog tenantId={tenantId} propertyId={propertyId} bookingId={booking.id} version={booking.version}
-        initial={{firstName:booking.guestFirstName??'',lastName:booking.guestLastName??'',email:booking.guestEmail??'',phone:booking.guestPhone??'',specialRequests:booking.specialRequests??'',estimatedArrivalTime:booking.estimatedArrivalTime??'',adults:booking.adults,children:booking.children}}
-        maxOccupancy={booking.maxOccupancy} managedInClock={booking.detailsManagedInClock ?? !!booking.externalBookingId}
-        onClose={()=>setEditingDetails(false)} onSaved={async()=>{await queryClient.invalidateQueries({queryKey:['dashboard']});}}/> : null}
+      {editingDetails ? (
+        <EditBookingDetailsDialog
+          tenantId={tenantId}
+          propertyId={propertyId}
+          bookingId={booking.id}
+          version={booking.version}
+          initial={{
+            firstName: booking.guestFirstName ?? '',
+            lastName: booking.guestLastName ?? '',
+            email: booking.guestEmail ?? '',
+            phone: booking.guestPhone ?? '',
+            specialRequests: booking.specialRequests ?? '',
+            estimatedArrivalTime: booking.estimatedArrivalTime ?? '',
+            adults: booking.adults,
+            children: booking.children,
+          }}
+          maxOccupancy={booking.maxOccupancy}
+          managedInClock={booking.detailsManagedInClock ?? !!booking.externalBookingId}
+          onClose={() => setEditingDetails(false)}
+          onSaved={async () => {
+            await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+          }}
+        />
+      ) : null}
       {changingDates ? (
         <ChangeBookingDatesDialog
-          tenantId={tenantId} propertyId={propertyId} bookingId={booking.id}
-          startsOn={booking.startsOn} endsOn={booking.endsOn}
+          tenantId={tenantId}
+          propertyId={propertyId}
+          bookingId={booking.id}
+          startsOn={booking.startsOn}
+          endsOn={booking.endsOn}
           managedInClock={booking.detailsManagedInClock ?? !!booking.externalBookingId}
           onClose={() => setChangingDates(false)}
-          onSaved={async () => { await queryClient.invalidateQueries({ queryKey: ['dashboard'] }); }}
+          onSaved={async () => {
+            await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+          }}
         />
       ) : null}
       {amendmentRefundDue > 0n ? (
@@ -476,7 +521,9 @@ export function ReservationDetail({
           <AlertTitle>Refund due</AlertTitle>
           <AlertDescription>
             {booking.total.currency} {decimalMoney(amendmentRefundDue)} is owed to the guest.{' '}
-            {canRefundPayment ? 'Use Refund to issue it separately.' : 'Ask someone with refund permission to issue it.'}{' '}
+            {canRefundPayment
+              ? 'Use Refund to issue it separately.'
+              : 'Ask someone with refund permission to issue it.'}{' '}
             No refund has been issued automatically.
           </AlertDescription>
         </Alert>
@@ -557,7 +604,9 @@ export function ReservationDetail({
                 {address ? field('Guest address', address) : null}
                 {field('Last updated', dateTime(booking.updatedAt))}
               </div>
-              {booking.estimatedArrivalTime ? field('Estimated arrival (hotel local time)',booking.estimatedArrivalTime) : null}
+              {booking.estimatedArrivalTime
+                ? field('Estimated arrival (hotel local time)', booking.estimatedArrivalTime)
+                : null}
               {booking.specialRequests ? (
                 <div className="rounded-lg border p-3 text-sm">
                   <p className="mb-1 text-xs font-semibold text-muted-foreground">
@@ -629,7 +678,12 @@ export function ReservationDetail({
                   firstCharge?.externalPaymentId ?? 'No online payment',
                 )}
                 {field('Amount received', money(String(received), currency))}
-                {field('Balance due', money(String(due), currency))}
+                {field(
+                  'Balance due',
+                  bookingWasNotCreated(booking.status)
+                    ? NO_BOOKING_BALANCE
+                    : money(String(due), currency),
+                )}
                 {Number(booking.refundedAmount) > 0
                   ? field('Refunded', money(booking.refundedAmount, currency))
                   : null}
@@ -717,8 +771,18 @@ export function ReservationDetail({
         </Card>
       </div>
 
-      {booking.cancellationPending ? <Badge variant="warning">Cancellation pending approval</Badge> : null}
-      <CancellationDialog tenantId={tenantId} propertyId={propertyId} bookingId={booking.id} open={cancelling} onOpenChange={setCancelling} canCancel={canCancelBooking} canRefund={canRefundPayment}/>
+      {booking.cancellationPending ? (
+        <Badge variant="warning">Cancellation pending approval</Badge>
+      ) : null}
+      <CancellationDialog
+        tenantId={tenantId}
+        propertyId={propertyId}
+        bookingId={booking.id}
+        open={cancelling}
+        onOpenChange={setCancelling}
+        canCancel={canCancelBooking}
+        canRefund={canRefundPayment}
+      />
 
       <ConfirmDialog
         open={canRefundPayment && refunding}

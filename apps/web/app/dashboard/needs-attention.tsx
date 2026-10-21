@@ -10,14 +10,42 @@ import { Card, CardContent } from '../../components/ui/card';
 import { DetailList } from '../../components/ui/detail-list';
 import { PageHero } from '../../components/ui/page-hero';
 import { SearchInput } from '../../components/ui/search-input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../components/ui/select';
 import { StatTile } from '../../components/ui/stat-tile';
-import { EmptyPanel, ErrorPanel, ListSkeleton, NoResultsPanel } from '../../components/ui/state-panel';
+import {
+  EmptyPanel,
+  ErrorPanel,
+  ListSkeleton,
+  NoResultsPanel,
+} from '../../components/ui/state-panel';
 import { BookingStatusBadge, PaymentStatusBadge } from '../../components/ui/status-badge';
 import { TabBar } from '../../components/ui/tab-bar';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
-import { attentionIssue, PRIORITY_RANK, type AttentionGroup, type AttentionPriority } from '../../lib/attention';
-import { balanceDue, nightsBetween } from '../../lib/reservation-display';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../components/ui/table';
+import {
+  attentionIssue,
+  PRIORITY_RANK,
+  type AttentionGroup,
+  type AttentionPriority,
+} from '../../lib/attention';
+import {
+  balanceDue,
+  bookingWasNotCreated,
+  NO_BOOKING_BALANCE,
+  nightsBetween,
+} from '../../lib/reservation-display';
 import { cn } from '../../lib/utils';
 
 type Row = {
@@ -41,7 +69,9 @@ type Row = {
 type Item = Row & { issue: ReturnType<typeof attentionIssue>; guest: string };
 
 const guestOf = (row: Row) =>
-  [row.guestFirstName, row.guestLastName].filter(Boolean).join(' ') || row.guestEmail || 'Unknown guest';
+  [row.guestFirstName, row.guestLastName].filter(Boolean).join(' ') ||
+  row.guestEmail ||
+  'Unknown guest';
 const money = (amount: string, currency: string) =>
   new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(amount));
 const day = (iso: string) =>
@@ -61,7 +91,13 @@ function openRecord(tenantId: string, propertyId: string, id: string) {
  * system did not answer. Summary tiles and tabs narrow the list; selecting a row shows why it
  * was flagged and what to do next.
  */
-export function NeedsAttentionTab({ tenantId, propertyId }: { tenantId: string; propertyId: string }) {
+export function NeedsAttentionTab({
+  tenantId,
+  propertyId,
+}: {
+  tenantId: string;
+  propertyId: string;
+}) {
   const [focus, setFocus] = useState<Focus>('all');
   const [priority, setPriority] = useState<'all' | AttentionPriority>('all');
   const [sort, setSort] = useState<Sort>('priority');
@@ -84,21 +120,33 @@ export function NeedsAttentionTab({ tenantId, propertyId }: { tenantId: string; 
 
   const items: Item[] = useMemo(
     () =>
-      (query.data ?? []).map((row) => ({ ...row, issue: attentionIssue(row.status), guest: guestOf(row) })),
+      (query.data ?? []).map((row) => ({
+        ...row,
+        issue: attentionIssue(row.status),
+        guest: guestOf(row),
+      })),
     [query.data],
   );
-  const count = (group: AttentionGroup) => items.filter((item) => item.issue.group === group).length;
+  const count = (group: AttentionGroup) =>
+    items.filter((item) => item.issue.group === group).length;
   const urgent = items.filter((item) => item.issue.priority === 'urgent').length;
 
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase();
     return items
       .filter((item) => {
-        if ((focus === 'bookings' || focus === 'payments') && item.issue.group !== focus) return false;
+        if ((focus === 'bookings' || focus === 'payments') && item.issue.group !== focus)
+          return false;
         if (focus === 'urgent' && item.issue.priority !== 'urgent') return false;
         if (priority !== 'all' && item.issue.priority !== priority) return false;
         if (!term) return true;
-        return [item.externalReference, item.guest, item.issue.title, item.roomTypeName, item.roomName ?? '']
+        return [
+          item.externalReference,
+          item.guest,
+          item.issue.title,
+          item.roomTypeName,
+          item.roomName ?? '',
+        ]
           .join(' ')
           .toLowerCase()
           .includes(term);
@@ -245,7 +293,10 @@ export function NeedsAttentionTab({ tenantId, propertyId }: { tenantId: string; 
               onChange={(event) => setSearch(event.target.value)}
               className="min-w-56 flex-1"
             />
-            <Select value={priority} onValueChange={(value) => setPriority(value as typeof priority)}>
+            <Select
+              value={priority}
+              onValueChange={(value) => setPriority(value as typeof priority)}
+            >
               <SelectTrigger aria-label="Priority" className="w-40">
                 <SelectValue />
               </SelectTrigger>
@@ -295,9 +346,15 @@ export function NeedsAttentionTab({ tenantId, propertyId }: { tenantId: string; 
               <TableHeader className="bg-muted">
                 <TableRow className="hover:bg-muted">
                   <TableHead className="px-4 py-2 normal-case tracking-normal">Issue</TableHead>
-                  <TableHead className="px-2 py-2 normal-case tracking-normal">Reservation · Guest</TableHead>
-                  <TableHead className="px-2 py-2 normal-case tracking-normal">Room · Stay</TableHead>
-                  <TableHead className="px-2 py-2 normal-case tracking-normal">Booking · Payment</TableHead>
+                  <TableHead className="px-2 py-2 normal-case tracking-normal">
+                    Reservation · Guest
+                  </TableHead>
+                  <TableHead className="px-2 py-2 normal-case tracking-normal">
+                    Room · Stay
+                  </TableHead>
+                  <TableHead className="px-2 py-2 normal-case tracking-normal">
+                    Booking · Payment
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -375,24 +432,33 @@ export function NeedsAttentionTab({ tenantId, propertyId }: { tenantId: string; 
               </div>
               <DetailList
                 items={[
-                  { label: 'Room', value: `${selected.roomName ?? 'Not assigned'} · ${selected.roomTypeName}` },
+                  {
+                    label: 'Room',
+                    value: `${selected.roomName ?? 'Not assigned'} · ${selected.roomTypeName}`,
+                  },
                   {
                     label: 'Stay',
                     value: `${day(selected.startsOn)} · ${nightsBetween(selected.startsOn, selected.endsOn)} nights`,
                   },
-                  { label: 'Booking total', value: money(selected.total.amount, selected.total.currency) },
+                  {
+                    label: 'Booking total',
+                    value: money(selected.total.amount, selected.total.currency),
+                  },
                   {
                     label: 'Balance due',
-                    value: money(
-                      String(
-                        balanceDue({
-                          total: selected.total.amount,
-                          paid: selected.paidAmount,
-                          refunded: selected.refundedAmount,
-                        }),
-                      ),
-                      selected.total.currency,
-                    ),
+                    value: bookingWasNotCreated(selected.status)
+                      ? NO_BOOKING_BALANCE
+                      : money(
+                          String(
+                            balanceDue({
+                              status: selected.status,
+                              total: selected.total.amount,
+                              paid: selected.paidAmount,
+                              refunded: selected.refundedAmount,
+                            }),
+                          ),
+                          selected.total.currency,
+                        ),
                   },
                 ]}
               />
