@@ -42,8 +42,7 @@ const columnLabels = {
   address: 'City / address',
   mode: 'Booking mode',
   connection: 'Connection',
-  website: 'Website',
-  payments: 'Payment readiness',
+  setup: 'Setup',
   staff: 'Staff',
   status: 'Status',
 };
@@ -52,8 +51,7 @@ const defaults: Record<Column, boolean> = {
   address: true,
   mode: true,
   connection: true,
-  website: true,
-  payments: true,
+  setup: true,
   staff: true,
   status: true,
 };
@@ -72,6 +70,9 @@ function paymentLabel(h: DirectoryHotel) {
       : h.paymentGateways.payAtHotel
         ? 'Pay at hotel only'
         : 'Needs setup';
+}
+function websiteLabel(h: DirectoryHotel) {
+  return hotelReadiness(h).health['managed-pages'].status === 'done' ? 'Connected' : 'Not connected';
 }
 function connectionLabel(h: DirectoryHotel) {
   return h.pmsSource === 'CLOCK_PMS'
@@ -125,9 +126,7 @@ export function HotelDirectory({
       address: h.address,
       mode: modeLabels[h.bookingMode],
       connection: connectionLabel(h),
-      website:
-        hotelReadiness(h).health['managed-pages'].status === 'done' ? 'Connected' : 'Not connected',
-      payments: paymentLabel(h),
+      setup: `${websiteLabel(h)} / ${paymentLabel(h)}`,
       staff: h.staffCount,
       status: ready(h) ? 'Active' : 'Needs setup',
     })[key];
@@ -140,7 +139,7 @@ export function HotelDirectory({
         (connection === 'all' || h.pmsSource === connection) &&
         (mode === 'all' || h.bookingMode === mode) &&
         (website === 'all' ||
-          (value(h, 'website') === 'Connected') === (website === 'connected')) &&
+          (websiteLabel(h) === 'Connected') === (website === 'connected')) &&
         (payment === 'all' || paymentLabel(h) === payment),
     )
     .sort((a, b) => {
@@ -300,7 +299,14 @@ export function HotelDirectory({
             {rows.length === 0 ? (
               <NoResultsPanel onClear={clear} />
             ) : (
-              <Table aria-label="Hotels">
+              <Table
+                aria-label="Hotels"
+                className="table-fixed [&_th]:whitespace-normal [&_td]:whitespace-normal [&_th]:px-2 [&_td]:px-2 [&_td]:break-words [&_[data-slot=badge]]:max-w-full [&_[data-slot=badge]]:whitespace-normal"
+              >
+                <colgroup>
+                  <col className="w-8" />
+                  <col className="w-[23%]" />
+                </colgroup>
                 <TableHeader>
                   <TableRow>
                     <TableHead>
@@ -365,7 +371,7 @@ export function HotelDirectory({
                       <TableCell>
                         <button
                           type="button"
-                          className="max-w-64 border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          className="w-full min-w-0 border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           aria-label={`Preview ${h.name}`}
                           onClick={() => setPeekId(h.id)}
                         >
@@ -379,7 +385,16 @@ export function HotelDirectory({
                         .filter((k) => columns[k])
                         .map((k) => (
                           <TableCell key={k}>
-                            {k === 'status' ? (
+                            {k === 'setup' ? (
+                              <div className="flex flex-col items-start gap-1">
+                                <Badge variant="outline" aria-label={`Website: ${websiteLabel(h)}`}>
+                                  Website: {websiteLabel(h)}
+                                </Badge>
+                                <Badge variant="outline" aria-label={`Payments: ${paymentLabel(h)}`}>
+                                  {paymentLabel(h)}
+                                </Badge>
+                              </div>
+                            ) : k === 'status' ? (
                               <Badge variant={ready(h) ? 'success' : 'warning'}>
                                 {value(h, k)}
                               </Badge>
@@ -393,7 +408,7 @@ export function HotelDirectory({
                                 ) : null}
                               </>
                             ) : k === 'address' ? (
-                              <span className="block max-w-48 truncate" title={h.address}>
+                              <span className="block max-w-full truncate" title={h.address}>
                                 {h.address || 'Not set'}
                               </span>
                             ) : (
@@ -459,7 +474,7 @@ export function HotelDirectory({
                 { label: 'Address', value: peek.address || 'Not set' },
                 { label: 'Time zone', value: peek.timezone },
                 { label: 'Booking mode', value: modeLabels[peek.bookingMode] },
-                { label: 'Website', value: value(peek, 'website') },
+                { label: 'Website', value: websiteLabel(peek) },
                 { label: 'Payments', value: paymentLabel(peek) },
                 { label: 'Staff with access', value: peek.staffCount },
               ]}

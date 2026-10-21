@@ -265,11 +265,11 @@ export function AppShell({
             collapsed ? 'w-16' : 'w-60',
           )}
         >
-          <div className={cn('flex min-h-10 items-center px-1 pt-1', collapsed && 'justify-center')}>
+          <div className={cn('flex min-h-10 min-w-0 items-center px-1 pt-1', collapsed && 'justify-center')}>
             <a
               href={homeHref}
               aria-label="MUST Hotel home"
-              className="rounded-md text-inherit no-underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              className="min-w-0 flex-1 rounded-md text-inherit no-underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
             >
               {hotelBrand ? <HotelBrand {...hotelBrand} compact={collapsed}/> : <Brand compact={collapsed} />}
             </a>
@@ -324,8 +324,8 @@ export function AppShell({
         <SheetContent side="left" hideClose className="w-72 max-w-[90vw] p-0">
           <SheetTitle className="sr-only">Hotel workspace navigation</SheetTitle>
           <div className="flex h-full flex-col gap-4 bg-card p-3">
-            <div className="flex items-center justify-between px-1 pt-1">
-              <a href={homeHref} aria-label="MUST Hotel home" className="text-inherit no-underline">
+            <div className="flex min-w-0 items-center justify-between gap-2 px-1 pt-1">
+              <a href={homeHref} aria-label="MUST Hotel home" className="min-w-0 flex-1 text-inherit no-underline">
                 {hotelBrand ? <HotelBrand {...hotelBrand}/> : <Brand />}
               </a>
               <Button

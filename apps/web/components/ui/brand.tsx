@@ -1,6 +1,6 @@
 export function Brand({ compact = false }: { compact?: boolean }) {
   return (
-    <div className="flex items-center gap-2.5">
+    <div className="flex min-w-0 items-center gap-2.5">
       <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border-2 border-primary bg-card text-primary">
         <svg aria-hidden="true" viewBox="0 0 40 40" className="size-7">
           <path
@@ -21,9 +21,9 @@ export function Brand({ compact = false }: { compact?: boolean }) {
         </svg>
       </span>
       {compact ? null : (
-        <div className="leading-tight">
-          <div className="font-extrabold">MUST Hotel</div>
-          <div className="text-xs text-muted-foreground">Reservation operations</div>
+        <div className="min-w-0 leading-tight">
+          <div className="truncate font-extrabold" title="MUST Hotel">MUST Hotel</div>
+          <div className="truncate text-xs text-muted-foreground" title="Reservation operations">Reservation operations</div>
         </div>
       )}
     </div>

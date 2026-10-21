@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { it, expect, vi } from 'vitest';
 import { PaymentSettings, BrandingSettings } from './settings-connection-forms';
 import type { Property } from './settings-areas';
+import { AppShell } from '../../components/app-shell';
 import { HotelBrand } from '../../components/ui/hotel-brand';
 import { PokpayConnectionPanel } from '../../components/ui/pokpay-connection-panel';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -256,4 +257,18 @@ it('keeps the MUST mark beside the hotel name and contains a supplied logo', asy
   } finally {
     await m.close();
   }
+});
+
+it.each(['MUST Local Demo Hotel', 'MUST Local Demo Hotel With Forty Letters'])('keeps the full sidebar name accessible through collapse and expand: %s', async (name) => {
+  const m = await mount(<AppShell navigation={[]} title="Hotels" hotelBrand={{ name }}>Hotels</AppShell>);
+  const sidebar = document.querySelector('aside')!;
+  expect(sidebar.querySelector('[title]')?.getAttribute('title')).toBe(name);
+  const toggle = sidebar.querySelector<HTMLButtonElement>('[aria-label="Collapse sidebar"]')!;
+  await act(async () => toggle.click());
+  expect(sidebar.querySelector('[title]')).toBeNull();
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  await act(async () => toggle.click());
+  expect(sidebar.querySelector('[title]')?.textContent).toBe(name);
+  expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  await m.close();
 });

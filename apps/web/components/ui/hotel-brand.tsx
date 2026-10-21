@@ -33,7 +33,9 @@ export function HotelBrand({
         </>
       ) : (
         <>
-          <Brand compact />
+          <div className="shrink-0">
+            <Brand compact />
+          </div>
           {compact ? null : (
             <span className="truncate font-semibold" title={name}>
               {name}
