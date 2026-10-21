@@ -49,7 +49,7 @@ No card charge or refund is triggered by an amendment, including for refund-capa
 | Minimum stay, inclusive boundary | Guest, staff | Property minimum; stricter Clock arrival minimum when available | `MIN_STAY` |
 | Maximum stay, inclusive boundary | Guest, staff | Property maximum | `MAX_STAY` |
 | Advance-booking limit, inclusive boundary | Guest, staff | Property advance days | `ADVANCE_BOOKING_LIMIT` |
-| Same-day booking enabled and before cutoff | Guest only; staff exempt | Property timezone, enabled flag and cutoff time | `SAME_DAY_CLOSED` |
+| Same-day booking enabled and before cutoff | Guest and staff | Property timezone, enabled flag and cutoff time | `SAME_DAY_CLOSED` |
 | Published type and active physical room | Guest and staff, preserving existing creation safety gates | Scoped catalog facts | `ROOM_TYPE_NOT_AVAILABLE`, `ROOM_NOT_AVAILABLE` |
 | Adults plus children within occupancy | Guest, staff | Room type max occupancy | `CAPACITY_EXCEEDED` |
 | Inventory remains available | Guest, staff | Local room stock and pooled stock in MIXED; Clock availability result | `NO_AVAILABILITY` |
@@ -58,6 +58,14 @@ No card charge or refund is triggered by an amendment, including for refund-capa
 | Block never cancels a reservation | Block | Overlapping scoped reservations | `BLOCK_RESERVATION_CONFLICT` (HTTP 409) |
 
 Pooled room-type reservations may overlap while inventory remains. Assigned-room reservations conflict directly. Existing overlapping manual blocks remain permitted; booking against them is rejected. Blocks do not apply booking stay length, advance, occupancy or publication rules. Local room types have no persisted individual minimum/maximum fields (G183); property rules apply. Unassigned pooled reservations are displayed in a ?Not assigned? calendar lane instead of being assigned to a physical room by the UI.
+
+### Property booking settings
+
+General, Booking rules and Check-in & out share the existing scoped property read/PATCH contract and `settings.manage` permission. Optional business/about and arrival-policy fields are stored on `properties`; the dashboard groups them with one dirty-only Save bar and an unsaved-change guard per area. Descriptive fields remain store/display only: the existing public catalog has no property-metadata envelope. No-show guidance is informational and never triggers a charge. Language choices describe offered languages, not automatic translations.
+
+`allowSameDayBooking` maps to the existing `same_day_booking_allowed` column (default true); `sameDayCutoffTime` reuses the existing column. Same-day stays are refused at or after the cutoff in the property timezone, for both guest and staff bookings. Optional positive whole-number `maxGuestsPerBooking` and `maxRoomsPerBooking` apply to the whole order, including children. Single and multi-room creation recheck these settings in their existing transaction before creating bookings, so a previously issued quote cannot bypass a changed limit. Existing idempotent replays retain their original result.
+
+Business country uses the ISO country list. Offered languages currently select from `en`, `sq`, `it`, `de`, `fr`, `es`, `el`, `tr`. Default currency is an informational preference and cannot be changed once scoped rate rules, daily prices or room price overrides exist; it does not convert rate-plan prices. Website links require HTTPS. Optional description is limited to 1000 characters; policy notes to 300. Quiet-hours times must be supplied together and may cross midnight. Free-until arrival policies require a time. Nullable fields preserve unspecified legacy policies; no-show defaults to review, early/late to not offered, and ID requirement to false.
 
 ### Scoped Inventory restrictions
 

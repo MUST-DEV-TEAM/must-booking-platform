@@ -1,0 +1,26 @@
+-- Additive metadata; no tax/deposit/charging behavior. Rollback: retain columns and restore previous application.
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS legal_name varchar(200);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS tax_number varchar(100);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS country varchar(2);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS default_currency varchar(3);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS languages text[] NOT NULL DEFAULT '{}';
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS website varchar(2048);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS reservations_email varchar(254);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS description varchar(1000);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS star_rating integer CHECK (star_rating IS NULL OR star_rating BETWEEN 1 AND 5);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS max_guests_per_booking integer CHECK (max_guests_per_booking IS NULL OR max_guests_per_booking>0);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS max_rooms_per_booking integer CHECK (max_rooms_per_booking IS NULL OR max_rooms_per_booking>0);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS no_show_rule varchar(30) NOT NULL DEFAULT 'flag_for_review';
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS early_check_in_policy varchar(30) NOT NULL DEFAULT 'not_offered';
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS early_check_in_until varchar(5);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS early_check_in_note varchar(300);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS late_check_out_policy varchar(30) NOT NULL DEFAULT 'not_offered';
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS late_check_out_until varchar(5);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS late_check_out_note varchar(300);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS id_required_at_arrival boolean NOT NULL DEFAULT false;
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS quiet_hours_from varchar(5);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS quiet_hours_to varchar(5);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS children_policy varchar(30);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS children_policy_note varchar(300);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS pets_policy varchar(30);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS pets_policy_note varchar(300);

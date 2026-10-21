@@ -240,6 +240,7 @@ export function DashboardSettings({
 
         <SettingsAreaPanel activeArea={settingsArea} area="general">
           <GeneralSettings
+            canWrite={canWrite}
             property={property}
             saving={saveMutation.isPending}
             onSave={(update) => void save(update)}
@@ -247,6 +248,7 @@ export function DashboardSettings({
         </SettingsAreaPanel>
         <SettingsAreaPanel activeArea={settingsArea} area="booking-rules">
           <BookingRulesSettings
+            canWrite={canWrite}
             property={property}
             saving={saveMutation.isPending}
             onSave={(update) => void save(update)}
@@ -254,6 +256,7 @@ export function DashboardSettings({
         </SettingsAreaPanel>
         <SettingsAreaPanel activeArea={settingsArea} area="check-in-out">
           <CheckInOutSettings
+            canWrite={canWrite}
             property={property}
             saving={saveMutation.isPending}
             onSave={(update) => void save(update)}

@@ -1,6 +1,6 @@
 import { localPricing } from '../tenancy/pricing.repository';
 import { applicableRestrictions } from '../tenancy/inventory-restrictions.repository';
-import type { BookingRestriction } from './booking-rules';
+import type { BookingRulePolicy, BookingRestriction } from './booking-rules';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { Money, NightlyRate } from '@must/domain-contracts';
@@ -83,7 +83,7 @@ export class QuoteService {
       throw new BadRequestException('Quote expiry must be a positive number of seconds.');
 
     const normalizedInput = this.normalizeOccupancy(input);
-    // Guest-facing quotes only: staff walk-ins price through price(), which skips this.
+    // Public quotes also preflight the property-local cutoff; shared validation covers staff too.
     await this.enforceGuestSameDayRule(tenantId, propertyId, normalizedInput.startsOn);
     const quote = await this.priceWithNightlyRates(
       tenantId,
@@ -287,10 +287,14 @@ export class QuoteService {
           maxStayNights: number | null;
           advanceBookingDays: number | null;
           timezone: string | null;
+          sameDayBookingAllowed: boolean;
+          sameDayCutoffTime: string | null;
+          maxGuestsPerBooking: number | null;
+          maxRoomsPerBooking: number | null;
         }>
       >`
         SELECT min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
-          advance_booking_days AS "advanceBookingDays", timezone
+          advance_booking_days AS "advanceBookingDays", timezone,same_day_booking_allowed AS "sameDayBookingAllowed",same_day_cutoff_time AS "sameDayCutoffTime",max_guests_per_booking AS "maxGuestsPerBooking",max_rooms_per_booking AS "maxRoomsPerBooking"
         FROM properties WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
       `;
       if (!properties[0]) throw new NotFoundException('Property was not found.');
@@ -475,7 +479,7 @@ export class QuoteService {
   /**
    * The website's same-day rule: a stay that starts today is refused when the
    * property turned same-day booking off, or once its local cutoff time has
-   * passed. Only the guest channel calls this; staff bookings never do.
+   * passed. Staff pricing and creation enforce the same property policy.
    */
   async enforceGuestSameDayRule(
     tenantId: string,
@@ -503,7 +507,7 @@ export class QuoteService {
 
   private validateBookingRules(
     input: QuoteInput,
-    rules: {
+    rules: BookingRulePolicy & {
       minStayNights: number | null;
       maxStayNights: number | null;
       advanceBookingDays: number | null;

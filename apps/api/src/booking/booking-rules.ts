@@ -15,6 +15,8 @@ export type BookingRulePolicy = {
   advanceBookingDays?: number | null;
   sameDayBookingAllowed?: boolean;
   sameDayCutoffTime?: string | null;
+  maxGuestsPerBooking?: number | null;
+  maxRoomsPerBooking?: number | null;
 };
 export type RuleConflict = { startsOn: string; endsOn: string; kind: 'booking' | 'block' };
 export const BLOCK_RESERVATION_MESSAGE =
@@ -62,6 +64,7 @@ export function evaluateBookingRules(input: {
   adults?: number;
   children?: number;
   maxOccupancy?: number;
+  roomCount?: number;
   roomActive?: boolean;
   roomTypeStatus?: string;
   availableUnits?: number;
@@ -116,9 +119,21 @@ export function evaluateBookingRules(input: {
         code: 'ADVANCE_BOOKING_LIMIT',
         message: `Bookings can be made at most ${policy.advanceBookingDays} days in advance.`,
       });
-    const sameDay =
-      input.channel === 'guest' ? sameDayBookingViolation(input.startsOn, policy, input.now) : null;
+    const sameDay = sameDayBookingViolation(input.startsOn, policy, input.now);
     if (sameDay) errors.push(sameDay);
+    if (
+      policy.maxGuestsPerBooking != null &&
+      (input.adults ?? 1) + (input.children ?? 0) > policy.maxGuestsPerBooking
+    )
+      errors.push({
+        code: 'MAX_GUESTS_PER_BOOKING',
+        message: `A booking can include no more than ${policy.maxGuestsPerBooking} guests, including children.`,
+      });
+    if (policy.maxRoomsPerBooking != null && (input.roomCount ?? 1) > policy.maxRoomsPerBooking)
+      errors.push({
+        code: 'MAX_ROOMS_PER_BOOKING',
+        message: `A booking can include no more than ${policy.maxRoomsPerBooking} rooms.`,
+      });
     // Preserve the existing safety gates for every new booking, including staff bookings.
     if (input.roomTypeStatus !== undefined && input.roomTypeStatus !== 'PUBLISHED')
       errors.push({ code: 'ROOM_TYPE_NOT_AVAILABLE', message: 'Room type is not published.' });

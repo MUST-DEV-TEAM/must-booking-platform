@@ -1,4 +1,13 @@
 import {
+  hotelColumns,
+  hotelFields,
+  hotelInput,
+  hotelUpdates,
+  checkHotelSettings,
+  type HotelSettings,
+} from './hotel-settings';
+import { Prisma } from '@prisma/client';
+import {
   BadRequestException,
   ConflictException,
   Inject,
@@ -11,7 +20,7 @@ import { AuditLogService } from './audit-log.service';
 import { PropertyRoleTemplatesService } from './property-role-templates.service';
 
 type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
-type Property = {
+type Property = HotelSettings & {
   id: string;
   name: string;
   address: string;
@@ -49,7 +58,8 @@ export class PropertiesService {
       { tenantId },
       (tx) =>
         tx.$queryRaw<Property[]>`SELECT id, name, address, timezone,
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          EXISTS(SELECT 1 FROM rate_rules rr WHERE rr.tenant_id=p.tenant_id AND rr.property_id=p.id UNION ALL SELECT 1 FROM pricing_daily_prices dp WHERE dp.tenant_id=p.tenant_id AND dp.property_id=p.id UNION ALL SELECT 1 FROM room_price_overrides ro WHERE ro.tenant_id=p.tenant_id AND ro.property_id=p.id) AS "defaultCurrencyLocked",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -101,7 +111,7 @@ export class PropertiesService {
       const rows = await tx.$queryRaw<
         Property[]
       >`INSERT INTO properties (id, tenant_id, name, slug, address, timezone, logo_url, phone, support_email) VALUES (${id}::uuid, ${tenantId}::uuid, ${input.name}, ${slug}, ${input.address}, ${input.timezone}, ${input.logoUrl}, ${input.phone}, ${input.supportEmail}) RETURNING id, name, address, timezone,
-        online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+        online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
         booking_mode AS "bookingMode",
         min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
         check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -128,9 +138,10 @@ export class PropertiesService {
   ): Promise<Property> {
     const input = this.updateInput(body);
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
       const existing = await tx.$queryRaw<Array<Property>>`
         SELECT id, name, address, timezone,
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -142,6 +153,11 @@ export class PropertiesService {
         FROM properties WHERE id = ${propertyId}::uuid
       `;
       if (!existing[0]) throw new BadRequestException('Property not found.');
+      checkHotelSettings({ ...existing[0], ...input });
+      if (input.defaultCurrency !== undefined && input.defaultCurrency !== existing[0].defaultCurrency) {
+        const prices = await tx.$queryRaw<{locked:boolean}[]>`SELECT EXISTS(SELECT 1 FROM rate_rules WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid UNION ALL SELECT 1 FROM pricing_daily_prices WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid UNION ALL SELECT 1 FROM room_price_overrides WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid) AS locked`;
+        if (prices[0]?.locked) throw new ConflictException('Prices already exist. Their currency cannot be changed here.');
+      }
       const nextMinStayNights =
         input.minStayNights === undefined ? existing[0].minStayNights : input.minStayNights;
       const nextMaxStayNights =
@@ -154,7 +170,7 @@ export class PropertiesService {
         throw new BadRequestException('minStayNights cannot exceed maxStayNights.');
       const rows = await tx.$queryRaw<Property[]>`
         UPDATE properties
-        SET stripe_enabled=COALESCE(${input.paymentGateways?.stripe},stripe_enabled),pokpay_enabled=COALESCE(${input.paymentGateways?.pokpay},pokpay_enabled),pay_at_hotel_enabled=COALESCE(${input.paymentGateways?.payAtHotel},pay_at_hotel_enabled),
+        SET ${Object.keys(hotelInput(body as Record<string,unknown>)).length ? Prisma.sql`${hotelUpdates(input)},` : Prisma.empty} stripe_enabled=COALESCE(${input.paymentGateways?.stripe},stripe_enabled),pokpay_enabled=COALESCE(${input.paymentGateways?.pokpay},pokpay_enabled),pay_at_hotel_enabled=COALESCE(${input.paymentGateways?.payAtHotel},pay_at_hotel_enabled),
           online_payment_hold_minutes=COALESCE(${input.onlinePaymentHoldMinutes},online_payment_hold_minutes),
           auto_refund_on_free_cancellation=COALESCE(${input.autoRefundOnFreeCancellation},auto_refund_on_free_cancellation),
           brand_colour=CASE WHEN ${input.brandColour !== undefined} THEN ${input.brandColour} ELSE brand_colour END,
@@ -176,7 +192,7 @@ export class PropertiesService {
           free_cancellation_days_before_arrival = CASE WHEN ${input.freeCancellationDaysBeforeArrival !== undefined} THEN ${input.freeCancellationDaysBeforeArrival} ELSE free_cancellation_days_before_arrival END
         WHERE id = ${propertyId}::uuid
         RETURNING id, name, address, timezone,
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -257,7 +273,7 @@ export class PropertiesService {
         SET public_website_origin = ${origin}
         WHERE id = ${propertyId}::uuid
         RETURNING id, name, address, timezone,
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -293,7 +309,7 @@ export class PropertiesService {
           pay_at_hotel_enabled = ${gateways.payAtHotel}
         WHERE id = ${propertyId}::uuid
         RETURNING id, name, address, timezone,
-          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",logo_url AS "logoUrl", phone, support_email AS "supportEmail",
+          online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
           min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
           check_in_time AS "checkInTime", check_out_time AS "checkOutTime",
@@ -429,7 +445,7 @@ export class PropertiesService {
     }
     return { stripe: value.stripe, pokpay: value.pokpay, payAtHotel: value.payAtHotel };
   }
-  private updateInput(body: unknown): {
+  private updateInput(body: unknown): HotelSettings & {
     name?: string;
     address?: string;
     timezone?: string;
@@ -477,7 +493,7 @@ export class PropertiesService {
         'logoUrl',
         'phone',
         'supportEmail',
-      ].some(has)
+      ].concat(hotelFields.map((f) => f.key)).some(has)
     )
       throw new BadRequestException('At least one property field is required.');
     if (
@@ -583,6 +599,7 @@ export class PropertiesService {
       rules,
       advanceBookingDays: optionalInteger('advanceBookingDays'),
       freeCancellationDaysBeforeArrival,
+      ...hotelInput(value),
       paymentGateways: has('paymentGateways')
         ? this.paymentGateways(value.paymentGateways)
         : undefined,

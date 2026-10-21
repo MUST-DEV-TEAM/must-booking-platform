@@ -124,7 +124,7 @@ export class BookingAmendService {
     }
     const policies = await tx.$queryRaw<
       BookingRulePolicy[]
-    >`SELECT timezone,min_stay_nights AS "minStayNights",max_stay_nights AS "maxStayNights",advance_booking_days AS "advanceBookingDays" FROM properties WHERE tenant_id=${c.tenantId}::uuid AND id=${c.propertyId}::uuid`;
+    >`SELECT same_day_booking_allowed AS "sameDayBookingAllowed",same_day_cutoff_time AS "sameDayCutoffTime",max_guests_per_booking AS "maxGuestsPerBooking",max_rooms_per_booking AS "maxRoomsPerBooking",timezone,min_stay_nights AS "minStayNights",max_stay_nights AS "maxStayNights",advance_booking_days AS "advanceBookingDays" FROM properties WHERE tenant_id=${c.tenantId}::uuid AND id=${c.propertyId}::uuid`;
     const restrictions = await applicableRestrictions(tx, c.tenantId, c.propertyId, row.roomTypeId);
     const rules = evaluateBookingRules({
       ...dates,

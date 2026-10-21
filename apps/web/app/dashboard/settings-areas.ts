@@ -3,6 +3,35 @@ export type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: bo
 export type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
 
 export type Property = {
+  legalName?: string | null;
+  taxNumber?: string | null;
+  country?: string | null;
+  defaultCurrency?: string | null;
+  defaultCurrencyLocked?: boolean;
+  languages?: string[];
+  website?: string | null;
+  reservationsEmail?: string | null;
+  description?: string | null;
+  starRating?: number | null;
+  allowSameDayBooking?: boolean;
+  sameDayCutoffTime?: string | null;
+  maxGuestsPerBooking?: number | null;
+  maxRoomsPerBooking?: number | null;
+  noShowRule?: string;
+  earlyCheckInPolicy?: string | null;
+  earlyCheckInUntil?: string | null;
+  earlyCheckInNote?: string | null;
+  lateCheckOutPolicy?: string | null;
+  lateCheckOutUntil?: string | null;
+  lateCheckOutNote?: string | null;
+  idRequiredAtArrival?: boolean;
+  quietHoursFrom?: string | null;
+  quietHoursTo?: string | null;
+  childrenPolicy?: string | null;
+  childrenPolicyNote?: string | null;
+  petsPolicy?: string | null;
+  petsPolicyNote?: string | null;
+
   id: string;
   name: string;
   address: string;
@@ -98,17 +127,29 @@ export function areaHealth(
     property.minStayNights !== null &&
     property.maxStayNights !== null &&
     property.minStayNights > property.maxStayNights;
+  const invalidLimits =
+    [property.maxGuestsPerBooking, property.maxRoomsPerBooking].some(
+      (v) => v != null && (!Number.isInteger(v) || v < 1),
+    ) ||
+    (!!property.sameDayCutoffTime && !validTime(property.sameDayCutoffTime));
+  const invalidArrival =
+    (property.earlyCheckInPolicy === 'free_until' && !property.earlyCheckInUntil) ||
+    (property.lateCheckOutPolicy === 'free_until' && !property.lateCheckOutUntil) ||
+    Boolean(property.quietHoursFrom) !== Boolean(property.quietHoursTo);
   const gateways = property.paymentGateways;
   return {
     general:
       present(property.name) && present(property.address) && present(property.timezone)
         ? { status: 'done', note: 'Name, address and time zone are set.' }
         : { status: 'attention', note: 'The name, address or time zone is missing.' },
-    'booking-rules': stayOrderWrong
-      ? { status: 'attention', note: 'The minimum stay is longer than the maximum stay.' }
-      : { status: 'done', note: 'Stay limits and cancellation window are set.' },
-    'check-in-out':
-      present(property.checkInTime) && present(property.checkOutTime)
+    'booking-rules': invalidLimits
+      ? { status: 'attention', note: 'Check the same-day cutoff and booking size limits.' }
+      : stayOrderWrong
+        ? { status: 'attention', note: 'The minimum stay is longer than the maximum stay.' }
+        : { status: 'done', note: 'Stay limits and cancellation window are set.' },
+    'check-in-out': invalidArrival
+      ? { status: 'attention', note: 'Complete the free-until or quiet-hours times.' }
+      : present(property.checkInTime) && present(property.checkOutTime)
         ? { status: 'done', note: `From ${property.checkInTime} to ${property.checkOutTime}.` }
         : { status: 'todo', note: 'Guests are not shown a check-in or check-out time.' },
     payments:

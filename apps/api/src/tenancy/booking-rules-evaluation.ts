@@ -50,7 +50,7 @@ export async function evaluatePropertyBookingRules(
     const policies = await tx.$queryRaw<Array<BookingRulePolicy & { bookingMode: string }>>`
       SELECT timezone, min_stay_nights AS "minStayNights", max_stay_nights AS "maxStayNights",
         advance_booking_days AS "advanceBookingDays", same_day_booking_allowed AS "sameDayBookingAllowed",
-        same_day_cutoff_time AS "sameDayCutoffTime", booking_mode::text AS "bookingMode"
+        same_day_cutoff_time AS "sameDayCutoffTime",max_guests_per_booking AS "maxGuestsPerBooking",max_rooms_per_booking AS "maxRoomsPerBooking", booking_mode::text AS "bookingMode"
       FROM properties WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
     `;
     if (!policies[0]) throw new NotFoundException('Property was not found.');

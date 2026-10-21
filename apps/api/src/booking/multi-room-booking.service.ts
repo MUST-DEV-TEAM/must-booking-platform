@@ -1,3 +1,4 @@
+import { enforcePropertyBookingLimits } from './property-booking-limits';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   BookingPaymentMethod,
@@ -96,6 +97,17 @@ export class MultiRoomBookingService {
         async (tx) => {
           await this.lockInventory(tx, context, command.rooms);
           return this.withIdempotency(tx, context, command, async () => {
+            await enforcePropertyBookingLimits(tx, context, {
+              startsOn: command.startsOn,
+              endsOn: command.endsOn,
+              adults: command.rooms.reduce(
+                (count, room) => count + resolveBookingOccupancy({ guestCount: room.guestCount }).adults,
+                0,
+              ),
+              children: 0,
+              roomCount: command.rooms.length,
+            });
+
             const paymentMethod = await this.paymentMethod(
               tx,
               context,

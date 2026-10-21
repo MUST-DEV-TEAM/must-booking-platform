@@ -1,3 +1,4 @@
+import { enforcePropertyBookingLimits } from './property-booking-limits';
 import { BadRequestException, HttpException, Inject, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import {
@@ -315,6 +316,13 @@ export class LocalPmsProvider implements PmsProvider {
                   'RATE_PLAN_REQUIRED',
                   'A rate plan is required for this room type.',
                 );
+              await enforcePropertyBookingLimits(tx, context, {
+                startsOn: command.startsOn,
+                endsOn: command.endsOn,
+                adults: occupancy.adults,
+                children: occupancy.children,
+                roomCount: 1,
+              });
               const catalogError = await this.validateCatalog(
                 tx,
                 context,
