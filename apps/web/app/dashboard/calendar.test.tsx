@@ -15,6 +15,9 @@ import {
 import { DashboardQueryProvider } from './query-provider';
 import type { Reservation } from './reservations';
 
+const pmsSource = vi.hoisted(() => ({ data: 'LOCAL' }));
+vi.mock('./use-pms-source', () => ({ usePmsSource: () => pmsSource }));
+
 const roomTypes = [
   { id: 'deluxe', name: 'Deluxe King' },
   { id: 'standard', name: 'Standard Double' },
@@ -146,6 +149,10 @@ describe('Dashboard calendar', () => {
   });
 
   it('walks an Owner/Admin through the block-availability popup: room type, then room, then dates', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ provider: 'LOCAL' })),
+    );
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     const container = document.createElement('div');
     document.body.appendChild(container);
@@ -182,6 +189,9 @@ describe('Dashboard calendar', () => {
     // Not shown until opened.
     expect(container.textContent).not.toContain('Block all room types');
 
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
     await act(async () => findButton('Block availability')!.click());
     expect(container.querySelector('[role="dialog"]')?.textContent).toContain('which room types?');
     expect(container.textContent).toContain('All room types');
@@ -212,6 +222,8 @@ describe('Dashboard calendar', () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     let postedBody: unknown;
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith('/pms-connection-status'))
+        return Promise.resolve(Response.json({ provider: 'LOCAL' }));
       if (
         url === '/api/tenants/tenant-1/properties/property-1/availability-blocks' &&
         init?.method === 'POST'
@@ -266,6 +278,9 @@ describe('Dashboard calendar', () => {
         button.textContent?.includes(text),
       );
 
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
     await act(async () => findButton('Block availability')!.click());
     await act(async () => {
       selectMultipleOptions(container.querySelector('#block-room-types') as HTMLSelectElement, [
@@ -297,6 +312,8 @@ describe('Dashboard calendar', () => {
   it('shows existing blocks that already cover the targeted room before creating a new one', async () => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith('/pms-connection-status'))
+        return Promise.resolve(Response.json({ provider: 'LOCAL' }));
       if (
         url === '/api/tenants/tenant-1/properties/property-1/availability-blocks/existing-block' &&
         init?.method === 'DELETE'
@@ -347,6 +364,9 @@ describe('Dashboard calendar', () => {
         button.textContent?.includes(text),
       );
 
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
     await act(async () => findButton('Block availability')!.click());
     await act(async () => {
       selectMultipleOptions(container.querySelector('#block-room-types') as HTMLSelectElement, [
@@ -384,6 +404,37 @@ describe('Dashboard calendar', () => {
 
     await act(async () => root.unmount());
     container.remove();
+  });
+
+  it('keeps Clock capacity unknown, preserves Closed and refuses blocks before a wizard', () => {
+    pmsSource.data = 'CLOCK_PMS';
+    try {
+      const markup = renderToStaticMarkup(
+        createElement(
+          DashboardQueryProvider,
+          undefined,
+          createElement(DashboardCalendar, {
+            ...props,
+            canManageAvailability: true,
+            initialRows: [
+              {
+                id: 'deluxe',
+                label: 'Deluxe King',
+                totalUnits: 81,
+                availableByDate: { '2026-08-10': 81 },
+                closedByDate: { '2026-08-11': true },
+              },
+            ],
+          }),
+        ),
+      );
+      expect(markup).toContain('Unknown - managed in Clock');
+      expect(markup).toContain('Deluxe King: Closed');
+      expect(markup).not.toContain('81 available');
+      expect(markup).not.toContain('Block availability');
+    } finally {
+      pmsSource.data = 'LOCAL';
+    }
   });
 
   it('classifies arrivals, departures, and in-house bookings for a selected day', () => {

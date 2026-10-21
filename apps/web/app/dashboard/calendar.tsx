@@ -7,6 +7,7 @@ import { Fragment, type CSSProperties, type FormEvent, useMemo, useState } from 
 import { DayPicker, type DateRange } from 'react-day-picker';
 import { toast } from 'sonner';
 
+import { usePmsSource } from './use-pms-source';
 import { fetchPropertyBookings, type Reservation } from './reservations';
 import styles from './calendar.module.css';
 
@@ -92,6 +93,8 @@ export function DashboardCalendar({
 }) {
   const [month, setMonth] = useState(initialMonth ?? monthStart(new Date()));
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const source = usePmsSource(tenantId, propertyId);
+  const localStock = source.data === 'LOCAL';
   const [blockDialogOpen, setBlockDialogOpen] = useState(false);
   const [blockStep, setBlockStep] = useState<'room-type' | 'room' | 'dates'>('room-type');
   const [blockRange, setBlockRange] = useState<DateRange | undefined>();
@@ -154,7 +157,7 @@ export function DashboardCalendar({
   const blocksQuery = useQuery({
     queryKey: ['dashboard', 'availability-blocks', tenantId, propertyId],
     queryFn: () => fetchAvailabilityBlocks(tenantId, propertyId),
-    enabled: canManageAvailability,
+    enabled: canManageAvailability && localStock,
     initialData: initialBlocks,
     staleTime: initialBlocks ? Infinity : 0,
   });
@@ -235,6 +238,10 @@ export function DashboardCalendar({
   }
 
   function openBlockDialog() {
+    if (!localStock) {
+      toast.info('Managed in Clock. Availability blocks are read-only here.');
+      return;
+    }
     setBlockStep('room-type');
     setBlockRange(undefined);
     setBlockAll(false);
@@ -250,7 +257,7 @@ export function DashboardCalendar({
   if (
     availabilityQuery.isPending ||
     bookingsQuery.isPending ||
-    (canManageAvailability && blocksQuery.isPending)
+    (canManageAvailability && localStock && blocksQuery.isPending)
   )
     return (
       <StatePanel
@@ -263,7 +270,7 @@ export function DashboardCalendar({
   const error =
     availabilityQuery.error ??
     bookingsQuery.error ??
-    (canManageAvailability ? blocksQuery.error : null);
+    (canManageAvailability && localStock ? blocksQuery.error : null);
   if (error || !calendarData || !bookings)
     return <Text className={styles.error}>{error?.message}</Text>;
 
@@ -279,8 +286,16 @@ export function DashboardCalendar({
             {includeRooms ? 'Nightly availability by room.' : 'Nightly availability by room type.'}
           </Text>
         </div>
+        {!localStock ? (
+          <p role="note">
+            {source.data === 'CLOCK_PMS'
+              ? 'Unknown - managed in Clock.'
+              : 'Inventory source is unknown.'}{' '}
+            Availability blocks are read-only here.
+          </p>
+        ) : null}
         <div className={styles.headingActions}>
-          {canManageAvailability ? (
+          {canManageAvailability && localStock ? (
             <button
               className="must-button must-button--secondary"
               onClick={openBlockDialog}
@@ -351,19 +366,23 @@ export function DashboardCalendar({
                   const remaining = isClosed ? 0 : (row.availableByDate[day] ?? 0);
                   const stateLabel = isClosed
                     ? 'Closed'
-                    : remaining > 0
-                      ? `${remaining} available`
-                      : 'Sold out';
+                    : !localStock
+                      ? source.data === 'CLOCK_PMS'
+                        ? 'Unknown - managed in Clock'
+                        : 'Unknown'
+                      : remaining > 0
+                        ? `${remaining} available`
+                        : 'Sold out';
                   return (
                     <button
                       key={`${row.id}-${day}`}
                       type="button"
-                      className={`${styles.tapeChartCell} ${isClosed ? styles.closed : availabilityClass(remaining, row.totalUnits)}`}
+                      className={`${styles.tapeChartCell} ${isClosed ? styles.closed : !localStock ? '' : availabilityClass(remaining, row.totalUnits)}`}
                       aria-label={`${row.label}, ${formatDay(day)}: ${stateLabel.toLowerCase()}`}
                       title={`${row.label}: ${stateLabel}`}
                       onClick={() => setSelectedDay(day)}
                     >
-                      {remaining > 1 ? remaining : ''}
+                      {localStock && remaining > 1 ? remaining : ''}
                     </button>
                   );
                 })}
@@ -377,7 +396,7 @@ export function DashboardCalendar({
         <DayBookings day={selectedDay} bookings={selectedBookings} />
       ) : null}
 
-      {blockDialogOpen ? (
+      {blockDialogOpen && localStock ? (
         <BlockAvailabilityDialog
           blockAll={blockAll}
           blockRange={blockRange}

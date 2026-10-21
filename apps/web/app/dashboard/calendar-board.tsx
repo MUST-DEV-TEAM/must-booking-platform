@@ -3,6 +3,7 @@
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronLeft, ChevronRight, CirclePlus, Lock, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { usePmsSource } from './use-pms-source';
 import { createInventoryWriter } from './inventory-api';
 
 import { Badge } from '../../components/ui/badge';
@@ -114,6 +115,9 @@ export function CalendarBoard({
   target?: { roomTypeId: string; roomId?: string };
   embedded?: boolean;
 }) {
+  const source = usePmsSource(tenantId, propertyId);
+  const stockKnown = source.data === 'LOCAL';
+  const capacityLabel = source.data === 'CLOCK_PMS' ? 'Unknown - managed in Clock' : 'Unknown';
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const [start, setStart] = useState(() => addDays(todayIso(), -1));
   const [preset, setPreset] = useState<Preset>('14');
@@ -481,8 +485,10 @@ export function CalendarBoard({
                 key={block.id}
                 type="button"
                 title={`${reasonLabel}${block.createdByEmail ? ` · ${block.createdByEmail}` : ''}`}
-                disabled={!canManageAvailability}
-                onClick={() => setOpenBlock(block)}
+                disabled={!canManageAvailability || !stockKnown}
+                onClick={() => {
+                  if (stockKnown) setOpenBlock(block);
+                }}
                 className="absolute top-1 bottom-1 flex items-center gap-1 overflow-hidden rounded-md border border-dashed bg-[repeating-linear-gradient(135deg,transparent,transparent_6px,rgb(0_0_0/0.06)_6px,rgb(0_0_0/0.06)_12px)] px-2 text-left text-[10px] font-semibold text-muted-foreground outline-none hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 style={{ left: `${geometry.left * 100}%`, width: `${geometry.width * 100}%` }}
               >
@@ -569,15 +575,32 @@ export function CalendarBoard({
         </div>
       ) : null}
 
+      {!stockKnown ? (
+        <p role="note" className="text-sm text-muted-foreground">
+          {capacityLabel}. Availability blocks are read-only here.
+          {source.data === 'CLOCK_PMS' ? ' Manage them in Clock.' : ''}
+        </p>
+      ) : null}
       {!embedded ? (
         <section aria-label="Tonight" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <StatTile
             size="sm"
             label="Occupancy tonight"
-            value={totalUnits > 0 ? `${Math.round((occupiedOn(today) / totalUnits) * 100)}%` : '—'}
-            note={`${occupiedOn(today)} of ${totalUnits} rooms`}
+            value={
+              !stockKnown
+                ? capacityLabel
+                : totalUnits > 0
+                  ? `${Math.round((occupiedOn(today) / totalUnits) * 100)}%`
+                  : '—'
+            }
+            note={stockKnown ? `${occupiedOn(today)} of ${totalUnits} rooms` : undefined}
           />
-          <StatTile size="sm" label="Available tonight" value={freeOn(today)} note="Rooms free" />
+          <StatTile
+            size="sm"
+            label="Available tonight"
+            value={stockKnown ? freeOn(today) : capacityLabel}
+            note={stockKnown ? 'Rooms free' : undefined}
+          />
           <StatTile size="sm" label="Arrivals today" value={arrivals} />
           <StatTile size="sm" label="Departures today" value={departures} />
           <StatTile
@@ -769,7 +792,7 @@ export function CalendarBoard({
                 className="sticky left-0 z-30 flex shrink-0 items-center border-r bg-card px-3 text-[11px] font-semibold text-muted-foreground"
                 style={{ width: LABEL_WIDTH }}
               >
-                Rooms free
+                {stockKnown ? 'Rooms free' : 'Capacity'}
               </div>
               <div
                 className="grid flex-1"
@@ -782,14 +805,16 @@ export function CalendarBoard({
                       key={day}
                       className={cn(
                         'border-l py-1 text-center text-[11px] font-semibold',
-                        free === 0
-                          ? 'text-destructive'
-                          : free <= 2
-                            ? 'text-warning'
-                            : 'text-muted-foreground',
+                        !stockKnown
+                          ? 'text-muted-foreground'
+                          : free === 0
+                            ? 'text-destructive'
+                            : free <= 2
+                              ? 'text-warning'
+                              : 'text-muted-foreground',
                       )}
                     >
-                      {free}
+                      {stockKnown ? free : <span title={capacityLabel}>Unknown</span>}
                     </div>
                   );
                 })}
@@ -826,7 +851,9 @@ export function CalendarBoard({
                     />
                     {type.name}
                     <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px]">
-                      {occupiedOn(today, type.id)} / {target?.roomId ? 1 : type.roomCount} tonight
+                      {stockKnown
+                        ? `${occupiedOn(today, type.id)} / ${target?.roomId ? 1 : type.roomCount} tonight`
+                        : capacityLabel}
                     </Badge>
                   </button>
                   {isCollapsed ? null : (
@@ -884,12 +911,14 @@ export function CalendarBoard({
               <Button variant="ghost" size="sm" onClick={() => setCell(null)}>
                 Cancel
               </Button>
-              {canManageAvailability ? (
+              {canManageAvailability && stockKnown ? (
                 <Button
                   variant="outline"
                   size="sm"
                   disabled={!selectedRules.data?.block.valid || selectedRules.isFetching}
-                  onClick={() => setBlocking(true)}
+                  onClick={() => {
+                    if (stockKnown) setBlocking(true);
+                  }}
                 >
                   <Lock aria-hidden="true" /> Block these nights
                 </Button>
@@ -948,7 +977,7 @@ export function CalendarBoard({
         </div>
       </Card>
 
-      {cell && canManageAvailability ? (
+      {cell && canManageAvailability && stockKnown ? (
         <BlockDialog
           open={blocking}
           onOpenChange={(open) => {
