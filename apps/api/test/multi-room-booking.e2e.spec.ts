@@ -241,8 +241,8 @@ describe('Multi-room booking orders', () => {
     expect(firstType.status).toBe(201);
     expect(secondType.status).toBe(201);
     expect(ratePlan.status).toBe(201);
-    const startsOn = '2026-11-01';
-    const endsOn = '2026-11-03';
+    const startsOn = '2027-06-01';
+    const endsOn = '2027-06-03';
     await Promise.all([
       request(app!.getHttpServer())
         .put(`${propertyUrl}/inventory-units`)
