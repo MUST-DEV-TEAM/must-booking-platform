@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { it, expect, vi } from 'vitest';
 import { PaymentSettings, BrandingSettings } from './settings-connection-forms';
 import type { Property } from './settings-areas';
+import { HotelBrand } from '../../components/ui/hotel-brand';
 import { PokpayConnectionPanel } from '../../components/ui/pokpay-connection-panel';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const property: Property = {
@@ -93,7 +94,7 @@ it('shows only the two hotel methods, validates hold bounds and saves settings w
     expect(
       [...document.querySelectorAll('button')].some((b) => b.textContent === 'Save changes'),
     ).toBe(false);
-    expect(document.body.textContent).not.toContain('Save connection');
+    expect(document.body.textContent).not.toContain('Save credentials');
   } finally {
     await m.close();
   }
@@ -126,11 +127,16 @@ it('keeps PokPay credentials write-only, tests via the existing endpoint and ass
     await value('pokpay-keyId', 'key');
     await value('pokpay-merchantId', 'merchant');
     await value('pokpay-keySecret', 'private-fixture-secret');
-    await click('Save connection');
-    expect(document.querySelector('#pokpay-keySecret')).toBeNull();
+    await click('Save credentials');
+    expect((document.querySelector('#pokpay-keySecret') as HTMLInputElement).value).toBe('');
     expect(document.body.textContent).toContain('Credentials: Saved');
+    expect(document.querySelector('#pokpay-keySecret')?.getAttribute('type')).toBe('password');
     expect(document.body.textContent).not.toContain('private-fixture-secret');
     await click('Test connection');
+    expect(document.querySelector('#pokpay-keySecret')).toBeNull();
+    await click('Replace credentials');
+    expect((document.querySelector('#pokpay-keySecret') as HTMLInputElement).value).toBe('');
+    await click('Cancel');
     await click('Assign to this hotel');
     expect(fetch.mock.calls.map(([url]) => url)).toEqual([
       '/api/tenants/t/integration-connections',
@@ -217,9 +223,36 @@ it('selects an https library logo, guards uploads and previews and validates dra
     });
     expect(document.querySelector('img[alt="Hotel Ada logo"]')).not.toBeNull();
     expect(document.body.textContent).toContain('Welcome to Ada');
+    expect(document.body.textContent).toContain('14/300 characters');
+    expect(document.querySelector('input[type=color]')).not.toBeNull();
+    expect((document.querySelector('a[style]') as HTMLElement).style.color).toBe(
+      'rgb(204, 17, 34)',
+    );
     expect((document.querySelector('span[style]') as HTMLElement).style.backgroundColor).toBe(
       'rgb(204, 17, 34)',
     );
+    await value('branding-brandColour-picker', '#005577');
+    expect((document.querySelector('#branding-brandColour') as HTMLInputElement).value).toBe(
+      '#005577',
+    );
+    expect((document.querySelector('a[style]') as HTMLElement).style.color).toBe('rgb(0, 85, 119)');
+  } finally {
+    await m.close();
+  }
+});
+
+it('keeps the MUST mark beside the hotel name and contains a supplied logo', async () => {
+  const m = await mount(<HotelBrand name="Hotel Ada" />);
+  try {
+    expect(document.querySelector('svg')).not.toBeNull();
+    expect(document.body.textContent).toContain('Hotel Ada');
+    await act(async () =>
+      m.root.render(<HotelBrand name="Hotel Ada" logoUrl="https://photos.test/logo.png" />),
+    );
+    const logo = document.querySelector('img')!;
+    expect(logo.alt).toBe('Hotel Ada');
+    expect(logo.className).toContain('object-contain');
+    expect(document.querySelector('svg')).toBeNull();
   } finally {
     await m.close();
   }

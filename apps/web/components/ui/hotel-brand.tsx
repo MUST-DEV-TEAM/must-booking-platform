@@ -1,3 +1,4 @@
+import { Brand } from './brand';
 export function HotelBrand({
   name,
   logoUrl,
@@ -13,12 +14,17 @@ export function HotelBrand({
         <img
           src={logoUrl}
           alt={name}
-          className={compact ? 'h-8 w-8 object-contain' : 'max-h-12 max-w-40 object-contain'}
+          className={compact ? 'max-h-9 w-9 object-contain' : 'max-h-9 max-w-full object-contain'}
         />
       ) : (
-        <span className="truncate font-semibold" title={name}>
-          {compact ? name.slice(0, 2) : name}
-        </span>
+        <>
+          <Brand compact />
+          {compact ? null : (
+            <span className="truncate font-semibold" title={name}>
+              {name}
+            </span>
+          )}
+        </>
       )}
     </div>
   );

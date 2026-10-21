@@ -10,6 +10,7 @@ import {
   type PokpayConnection,
 } from '../../components/ui/pokpay-connection-panel';
 import { Input } from '../../components/ui/input';
+import { ColourField } from '../../components/ui/colour-field';
 import { Switch } from '../../components/ui/switch';
 import { SaveBar } from '../../components/ui/save-bar';
 import { EmailBrandingPreview } from '../../components/ui/email-branding-preview';
@@ -116,14 +117,31 @@ export function BrandingSettings({
                   termsUrl: 'Terms and conditions link',
                 }[key]
               }
+              hint={
+                key === 'emailFooterText'
+                  ? `${draft[key].length}/300 characters`
+                  : key === 'termsUrl'
+                    ? `${draft[key].length} characters`
+                    : undefined
+              }
               error={dirty ? errors[key] : null}
             >
-              <Input
-                id={`branding-${key}`}
-                disabled={!canWrite}
-                value={draft[key]}
-                onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
-              />
+              {key === 'brandColour' ? (
+                <ColourField
+                  id="branding-brandColour"
+                  value={draft.brandColour}
+                  disabled={!canWrite}
+                  invalid={!!errors.brandColour}
+                  onChange={(brandColour) => setDraft({ ...draft, brandColour })}
+                />
+              ) : (
+                <Input
+                  id={`branding-${key}`}
+                  disabled={!canWrite}
+                  value={draft[key]}
+                  onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
+                />
+              )}
             </FormField>
           ),
         )}
@@ -135,6 +153,7 @@ export function BrandingSettings({
         phone={draft.phone}
         colour={draft.brandColour}
         footer={draft.emailFooterText}
+        termsUrl={draft.termsUrl}
       />
       {canWrite ? (
         <SaveBar
@@ -210,6 +229,7 @@ export function PaymentSettings({
         {(['pokpay', 'payAtHotel'] as const).map((key) => (
           <FormField
             key={key}
+            layout="toggle"
             htmlFor={`payment-${key}`}
             label={
               { payAtHotel: 'Pay at hotel', stripe: 'Stripe', pokpay: 'Pay online in full' }[key]
@@ -258,6 +278,7 @@ export function PaymentSettings({
           />
         </FormField>
         <FormField
+          layout="toggle"
           label="Automatically refund free cancellations"
           htmlFor="payment-auto-refund"
           hint="When off, a refund must be issued separately by staff with refund permission."

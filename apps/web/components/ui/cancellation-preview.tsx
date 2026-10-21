@@ -42,7 +42,7 @@ export function CancellationPreview({
         </AlertTitle>
         <AlertDescription>
           Cancellation releases inventory and updates the provider record.{' '}
-          {e.legacyPolicy ? 'Legacy booking: evaluated using current rate-plan values.' : ''}
+          {e.legacyPolicy ? 'Cancellation terms are taken from the current rate plan.' : ''}
         </AlertDescription>
       </Alert>
       <DetailList

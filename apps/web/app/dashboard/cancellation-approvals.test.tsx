@@ -77,7 +77,7 @@ describe('B1 confirmation, refund preview, queue and review panel', () => {
       'Already refunded',
       'Refund to issue',
       '90.00 EUR',
-      'Legacy booking',
+      'Cancellation terms are taken from the current rate plan.',
     ])
       expect(document.body.textContent).toContain(text);
   });
@@ -103,6 +103,7 @@ describe('B1 confirmation, refund preview, queue and review panel', () => {
         canRefund={false}
       />,
     );
+    expect(document.body.textContent).toContain('Normal');
     expect(button('Submit request').disabled).toBe(true);
     expect(document.body.textContent).toContain('90.00 EUR');
     await write('textarea', 'Guest called reception');
@@ -124,6 +125,8 @@ describe('B1 confirmation, refund preview, queue and review panel', () => {
     );
     await mount(<ApprovalsQueue tenantId="tenant" propertyId="hotel" />);
     expect(document.querySelector('[aria-label="Filter by priority"]')).not.toBeNull();
+    expect(document.body.textContent).toContain('High');
+    expect(document.body.textContent).toContain('19/10/2026');
     expect(document.querySelector('[aria-label="Filter by age"]')).not.toBeNull();
     await act(async () => button('Review request').click());
     expect(document.body.textContent).toContain('Travel plans changed');

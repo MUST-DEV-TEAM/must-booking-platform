@@ -289,7 +289,7 @@ export function ChangeBookingDatesDialog({
               disabled={busy}
               onValueChange={(outcome) => setChoice({ outcome, outcomeReason: '' })}
             >
-              <SelectTrigger id="amend-outcome">
+              <SelectTrigger id="amend-outcome" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

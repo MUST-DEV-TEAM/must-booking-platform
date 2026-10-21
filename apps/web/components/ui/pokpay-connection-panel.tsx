@@ -29,7 +29,8 @@ export function PokpayConnectionPanel({
     [message, setMessage] = useState(''),
     [saved, setSaved] = useState<PokpayConnection>();
   const current = saved ?? connection,
-    editing = !current || replace;
+    editing = !current || current.status !== 'CONNECTED' || replace;
+  const isAssigned = assigned && current?.id === connection?.id;
   const base = `/api/tenants/${tenantId}`;
   async function send(path: string, method: string, body?: unknown) {
     const r = await fetch(base + path, {
@@ -94,14 +95,28 @@ export function PokpayConnectionPanel({
       title="Connect PokPay"
       description="Use your hotel account to accept online payments. Credentials are never shown after saving."
     >
-      <Badge variant="outline">Test</Badge>
-      <p className="m-0 text-sm">
-        {current?.status === 'FAILED'
-          ? 'Needs attention'
-          : current?.status === 'CONNECTED' && assigned && current.id === connection?.id
-            ? 'Connected'
-            : 'Not connected'}
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline">Test</Badge>
+          <p className="m-0 text-sm font-medium">
+            {current?.status === 'FAILED'
+              ? 'Needs attention'
+              : current?.status === 'CONNECTED'
+                ? 'Connected'
+                : 'Not connected'}
+          </p>
+          {isAssigned ? <Badge variant="outline">Assigned to this hotel</Badge> : null}
+        </div>
+        {canManage && current && !editing ? (
+          <Button
+            variant={isAssigned ? 'outline' : 'default'}
+            disabled={busy}
+            onClick={() => void action('assign')}
+          >
+            Assign to this hotel
+          </Button>
+        ) : null}
+      </div>
       {canManage ? (
         <>
           {editing ? (
@@ -139,30 +154,51 @@ export function PokpayConnectionPanel({
                   />
                 </FormField>
               ))}
-              <Button disabled={busy} onClick={() => void action('save')}>
-                Save connection
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button disabled={busy} onClick={() => void action('save')}>
+                  Save credentials
+                </Button>
+                {current ? (
+                  <Button variant="outline" disabled={busy} onClick={() => void action('test')}>
+                    Test connection
+                  </Button>
+                ) : null}
+                {replace ? (
+                  <Button
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => {
+                      setReplace(false);
+                      setFields({ keyId: '', merchantId: '', keySecret: '' });
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                ) : null}
+              </div>
+              {current ? (
+                <p className="m-0 text-sm text-muted-foreground">
+                  Credentials: Saved. Enter all fields to replace them.
+                </p>
+              ) : null}
             </>
           ) : (
-            <>
+            <div className="flex flex-wrap items-center gap-3">
               <p className="m-0 text-sm">Credentials: Saved</p>
               <Button variant="outline" disabled={busy} onClick={() => setReplace(true)}>
-                Replace
+                Replace credentials
               </Button>
-            </>
+            </div>
           )}
           {current && !editing ? (
-            <>
-              <Button variant="outline" disabled={busy} onClick={() => void action('test')}>
-                Test connection
-              </Button>
-              <Button
-                disabled={busy || current.status !== 'CONNECTED'}
-                onClick={() => void action('assign')}
-              >
-                Assign to this hotel
-              </Button>
-            </>
+            <Button
+              className="w-fit"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void action('test')}
+            >
+              Test connection
+            </Button>
           ) : null}
         </>
       ) : null}

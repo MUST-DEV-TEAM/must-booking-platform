@@ -141,7 +141,7 @@ export function CancellationDialog({
             <SelectContent>
               {['normal', 'high', 'urgent'].map((v) => (
                 <SelectItem key={v} value={v}>
-                  {v}
+                  {v.charAt(0).toUpperCase() + v.slice(1)}
                 </SelectItem>
               ))}
             </SelectContent>

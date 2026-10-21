@@ -33,12 +33,12 @@ export function StayChangePreview({ preview: p }: { preview: StayChangePreviewDa
         p.available ? 'The same accommodation is available.' : 'These dates cannot be confirmed.'
       }
     >
-      <dl className="m-0 grid grid-cols-2 gap-2 text-sm">
+      <dl className="m-0 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
         {[
           ['Nights', String(p.nights)],
           ['Current total', amount(p.oldTotal)],
-          ['New priced total', amount(p.newTotal)],
-          ['Recorded total', amount(p.recordedTotal ?? p.newTotal)],
+          ['New price', amount(p.newTotal)],
+          ['Total after change', amount(p.recordedTotal ?? p.newTotal)],
           ['Refund to issue', amount(p.refundToIssue ?? '0.00')],
           ['Price change', amount(p.difference)],
           ['Already paid', amount(p.paid)],

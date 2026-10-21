@@ -283,7 +283,7 @@ export function useHotelSettings(
     discard: () => setValues(initial()),
     fields: (
       <SettingsFields
-        groups={groups}
+        groups={area === 'general' ? groups : groups.map((group) => ({ ...group, compact: true }))}
         values={values}
         onChange={(key, value) => setValues((v) => ({ ...v, [key]: value }))}
         errors={errors}

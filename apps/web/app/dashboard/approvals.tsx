@@ -25,6 +25,8 @@ import {
   SheetDescription,
 } from '../../components/ui/sheet';
 import { EmptyPanel, ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
+const priorityLabel = (value: string) =>
+  value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
 export type Approval = {
   selfApproved?: boolean;
   decisionNote?: string | null;
@@ -97,7 +99,7 @@ export function ApprovalPanel({
         <SheetHeader>
           <SheetTitle>Review cancellation request</SheetTitle>
           <SheetDescription>
-            {q?.payload.evidence.reference} | {q?.priority} priority
+            {q?.payload.evidence.reference} | {q ? priorityLabel(q.priority) : ''} priority
           </SheetDescription>
         </SheetHeader>
         {q ? (
@@ -110,7 +112,7 @@ export function ApprovalPanel({
               </p>
             ) : null}
             <p>
-              Requested by {q.requesterName} | {new Date(q.createdAt).toLocaleString()}
+              Requested by {q.requesterName} | {new Date(q.createdAt).toLocaleString('en-GB')}
             </p>
             <p>
               {q.reasonCategory.replaceAll('_', ' ')}: {q.details}
@@ -182,7 +184,7 @@ export function ApprovalsQueue({ tenantId, propertyId }: { tenantId: string; pro
           <SelectContent>
             {['all', 'normal', 'high', 'urgent'].map((v) => (
               <SelectItem key={v} value={v}>
-                {v === 'all' ? 'All priorities' : v}
+                {v === 'all' ? 'All priorities' : priorityLabel(v)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -213,9 +215,9 @@ export function ApprovalsQueue({ tenantId, propertyId }: { tenantId: string; pro
             <div key={q.id} className="flex items-center justify-between gap-4 p-4">
               <div>
                 <strong>{q.payload.evidence.reference}</strong>{' '}
-                <Badge variant="warning">{q.priority}</Badge>
+                <Badge variant="warning">{priorityLabel(q.priority)}</Badge>
                 <p className="text-sm">
-                  {q.requesterName} | {new Date(q.createdAt).toLocaleString()}
+                  {q.requesterName} | {new Date(q.createdAt).toLocaleString('en-GB')}
                 </p>
               </div>
               <Button variant="outline" onClick={() => setSelected(q)}>

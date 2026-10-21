@@ -12,6 +12,7 @@ export function FormField({
   error,
   children,
   className,
+  layout = 'stack',
 }: {
   label: string;
   htmlFor?: string;
@@ -20,9 +21,17 @@ export function FormField({
   error?: string | null;
   children: ReactNode;
   className?: string;
+  layout?: 'stack' | 'toggle';
 }) {
   return (
-    <div className={cn('flex flex-col gap-1.5', className)}>
+    <div
+      className={cn(
+        layout === 'toggle'
+          ? 'grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-1.5 [&>[data-slot=switch]]:col-start-2 [&>[data-slot=switch]]:row-start-1 [&>[data-slot=switch]]:mt-0.5 [&>p]:col-start-1 [&>p]:row-start-2 [&>[data-slot=badge]]:col-start-1 [&>[data-slot=badge]]:row-start-3'
+          : 'flex min-w-0 flex-col gap-1.5',
+        className,
+      )}
+    >
       <Label htmlFor={htmlFor}>
         {label}
         {required ? <span className="text-destructive"> *</span> : null}
