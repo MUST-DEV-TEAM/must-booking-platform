@@ -47,6 +47,14 @@ Do not claim "WordPress stores no local tables" or certify the plugin's declared
 
 ## API route map
 
+Local photo storage (ADR-0011 amendment, 2026-10-21) preserves the upload response
+`{ id, uploadUrl, publicUrl }` and raw-file PUT flow. With `STORAGE_DRIVER=local`,
+`uploadUrl` is a same-origin `/api/tenants/:tenantId/properties/:propertyId/photo-uploads?key=…`
+URL; the API route itself omits the web `/api` prefix. PUT requires the staff session,
+verified owner/admin, `photos.manage`, tenant/property access and an existing key reservation.
+It returns 204 after validation and WebP optimization. The default R2 flow is unchanged.
+Local confirmation checks disk directly. See [deployment configuration](../../infrastructure/containers/README.md#interim-local-photo-storage).
+
 Routes below are relative to the Nest API. Browser requests through Next normally prefix them with `/api`. Inspect each controller for current verbs, input parsing and guards; no complete generated OpenAPI specification is present.
 
 | Surface | Routes / owner |

@@ -89,6 +89,83 @@ add the repository secrets `WEB_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT` and
 `SENTRY_AUTH_TOKEN`, copied from the server's `.env`. Finally, set the repository variable
 `DEPLOY_ENABLED` to `true`. Until then the workflow builds images and skips the deploy.
 
+## Interim local photo storage
+
+Owner-authorized change, 2026-10-21. These are instructions for a future approved release;
+no host access is needed to prepare the change. No database migration is added.
+
+1. Release this branch's API image through the normal reviewed `main` release pipeline.
+   In `/opt/must-booking/infrastructure/containers/.env`, set:
+
+   ```dotenv
+   STORAGE_DRIVER=local
+   LOCAL_STORAGE_PUBLIC_BASE_URL=https://booking.must.al/photos
+   ```
+
+   Compose fixes `LOCAL_STORAGE_DIR=/var/lib/must-booking/photos` in the API and mounts
+   `photo-data` there. With project name `must-booking`, the Docker volume is
+   `must-booking_photo-data`. The API image creates the directory owned by `node` (UID 1000);
+   let the API container initialize the new volume before starting the photos service.
+   R2 settings may remain empty. The default driver remains `r2` on other installations.
+
+2. Once the approved release is checked out and its images exist, use the release SHA:
+
+   ```sh
+   cd /opt/must-booking/infrastructure/containers
+   export IMAGE_TAG=<approved-40-character-release-sha>
+   docker compose -f compose.homelab.yaml -f compose.release.yaml --env-file .env pull api web photos
+   docker compose -f compose.homelab.yaml -f compose.release.yaml --env-file .env up -d --no-build api
+   docker compose -f compose.homelab.yaml -f compose.release.yaml --env-file .env up -d --no-build web photos
+   ```
+
+   The normal `deploy-release.sh` also pulls and starts `photos`. Its mount is read-only and
+   it publishes only `127.0.0.1:4012`; `photos.conf` serves `/photos/`, disables directory
+   listings and writes, and sets `Cache-Control: public, max-age=31536000, immutable` on
+   successful image responses. Do not use `docker compose down -v`: it deletes durable data.
+
+3. Route `/photos/` to the `photos` container and allow 10 MB uploads. The `photos` service
+   joins the external `proxy` network, so a reverse proxy on that network reaches it as
+   `photos:80`.
+
+   - **Nginx Proxy Manager (booking.must.al host):** its proxy-host config includes
+     `/data/nginx/custom/server_proxy.conf` inside the server block. Put this there:
+
+     ```nginx
+     client_max_body_size 10m;
+     location ^~ /photos/ {
+         proxy_pass http://photos:80;
+     }
+     ```
+
+     Keep the URI prefix (no trailing slash on `proxy_pass`). Validate with
+     `docker exec nginx-proxy-manager-app-1 nginx -t`, then
+     `docker exec nginx-proxy-manager-app-1 nginx -s reload`. To revert, remove the file
+     content, validate and reload again.
+
+   - **Plain host nginx:** the same `location` with `proxy_pass http://127.0.0.1:4012;`
+     (the service also publishes `127.0.0.1:4012`).
+
+4. As a verified owner/admin in local dev or the approved target, upload a JPEG/PNG/WebP,
+   attach it to a room, open its public URL and check the WebP response and cache header.
+   Delete the attachment, then delete the unused library photo; its public URL must return 404.
+   Detaching alone intentionally retains the reusable library photo.
+
+Back up `must-booking_photo-data` with the database; the existing Postgres-only backup does
+not include photos. Named volumes survive container recreation, but not host/disk loss.
+An application rollback does not remove the volume. Code predating the local provider requires
+R2 for photo API operations; prefer a local-provider-capable recovery image. Retain `/photos/`
+serving and the disk data during recovery so already-published static URLs remain available.
+
+For local development outside Docker, set `STORAGE_DRIVER=local`, an absolute
+`LOCAL_STORAGE_DIR` (or `./.local-photos` relative to `apps/api`), and a public base pointing
+to a local static server's `/photos/` path. Mount that same directory read-only into nginx
+with `photos.conf` and publish its port 80 as 4012. The web app's existing `/api/` rewrite
+forwards the authenticated PUT; no frontend configuration change is needed.
+
+Migration to R2: copy the volume's files without changing their relative object keys, keep
+the existing public photo origin routed to those keys, configure R2, and switch
+`STORAGE_DRIVER=r2`. Preserve the disk volume until all copied objects have been verified.
+
 ## Prerequisites
 
 - Docker Engine with the Compose plugin (`docker compose`, not the standalone `docker-compose`).

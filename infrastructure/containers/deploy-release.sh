@@ -120,7 +120,7 @@ purge_cdn_cache() {
 
 echo "Deploying $SHA (previous release: ${PREVIOUS_TAG:-none, locally built images})."
 
-release "$SHA" pull api web
+release "$SHA" pull api web photos
 
 release "$SHA" up -d postgres redis
 
@@ -145,7 +145,7 @@ release "$SHA" run --rm api pnpm --filter api prisma migrate deploy
 release "$SHA" run --rm api pnpm --filter api db:set-app-password
 
 PHASE=swap
-release "$SHA" up -d --no-build api web
+release "$SHA" up -d --no-build api web photos
 healthy
 
 PHASE=finished

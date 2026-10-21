@@ -149,6 +149,10 @@ export type MailBrand = {
 };
 
 export interface StorageProvider {
+  /** Providers that transform uploads choose the stored extension before reserving the key. */
+  readonly uploadExtension?: string;
+  uploadObject?(key: string, data: Uint8Array, contentType: string): Promise<void>;
+  objectExists?(key: string): Promise<boolean>;
   createPresignedUpload(command: {
     key: string;
     contentType: string;

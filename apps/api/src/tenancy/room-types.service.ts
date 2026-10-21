@@ -219,7 +219,7 @@ export class RoomTypesService {
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND room_type_id = ${roomTypeId}::uuid
       `;
 
-      const extension = input.contentType.split('/')[1];
+      const extension = this.storage.uploadExtension ?? input.contentType.split('/')[1];
       const objectKey = `room-types/${tenantId}/${propertyId}/${roomTypeId}/${randomUUID()}.${extension}`;
       const { uploadUrl } = await this.storage.createPresignedUpload({
         key: objectKey,
@@ -588,11 +588,15 @@ export class RoomTypesService {
     );
     if (!rows[0]) throw new NotFoundException('Library photo not found.');
     if (rows[0].confirmedAt) return;
-    const head = await fetch(this.storage.publicUrl(rows[0].objectKey), {
-      method: 'HEAD',
-      signal: AbortSignal.timeout(10_000),
-    }).catch(() => null);
-    if (!head?.ok)
+    const exists = this.storage.objectExists
+      ? await this.storage.objectExists(rows[0].objectKey)
+      : await fetch(this.storage.publicUrl(rows[0].objectKey), {
+          method: 'HEAD',
+          signal: AbortSignal.timeout(10_000),
+        })
+          .then((response) => response.ok)
+          .catch(() => false);
+    if (!exists)
       throw new ConflictException('The uploaded file was not found in storage. Upload it again.');
     await this.database.withTenantTransaction(
       { tenantId, propertyId },
@@ -616,7 +620,7 @@ export class RoomTypesService {
     const originalName =
       typeof rawName === 'string' && rawName.trim() ? rawName.trim().slice(0, 255) : null;
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      const extension = input.contentType.split('/')[1];
+      const extension = this.storage.uploadExtension ?? input.contentType.split('/')[1];
       const objectKey = `library/${tenantId}/${propertyId}/${randomUUID()}.${extension}`;
       const { uploadUrl } = await this.storage.createPresignedUpload({
         key: objectKey,
