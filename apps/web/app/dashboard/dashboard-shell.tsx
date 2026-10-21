@@ -3,7 +3,7 @@ import { ApprovalsQueue, useApprovals } from './approvals';
 
 import { InventorySection } from './inventory';
 
-import { Card, Heading, Stack, StatePanel, StatusBadge, Text, type NavigationItem } from '@must/ui';
+import { Stack, StatePanel, type NavigationItem } from '@must/ui';
 import {
   CalendarDays,
   ClipboardList,
@@ -14,14 +14,12 @@ import {
   Layers,
   LayoutDashboard,
   Mail,
-  LoaderCircle,
   Package as IconInventory,
   Settings,
   Tags,
   UserRound,
   Users,
 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
 import { Chip } from '../../components/ui/chip';
@@ -59,8 +57,8 @@ import { DashboardReports } from './reports';
 import { ActivityAudit } from './activity-audit';
 import { RoomManagement } from './[tenantId]/room-management';
 import { RateManagement } from './[tenantId]/rate-management';
-import { IntegrationsManagement } from './[tenantId]/integrations-management';
-import { PropertyManagement } from './[tenantId]/property-management';
+import { HotelsSection } from './hotels';
+export { HotelsSection } from './hotels';
 
 type TenantRole = 'OWNER' | 'ADMIN' | 'STAFF';
 type Membership = { tenantId: string; role: TenantRole };
@@ -75,20 +73,6 @@ type Property = {
   checkInTime?: string | null;
   checkOutTime?: string | null;
 };
-
-type PropertyOverview = {
-  kpis: {
-    arrivals: number;
-    departures: number;
-    inHouse: number;
-    bookedRoomNights: number;
-    availableRoomNights: number;
-    occupancyRate: number | null;
-  };
-  needsAttention: unknown[];
-};
-
-type PropertySummary = { property: Property; overview: PropertyOverview | null };
 
 const roleLabels: Record<TenantRole, string> = {
   OWNER: 'Owner',
@@ -595,8 +579,8 @@ export function DashboardShell({
           )}
         </Stack>
       ) : null}
-      {properties && properties.length > 0 && role && canViewSection && section === 'hotels' ? (
-        <HotelsSection tenantId={tenantId} properties={properties} />
+      {properties && role && canViewSection && section === 'hotels' ? (
+        <HotelsSection tenantId={tenantId} role={role} emailVerified={user?.emailVerified === true} />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'inventory' ? (
         <InventorySection
@@ -745,136 +729,4 @@ export function DashboardShell({
       ) : null}
     </AppShell>
   );
-}
-
-export function HotelsSection({
-  tenantId,
-  properties,
-}: {
-  tenantId: string;
-  properties: Property[];
-}) {
-  const summariesQuery = useQuery({
-    queryKey: [
-      'dashboard',
-      'hotels',
-      tenantId,
-      properties.map((property) => property.id).join(','),
-    ],
-    queryFn: async (): Promise<PropertySummary[]> =>
-      Promise.all(
-        properties.map(async (property) => {
-          const response = await fetch(
-            `/api/tenants/${tenantId}/properties/${property.id}/overview`,
-            { credentials: 'include' },
-          );
-          const overview = response.ok ? ((await response.json()) as PropertyOverview) : null;
-          return { property, overview };
-        }),
-      ),
-    enabled: properties.length > 0,
-  });
-
-  if (summariesQuery.isPending)
-    return (
-      <StatePanel
-        body={null}
-        icon={<LoaderCircle aria-hidden="true" />}
-        title="Loading hotels…"
-        variant="loading"
-      />
-    );
-  if (summariesQuery.isError)
-    return (
-      <StatePanel
-        body="Unable to load the hotel summaries."
-        icon={<LoaderCircle aria-hidden="true" />}
-        title="Hotels unavailable"
-        variant="error"
-      />
-    );
-
-  const summaries = summariesQuery.data ?? [];
-  return (
-    <Stack className={styles.hotelsSection} gap="lg">
-      <HotelAggregateKpis results={summaries} />
-      <div className={styles.hotelCards}>
-        {summaries.map(({ property, overview }) => (
-          <Card className={styles.hotelCard} key={property.id}>
-            <a
-              aria-label={`Open ${property.name} overview`}
-              className={styles.hotelCardLink}
-              href={`/dashboard/${tenantId}?propertyId=${encodeURIComponent(property.id)}&section=overview`}
-            >
-              <div className={styles.hotelCardHeader}>
-                <Heading level={3}>{property.name}</Heading>
-                {overview ? (
-                  <StatusBadge
-                    domain="booking"
-                    label={`${overview.needsAttention.length} need attention`}
-                    state={overview.needsAttention.length ? 'pending' : 'confirmed'}
-                  />
-                ) : (
-                  // The designed "Unavailable" status has no hotel-status data source yet.
-                  <Text tone="secondary">Attention unavailable</Text>
-                )}
-              </div>
-              <Text tone="secondary">
-                {overview
-                  ? `${overview.kpis.inHouse} in-house · ${overview.kpis.arrivals} arrivals · ${overview.kpis.departures} departures · ${formatOccupancy(overview.kpis.occupancyRate)}`
-                  : "Unable to load this property's summary."}
-              </Text>
-            </a>
-          </Card>
-        ))}
-      </div>
-      <Card>
-        <Stack gap="md">
-          <Heading level={2}>Manage properties</Heading>
-          <PropertyManagement tenantId={tenantId} />
-        </Stack>
-      </Card>
-      <section aria-labelledby="hotels-integrations-heading" className={styles.integrationsPanel}>
-        <Heading id="hotels-integrations-heading" level={2}>
-          Integrations
-        </Heading>
-        <IntegrationsManagement tenantId={tenantId} properties={properties} />
-      </section>
-    </Stack>
-  );
-}
-
-function HotelAggregateKpis({ results }: { results: PropertySummary[] }) {
-  const totals = results.reduce(
-    (acc, { overview }) => {
-      if (!overview) return acc;
-      acc.arrivals += overview.kpis.arrivals;
-      acc.departures += overview.kpis.departures;
-      acc.inHouse += overview.kpis.inHouse;
-      acc.bookedRoomNights += overview.kpis.bookedRoomNights;
-      acc.availableRoomNights += overview.kpis.availableRoomNights;
-      return acc;
-    },
-    { arrivals: 0, departures: 0, inHouse: 0, bookedRoomNights: 0, availableRoomNights: 0 },
-  );
-  const occupancyRate =
-    totals.availableRoomNights > 0
-      ? Math.round((totals.bookedRoomNights / totals.availableRoomNights) * 100)
-      : null;
-
-  return (
-    <Card>
-      <Stack gap="sm">
-        <Heading level={2}>All properties</Heading>
-        <Text tone="secondary">
-          {totals.inHouse} guests in-house · {totals.arrivals} arrivals today · {totals.departures}{' '}
-          departures today · {formatOccupancy(occupancyRate)}
-        </Text>
-      </Stack>
-    </Card>
-  );
-}
-
-function formatOccupancy(rate: number | null) {
-  return rate === null ? 'occupancy n/a' : `${Math.round(rate)}% occupancy`;
 }

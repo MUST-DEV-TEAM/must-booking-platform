@@ -14,7 +14,13 @@ import {
 import { ChecklistPanel, type ChecklistItem } from '../../components/ui/checklist-panel';
 import { PageHero } from '../../components/ui/page-hero';
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
-import { areaHealth, settingsAreas, type Property, type SettingsArea } from './settings-areas';
+import {
+  areaHealth,
+  bookingReadinessAreas,
+  settingsAreas,
+  type Property,
+  type SettingsArea,
+} from './settings-areas';
 
 export function settingsAreaHref(tenantId: string, propertyId: string, area?: SettingsArea) {
   const base = `/dashboard/${tenantId}?propertyId=${encodeURIComponent(propertyId)}&section=settings`;
@@ -107,13 +113,7 @@ export function SettingsHub({ tenantId, propertyId }: { tenantId: string; proper
     status: health[key].status === 'none' ? 'todo' : health[key].status,
     href: link(key),
   });
-  const items: ChecklistItem[] = [
-    step('general', 'Hotel identity'),
-    step('booking-rules', 'Booking rules'),
-    step('check-in-out', 'Check-in and check-out times'),
-    step('payments', 'Payment method'),
-    step('managed-pages', 'Website connection'),
-  ];
+  const items: ChecklistItem[] = bookingReadinessAreas.map(({ key, label }) => step(key, label));
 
   return (
     <div className="space-y-4">

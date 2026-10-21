@@ -67,7 +67,7 @@ Built on branch `codex/design-dashboard-latest` while this milestone was being s
 | Calendar / availability | Figma PNG, 2026-10-16 (3 states: default, filtered, cell details) | **Design received — planned below (Page 11)** |
 | Payments: Overview, Ledger, Payment detail, Create refund request, Refund review, Reconciliation, Clock folios (Gateways tab dropped, D71) | Figma PNGs, 2026-10-16 | **Designs received — planned below (Pages 15 to 15i)** |
 | Guests: directory, filtered directory, profile, edit, reservation history, flags and notes, states | Figma PNGs, 2026-10-16 | **Designs received — planned below (Page 16)** |
-| Hotels (owner-only group view of all hotels, see D5 and D32) | — | Awaiting design |
+| Hotels directory and hotel detail (separate from the owner-only group dashboard in D5/D32) | Owner brief, 2026-10-21; use redesigned Bookings/Staff/Accommodations shared components | Owner-authorized in-house redesign: owner/admin directory, staff limited to assigned hotels; shared Settings readiness and hotel quick peek. Group aggregates remain outside this task. |
 | Accommodations: all tabs (Overview, Categories, Listings, Units, Import & Export), Create listing, Listing detail, Unit detail, Setup warnings, empty and error states | Figma PNGs, 2026-10-16 (labelled "Hotels" in the design) | **Designs received — planned below (Pages 12 to 12i)**; Photos, Rates & Pricing and Inventory pages still awaiting design |
 | Photos | none (owner: no separate Photos page) | **Not designed on purpose**; photos live in the listing editor (D62) |
 | Rates & Pricing: all six tabs, Create and Edit rule, Rate plan detail, states reference sheet | Figma PNGs, 2026-10-16 | **Designs received — planned below (Pages 13 to 13i)** |

@@ -114,6 +114,14 @@ export function isSettingsArea(value: string | null): value is SettingsArea {
   return settingsAreas.some((area) => area.key === value);
 }
 
+/** The required checks shown by the Settings hub, also used by the Hotels directory. */
+export const bookingReadinessAreas = [
+  { key: 'general', label: 'Hotel identity' },
+  { key: 'booking-rules', label: 'Booking rules' },
+  { key: 'check-in-out', label: 'Check-in and check-out times' },
+  { key: 'payments', label: 'Payment method' },
+  { key: 'managed-pages', label: 'Website connection' },
+] as const;
 export type AreaHealth = { status: 'done' | 'attention' | 'todo' | 'none'; note: string };
 
 /** What each area looks like from the saved settings alone; nothing is guessed. */

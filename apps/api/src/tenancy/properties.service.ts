@@ -45,6 +45,11 @@ type Property = HotelSettings & {
   paymentGateways: { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
   wordpressConnectedAt: Date | null;
 };
+type PropertyListItem = Property & {
+  staffCount: number;
+  pmsSource: 'MUST' | 'CLOCK_PMS';
+  connectedProviders: string[];
+};
 type PropertyDeleteBlocker = { resource: string; count: number };
 @Injectable()
 export class PropertiesService {
@@ -53,11 +58,27 @@ export class PropertiesService {
     @Inject(AuditLogService) private readonly audit: AuditLogService,
     @Inject(PropertyRoleTemplatesService) private readonly templates: PropertyRoleTemplatesService,
   ) {}
-  list(tenantId: string, userId: string): Promise<Property[]> {
+  list(tenantId: string, userId: string): Promise<PropertyListItem[]> {
     return this.database.withTenantTransaction(
       { tenantId },
       (tx) =>
-        tx.$queryRaw<Property[]>`SELECT id, name, address, timezone,
+        tx.$queryRaw<PropertyListItem[]>`SELECT id, name, address, timezone,
+          (SELECT count(*)::int FROM tenant_memberships members
+           WHERE members.tenant_id=p.tenant_id AND (members.role IN ('OWNER','ADMIN') OR EXISTS (
+             SELECT 1 FROM property_staff_assignments assignments
+             WHERE assignments.tenant_id=p.tenant_id AND assignments.property_id=p.id
+               AND assignments.user_id=members.user_id AND assignments.suspended_at IS NULL
+           ))) AS "staffCount",
+          CASE WHEN EXISTS (
+            SELECT 1 FROM property_integration_connections pic
+            JOIN integration_connections ic ON ic.tenant_id=pic.tenant_id AND ic.id=pic.connection_id
+            WHERE pic.tenant_id=p.tenant_id AND pic.property_id=p.id AND pic.enabled
+              AND pic.kind='PMS' AND ic.provider='CLOCK_PMS'
+          ) THEN 'CLOCK_PMS' ELSE 'MUST' END AS "pmsSource",
+          ARRAY(SELECT DISTINCT ic.provider::text FROM property_integration_connections pic
+            JOIN integration_connections ic ON ic.tenant_id=pic.tenant_id AND ic.id=pic.connection_id
+            WHERE pic.tenant_id=p.tenant_id AND pic.property_id=p.id AND pic.enabled AND ic.status='CONNECTED'
+            ORDER BY ic.provider::text) AS "connectedProviders",
           EXISTS(SELECT 1 FROM rate_rules rr WHERE rr.tenant_id=p.tenant_id AND rr.property_id=p.id UNION ALL SELECT 1 FROM pricing_daily_prices dp WHERE dp.tenant_id=p.tenant_id AND dp.property_id=p.id UNION ALL SELECT 1 FROM room_price_overrides ro WHERE ro.tenant_id=p.tenant_id AND ro.property_id=p.id) AS "defaultCurrencyLocked",
           online_payment_hold_minutes AS "onlinePaymentHoldMinutes",auto_refund_on_free_cancellation AS "autoRefundOnFreeCancellation",brand_colour AS "brandColour",email_footer_text AS "emailFooterText",terms_url AS "termsUrl",${hotelColumns},logo_url AS "logoUrl", phone, support_email AS "supportEmail",
           booking_mode AS "bookingMode",
@@ -70,7 +91,7 @@ export class PropertiesService {
           wordpress_connected_at AS "wordpressConnectedAt",
           json_build_object('stripe', stripe_enabled, 'pokpay', pokpay_enabled, 'payAtHotel', pay_at_hotel_enabled) AS "paymentGateways"
           FROM properties p
-          WHERE EXISTS (
+          WHERE p.tenant_id=${tenantId}::uuid AND EXISTS (
             SELECT 1
             FROM tenant_memberships tm
             WHERE tm.tenant_id = p.tenant_id
