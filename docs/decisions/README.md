@@ -14,7 +14,7 @@ Index of durable, cross-cutting, or hard-to-reverse decisions. Routine implement
 | [ADR-0008](ADR-0008-onboarding-model.md) | Tenant onboarding model | Accepted — self-serve onto Free plan, no card upfront |
 | [ADR-0009](ADR-0009-data-retention-churn.md) | Tenant data retention after cancellation | Accepted — 30-day grace then hard delete |
 | [ADR-0010](ADR-0010-dashboard-tenant-routing.md) | Dashboard tenant routing | Accepted — tenant ID in the URL, no server-side selected-tenant state |
-| [ADR-0011](ADR-0011-object-storage-provider.md) | Object storage provider and access model | Accepted — Cloudflare R2, public-read bucket, presigned upload only |
+| [ADR-0011](ADR-0011-object-storage-provider.md) | Object storage provider and access model | Accepted — interim local disk (2026-10-21); R2 deferred and retained |
 | [ADR-0012](ADR-0012-rate-plan-base-rate-model.md) | Base rate vs. date-bounded override in rate rules | Accepted — nullable-date rule is the base rate, dated rules are overrides |
 | [ADR-0013](ADR-0013-local-inventory-consumption-model.md) | Local inventory consumption model for bookings | Accepted — separate `booked_units` counter, availability derived at read time |
 | [ADR-0014](ADR-0014-booking-state-machine.md) | Booking state machine is the full production state list from Milestone 4 | Accepted — full state list from day one, `LocalPmsProvider` resolves PMS states synchronously |

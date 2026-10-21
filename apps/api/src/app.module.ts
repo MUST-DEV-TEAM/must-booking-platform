@@ -68,6 +68,8 @@ import { EmailTemplatesController } from './tenancy/email-templates.controller';
 import { EmailTemplatesService } from './tenancy/email-templates.service';
 import { STORAGE_PROVIDER } from './storage/storage.provider';
 import { R2StorageProvider } from './storage/r2-storage.provider';
+import { LocalStorageProvider } from './storage/local-storage.provider';
+import { PhotoUploadsController } from './storage/photo-uploads.controller';
 import { RoomTypesController } from './tenancy/room-types.controller';
 import { PropertyImageLibraryController } from './tenancy/property-image-library.controller';
 import { RoomTypesService } from './tenancy/room-types.service';
@@ -205,6 +207,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ReviewLinksController,
     RoomTypesController,
     PropertyImageLibraryController,
+    PhotoUploadsController,
     RoomsController,
     PropertyRoomsController,
     RatePlansController,
@@ -319,7 +322,17 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ManualReviewService,
     { provide: PAYMENT_PROVIDER, useExisting: StripePaymentProvider },
     R2StorageProvider,
-    { provide: STORAGE_PROVIDER, useExisting: R2StorageProvider },
+    LocalStorageProvider,
+    {
+      provide: STORAGE_PROVIDER,
+      inject: [R2StorageProvider, LocalStorageProvider],
+      useFactory: (r2: R2StorageProvider, local: LocalStorageProvider) => {
+        const driver = process.env.STORAGE_DRIVER ?? 'r2';
+        if (driver === 'local') return local;
+        if (driver === 'r2') return r2;
+        throw new Error('STORAGE_DRIVER must be local or r2.');
+      },
+    },
     ResendMailProvider,
     MailDeliveryService,
     ScheduledEmailService,

@@ -69,6 +69,9 @@ services:
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
       R2_BUCKET_NAME: ${R2_BUCKET_NAME:-}
       R2_PUBLIC_BASE_URL: ${R2_PUBLIC_BASE_URL:-}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-r2}
+      LOCAL_STORAGE_DIR: /var/lib/must-booking/photos
+      LOCAL_STORAGE_PUBLIC_BASE_URL: ${LOCAL_STORAGE_PUBLIC_BASE_URL:-}
       PLATFORM_ALERT_EMAIL: ${PLATFORM_ALERT_EMAIL:-}
       PLATFORM_TIMEZONE: ${PLATFORM_TIMEZONE:-Europe/Tirane}
       QUOTE_SIGNING_SECRET: ${QUOTE_SIGNING_SECRET}
@@ -78,9 +81,25 @@ services:
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
     ports:
       - '4010:3000'
+    volumes:
+      - photo-data:/var/lib/must-booking/photos
     networks:
       - internal
       - proxy
+
+  photos:
+    image: nginx:1.28-alpine
+    depends_on:
+      - api
+    logging: *logging
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:4012:80'
+    volumes:
+      - photo-data:/srv/photos:ro
+      - ./photos.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - internal
 
   web:
     logging: *logging
@@ -118,3 +137,4 @@ networks:
 volumes:
   postgres-data:
   redis-data:
+  photo-data:
