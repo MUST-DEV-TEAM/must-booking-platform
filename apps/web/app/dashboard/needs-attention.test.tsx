@@ -72,11 +72,16 @@ describe('NeedsAttentionTab', () => {
   });
 
   it('shows why the first item is flagged and links to its reservation', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items }))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ items }))),
+    );
     const { container, root } = await mount();
 
     expect(container.textContent).toContain('Why this is flagged');
-    expect(container.textContent).toContain('The online payment for this reservation did not go through.');
+    expect(container.textContent).toContain(
+      'The online payment for this reservation did not go through.',
+    );
     expect(
       container.querySelector(
         'a[href="/dashboard/t?propertyId=p&section=reservations&reservation=booking-1"]',
@@ -87,7 +92,10 @@ describe('NeedsAttentionTab', () => {
   });
 
   it('narrows the queue from a summary tile and from a search', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items }))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ items }))),
+    );
     const { container, root } = await mount();
 
     const tile = Array.from(container.querySelectorAll('button')).find((button) =>
@@ -109,7 +117,10 @@ describe('NeedsAttentionTab', () => {
   });
 
   it('renders an actionable empty state when there are no attention items', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items: [] }))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ items: [] }))),
+    );
 
     const { container, root } = await mount();
 
@@ -121,6 +132,42 @@ describe('NeedsAttentionTab', () => {
     await act(async () => root.unmount());
   });
 
+  it('requires a note and removes a failed unpaid attempt through the audited action', async () => {
+    let closed = false;
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/review/dismiss')) {
+        closed = true;
+        return Response.json({ ok: true });
+      }
+      return Response.json({ items: closed ? [] : [items[0]] });
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const { container, root } = await mount(true);
+    const button = [...container.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Close unsuccessful attempt',
+    )!;
+    expect(button.disabled).toBe(true);
+    const input = container.querySelector('input[aria-label="Review note"]') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        'Reviewed failed attempt; no booking or money held.',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click(button);
+    for (let n = 0; n < 4; n++)
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 10));
+      });
+    const request = fetcher.mock.calls.find(([url]) => url.endsWith('/review/dismiss'))!;
+    expect(JSON.parse(String(request[1]?.body))).toEqual({
+      note: 'Reviewed failed attempt; no booking or money held.',
+    });
+    expect(container.textContent).toContain('No bookings need attention');
+    await act(async () => root.unmount());
+  });
+
   it('shows an error with a retry when the queue cannot load', async () => {
     const fetch = vi
       .fn()
@@ -129,7 +176,9 @@ describe('NeedsAttentionTab', () => {
     vi.stubGlobal('fetch', fetch);
 
     const { container, root } = await mount();
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Unable to load the queue');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      'Unable to load the queue',
+    );
 
     await click(
       Array.from(container.querySelectorAll('button')).find(
@@ -142,7 +191,7 @@ describe('NeedsAttentionTab', () => {
   });
 });
 
-async function mount() {
+async function mount(canEdit = false) {
   const container = document.createElement('div');
   const root = createRoot(container);
   await act(async () => {
@@ -150,7 +199,7 @@ async function mount() {
       createElement(
         DashboardQueryProvider,
         undefined,
-        createElement(NeedsAttentionTab, { tenantId: 't', propertyId: 'p' }),
+        createElement(NeedsAttentionTab, { tenantId: 't', propertyId: 'p', canEdit }),
       ),
     );
   });
