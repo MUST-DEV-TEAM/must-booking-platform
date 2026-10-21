@@ -141,6 +141,7 @@ no host access is needed to prepare the change. No database migration is added.
      `docker exec nginx-proxy-manager-app-1 nginx -t`, then
      `docker exec nginx-proxy-manager-app-1 nginx -s reload`. To revert, remove the file
      content, validate and reload again.
+
    - **Plain host nginx:** the same `location` with `proxy_pass http://127.0.0.1:4012;`
      (the service also publishes `127.0.0.1:4012`).
 
