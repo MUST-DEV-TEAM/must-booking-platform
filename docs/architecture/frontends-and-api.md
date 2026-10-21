@@ -68,6 +68,7 @@ Routes below are relative to the Nest API. Browser requests through Next normall
 | Staff booking/payment actions | `staff-booking.controller.ts`, `manual-payment.controller.ts`, `payment-refund.controller.ts` |
 | Staff payment ledger (read-only) | `GET /tenants/:tenantId/properties/:propertyId/payments/bookings/:bookingId`, `payment-ledger.controller.ts`; needs the `payments.refund` capability |
 | Gateway callbacks | `stripe-webhook.controller.ts`, `pokpay-webhook.controller.ts`; provider-specific verification |
+| PokPay environment | A PokPay connection's `environment` credential (`staging` default, or `production`) picks the API host (`api-staging.pokpay.io` / `api.pokpay.io`); the webhook URL is derived as `WEB_APP_URL/api/webhooks/pokpay` unless an older connection stores `webhookUrl`; any other host is rejected (`pokpay-environments.ts`) |
 | Clock SNS | `/clock-webhooks/:webhookPublicId`; no staff session; pinned topic and signature checks |
 | Pairing | `/wordpress-pairing/redeem`; staff code-generation controller is tenant/property scoped |
 | Platform oversight | `/platform/*`, platform-admin role; targeted operations rather than tenant impersonation |
