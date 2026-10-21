@@ -35,7 +35,12 @@ const providerLabels: Record<ConnectionProvider, string> = {
 // instead of a generic key/value list. Milestone 11.5 Task 11.
 const credentialFieldsByProvider: Record<
   ConnectionProvider,
-  Array<{ key: string; label: string; secret?: boolean }>
+  Array<{
+    key: string;
+    label: string;
+    secret?: boolean;
+    options?: Array<{ value: string; label: string }>;
+  }>
 > = {
   STRIPE: [
     { key: 'secretKey', label: 'Secret key', secret: true },
@@ -45,7 +50,14 @@ const credentialFieldsByProvider: Record<
     { key: 'keyId', label: 'Key ID' },
     { key: 'keySecret', label: 'Key secret', secret: true },
     { key: 'merchantId', label: 'Merchant ID' },
-    { key: 'webhookUrl', label: 'Webhook URL' },
+    {
+      key: 'environment',
+      label: 'Environment',
+      options: [
+        { value: 'staging', label: 'Staging (test payments)' },
+        { value: 'production', label: 'Production (real payments)' },
+      ],
+    },
   ],
   CLOCK_PMS: [
     { key: 'host', label: 'Host' },
@@ -237,7 +249,7 @@ export function IntegrationsManagement({
     if (!trimmedName) return;
     const trimmedCredentials: Record<string, string> = {};
     for (const field of credentialFieldsByProvider[provider]) {
-      const value = credentials[field.key];
+      const value = credentials[field.key] ?? field.options?.[0]?.value;
       if (value) trimmedCredentials[field.key] = field.secret ? value : value.trim();
     }
     createMutation.mutate({
@@ -383,15 +395,31 @@ export function IntegrationsManagement({
             {credentialFieldsByProvider[provider].map((field) => (
               <label className="must-field" key={field.key}>
                 <span className="must-field__label">{field.label}</span>
-                <input
-                  className="must-input"
-                  type={field.secret ? 'password' : 'text'}
-                  required
-                  value={credentials[field.key] ?? ''}
-                  onChange={(event) =>
-                    setCredentials((current) => ({ ...current, [field.key]: event.target.value }))
-                  }
-                />
+                {field.options ? (
+                  <select
+                    className="must-input"
+                    value={credentials[field.key] ?? field.options[0]!.value}
+                    onChange={(event) =>
+                      setCredentials((current) => ({ ...current, [field.key]: event.target.value }))
+                    }
+                  >
+                    {field.options.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="must-input"
+                    type={field.secret ? 'password' : 'text'}
+                    required
+                    value={credentials[field.key] ?? ''}
+                    onChange={(event) =>
+                      setCredentials((current) => ({ ...current, [field.key]: event.target.value }))
+                    }
+                  />
+                )}
               </label>
             ))}
           </fieldset>
