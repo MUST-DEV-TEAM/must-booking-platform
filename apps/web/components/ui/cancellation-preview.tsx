@@ -16,6 +16,7 @@ export type CancellationEvidence = {
   eligible: string;
   method: string;
   legacyPolicy: boolean;
+  policySource?: 'MUST' | 'CLOCK_PMS';
   previewHash: string;
 };
 export function previewMinor(value: string): bigint | null {
@@ -36,13 +37,19 @@ export function CancellationPreview({
     <div className="space-y-3">
       <Alert variant={e.isFree ? 'info' : 'warning'}>
         <AlertTitle>
-          {e.isFree
-            ? 'Within the free-cancellation policy'
-            : 'Outside the free-cancellation policy'}
+          {e.policySource === 'CLOCK_PMS'
+            ? 'Cancellation terms are managed in Clock'
+            : e.isFree
+              ? 'Within the free-cancellation policy'
+              : 'Outside the free-cancellation policy'}
         </AlertTitle>
         <AlertDescription>
           Cancellation releases inventory and updates the provider record.{' '}
-          {e.legacyPolicy ? 'Cancellation terms are taken from the current rate plan.' : ''}
+          {e.policySource === 'CLOCK_PMS'
+            ? 'The policy is unknown here. Choose the refund explicitly; no refund is automatic.'
+            : e.legacyPolicy
+              ? 'Cancellation terms are taken from the current rate plan.'
+              : ''}
         </AlertDescription>
       </Alert>
       <DetailList
@@ -50,12 +57,19 @@ export function CancellationPreview({
           { label: 'Rate plan', value: e.ratePlan },
           {
             label: `Free-cancellation deadline (${e.timezone})`,
-            value: e.cutoffAt
-              ? new Date(e.cutoffAt).toLocaleString('en-GB', { timeZone: e.timezone })
-              : 'No free cancellation',
+            value:
+              e.policySource === 'CLOCK_PMS'
+                ? 'Unknown - managed in Clock'
+                : e.cutoffAt
+                  ? new Date(e.cutoffAt).toLocaleString('en-GB', { timeZone: e.timezone })
+                  : 'No free cancellation',
           },
           { label: 'Paid', value: amount(e.paid) },
-          { label: 'Penalty', value: amount(e.penalty) },
+          {
+            label: 'Penalty',
+            value:
+              e.policySource === 'CLOCK_PMS' ? 'Unknown - managed in Clock' : amount(e.penalty),
+          },
           { label: 'Already refunded', value: amount(e.alreadyRefunded) },
           { label: 'Refund to issue', value: amount(refundAmount) },
           { label: 'Method', value: e.method },

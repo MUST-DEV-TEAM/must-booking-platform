@@ -522,3 +522,65 @@ describe('B1 risky cancellation paths', () => {
     }
   });
 });
+
+it('Clock unknown policy: privileged staff must acknowledge terms and choose an explicit refund; concurrent retry refunds once', async () => {
+  const id = await fixture();
+  await admin.$executeRaw`UPDATE bookings SET external_booking_id='clock-policy-test' WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${id}::uuid`;
+  const c = { ...context, userId: reviewer };
+  const e = await service.preview(c, id);
+  expect(e).toMatchObject({
+    policySource: 'CLOCK_PMS',
+    cutoffAt: null,
+    isFree: false,
+    eligible: '0.00',
+    legacyPolicy: false,
+  });
+  const body = {
+    expectedVersion: e.version,
+    previewHash: e.previewHash,
+    reasonCategory: 'guest_request',
+    details: 'Reviewed Clock terms',
+    refund: 'custom' as const,
+    customAmount: '30.00',
+    notifyGuest: false,
+  };
+  await expect(service.submit(c, id, body)).rejects.toThrow('Confirm Clock-managed');
+  await expect(
+    service.submit(c, id, { ...body, refund: 'eligible', clockTermsConfirmed: true }),
+  ).rejects.toThrow('explicitly choose');
+  const outcomes = await Promise.allSettled([
+    service.submit(c, id, { ...body, clockTermsConfirmed: true }),
+    service.submit(c, id, { ...body, clockTermsConfirmed: true }),
+  ]);
+  expect(outcomes.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+  const rows = await admin.$queryRaw<
+    { status: string; refunds: string; requests: bigint }[]
+  >`SELECT b.status::text,(SELECT sum(amount)::text FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='REFUND') AS refunds,(SELECT count(*) FROM booking_requests WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id) AS requests FROM bookings b WHERE b.tenant_id=${tenantId}::uuid AND b.property_id=${propertyId}::uuid AND b.id=${id}::uuid`;
+  expect(rows[0]).toMatchObject({ status: 'CANCELLED', refunds: '30.00', requests: 0n });
+});
+it('Clock no-refund choice never automatically refunds; staff without refund capability request review', async () => {
+  for (const userId of [reviewer, requester]) {
+    if (userId === requester) {
+      await admin.$executeRaw`INSERT INTO property_staff_capability_overrides(tenant_id,property_id,user_id,capability_id,granted) SELECT ${tenantId}::uuid,${propertyId}::uuid,${requester}::uuid,id,true FROM capabilities WHERE tenant_id=${tenantId}::uuid AND key='bookings.cancel' ON CONFLICT DO NOTHING`;
+      await admin.$executeRaw`UPDATE property_staff_capability_overrides SET granted=false WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND user_id=${requester}::uuid AND capability_id IN (SELECT id FROM capabilities WHERE tenant_id=${tenantId}::uuid AND key='payments.refund')`;
+    }
+    const id = await fixture();
+    await admin.$executeRaw`UPDATE bookings SET external_booking_id=${'clock-policy-none-' + id} WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${id}::uuid`;
+    const c = { ...context, userId };
+    const e = await service.preview(c, id);
+    const result = await service.submit(c, id, {
+      expectedVersion: e.version,
+      previewHash: e.previewHash,
+      reasonCategory: 'guest_request',
+      details: 'Explicitly no refund',
+      refund: 'none',
+      clockTermsConfirmed: true,
+      notifyGuest: false,
+    });
+    expect('request' in result).toBe(userId === requester);
+    const refunds = await admin.$queryRaw<
+      { count: bigint }[]
+    >`SELECT count(*) FROM payments WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND booking_id=${id}::uuid AND kind='REFUND'`;
+    expect(refunds[0].count).toBe(0n);
+  }
+});

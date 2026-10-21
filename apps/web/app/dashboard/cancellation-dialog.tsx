@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import {
@@ -57,9 +57,21 @@ export function CancellationDialog({
     staleTime: 0,
   });
   const e = query.data;
+  const clockTerms = e?.policySource === 'CLOCK_PMS';
+  const [clockTermsConfirmed, setClockTermsConfirmed] = useState(false);
+  useEffect(() => {
+    setClockTermsConfirmed(false);
+    if (clockTerms && open) {
+      setChoice('eligible');
+      setCustom('');
+    }
+  }, [open, bookingId, clockTerms]);
+  const refundChoice = clockTerms && choice === 'eligible' ? 'none' : choice;
   const amount =
-    choice === 'none' ? '0.00' : choice === 'custom' ? custom : (e?.eligible ?? '0.00');
-  const approval = !canCancel || !e?.isFree || choice === 'custom';
+    refundChoice === 'none' ? '0.00' : refundChoice === 'custom' ? custom : (e?.eligible ?? '0.00');
+  const approval = clockTerms
+    ? !canCancel || !canRefund
+    : !canCancel || !e?.isFree || choice === 'custom';
   const customMinor = previewMinor(custom);
   const remainingMinor =
     (previewMinor(e?.paid ?? '0') ?? 0n) - (previewMinor(e?.alreadyRefunded ?? '0') ?? 0n);
@@ -77,7 +89,13 @@ export function CancellationDialog({
       reasonRequired
       destructive
       contentClassName="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
-      confirmDisabled={!e || query.isFetching || query.isError || invalidCustom}
+      confirmDisabled={
+        !e ||
+        query.isFetching ||
+        query.isError ||
+        invalidCustom ||
+        (clockTerms && !clockTermsConfirmed)
+      }
       onConfirm={async (details) => {
         if (!e) return;
         const result = await requestJson<{
@@ -92,7 +110,8 @@ export function CancellationDialog({
             reasonCategory: category,
             priority,
             details,
-            refund: choice,
+            refund: refundChoice,
+            clockTermsConfirmed: clockTerms ? clockTermsConfirmed : undefined,
             customAmount: choice === 'custom' ? custom : undefined,
             notifyGuest: notify,
           }),
@@ -150,15 +169,19 @@ export function CancellationDialog({
       </div>
       <div>
         <Label>Refund decision</Label>
-        <Select value={choice} onValueChange={setChoice}>
+        <Select value={refundChoice} onValueChange={setChoice}>
           <SelectTrigger aria-label="Refund decision">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="eligible">Full eligible refund (policy default)</SelectItem>
+            {!clockTerms ? (
+              <SelectItem value="eligible">Full eligible refund (policy default)</SelectItem>
+            ) : null}
             <SelectItem value="none">No refund</SelectItem>
             {canRefund ? (
-              <SelectItem value="custom">Custom amount (requires approval)</SelectItem>
+              <SelectItem value="custom">
+                {clockTerms && canCancel ? 'Custom amount' : 'Custom amount (requires approval)'}
+              </SelectItem>
             ) : null}
           </SelectContent>
         </Select>
@@ -173,6 +196,17 @@ export function CancellationDialog({
             onChange={(v) => setCustom(v.target.value)}
           />
         </div>
+      ) : null}
+      {clockTerms ? (
+        <Label className="flex items-center gap-2">
+          <Switch
+            checked={clockTermsConfirmed}
+            onCheckedChange={setClockTermsConfirmed}
+            aria-label="Confirm Clock cancellation terms"
+          />
+          Cancellation terms are managed in Clock. I reviewed them and explicitly chose the refund
+          amount.
+        </Label>
       ) : null}
       <Label className="flex items-center gap-2">
         <Switch

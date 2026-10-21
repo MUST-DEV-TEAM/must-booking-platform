@@ -39,7 +39,8 @@ export type CancellationEvidence = {
   penalty: string;
   eligible: string;
   method: string;
-  legacyPolicy: true;
+  legacyPolicy: boolean;
+  policySource?: 'MUST' | 'CLOCK_PMS';
   previewHash: string;
   orderReference?: string | null;
 };
@@ -52,6 +53,7 @@ export type CancellationInput = {
   refund?: 'eligible' | 'none' | 'custom';
   customAmount?: string;
   notifyGuest?: boolean;
+  clockTermsConfirmed?: boolean;
 };
 type Snapshot = { evidence: CancellationEvidence; input: CancellationInput; refundAmount: string };
 type RequestRow = {
@@ -86,9 +88,11 @@ export function refundPreview(paid: string, refunded: string, total: string, isF
 }
 export function needsApproval(
   caps: string[],
-  evidence: Pick<CancellationEvidence, 'isFree'>,
+  evidence: Pick<CancellationEvidence, 'isFree' | 'policySource'>,
   choice: string,
 ) {
+  if (evidence.policySource === 'CLOCK_PMS')
+    return !caps.includes('bookings.cancel') || !caps.includes('payments.refund');
   return !caps.includes('bookings.cancel') || !evidence.isFree || choice === 'custom';
 }
 
@@ -130,6 +134,12 @@ export class BookingRequestsService {
       >
     >`
       SELECT b.id AS "bookingId", b.external_reference AS reference, b.version, b.status::text,
+        CASE WHEN b.external_booking_id IS NOT NULL OR EXISTS (
+          SELECT 1 FROM property_integration_connections pc JOIN integration_connections c
+          ON c.tenant_id=pc.tenant_id AND c.id=pc.connection_id
+          WHERE pc.tenant_id=b.tenant_id AND pc.property_id=b.property_id
+            AND pc.enabled AND pc.kind='PMS' AND c.provider='CLOCK_PMS'
+        ) THEN 'CLOCK_PMS' ELSE 'MUST' END AS "policySource",
         b.order_reference AS "orderReference", rp.name AS "ratePlan", p.timezone, rp.currency,
         b.total_amount::text AS total,
         COALESCE((SELECT concat(provider,' / ',COALESCE(method,'')) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='CHARGE' AND status IN ('PAID','LATE_AFTER_EXPIRY','succeeded') ORDER BY created_at DESC,id DESC LIMIT 1),b.payment_method::text) AS method,
@@ -148,13 +158,15 @@ export class BookingRequestsService {
       ? await this.orderBalance(tx, c, row.orderReference)
       : null;
     const { total, evaluatedAt, ...base } = row;
-    const isFree = withinFreeWindow(row.cutoffAt, evaluatedAt);
+    const clockTerms = row.policySource === 'CLOCK_PMS';
+    const isFree = !clockTerms && withinFreeWindow(row.cutoffAt, evaluatedAt);
     const evidence = {
       ...base,
       isFree,
-      cutoffAt: row.cutoffAt ? new Date(row.cutoffAt).toISOString() : null,
+      cutoffAt: !clockTerms && row.cutoffAt ? new Date(row.cutoffAt).toISOString() : null,
       ...refundPreview(row.paid, row.alreadyRefunded, total, isFree),
-      legacyPolicy: true as const,
+      ...(clockTerms ? { penalty: '0.00', eligible: '0.00' } : {}),
+      legacyPolicy: !clockTerms,
     };
     if (orderRemaining !== null) {
       const share = isFree ? minor(total) : 0n;
@@ -254,6 +266,13 @@ export class BookingRequestsService {
           { id: string }[]
         >`SELECT id FROM booking_requests WHERE tenant_id=${c.tenantId}::uuid AND property_id=${c.propertyId}::uuid AND booking_id=${bookingId}::uuid AND type='cancellation' AND status='Pending'`;
         if (existing[0]) throw new ConflictException('A cancellation request is already pending.');
+        if (
+          evidence.policySource === 'CLOCK_PMS' &&
+          (input.clockTermsConfirmed !== true || !raw.refund || input.refund === 'eligible')
+        )
+          throw new BadRequestException(
+            'Confirm Clock-managed cancellation terms and explicitly choose no refund or a custom amount.',
+          );
         const refundAmount =
           input.refund === 'none'
             ? '0.00'
@@ -317,6 +336,7 @@ export class BookingRequestsService {
       refund: input.refund,
       customAmount: input.customAmount,
       notifyGuest: input.notifyGuest ?? true,
+      clockTermsConfirmed: input.clockTermsConfirmed === true,
     };
   }
   private async execute(c: RequestContext, snapshot: Snapshot, key: string, actorId: string) {

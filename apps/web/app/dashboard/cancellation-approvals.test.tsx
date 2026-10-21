@@ -177,3 +177,55 @@ describe('B1 confirmation, refund preview, queue and review panel', () => {
     expect(document.body.textContent).toContain('No pending requests');
   });
 });
+
+it.each([true, false])(
+  'Clock unknown terms default to zero and require explicit acknowledgement (refund capability=%s)',
+  async (canRefund) => {
+    const fetch = vi.fn(
+      async (_url: string, options?: RequestInit) =>
+        new Response(
+          JSON.stringify(
+            options?.method === 'POST'
+              ? { ok: true }
+              : {
+                  ...evidence,
+                  policySource: 'CLOCK_PMS',
+                  cutoffAt: null,
+                  isFree: false,
+                  eligible: '0.00',
+                  legacyPolicy: false,
+                },
+          ),
+        ),
+    );
+    vi.stubGlobal('fetch', fetch);
+    await mount(
+      <CancellationDialog
+        tenantId="t"
+        propertyId="p"
+        bookingId="b"
+        open
+        onOpenChange={vi.fn()}
+        canCancel
+        canRefund={canRefund}
+      />,
+    );
+    expect(document.body.textContent).toContain('Cancellation terms are managed in Clock');
+    expect(document.body.textContent).not.toContain('Outside the free-cancellation policy');
+    const confirm = () => button(canRefund ? 'Cancel reservation' : 'Submit request');
+    await write('textarea', 'Reviewed the Clock policy');
+    expect(confirm().disabled).toBe(true);
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Confirm Clock cancellation terms"]')!
+        .click(),
+    );
+    expect(confirm().disabled).toBe(false);
+    await act(async () => confirm().click());
+    const sent = fetch.mock.calls.find((c) => c[1]?.method === 'POST');
+    expect(JSON.parse(sent![1]!.body as string)).toMatchObject({
+      refund: 'none',
+      clockTermsConfirmed: true,
+    });
+  },
+);
