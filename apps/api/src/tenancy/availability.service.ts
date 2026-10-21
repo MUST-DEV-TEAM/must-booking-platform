@@ -848,6 +848,22 @@ export class AvailabilityService {
     return value;
   }
 
+  private async stockManagedInClock(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+  ): Promise<boolean> {
+    const rows = await tx.$queryRaw<Array<{ managed: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1 FROM property_integration_connections pic
+        JOIN integration_connections c ON c.tenant_id = pic.tenant_id AND c.id = pic.connection_id
+        WHERE pic.tenant_id = ${tenantId}::uuid AND pic.property_id = ${propertyId}::uuid
+          AND pic.kind = 'PMS' AND pic.enabled = true AND c.provider = 'CLOCK_PMS'
+      ) AS managed
+    `;
+    return rows[0]?.managed === true;
+  }
+
   private async adjustBookedUnits(
     tx: TenantTransaction,
     tenantId: string,
@@ -884,6 +900,11 @@ export class AvailabilityService {
         AND stays_on < ${adjustment.endsOn}::date
       FOR UPDATE
     `;
+
+    // A Clock-connected hotel never keeps local stock (Clock owns it), so there is nothing to
+    // reserve or release here; Clock's own availability is confirmed before the booking is made.
+    if (rows.length === 0 && (await this.stockManagedInClock(tx, tenantId, propertyId)))
+      return true;
 
     const expectedNights = this.nightCount(adjustment.startsOn, adjustment.endsOn);
     const canAdjust =
