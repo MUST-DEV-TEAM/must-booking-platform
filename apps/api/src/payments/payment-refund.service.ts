@@ -139,6 +139,7 @@ export class PaymentRefundService {
     bookingId: string,
     amount: Money,
     idempotencyKey: string,
+    metadata?: { actorUserId: string; note: string },
   ): Promise<{ result: Result<Payment | null>; confirmation: RefundConfirmation | null }> {
     const charge = await this.chargeForBooking(tx, context, bookingId, ['PAID']);
     if (!charge) return { result: { ok: true, value: null }, confirmation: null };
@@ -159,6 +160,7 @@ export class PaymentRefundService {
     const outcome = await this.refundCharge(tx, context, bookingId, charge, {
       amount,
       idempotencyKey,
+      ...metadata,
     });
     return { result: outcome.result, confirmation: outcome.confirmation };
   }

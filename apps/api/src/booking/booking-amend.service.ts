@@ -1,3 +1,5 @@
+import { PaymentRefundService, type RefundConfirmation } from '../payments/payment-refund.service';
+import { PaymentNotificationService } from '../mail/payment-notification.service';
 import {
   BadRequestException,
   ConflictException,
@@ -23,6 +25,8 @@ import {
 import { BookingUpdateNotificationService } from '../mail/booking-update-notification.service';
 import { NOTIFICATION_UUID } from '../tenancy/notification-registry';
 type Context = { tenantId: string; propertyId: string; userId: string };
+type Outcome = 'charge' | 'waive' | 'refund' | 'no_refund' | 'refund_due' | 'equal';
+type Choice = { outcome?: Outcome; outcomeReason: string };
 type Dates = { startsOn: string; endsOn: string };
 type Row = Dates & {
   id: string;
@@ -56,11 +60,15 @@ export class BookingAmendService {
     @Inject(AvailabilityService) private readonly availability: AvailabilityService,
     @Inject(BookingUpdateNotificationService)
     private readonly emails: BookingUpdateNotificationService,
+    @Inject(PaymentRefundService) private readonly refunds: PaymentRefundService,
+    @Inject(PaymentNotificationService) private readonly receipts: PaymentNotificationService,
   ) {}
   private async require(c: Context, id: string) {
     if (!NOTIFICATION_UUID.test(id)) throw new BadRequestException('Choose a valid reservation.');
-    if (!(await this.caps.effective(c)).includes('bookings.edit'))
+    const capabilities = await this.caps.effective(c);
+    if (!capabilities.includes('bookings.edit'))
       throw new ForbiddenException('Requires bookings.edit.');
+    return capabilities;
   }
   private dates(value: unknown): Dates {
     const raw = (value ?? {}) as Record<string, unknown>;
@@ -74,16 +82,97 @@ export class BookingAmendService {
       throw new BadRequestException('Choose a stay of no more than 366 nights.');
     return d;
   }
-  async preview(c: Context, id: string, query: unknown) {
-    await this.require(c, id);
-    const dates = this.dates(query);
+  private choice(value: unknown): Choice {
+    const raw = (value ?? {}) as Record<string, unknown>;
+    if (
+      raw.outcome !== undefined &&
+      !['charge', 'waive', 'refund', 'no_refund', 'refund_due', 'equal'].includes(
+        String(raw.outcome),
+      )
+    )
+      throw new BadRequestException('Choose a price outcome from the list.');
+    if (
+      raw.outcomeReason !== undefined &&
+      (typeof raw.outcomeReason !== 'string' || raw.outcomeReason.trim().length > 2000)
+    )
+      throw new BadRequestException('Keep the price decision reason to 2000 characters or fewer.');
+    return {
+      outcome: raw.outcome as Outcome | undefined,
+      outcomeReason: typeof raw.outcomeReason === 'string' ? raw.outcomeReason.trim() : '',
+    };
+  }
+  async calendar(c: Context, id: string, query: unknown) {
+    const capabilities = await this.require(c, id);
+    const raw = (query ?? {}) as Record<string, unknown>;
+    const dates = this.dates(raw);
+    const window = this.dates({ startsOn: raw.from, endsOn: raw.to });
+    if (
+      ruleNights(window.startsOn, window.endsOn) > 31 ||
+      !['start', 'end'].includes(String(raw.edge))
+    )
+      throw new BadRequestException(
+        'Choose a visible calendar window of up to 31 days and a date field.',
+      );
+    const add = (day: string, n: number) =>
+      new Date(Date.parse(day + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10);
     return this.db.withTenantTransaction(
       c,
-      async (tx) => (await this.evidence(tx, c, id, dates)).preview,
+      async (tx) => {
+        await this.evidence(tx, c, id, dates, { outcomeReason: '' }, capabilities);
+        const days: { date: string; disabled: boolean; reason: string | null }[] = [];
+        for (let day = window.startsOn; day < window.endsOn; day = add(day, 1)) {
+          const candidate =
+            raw.edge === 'start'
+              ? {
+                  startsOn: day,
+                  endsOn:
+                    dates.endsOn > day
+                      ? dates.endsOn
+                      : add(day, ruleNights(dates.startsOn, dates.endsOn)),
+                }
+              : { startsOn: dates.startsOn, endsOn: day };
+          if (
+            candidate.endsOn <= candidate.startsOn ||
+            ruleNights(candidate.startsOn, candidate.endsOn) > 366
+          ) {
+            days.push({
+              date: day,
+              disabled: true,
+              reason: 'Choose check-out after check-in, within 366 nights.',
+            });
+            continue;
+          }
+          const p = (await this.evidence(tx, c, id, candidate, { outcomeReason: '' }, capabilities))
+            .preview;
+          days.push({
+            date: day,
+            disabled: !p.available,
+            reason: p.available ? null : p.policyNotes.join(' '),
+          });
+        }
+        return { days };
+      },
       { timeoutMs: 20000 },
     );
   }
-  private async evidence(tx: TenantTransaction, c: Context, id: string, dates: Dates) {
+  async preview(c: Context, id: string, query: unknown) {
+    const capabilities = await this.require(c, id);
+    const dates = this.dates(query);
+    const choice = this.choice(query);
+    return this.db.withTenantTransaction(
+      c,
+      async (tx) => (await this.evidence(tx, c, id, dates, choice, capabilities)).preview,
+      { timeoutMs: 20000 },
+    );
+  }
+  private async evidence(
+    tx: TenantTransaction,
+    c: Context,
+    id: string,
+    dates: Dates,
+    choice: Choice,
+    capabilities: string[],
+  ) {
     const property = await pricingContext(tx, c.tenantId, c.propertyId, true);
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${c.tenantId}:${c.propertyId}:booking:${id}`},0))`;
     // Take the row lock in its own statement so ledger reads get a fresh snapshot
@@ -155,12 +244,22 @@ export class BookingAmendService {
       oldStartsOn: row.startsOn,
       oldEndsOn: row.endsOn,
     };
+    const stockReasons: string[] = [];
     const stock =
       rules.valid &&
-      (await this.availability.amendStayInventory(tx, c.tenantId, c.propertyId, inventoryInput));
+      (await this.availability.amendStayInventory(
+        tx,
+        c.tenantId,
+        c.propertyId,
+        inventoryInput,
+        false,
+        stockReasons,
+      ));
     const notes = [...rules.errors.map((e) => e.message), ...pricing.errors.map((e) => e.message)];
     if (!stock && rules.valid)
-      notes.push('The same room or room type is unavailable for these dates.');
+      notes.push(
+        stockReasons.join(' ') || 'The same room or room type is unavailable for these dates.',
+      );
     if (pricing.total && pricing.total.currency !== row.currency)
       notes.push('The rate plan currency changed. This stay cannot be repriced safely.');
     const available =
@@ -170,7 +269,32 @@ export class BookingAmendService {
       !!pricing.total &&
       pricing.total.currency === row.currency;
     const total = pricing.total?.amount ?? null;
-    const balance = total === null ? null : minor(total) - (minor(row.paid) - minor(row.refunded));
+    const difference = total === null ? null : minor(total) - minor(row.total);
+    const canRefund = capabilities.includes('payments.refund');
+    const availableOutcomes: Outcome[] =
+      difference === null || difference === 0n
+        ? ['equal']
+        : difference > 0n
+          ? canRefund
+            ? ['charge', 'waive']
+            : ['charge']
+          : canRefund
+            ? ['refund', 'no_refund', 'refund_due']
+            : ['refund_due'];
+    const outcome = choice.outcome ?? availableOutcomes[0]!;
+    if (!availableOutcomes.includes(outcome)) {
+      if ((outcome === 'waive' || outcome === 'no_refund' || outcome === 'refund') && !canRefund)
+        throw new ForbiddenException('Requires payments.refund for this price decision.');
+      throw new BadRequestException('This price outcome does not match the price change.');
+    }
+    const recordedTotal = outcome === 'waive' || outcome === 'no_refund' ? row.total : total;
+    const netPaid = minor(row.paid) - minor(row.refunded);
+    const refundAmount =
+      outcome === 'refund' && difference !== null && difference < 0n && total !== null
+        ? [-difference, netPaid - minor(total)].reduce((a, b) => (a < b ? a : b))
+        : 0n;
+    const refundToIssue = refundAmount > 0n ? refundAmount : 0n;
+    const balance = recordedTotal === null ? null : minor(recordedTotal) - netPaid + refundToIssue;
     const preview = {
       bookingId: id,
       ...dates,
@@ -179,7 +303,13 @@ export class BookingAmendService {
       oldTotal: row.total,
       newTotal: total,
       currency: row.currency,
-      difference: total === null ? null : money(minor(total) - minor(row.total)),
+      difference: difference === null ? null : money(difference),
+      recordedTotal,
+      outcome,
+      outcomeReason: choice.outcomeReason,
+      availableOutcomes,
+      canRefund,
+      refundToIssue: money(refundToIssue),
       paid: row.paid,
       refunded: row.refunded,
       balance: balance === null ? null : money(balance),
@@ -205,7 +335,8 @@ export class BookingAmendService {
     };
   }
   async amend(c: Context, id: string, body: unknown, key: string | undefined) {
-    await this.require(c, id);
+    const capabilities = await this.require(c, id);
+    const choice = this.choice(body);
     const raw = (body ?? {}) as Record<string, unknown>,
       dates = this.dates(body);
     if (
@@ -218,6 +349,8 @@ export class BookingAmendService {
             'previewHash',
             'reason',
             'notifyGuest',
+            'outcome',
+            'outcomeReason',
           ].includes(k),
       )
     )
@@ -236,6 +369,7 @@ export class BookingAmendService {
       throw new BadRequestException('An Idempotency-Key of up to 200 characters is required.');
     const input = {
       ...dates,
+      ...choice,
       expectedVersion: raw.expectedVersion,
       previewHash: raw.previewHash,
       reason: raw.reason.trim(),
@@ -243,6 +377,7 @@ export class BookingAmendService {
     };
     const operationKey = `booking-amend:${key.trim()}`,
       requestHash = hash({ id, actor: c.userId, input });
+    let refundReceipt: RefundConfirmation | null = null;
     let previous: { startsOn: string; endsOn: string; roomTypeId: string } | undefined;
     const result = await this.db.withTenantTransaction(
       c,
@@ -264,13 +399,15 @@ export class BookingAmendService {
             );
           return prior[0].result;
         }
-        const evidence = await this.evidence(tx, c, id, dates),
+        const evidence = await this.evidence(tx, c, id, dates, choice, capabilities),
           p = evidence.preview,
           row = evidence.row;
         if (p.version !== input.expectedVersion || p.previewHash !== input.previewHash)
           throw new ConflictException(
             'This reservation or preview changed. Review the dates and price again.',
           );
+        if (['waive', 'no_refund'].includes(p.outcome) && !choice.outcomeReason)
+          throw new BadRequestException('Enter a reason for this price decision.');
         if (!p.available)
           throw new ConflictException(p.policyNotes.join(' ') || 'These dates are unavailable.');
         if (dates.startsOn === row.startsOn && dates.endsOn === row.endsOn)
@@ -286,7 +423,7 @@ export class BookingAmendService {
         )
           throw new ConflictException('These dates are no longer available. Nothing was changed.');
         const updated =
-          await tx.$executeRaw`UPDATE bookings SET starts_on=${dates.startsOn}::date,ends_on=${dates.endsOn}::date,total_amount=${p.newTotal}::numeric,nightly_rates=${JSON.stringify(evidence.pricing.nightlyRates)}::jsonb,version=version+1,updated_at=now() WHERE tenant_id=${c.tenantId}::uuid AND property_id=${c.propertyId}::uuid AND id=${id}::uuid AND version=${input.expectedVersion}`;
+          await tx.$executeRaw`UPDATE bookings SET starts_on=${dates.startsOn}::date,ends_on=${dates.endsOn}::date,total_amount=${p.recordedTotal}::numeric,nightly_rates=${JSON.stringify(evidence.pricing.nightlyRates)}::jsonb,version=version+1,updated_at=now() WHERE tenant_id=${c.tenantId}::uuid AND property_id=${c.propertyId}::uuid AND id=${id}::uuid AND version=${input.expectedVersion}`;
         if (updated !== 1)
           throw new ConflictException('This reservation changed. Reload it before confirming.');
         await this.audit.recordInTransaction(tx, {
@@ -299,18 +436,60 @@ export class BookingAmendService {
             changes: {
               startsOn: { old: row.startsOn, new: dates.startsOn },
               endsOn: { old: row.endsOn, new: dates.endsOn },
-              total: { old: row.total, new: p.newTotal },
+              total: { old: row.total, new: p.recordedTotal },
+              'Price decision': {
+                old: 'Not decided',
+                new: {
+                  charge: 'Charge the difference',
+                  waive: 'Waive the difference',
+                  refund: 'Refund the difference',
+                  no_refund: "Don't refund",
+                  refund_due: 'Leave refund due',
+                  equal: 'Keep price',
+                }[p.outcome],
+              },
+              'Priced difference': { old: '0.00', new: `${p.currency} ${p.difference}` },
+              ...(p.outcomeReason
+                ? { 'Price decision reason': { old: null, new: p.outcomeReason } }
+                : {}),
             },
+            difference: p.difference,
+            pricedTotal: p.newTotal,
+            outcome: p.outcome,
+            outcomeReason: p.outcomeReason,
             reason: input.reason,
             notifyGuest: input.notifyGuest,
           },
         });
+        if (minor(p.refundToIssue) > 0n) {
+          const refunded = await this.refunds.refundPaidChargeForBookingAmount(
+            tx,
+            c,
+            id,
+            { amount: p.refundToIssue, currency: p.currency },
+            `booking-amend-refund:${key.trim()}`,
+            { actorUserId: c.userId, note: input.reason },
+          );
+          if (!refunded.result.ok) throw new ConflictException(refunded.result.error.message);
+          if (!refunded.result.value)
+            throw new ConflictException(
+              'The paid charge cannot be refunded here. Leave a refund due for a manager.',
+            );
+          refundReceipt = refunded.confirmation;
+        }
         const saved = {
           ok: true,
           version: row.version + 1,
           startsOn: dates.startsOn,
           endsOn: dates.endsOn,
-          total: p.newTotal,
+          total: p.recordedTotal,
+          oldTotal: row.total,
+          reason: input.reason,
+          pricedTotal: p.newTotal,
+          difference: p.difference,
+          outcome: p.outcome,
+          outcomeReason: p.outcomeReason,
+          refundIssued: p.refundToIssue,
           currency: p.currency,
           balance: p.balance,
           balanceState: p.balanceState,
@@ -322,6 +501,7 @@ export class BookingAmendService {
       },
       { timeoutMs: 20000 },
     );
+    if (refundReceipt) await this.receipts.sendRefundConfirmationEmailSafely(refundReceipt, c);
     if (previous) await this.emails.sendBookingChanged(c, id, previous);
     return result;
   }

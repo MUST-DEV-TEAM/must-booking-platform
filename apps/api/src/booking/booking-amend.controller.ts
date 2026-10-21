@@ -15,6 +15,11 @@ export class BookingAmendController {
   preview(@Req() r: Request, @Param('bookingId') id: string, @Query() query: unknown) {
     return this.service.preview(r.tenantContext, id, query);
   }
+  @Get(':bookingId/amend-calendar')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  calendar(@Req() r: Request, @Param('bookingId') id: string, @Query() query: unknown) {
+    return this.service.calendar(r.tenantContext, id, query);
+  }
   @Patch(':bookingId/amend')
   @TenantScoped({ propertyParam: 'propertyId' })
   @RequiresVerifiedEmail()

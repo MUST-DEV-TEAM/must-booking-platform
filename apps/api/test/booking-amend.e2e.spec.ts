@@ -1,3 +1,9 @@
+import { PaymentRefundService } from '../src/payments/payment-refund.service';
+import { PaymentProviderRegistry } from '../src/payments/payment-provider-registry';
+import { PaymentNotificationService } from '../src/mail/payment-notification.service';
+import { NotificationsService } from '../src/tenancy/notifications.service';
+import { ClockBookingService } from '../src/integrations/clock/clock-booking.service';
+import { ManualReviewService } from '../src/integrations/manual-review.service';
 import { AvailabilityService } from '../src/tenancy/availability.service';
 import { IntegrationConnectionsService } from '../src/integrations/integration-connections.service';
 import { ClockAvailabilityService } from '../src/integrations/clock/clock-availability.service';
@@ -61,6 +67,7 @@ const c: { tenantId: string; propertyId: string; userId: string } = {
   userId: owner,
 };
 let app: INestApplication;
+const receipt = { sendRefundConfirmationEmailSafely: vi.fn(async () => {}) };
 const email = { sendBookingChanged: vi.fn(async () => {}) };
 const tables = [
   'inventory_units',
@@ -117,7 +124,7 @@ async function fixture(paid = 0, assigned = false) {
   await admin.$executeRaw`INSERT INTO room_types(id,tenant_id,property_id,name,max_occupancy,status) VALUES(${type}::uuid,${tenantId}::uuid,${propertyId}::uuid,${'Amend ' + type},3,'PUBLISHED')`;
   await admin.$executeRaw`INSERT INTO rate_rules(tenant_id,property_id,room_type_id,rate_plan_id,amount) VALUES(${tenantId}::uuid,${propertyId}::uuid,${type}::uuid,${ratePlan}::uuid,100)`;
   if (room)
-    await admin.$executeRaw`INSERT INTO rooms(id,tenant_id,property_id,room_type_id,name) VALUES(${room}::uuid,${tenantId}::uuid,${propertyId}::uuid,${type}::uuid,'Same room')`;
+    await admin.$executeRaw`INSERT INTO rooms(id,tenant_id,property_id,room_type_id,name) VALUES(${room}::uuid,${tenantId}::uuid,${propertyId}::uuid,${type}::uuid,${'Same room ' + room})`;
   await admin.$executeRaw`INSERT INTO inventory_units(tenant_id,property_id,room_type_id,stays_on,available_units,booked_units) SELECT ${tenantId}::uuid,${propertyId}::uuid,${type}::uuid,d::date,1,CASE WHEN ${!assigned} AND d::date IN ('2030-07-10','2030-07-11') THEN 1 ELSE 0 END FROM generate_series('2030-07-01'::date,'2030-07-31'::date,'1 day') d`;
   await admin.$executeRaw`INSERT INTO bookings(id,tenant_id,property_id,guest_id,room_type_id,room_id,rate_plan_id,external_reference,starts_on,ends_on,total_amount,status,payment_method,source) VALUES(${id}::uuid,${tenantId}::uuid,${propertyId}::uuid,${guest}::uuid,${type}::uuid,${room}::uuid,${ratePlan}::uuid,${'B2B-' + id},'2030-07-10','2030-07-12',200,'CONFIRMED','PAY_AT_HOTEL','DIRECT')`;
   if (paid)
@@ -158,6 +165,16 @@ beforeAll(async () => {
       for (let n = 0; n < 2; n++)
         for (const sql of migration.split(';').filter((s) => s.trim()))
           await tx.$executeRawUnsafe(sql);
+      for (const name of [
+        '20261021090000_payment_brand_settings',
+        '20261021100000_richer_property_settings',
+      ]) {
+        const sql = readFileSync(`prisma/migrations/${name}/migration.sql`, 'utf8')
+          .split('-- Same privileged')[0]!
+          .replace(/--[^\n]*/g, '');
+        for (const statement of sql.split(';').filter((x) => x.trim()))
+          await tx.$executeRawUnsafe(statement);
+      }
       await tx.$executeRawUnsafe(`GRANT USAGE ON SCHEMA "${schema}" TO must_booking_app`);
       await tx.$executeRawUnsafe(
         `GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA "${schema}" TO must_booking_app`,
@@ -186,6 +203,12 @@ beforeAll(async () => {
     controllers: [BookingAmendController],
     providers: [
       BookingAmendService,
+      PaymentRefundService,
+      { provide: PaymentProviderRegistry, useValue: {} },
+      { provide: PaymentNotificationService, useValue: receipt },
+      { provide: NotificationsService, useValue: { recordInTransaction: vi.fn(async () => {}) } },
+      { provide: ClockBookingService, useValue: {} },
+      { provide: ManualReviewService, useValue: {} },
       AvailabilityService,
       { provide: IntegrationConnectionsService, useValue: {} },
       { provide: ClockAvailabilityService, useValue: {} },
@@ -424,4 +447,202 @@ it('fails closed for an ambiguous order capture and uses booking-owned amounts w
   expect(clear.status, clear.text).toBe(200);
   expect(clear.body.paid).toBe('200.00');
   expect(clear.body.balance).toBe('100.00');
+});
+
+it('waives an increase only with permission and a reason, binds the choice to the hash, and keeps the recorded total', async () => {
+  const f = await fixture(),
+    p = await preview(f.id);
+  const waived = await request(app.getHttpServer())
+    .get(`${base}/${f.id}/amend-preview`)
+    .query({ ...dates, outcome: 'waive', outcomeReason: 'Honor the original quote' });
+  expect(waived.status, waived.text).toBe(200);
+  expect(waived.body).toMatchObject({
+    newTotal: '300.00',
+    recordedTotal: '200.00',
+    difference: '100.00',
+    outcome: 'waive',
+  });
+  expect(
+    (
+      await patch(f.id, {
+        ...input(p.body),
+        outcome: 'waive',
+        outcomeReason: 'Honor the original quote',
+      })
+    ).status,
+  ).toBe(409);
+  const empty = await request(app.getHttpServer())
+    .get(`${base}/${f.id}/amend-preview`)
+    .query({ ...dates, outcome: 'waive' });
+  expect((await patch(f.id, { ...input(empty.body), outcome: 'waive' })).status).toBe(400);
+  const result = await patch(f.id, {
+    ...input(waived.body),
+    outcome: 'waive',
+    outcomeReason: 'Honor the original quote',
+  });
+  expect(result.status, result.text).toBe(200);
+  expect(result.body.total).toBe('200.00');
+  const audit = await admin.$queryRaw<
+    { details: any }[]
+  >`SELECT details FROM audit_logs WHERE target_id=${f.id} AND action='booking.dates_amended'`;
+  expect(audit[0]!.details).toMatchObject({
+    outcome: 'waive',
+    outcomeReason: 'Honor the original quote',
+    difference: '100.00',
+    changes: { total: { old: '200.00', new: '200.00' } },
+  });
+});
+it('refunds a paid decrease once under concurrent replay through the existing ledger and receipt path', async () => {
+  const f = await fixture(200),
+    d = { startsOn: '2030-07-11', endsOn: '2030-07-12' },
+    p = await preview(f.id, d),
+    key = randomUUID();
+  expect(p.body).toMatchObject({ outcome: 'refund', refundToIssue: '100.00', balance: '0.00' });
+  const before = receipt.sendRefundConfirmationEmailSafely.mock.calls.length;
+  const body = { ...input(p.body, d), outcome: 'refund', outcomeReason: '' };
+  const results = await Promise.all([patch(f.id, body, key), patch(f.id, body, key)]);
+  expect(
+    results.map((r) => r.status),
+    results.map((r) => r.text).join(' '),
+  ).toEqual([200, 200]);
+  expect(results[0]!.body).toMatchObject({
+    total: '100.00',
+    refundIssued: '100.00',
+    balanceState: 'settled',
+  });
+  expect(results[0]!.body).toEqual(results[1]!.body);
+  const refunds = await admin.$queryRaw<
+    { amount: string }[]
+  >`SELECT amount::text AS amount FROM payments WHERE booking_id=${f.id}::uuid AND kind='REFUND'`;
+  expect(refunds).toEqual([{ amount: '100.00' }]);
+  expect(receipt.sendRefundConfirmationEmailSafely.mock.calls.length - before).toBe(1);
+  expect((await patch(f.id, { ...body, outcome: 'no_refund' }, key)).status).toBe(409);
+});
+it('keeps the agreed total for no-refund, lowers an unpaid decrease without refunding, and handles equal prices', async () => {
+  const d = { startsOn: '2030-07-11', endsOn: '2030-07-12' };
+  const f = await fixture(200);
+  const p = await request(app.getHttpServer())
+    .get(`${base}/${f.id}/amend-preview`)
+    .query({ ...d, outcome: 'no_refund', outcomeReason: 'Agreed fixed price' });
+  expect(p.status, p.text).toBe(200);
+  const saved = await patch(f.id, {
+    ...input(p.body, d),
+    outcome: 'no_refund',
+    outcomeReason: 'Agreed fixed price',
+  });
+  expect(saved.body).toMatchObject({
+    total: '200.00',
+    refundIssued: '0.00',
+    balanceState: 'settled',
+  });
+  const unpaid = await fixture(),
+    u = await preview(unpaid.id, d);
+  expect(u.body).toMatchObject({ outcome: 'refund', refundToIssue: '0.00' });
+  expect((await patch(unpaid.id, input(u.body, d))).body).toMatchObject({
+    total: '100.00',
+    balance: '100.00',
+  });
+  const equal = await fixture(),
+    same = { startsOn: '2030-07-11', endsOn: '2030-07-13' },
+    e = await preview(equal.id, same);
+  expect(e.body).toMatchObject({
+    outcome: 'equal',
+    availableOutcomes: ['equal'],
+    difference: '0.00',
+  });
+  expect((await patch(equal.id, input(e.body, same))).body).toMatchObject({
+    total: '200.00',
+    refundIssued: '0.00',
+  });
+});
+it('offers only charge or refund-due without refund permission and refuses forged money choices', async () => {
+  const user = randomUUID();
+  await admin.$executeRaw`INSERT INTO users(id,email) VALUES(${user}::uuid,${user + '@example.test'})`;
+  await admin.$executeRaw`INSERT INTO tenant_memberships(tenant_id,user_id,role) VALUES(${tenantId}::uuid,${user}::uuid,'STAFF')`;
+  await admin.$executeRaw`INSERT INTO property_staff_assignments(tenant_id,property_id,user_id,role_template_id) VALUES(${tenantId}::uuid,${propertyId}::uuid,${user}::uuid,${randomUUID()}::uuid)`;
+  await admin.$executeRaw`INSERT INTO property_staff_capability_overrides(tenant_id,property_id,user_id,capability_id,granted) SELECT ${tenantId}::uuid,${propertyId}::uuid,${user}::uuid,id,true FROM capabilities WHERE tenant_id=${tenantId}::uuid AND key='bookings.edit'`;
+  const f = await fixture(200),
+    up = await preview(f.id, dates, user),
+    d = { startsOn: '2030-07-11', endsOn: '2030-07-12' },
+    down = await preview(f.id, d, user);
+  expect(up.body.availableOutcomes).toEqual(['charge']);
+  expect(down.body.availableOutcomes).toEqual(['refund_due']);
+  for (const outcome of ['waive', 'no_refund', 'refund']) {
+    const selected = outcome === 'waive' ? dates : d;
+    expect(
+      (
+        await patch(
+          f.id,
+          { ...input(down.body, selected), outcome, outcomeReason: 'Not authorized' },
+          randomUUID(),
+          user,
+        )
+      ).status,
+    ).toBe(403);
+  }
+});
+it('calendar uses preview rules and own-night exclusion for pooled and assigned accommodation', async () => {
+  for (const assigned of [false, true]) {
+    const f = await fixture(0, assigned);
+    if (assigned) {
+      await admin.$executeRaw`INSERT INTO bookings(id,tenant_id,property_id,guest_id,room_type_id,room_id,rate_plan_id,external_reference,starts_on,ends_on,total_amount,status,payment_method,source) VALUES(${randomUUID()}::uuid,${tenantId}::uuid,${propertyId}::uuid,${guest}::uuid,${f.type}::uuid,${f.room}::uuid,${ratePlan}::uuid,${randomUUID()},'2030-07-15','2030-07-16',100,'CONFIRMED','PAY_AT_HOTEL','DIRECT')`;
+    } else {
+      await admin.$executeRaw`UPDATE inventory_units SET booked_units=1 WHERE room_type_id=${f.type}::uuid AND stays_on='2030-07-15'`;
+    }
+    const response = await request(app.getHttpServer())
+      .get(`${base}/${f.id}/amend-calendar`)
+      .query({
+        startsOn: '2030-07-10',
+        endsOn: '2030-07-12',
+        edge: 'start',
+        from: '2030-07-10',
+        to: '2030-07-17',
+      });
+    expect(response.status, response.text).toBe(200);
+    expect(response.body.days.find((d: any) => d.date === '2030-07-10').disabled).toBe(false);
+    expect(response.body.days.find((d: any) => d.date === '2030-07-15')).toMatchObject({
+      disabled: true,
+      reason: expect.stringMatching(/Booked/),
+    });
+    expect((await stock(f.type)).find((d) => d.day === '2030-07-10')!.units).toBe(assigned ? 0 : 1);
+  }
+});
+
+it('calendar explains manual blocks, stop sale, arrival/departure closure and minimum stay through the same preview evaluator', async () => {
+  const f = await fixture();
+  const calendar = (edge = 'start') =>
+    request(app.getHttpServer())
+      .get(`${base}/${f.id}/amend-calendar`)
+      .query({
+        startsOn: '2030-07-14',
+        endsOn: '2030-07-17',
+        edge,
+        from: '2030-07-15',
+        to: '2030-07-16',
+      });
+  for (const [type, value, edge, reason] of [
+    ['minimum_stay', 3, 'start', 'minimum stay'],
+    ['closed_to_arrival', 1, 'start', 'Arrival is closed'],
+    ['closed_to_departure', 1, 'end', 'Departure is closed'],
+    ['stop_sell', 1, 'start', 'Sales are closed'],
+  ] as const) {
+    const rule = randomUUID();
+    await admin.$executeRaw`INSERT INTO inventory_restrictions(id,tenant_id,property_id,reference,name,type,value,scope,target_ids,starts_on,ends_on,lifecycle,created_by_user_id,updated_by_user_id) VALUES(${rule}::uuid,${tenantId}::uuid,${propertyId}::uuid,${rule.slice(0, 20)},'Amend calendar',${type},${value},'room_type',ARRAY[${f.type}::uuid],'2030-07-15','2030-07-15','Active',${owner}::uuid,${owner}::uuid)`;
+    const result = await calendar(edge);
+    expect(result.status, result.text).toBe(200);
+    expect(result.body.days[0]).toMatchObject({
+      disabled: true,
+      reason: expect.stringContaining(reason),
+    });
+    await admin.$executeRaw`UPDATE inventory_restrictions SET lifecycle='Paused' WHERE id=${rule}::uuid`;
+  }
+  const block = randomUUID();
+  await admin.$executeRaw`INSERT INTO availability_blocks(id,tenant_id,property_id,starts_on,ends_on,blocks_all,lifecycle) VALUES(${block}::uuid,${tenantId}::uuid,${propertyId}::uuid,'2030-07-15','2030-07-16',false,'Active')`;
+  await admin.$executeRaw`INSERT INTO availability_block_room_types(tenant_id,property_id,block_id,room_type_id) VALUES(${tenantId}::uuid,${propertyId}::uuid,${block}::uuid,${f.type}::uuid)`;
+  const result = await calendar();
+  expect(result.status, result.text).toBe(200);
+  expect(result.body.days[0]).toMatchObject({
+    disabled: true,
+    reason: expect.stringContaining('Blocked'),
+  });
 });

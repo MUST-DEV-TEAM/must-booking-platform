@@ -743,6 +743,7 @@ export class AvailabilityService {
       oldStartsOn: string; oldEndsOn: string; startsOn: string; endsOn: string;
     },
     apply = false,
+    reasons?: string[],
   ): Promise<boolean> {
     await tx.$executeRawUnsafe('SAVEPOINT booking_amend_inventory');
     // Assigned rooms are held by the booking row, exactly as in creation.
@@ -758,8 +759,12 @@ export class AvailabilityService {
     if (available && input.roomId) {
       await this.lockRoom(tx, tenantId, propertyId, input.roomId);
       available = await this.roomIsAvailable(
-        tx, tenantId, propertyId, { ...input, roomId: input.roomId }, input.bookingId,
+        tx, tenantId, propertyId, { ...input, roomId: input.roomId }, input.bookingId, reasons,
       );
+    }
+    if (!available && reasons && reasons.length===0) {
+      const blocked = pooled && await this.roomTypeIsBlocked(tx,tenantId,propertyId,input.roomTypeId,input);
+      reasons.push(blocked ? 'Blocked: a manual block overlaps these dates.' : 'Booked or unavailable: the same accommodation has no inventory for these dates.');
     }
     if (!apply || !available)
       await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT booking_amend_inventory');
@@ -920,8 +925,9 @@ export class AvailabilityService {
     propertyId: string,
     input: RoomBookedInput,
     excludeBookingId?: string,
+    reasons?: string[],
   ): Promise<boolean> {
-    const rows = await tx.$queryRaw<Array<{ isAvailable: boolean }>>`
+    const rows = await tx.$queryRaw<Array<{ active:boolean; closed:boolean; booked:boolean; blocked:boolean }>>`
       SELECT
         EXISTS (
           SELECT 1 FROM rooms r
@@ -929,8 +935,8 @@ export class AvailabilityService {
             AND r.property_id = ${propertyId}::uuid
             AND r.id = ${input.roomId}::uuid
             AND r.is_active = true
-        )
-        AND NOT EXISTS (
+        ) AS active
+        , EXISTS (
           SELECT 1
           FROM room_availability
           WHERE tenant_id = ${tenantId}::uuid
@@ -939,8 +945,8 @@ export class AvailabilityService {
             AND stays_on >= ${input.startsOn}::date
             AND stays_on < ${input.endsOn}::date
             AND is_available = false
-        )
-        AND NOT EXISTS (
+        ) AS closed
+        , EXISTS (
           SELECT 1
           FROM bookings
           WHERE tenant_id = ${tenantId}::uuid
@@ -960,8 +966,8 @@ export class AvailabilityService {
               'PMS_REJECTED'::"BookingStatus",
               'MANUAL_REVIEW'::"BookingStatus"
             )
-        )
-        AND NOT EXISTS (
+        ) AS booked
+        , EXISTS (
           SELECT 1
           FROM availability_blocks ab
           WHERE ab.lifecycle IN ('Active','Scheduled') AND ab.tenant_id = ${tenantId}::uuid
@@ -991,9 +997,15 @@ export class AvailabilityService {
                   AND abrt.room_type_id = r.room_type_id
               )
             )
-        ) AS "isAvailable"
+        ) AS blocked
     `;
-    return rows[0]?.isAvailable ?? false;
+    const row=rows[0];
+    if (row && reasons) {
+      if (!row.active) reasons.push('Closed: this room is inactive.');
+      if (row.closed || row.blocked) reasons.push('Blocked: a manual block overlaps these dates.');
+      if (row.booked) reasons.push('Booked: another reservation overlaps these dates.');
+    }
+    return !!row && row.active && !row.closed && !row.booked && !row.blocked;
   }
 
   private async roomTypeIsBlocked(

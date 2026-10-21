@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 
+import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip';
 import { Button } from './button';
 import { IconButton } from './icon-button';
 import { Popover, PopoverContent, PopoverTrigger } from './popover';
@@ -54,6 +55,7 @@ function CalendarMonth({
   onHover,
   onSelect,
   minDate,
+  dateReason,
 }: {
   month: Date;
   selection: CalendarSelection;
@@ -62,6 +64,7 @@ function CalendarMonth({
   onHover: (date: string | null) => void;
   onSelect: (date: string) => void;
   minDate?: string;
+  dateReason?: (date: string) => string | undefined;
 }) {
   const firstDay = new Date(month.getFullYear(), month.getMonth(), 1).getDay();
   const days = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
@@ -107,21 +110,34 @@ function CalendarMonth({
             mode === 'range' && !end && hoveredDate === key && key !== selection.start;
           const solidRangeDate = selected || withinRange || previewEndpoint;
           const softRangeDate = previewRange && !solidRangeDate;
-          const disabled = minDate !== undefined && key < minDate;
-          return (
+          const reason =
+            minDate !== undefined && key < minDate
+              ? 'This date is in the past.'
+              : dateReason?.(key);
+          const disabled = !!reason;
+          const button = (
             <button
-              key={key}
               type="button"
               aria-label={`Choose ${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).format(date)}`}
               aria-pressed={selected}
-              disabled={disabled}
+              aria-disabled={disabled}
               onPointerEnter={() => (disabled ? undefined : onHover(key))}
               onFocus={() => (disabled ? undefined : onHover(key))}
-              onClick={() => onSelect(key)}
-              className={`flex aspect-square items-center justify-center rounded-full outline-none transition-colors duration-150 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:text-muted-foreground/40 disabled:line-through ${softRangeDate ? 'bg-neutral-200 text-neutral-800 hover:bg-neutral-300' : ''} ${solidRangeDate ? 'bg-neutral-900 text-white hover:bg-neutral-800' : ''}`}
+              onClick={() => {
+                if (!disabled) onSelect(key);
+              }}
+              className={`flex w-full aspect-square items-center justify-center rounded-full outline-none transition-colors duration-150 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:text-muted-foreground/40 disabled:line-through ${disabled ? 'text-muted-foreground/40 line-through cursor-not-allowed' : ''} ${softRangeDate ? 'bg-neutral-200 text-neutral-800 hover:bg-neutral-300' : ''} ${solidRangeDate && !disabled ? 'bg-neutral-900 text-white hover:bg-neutral-800' : ''}`}
             >
               {day}
             </button>
+          );
+          return reason ? (
+            <Tooltip key={key}>
+              <TooltipTrigger asChild>{button}</TooltipTrigger>
+              <TooltipContent>{reason}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <span key={key}>{button}</span>
           );
         })}
       </div>
@@ -135,6 +151,8 @@ export function CalendarMonths({
   onChange,
   months = 1,
   minDate,
+  dateReason,
+  onVisibleWindowChange,
 }: {
   selection: CalendarSelection;
   mode: 'single' | 'range';
@@ -142,6 +160,8 @@ export function CalendarMonths({
   months?: 1 | 2;
   /** Days before this date (YYYY-MM-DD) cannot be chosen. */
   minDate?: string;
+  dateReason?: (date: string) => string | undefined;
+  onVisibleWindowChange?: (from: string, to: string) => void;
 }) {
   const initial = parseDate(selection.start) ?? parseDate(minDate ?? null) ?? new Date();
   const [hoveredDate, setHoveredDate] = useState<string | null>(null);
@@ -152,6 +172,13 @@ export function CalendarMonths({
     { length: months },
     (_, offset) => new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + offset, 1),
   );
+
+  useEffect(() => {
+    onVisibleWindowChange?.(
+      dateKey(visibleMonth),
+      dateKey(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + months, 1)),
+    );
+  }, [visibleMonth, months, onVisibleWindowChange]);
 
   function moveMonth(direction: -1 | 1) {
     setVisibleMonth(
@@ -200,6 +227,7 @@ export function CalendarMonths({
             onHover={setHoveredDate}
             onSelect={selectDate}
             minDate={minDate}
+            dateReason={dateReason}
           />
         ))}
       </div>
@@ -220,6 +248,9 @@ export function CalendarPicker({
   active = false,
   header,
   minDate,
+  disabled = false,
+  dateReason,
+  onVisibleWindowChange,
 }: {
   label: string;
   mode: 'single' | 'range';
@@ -237,6 +268,9 @@ export function CalendarPicker({
   header?: ReactNode;
   /** Days before this date (YYYY-MM-DD) cannot be chosen. */
   minDate?: string;
+  disabled?: boolean;
+  dateReason?: (date: string) => string | undefined;
+  onVisibleWindowChange?: (from: string, to: string) => void;
 }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -258,6 +292,7 @@ export function CalendarPicker({
       <PopoverTrigger asChild>
         {iconOnly ? (
           <IconButton
+            disabled={disabled}
             label={label}
             hint={labelText || undefined}
             aria-haspopup="dialog"
@@ -271,6 +306,7 @@ export function CalendarPicker({
         ) : (
           <Button
             variant="outline"
+            disabled={disabled}
             aria-label={label}
             aria-haspopup="dialog"
             className={`justify-between ${className ?? ''}`}
@@ -293,9 +329,12 @@ export function CalendarPicker({
           onChange={setDraft}
           months={months}
           minDate={minDate}
+          dateReason={dateReason}
+          onVisibleWindowChange={onVisibleWindowChange}
         />
         <div className="mt-3 flex justify-end gap-2 border-t pt-3">
           <Button
+            disabled={disabled}
             variant="outline"
             size="sm"
             onClick={() => {
@@ -308,6 +347,11 @@ export function CalendarPicker({
           </Button>
           <Button
             size="sm"
+            disabled={
+              disabled ||
+              !!(draft.start && dateReason?.(draft.start)) ||
+              !!(draft.end && dateReason?.(draft.end))
+            }
             onClick={() => {
               onChange(draft);
               setOpen(false);
