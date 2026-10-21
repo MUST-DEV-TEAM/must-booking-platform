@@ -52,21 +52,21 @@ export default function BookingPaymentOutcomePage() {
           className={styles.badgeIcon}
           src={isCancelled ? authAssets.shieldAlert : authAssets.shieldCheck}
         />
-        <span>{isCancelled ? 'PAYMENT NOT COMPLETED' : 'PAYMENT RECEIVED'}</span>
+        <span>{isCancelled ? 'PAYMENT NOT COMPLETED' : 'PAYMENT PROCESSING'}</span>
       </Badge>
       <Heading className={styles.formTitle} id="payment-outcome-title">
-        {isCancelled ? 'Payment was not completed' : 'Payment received'}
+        {isCancelled ? 'Payment was not completed' : 'Payment submitted'}
       </Heading>
       <Text className={styles.formDescription} tone="secondary">
         {isCancelled
-          ? 'The checkout was cancelled before payment was completed. This booking has not been charged.'
-          : 'The booking will confirm automatically once the payment finishes processing. You can check its status now in Reservations.'}
+          ? 'The checkout was closed. Check the booking for the verified payment status before trying again.'
+          : 'Your payment is being checked. The booking screen updates after the provider confirms the result.'}
       </Text>
 
       {isCancelled ? (
         <Alert className={styles.errorAlert} role="alert" tone="danger">
           <img alt="" className={styles.errorIcon} src={authAssets.shieldAlert} />
-          <span>No charge was made. You can start the payment again from the booking.</span>
+          <span>Check the booking before starting another payment.</span>
         </Alert>
       ) : (
         <div aria-live="polite" role="status">
@@ -75,9 +75,9 @@ export default function BookingPaymentOutcomePage() {
               <img alt="" height="18" src={authAssets.shieldCheckExact} width="18" />
             </span>
             <span className={styles.statusCopy}>
-              <span className={styles.statusTitle}>Payment received</span>
+              <span className={styles.statusTitle}>Payment submitted</span>
               <span className={styles.statusDescription}>
-                You can close this tab. The dashboard already knows the payment arrived.
+                You can close this tab. The dashboard will check the payment result.
               </span>
             </span>
           </Card>

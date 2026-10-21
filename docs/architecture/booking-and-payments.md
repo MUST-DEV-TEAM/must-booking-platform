@@ -151,3 +151,13 @@ Property payment settings (migration `20261021090000_payment_brand_settings`) de
 
 
 Clock rate selection that definitively returns no bookable product before any booking POST uses `clock_rate_unavailable` and transitions the local attempt to `AVAILABILITY_FAILED`; it does not claim an unknown external booking. Uncertain transport/creation outcomes keep the existing unknown-result handling. Manual refund transactions explicitly allow 90 seconds for the gateway and Clock mirror, avoiding Prisma's five-second default rollback after a slow successful provider response. External effects and the database remain non-atomic; uncertain post-provider failures require evidence-based reconciliation rather than blind refund retries.
+
+## Confirmed-booking balance collection (2026-10-21)
+
+Staff with `payments.record` can collect a confirmed single booking's outstanding balance through the property's connected PokPay account or explicitly record money already received. Failed or uncertain reservations cannot collect. Remaining debt follows the existing gross-charge rule; refunds do not automatically create fresh debt. Shared orders retain their original checkout flow.
+
+`PaymentCollectionService` commits a scoped PREPARING intent before creating checkout. A READY link is reused for the same amount/currency; uncertain attempts block another checkout. Provider capture must match the persisted session, amount and currency. The ledger capture and Clock deposit mirror use stable external references; payment does not create another booking or change its original payment method. A late successful capture after cancellation or another settlement is recorded as actual money and flagged for financial review. A payment receipt replaces a second booking confirmation. The expiry candidate function also selects READY balance-collection sessions for existing reconciliation.
+
+Manual-payment notes are audit evidence, not `payments.note` (the database reserves that field for refunds). Confirmed Clock manual payments use the existing supported deposit mirror; standalone hotels keep the local path. The additive candidate-function migration contains its rollback reference. Uncertain external effects still need evidence-based reconciliation, never a blind retry.
+
+Failed, unpaid booking attention entries can be dismissed with an audit note without changing the booking, money or inventory. Matching booking version/status suppresses the queue item; a later change resurfaces it. Unknown provider results and held money remain review-only. Clock reference checks verify returned booking details because Clock's index contains numeric IDs and reference searches can be fuzzy.

@@ -1,3 +1,4 @@
+import { PaymentCollectionService } from './payment-collection.service';
 import { Inject, Injectable } from '@nestjs/common';
 import { BookingPaymentMethod, BookingStatus, type Result } from '@must/domain-contracts';
 
@@ -24,6 +25,7 @@ export class PokPayPaymentService {
     @Inject(PaymentProviderRegistry) private readonly providers: PaymentProviderRegistry,
     @Inject(BookingConfirmationNotificationService)
     private readonly confirmations: BookingConfirmationNotificationService,
+    @Inject(PaymentCollectionService) private readonly collections: PaymentCollectionService,
   ) {}
 
   async processAuthoritativeOrder(orderId: string): Promise<Result<{ duplicate: boolean }>> {
@@ -40,6 +42,8 @@ export class PokPayPaymentService {
         'PokPay order is not bound to a booking.',
       );
     const context = { tenantId: candidate.tenantId, propertyId: candidate.propertyId };
+    const collection = await this.collections.process(context, candidate.bookingId, orderId);
+    if (collection) return collection;
     let emailBookingId: string | null = null;
     const result = await this.database.withTenantTransaction<Result<{ duplicate: boolean }>>(
       context,

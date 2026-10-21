@@ -1,4 +1,5 @@
 'use client';
+import { CollectPaymentActions } from './collect-payment-actions';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, CircleDot, Landmark, Undo2 } from 'lucide-react';
 import { useState } from 'react';
@@ -263,6 +264,7 @@ export function PaymentDetail({
           ) : null
         }
       />
+      <CollectPaymentActions tenantId={tenantId} propertyId={propertyId} booking={booking} />
 
       <div
         aria-label="Payment summary"

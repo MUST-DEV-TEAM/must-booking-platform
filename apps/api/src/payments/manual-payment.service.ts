@@ -19,6 +19,7 @@ type ManualPaymentCommand = {
   amount?: Money;
   method: ManualPaymentMethod;
   actorUserId: string;
+  note?: string;
 };
 
 type RecordedPayment = {
@@ -52,6 +53,19 @@ export class ManualPaymentService {
         this.withIdempotency(tx, context, command, async () => {
           const booking = await this.booking(tx, context, command.bookingId);
           if (!booking) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
+          if (![BookingStatus.CONFIRMED, BookingStatus.PAYMENT_PENDING].includes(booking.status))
+            return this.failure(
+              'INVALID_BOOKING_STATE',
+              'Confirm the reservation before recording a payment.',
+            );
+          if (
+            command.note !== undefined &&
+            (typeof command.note !== 'string' || command.note.length > 500)
+          )
+            return this.failure(
+              'INVALID_PAYMENT_NOTE',
+              'Use a payment note of up to 500 characters.',
+            );
           const alreadyPaid = await this.paidAmount(tx, context, booking.id);
           const remaining = this.minorUnits(booking.totalAmount) - alreadyPaid;
           if (remaining <= 0n)
@@ -107,7 +121,12 @@ export class ManualPaymentService {
             action: 'payment.manual_recorded',
             targetType: 'booking',
             targetId: booking.id,
-            details: { amount, method: command.method, externalPaymentId },
+            details: {
+              amount,
+              method: command.method,
+              externalPaymentId,
+              note: command.note?.trim() || null,
+            },
           });
           if (booking.status === BookingStatus.PAYMENT_PENDING) {
             const confirmed = await this.bookings.continueAfterPayment(tx, context, booking.id, {
@@ -122,9 +141,18 @@ export class ManualPaymentService {
                 confirmed.error.retryable,
               );
           }
+          if (booking.status === BookingStatus.CONFIRMED)
+            await this.bookings.mirrorConfirmedPayment(
+              tx,
+              context,
+              booking.id,
+              amount,
+              externalPaymentId,
+              command.method,
+            );
           return { ok: true, value: payment };
         }),
-      { timeoutMs: 45_000 },
+      { timeoutMs: 90_000 },
     );
   }
 

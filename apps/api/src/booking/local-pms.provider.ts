@@ -771,6 +771,26 @@ export class LocalPmsProvider implements PmsProvider {
     );
   }
 
+  async mirrorConfirmedPayment(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    bookingId: string,
+    amount: Money,
+    reference: string,
+    method: 'cash' | 'card_in_person' | 'bank_transfer',
+  ) {
+    if (!(await this.isClockConnected(context))) return;
+    await this.clockBooking.postDeposit(
+      tx,
+      context,
+      bookingId,
+      amount,
+      method === 'cash' ? 'Cash' : method === 'card_in_person' ? 'Card / POS' : 'Bank transfer',
+      reference,
+      method === 'cash' ? 'cash' : method === 'card_in_person' ? 'card' : 'bank',
+    );
+  }
+
   async continueAfterPayment(
     tx: TenantTransaction,
     context: PmsProviderContext,
@@ -920,8 +940,10 @@ export class LocalPmsProvider implements PmsProvider {
     bookingId: string,
     cutoffAt: Date,
   ): Promise<boolean> {
-    const settings = await tx.$queryRaw<{minutes:number}[]>`SELECT online_payment_hold_minutes AS minutes FROM properties WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid FOR UPDATE`;
-    cutoffAt = new Date(cutoffAt.getTime() + (30-(settings[0]?.minutes ?? 30))*60000);
+    const settings = await tx.$queryRaw<
+      { minutes: number }[]
+    >`SELECT online_payment_hold_minutes AS minutes FROM properties WHERE tenant_id=${context.tenantId}::uuid AND id=${context.propertyId}::uuid FOR UPDATE`;
+    cutoffAt = new Date(cutoffAt.getTime() + (30 - (settings[0]?.minutes ?? 30)) * 60000);
     const row = await this.bookingById(tx, context, bookingId);
     if (
       !row ||
@@ -1053,7 +1075,11 @@ export class LocalPmsProvider implements PmsProvider {
             }
 
             const cancellationPolicy = await this.cancellationPolicy(tx, context, row.id);
-            if (cancellationPolicy.isFree && cancellationPolicy.autoRefund !== false && !command.skipAutomaticRefund) {
+            if (
+              cancellationPolicy.isFree &&
+              cancellationPolicy.autoRefund !== false &&
+              !command.skipAutomaticRefund
+            ) {
               const refunded = await this.refunds.refundPaidChargeForBooking(
                 tx,
                 context,
@@ -1120,7 +1146,9 @@ export class LocalPmsProvider implements PmsProvider {
     for (const refundConfirmation of refundConfirmations)
       await this.notifications.sendRefundConfirmationEmailSafely(refundConfirmation, context);
     for (const cancelledBookingId of cancelledBookingIds)
-      await this.cancellations.sendAfterCancellation(context, cancelledBookingId, { notifyGuest: command.notifyGuest });
+      await this.cancellations.sendAfterCancellation(context, cancelledBookingId, {
+        notifyGuest: command.notifyGuest,
+      });
     return result;
   }
 

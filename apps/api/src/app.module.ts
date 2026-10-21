@@ -3,6 +3,7 @@ import {
   ClockGuestImportService,
 } from './integrations/clock/clock-guest-import.service';
 import { StaffAvailabilityService } from './booking/staff-availability.service';
+import { PaymentCollectionService } from './payments/payment-collection.service';
 import {
   ClockImportController,
   ClockImportService,
@@ -409,6 +410,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PaymentRefundService,
     PaymentLedgerService,
     ManualPaymentService,
+    PaymentCollectionService,
     PlatformAdminService,
     ProviderHealthService,
     LocalDemoSeedService,

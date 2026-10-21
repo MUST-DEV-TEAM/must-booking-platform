@@ -146,7 +146,7 @@ export function describeMail<K extends QueuedMailKind>(
         subject: c.subject,
         idempotencyKey: c.idempotencyKey,
         bookingId: c.bookingId,
-        sensitive: false,
+        sensitive: c.eventType === 'payment.link',
       };
     case 'senderVerification': {
       const proof = command as QueuedMailCommands['senderVerification'];

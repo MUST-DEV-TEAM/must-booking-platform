@@ -1,4 +1,5 @@
 'use client';
+import { CollectPaymentActions } from './collect-payment-actions';
 import { ChangeBookingDatesDialog } from './change-booking-dates-dialog';
 import { minorUnits as paymentMinor, money as decimalMoney } from './payment-status';
 import { Alert, AlertTitle, AlertDescription } from '../../components/ui/alert';
@@ -478,6 +479,7 @@ export function ReservationDetail({
           </>
         }
       />
+      <CollectPaymentActions tenantId={tenantId} propertyId={propertyId} booking={booking} />
       {editingDetails ? (
         <EditBookingDetailsDialog
           tenantId={tenantId}

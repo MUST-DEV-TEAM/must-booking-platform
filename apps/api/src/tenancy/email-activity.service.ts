@@ -66,6 +66,7 @@ export type EmailActivityPage = {
 
 /** Names people know, for the email log's event types. */
 const LABELS: Record<string, string> = {
+  'payment.received': 'Payment received (guest)',
   'booking.confirmed': 'Booking confirmed (guest)',
   'booking.staff_new': 'New booking (staff)',
   'booking.refund_processed': 'Refund processed (guest)',
