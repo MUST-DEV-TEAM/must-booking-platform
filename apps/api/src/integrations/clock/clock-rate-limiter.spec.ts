@@ -1,3 +1,4 @@
+import { withClockBackgroundWork } from './clock-request-context';
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 
@@ -50,5 +51,16 @@ describe('ClockRateLimiterService', () => {
     await new Promise((resolve) => setTimeout(resolve, 1100));
 
     expect((await limiter.consume(apiUser)).allowed).toBe(true);
+  });
+  it('reserves two slots for foreground work even after rejected background attempts', async () => {
+    const apiUser = `priority-${randomUUID()}`;
+    await withClockBackgroundWork(async () => {
+      expect((await limiter.consume(apiUser)).allowed).toBe(true);
+      expect((await limiter.consume(apiUser)).allowed).toBe(true);
+      for (let i = 0; i < 5; i++) expect((await limiter.consume(apiUser)).allowed).toBe(false);
+    });
+    expect((await limiter.consume(apiUser)).allowed).toBe(true);
+    expect((await limiter.consume(apiUser)).allowed).toBe(true);
+    expect((await limiter.consume(apiUser)).allowed).toBe(false);
   });
 });

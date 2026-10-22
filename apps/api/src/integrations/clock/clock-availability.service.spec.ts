@@ -56,7 +56,7 @@ function makeService(
     rateRankings as never,
     bookingConsistency as never,
   );
-  return { service, client, connections, rateRankings, bookingConsistency };
+  return { service, client, connections, rateRankings, bookingConsistency, rateLimiter };
 }
 
 describe('ClockAvailabilityService.isAvailableForBooking', () => {
@@ -1393,7 +1393,8 @@ describe('ClockAvailabilityService.getQuotesForStay', () => {
           },
         ],
       });
-    const { service } = makeService({ client: { request } });
+    const { service, rateLimiter } = makeService({ client: { request } });
+    rateLimiter.consume.mockResolvedValueOnce({ allowed: false, retryAfterSeconds: 1 });
 
     const stay = [
       {
@@ -1415,7 +1416,11 @@ describe('ClockAvailabilityService.getQuotesForStay', () => {
         currency: 'EUR',
       },
     ];
-    const result = await service.getQuotesForStay('t1', 'p1', stay);
+    const [result, simultaneous] = await Promise.all([
+      service.getQuotesForStay('t1', 'p1', stay),
+      service.getQuotesForStay('t1', 'p1', [...stay].reverse()),
+    ]);
+    expect(simultaneous).toEqual(result);
 
     expect(result).toEqual({
       'local-rt-1': { ok: true, value: { amount: '110.00', currency: 'EUR' } },

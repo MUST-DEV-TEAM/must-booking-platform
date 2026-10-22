@@ -1,4 +1,5 @@
-﻿import { ClockFinancialService, ClockFinancialCurrencyError } from './clock-financial.service';
+import { withClockBackgroundWork } from './clock-request-context';
+import { ClockFinancialService, ClockFinancialCurrencyError } from './clock-financial.service';
 import { Param } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import {
@@ -183,7 +184,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
         const job = await this.claim(scope);
         if (!job) continue;
         try {
-          await this.run(scope, job);
+          await withClockBackgroundWork(() => this.run(scope, job));
         } catch (error) {
           const retry =
             error instanceof ClockFinancialCurrencyError

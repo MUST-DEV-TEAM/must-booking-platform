@@ -1,3 +1,4 @@
+import { setTimeout as wait } from 'node:timers/promises';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type {
   AvailabilityQuery,
@@ -191,6 +192,7 @@ export class ClockAvailabilityService {
   private readonly calendarCache = new Map<string, CacheEntry<CalendarDay[]>>();
   private readonly availabilityCache = new Map<string, CacheEntry<AvailabilityResult>>();
   private readonly ratesCache = new Map<string, CacheEntry<RoomTypeRates>>();
+  private readonly pendingStayQuotes = new Map<string, Promise<Record<string, Result<Money>>>>();
   private readonly displayPriceCache = new Map<string, CacheEntry<Money>>();
   private readonly bookingAvailabilityCache = new Map<string, CacheEntry<boolean>>();
 
@@ -498,6 +500,29 @@ export class ClockAvailabilityService {
    * the normal quote path remains the authoritative final-price check.
    */
   async getQuotesForStay(
+    tenantId: string,
+    propertyId: string,
+    queries: ClockStayQuoteQuery[],
+  ): Promise<Record<string, Result<Money>>> {
+    const key = JSON.stringify([
+      tenantId,
+      propertyId,
+      queries
+        .map((query) => ({ ...query }))
+        .sort((a, b) => a.roomTypeId.localeCompare(b.roomTypeId)),
+    ]);
+    const pending = this.pendingStayQuotes.get(key);
+    if (pending) return pending;
+    const request = this.loadQuotesForStay(tenantId, propertyId, queries);
+    this.pendingStayQuotes.set(key, request);
+    try {
+      return await request;
+    } finally {
+      if (this.pendingStayQuotes.get(key) === request) this.pendingStayQuotes.delete(key);
+    }
+  }
+
+  private async loadQuotesForStay(
     tenantId: string,
     propertyId: string,
     queries: ClockStayQuoteQuery[],
@@ -1299,6 +1324,24 @@ export class ClockAvailabilityService {
     query?: Record<string, string | string[]>,
     path = '/rates_availability',
   ): Promise<ClockOutcome<T>> {
+    for (let retry = 0; ; retry++) {
+      const result = await this.fetchOnce<T>(credentials, query, path);
+      if (
+        result.ok ||
+        result.error.category !== 'rate_limited' ||
+        result.error.code === 'clock_request_busy' ||
+        retry >= 2
+      )
+        return result;
+      await wait(500 * 2 ** retry);
+    }
+  }
+
+  private async fetchOnce<T>(
+    credentials: ClockConnectionCredentials,
+    query?: Record<string, string | string[]>,
+    path = '/rates_availability',
+  ): Promise<ClockOutcome<T>> {
     const breakerKey = credentials.apiUser;
     try {
       this.circuitBreaker.assertClosed(breakerKey);
@@ -1313,12 +1356,20 @@ export class ClockAvailabilityService {
       throw error;
     }
 
-    const rateLimit = await this.rateLimiter.consume(credentials.apiUser);
-    if (!rateLimit.allowed)
+    let permitted = false;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const limit = await this.rateLimiter.consume(credentials.apiUser);
+      if (limit.allowed) {
+        permitted = true;
+        break;
+      }
+      if (attempt < 7) await wait(Math.min(1000, Math.max(100, limit.retryAfterSeconds * 1000)));
+    }
+    if (!permitted)
       return failure({
         category: 'rate_limited',
-        code: 'clock_rate_limited',
-        message: `Too many Clock requests right now — try again in ${rateLimit.retryAfterSeconds}s.`,
+        code: 'clock_request_busy',
+        message: 'Availability is taking longer to update. Please try again shortly.',
         retryable: true,
       });
 
@@ -1331,7 +1382,7 @@ export class ClockAvailabilityService {
         timeoutMs: 15_000,
       });
       if (response.status < 200 || response.status >= 300) {
-        this.circuitBreaker.recordFailure(breakerKey);
+        if (response.status !== 429) this.circuitBreaker.recordFailure(breakerKey);
         return failure(classifyClockHttpResponse(response.status, response.body));
       }
       this.circuitBreaker.recordSuccess(breakerKey);

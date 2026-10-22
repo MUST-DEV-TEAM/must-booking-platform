@@ -447,9 +447,19 @@ export class ClockWebhookService {
           JSON.stringify(envelope),
         );
         if (inserted[0]) {
-          // The verified event wakes local projections as well as the existing event worker.
-          // A request received during a batch remains recorded until that cycle finishes.
-          await tx.$executeRaw`UPDATE clock_sync_jobs SET requested_at=now(),next_run_at=LEAST(next_run_at,now()) WHERE tenant_id=${connection.tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${connection.connectionId}::uuid AND status<>'FAILED' AND (resource IN ('bookings','guests','rooms','rates','catalog') OR resource LIKE 'availability:%')`;
+          // Keep the existing precise event hydrator; wake only related read projections.
+          // Periodic catalogue/rate reconciliation covers changes without a supported event.
+          const bookingEvent = [
+            'booking_new',
+            'booking_guests_update',
+            'booking_update',
+            'booking_canceled',
+          ].includes(eventType);
+          if (bookingEvent) {
+            await tx.$executeRaw`UPDATE clock_sync_jobs SET requested_at=COALESCE(requested_at,now()),next_run_at=LEAST(next_run_at,now()) WHERE tenant_id=${connection.tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${connection.connectionId}::uuid AND status<>'FAILED' AND (resource IN ('bookings','guests') OR resource LIKE 'availability:%' OR resource IN (SELECT 'financial:'||b.id::text FROM bookings b WHERE b.tenant_id=${connection.tenantId}::uuid AND b.property_id=${propertyId}::uuid AND b.external_booking_id=${objectId}))`;
+          } else if (['folio_update', 'folio_close'].includes(eventType)) {
+            await tx.$executeRaw`UPDATE clock_sync_jobs SET requested_at=COALESCE(requested_at,now()),next_run_at=LEAST(next_run_at,now()) WHERE tenant_id=${connection.tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${connection.connectionId}::uuid AND status<>'FAILED' AND resource IN (SELECT 'financial:'||f.booking_id::text FROM clock_folios f WHERE f.tenant_id=${connection.tenantId}::uuid AND f.property_id=${propertyId}::uuid AND f.clock_folio_id=${objectId})`;
+          }
           return { id: inserted[0].id, status: 'RECEIVED' as ProviderEventStatus };
         }
 

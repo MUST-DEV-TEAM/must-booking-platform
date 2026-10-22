@@ -1,3 +1,4 @@
+import { setTimeout as wait } from 'node:timers/promises';
 import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
@@ -379,11 +380,16 @@ export class ClockCatalogSyncService {
       if (error instanceof CircuitOpenError) throw new BadRequestException(error.message);
       throw error;
     }
-    const rateLimit = await this.rateLimiter.consume(credentials.apiUser);
-    if (!rateLimit.allowed)
-      throw new BadRequestException(
-        `Too many Clock requests right now — try again in ${rateLimit.retryAfterSeconds}s.`,
-      );
+    let permitted = false;
+    for (let attempt = 0; attempt < 15; attempt++) {
+      const limit = await this.rateLimiter.consume(credentials.apiUser);
+      if (limit.allowed) {
+        permitted = true;
+        break;
+      }
+      if (attempt < 14) await wait(Math.min(1000, Math.max(100, limit.retryAfterSeconds * 1000)));
+    }
+    if (!permitted) throw new Error('Clock read did not finish: request allowance is busy.');
     try {
       const response = await this.client.request<T>(credentials, {
         api: 'pms_api',
