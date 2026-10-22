@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ClockFinancialService } from '../integrations/clock/clock-financial.service';
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import type { Result } from '@must/domain-contracts';
@@ -23,6 +24,7 @@ type Collection = {
   currency: string;
   checkoutUrl?: string;
   externalPaymentId?: string;
+  clockConnectionId?: string;
   stage: 'PREPARING' | 'READY' | 'PAID' | 'UNCERTAIN';
 };
 type Operation = { id: string; result: Collection };
@@ -39,12 +41,13 @@ export class PaymentCollectionService {
     private readonly connections: IntegrationConnectionsService,
     @Inject(ClockBookingService) private readonly clock: ClockBookingService,
     @Inject(MailDeliveryService) private readonly delivery: MailDeliveryService,
+    @Inject(ClockFinancialService) private readonly financial: ClockFinancialService,
   ) {}
   async options(scope: Scope, bookingId: string) {
     return this.db.withTenantTransaction(scope, async (tx) => {
       const rows = await tx.$queryRaw<
         Array<{ pokpay: boolean }>
-      >`SELECT (b.external_booking_id IS NULL OR b.external_reference NOT LIKE 'CLOCK-%') AND p.pokpay_enabled AND EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections c ON c.tenant_id=pc.tenant_id AND c.id=pc.connection_id WHERE pc.tenant_id=p.tenant_id AND pc.property_id=p.id AND pc.enabled AND c.provider='POKPAY' AND c.status='CONNECTED') AS pokpay FROM properties p JOIN bookings b ON b.tenant_id=p.tenant_id AND b.property_id=p.id WHERE p.tenant_id=${scope.tenantId}::uuid AND p.id=${scope.propertyId}::uuid AND b.id=${bookingId}::uuid`;
+      >`SELECT (b.external_booking_id IS NULL OR b.external_reference NOT LIKE 'CLOCK-%' OR EXISTS(SELECT 1 FROM clock_sync_jobs j JOIN property_integration_connections ap ON ap.tenant_id=j.tenant_id AND ap.property_id=j.property_id AND ap.connection_id=j.connection_id AND ap.enabled AND ap.kind='PMS' WHERE j.tenant_id=b.tenant_id AND j.property_id=b.property_id AND j.resource='financial:'||b.id::text AND j.last_success_at>now()-interval '5 minutes' AND (j.snapshot->'balance'->>'amount')::numeric>0)) AND p.pokpay_enabled AND EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections c ON c.tenant_id=pc.tenant_id AND c.id=pc.connection_id WHERE pc.tenant_id=p.tenant_id AND pc.property_id=p.id AND pc.enabled AND c.provider='POKPAY' AND c.status='CONNECTED') AS pokpay FROM properties p JOIN bookings b ON b.tenant_id=p.tenant_id AND b.property_id=p.id WHERE p.tenant_id=${scope.tenantId}::uuid AND p.id=${scope.propertyId}::uuid AND b.id=${bookingId}::uuid`;
       if (!rows[0]) throw new NotFoundException('Booking not found.');
       return rows[0];
     });
@@ -52,6 +55,7 @@ export class PaymentCollectionService {
   async start(scope: Scope, bookingId: string, actorUserId: string, key: string) {
     if (!key || key.length > 200)
       throw new BadRequestException('A payment attempt key is required.');
+    const verified = await this.financial.refresh(scope, bookingId);
     const intent = await this.db.withTenantTransaction(scope, async (tx) => {
       const bookings = await tx.$queryRaw<
         Array<{
@@ -62,15 +66,17 @@ export class PaymentCollectionService {
           enabled: boolean;
           orderReference: string | null;
           balanceManagedInClock: boolean;
+          version: number;
+          refunded: string;
         }>
       >`
-    SELECT (b.external_booking_id IS NOT NULL AND b.external_reference LIKE 'CLOCK-%') AS "balanceManagedInClock",b.status::text AS status,rp.currency,b.total_amount::text AS total,(p.pokpay_enabled AND EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id WHERE pc.tenant_id=p.tenant_id AND pc.property_id=p.id AND pc.enabled AND ic.provider='POKPAY' AND ic.status='CONNECTED')) AS enabled,b.order_reference AS "orderReference",
+    SELECT (b.external_booking_id IS NOT NULL AND b.external_reference LIKE 'CLOCK-%') AS "balanceManagedInClock",b.version,COALESCE((SELECT sum(amount) FROM payments rf WHERE rf.tenant_id=b.tenant_id AND rf.property_id=b.property_id AND rf.booking_id=b.id AND rf.kind='REFUND' AND rf.status='REFUNDED'),0)::text AS refunded,b.status::text AS status,rp.currency,b.total_amount::text AS total,(p.pokpay_enabled AND EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id WHERE pc.tenant_id=p.tenant_id AND pc.property_id=p.id AND pc.enabled AND ic.provider='POKPAY' AND ic.status='CONNECTED')) AS enabled,b.order_reference AS "orderReference",
       COALESCE((SELECT SUM(amount) FROM payments c WHERE c.tenant_id=b.tenant_id AND c.property_id=b.property_id AND c.booking_id=b.id AND c.kind='CHARGE' AND c.status IN ('PAID','succeeded')),0)::text AS paid
     FROM bookings b JOIN properties p ON p.tenant_id=b.tenant_id AND p.id=b.property_id JOIN rate_plans rp ON rp.tenant_id=b.tenant_id AND rp.property_id=b.property_id AND rp.id=b.rate_plan_id
     WHERE b.tenant_id=${scope.tenantId}::uuid AND b.property_id=${scope.propertyId}::uuid AND b.id=${bookingId}::uuid FOR UPDATE OF b`;
       const b = bookings[0];
       if (!b) throw new NotFoundException('Booking not found.');
-      if (b.balanceManagedInClock)
+      if (b.balanceManagedInClock && !verified)
         throw new ConflictException(
           'Earlier payments for this imported booking are managed in Clock. Verify its balance in Clock before collecting money.',
         );
@@ -84,7 +90,28 @@ export class PaymentCollectionService {
         throw new ConflictException(
           'Enable a connected PokPay payment method for this hotel first.',
         );
-      const amount = new Prisma.Decimal(b.total).minus(b.paid).toFixed(2);
+      if (verified) {
+        const binding = await tx.$queryRaw<
+          Array<{ id: string }>
+        >`SELECT connection_id AS id FROM property_integration_connections WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND kind='PMS' AND enabled FOR SHARE`;
+        if (binding[0]?.id !== verified.connectionId)
+          throw new ConflictException(
+            'Clock connection changed during verification. Reload and retry.',
+          );
+      }
+      if (
+        verified &&
+        (verified.bookingVersion !== b.version ||
+          verified.balance.currency !== b.currency ||
+          !new Prisma.Decimal(verified.localPaid).eq(b.paid) ||
+          !new Prisma.Decimal(verified.localRefunded).eq(b.refunded))
+      )
+        throw new ConflictException(
+          'The booking or its payments changed during verification. Reload and retry.',
+        );
+      const amount = verified
+        ? new Prisma.Decimal(verified.balance.amount).toFixed(2)
+        : new Prisma.Decimal(b.total).minus(b.paid).toFixed(2);
       if (new Prisma.Decimal(amount).lte(0))
         throw new ConflictException('This booking has no outstanding balance.');
       const existing = await tx.$queryRaw<
@@ -104,6 +131,7 @@ export class PaymentCollectionService {
       const id = randomUUID();
       const result: Collection = {
         kind: 'balance_collection',
+        ...(verified ? { clockConnectionId: verified.connectionId } : {}),
         amount,
         currency: b.currency,
         stage: 'PREPARING',
@@ -287,6 +315,9 @@ export class PaymentCollectionService {
           retryable: true,
         },
       };
+    const clockCheck = op.result.clockConnectionId
+      ? await this.financial.refresh(scope, bookingId).catch(() => null)
+      : null;
     const result = await this.db.withTenantTransaction(
       scope,
       async (tx) => {
@@ -299,11 +330,25 @@ export class PaymentCollectionService {
           Array<{ id: string }>
         >`INSERT INTO payments(tenant_id,property_id,booking_id,kind,provider,external_payment_id,status,amount,currency) VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${bookingId}::uuid,'CHARGE','pokpay',${orderId},'PAID',${op.result.amount}::numeric,${op.result.currency}) ON CONFLICT(tenant_id,external_payment_id) DO NOTHING RETURNING id`;
         if (!inserted[0]) return { ok: true as const, value: { duplicate: true } };
+        const binding = op.result.clockConnectionId
+          ? await tx.$queryRaw<
+              Array<{ id: string }>
+            >`SELECT connection_id AS id FROM property_integration_connections WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND kind='PMS' AND enabled FOR SHARE`
+          : null;
         const needsReview =
-          b.status !== 'CONFIRMED' || new Prisma.Decimal(b.paid).plus(op.result.amount).gt(b.total);
+          b.status !== 'CONFIRMED' ||
+          (op.result.clockConnectionId
+            ? binding?.[0]?.id !== op.result.clockConnectionId ||
+              !clockCheck ||
+              clockCheck.connectionId !== op.result.clockConnectionId ||
+              clockCheck.balance.currency !== op.result.currency ||
+              new Prisma.Decimal(clockCheck.balance.amount).lt(op.result.amount)
+            : new Prisma.Decimal(b.paid).plus(op.result.amount).gt(b.total));
         if (needsReview)
           await tx.$executeRaw`INSERT INTO manual_review_items(tenant_id,property_id,category,reference_type,reference_id,message) VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,'PAYMENT_BOOKING_MISMATCH','booking',${bookingId},'A saved payment link was paid after the booking or outstanding balance changed. The received money is recorded; review any refund due.')`;
+
         if (
+          (!binding || binding[0]?.id === op.result.clockConnectionId) &&
           b.status === 'CONFIRMED' &&
           (await this.connections.activePmsConnectionCredentials(scope.tenantId, scope.propertyId))
             ?.provider === 'CLOCK_PMS'

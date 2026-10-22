@@ -45,6 +45,7 @@ export type BookingProjection = {
   children: number;
   childrenAges?: number[] | null;
   balanceBasis?: 'CLOCK' | 'MUST';
+  clockBalance?: { amount: string; currency: string } | null;
   total: { amount: string; currency: string };
   paidAmount: string;
   refundedAmount: string;
@@ -83,6 +84,7 @@ export type BookingSearchItem = {
   children: number;
   childrenAges?: number[] | null;
   balanceBasis?: 'CLOCK' | 'MUST';
+  clockBalance?: { amount: string; currency: string } | null;
   specialRequests: string | null;
   pmsStayStatus: string | null;
   roomId: string | null;
@@ -177,6 +179,7 @@ function toSearchItem(row: Record<string, unknown>): BookingSearchItem {
     createdAt:
       row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
     adults: Number(row.adults),
+    clockBalance: row.clock_balance as BookingSearchItem['clockBalance'],
     balanceBasis:
       row.external_booking_id && String(row.external_reference).startsWith('CLOCK-')
         ? 'CLOCK'
@@ -202,10 +205,11 @@ function toSearchItem(row: Record<string, unknown>): BookingSearchItem {
 }
 
 /** One row per booking with its guest, room, rate plan and payment totals. Used by list and detail. */
+const CLOCK_BALANCE_SQL = `(SELECT j.snapshot->'balance' FROM clock_sync_jobs j JOIN property_integration_connections pc ON pc.tenant_id=j.tenant_id AND pc.property_id=j.property_id AND pc.connection_id=j.connection_id AND pc.enabled AND pc.kind='PMS' WHERE j.tenant_id=b.tenant_id AND j.property_id=b.property_id AND j.resource='financial:'||b.id::text LIMIT 1)`;
 const BOOKING_BASE_SQL = `
       SELECT x.*, ${PAYMENT_STATE_SQL} AS payment_state FROM (
         SELECT NOT EXISTS (SELECT 1 FROM audit_logs a WHERE a.tenant_id=b.tenant_id AND a.property_id=b.property_id AND a.target_type='booking' AND a.target_id=b.id::text AND a.action='booking.attention_dismissed' AND a.details->>'version'=b.version::text AND a.details->>'status'=b.status::text) AS attention_open, b.id, b.external_reference, b.order_reference, b.status, b.payment_method, b.source,
-          b.starts_on, b.ends_on, b.created_at, b.total_amount, b.adults, b.children,b.children_ages,
+          ${CLOCK_BALANCE_SQL} AS clock_balance,b.starts_on, b.ends_on, b.created_at, b.total_amount, b.adults, b.children,b.children_ages,
           EXISTS(SELECT 1 FROM booking_requests q WHERE q.tenant_id=b.tenant_id AND q.property_id=b.property_id AND q.booking_id=b.id AND q.type='cancellation' AND q.status='Pending') AS cancellation_pending,
           b.special_requests, b.pms_stay_status, b.room_id, r.name AS room_name,
           b.room_type_id, rt.name AS room_type_name, rp.name AS rate_plan_name, rp.currency,
@@ -496,7 +500,7 @@ export class BookingProjectionService {
             }
           >
         >`
-        SELECT b.id, b.guest_id AS "guestId", ${bookingContactSql.firstName} AS "guestFirstName",
+        SELECT b.id, (SELECT j.snapshot->'balance' FROM clock_sync_jobs j JOIN property_integration_connections pc ON pc.tenant_id=j.tenant_id AND pc.property_id=j.property_id AND pc.connection_id=j.connection_id AND pc.enabled AND pc.kind='PMS' WHERE j.tenant_id=b.tenant_id AND j.property_id=b.property_id AND j.resource='financial:'||b.id::text LIMIT 1) AS "clockBalance", b.guest_id AS "guestId", ${bookingContactSql.firstName} AS "guestFirstName",
           ${bookingContactSql.lastName} AS "guestLastName", ${bookingContactSql.email} AS "guestEmail", ${bookingContactSql.phone} AS "guestPhone",
           g.street_address AS "guestStreetAddress", g.address_line_2 AS "guestAddressLine2",
           g.city AS "guestCity", g.county AS "guestCounty", g.postcode AS "guestPostcode",g.country_code AS "guestCountryCode",g.capture_version AS "guestCaptureVersion",

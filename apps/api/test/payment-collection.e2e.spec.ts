@@ -12,6 +12,7 @@ import { MAIL_PROVIDER } from '../src/mail/mail.provider';
 import { PokPayPaymentProvider } from '../src/payments/pokpay-payment.provider';
 import { PokPayPaymentService } from '../src/payments/pokpay-payment.service';
 import { ClockBookingService } from '../src/integrations/clock/clock-booking.service';
+import { ClockFinancialService } from '../src/integrations/clock/clock-financial.service';
 import { IntegrationConnectionsService } from '../src/integrations/integration-connections.service';
 const admin = new PrismaClient({
   datasources: {
@@ -32,11 +33,14 @@ describe('collecting a confirmed booking balance', () => {
     string,
     { amount: { amount: string; currency: string }; status: string }
   >();
-  const create = vi.fn(async (_scope: any, command: any) => {
-    const id = randomUUID();
-    orders.set(id, { amount: command.amount, status: 'PENDING' });
-    return { ok: true, value: { id, url: 'https://pay.pokpay.test/' + id } };
-  });
+  const create = vi.fn(
+    async (_scope: unknown, command: { amount: { amount: string; currency: string } }) => {
+      const id = randomUUID();
+      orders.set(id, { amount: command.amount, status: 'PENDING' });
+      return { ok: true, value: { id, url: 'https://pay.pokpay.test/' + id } };
+    },
+  );
+  const financial = { refresh: vi.fn().mockResolvedValue(null) };
   const postDeposit = vi.fn().mockResolvedValue({ ok: true, value: undefined });
   const base = () => `/tenants/${tenantId}/properties/${propertyId}/bookings`;
   async function booking(status = 'CONFIRMED', paid = '0.00') {
@@ -74,11 +78,13 @@ describe('collecting a confirmed booking balance', () => {
         .overrideProvider(PokPayPaymentProvider)
         .useValue({
           createCheckoutSession: create,
-          getPayment: async (_s: any, id: string) => {
+          getPayment: async (_s: unknown, id: string) => {
             const o = orders.get(id);
             return o ? { id, bookingId: 'unused', ...o } : null;
           },
         })
+        .overrideProvider(ClockFinancialService)
+        .useValue(financial)
         .overrideProvider(ClockBookingService)
         .useValue({ postDeposit })
         .compile()
@@ -278,5 +284,62 @@ describe('collecting a confirmed booking balance', () => {
       Array<{ count: number }>
     >`SELECT COUNT(*)::int AS count FROM payments WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND booking_id=${id}::uuid`;
     expect(rows[0].count).toBe(0);
+  });
+  it('collects only a verified Clock balance and refuses a credit or changed local ledger', async () => {
+    clock = false;
+    const connection = randomUUID();
+    await admin.$executeRaw`INSERT INTO integration_connections(id,tenant_id,kind,provider,name,encrypted_credentials,status) VALUES(${connection}::uuid,${tenantId}::uuid,'PMS','CLOCK_PMS','Financial guard fixture','never-decrypted','CONNECTED')`;
+    await admin.$executeRaw`INSERT INTO property_integration_connections(tenant_id,property_id,connection_id,kind) VALUES(${tenantId}::uuid,${propertyId}::uuid,${connection}::uuid,'PMS')`;
+    const id = await booking();
+    await admin.$executeRaw`UPDATE bookings SET external_reference='CLOCK-verified-fixture',external_booking_id='999999998' WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${id}::uuid`;
+    const version = (
+      await admin.$queryRaw<
+        Array<{ version: number }>
+      >`SELECT version FROM bookings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${id}::uuid`
+    )[0].version;
+    const snapshot = {
+      bookingId: id,
+      bookingVersion: version,
+      connectionId: connection,
+      localPaid: '0.00',
+      localRefunded: '0.00',
+      balance: { amount: '30.00', currency: 'EUR' },
+    };
+    financial.refresh.mockResolvedValue(snapshot as never);
+    try {
+      const result = await request(app.getHttpServer())
+        .post(`${base()}/${id}/collect-pokpay`)
+        .set('Cookie', cookie)
+        .set('Idempotency-Key', randomUUID())
+        .expect(200);
+      expect(result.body.amount).toEqual({ amount: '30.00', currency: 'EUR' });
+      const count = create.mock.calls.length;
+      financial.refresh.mockResolvedValue({
+        ...snapshot,
+        balance: { amount: '-10.00', currency: 'EUR' },
+      } as never);
+      await request(app.getHttpServer())
+        .post(`${base()}/${id}/collect-pokpay`)
+        .set('Cookie', cookie)
+        .set('Idempotency-Key', randomUUID())
+        .expect(409);
+      financial.refresh.mockResolvedValue({ ...snapshot, localPaid: '1.00' } as never);
+      await request(app.getHttpServer())
+        .post(`${base()}/${id}/collect-pokpay`)
+        .set('Cookie', cookie)
+        .set('Idempotency-Key', randomUUID())
+        .expect(409);
+      expect(create.mock.calls.length).toBe(count);
+      financial.refresh.mockResolvedValue({ ...snapshot, localRefunded: '1.00' } as never);
+      const manual = await request(app.getHttpServer())
+        .post(`${base()}/${id}/manual-payment`)
+        .set('Cookie', cookie)
+        .set('Idempotency-Key', randomUUID())
+        .send({ method: 'cash' })
+        .expect(200);
+      expect(manual.body.error.code).toBe('PAYMENT_BALANCE_CHANGED');
+    } finally {
+      financial.refresh.mockResolvedValue(null);
+    }
   });
 });

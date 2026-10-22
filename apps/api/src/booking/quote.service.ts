@@ -202,13 +202,36 @@ export class QuoteService {
       Number.isInteger(requestedRoomCount) && (requestedRoomCount ?? 0) > 0
         ? requestedRoomCount!
         : 1;
-    const normalized = this.normalizeOccupancy({ roomTypeId: 'display', ...quoteInput });
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (
+      items.some((item) => !uuid.test(item.roomTypeId) || (item.roomId && !uuid.test(item.roomId)))
+    )
+      throw new BadRequestException('Invalid room selection.');
+    const normalized = this.normalizeOccupancy({ roomTypeId: items[0].roomTypeId, ...quoteInput });
     this.validStayInput(normalized);
-    await this.enforceBookingRules(tenantId, propertyId, normalized);
-
+    const eligibility = new Map<string, boolean>();
+    for (const item of items) {
+      const key = item.roomTypeId + ':' + (item.roomId ?? '');
+      if (eligibility.has(key)) continue;
+      try {
+        await this.enforceBookingRules(tenantId, propertyId, {
+          ...normalized,
+          roomTypeId: item.roomTypeId,
+          roomId: item.roomId,
+        });
+        eligibility.set(key, true);
+      } catch (error) {
+        if (!(error instanceof BadRequestException || error instanceof NotFoundException))
+          throw error;
+        eligibility.set(key, false);
+      }
+    }
+    const eligible = items.filter((item) =>
+      eligibility.get(item.roomTypeId + ':' + (item.roomId ?? '')),
+    );
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (connection?.provider === 'CLOCK_PMS') {
-      const queries: ClockStayQuoteQuery[] = items.map((item) => ({
+      const queries: ClockStayQuoteQuery[] = eligible.map((item) => ({
         roomTypeId: item.roomTypeId,
         startsOn: normalized.startsOn,
         endsOn: normalized.endsOn,
@@ -218,13 +241,17 @@ export class QuoteService {
         roomCount,
         currency: item.currency,
       }));
-      const quotes = await this.clockAvailability.getQuotesForStay(tenantId, propertyId, queries);
+      const quotes = queries.length
+        ? await this.clockAvailability.getQuotesForStay(tenantId, propertyId, queries)
+        : {};
       return items.map((item) => {
         const quote = quotes[item.roomTypeId];
         return {
           key: item.key,
           roomTypeId: item.roomTypeId,
-          available: Boolean(quote?.ok),
+          available:
+            eligibility.get(item.roomTypeId + ':' + (item.roomId ?? '')) === true &&
+            Boolean(quote?.ok),
           ...(quote?.ok ? { total: quote.value } : {}),
         };
       });

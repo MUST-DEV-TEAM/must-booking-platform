@@ -174,10 +174,27 @@ export class PropertiesService {
         FROM properties WHERE id = ${propertyId}::uuid
       `;
       if (!existing[0]) throw new BadRequestException('Property not found.');
+      const ownedLogo = input.logoUrl ? this.serverLogoKey(new URL(input.logoUrl)) : null;
+      if (ownedLogo) {
+        const images = await tx.$queryRaw<
+          Array<{ id: string }>
+        >`SELECT l.id FROM property_library_images l JOIN server_media_uploads u ON u.tenant_id=l.tenant_id AND u.property_id=l.property_id AND u.object_key=l.object_key AND u.uploaded_at IS NOT NULL WHERE l.tenant_id=${tenantId}::uuid AND l.property_id=${propertyId}::uuid AND l.object_key=${ownedLogo} AND l.confirmed_at IS NOT NULL`;
+        if (!images[0])
+          throw new BadRequestException('Choose a confirmed image from this hotel photo library.');
+      }
+
       checkHotelSettings({ ...existing[0], ...input });
-      if (input.defaultCurrency !== undefined && input.defaultCurrency !== existing[0].defaultCurrency) {
-        const prices = await tx.$queryRaw<{locked:boolean}[]>`SELECT EXISTS(SELECT 1 FROM rate_rules WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid UNION ALL SELECT 1 FROM pricing_daily_prices WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid UNION ALL SELECT 1 FROM room_price_overrides WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid) AS locked`;
-        if (prices[0]?.locked) throw new ConflictException('Prices already exist. Their currency cannot be changed here.');
+      if (
+        input.defaultCurrency !== undefined &&
+        input.defaultCurrency !== existing[0].defaultCurrency
+      ) {
+        const prices = await tx.$queryRaw<
+          { locked: boolean }[]
+        >`SELECT EXISTS(SELECT 1 FROM rate_rules WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid UNION ALL SELECT 1 FROM pricing_daily_prices WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid UNION ALL SELECT 1 FROM room_price_overrides WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid) AS locked`;
+        if (prices[0]?.locked)
+          throw new ConflictException(
+            'Prices already exist. Their currency cannot be changed here.',
+          );
       }
       const nextMinStayNights =
         input.minStayNights === undefined ? existing[0].minStayNights : input.minStayNights;
@@ -191,7 +208,7 @@ export class PropertiesService {
         throw new BadRequestException('minStayNights cannot exceed maxStayNights.');
       const rows = await tx.$queryRaw<Property[]>`
         UPDATE properties
-        SET ${Object.keys(hotelInput(body as Record<string,unknown>)).length ? Prisma.sql`${hotelUpdates(input)},` : Prisma.empty} stripe_enabled=COALESCE(${input.paymentGateways?.stripe},stripe_enabled),pokpay_enabled=COALESCE(${input.paymentGateways?.pokpay},pokpay_enabled),pay_at_hotel_enabled=COALESCE(${input.paymentGateways?.payAtHotel},pay_at_hotel_enabled),
+        SET ${Object.keys(hotelInput(body as Record<string, unknown>)).length ? Prisma.sql`${hotelUpdates(input)},` : Prisma.empty} stripe_enabled=COALESCE(${input.paymentGateways?.stripe},stripe_enabled),pokpay_enabled=COALESCE(${input.paymentGateways?.pokpay},pokpay_enabled),pay_at_hotel_enabled=COALESCE(${input.paymentGateways?.payAtHotel},pay_at_hotel_enabled),
           online_payment_hold_minutes=COALESCE(${input.onlinePaymentHoldMinutes},online_payment_hold_minutes),
           auto_refund_on_free_cancellation=COALESCE(${input.autoRefundOnFreeCancellation},auto_refund_on_free_cancellation),
           brand_colour=CASE WHEN ${input.brandColour !== undefined} THEN ${input.brandColour} ELSE brand_colour END,
@@ -514,7 +531,9 @@ export class PropertiesService {
         'logoUrl',
         'phone',
         'supportEmail',
-      ].concat(hotelFields.map((f) => f.key)).some(has)
+      ]
+        .concat(hotelFields.map((f) => f.key))
+        .some(has)
     )
       throw new BadRequestException('At least one property field is required.');
     if (
@@ -639,6 +658,23 @@ export class PropertiesService {
     };
   }
 
+  private serverLogoKey(url: URL): string | null {
+    const configured = process.env.MEDIA_PUBLIC_BASE_URL?.replace(/\/$/, '');
+    if (!configured) return null;
+    const base = new URL(configured);
+    const key = url.searchParams.get('key');
+    return url.origin === base.origin &&
+      url.pathname === base.pathname + '/image' &&
+      !url.hash &&
+      [...url.searchParams.keys()].length === 1 &&
+      key &&
+      /^server-v1\/library\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.(?:png|jpe?g|webp)$/i.test(
+        key,
+      )
+      ? key
+      : null;
+  }
+
   private optionalLogoUrl(
     value: Record<string, unknown>,
     allowAbsent: boolean,
@@ -650,6 +686,7 @@ export class PropertiesService {
       throw new BadRequestException('Invalid logoUrl.');
     try {
       const url = new URL(logoUrl.trim());
+      if (this.serverLogoKey(url) && !url.username && !url.password) return url.toString();
       if (
         url.protocol !== 'https:' ||
         url.username ||

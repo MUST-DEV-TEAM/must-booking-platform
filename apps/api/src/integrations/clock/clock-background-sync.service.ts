@@ -1,4 +1,6 @@
-﻿import { randomUUID } from 'node:crypto';
+﻿import { ClockFinancialService, ClockFinancialCurrencyError } from './clock-financial.service';
+import { Param } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   Controller,
@@ -35,8 +37,8 @@ type Scope = { tenantId: string; propertyId: string; connectionId: string };
 type Job = {
   id: string;
   resource: string;
-  progress: Record<string, any>;
-  snapshot: any;
+  progress: Record<string, unknown>;
+  snapshot: { highWater?: string; schemaVersion?: number; initialTotal?: number } | null;
   processed: number;
   leaseToken: string;
 };
@@ -58,6 +60,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     @Inject(ClockBookingHydrationService) private readonly hydration: ClockBookingHydrationService,
     @Inject(ClockGuestImportService) private readonly guests: ClockGuestImportService,
     @Inject(ClockRateRankingService) private readonly rankings: ClockRateRankingService,
+    @Inject(ClockFinancialService) private readonly financial: ClockFinancialService,
   ) {}
   onModuleInit() {
     if (!enabled()) return;
@@ -97,6 +100,8 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
       'guests',
     ];
     await this.db.withTenantTransaction(scope, async (tx) => {
+      if (!resources)
+        await tx.$executeRaw`INSERT INTO clock_sync_jobs(tenant_id,property_id,connection_id,resource,next_run_at) SELECT tenant_id,property_id,${scope.connectionId}::uuid,'financial:'||id::text,now() FROM bookings WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND external_booking_id IS NOT NULL AND status='CONFIRMED' AND ends_on>=current_date-30 ON CONFLICT DO NOTHING`;
       for (const resource of keys)
         await tx.$executeRaw`INSERT INTO clock_sync_jobs(tenant_id,property_id,connection_id,resource,next_run_at) VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${scope.connectionId}::uuid,${resource},date_trunc('minute',now())) ON CONFLICT(tenant_id,property_id,connection_id,resource) DO NOTHING`;
     });
@@ -130,12 +135,20 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
       scope,
       (tx) =>
         tx.$queryRaw<
-          Array<{ data: any; status: string; lastSyncedAt: Date | null; lastError: string | null }>
+          Array<{
+            data: {
+              roomTypes?: Record<string, Array<{ externalRateId: string; [key: string]: unknown }>>;
+              [key: string]: unknown;
+            } | null;
+            status: string;
+            lastSyncedAt: Date | null;
+            lastError: string | null;
+          }>
         >`SELECT snapshot AS data,status,last_success_at AS "lastSyncedAt",last_error AS "lastError" FROM clock_sync_jobs WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${scope.connectionId}::uuid AND resource=${resource}`,
     );
     const result = rows[0] ?? { data: null, status: 'READY', lastSyncedAt: null, lastError: null };
     if (resource === 'rates' && result.data?.roomTypes) {
-      for (const [id, rates] of Object.entries(result.data.roomTypes) as Array<[string, any[]]>) {
+      for (const [id, rates] of Object.entries(result.data.roomTypes)) {
         const ranks = await this.rankings.getRanking(tenantId, propertyId, id);
         const byId = new Map(ranks.map((r) => [r.externalRateId, r.rank]));
         result.data.roomTypes[id] = rates.map((r) => ({
@@ -173,18 +186,20 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
           await this.run(scope, job);
         } catch (error) {
           const retry =
-            error instanceof ClockBookingReadError
-              ? error.classified.retryable
-              : error instanceof Error &&
-                /Clock read did not finish|Clock did not finish reading this guest batch/.test(
-                  error.message,
-                );
+            error instanceof ClockFinancialCurrencyError
+              ? true
+              : error instanceof ClockBookingReadError
+                ? error.classified.retryable
+                : error instanceof Error &&
+                  /Clock read did not finish|Clock did not finish reading this guest batch|Booking changed during the financial check|Clock bills changed during the financial check/.test(
+                    error.message,
+                  );
           const category =
             error instanceof ClockBookingReadError ? error.classified.category : 'configuration';
           await this.db.withTenantTransaction(
             scope,
             (tx) =>
-              tx.$executeRaw`UPDATE clock_sync_jobs SET status=${retry ? 'RETRY' : 'FAILED'},last_error=${retry ? 'Clock is temporarily unavailable. Synchronization will retry automatically.' : 'Synchronization needs connection or room-mapping review (' + category + ').'},next_run_at=now()+interval '1 minute',lease_token=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`,
+              tx.$executeRaw`UPDATE clock_sync_jobs SET status=${retry ? 'RETRY' : 'FAILED'},last_error=${error instanceof ClockFinancialCurrencyError ? error.message : retry ? 'Clock is temporarily unavailable. Synchronization will retry automatically.' : 'Synchronization needs connection or room-mapping review (' + category + ').'},next_run_at=now()+interval '1 minute',lease_token=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`,
           );
         }
       }
@@ -229,6 +244,11 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
       throw new BadRequestException('Clock connection changed.');
     const credentials = parseClockCredentials(connection.credentials);
     if (!credentials.ok) throw new BadRequestException('Clock credentials need review.');
+    if (job.resource.startsWith('financial:')) {
+      await this.financial.refresh(scope, job.resource.slice(10));
+      await this.save(scope, job, {}, true, undefined, 1, 300);
+      return;
+    }
     if (job.resource === 'catalog') {
       await this.catalog.sync(scope.tenantId, scope.propertyId, null);
       const result = await this.catalog.confirmAll(scope.tenantId, scope.propertyId, null);
@@ -379,11 +399,18 @@ export class ClockBackgroundSyncController {
   constructor(
     @Inject(ClockBackgroundSyncService) private readonly sync: ClockBackgroundSyncService,
     @Inject(CapabilitiesService) private readonly capabilities: CapabilitiesService,
+    @Inject(ClockFinancialService) private readonly financial: ClockFinancialService,
   ) {}
   private async allow(req: Request, keys: string[]) {
     const caps = await this.capabilities.effective(req.tenantContext);
     if (!keys.some((k) => caps.includes(k)))
       throw new ForbiddenException('You do not have access to this Clock information.');
+  }
+  @Get('financial/:bookingId')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('payments.view')
+  financialSnapshot(@Req() req: Request, @Param('bookingId') bookingId: string) {
+    return this.financial.read(req.tenantContext, bookingId);
   }
   @Get('status')
   @TenantScoped({ propertyParam: 'propertyId' })

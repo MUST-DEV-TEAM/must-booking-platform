@@ -47,6 +47,24 @@ export class IntegrationConnectionsController {
     );
   }
 
+  @Patch('integration-connections/:connectionId/credentials')
+  @TenantScoped()
+  @Roles(Role.TenantOwner, Role.TenantAdmin)
+  @RequiresCapability('settings.manage')
+  @RequiresVerifiedEmail()
+  replaceCredentials(
+    @Param('connectionId') id: string,
+    @Body() body: unknown,
+    @Req() request: TenantRequest,
+  ) {
+    return this.connections.replaceCredentials(
+      request.tenantContext.tenantId,
+      request.tenantContext.userId,
+      id,
+      body,
+    );
+  }
+
   @Delete('integration-connections/:connectionId')
   @TenantScoped()
   @Roles(Role.TenantOwner, Role.TenantAdmin)

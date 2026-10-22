@@ -99,8 +99,84 @@ export class IntegrationConnectionsService {
     });
   }
 
+  async replaceCredentials(
+    tenantId: string,
+    actorUserId: string,
+    connectionId: string,
+    body: unknown,
+  ): Promise<ConnectionSummary> {
+    const value = (body ?? {}) as Record<string, unknown>;
+    const supplied = value.credentials;
+    if (
+      !supplied ||
+      typeof supplied !== 'object' ||
+      Array.isArray(supplied) ||
+      !Object.keys(supplied).length ||
+      Object.values(supplied).some((v) => typeof v !== 'string' || v.length > 5000)
+    )
+      throw new BadRequestException('Enter replacement credentials.');
+    const before = await this.database.withTenantTransaction(
+      { tenantId },
+      (tx) =>
+        tx.$queryRaw<
+          Array<{ provider: ConnectionProvider; encrypted: string }>
+        >`SELECT provider,encrypted_credentials AS encrypted FROM integration_connections WHERE tenant_id=${tenantId}::uuid AND id=${connectionId}::uuid`,
+    );
+    if (!before[0]) throw new BadRequestException('Connection not found.');
+    const previous = this.cipher.decrypt(before[0].encrypted);
+    const allowed =
+      before[0].provider === 'CLOCK_PMS'
+        ? ['apiUser', 'apiKey']
+        : before[0].provider === 'POKPAY'
+          ? ['keyId', 'keySecret']
+          : [];
+    if (Object.keys(supplied).some((k) => !allowed.includes(k)))
+      throw new BadRequestException(
+        'Use a new connection to change the provider account. Only authentication credentials can be replaced here.',
+      );
+    const credentials = { ...previous, ...(supplied as Record<string, string>) };
+    const result = await this.testers.test(before[0].provider, credentials);
+    if (!result.ok)
+      throw new BadRequestException(
+        'Replacement credentials failed verification. The existing connection has been kept.',
+      );
+    const encrypted = this.cipher.encrypt(credentials);
+    return this.database.withTenantTransaction({ tenantId }, async (tx) => {
+      const rows = await tx.$queryRawUnsafe<ConnectionSummary[]>(
+        `UPDATE integration_connections SET encrypted_credentials=$3,status='CONNECTED',last_tested_at=now(),last_test_result='Replacement credentials verified' WHERE tenant_id=$1::uuid AND id=$2::uuid AND encrypted_credentials=$4 RETURNING ${SUMMARY_COLUMNS}`,
+        tenantId,
+        connectionId,
+        encrypted,
+        before[0].encrypted,
+      );
+      if (!rows[0])
+        throw new ConflictException(
+          'The connection changed during verification. Reload and retry.',
+        );
+      await this.audit.recordInTransaction(tx, {
+        tenantId,
+        actorUserId,
+        action: 'integration_connection.credentials_replaced',
+        targetType: 'integration_connection',
+        targetId: connectionId,
+        details: { provider: before[0].provider, verified: true },
+      });
+      return rows[0];
+    });
+  }
+
   async delete(tenantId: string, actorUserId: string, connectionId: string): Promise<void> {
     await this.database.withTenantTransaction({ tenantId }, async (tx) => {
+      const history = await tx.$queryRaw<Array<{ used: boolean }>>`
+        SELECT EXISTS(SELECT 1 FROM property_integration_connections pc
+          JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id
+          WHERE pc.tenant_id=${tenantId}::uuid AND pc.connection_id=${connectionId}::uuid
+          AND ((ic.provider='CLOCK_PMS' AND EXISTS(SELECT 1 FROM bookings b WHERE b.tenant_id=pc.tenant_id AND b.property_id=pc.property_id AND b.external_booking_id IS NOT NULL))
+            OR (ic.provider='POKPAY' AND EXISTS(SELECT 1 FROM payments p WHERE p.tenant_id=pc.tenant_id AND p.property_id=pc.property_id AND p.provider='pokpay')))) AS used`;
+      if (history[0]?.used)
+        throw new ConflictException(
+          'Keep this connection for existing bookings and payments. Disable it or replace its credentials instead of deleting its history.',
+        );
       const deleted = await tx.$queryRawUnsafe<Array<{ id: string }>>(
         `DELETE FROM integration_connections WHERE tenant_id = $1::uuid AND id = $2::uuid RETURNING id`,
         tenantId,
@@ -284,13 +360,24 @@ export class IntegrationConnectionsService {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       await tx.$queryRaw`SELECT id FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid FOR UPDATE`;
 
-      const connection = await tx.$queryRawUnsafe<Array<{ kind: ConnectionKind; provider: ConnectionProvider }>>(
+      const connection = await tx.$queryRawUnsafe<
+        Array<{ kind: ConnectionKind; provider: ConnectionProvider }>
+      >(
         `SELECT kind,provider FROM integration_connections WHERE tenant_id = $1::uuid AND id = $2::uuid`,
         tenantId,
         connectionId,
       );
       if (!connection[0]) throw new BadRequestException('Connection not found.');
-      if(enabled && connection[0].provider==='POKPAY') {
+      if (enabled && ['CLOCK_PMS', 'POKPAY'].includes(connection[0].provider)) {
+        const history = await tx.$queryRaw<
+          Array<{ unsafe: boolean }>
+        >`SELECT EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.connection_id<>${connectionId}::uuid AND ic.provider=${connection[0].provider}::"IntegrationProvider") AND (CASE WHEN ${connection[0].provider}='CLOCK_PMS' THEN EXISTS(SELECT 1 FROM bookings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND external_booking_id IS NOT NULL) ELSE EXISTS(SELECT 1 FROM payments WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND provider='pokpay') END) AS unsafe`;
+        if (history[0]?.unsafe)
+          throw new ConflictException(
+            'This hotel already has history with another connection. Replace credentials on that connection; moving to another provider account requires a reviewed migration.',
+          );
+      }
+      if (enabled && connection[0].provider === 'POKPAY') {
         await tx.$executeRaw`UPDATE property_integration_connections pc SET enabled=false,updated_at=now() FROM integration_connections c
         WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.connection_id=c.id AND c.tenant_id=pc.tenant_id AND c.provider='POKPAY' AND c.id<>${connectionId}::uuid AND pc.enabled`;
       }

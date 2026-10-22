@@ -147,6 +147,12 @@ model Plan {
 }
 
 model User {
+  phoneCountryCode String? @map("phone_country_code") @db.VarChar(5)
+  phoneNumber String? @map("phone_number") @db.VarChar(20)
+  birthDate DateTime? @map("birth_date") @db.Date
+  preferredLanguage String? @map("preferred_language") @db.VarChar(35)
+  personalTimezone String? @map("personal_timezone") @db.VarChar(100)
+  jobTitle String? @map("job_title") @db.VarChar(100)
   id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email             String             @unique @db.VarChar(320)
   passwordHash      String?            @map("password_hash")

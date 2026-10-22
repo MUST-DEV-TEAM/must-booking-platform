@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 
 import { reportOperationalFailure } from '../../observability/error-tracking';
 import { AuditLogService } from '../../tenancy/audit-log.service';
@@ -406,10 +406,44 @@ export class ClockBookingConsistencyService {
     return this.fetchClock(credentials, `/guests/${id}`);
   }
 
+  async financialData(credentials: ClockConnectionCredentials, bookingId: string) {
+    if (!/^\d+$/.test(bookingId)) throw new BadRequestException('Invalid Clock booking.');
+    const booking = await this.fetchClock<Record<string, unknown>>(
+      credentials,
+      `/bookings/${bookingId}`,
+    );
+    if (String(booking.id) !== bookingId) throw new Error('Clock booking identity does not match.');
+    const ids = await this.fetchClock<unknown>(credentials, `/bookings/${bookingId}/folios/`);
+    if (!Array.isArray(ids) || ids.length > 100 || !ids.every(isClockBookingId))
+      throw new Error('Clock financial index is incomplete.');
+    const folios = [];
+    for (const id of [...new Set(ids.map(String))]) {
+      const detail = await this.fetchClock<Record<string, unknown>>(
+        credentials,
+        `/folios/${id}`,
+        undefined,
+        'base_api',
+      );
+      if (detail.payer_type !== 'Booking' || String(detail.payer_id) !== bookingId)
+        throw new Error('Clock folio identity does not match.');
+      if (detail.voided_at) continue;
+      const credits = await this.fetchClock<unknown>(
+        credentials,
+        `/folios/${id}/credit_items`,
+        undefined,
+        'base_api',
+      );
+      if (!Array.isArray(credits)) throw new Error('Clock payment list is incomplete.');
+      folios.push({ detail, credits });
+    }
+    return { booking, folios };
+  }
+
   private async fetchClock<T>(
     credentials: ClockConnectionCredentials,
     path: string,
     query?: Record<string, string>,
+    api: 'pms_api' | 'base_api' = 'pms_api',
   ): Promise<T> {
     const breakerKey = credentials.apiUser;
     try {
@@ -434,7 +468,7 @@ export class ClockBookingConsistencyService {
 
       try {
         const response = await this.client.request<T>(credentials, {
-          api: 'pms_api',
+          api,
           method: 'GET',
           path,
           query,

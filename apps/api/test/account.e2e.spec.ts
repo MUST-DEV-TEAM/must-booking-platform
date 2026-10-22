@@ -88,6 +88,46 @@ describe('my account: profile and password', () => {
       .expect(400);
   });
 
+  it('stores optional own contact details, preserves omitted fields and rejects invalid birthdays', async () => {
+    const patch = (body: unknown) =>
+      http()
+        .patch('/auth/profile')
+        .set('Cookie', cookie)
+        .send(body as object);
+    await patch({
+      firstName: 'Ana',
+      lastName: 'Owner',
+      birthDate: '1992-06-12',
+      phoneCountryCode: '+355',
+      phoneNumber: '691234567',
+      preferredLanguage: 'en',
+      personalTimezone: 'Europe/Tirane',
+      jobTitle: 'Hotel manager',
+    }).expect(200);
+    const read = await http().get('/auth/profile').set('Cookie', cookie).expect(200);
+    expect(read.body).toMatchObject({
+      birthDate: '1992-06-12',
+      phoneCountryCode: '+355',
+      phoneNumber: '691234567',
+      personalTimezone: 'Europe/Tirane',
+      jobTitle: 'Hotel manager',
+    });
+    await patch({ firstName: 'Ana', lastName: 'Owner' }).expect(200);
+    expect((await http().get('/auth/profile').set('Cookie', cookie)).body.birthDate).toBe(
+      '1992-06-12',
+    );
+    await patch({ birthDate: '2999-01-01' }).expect(400);
+    await patch({ birthDate: '2001-02-30' }).expect(400);
+    await patch({ personalTimezone: 'invalid/zone' }).expect(400);
+    await patch({
+      firstName: 'Ana',
+      lastName: 'Owner',
+      birthDate: null,
+      phoneCountryCode: null,
+      phoneNumber: null,
+    }).expect(200);
+  });
+
   it('changes the password only with the correct current password', async () => {
     const change = (body: object) =>
       http().post('/auth/change-password').set('Cookie', cookie).send(body);

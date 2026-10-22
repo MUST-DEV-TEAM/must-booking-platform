@@ -6,6 +6,7 @@ import { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { cleanupTenant } from './helpers/cleanup-tenant';
+import { STAY_STARTS_ON, STAY_ENDS_ON } from './helpers/future-stay';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
 import { withoutExternalWorkers } from './helpers/without-external-workers';
 
@@ -223,21 +224,17 @@ describe('staff view of a booking that needs review', () => {
     const { StaffAvailabilityService } = await import('../src/booking/staff-availability.service');
     const { IntegrationConnectionsService } =
       await import('../src/integrations/integration-connections.service');
-    const { QuoteService } = await import('../src/booking/quote.service');
     const { ClockAvailabilityService } =
       await import('../src/integrations/clock/clock-availability.service');
     vi.spyOn(
       app.get(IntegrationConnectionsService),
       'activePmsConnectionCredentials',
     ).mockResolvedValue({ provider: 'CLOCK_PMS' } as never);
-    const price = vi.spyOn(app.get(QuoteService), 'displayPrices').mockResolvedValue([
-      {
-        key: 'active',
-        roomTypeId: roomType,
-        available: true,
-        total: { amount: '100.00', currency: 'EUR' },
-      },
-    ]);
+    const price = vi
+      .spyOn(app.get(ClockAvailabilityService), 'getQuotesForStay')
+      .mockResolvedValue({
+        [roomType]: { ok: true, value: { amount: '100.00', currency: 'EUR' } },
+      });
     vi.spyOn(app.get(ClockAvailabilityService), 'unavailableRoomsForBooking').mockResolvedValue({
       ok: true,
       value: [],
@@ -246,8 +243,8 @@ describe('staff view of a booking that needs review', () => {
       const result = await app.get(StaffAvailabilityService).search(
         { tenantId, propertyId },
         {
-          startsOn: '2027-03-01',
-          endsOn: '2027-03-03',
+          startsOn: STAY_STARTS_ON,
+          endsOn: STAY_ENDS_ON,
           adults: 1,
           children: 0,
           items: [
@@ -258,7 +255,8 @@ describe('staff view of a booking that needs review', () => {
       );
       expect(result.offers.active).toMatchObject({ ok: true });
       expect(result.offers.inactive.ok).toBe(false);
-      expect(price.mock.calls[0][3]).toHaveLength(1);
+      expect(price.mock.calls[0][2]).toHaveLength(1);
+      expect(price.mock.calls[0][2][0].roomTypeId).toBe(roomType);
     } finally {
       vi.restoreAllMocks();
     }
@@ -399,6 +397,18 @@ describe('staff view of a booking that needs review', () => {
       );
       expect((await restarted.image(key)).contentType).toBe('image/png');
       expect((await restarted.image(key)).data.length).toBeGreaterThan(0);
+      await admin.$executeRaw`INSERT INTO property_library_images(tenant_id,property_id,object_key,original_name,confirmed_at) VALUES(${tenantId}::uuid,${propertyId}::uuid,${key},'Logo fixture',now())`;
+      const { PropertiesService } = await import('../src/tenancy/properties.service');
+      const logo = provider.publicUrl(key);
+      expect(
+        (await app.get(PropertiesService).update(tenantId, propertyId, userId, { logoUrl: logo }))
+          .logoUrl,
+      ).toBe(logo);
+      const forged = provider.publicUrl(key.replace(propertyId, randomUUID()));
+      await expect(
+        app.get(PropertiesService).update(tenantId, propertyId, userId, { logoUrl: forged }),
+      ).rejects.toThrow('this hotel');
+
       await expect(restarted.image('server-v1/../../secret.png')).rejects.toThrow('Invalid media');
       await expect(
         provider.createPresignedUpload({ key, contentType: 'image/svg+xml', contentLength: 100 }),
@@ -416,8 +426,73 @@ describe('staff view of a booking that needs review', () => {
       if (oldBase === undefined) delete process.env.MEDIA_PUBLIC_BASE_URL;
       else process.env.MEDIA_PUBLIC_BASE_URL = oldBase;
       // Only the freshly created test directory is removed.
-      if (!root.startsWith(join(tmpdir(), 'must-media-test-'))) throw Error('Unsafe test cleanup');
-      await rm(root, { recursive: true, force: true });
+      if (root.startsWith(join(tmpdir(), 'must-media-test-')))
+        await rm(root, { recursive: true, force: true });
+    }
+  });
+  it('serves verified Clock money from a scoped snapshot and refuses an outbound-read race', async () => {
+    const { ClockFinancialService } =
+      await import('../src/integrations/clock/clock-financial.service');
+    const { ClockBookingConsistencyService } =
+      await import('../src/integrations/clock/clock-booking-consistency.service');
+    const financial = app.get(ClockFinancialService);
+    const { IntegrationConnectionsService } =
+      await import('../src/integrations/integration-connections.service');
+    const binding = { id: randomUUID() };
+    await admin.$executeRaw`INSERT INTO integration_connections(id,tenant_id,kind,provider,name,encrypted_credentials,status) VALUES(${binding.id}::uuid,${tenantId}::uuid,'PMS','CLOCK_PMS','Financial fixture','never-decrypted','CONNECTED')`;
+    await admin.$executeRaw`INSERT INTO property_integration_connections(tenant_id,property_id,connection_id,kind) VALUES(${tenantId}::uuid,${propertyId}::uuid,${binding.id}::uuid,'PMS')`;
+    vi.spyOn(
+      app.get(IntegrationConnectionsService),
+      'activePmsConnectionCredentials',
+    ).mockResolvedValue({
+      connectionId: binding.id,
+      provider: 'CLOCK_PMS',
+      credentials: {
+        host: 'sandbox.example.test',
+        accountId: '1',
+        subscriptionId: '2',
+        apiUser: 'test',
+        apiKey: 'not-a-real-key',
+      },
+    });
+
+    await admin.$executeRaw`UPDATE bookings SET external_booking_id='98700001' WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${fine}::uuid`;
+    const raw = {
+      booking: { balance: { cents: 10000, currency: 'EUR' } },
+      folios: [
+        {
+          detail: {
+            id: 22,
+            value: { cents: 10000, currency: 'EUR' },
+            balance: { cents: 10000, currency: 'EUR' },
+          },
+          credits: [],
+        },
+      ],
+    };
+    const read = vi
+      .spyOn(app.get(ClockBookingConsistencyService), 'financialData')
+      .mockResolvedValue(raw);
+    try {
+      const snapshot = await financial.refresh({ tenantId, propertyId }, fine);
+      expect(snapshot?.balance.amount).toBe('100.00');
+      read.mockClear();
+      const response = await request(app.getHttpServer())
+        .get(`/tenants/${tenantId}/properties/${propertyId}/clock-sync/financial/${fine}`)
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(response.body.data.balance).toEqual({ amount: '100.00', currency: 'EUR' });
+      expect(read).not.toHaveBeenCalled();
+      read.mockImplementationOnce(async () => {
+        await admin.$executeRaw`UPDATE bookings SET version=version+1 WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${fine}::uuid`;
+        return raw;
+      });
+      await expect(financial.refresh({ tenantId, propertyId }, fine)).rejects.toThrow('changed');
+      expect((await financial.read({ tenantId, propertyId }, fine)).data?.fetchedAt).toBe(
+        snapshot?.fetchedAt,
+      );
+    } finally {
+      vi.restoreAllMocks();
     }
   });
 });

@@ -1,3 +1,4 @@
+import { ClockFinancialService } from './integrations/clock/clock-financial.service';
 import { ServerStorageProvider } from './storage/server-storage.provider';
 import { ServerMediaController } from './storage/server-media.controller';
 import {
@@ -445,6 +446,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ClockImportService,
     ClockGuestImportService,
     ClockBackgroundSyncService,
+    ClockFinancialService,
     ClockBookingHydrationService,
     ClockFolioHydrationService,
     ClockPaymentReconciliationService,
