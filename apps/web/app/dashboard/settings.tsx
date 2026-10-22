@@ -5,16 +5,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, useState } from 'react';
 import { BrandingSettings, PaymentSettings, WebsiteSettings } from './settings-connection-forms';
 import { UnsavedChangesBoundary } from '../../components/ui/unsaved-changes';
+import { IntegrationSettings } from './integration-settings';
 import { toast } from 'sonner';
-import styles from './settings.module.css';
 import { CheckInOutSettings, BookingRulesSettings, GeneralSettings } from './settings-forms';
 import { settingsAreaHref } from './settings-hub';
-import {
-  settingsAreas,
-  type PaymentGateways,
-  type Property,
-  type SettingsArea,
-} from './settings-areas';
+import { settingsAreas, type Property, type SettingsArea } from './settings-areas';
 
 export { isSettingsArea, settingsAreas, type SettingsArea } from './settings-areas';
 export { SettingsHub } from './settings-hub';
@@ -271,6 +266,9 @@ export function DashboardSettings({
             saving={saveMutation.isPending}
             onSave={save}
           />
+        </SettingsAreaPanel>
+        <SettingsAreaPanel activeArea={settingsArea} area="integrations">
+          <IntegrationSettings tenantId={tenantId} propertyId={propertyId} canWrite={canWrite} />
         </SettingsAreaPanel>
         <SettingsAreaPanel activeArea={settingsArea} area="payments">
           <PaymentSettings

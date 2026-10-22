@@ -229,18 +229,18 @@ describe('Inventory screens', () => {
     expect(button('Edit')).toBeUndefined();
     expect(button('Activate')).toBeUndefined();
   });
-  it('keeps Clock read-only and shows Unknown instead of a fabricated conflict queue', async () => {
+  it('shows useful Clock availability without duplicate local inventory tabs', async () => {
     fixture(['calendar.view', 'calendar.block'], true);
     await render(
       createElement(InventorySection, { tenantId: 't', propertyId: 'p', emailVerified: true }),
     );
-    await wait('Clock is the source of availability');
-    await click('Restrictions');
     await wait('Synchronized availability and restrictions');
+    expect(document.body.textContent).toContain('Available tonight');
+    expect(document.body.textContent).toContain('Room types closed today');
+    expect(button('Restrictions')).toBeUndefined();
+    expect(button('Manual Blocks')).toBeUndefined();
     expect(button('Create restriction')).toBeUndefined();
-    await click('Conflict Review');
-    await wait('Provider conflict review Unknown');
-    expect(document.body.textContent).toContain('Provider mismatch records are unavailable.');
+    expect(button('Conflict Review')).toBeUndefined();
     expect(button('Retry validation')).toBeUndefined();
   });
   it('sends version and idempotency key when activation is confirmed', async () => {

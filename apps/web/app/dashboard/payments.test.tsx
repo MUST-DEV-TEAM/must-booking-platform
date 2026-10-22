@@ -201,6 +201,68 @@ describe('Payments', () => {
     await unmount();
   });
 
+  it('reuses the same key when retrying a percentage refund after an uncertain response', async () => {
+    let attempts = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url.endsWith('/payments/refunds') && ++attempts === 1)
+          return Promise.reject(new Error('Connection interrupted'));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify(
+              url.endsWith('/capabilities/mine')
+                ? ['payments.refund']
+                : url.endsWith('/bookings')
+                  ? [{ ...booking, paidAmount: '100.00' }]
+                  : { ok: true },
+            ),
+          ),
+        );
+      }),
+    );
+    const { unmount } = await renderPayments([{ ...booking, paidAmount: '100.00' }]);
+    await openRefund(rows()[0]!);
+    expect(dialog()!.textContent).toContain('€100.00 was paid and can still be refunded');
+    await act(async () => byText('Percentage', dialog()!)!.click());
+    await act(async () => byText('25%', dialog()!)!.click());
+    await setValue(
+      dialog()!.querySelector<HTMLTextAreaElement>('textarea')!,
+      'Approved by guest services',
+    );
+    expect(byText('Record refund', dialog()!)?.hasAttribute('disabled')).toBe(true);
+    await act(async () =>
+      document.querySelector<HTMLElement>('[aria-label="Refund reason"]')!.click(),
+    );
+    await act(async () => byText('guest request')!.click());
+    await act(async () => {
+      byText('Record refund', dialog()!)!.click();
+    });
+    await act(settle);
+    expect(dialog()!.textContent).toContain('Connection interrupted');
+    await act(async () => byText('Record refund', dialog()!)!.click());
+    await act(settle);
+    const attemptsMade = (fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([url]) =>
+      String(url).endsWith('/payments/refunds'),
+    );
+    expect(attemptsMade).toHaveLength(2);
+    expect(attemptsMade[0][1].headers['Idempotency-Key']).toBe(
+      attemptsMade[1][1].headers['Idempotency-Key'],
+    );
+    expect(attemptsMade[0][1].body).toBe(attemptsMade[1][1].body);
+    const call = (fetch as ReturnType<typeof vi.fn>).mock.calls.find(([url]) =>
+      String(url).endsWith('/payments/refunds'),
+    );
+    expect(JSON.parse(call?.[1].body)).toMatchObject({
+      bookingId: 'b1',
+      note: 'Approved by guest services',
+      percentage: 25,
+      reasonCode: 'guest_request',
+    });
+    expect(dialog()).toBeNull();
+    await unmount();
+  });
+
   const live = {
     ...booking,
     status: 'CONFIRMED',

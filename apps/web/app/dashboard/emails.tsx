@@ -680,7 +680,7 @@ function TemplateEditor({
           Reload wording
         </Button>
       </div>
-      <FormField label="Language">
+      <FormField label="Language" className="w-full sm:max-w-56">
         <Combobox
           label="Language"
           disabled={formBusy || reloading}
@@ -1320,7 +1320,7 @@ function EmailDeliveryDetail({
                 <Dialog open={showRendered} onOpenChange={setShowRendered}>
                   <DialogContent
                     id={`retained-email-${id}`}
-                    className="!max-w-5xl max-h-[90dvh] overflow-y-auto"
+                    className="sm:!max-w-[760px] max-h-[90dvh] overflow-y-auto"
                   >
                     <DialogTitle>Retained email preview</DialogTitle>
                     <DialogDescription>

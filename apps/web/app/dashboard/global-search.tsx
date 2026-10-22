@@ -253,7 +253,7 @@ export function GlobalSearch({
         <Search aria-hidden="true" />
       </Button>
       <Dialog open={open} onOpenChange={close}>
-        <DialogContent className="top-[18%] left-0 max-h-[75vh] w-screen max-w-none translate-x-0 translate-y-0 gap-3 overflow-hidden rounded-xl p-4 sm:max-w-none">
+        <DialogContent className="top-[14%] max-h-[75dvh] w-[calc(100%-2rem)] translate-y-0 gap-3 overflow-hidden rounded-xl p-4 sm:max-w-2xl">
           <DialogTitle className="sr-only">Search</DialogTitle>
           <DialogDescription className="sr-only">
             Search reservations, guests, rooms, staff, emails, pages and settings.

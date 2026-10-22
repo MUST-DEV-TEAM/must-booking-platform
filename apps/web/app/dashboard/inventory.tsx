@@ -1,4 +1,5 @@
 'use client';
+import { ClockInventory } from './clock-inventory';
 import { ClockRoomsTile } from './clock-room-counts';
 import { ClockAvailabilityPanel } from './clock-availability-panel';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -332,6 +333,14 @@ export function InventorySection({
     setDateTo('');
     setPeek(null);
   }
+  if (external)
+    return (
+      <ClockInventory
+        tenantId={tenantId}
+        propertyId={propertyId}
+        timezone={restrictions.timezone}
+      />
+    );
   return (
     <div className="flex flex-col gap-5">
       <PageHeader

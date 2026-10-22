@@ -456,7 +456,12 @@ export function DashboardPayments({
                                 <span className="block font-semibold">
                                   Still owed{' '}
                                   {booking.balanceBasis === 'CLOCK'
-                                    ? 'Managed in Clock'
+                                    ? booking.clockBalance
+                                      ? money(
+                                          booking.clockBalance.amount,
+                                          booking.clockBalance.currency,
+                                        )
+                                      : 'Verifying Clock balance'
                                     : ['PMS_UNKNOWN_RESULT', 'MANUAL_REVIEW'].includes(
                                           booking.status,
                                         )
@@ -479,7 +484,9 @@ export function DashboardPayments({
                           )}
                         >
                           {booking.balanceBasis === 'CLOCK'
-                            ? 'Managed in Clock'
+                            ? booking.clockBalance
+                              ? money(booking.clockBalance.amount, booking.clockBalance.currency)
+                              : 'Verifying Clock balance'
                             : ['PMS_UNKNOWN_RESULT', 'MANUAL_REVIEW'].includes(booking.status)
                               ? 'Balance not confirmed'
                               : money(owed, currency)}
@@ -550,6 +557,7 @@ export function DashboardPayments({
         <RefundDialog
           base={base}
           booking={refundBooking}
+          canCancel={capabilities.includes('bookings.cancel')}
           onClose={() => setRefundBooking(null)}
           onRefunded={() => void bookingsQuery.refetch()}
         />

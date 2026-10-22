@@ -19,7 +19,9 @@ describe('Shared message controls', () => {
         }),
       ),
     );
-    expect(host.querySelector('iframe')!.getAttribute('sandbox')).toBe('');
+    expect(host.querySelector('iframe')!.getAttribute('sandbox')).toBe('allow-same-origin');
+    expect(host.querySelector('iframe')!.getAttribute('sandbox')).not.toContain('allow-scripts');
+    expect(host.querySelector('iframe')!.getAttribute('scrolling')).toBe('no');
     await act(async () =>
       [...host.querySelectorAll('button')].find((node) => node.textContent === 'Mobile')!.click(),
     );

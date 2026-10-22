@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { usePmsSource } from './use-pms-source';
+import { Button } from '../../components/ui/button';
 
 import { SegmentedControl } from '../../components/ui/segmented-control';
 import { DashboardCalendar } from './calendar';
@@ -25,19 +27,31 @@ export function CalendarPage({
   canManageAvailability: boolean;
   canCreateBooking: boolean;
 }) {
+  const source = usePmsSource(tenantId, propertyId);
+  const clock = source.data === 'CLOCK_PMS';
   const [view, setView] = useState<'reservations' | 'availability'>('reservations');
   return (
     <div className="space-y-4">
-      <SegmentedControl<'reservations' | 'availability'>
-        label="Calendar view"
-        value={view}
-        onChange={setView}
-        options={[
-          { value: 'reservations', label: 'Reservations' },
-          { value: 'availability', label: 'Availability and blocks' },
-        ]}
-      />
-      {view === 'reservations' ? (
+      {clock ? (
+        <div className="flex justify-end">
+          <Button asChild variant="outline">
+            <a href={`/dashboard/${tenantId}?propertyId=${propertyId}&section=inventory`}>
+              View availability and restrictions
+            </a>
+          </Button>
+        </div>
+      ) : (
+        <SegmentedControl<'reservations' | 'availability'>
+          label="Calendar view"
+          value={view}
+          onChange={setView}
+          options={[
+            { value: 'reservations', label: 'Reservations' },
+            { value: 'availability', label: 'Availability and blocks' },
+          ]}
+        />
+      )}
+      {clock || view === 'reservations' ? (
         <CalendarBoard
           tenantId={tenantId}
           propertyId={propertyId}

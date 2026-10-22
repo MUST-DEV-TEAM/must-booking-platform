@@ -1,4 +1,6 @@
 'use client';
+import { ClockFinancialCard, useClockFinancial, moneyText } from './clock-financial';
+import { CancellationDialog } from './cancellation-dialog';
 import { BookingReviewCard } from './booking-review-card';
 import { CollectPaymentActions } from './collect-payment-actions';
 import { useQuery } from '@tanstack/react-query';
@@ -141,6 +143,8 @@ export function PaymentDetail({
 }) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const [refunding, setRefunding] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const financial = useClockFinancial(tenantId, propertyId, bookingId);
   const bookingsQuery = useQuery({
     queryKey: ['dashboard', 'payments-bookings', tenantId, propertyId],
     queryFn: () => fetchPropertyBookings(tenantId, propertyId),
@@ -214,6 +218,8 @@ export function PaymentDetail({
   const money = (amount: string, code = currency) =>
     new Intl.NumberFormat(undefined, { style: 'currency', currency: code }).format(Number(amount));
   const canRefund = (capabilitiesQuery.data ?? []).includes('payments.refund');
+  const canCancel = (capabilitiesQuery.data ?? []).includes('bookings.cancel');
+  const clockMoney = financial.data?.data;
   const refundable = remainingRefundable(booking);
   const folios = booking.clockFolios ?? [];
   const hasOpenDeposit = folios.some((folio) => folio.isDeposit && !folio.closedAt);
@@ -271,11 +277,18 @@ export function PaymentDetail({
           </>
         }
         actions={
-          canRefund && hasRefundableBalance(booking) ? (
-            <Button variant="outline" onClick={() => setRefunding(true)}>
-              Refund
-            </Button>
-          ) : null
+          <>
+            {canRefund && hasRefundableBalance(booking) ? (
+              <Button variant="outline" onClick={() => setRefunding(true)}>
+                Refund
+              </Button>
+            ) : null}
+            {canCancel && booking.status === 'CONFIRMED' ? (
+              <Button variant="outline" onClick={() => setCancelling(true)}>
+                Cancel booking
+              </Button>
+            ) : null}
+          </>
         }
       />
       {['PMS_UNKNOWN_RESULT', 'MANUAL_REVIEW'].includes(booking.status) ? (
@@ -286,7 +299,46 @@ export function PaymentDetail({
           canRunCheck={(capabilitiesQuery.data ?? []).includes('bookings.edit')}
         />
       ) : null}
+      {booking.balanceBasis === 'CLOCK' || clockMoney ? (
+        <ClockFinancialCard
+          data={clockMoney}
+          status={financial.data?.status}
+          error={financial.error?.message || financial.data?.lastError}
+          localPaid={booking.paidAmount}
+        />
+      ) : null}
+      {['AVAILABILITY_FAILED', 'PMS_REJECTED', 'PAYMENT_FAILED'].includes(booking.status) ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>This booking attempt is closed</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p>
+              No payment is due because a reservation was not created. The original attempt remains
+              in the history.
+            </p>
+            <Button asChild variant="outline">
+              <a
+                href={`/dashboard/${tenantId}?propertyId=${propertyId}&section=overview&tab=quick-booking`}
+              >
+                Search for a new booking
+              </a>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
       <CollectPaymentActions tenantId={tenantId} propertyId={propertyId} booking={booking} />
+      {cancelling ? (
+        <CancellationDialog
+          tenantId={tenantId}
+          propertyId={propertyId}
+          bookingId={bookingId}
+          open
+          onOpenChange={setCancelling}
+          canCancel={canCancel}
+          canRefund={canRefund}
+        />
+      ) : null}
 
       <div
         aria-label="Payment summary"
@@ -298,11 +350,18 @@ export function PaymentDetail({
         <StatTile label="Refunded" size="sm" value={money(booking.refundedAmount)} />
         <StatTile label="Refundable" size="sm" value={money(refundable.amount)} />
         <StatTile
-          label="Outstanding"
+          label={
+            clockMoney?.balance.amount.startsWith('-') ? 'Guest credit in Clock' : 'Outstanding'
+          }
           size="sm"
           value={
-            booking.balanceBasis === 'CLOCK'
-              ? 'Managed in Clock'
+            booking.balanceBasis === 'CLOCK' || clockMoney
+              ? clockMoney
+                ? moneyText({
+                    ...clockMoney.balance,
+                    amount: clockMoney.balance.amount.replace(/^-/, ''),
+                  })
+                : 'Verifying Clock balance'
               : [
                     'PMS_UNKNOWN_RESULT',
                     'MANUAL_REVIEW',
@@ -415,6 +474,7 @@ export function PaymentDetail({
           base={base}
           booking={booking}
           onClose={() => setRefunding(false)}
+          canCancel={canCancel}
           onRefunded={() => {
             void bookingsQuery.refetch();
             void ledgerQuery.refetch();

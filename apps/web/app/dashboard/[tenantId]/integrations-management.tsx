@@ -34,7 +34,7 @@ const providerLabels: Record<ConnectionProvider, string> = {
 // Real per-provider credential shape, matching each provider's actual parser
 // (clock-credentials.ts, pokpay-payment.provider.ts, stripe-connection-tester.ts)
 // instead of a generic key/value list. Milestone 11.5 Task 11.
-const credentialFieldsByProvider: Record<
+export const credentialFieldsByProvider: Record<
   ConnectionProvider,
   Array<{ key: string; label: string; secret?: boolean }>
 > = {

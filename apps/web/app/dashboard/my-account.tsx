@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { Alert, AlertDescription } from '../../components/ui/alert';
 import { Badge } from '../../components/ui/badge';
@@ -11,11 +11,21 @@ import { DetailList } from '../../components/ui/detail-list';
 import { FormField } from '../../components/ui/form-field';
 import { Input } from '../../components/ui/input';
 import { PageHero } from '../../components/ui/page-hero';
+import { PhoneInput, parsePhone, type PhoneValue } from '../../components/ui/phone-input';
+import { findDialCountry } from '../../lib/dial-codes';
+import { Combobox } from '../../components/ui/combobox';
+import { timeZoneOptions } from './settings-areas';
 import { PasswordField } from '../../components/ui/password-field';
 import { SettingToggle } from '../../components/ui/setting-toggle';
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 
 type Profile = {
+  birthDate?: string | null;
+  phoneCountryCode?: string | null;
+  phoneNumber?: string | null;
+  jobTitle?: string | null;
+  preferredLanguage?: string | null;
+  personalTimezone?: string | null;
   email: string;
   emailVerified: boolean;
   firstName: string | null;
@@ -61,10 +71,27 @@ export function MyAccount({
     queryFn: () => accountRequest<Preferences>(`/api/tenants/${tenantId}/my-email-preferences`),
     enabled: !!tenantId,
   });
+  const dirty = useRef(false);
+  const [details, setDetails] = useState({
+    birthDate: '',
+    jobTitle: '',
+    preferredLanguage: '',
+    personalTimezone: '',
+  });
+  const [phone, setPhone] = useState<PhoneValue>({ iso: 'AL', number: '' });
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   useEffect(() => {
-    if (profile.data) {
+    if (profile.data && !dirty.current) {
+      setDetails({
+        birthDate: profile.data.birthDate ?? '',
+        jobTitle: profile.data.jobTitle ?? '',
+        preferredLanguage: profile.data.preferredLanguage ?? '',
+        personalTimezone: profile.data.personalTimezone ?? '',
+      });
+      setPhone(
+        parsePhone((profile.data.phoneCountryCode ?? '') + ' ' + (profile.data.phoneNumber ?? '')),
+      );
       setFirstName(profile.data.firstName ?? '');
       setLastName(profile.data.lastName ?? '');
     }
@@ -74,9 +101,18 @@ export function MyAccount({
     mutationFn: () =>
       accountRequest('/api/auth/profile', {
         method: 'PATCH',
-        body: JSON.stringify({ firstName, lastName }),
+        body: JSON.stringify({
+          firstName,
+          lastName,
+          ...details,
+          phoneCountryCode: phone.number ? findDialCountry(phone.iso)?.prefix : null,
+          phoneNumber: phone.number || null,
+        }),
       }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ['my-account', 'profile'] }),
+    onSuccess: () => {
+      dirty.current = false;
+      return client.invalidateQueries({ queryKey: ['my-account', 'profile'] });
+    },
   });
   const verify = useMutation({
     mutationFn: () =>
@@ -141,7 +177,12 @@ export function MyAccount({
 
   const nameChanged =
     firstName.trim() !== (profile.data.firstName ?? '') ||
-    lastName.trim() !== (profile.data.lastName ?? '');
+    lastName.trim() !== (profile.data.lastName ?? '') ||
+    Object.entries(details).some(
+      ([key, value]) => value !== (profile.data[key as keyof Profile] ?? ''),
+    ) ||
+    phone.number !== (profile.data.phoneNumber ?? '') ||
+    (!!phone.number && findDialCountry(phone.iso)?.prefix !== profile.data.phoneCountryCode);
   return (
     <div className="space-y-4">
       <PageHero
@@ -183,7 +224,10 @@ export function MyAccount({
                   id="account-first-name"
                   value={firstName}
                   maxLength={100}
-                  onChange={(event) => setFirstName(event.target.value)}
+                  onChange={(event) => {
+                    dirty.current = true;
+                    setFirstName(event.target.value);
+                  }}
                 />
               </FormField>
               <FormField label="Last name" htmlFor="account-last-name">
@@ -191,7 +235,82 @@ export function MyAccount({
                   id="account-last-name"
                   value={lastName}
                   maxLength={100}
-                  onChange={(event) => setLastName(event.target.value)}
+                  onChange={(event) => {
+                    dirty.current = true;
+                    setLastName(event.target.value);
+                  }}
+                />
+              </FormField>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Additional details are optional and belong to your account, separate from hotel guest
+              records. Language and timezone are saved preferences; they do not change hotel
+              operating rules.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FormField label="Phone (optional)" htmlFor="account-phone">
+                <PhoneInput
+                  id="account-phone"
+                  value={phone}
+                  onChange={(value) => {
+                    dirty.current = true;
+                    setPhone(value);
+                  }}
+                />
+              </FormField>
+              <FormField label="Birthday (optional)" htmlFor="account-birthday">
+                <Input
+                  id="account-birthday"
+                  type="date"
+                  max={new Date().toISOString().slice(0, 10)}
+                  value={details.birthDate}
+                  onChange={(e) => {
+                    dirty.current = true;
+                    setDetails({ ...details, birthDate: e.target.value });
+                  }}
+                />
+              </FormField>
+              <FormField label="Job title (optional)" htmlFor="account-job-title">
+                <Input
+                  id="account-job-title"
+                  maxLength={100}
+                  value={details.jobTitle}
+                  onChange={(e) => {
+                    dirty.current = true;
+                    setDetails({ ...details, jobTitle: e.target.value });
+                  }}
+                />
+              </FormField>
+              <FormField label="Preferred language">
+                <Combobox
+                  label="Preferred language"
+                  value={details.preferredLanguage}
+                  options={[
+                    { value: '', label: 'Not set' },
+                    { value: 'en', label: 'English' },
+                    { value: 'sq', label: 'Albanian' },
+                  ]}
+                  onChange={(v) => {
+                    dirty.current = true;
+                    setDetails({ ...details, preferredLanguage: v });
+                  }}
+                />
+              </FormField>
+              <FormField label="Personal timezone">
+                <Combobox
+                  label="Personal timezone"
+                  value={details.personalTimezone}
+                  options={[
+                    { value: '', label: 'Not set' },
+                    ...timeZoneOptions(details.personalTimezone).map((v) => ({
+                      value: v,
+                      label: v,
+                    })),
+                  ]}
+                  onChange={(v) => {
+                    dirty.current = true;
+                    setDetails({ ...details, personalTimezone: v });
+                  }}
                 />
               </FormField>
             </div>
@@ -202,7 +321,7 @@ export function MyAccount({
             ) : null}
             {saveProfile.isSuccess && !nameChanged ? (
               <p role="status" className="m-0 text-sm text-muted-foreground">
-                Name saved.
+                Profile saved.
               </p>
             ) : null}
             <div>
@@ -210,7 +329,7 @@ export function MyAccount({
                 disabled={!nameChanged || saveProfile.isPending}
                 onClick={() => saveProfile.mutate()}
               >
-                Save name
+                Save profile
               </Button>
             </div>
           </CardContent>

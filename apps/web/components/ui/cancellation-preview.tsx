@@ -35,10 +35,10 @@ export function CancellationPreview({
   const amount = (n: string) => `${n} ${e.currency}`;
   return (
     <div className="space-y-3">
-      <Alert variant={e.isFree ? 'info' : 'warning'}>
+      <Alert variant={e.isFree || e.policySource === 'CLOCK_PMS' ? 'info' : 'warning'}>
         <AlertTitle>
           {e.policySource === 'CLOCK_PMS'
-            ? 'Cancellation terms are managed in Clock'
+            ? 'Review the cancellation refund'
             : e.isFree
               ? 'Within the free-cancellation policy'
               : 'Outside the free-cancellation policy'}
@@ -46,7 +46,7 @@ export function CancellationPreview({
         <AlertDescription>
           Cancellation releases inventory and updates the provider record.{' '}
           {e.policySource === 'CLOCK_PMS'
-            ? 'The policy is unknown here. Choose the refund explicitly; no refund is automatic.'
+            ? 'Clock has not supplied cancellation terms through the supported API. The refund below is your explicit decision.'
             : e.legacyPolicy
               ? 'Cancellation terms are taken from the current rate plan.'
               : ''}
@@ -59,7 +59,7 @@ export function CancellationPreview({
             label: `Free-cancellation deadline (${e.timezone})`,
             value:
               e.policySource === 'CLOCK_PMS'
-                ? 'Unknown - managed in Clock'
+                ? 'Not supplied by Clock'
                 : e.cutoffAt
                   ? new Date(e.cutoffAt).toLocaleString('en-GB', { timeZone: e.timezone })
                   : 'No free cancellation',
@@ -67,8 +67,7 @@ export function CancellationPreview({
           { label: 'Paid', value: amount(e.paid) },
           {
             label: 'Penalty',
-            value:
-              e.policySource === 'CLOCK_PMS' ? 'Unknown - managed in Clock' : amount(e.penalty),
+            value: e.policySource === 'CLOCK_PMS' ? 'Not supplied by Clock' : amount(e.penalty),
           },
           { label: 'Already refunded', value: amount(e.alreadyRefunded) },
           { label: 'Refund to issue', value: amount(refundAmount) },

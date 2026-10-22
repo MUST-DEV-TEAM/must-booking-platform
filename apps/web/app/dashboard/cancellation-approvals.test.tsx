@@ -7,6 +7,8 @@ import {
   CancellationPreview,
   type CancellationEvidence,
 } from '../../components/ui/cancellation-preview';
+import { RefundDialog } from './payment-refund-dialog';
+import type { Reservation } from './reservations';
 import { CancellationDialog } from './cancellation-dialog';
 import { ApprovalPanel, ApprovalsQueue, type Approval } from './approvals';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -210,7 +212,7 @@ it.each([true, false])(
         canRefund={canRefund}
       />,
     );
-    expect(document.body.textContent).toContain('Cancellation terms are managed in Clock');
+    expect(document.body.textContent).toContain('Review the cancellation refund');
     expect(document.body.textContent).not.toContain('Outside the free-cancellation policy');
     const confirm = () => button(canRefund ? 'Cancel reservation' : 'Submit request');
     await write('textarea', 'Reviewed the Clock policy');
@@ -229,3 +231,42 @@ it.each([true, false])(
     });
   },
 );
+
+it('keeps the selected percentage when entering combined cancellation from Refund', async () => {
+  const fetch = vi.fn(
+    async (url: string) =>
+      new Response(JSON.stringify(url.endsWith('/cancellation-preview') ? evidence : {})),
+  );
+  vi.stubGlobal('fetch', fetch);
+  await mount(
+    <RefundDialog
+      booking={
+        {
+          id: 'booking',
+          status: 'CONFIRMED',
+          paidAmount: '100.00',
+          refundedAmount: '10.00',
+          total: { amount: '100.00', currency: 'EUR' },
+        } as Reservation
+      }
+      base="/api/tenants/t/properties/p"
+      onClose={vi.fn()}
+      onRefunded={vi.fn()}
+      canCancel
+    />,
+  );
+  await act(async () => button('Percentage').click());
+  await act(async () => button('25%').click());
+  await act(async () =>
+    [...document.querySelectorAll('label')]
+      .find((label) => label.textContent?.includes('Also cancel booking'))!
+      .querySelector<HTMLButtonElement>('[role="checkbox"]')!
+      .click(),
+  );
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 40));
+  });
+  expect(document.body.textContent).toContain('Choose the refund and review the final outcome');
+  expect(document.body.textContent).toContain('22.50 EUR');
+  expect(fetch.mock.calls.every((c) => !String(c[0]).endsWith('/payments/refunds'))).toBe(true);
+});

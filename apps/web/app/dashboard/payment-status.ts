@@ -78,9 +78,12 @@ export function remainingRefundable(
 
 /** Still to collect. Only a live booking owes money; refunds never create a debt. */
 export function outstandingAmount(
-  booking: Pick<Reservation, 'status' | 'balanceBasis' | 'paidAmount' | 'total'>,
+  booking: Pick<Reservation, 'status' | 'balanceBasis' | 'clockBalance' | 'paidAmount' | 'total'>,
 ): string {
-  if (booking.balanceBasis === 'CLOCK') return '0.00';
+  if (booking.balanceBasis === 'CLOCK')
+    return booking.clockBalance && !booking.clockBalance.amount.startsWith('-')
+      ? booking.clockBalance.amount
+      : '0.00';
   if (isDead(booking) || ['PMS_UNKNOWN_RESULT', 'MANUAL_REVIEW'].includes(booking.status))
     return '0.00';
   const due = minorUnits(booking.total.amount) - minorUnits(booking.paidAmount);
@@ -95,10 +98,23 @@ export function outstandingAmount(
 export function paymentStatus(
   booking: Pick<
     Reservation,
-    'status' | 'balanceBasis' | 'paymentMethod' | 'total' | 'paidAmount' | 'refundedAmount'
+    | 'status'
+    | 'balanceBasis'
+    | 'clockBalance'
+    | 'paymentMethod'
+    | 'total'
+    | 'paidAmount'
+    | 'refundedAmount'
   >,
 ): PaymentStatus {
-  if (booking.balanceBasis === 'CLOCK') return { label: 'Managed in Clock', state: 'pending' };
+  if (booking.balanceBasis === 'CLOCK')
+    return !booking.clockBalance
+      ? { label: 'Verifying Clock balance', state: 'pending' }
+      : booking.clockBalance.amount.startsWith('-')
+        ? { label: 'Guest credit', state: 'pending' }
+        : minorUnits(booking.clockBalance.amount) > 0n
+          ? { label: 'Balance due', state: 'unpaid' }
+          : { label: 'Settled in Clock', state: 'paid' };
   const paid = minorUnits(booking.paidAmount);
   const refunded = minorUnits(booking.refundedAmount);
   const total = minorUnits(booking.total.amount);
@@ -131,7 +147,10 @@ export function needsAction(
 }
 
 export function matchesFilter(
-  booking: Pick<Reservation, 'status' | 'balanceBasis' | 'total' | 'paidAmount' | 'refundedAmount'>,
+  booking: Pick<
+    Reservation,
+    'status' | 'balanceBasis' | 'clockBalance' | 'total' | 'paidAmount' | 'refundedAmount'
+  >,
   filter: PaymentFilter,
 ): boolean {
   const paid = minorUnits(booking.paidAmount);
@@ -205,7 +224,10 @@ export type PaymentSummary = {
 /** Totals per currency, so two currencies are never added together. */
 export function summarize(
   bookings: Array<
-    Pick<Reservation, 'status' | 'balanceBasis' | 'total' | 'paidAmount' | 'refundedAmount'>
+    Pick<
+      Reservation,
+      'status' | 'balanceBasis' | 'clockBalance' | 'total' | 'paidAmount' | 'refundedAmount'
+    >
   >,
 ): { byCurrency: PaymentSummary[]; needsAction: number } {
   const totals = new Map<string, { collected: bigint; refunded: bigint; outstanding: bigint }>();

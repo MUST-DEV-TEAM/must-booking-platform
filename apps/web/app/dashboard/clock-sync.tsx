@@ -125,16 +125,35 @@ export function ClockSyncStatus({
             Existing data stays visible during updates.
           </p>
           <ul>
-            {jobs.map((job) => (
-              <li key={job.resource}>
-                {job.resource}: {job.status.toLowerCase()}
-                {job.processed
-                  ? ` · ${job.processed}${job.total == null ? '' : ` of ${job.total}`} processed`
-                  : ''}
-                {job.lastError ? ` · ${job.lastError}` : ''}
-              </li>
-            ))}
+            {jobs
+              .filter((job) => !job.resource.startsWith('financial:'))
+              .map((job) => (
+                <li key={job.resource}>
+                  {job.resource}: {job.status.toLowerCase()}
+                  {job.processed
+                    ? ` · ${job.processed}${job.total == null ? '' : ` of ${job.total}`} processed`
+                    : ''}
+                  {job.lastError ? ` · ${job.lastError}` : ''}
+                </li>
+              ))}
           </ul>
+          {jobs.some((job) => job.resource.startsWith('financial:')) ? (
+            <p>
+              Booking balances:{' '}
+              {
+                jobs.filter(
+                  (job) => job.resource.startsWith('financial:') && job.status === 'SYNCED',
+                ).length
+              }{' '}
+              checked,{' '}
+              {
+                jobs.filter(
+                  (job) => job.resource.startsWith('financial:') && job.status === 'FAILED',
+                ).length
+              }{' '}
+              need attention. Details appear in each booking's Payments page.
+            </p>
+          ) : null}
           <Button variant="outline" disabled={recover.isPending} onClick={() => recover.mutate()}>
             Resume synchronization after fixing the connection
           </Button>

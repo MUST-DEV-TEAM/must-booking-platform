@@ -14,7 +14,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../components/ui/select';
-import { Input } from '../../components/ui/input';
+import {
+  RefundChoice,
+  noRefund,
+  refundAmountText,
+  refundChoiceError,
+  type RefundChoiceValue,
+} from './refund-choice';
 import { Label } from '../../components/ui/label';
 import { Switch } from '../../components/ui/switch';
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
@@ -33,6 +39,7 @@ export function CancellationDialog({
   onOpenChange,
   canCancel,
   canRefund,
+  initialRefundChoice,
 }: {
   tenantId: string;
   propertyId: string;
@@ -41,12 +48,12 @@ export function CancellationDialog({
   onOpenChange: (v: boolean) => void;
   canCancel: boolean;
   canRefund: boolean;
+  initialRefundChoice?: RefundChoiceValue;
 }) {
   const client = useQueryClient();
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
-  const [choice, setChoice] = useState('eligible'),
-    [custom, setCustom] = useState(''),
-    [category, setCategory] = useState('guest_request'),
+  const [refundValue, setRefundValue] = useState<RefundChoiceValue>(noRefund);
+  const [category, setCategory] = useState('guest_request'),
     [priority, setPriority] = useState('normal'),
     [notify, setNotify] = useState(true);
   const query = useQuery({
@@ -59,31 +66,42 @@ export function CancellationDialog({
   const e = query.data;
   const clockTerms = e?.policySource === 'CLOCK_PMS';
   const [clockTermsConfirmed, setClockTermsConfirmed] = useState(false);
+  const paidBooking = {
+    paidAmount: e?.paid ?? '0.00',
+    refundedAmount: e?.alreadyRefunded ?? '0.00',
+    total: { amount: e?.paid ?? '0.00', currency: e?.currency ?? 'EUR' },
+  };
   useEffect(() => {
     setClockTermsConfirmed(false);
-    if (clockTerms && open) {
-      setChoice('eligible');
-      setCustom('');
+    if (open && e) {
+      const remaining = (previewMinor(e.paid) ?? 0n) - (previewMinor(e.alreadyRefunded) ?? 0n);
+      setRefundValue(
+        initialRefundChoice ??
+          (e.policySource === 'CLOCK_PMS' || (previewMinor(e.eligible) ?? 0n) === 0n
+            ? noRefund
+            : remaining === (previewMinor(e.eligible) ?? 0n)
+              ? { ...noRefund, mode: 'full' }
+              : { ...noRefund, mode: 'fixed', amount: e.eligible }),
+      );
     }
-  }, [open, bookingId, clockTerms]);
-  const refundChoice = clockTerms && choice === 'eligible' ? 'none' : choice;
-  const amount =
-    refundChoice === 'none' ? '0.00' : refundChoice === 'custom' ? custom : (e?.eligible ?? '0.00');
+  }, [open, bookingId, e?.bookingId]);
+  const amount = refundAmountText(refundValue, paidBooking) ?? '0.00';
+  const refundChoice =
+    refundValue.mode === 'none' || (previewMinor(amount) ?? 0n) === 0n
+      ? 'none'
+      : !clockTerms && amount === e?.eligible
+        ? 'eligible'
+        : 'custom';
   const approval = clockTerms
     ? !canCancel || !canRefund
-    : !canCancel || !e?.isFree || choice === 'custom';
-  const customMinor = previewMinor(custom);
-  const remainingMinor =
-    (previewMinor(e?.paid ?? '0') ?? 0n) - (previewMinor(e?.alreadyRefunded ?? '0') ?? 0n);
-  const invalidCustom =
-    choice === 'custom' &&
-    (customMinor === null || customMinor <= 0n || customMinor > remainingMinor);
+    : !canCancel || !e?.isFree || refundChoice === 'custom';
+  const invalidCustom = !!refundChoiceError(refundValue, paidBooking);
   return (
     <ConfirmDialog
       open={open}
       onOpenChange={onOpenChange}
       title={approval ? 'Request cancellation' : 'Confirm cancellation'}
-      description="Review the policy and refund separately before confirming."
+      description="Choose the refund and review the final outcome. This updates the reservation in MUST and its connected hotel system."
       confirmLabel={approval ? 'Submit request' : 'Cancel reservation'}
       reasonLabel="Details"
       reasonRequired
@@ -112,7 +130,7 @@ export function CancellationDialog({
             details,
             refund: refundChoice,
             clockTermsConfirmed: clockTerms ? clockTermsConfirmed : undefined,
-            customAmount: choice === 'custom' ? custom : undefined,
+            customAmount: refundChoice === 'custom' ? amount : undefined,
             notifyGuest: notify,
           }),
         }).catch(async (error: unknown) => {
@@ -167,35 +185,17 @@ export function CancellationDialog({
           </Select>
         </div>
       </div>
-      <div>
-        <Label>Refund decision</Label>
-        <Select value={refundChoice} onValueChange={setChoice}>
-          <SelectTrigger aria-label="Refund decision">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {!clockTerms ? (
-              <SelectItem value="eligible">Full eligible refund (policy default)</SelectItem>
-            ) : null}
-            <SelectItem value="none">No refund</SelectItem>
-            {canRefund ? (
-              <SelectItem value="custom">
-                {clockTerms && canCancel ? 'Custom amount' : 'Custom amount (requires approval)'}
-              </SelectItem>
-            ) : null}
-          </SelectContent>
-        </Select>
-      </div>
-      {choice === 'custom' ? (
-        <div>
-          <Label htmlFor="custom-refund">Custom refund</Label>
-          <Input
-            id="custom-refund"
-            inputMode="decimal"
-            value={custom}
-            onChange={(v) => setCustom(v.target.value)}
-          />
-        </div>
+      {e ? (
+        <RefundChoice
+          booking={paidBooking}
+          value={refundValue}
+          onChange={setRefundValue}
+          policyNote={
+            clockTerms
+              ? 'Clock has not supplied machine-readable cancellation terms. An authorized reviewer must choose the refund.'
+              : `Policy refund: ${e.eligible} ${e.currency}. Changes beyond the policy require review.`
+          }
+        />
       ) : null}
       {clockTerms ? (
         <Label className="flex items-center gap-2">
@@ -204,8 +204,7 @@ export function CancellationDialog({
             onCheckedChange={setClockTermsConfirmed}
             aria-label="Confirm Clock cancellation terms"
           />
-          Cancellation terms are managed in Clock. I reviewed them and explicitly chose the refund
-          amount.
+          I confirm the refund decision for this Clock reservation.
         </Label>
       ) : null}
       <Label className="flex items-center gap-2">
@@ -214,7 +213,7 @@ export function CancellationDialog({
           onCheckedChange={setNotify}
           aria-label="Email guest cancellation"
         />{' '}
-        Send existing cancellation email to guest
+        Email the cancellation confirmation to the guest
       </Label>
     </ConfirmDialog>
   );

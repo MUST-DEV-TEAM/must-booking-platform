@@ -3,7 +3,9 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { toast } from 'sonner';
 import { CollectPaymentActions } from './collect-payment-actions';
+vi.mock('sonner', () => ({ toast: { success: vi.fn() } }));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -121,6 +123,9 @@ describe('confirmed booking collection controls', () => {
         .click(),
     );
     expect(writeText).toHaveBeenCalledWith('https://staging.example/checkout');
+    expect(toast.success).toHaveBeenCalledWith('Link copied');
+    expect(view.host.textContent).not.toContain('link copied');
+    expect(view.host.textContent).not.toContain('Waiting for PokPay');
     expect(open).not.toHaveBeenCalled();
     expect(view.requests.filter((u) => u.endsWith('/collect-pokpay'))).toHaveLength(1);
     await view.close();

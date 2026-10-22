@@ -35,6 +35,7 @@ export function ClockAvailabilityPanel({
           one night; they are not a final stay quote.
         </p>
         <Input
+          className="sm:max-w-48"
           aria-label="Clock availability month"
           type="month"
           value={month}

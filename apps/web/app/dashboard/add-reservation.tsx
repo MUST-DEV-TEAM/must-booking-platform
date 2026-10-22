@@ -775,7 +775,21 @@ export function AddReservation({
                     </div>
                   ) : null}
                   {typeOffers.error || roomOffers.error ? (
-                    <p role="alert">{(typeOffers.error || roomOffers.error)?.message}</p>
+                    <div role="alert" className="space-y-2">
+                      <p>
+                        Rooms could not be checked.{' '}
+                        {errorMessage(typeOffers.error || roomOffers.error)}
+                      </p>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          void typeOffers.refetch();
+                          if (byRoom && checkIndividual) void roomOffers.refetch();
+                        }}
+                      >
+                        Retry availability
+                      </Button>
+                    </div>
                   ) : null}
                   {!stayReady ? (
                     <EmptyPanel
@@ -1475,7 +1489,11 @@ async function post(url: string, body: unknown, idempotencyKey?: string) {
     },
     body: JSON.stringify(body),
   });
-  if (!response.ok) throw new Error(await response.text());
+  if (!response.ok) {
+    if (response.status >= 500)
+      throw new Error('The service is temporarily unavailable. Please retry.');
+    throw new Error(await response.text());
+  }
   return response.json();
 }
 

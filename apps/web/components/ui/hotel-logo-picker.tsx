@@ -41,7 +41,19 @@ export function HotelLogoPicker({
     enabled: open && canManage,
   });
   const select = (url: string) => {
-    if (!/^https:\/\//i.test(url) || !/\.(png|jpe?g|webp)(?:[?#]|$)/i.test(url)) {
+    let stored = false;
+    try {
+      const parsed = new URL(url);
+      const key = parsed.searchParams.get('key') ?? '';
+      stored =
+        (parsed.protocol === 'https:' || parsed.origin === window.location.origin) &&
+        parsed.pathname.endsWith('/media/image') &&
+        key.startsWith(`server-v1/library/${tenantId}/${propertyId}/`) &&
+        /\.(png|jpe?g|webp)$/i.test(key);
+    } catch {
+      /* Optional browser capability unavailable; keep the normal UI path. */
+    }
+    if (!stored && (!/^https:\/\//i.test(url) || !/\.(png|jpe?g|webp)(?:[?#]|$)/i.test(url))) {
       setError('Choose a public https PNG, JPG or WebP image.');
       return;
     }

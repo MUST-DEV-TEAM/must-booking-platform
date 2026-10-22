@@ -132,7 +132,7 @@ describe('PaymentDetail', () => {
   it('does not present an imported total as a confirmed amount owed', async () => {
     stubApi({ balanceBasis: 'CLOCK' });
     const view = await renderDetail();
-    expect(view.c.textContent).toContain('Balance managed in Clock');
+    expect(view.c.textContent).toContain('Verified Clock balance');
     expect(view.c.textContent).not.toContain('Record payment received');
     await view.unmount();
   });

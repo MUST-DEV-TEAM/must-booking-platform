@@ -79,14 +79,18 @@ describe('My account', () => {
     expect(document.body.textContent).toContain('ana@example.test');
     expect(document.body.textContent).toContain('Email verified');
     expect(document.body.textContent).not.toContain('Not available yet');
-    expect(button('Save name').disabled).toBe(true);
+    expect(button('Save profile').disabled).toBe(true);
     await type('#account-first-name', 'Ana');
     await type('#account-last-name', 'Owner');
-    await click(button('Save name'));
+    await click(button('Save profile'));
     const write = calls.find(
       ([url, init]) => url === '/api/auth/profile' && init?.method === 'PATCH',
     )!;
-    expect(JSON.parse(String(write[1]!.body))).toEqual({ firstName: 'Ana', lastName: 'Owner' });
+    expect(JSON.parse(String(write[1]!.body))).toMatchObject({
+      firstName: 'Ana',
+      lastName: 'Owner',
+    });
+    expect(document.querySelector('#account-birthday')).not.toBeNull();
   });
 
   it('validates the new password before sending and then changes it', async () => {

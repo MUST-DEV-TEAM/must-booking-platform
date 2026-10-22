@@ -1,7 +1,7 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { REFUND_REASONS, type RefundReason } from '@must/domain-contracts';
@@ -15,6 +15,8 @@ import {
   refundRequestBody,
   type RefundChoiceValue,
 } from './refund-choice';
+import { CancellationDialog } from './cancellation-dialog';
+import { SettingToggle } from '../../components/ui/setting-toggle';
 import { guestName, type Reservation } from './reservations';
 
 /**
@@ -26,14 +28,19 @@ export function RefundDialog({
   base,
   onClose,
   onRefunded,
+  canCancel = false,
 }: {
   booking: Reservation;
+  canCancel?: boolean;
   /** `/api/tenants/<tenant>/properties/<property>` */
   base: string;
   onClose: () => void;
   onRefunded: () => void;
 }) {
   const queryClient = useQueryClient();
+  const attempt = useRef<{ body: string; key: string } | null>(null);
+  const [cancelAlso, setCancelAlso] = useState(false);
+  const scope = base.match(/\/tenants\/([^/]+)\/properties\/([^/]+)/);
   const [choice, setChoice] = useState<RefundChoiceValue>({ ...noRefund, mode: 'full' });
 
   const [reasonCode, setReasonCode] = useState<RefundReason | ''>('');
@@ -41,16 +48,19 @@ export function RefundDialog({
     const body = refundRequestBody(choice, booking);
     if (!reasonCode) throw new Error('Choose a refund reason.');
     if (!body) throw new Error('Choose how much to refund.');
+    const payload = JSON.stringify({
+      bookingId: booking.id,
+      ...body,
+      reasonCode,
+      ...(note.trim() ? { note: note.trim().slice(0, 500) } : {}),
+    });
+    if (attempt.current?.body !== payload)
+      attempt.current = { body: payload, key: crypto.randomUUID() };
     const response = await fetch(`${base}/payments/refunds`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
-      body: JSON.stringify({
-        bookingId: booking.id,
-        ...body,
-        reasonCode,
-        ...(note.trim() ? { note: note.trim().slice(0, 500) } : {}),
-      }),
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': attempt.current.key },
+      body: payload,
     });
     const result = (await response.json().catch(() => null)) as {
       ok?: boolean;
@@ -65,6 +75,24 @@ export function RefundDialog({
     onClose();
   };
 
+  if (cancelAlso && scope)
+    return (
+      <CancellationDialog
+        tenantId={scope[1]}
+        propertyId={scope[2]}
+        bookingId={booking.id}
+        open
+        canCancel={canCancel}
+        canRefund
+        initialRefundChoice={choice}
+        onOpenChange={(open) => {
+          if (!open) {
+            onRefunded();
+            onClose();
+          }
+        }}
+      />
+    );
   return (
     <ConfirmDialog
       open
@@ -78,6 +106,9 @@ export function RefundDialog({
       confirmDisabled={!reasonCode || !!refundChoiceError(choice, booking)}
       onConfirm={refund}
     >
+      {canCancel && booking.status === 'CONFIRMED' && scope ? (
+        <SettingToggle label="Also cancel booking" checked={cancelAlso} onChange={setCancelAlso} />
+      ) : null}
       <FormField label="Refund reason">
         <Combobox
           label="Refund reason"

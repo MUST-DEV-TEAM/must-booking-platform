@@ -45,6 +45,7 @@ export type Reservation = {
   paymentMethod: string;
   total: { amount: string; currency: string };
   balanceBasis?: 'CLOCK' | 'MUST';
+  clockBalance?: { amount: string; currency: string } | null;
   paidAmount: string;
   refundedAmount: string;
   externalReference: string;

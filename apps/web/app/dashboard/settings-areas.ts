@@ -77,6 +77,12 @@ export const settingsAreas = [
     description: 'The arrival and departure times shown to guests.',
   },
   {
+    key: 'integrations',
+    label: 'Integrations',
+    scope: 'Property',
+    description: 'Connect Clock PMS+ and PokPay, test credentials and monitor synchronization.',
+  },
+  {
     key: 'payments',
     label: 'Payments',
     scope: 'Property',
@@ -174,6 +180,7 @@ export function areaHealth(
         ? { status: 'done', note: 'A support email is set for guests.' }
         : { status: 'attention', note: 'Guests have no support email in booking emails.' },
     email: { status: 'none', note: '' },
+    integrations: { status: 'none', note: 'Connections, credentials and synchronization.' },
     'managed-pages':
       property.wordpressConnectedAt && present(property.publicWebsiteOrigin)
         ? { status: 'done', note: 'The hotel website is connected.' }

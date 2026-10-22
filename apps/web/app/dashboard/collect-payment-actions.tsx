@@ -12,8 +12,10 @@ import {
   SelectValue,
 } from '../../components/ui/select';
 import QRCode from 'qrcode';
+import { toast } from 'sonner';
 import { Input } from '../../components/ui/input';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../../components/ui/dialog';
+import { useClockFinancial } from './clock-financial';
 import { minorUnits } from './payment-status';
 export function CollectPaymentActions({
   tenantId,
@@ -53,10 +55,18 @@ export function CollectPaymentActions({
       return (await r.json()) as string[];
     },
   });
+  const clockFinancial = useClockFinancial(
+    tenantId,
+    propertyId,
+    booking.id,
+    booking.balanceBasis === 'CLOCK',
+  );
+  const verifiedClock = clockFinancial.data?.data;
   const eligible =
     booking.status === 'CONFIRMED' &&
-    booking.balanceBasis !== 'CLOCK' &&
-    minorUnits(booking.total.amount) > minorUnits(booking.paidAmount) &&
+    (booking.balanceBasis === 'CLOCK'
+      ? !!verifiedClock && Number(verifiedClock.balance.amount) > 0
+      : minorUnits(booking.total.amount) > minorUnits(booking.paidAmount)) &&
     !!caps.data?.includes('payments.record');
   const options = useQuery({
     queryKey: ['dashboard', 'collection-options', tenantId, propertyId, booking.id],
@@ -96,7 +106,8 @@ export function CollectPaymentActions({
           setMessage('Payment email queued. Check Emails for delivery status.');
         else if (action === 'copy') {
           await navigator.clipboard.writeText(result.checkoutUrl);
-          setMessage('PokPay payment link copied.');
+          setMessage('');
+          toast.success('Link copied');
           setWaiting(true);
         } else if (action === 'qr') {
           setQr(
@@ -158,7 +169,9 @@ export function CollectPaymentActions({
       channel.onmessage = (e) => {
         if (e.data?.bookingId === booking.id) void check();
       };
-    } catch {}
+    } catch {
+      /* Optional browser capability unavailable; keep the normal UI path. */
+    }
     return () => {
       stopped = true;
       clearInterval(timer);
@@ -166,18 +179,6 @@ export function CollectPaymentActions({
       channel?.close();
     };
   }, [eligible, waiting, base, booking.id, client]);
-  if (booking.balanceBasis === 'CLOCK')
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Balance managed in Clock</CardTitle>
-        </CardHeader>
-        <CardContent>
-          Earlier payments for this imported booking have not been imported. Check its balance in
-          Clock before collecting money.
-        </CardContent>
-      </Card>
-    );
   if (!eligible) return null;
   return (
     <Card>
@@ -221,11 +222,6 @@ export function CollectPaymentActions({
             Record payment received
           </Button>
         </div>
-        {waiting ? (
-          <p role="status">
-            Waiting for PokPay confirmation. This booking updates automatically after payment.
-          </p>
-        ) : null}
         {pay.error || options.error ? (
           <p role="alert">{pay.error?.message || options.error?.message}</p>
         ) : null}
@@ -236,7 +232,7 @@ export function CollectPaymentActions({
             if (!open) setQr('');
           }}
         >
-          <DialogContent className="max-w-sm">
+          <DialogContent className="sm:max-w-sm">
             <DialogTitle>Pay with PokPay</DialogTitle>
             <DialogDescription>
               Scan to pay this booking's outstanding balance in {booking.total.currency}. The
@@ -244,6 +240,7 @@ export function CollectPaymentActions({
             </DialogDescription>
             {qr ? (
               <img
+                className="mx-auto block max-w-full"
                 src={qr}
                 alt="QR code for this booking's PokPay checkout"
                 width={280}

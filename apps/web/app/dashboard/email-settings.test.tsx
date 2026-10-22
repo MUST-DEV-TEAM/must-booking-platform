@@ -360,7 +360,10 @@ describe('Emails workspace and legacy links', () => {
     });
     await click(button('Preview'));
     const frame = document.querySelector('iframe')!;
-    expect(frame.getAttribute('sandbox')).toBe('');
+    expect(frame.getAttribute('sandbox')).toBe('allow-same-origin');
+    expect(document.querySelector('iframe')!.getAttribute('sandbox')).not.toContain(
+      'allow-scripts',
+    );
     expect(frame.getAttribute('srcdoc')).toBe('<p>Example only</p>');
     expect(calls.some((row) => row.url.endsWith('/publish'))).toBe(false);
   });
@@ -549,7 +552,10 @@ describe('Emails workspace and legacy links', () => {
     await click(button('Booking confirmed (guest)'));
     expect(document.querySelector('iframe')).toBeNull();
     await click(button('View retained message'));
-    expect(document.querySelector('iframe')?.getAttribute('sandbox')).toBe('');
+    expect(document.querySelector('iframe')?.getAttribute('sandbox')).toBe('allow-same-origin');
+    expect(document.querySelector('iframe')!.getAttribute('sandbox')).not.toContain(
+      'allow-scripts',
+    );
     expect(document.querySelector('iframe')?.getAttribute('srcdoc')).toContain(
       'Sanitized recorded wording',
     );
