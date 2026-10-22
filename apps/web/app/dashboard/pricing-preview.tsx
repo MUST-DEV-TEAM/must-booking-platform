@@ -220,7 +220,7 @@ export function PricingPreviewPanel({
             }
           }}
         >
-          {data.source === 'CLOCK_PMS' ? 'Load Clock prices' : 'Explain price'}
+          {data.source === 'CLOCK_PMS' ? 'Check selected stay price' : 'Explain price'}
         </Button>
         {error || (result && !result.valid) ? (
           <Alert variant="destructive">

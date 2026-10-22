@@ -96,6 +96,7 @@ describe('confirmed booking collection controls', () => {
     await act(async () => window.dispatchEvent(new Event('focus')));
     expect(view.requests.some((x) => x.endsWith('/check-collection'))).toBe(true);
     expect(view.invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] });
+    expect(tab.close).toHaveBeenCalledOnce();
     await view.close();
   });
   it('asks for explicit received-money confirmation before recording a manual payment', async () => {
@@ -107,6 +108,48 @@ describe('confirmed booking collection controls', () => {
     );
     expect(document.body.textContent).toContain('Record money already received');
     expect(view.requests.some((x) => x.endsWith('/manual-payment'))).toBe(false);
+    await view.close();
+  });
+  it('copies the same reusable checkout link without opening a payment tab', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const open = vi.spyOn(window, 'open');
+    const view = await mount();
+    await act(async () =>
+      [...view.host.querySelectorAll('button')]
+        .find((b) => b.textContent === 'Copy PokPay link')!
+        .click(),
+    );
+    expect(writeText).toHaveBeenCalledWith('https://staging.example/checkout');
+    expect(open).not.toHaveBeenCalled();
+    expect(view.requests.filter((u) => u.endsWith('/collect-pokpay'))).toHaveLength(1);
+    await view.close();
+  });
+  it('asks for confirmation and records the received date rather than silently marking paid', async () => {
+    const view = await mount();
+    await act(async () =>
+      [...view.host.querySelectorAll('button')]
+        .find((b) => b.textContent === 'Record payment received')!
+        .click(),
+    );
+    expect(view.requests.some((u) => u.endsWith('/manual-payment'))).toBe(false);
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain('money has arrived');
+    expect(dialog.querySelector('input[type="date"]')).toBeTruthy();
+    await act(async () =>
+      [...dialog.querySelectorAll('button')]
+        .find((b) => b.textContent === 'Record payment')!
+        .click(),
+    );
+    const call = vi
+      .mocked(fetch)
+      .mock.calls.find(
+        ([u, init]) => String(u).endsWith('/manual-payment') && init?.method === 'POST',
+      );
+    expect(JSON.parse(call![1]!.body as string)).toMatchObject({
+      method: 'cash',
+      evidence: { receivedOn: new Date().toISOString().slice(0, 10) },
+    });
     await view.close();
   });
 });

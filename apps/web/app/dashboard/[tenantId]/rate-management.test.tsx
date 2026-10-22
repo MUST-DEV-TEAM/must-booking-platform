@@ -55,6 +55,43 @@ function fixture(clock = false, caps = ['rates.manage', 'settings.manage']) {
     ? { ...workspace, source: 'CLOCK_PMS', readOnly: true, plans: [], coverage: null }
     : workspace;
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/clock-sync/rates'))
+      return Response.json({
+        data: {
+          roomTypes: {
+            t: [
+              { externalRateId: 'a', name: 'Room only', rank: 0 },
+              { externalRateId: 'b', name: 'Breakfast', rank: null },
+            ],
+          },
+        },
+        status: 'SYNCED',
+        lastSyncedAt: '2035-03-01',
+      });
+    if (url.includes('/clock-sync/availability'))
+      return Response.json({
+        data: {
+          roomTypes: [
+            {
+              id: 't',
+              name: 'King',
+              days: [
+                {
+                  date: '2035-03-01',
+                  status: 'available',
+                  availableUnits: 2,
+                  referencePrice: { amount: '100.00', currency: 'EUR' },
+                },
+              ],
+            },
+          ],
+        },
+        status: 'SYNCED',
+        lastSyncedAt: '2035-03-01',
+      });
+    if (url.endsWith('/clock-sync/status')) return Response.json({ enabled: true, jobs: [] });
+    if (url.endsWith('/pms-connection-status'))
+      return Response.json({ provider: clock ? 'CLOCK_PMS' : 'LOCAL' });
     if (url.endsWith('/capabilities/mine')) return Response.json(caps);
     if (url.endsWith('/pricing')) return Response.json(data);
     if (url.includes('/pricing/history/')) return Response.json([]);
@@ -179,17 +216,18 @@ describe('Rates workspace', () => {
     expect(c.textContent).toContain('Managed in Clock');
     expect(c.textContent).not.toContain('100%');
     expect(f.mock.calls.some(([u]) => u.endsWith('/clock-rate-ranking'))).toBe(false);
-    await click('Load Clock rate list');
+    expect(c.textContent).toContain('Room only');
+    expect(c.textContent).not.toContain('Load Clock rate list');
     const up = Array.from(c.querySelectorAll('button')).filter((b) => b.textContent === 'Move up');
     await act(async () => up[1]!.click());
     await click('Save rate priority');
     const call = f.mock.calls.find(([, i]) => i?.method === 'PUT');
     expect(JSON.parse(call![1]!.body as string)).toEqual({ externalRateIds: ['b', 'a'] });
     await click('Rate plans');
-    expect(c.textContent).toContain('Rate plans are managed in Clock');
+    expect(c.textContent).toContain('Clock rates by room type');
     expect(c.textContent).not.toContain('Create rate plan');
     await click('Base prices');
-    expect(c.textContent).toContain('Unknown');
+    expect(c.textContent).toContain('Reference price');
     expect(c.querySelector('[aria-label^="Edit King"]')).toBeNull();
   });
   it('opens a new draft editor without writing until save', async () => {

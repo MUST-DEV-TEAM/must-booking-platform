@@ -76,6 +76,7 @@ type Detail = {
   createdAt: string;
   adults: number;
   children: number;
+  childrenAges?: number[] | null;
   specialRequests: string | null;
   roomName: string | null;
   roomTypeName: string;
@@ -556,7 +557,7 @@ export function ReservationDetail({
           size="sm"
           label="Guests"
           icon={Users}
-          value={`${booking.adults} adult${booking.adults === 1 ? '' : 's'}${booking.children ? ` · ${booking.children} child${booking.children === 1 ? '' : 'ren'}` : ''}`}
+          value={`${booking.adults} adult${booking.adults === 1 ? '' : 's'}${booking.children ? ` · ${booking.children} child${booking.children === 1 ? '' : 'ren'}${booking.childrenAges?.length ? ` (ages ${booking.childrenAges.join(', ')})` : ''}` : ''}`}
           note={`Primary guest: ${guest}`}
         />
         <StatTile

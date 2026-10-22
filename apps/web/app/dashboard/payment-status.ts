@@ -78,9 +78,11 @@ export function remainingRefundable(
 
 /** Still to collect. Only a live booking owes money; refunds never create a debt. */
 export function outstandingAmount(
-  booking: Pick<Reservation, 'status' | 'paidAmount' | 'total'>,
+  booking: Pick<Reservation, 'status' | 'balanceBasis' | 'paidAmount' | 'total'>,
 ): string {
-  if (isDead(booking)) return '0.00';
+  if (booking.balanceBasis === 'CLOCK') return '0.00';
+  if (isDead(booking) || ['PMS_UNKNOWN_RESULT', 'MANUAL_REVIEW'].includes(booking.status))
+    return '0.00';
   const due = minorUnits(booking.total.amount) - minorUnits(booking.paidAmount);
   return money(due > 0n ? due : 0n);
 }
@@ -93,9 +95,10 @@ export function outstandingAmount(
 export function paymentStatus(
   booking: Pick<
     Reservation,
-    'status' | 'paymentMethod' | 'total' | 'paidAmount' | 'refundedAmount'
+    'status' | 'balanceBasis' | 'paymentMethod' | 'total' | 'paidAmount' | 'refundedAmount'
   >,
 ): PaymentStatus {
+  if (booking.balanceBasis === 'CLOCK') return { label: 'Managed in Clock', state: 'pending' };
   const paid = minorUnits(booking.paidAmount);
   const refunded = minorUnits(booking.refundedAmount);
   const total = minorUnits(booking.total.amount);
@@ -128,7 +131,7 @@ export function needsAction(
 }
 
 export function matchesFilter(
-  booking: Pick<Reservation, 'status' | 'total' | 'paidAmount' | 'refundedAmount'>,
+  booking: Pick<Reservation, 'status' | 'balanceBasis' | 'total' | 'paidAmount' | 'refundedAmount'>,
   filter: PaymentFilter,
 ): boolean {
   const paid = minorUnits(booking.paidAmount);
@@ -201,7 +204,9 @@ export type PaymentSummary = {
 
 /** Totals per currency, so two currencies are never added together. */
 export function summarize(
-  bookings: Array<Pick<Reservation, 'status' | 'total' | 'paidAmount' | 'refundedAmount'>>,
+  bookings: Array<
+    Pick<Reservation, 'status' | 'balanceBasis' | 'total' | 'paidAmount' | 'refundedAmount'>
+  >,
 ): { byCurrency: PaymentSummary[]; needsAction: number } {
   const totals = new Map<string, { collected: bigint; refunded: bigint; outstanding: bigint }>();
   for (const booking of bookings) {

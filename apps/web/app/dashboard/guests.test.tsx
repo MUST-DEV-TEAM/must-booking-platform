@@ -93,6 +93,42 @@ describe('Dashboard guests', () => {
     await act(async () => root.unmount());
   });
 
+  it('keeps imported Clock contacts visible after loading and omits unavailable email actions', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        Response.json(
+          url.endsWith('/suspected-duplicates')
+            ? []
+            : url.endsWith('/guests')
+              ? [
+                  ...guests,
+                  {
+                    id: 'clock-profile',
+                    source: 'CLOCK',
+                    email: '',
+                    firstName: 'Imported',
+                    lastName: 'WithoutEmail',
+                    phone: null,
+                    bookingCount: 0,
+                  },
+                ]
+              : bookings,
+        ),
+      ),
+    );
+    const { container, root } = await mount();
+    expect(container.textContent).toContain('Imported WithoutEmail');
+    expect(container.textContent).toContain('Clock profile');
+    expect(container.textContent).toContain('No email supplied');
+    await click(
+      container.querySelector('button[aria-label="Show details for Imported WithoutEmail"]')!,
+    );
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain('Imported Clock profile');
+    expect(dialog.querySelector('a[href="mailto:"]')).toBeNull();
+    await act(async () => root.unmount());
+  });
   it('keeps the loading skeleton until the guest request and booking history resolve', async () => {
     let resolveGuests!: (value: Response) => void;
     vi.stubGlobal(
@@ -137,8 +173,8 @@ describe('Dashboard guests', () => {
   it('sorts the directory by booking count and filters to suspected duplicate profiles', async () => {
     mockFetch(suspectedDuplicates);
     const { container, root } = await mount();
-    const bookingSort = Array.from(container.querySelectorAll('thead button')).find(
-      (button) => button.textContent?.includes('Stays'),
+    const bookingSort = Array.from(container.querySelectorAll('thead button')).find((button) =>
+      button.textContent?.includes('Stays'),
     )!;
     await click(bookingSort);
     expect(
@@ -195,7 +231,9 @@ describe('Dashboard guests', () => {
     mockFetch();
     const { container, root } = await mount();
     await click(container.querySelector('button[aria-label="Show details for No History"]')!);
-    expect(document.body.querySelector('[role="dialog"]')!.textContent).toContain('No reservations found.');
+    expect(document.body.querySelector('[role="dialog"]')!.textContent).toContain(
+      'No reservations found.',
+    );
     await act(async () => root.unmount());
   });
 
@@ -245,9 +283,11 @@ describe('Dashboard guests', () => {
     const { container, root } = await mount({ canMergeGuests: false });
     await click(tab(container, 'Suspected duplicates'));
     expect(container.textContent).toContain('ada+old@test');
-    expect(Array.from(container.querySelectorAll('button')).some((button) =>
-      ['Merge profiles', 'Not a duplicate'].includes(button.textContent?.trim() ?? ''),
-    )).toBe(false);
+    expect(
+      Array.from(container.querySelectorAll('button')).some((button) =>
+        ['Merge profiles', 'Not a duplicate'].includes(button.textContent?.trim() ?? ''),
+      ),
+    ).toBe(false);
     await act(async () => root.unmount());
   });
 
@@ -303,7 +343,9 @@ describe('Dashboard guests', () => {
 });
 
 function tab(container: Element, label: string) {
-  return Array.from(container.querySelectorAll('[role="tab"]')).find((entry) => entry.textContent?.startsWith(label))!;
+  return Array.from(container.querySelectorAll('[role="tab"]')).find((entry) =>
+    entry.textContent?.startsWith(label),
+  )!;
 }
 
 function mockFetch(duplicates: typeof suspectedDuplicates = []) {
@@ -325,7 +367,10 @@ function mockFetch(duplicates: typeof suspectedDuplicates = []) {
   );
 }
 
-async function mount({ settle = true, canMergeGuests = true }: { settle?: boolean; canMergeGuests?: boolean } = {}) {
+async function mount({
+  settle = true,
+  canMergeGuests = true,
+}: { settle?: boolean; canMergeGuests?: boolean } = {}) {
   const container = document.createElement('div');
   const root = createRoot(container);
   await act(async () => {

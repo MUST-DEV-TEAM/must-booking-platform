@@ -470,7 +470,10 @@ export function PricingSection({
           ) : null}
           {tab === 'base' ? (
             data.readOnly ? (
-              <PricingPreviewPanel base={base} data={data} />
+              <>
+                <ClockAvailabilityPanel tenantId={tenantId} propertyId={propertyId} />
+                <PricingPreviewPanel base={base} data={data} />
+              </>
             ) : (
               <>
                 <div className="flex flex-wrap items-end gap-3">
@@ -532,11 +535,13 @@ export function PricingSection({
                   </AlertTitle>
                   <AlertDescription>
                     {data.readOnly
-                      ? 'Unknown until Clock supplies an actual quote.'
+                      ? 'Daily reference prices and restrictions synchronize automatically below. Final prices depend on the actual stay and guests.'
                       : 'One adult, one night, staff channel; includes saved mandatory charges. Cell editing changes the underlying accommodation base. Past dates are read-only.'}
                   </AlertDescription>
                 </Alert>
-                {calendar.error ? (
+                {data.readOnly ? (
+                  <ClockAvailabilityPanel tenantId={tenantId} propertyId={propertyId} />
+                ) : calendar.error ? (
                   <ErrorPanel
                     title="Prices could not be loaded"
                     description={calendar.error.message}

@@ -377,7 +377,7 @@ export function InventorySection({
         <Alert>
           <AlertTitle>Clock is the source of availability</AlertTitle>
           <AlertDescription>
-            Local changes are disabled. Load Clock availability below to see supported room counts
+            Local changes are disabled. Synchronized availability below shows supported room counts
             and day restrictions. Complete block history and inventory health remain managed in
             Clock.
           </AlertDescription>
@@ -425,7 +425,9 @@ export function InventorySection({
             )}
             <StatTile
               label="Active restrictions"
-              value={external ? 'See day snapshot' : (overview.activeRestrictions ?? 'Unknown')}
+              value={
+                external ? 'See synchronized days' : (overview.activeRestrictions ?? 'Unknown')
+              }
             />
             <StatTile
               label="Active manual blocks"

@@ -12,6 +12,7 @@ import { guestHref, paymentHref } from './payment-detail';
 import { guestName as bookingGuestName, type Reservation } from './reservations';
 
 export type GuestSummary = {
+  source?: 'CLOCK' | 'MUST';
   id: string;
   email: string;
   firstName: string | null;
@@ -39,7 +40,10 @@ export function GuestBadges({ stats, duplicate }: { stats?: GuestStats; duplicat
   return (
     <>
       {stats ? (
-        <Badge variant={stats.kind === 'returning' ? 'success' : 'secondary'} className="rounded-full px-2 py-0 text-[10px]">
+        <Badge
+          variant={stats.kind === 'returning' ? 'success' : 'secondary'}
+          className="rounded-full px-2 py-0 text-[10px]"
+        >
           {stats.kind === 'returning' ? 'Returning' : 'First-time'}
         </Badge>
       ) : null}
@@ -81,7 +85,9 @@ export function GuestSheet({
   propertyId: string;
   onClose: () => void;
 }) {
-  const name = guest ? [guest.firstName, guest.lastName].filter(Boolean).join(' ') || guest.email : '';
+  const name = guest
+    ? [guest.firstName, guest.lastName].filter(Boolean).join(' ') || guest.email
+    : '';
   const recent = bookings.slice(0, 3);
   return (
     <QuickPeek
@@ -89,18 +95,28 @@ export function GuestSheet({
       onClose={onClose}
       title={name}
       description={guest?.email}
-      badges={<GuestBadges stats={stats} duplicate={duplicate} />}
+      badges={
+        guest?.source === 'CLOCK' ? (
+          <Badge variant="secondary">Clock profile</Badge>
+        ) : (
+          <GuestBadges stats={stats} duplicate={duplicate} />
+        )
+      }
       actions={
         guest ? (
           <>
-            <Button size="sm" asChild className="flex-1">
-              <a href={guestHref(tenantId, propertyId, guest.id)}>Open profile</a>
-            </Button>
-            <Button size="sm" variant="outline" asChild>
-              <a href={`mailto:${guest.email}`}>
-                <Mail aria-hidden="true" /> Email
-              </a>
-            </Button>
+            {guest.source !== 'CLOCK' ? (
+              <Button size="sm" asChild className="flex-1">
+                <a href={guestHref(tenantId, propertyId, guest.id)}>Open profile</a>
+              </Button>
+            ) : null}
+            {guest.email ? (
+              <Button size="sm" variant="outline" asChild>
+                <a href={`mailto:${guest.email}`}>
+                  <Mail aria-hidden="true" /> Email
+                </a>
+              </Button>
+            ) : null}
             {guest.phone ? (
               <Button size="sm" variant="outline" asChild>
                 <a href={`tel:${guest.phone.replaceAll(' ', '')}`}>
@@ -114,6 +130,12 @@ export function GuestSheet({
     >
       {guest ? (
         <>
+          {guest.source === 'CLOCK' ? (
+            <p className="text-sm text-muted-foreground">
+              Imported Clock profile. Contact details are managed in Clock; stay history appears as
+              bookings are synchronized.
+            </p>
+          ) : null}
           <DetailList
             className="rounded-lg border px-3"
             items={[
@@ -126,7 +148,10 @@ export function GuestSheet({
             <DetailList
               className="rounded-lg border px-3"
               items={[
-                { label: 'Reservations', value: `${stats.bookings}${stats.cancelled ? ` (${stats.cancelled} cancelled)` : ''}` },
+                {
+                  label: 'Reservations',
+                  value: `${stats.bookings}${stats.cancelled ? ` (${stats.cancelled} cancelled)` : ''}`,
+                },
                 { label: 'Net paid', value: formatMoneyList(stats.net) },
                 { label: 'Still owed', value: formatMoneyList(stats.outstanding) },
                 { label: 'Staying now', value: stayLabel(stats.current) },

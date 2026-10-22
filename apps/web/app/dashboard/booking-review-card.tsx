@@ -1,6 +1,8 @@
 'use client';
+import { useState } from 'react';
+import { Input } from '../../components/ui/input';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { Alert, AlertDescription, AlertTitle } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
@@ -8,6 +10,7 @@ import { Button } from '../../components/ui/button';
 type Review = {
   needsReview: boolean;
   canCheck: boolean;
+  canResolve?: boolean;
   reasons: Array<{ text: string; openedAt: string }>;
 };
 type CheckResult =
@@ -28,10 +31,10 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 export function checkMessage(result: CheckResult): string {
   if (result.result === 'unavailable') return result.message;
   if (result.result === 'not_found')
-    return 'The property system does not have this booking. Do not try to create it again yourself; ask MUST support to review it.';
+    return 'Clock returned no matching reservation. A reviewer can close this as not created after the safety checks pass.';
   return result.linked
-    ? 'The property system has this booking and it matches our record. If the status still looks wrong, ask MUST support to clear the review.'
-    : 'The property system already has a booking with this reference, but it is not linked to this record yet. Do not create it again; ask MUST support to link it.';
+    ? 'Clock has a matching reservation. Link and synchronize it to resolve the booking status.'
+    : 'Clock has a matching reservation that can be linked to this record. Do not create another reservation.';
 }
 
 /** Shown on a booking only when something about it needs review. */
@@ -47,6 +50,17 @@ export function BookingReviewCard({
   canRunCheck: boolean;
 }) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}/bookings/${bookingId}/review`;
+  const client = useQueryClient();
+  const [note, setNote] = useState('');
+  const resolve = useMutation({
+    mutationFn: (action: string) =>
+      request(`${base}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, note }),
+      }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['dashboard'] }),
+  });
   const review = useQuery({
     queryKey: ['dashboard', 'booking-review', tenantId, propertyId, bookingId],
     queryFn: () => request<Review>(base),
@@ -83,8 +97,32 @@ export function BookingReviewCard({
               </Button>
             </span>
           ) : null}
+          {review.data.canResolve && check.data && check.data.result !== 'unavailable' ? (
+            <span className="flex flex-col gap-2">
+              <Input
+                aria-label="Resolution note"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="What did you verify?"
+                maxLength={500}
+              />
+              <Button
+                variant="outline"
+                disabled={note.trim().length < 3 || resolve.isPending}
+                onClick={() =>
+                  resolve.mutate(check.data?.result === 'found' ? 'link' : 'not_created')
+                }
+              >
+                {check.data.result === 'found'
+                  ? 'Link and synchronize booking'
+                  : 'Close as not created'}
+              </Button>
+              {resolve.error ? <span role="alert">{resolve.error.message}</span> : null}
+            </span>
+          ) : null}
           <span className="text-xs">
-            The check only looks; it changes nothing. Clearing a review is done by MUST support.
+            Resolution checks Clock again and records who reviewed the outcome. No new reservation
+            or payment is created.
           </span>
         </span>
       </AlertDescription>

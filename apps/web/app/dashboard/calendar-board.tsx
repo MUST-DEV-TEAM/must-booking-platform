@@ -1,7 +1,6 @@
 'use client';
 import { useClockRoomCounts } from './clock-room-counts';
-import { ClockAvailabilityPanel } from './clock-availability-panel';
-import { ClockImportPanel } from './clock-import-panel';
+import { ClockSyncStatus, useClockSnapshot, availableOn, type ClockMonth } from './clock-sync';
 
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronLeft, ChevronRight, CirclePlus, Lock, RefreshCw } from 'lucide-react';
@@ -243,6 +242,32 @@ export function CalendarBoard({
     Boolean(cell),
   );
   const today = rules.data?.today ?? todayIso();
+  const currentClockMonth = useClockSnapshot<ClockMonth>(
+    tenantId,
+    propertyId,
+    'availability:' + today.slice(0, 7),
+    source.data === 'CLOCK_PMS',
+  );
+  const windowClockMonth = useClockSnapshot<ClockMonth>(
+    tenantId,
+    propertyId,
+    'availability:' + start.slice(0, 7),
+    source.data === 'CLOCK_PMS',
+  );
+  const endingClockMonth = useClockSnapshot<ClockMonth>(
+    tenantId,
+    propertyId,
+    'availability:' + (days.at(-1) ?? start).slice(0, 7),
+    source.data === 'CLOCK_PMS',
+  );
+  const clockFree = (date: string) =>
+    availableOn(
+      date.slice(0, 7) === start.slice(0, 7)
+        ? windowClockMonth.data?.data
+        : endingClockMonth.data?.data,
+      date,
+    );
+
   const disabledDates = new Set(rules.data?.disabledDates ?? []);
   const showRooms =
     Boolean(target) || bookingMode === 'INDIVIDUAL_ROOM_ONLY' || bookingMode === 'MIXED';
@@ -579,10 +604,8 @@ export function CalendarBoard({
         </div>
       ) : null}
 
-      <ClockImportPanel tenantId={tenantId} propertyId={propertyId} />
-      {source.data === 'CLOCK_PMS' && !embedded ? (
-        <ClockAvailabilityPanel tenantId={tenantId} propertyId={propertyId} />
-      ) : null}
+      <ClockSyncStatus tenantId={tenantId} propertyId={propertyId} />
+
       {!stockKnown ? (
         <p role="note" className="text-sm text-muted-foreground">
           Room counts and availability are read from Clock. Availability blocks are read-only here.
@@ -596,7 +619,7 @@ export function CalendarBoard({
             label={stockKnown ? 'Occupancy tonight' : 'Rooms in Clock'}
             value={
               !stockKnown
-                ? (clockCounts.data?.configuredRooms ?? 'Reading Clock...')
+                ? (clockCounts.data?.configuredRooms ?? 'Synchronizing...')
                 : totalUnits > 0
                   ? `${Math.round((occupiedOn(today) / totalUnits) * 100)}%`
                   : '—'
@@ -610,7 +633,11 @@ export function CalendarBoard({
           <StatTile
             size="sm"
             label="Available tonight"
-            value={stockKnown ? freeOn(today) : 'See Clock snapshot'}
+            value={
+              stockKnown
+                ? freeOn(today)
+                : (availableOn(currentClockMonth.data?.data, today) ?? 'Updating')
+            }
             note={stockKnown ? 'Rooms free' : undefined}
           />
           <StatTile size="sm" label="Arrivals today" value={arrivals} />
@@ -829,7 +856,9 @@ export function CalendarBoard({
                       {stockKnown ? (
                         free
                       ) : (
-                        <span title="Use the Clock availability snapshot above">See snapshot</span>
+                        <span title="Latest synchronized Clock availability">
+                          {clockFree(day) ?? 'Updating'}
+                        </span>
                       )}
                     </div>
                   );
@@ -870,7 +899,7 @@ export function CalendarBoard({
                       {stockKnown
                         ? `${occupiedOn(today, type.id)} / ${target?.roomId ? 1 : type.roomCount} tonight`
                         : clockCounts.data?.byRoomType[type.id] === undefined
-                          ? 'Reading Clock...'
+                          ? 'Synchronizing...'
                           : `${clockCounts.data.byRoomType[type.id]} rooms in Clock`}
                     </Badge>
                   </button>

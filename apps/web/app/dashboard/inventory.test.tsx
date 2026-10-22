@@ -236,7 +236,7 @@ describe('Inventory screens', () => {
     );
     await wait('Clock is the source of availability');
     await click('Restrictions');
-    await wait('Load Clock availability');
+    await wait('Synchronized availability and restrictions');
     expect(button('Create restriction')).toBeUndefined();
     await click('Conflict Review');
     await wait('Provider conflict review Unknown');

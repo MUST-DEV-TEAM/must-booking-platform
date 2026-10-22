@@ -21,9 +21,23 @@ const booking = (over: Partial<Reservation>): Reservation =>
 const today = '2026-10-16';
 
 describe('guestStatsById', () => {
+  it('does not count an uncertain booking as a stay or confirmed debt, while retaining received money', () => {
+    const stats = guestStatsById(
+      [booking({ status: 'PMS_UNKNOWN_RESULT', paidAmount: '20.00' })],
+      today,
+    ).get('g1')!;
+    expect(stats.stays).toBe(0);
+    expect(stats.hasBalance).toBe(false);
+    expect(stats.net[0].amount).toBe('20.00');
+  });
   it('calls a guest returning from two real stays, ignoring cancelled and expired ones', () => {
     const stats = guestStatsById(
-      [booking({ id: 'a' }), booking({ id: 'b' }), booking({ id: 'c', status: 'CANCELLED' }), booking({ id: 'd', status: 'EXPIRED', paidAmount: '0.00' })],
+      [
+        booking({ id: 'a' }),
+        booking({ id: 'b' }),
+        booking({ id: 'c', status: 'CANCELLED' }),
+        booking({ id: 'd', status: 'EXPIRED', paidAmount: '0.00' }),
+      ],
       today,
     ).get('g1')!;
     expect(stats.bookings).toBe(4);
@@ -33,7 +47,10 @@ describe('guestStatsById', () => {
   });
 
   it('is first-time with one real stay', () => {
-    expect(guestStatsById([booking({}), booking({ id: 'x', status: 'CANCELLED' })], today).get('g1')!.kind).toBe('first-time');
+    expect(
+      guestStatsById([booking({}), booking({ id: 'x', status: 'CANCELLED' })], today).get('g1')!
+        .kind,
+    ).toBe('first-time');
   });
 
   it('finds the current, next and last stay', () => {
@@ -67,7 +84,9 @@ describe('guestStatsById', () => {
   });
 
   it('skips bookings with no guest', () => {
-    expect(guestStatsById([booking({ guestId: undefined as unknown as string })], today).size).toBe(0);
+    expect(guestStatsById([booking({ guestId: undefined as unknown as string })], today).size).toBe(
+      0,
+    );
   });
 });
 
@@ -75,12 +94,22 @@ describe('guestsCsv', () => {
   it('writes one row per guest and defuses spreadsheet formulas', () => {
     const stats = guestStatsById([booking({})], today);
     const csv = guestsCsv(
-      [{ id: 'g1', email: 'ada@test', firstName: '=HYPERLINK("x")', lastName: 'Lovelace', phone: null }],
+      [
+        {
+          id: 'g1',
+          email: 'ada@test',
+          firstName: '=HYPERLINK("x")',
+          lastName: 'Lovelace',
+          phone: null,
+        },
+      ],
       stats,
     );
     const [header, row] = csv.split('\r\n');
-    expect(header).toBe('Name,Email,Phone,Stays,Cancelled,Type,Last stay,Next stay,Net paid,Still owed');
-    expect(row).toContain("\"'=HYPERLINK(\"\"x\"\") Lovelace\"");
+    expect(header).toBe(
+      'Name,Email,Phone,Stays,Cancelled,Type,Last stay,Next stay,Net paid,Still owed',
+    );
+    expect(row).toContain('"\'=HYPERLINK(""x"") Lovelace"');
     expect(row).toContain('First-time');
   });
 });

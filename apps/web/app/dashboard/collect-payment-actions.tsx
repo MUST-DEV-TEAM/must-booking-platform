@@ -11,6 +11,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../components/ui/select';
+import QRCode from 'qrcode';
+import { Input } from '../../components/ui/input';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../../components/ui/dialog';
 import { minorUnits } from './payment-status';
 export function CollectPaymentActions({
   tenantId,
@@ -24,6 +27,7 @@ export function CollectPaymentActions({
     status: string;
     total: { amount: string; currency: string };
     paidAmount: string;
+    balanceBasis?: 'CLOCK' | 'MUST';
     guestEmail?: string | null;
   };
 }) {
@@ -32,6 +36,12 @@ export function CollectPaymentActions({
   const [manual, setManual] = useState(false),
     [method, setMethod] = useState('cash'),
     [message, setMessage] = useState('');
+  const [reference, setReference] = useState(''),
+    [payerName, setPayerName] = useState(''),
+    [terminalId, setTerminalId] = useState(''),
+    [receivedOn, setReceivedOn] = useState(new Date().toISOString().slice(0, 10)),
+    [qr, setQr] = useState('');
+  const paymentTab = useRef<Window | null>(null);
   const [waiting, setWaiting] = useState(false);
   const attempt = useRef<string | null>(null);
   const busy = useRef(false);
@@ -45,6 +55,7 @@ export function CollectPaymentActions({
   });
   const eligible =
     booking.status === 'CONFIRMED' &&
+    booking.balanceBasis !== 'CLOCK' &&
     minorUnits(booking.total.amount) > minorUnits(booking.paidAmount) &&
     !!caps.data?.includes('payments.record');
   const options = useQuery({
@@ -74,15 +85,30 @@ export function CollectPaymentActions({
     return d;
   };
   const pay = useMutation({
-    mutationFn: async (send: boolean) => {
+    mutationFn: async (action: 'open' | 'send' | 'copy' | 'qr') => {
       if (busy.current) return;
       busy.current = true;
       let tab: Window | null = null;
       try {
-        if (!send) tab = window.open('about:blank', '_blank');
-        const result = await post(send ? 'send-pokpay-link' : 'collect-pokpay');
-        if (send) setMessage('Payment email queued. Check Emails for delivery status.');
-        else if (tab) {
+        if (action === 'open') tab = window.open('about:blank', '_blank');
+        const result = await post(action === 'send' ? 'send-pokpay-link' : 'collect-pokpay');
+        if (action === 'send')
+          setMessage('Payment email queued. Check Emails for delivery status.');
+        else if (action === 'copy') {
+          await navigator.clipboard.writeText(result.checkoutUrl);
+          setMessage('PokPay payment link copied.');
+          setWaiting(true);
+        } else if (action === 'qr') {
+          setQr(
+            await QRCode.toDataURL(result.checkoutUrl, {
+              width: 280,
+              margin: 2,
+              errorCorrectionLevel: 'M',
+            }),
+          );
+          setWaiting(true);
+        } else if (tab) {
+          paymentTab.current = tab;
           tab.location.href = result.checkoutUrl;
           setWaiting(true);
         } else setMessage('Your browser blocked the payment tab. Allow pop-ups and retry.');
@@ -110,6 +136,8 @@ export function CollectPaymentActions({
         if (r.ok) {
           const d = await r.json();
           if (d.paid && !stopped) {
+            paymentTab.current?.close();
+            setQr('');
             setWaiting(false);
             await client.invalidateQueries({ queryKey: ['dashboard'] });
           }
@@ -138,6 +166,18 @@ export function CollectPaymentActions({
       channel?.close();
     };
   }, [eligible, waiting, base, booking.id, client]);
+  if (booking.balanceBasis === 'CLOCK')
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Balance managed in Clock</CardTitle>
+        </CardHeader>
+        <CardContent>
+          Earlier payments for this imported booking have not been imported. Check its balance in
+          Clock before collecting money.
+        </CardContent>
+      </Card>
+    );
   if (!eligible) return null;
   return (
     <Card>
@@ -152,15 +192,21 @@ export function CollectPaymentActions({
         <div className="flex flex-wrap gap-2">
           {options.data?.pokpay ? (
             <>
-              <Button disabled={pay.isPending} onClick={() => pay.mutate(false)}>
+              <Button disabled={pay.isPending} onClick={() => pay.mutate('open')}>
                 Pay with PokPay
               </Button>
               <Button
                 variant="outline"
                 disabled={pay.isPending || !booking.guestEmail}
-                onClick={() => pay.mutate(true)}
+                onClick={() => pay.mutate('send')}
               >
                 Send payment link
+              </Button>
+              <Button variant="outline" disabled={pay.isPending} onClick={() => pay.mutate('copy')}>
+                Copy PokPay link
+              </Button>
+              <Button variant="outline" disabled={pay.isPending} onClick={() => pay.mutate('qr')}>
+                Show payment QR code
               </Button>
             </>
           ) : null}
@@ -184,6 +230,28 @@ export function CollectPaymentActions({
           <p role="alert">{pay.error?.message || options.error?.message}</p>
         ) : null}
         {message ? <p role="status">{message}</p> : null}
+        <Dialog
+          open={!!qr}
+          onOpenChange={(open) => {
+            if (!open) setQr('');
+          }}
+        >
+          <DialogContent className="max-w-sm">
+            <DialogTitle>Pay with PokPay</DialogTitle>
+            <DialogDescription>
+              Scan to pay this booking's outstanding balance in {booking.total.currency}. The
+              booking updates after payment is confirmed.
+            </DialogDescription>
+            {qr ? (
+              <img
+                src={qr}
+                alt="QR code for this booking's PokPay checkout"
+                width={280}
+                height={280}
+              />
+            ) : null}
+          </DialogContent>
+        </Dialog>
         <ConfirmDialog
           open={manual}
           onOpenChange={setManual}
@@ -191,10 +259,23 @@ export function CollectPaymentActions({
           description={`Record the remaining balance in ${booking.total.currency}. This does not charge a card.`}
           confirmLabel="Record payment"
           cancelLabel="Go back"
-          reasonLabel="Payment reference or receipt note"
-          reasonRequired
+          reasonLabel="Additional payment note"
+          confirmDisabled={
+            !receivedOn ||
+            receivedOn > new Date().toISOString().slice(0, 10) ||
+            (method !== 'cash' && !reference.trim())
+          }
           onConfirm={async (note) => {
-            await post('manual-payment', { method, note });
+            await post('manual-payment', {
+              method,
+              note,
+              evidence: {
+                receivedOn,
+                reference,
+                payerName: method === 'bank_transfer' ? payerName : undefined,
+                terminalId: method === 'card_in_person' ? terminalId : undefined,
+              },
+            });
             attempt.current = null;
             await client.invalidateQueries({ queryKey: ['dashboard'] });
           }}
@@ -215,6 +296,63 @@ export function CollectPaymentActions({
               <SelectItem value="bank_transfer">Bank transfer</SelectItem>
             </SelectContent>
           </Select>
+          <label className="grid gap-1 text-sm">
+            Date received
+            <Input
+              type="date"
+              value={receivedOn}
+              max={new Date().toISOString().slice(0, 10)}
+              onChange={(e) => {
+                attempt.current = null;
+                setReceivedOn(e.target.value);
+              }}
+            />
+          </label>
+          <label className="grid gap-1 text-sm">
+            {method === 'bank_transfer'
+              ? 'Bank transaction reference'
+              : method === 'card_in_person'
+                ? 'POS transaction / receipt reference'
+                : 'Receipt reference (optional)'}
+            <Input
+              maxLength={120}
+              value={reference}
+              onChange={(e) => {
+                attempt.current = null;
+                setReference(e.target.value);
+              }}
+            />
+          </label>
+          {method === 'bank_transfer' ? (
+            <label className="grid gap-1 text-sm">
+              Payer name (optional)
+              <Input
+                maxLength={120}
+                value={payerName}
+                onChange={(e) => {
+                  attempt.current = null;
+                  setPayerName(e.target.value);
+                }}
+              />
+            </label>
+          ) : null}
+          {method === 'card_in_person' ? (
+            <label className="grid gap-1 text-sm">
+              Terminal identifier (optional)
+              <Input
+                maxLength={120}
+                value={terminalId}
+                onChange={(e) => {
+                  attempt.current = null;
+                  setTerminalId(e.target.value);
+                }}
+              />
+            </label>
+          ) : null}
+          <p className="text-xs text-muted-foreground">
+            Confirm the money has arrived before recording it. Never enter a full card number, PIN
+            or security code.
+          </p>
         </ConfirmDialog>
       </CardContent>
     </Card>

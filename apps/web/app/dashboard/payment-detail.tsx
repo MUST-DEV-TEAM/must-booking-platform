@@ -1,4 +1,5 @@
 'use client';
+import { BookingReviewCard } from './booking-review-card';
 import { CollectPaymentActions } from './collect-payment-actions';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, CircleDot, Landmark, Undo2 } from 'lucide-react';
@@ -74,6 +75,19 @@ function eventDetail(event: LedgerEvent) {
   if (typeof event.details.folioId === 'number' || typeof event.details.folioId === 'string')
     parts.push(`folio ${event.details.folioId}`);
   if (typeof event.details.note === 'string') parts.push(event.details.note);
+  const evidence = event.details.evidence;
+  if (evidence && typeof evidence === 'object' && !Array.isArray(evidence)) {
+    const labels: Record<string, string> = {
+      receivedOn: 'Received',
+      reference: 'Reference',
+      payerName: 'Payer',
+      terminalId: 'Terminal',
+    };
+    for (const [key, label] of Object.entries(labels)) {
+      const value = (evidence as Record<string, unknown>)[key];
+      if (typeof value === 'string' && value) parts.push(`${label}: ${value}`);
+    }
+  }
   return parts.join(' · ');
 }
 
@@ -264,6 +278,14 @@ export function PaymentDetail({
           ) : null
         }
       />
+      {['PMS_UNKNOWN_RESULT', 'MANUAL_REVIEW'].includes(booking.status) ? (
+        <BookingReviewCard
+          tenantId={tenantId}
+          propertyId={propertyId}
+          bookingId={bookingId}
+          canRunCheck={(capabilitiesQuery.data ?? []).includes('bookings.edit')}
+        />
+      ) : null}
       <CollectPaymentActions tenantId={tenantId} propertyId={propertyId} booking={booking} />
 
       <div
@@ -278,7 +300,20 @@ export function PaymentDetail({
         <StatTile
           label="Outstanding"
           size="sm"
-          value={money(outstandingAmount(booking))}
+          value={
+            booking.balanceBasis === 'CLOCK'
+              ? 'Managed in Clock'
+              : [
+                    'PMS_UNKNOWN_RESULT',
+                    'MANUAL_REVIEW',
+                    'PMS_CREATION_PENDING',
+                    'PMS_CONFIRMATION_PENDING',
+                  ].includes(booking.status)
+                ? 'Balance not confirmed'
+                : ['AVAILABILITY_FAILED', 'PMS_REJECTED', 'PAYMENT_FAILED'].includes(booking.status)
+                  ? 'No balance - booking was not created'
+                  : money(outstandingAmount(booking))
+          }
           tone={Number(outstandingAmount(booking)) > 0 ? 'warning' : 'default'}
         />
       </div>

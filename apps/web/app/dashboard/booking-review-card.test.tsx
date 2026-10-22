@@ -77,9 +77,49 @@ describe('booking review card', () => {
         ([url, init]) => url.endsWith('/review/check') && init?.method === 'POST',
       ),
     ).toBe(true);
-    expect(document.body.textContent).toContain('does not have this booking');
+    expect(document.body.textContent).toContain('no matching reservation');
   });
 
+  it('offers a note-required resolution only after an authoritative check', async () => {
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) =>
+      Response.json(
+        url.endsWith('/resolve')
+          ? { ok: true }
+          : init?.method === 'POST'
+            ? { result: 'not_found' }
+            : { needsReview: true, canCheck: true, canResolve: true, reasons: [] },
+      ),
+    );
+    vi.stubGlobal('fetch', fetcher);
+    await mount();
+    expect(document.body.textContent).not.toContain('Close as not created');
+    await act(async () => {
+      [...document.querySelectorAll('button')].find((b) => b.textContent === 'Run check')!.click();
+      await settle();
+    });
+    const button = [...document.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Close as not created',
+    )!;
+    expect(button.disabled).toBe(true);
+    await act(async () => {
+      const input = document.querySelector('input[aria-label="Resolution note"]')!;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        'Verified absent and unpaid',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => {
+      button.click();
+      await settle();
+    });
+    expect(
+      fetcher.mock.calls.some(
+        ([url, init]) =>
+          url.endsWith('/resolve') && JSON.parse(String(init?.body)).action === 'not_created',
+      ),
+    ).toBe(true);
+  });
   it('hides the Run check button without permission or without an external system', async () => {
     vi.stubGlobal(
       'fetch',
@@ -93,10 +133,10 @@ describe('booking review card', () => {
 
   it('words each check outcome so nobody retries blindly', () => {
     expect(checkMessage({ result: 'found', clockBookingId: '1', linked: true })).toContain(
-      'matches our record',
+      'matching reservation',
     );
     expect(checkMessage({ result: 'found', clockBookingId: '1', linked: false })).toContain(
-      'Do not create it again',
+      'Do not create another reservation',
     );
     expect(checkMessage({ result: 'unavailable', message: 'Clock could not be reached.' })).toBe(
       'Clock could not be reached.',

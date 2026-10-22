@@ -91,6 +91,7 @@ async function renderPayments(bookings: Reservation[], capabilities = ['payments
 describe('Payments', () => {
   it('hides manual payment methods without payments.record', async () => {
     const { unmount } = await renderPayments([booking], ['payments.refund']);
+    expect(await menuHas(rows()[0]!, 'Collect or record payment...')).toBe(false);
     expect(await menuHas(rows()[0]!, 'Cash')).toBe(false);
     expect(await menuHas(rows()[0]!, 'Card in person')).toBe(false);
     await unmount();
@@ -102,34 +103,15 @@ describe('Payments', () => {
     await unmount();
   });
 
-  it('settles an unpaid pay-at-hotel booking with the chosen method', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((url: string) =>
-        Promise.resolve(
-          new Response(
-            JSON.stringify(
-              url.endsWith('/capabilities/mine')
-                ? ['payments.refund']
-                : url.endsWith('/bookings')
-                  ? [{ ...booking, paidAmount: '100.00' }]
-                  : { ok: true },
-            ),
-          ),
-        ),
-      ),
-    );
+  it('routes an unpaid booking to the shared confirmation controls without recording money immediately', async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal('fetch', fetcher);
     const { unmount } = await renderPayments([booking], ['payments.refund', 'payments.record']);
     await openMenu(rows()[0]!);
-    await act(async () => {
-      byText('Card in person')!.click();
-    });
-    await act(settle);
-    expect(toast.success).toHaveBeenCalledWith('Payment recorded.');
-    const call = (fetch as ReturnType<typeof vi.fn>).mock.calls.find(([url]) =>
-      String(url).endsWith('/manual-payment'),
+    expect(byText('Collect or record payment...')?.getAttribute('href')).toBe(
+      `/dashboard/t?propertyId=p&section=payments&payment=${booking.id}`,
     );
-    expect(JSON.parse(call?.[1].body)).toEqual({ method: 'card_in_person' });
+    expect(fetcher.mock.calls.some(([u]) => String(u).endsWith('/manual-payment'))).toBe(false);
     await unmount();
   });
 

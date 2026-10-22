@@ -1,6 +1,4 @@
 'use client';
-import { ClockGuestDirectory } from './clock-guest-directory';
-import { ClockImportPanel } from './clock-import-panel';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, MoreHorizontal } from 'lucide-react';
@@ -50,6 +48,7 @@ import { guestHref } from './payment-detail';
 import { fetchPropertyBookings } from './reservations';
 
 type Guest = {
+  source?: 'CLOCK' | 'MUST';
   id: string;
   email: string;
   firstName: string | null;
@@ -149,6 +148,7 @@ export function DashboardGuests({
 
   const guestsQuery = useQuery({
     queryKey: ['dashboard', 'guests', tenantId, propertyId, debouncedSearch],
+    refetchInterval: 30000,
     queryFn: async () => {
       const response = await fetch(
         `${base}/guests${debouncedSearch ? `?search=${encodeURIComponent(debouncedSearch)}` : ''}`,
@@ -237,7 +237,9 @@ export function DashboardGuests({
     () => ({
       all: guests.length,
       returning: guests.filter((guest) => stats.get(guest.id)?.kind === 'returning').length,
-      'first-time': guests.filter((guest) => stats.get(guest.id)?.kind !== 'returning').length,
+      'first-time': guests.filter(
+        (guest) => guest.source !== 'CLOCK' && stats.get(guest.id)?.kind !== 'returning',
+      ).length,
       balance: guests.filter((guest) => stats.get(guest.id)?.hasBalance).length,
       duplicates: duplicateCount,
     }),
@@ -248,7 +250,7 @@ export function DashboardGuests({
       guests.filter((guest) => {
         const entry = stats.get(guest.id);
         if (view === 'returning') return entry?.kind === 'returning';
-        if (view === 'first-time') return entry?.kind !== 'returning';
+        if (view === 'first-time') return guest.source !== 'CLOCK' && entry?.kind !== 'returning';
         if (view === 'balance') return entry?.hasBalance === true;
         return true;
       }),
@@ -293,7 +295,12 @@ export function DashboardGuests({
     });
   const copyEmails = async () => {
     try {
-      await navigator.clipboard.writeText(tickedGuests.map((guest) => guest.email).join('\n'));
+      await navigator.clipboard.writeText(
+        tickedGuests
+          .map((guest) => guest.email)
+          .filter(Boolean)
+          .join('\n'),
+      );
       setNotice(`Copied ${tickedGuests.length} email${tickedGuests.length === 1 ? '' : 's'}.`);
     } catch {
       setNotice('Could not copy. Select the emails manually.');
@@ -334,8 +341,6 @@ export function DashboardGuests({
   if (guestsQuery.isPending || bookingsQuery.isPending || duplicateQuery.isPending)
     return (
       <div className="space-y-5">
-        <ClockImportPanel tenantId={tenantId} propertyId={propertyId} />
-        <ClockGuestDirectory tenantId={tenantId} propertyId={propertyId} />
         <PageHeader title="Guests" description="Guest directory and property booking history." />
         <ListSkeleton rows={6} />
       </div>
@@ -362,7 +367,7 @@ export function DashboardGuests({
     <div className="space-y-5">
       <PageHeader
         title="Guests"
-        description="Everyone who has booked this hotel, with their stays and what they owe."
+        description="Guest contacts and their recorded stays at this hotel."
         actions={
           <Button
             variant="outline"
@@ -656,7 +661,10 @@ export function DashboardGuests({
               <TableBody>
                 {pageGuests.map((guest) => {
                   const name = guestName(guest);
-                  const detailHref = guestHref(tenantId, propertyId, guest.id);
+                  const detailHref =
+                    guest.source === 'CLOCK'
+                      ? undefined
+                      : guestHref(tenantId, propertyId, guest.id);
                   const entry = emptyStats(guest);
                   const isTicked = ticked.includes(guest.id);
                   return (
@@ -699,7 +707,7 @@ export function DashboardGuests({
                               {name}
                             </button>
                             <span className="block truncate text-[10px] text-muted-foreground group-data-[density=compact]:hidden">
-                              {guest.email}
+                              {guest.email || 'No email supplied'}
                             </span>
                           </span>
                         </div>
@@ -716,10 +724,15 @@ export function DashboardGuests({
                       {columns.type ? (
                         <TableCell className="px-2 py-2">
                           <span className="flex flex-wrap gap-1">
-                            <GuestBadges
-                              stats={entry}
-                              duplicate={duplicateGuestIds.has(guest.id)}
-                            />
+                            {guest.source === 'CLOCK' ? (
+                              <Badge variant="secondary">Clock profile</Badge>
+                            ) : null}
+                            {guest.source !== 'CLOCK' ? (
+                              <GuestBadges
+                                stats={entry}
+                                duplicate={duplicateGuestIds.has(guest.id)}
+                              />
+                            ) : null}
                           </span>
                         </TableCell>
                       ) : null}
@@ -784,12 +797,16 @@ export function DashboardGuests({
                             <DropdownMenuItem onSelect={() => setSelected(guest)}>
                               Quick view
                             </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                              <a href={detailHref}>Open profile</a>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                              <a href={`mailto:${guest.email}`}>Send email</a>
-                            </DropdownMenuItem>
+                            {detailHref ? (
+                              <DropdownMenuItem asChild>
+                                <a href={detailHref}>Open profile</a>
+                              </DropdownMenuItem>
+                            ) : null}
+                            {guest.email ? (
+                              <DropdownMenuItem asChild>
+                                <a href={`mailto:${guest.email}`}>Send email</a>
+                              </DropdownMenuItem>
+                            ) : null}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

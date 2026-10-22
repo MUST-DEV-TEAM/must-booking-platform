@@ -41,14 +41,16 @@ export function guestStatsById(bookings: Reservation[], today: string): Map<stri
   }
   const stats = new Map<string, GuestStats>();
   for (const [guestId, list] of byGuest) {
-    const real = list.filter((booking) => !isDead(booking));
+    const real = list.filter((booking) => booking.status === 'CONFIRMED');
     const totals = summarize(list).byCurrency;
     const outstanding = totals
       .map((row) => ({ currency: row.currency, amount: row.outstanding }))
       .filter((row) => minorUnits(row.amount) > 0n);
     const stay = (booking: Reservation) => ({ startsOn: booking.startsOn, endsOn: booking.endsOn });
     const sortedByStart = [...real].sort((a, b) => a.startsOn.localeCompare(b.startsOn));
-    const current = sortedByStart.find((booking) => booking.startsOn <= today && today < booking.endsOn);
+    const current = sortedByStart.find(
+      (booking) => booking.startsOn <= today && today < booking.endsOn,
+    );
     const next = sortedByStart.find((booking) => booking.startsOn > today);
     const last = [...sortedByStart].reverse().find((booking) => booking.endsOn <= today);
     const net = totals.map((row) => ({ currency: row.currency, amount: row.net }));
@@ -62,11 +64,16 @@ export function guestStatsById(bookings: Reservation[], today: string): Map<stri
       outstanding,
       netValue: Number(net[0]?.amount ?? 0),
       outstandingValue: Number(outstanding[0]?.amount ?? 0),
-      hasBalance: list.some((booking) => !isDead(booking) && minorUnits(outstandingAmount(booking)) > 0n),
+      hasBalance: list.some(
+        (booking) => !isDead(booking) && minorUnits(outstandingAmount(booking)) > 0n,
+      ),
       current: current && stay(current),
       next: next && stay(next),
       last: last && stay(last),
-      firstBookedAt: list.map((booking) => booking.createdAt).filter(Boolean).sort()[0],
+      firstBookedAt: list
+        .map((booking) => booking.createdAt)
+        .filter(Boolean)
+        .sort()[0],
     });
   }
   return stats;
@@ -76,7 +83,9 @@ export function guestStatsById(bookings: Reservation[], today: string): Map<stri
 export function formatMoneyList(list: MoneyByCurrency): string {
   if (list.length === 0) return '—';
   return list
-    .map(({ currency, amount }) => new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(amount)))
+    .map(({ currency, amount }) =>
+      new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(amount)),
+    )
     .join(' · ');
 }
 
@@ -88,11 +97,29 @@ function csvCell(value: string | number | null | undefined): string {
   return /[",\n\r]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
 }
 
-type CsvGuest = { id: string; email: string; firstName: string | null; lastName: string | null; phone: string | null; mostRecentStartsOn?: string };
+type CsvGuest = {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  phone: string | null;
+  mostRecentStartsOn?: string;
+};
 
 /** The guests as CSV, with the figures the directory shows for each. */
 export function guestsCsv(guests: CsvGuest[], stats: Map<string, GuestStats>): string {
-  const header = ['Name', 'Email', 'Phone', 'Stays', 'Cancelled', 'Type', 'Last stay', 'Next stay', 'Net paid', 'Still owed'];
+  const header = [
+    'Name',
+    'Email',
+    'Phone',
+    'Stays',
+    'Cancelled',
+    'Type',
+    'Last stay',
+    'Next stay',
+    'Net paid',
+    'Still owed',
+  ];
   const rows = guests.map((guest) => {
     const entry = stats.get(guest.id);
     return [

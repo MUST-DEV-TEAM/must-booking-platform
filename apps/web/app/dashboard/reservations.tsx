@@ -44,6 +44,7 @@ export type Reservation = {
   pmsStayStatus?: string | null;
   paymentMethod: string;
   total: { amount: string; currency: string };
+  balanceBasis?: 'CLOCK' | 'MUST';
   paidAmount: string;
   refundedAmount: string;
   externalReference: string;

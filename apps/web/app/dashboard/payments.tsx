@@ -1,7 +1,6 @@
 'use client';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Download, MoreHorizontal, UserRound } from 'lucide-react';
-import { toast } from 'sonner';
 import { useMemo, useState } from 'react';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
@@ -57,13 +56,6 @@ import {
 } from './payment-status';
 import { guestHref, paymentHref } from './payment-detail';
 import { RefundDialog } from './payment-refund-dialog';
-const id = () => crypto.randomUUID();
-const MANUAL_METHODS = [
-  { value: 'cash', label: 'Cash' },
-  { value: 'card_in_person', label: 'Card in person' },
-  { value: 'bank_transfer', label: 'Bank transfer' },
-] as const;
-
 const FILTERS: Array<{ key: PaymentFilter; label: string }> = [
   { key: 'all', label: 'All' },
   { key: 'needs-action', label: 'Needs action' },
@@ -134,34 +126,6 @@ export function DashboardPayments({
     staleTime: initialCapabilities ? Infinity : 0,
   });
   const [refundBooking, setRefundBooking] = useState<Reservation | null>(null);
-  const actionMutation = useMutation({
-    mutationFn: async ({
-      bookingId,
-      url,
-      body,
-      success,
-    }: {
-      bookingId: string;
-      url: string;
-      body: unknown;
-      success: string;
-    }) => {
-      const response = await fetch(url, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': id() },
-        body: JSON.stringify(body),
-      });
-      const value = (await response.json()) as { ok: boolean; error?: { message?: string } };
-      if (!value.ok) throw new Error(value.error?.message ?? 'Payment action failed.');
-      return { bookingId, success };
-    },
-    onSuccess: ({ success }) => {
-      void bookingsQuery.refetch();
-      toast.success(success);
-    },
-    onError: (error) => toast.error(error.message),
-  });
   const [filter, setFilterState] = useState<PaymentFilter>('all');
   const [search, setSearchState] = useState('');
   const [view, setView] = useState<'overview' | 'ledger'>(initialView);
@@ -203,7 +167,6 @@ export function DashboardPayments({
     [allBookings, filter, search],
   );
   const capabilities = capabilitiesQuery.data ?? [];
-  const busyBookingId = actionMutation.isPending ? actionMutation.variables?.bookingId : null;
   const canRefund = capabilities.includes('payments.refund');
   const canRecord = capabilities.includes('payments.record');
 
@@ -399,7 +362,6 @@ export function DashboardPayments({
                       status.state === 'unpaid' &&
                       !isDead(booking);
                     const refundable = canRefund && hasRefundableBalance(booking);
-                    const busy = busyBookingId === booking.id;
                     const detailHref = paymentHref(tenantId, propertyId, booking.id);
                     return (
                       <TableRow
@@ -492,7 +454,14 @@ export function DashboardPayments({
                               ) : null}
                               {Number(owed) > 0 ? (
                                 <span className="block font-semibold">
-                                  Still owed {money(owed, currency)}
+                                  Still owed{' '}
+                                  {booking.balanceBasis === 'CLOCK'
+                                    ? 'Managed in Clock'
+                                    : ['PMS_UNKNOWN_RESULT', 'MANUAL_REVIEW'].includes(
+                                          booking.status,
+                                        )
+                                      ? 'Balance not confirmed'
+                                      : money(owed, currency)}
                                 </span>
                               ) : null}
                             </TooltipContent>
@@ -509,7 +478,11 @@ export function DashboardPayments({
                               : 'text-muted-foreground',
                           )}
                         >
-                          {money(owed, currency)}
+                          {booking.balanceBasis === 'CLOCK'
+                            ? 'Managed in Clock'
+                            : ['PMS_UNKNOWN_RESULT', 'MANUAL_REVIEW'].includes(booking.status)
+                              ? 'Balance not confirmed'
+                              : money(owed, currency)}
                         </TableCell>
                         <TableCell className="px-2 py-1 text-right">
                           <DropdownMenu>
@@ -519,7 +492,6 @@ export function DashboardPayments({
                                 size="icon-sm"
                                 aria-label={`More actions for ${booking.externalReference ?? 'booking'}`}
                                 className="size-7"
-                                disabled={busy}
                               >
                                 <MoreHorizontal aria-hidden="true" className="size-4" />
                               </Button>
@@ -545,22 +517,9 @@ export function DashboardPayments({
                               {unpaid && canRecord ? (
                                 <>
                                   <DropdownMenuSeparator />
-                                  <DropdownMenuLabel>Mark as paid by</DropdownMenuLabel>
-                                  {MANUAL_METHODS.map(({ value, label }) => (
-                                    <DropdownMenuItem
-                                      key={value}
-                                      onSelect={() =>
-                                        actionMutation.mutate({
-                                          bookingId: booking.id,
-                                          url: `${base}/bookings/${booking.id}/manual-payment`,
-                                          body: { method: value },
-                                          success: 'Payment recorded.',
-                                        })
-                                      }
-                                    >
-                                      {label}
-                                    </DropdownMenuItem>
-                                  ))}
+                                  <DropdownMenuItem asChild>
+                                    <a href={detailHref}>Collect or record payment...</a>
+                                  </DropdownMenuItem>
                                 </>
                               ) : null}
                             </DropdownMenuContent>

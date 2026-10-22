@@ -7,6 +7,7 @@ import { Fragment, type CSSProperties, type FormEvent, useMemo, useState } from 
 import { DayPicker, type DateRange } from 'react-day-picker';
 import { toast } from 'sonner';
 
+import { type ClockMonth, type Snapshot } from './clock-sync';
 import { usePmsSource } from './use-pms-source';
 import { fetchPropertyBookings, type Reservation } from './reservations';
 import styles from './calendar.module.css';
@@ -144,13 +145,23 @@ export function DashboardCalendar({
     : undefined;
   const availabilityQuery = useQuery({
     queryKey: availabilityQueryKey,
-    queryFn: () => fetchCalendarAvailability(tenantId, propertyId, month, includeRooms),
+    queryFn: () =>
+      fetchCalendarAvailability(
+        tenantId,
+        propertyId,
+        month,
+        includeRooms,
+        source.data === 'CLOCK_PMS',
+      ),
+    enabled: source.data !== undefined,
+    refetchInterval: source.data === 'CLOCK_PMS' ? 10000 : false,
     initialData: initialCalendarData,
     staleTime: initialCalendarData ? Infinity : 0,
   });
   const bookingsQuery = useQuery({
     queryKey: ['dashboard', 'calendar-bookings', tenantId, propertyId],
     queryFn: () => fetchPropertyBookings(tenantId, propertyId),
+    refetchInterval: source.data === 'CLOCK_PMS' ? 10000 : false,
     initialData: initialBookings,
     staleTime: initialBookings ? Infinity : 0,
   });
@@ -726,6 +737,7 @@ export async function fetchCalendarAvailability(
   propertyId: string,
   month: string,
   includeRooms = false,
+  clock = false,
 ): Promise<CalendarData> {
   const roomTypesResponse = await fetch(
     `/api/tenants/${tenantId}/properties/${propertyId}/room-types`,
@@ -734,6 +746,41 @@ export async function fetchCalendarAvailability(
   if (!roomTypesResponse.ok) throw new Error('Unable to load room types.');
   const roomTypes = (await roomTypesResponse.json()) as RoomType[];
   const days = calendarDays(month).filter((day): day is string => day !== null);
+  if (clock) {
+    const response = await fetch(
+      `/api/tenants/${tenantId}/properties/${propertyId}/clock-sync/availability?month=${encodeURIComponent(month)}`,
+      { credentials: 'include' },
+    );
+    if (!response.ok) throw new Error('Unable to read synchronized availability.');
+    const snapshot = (await response.json()) as Snapshot<ClockMonth>;
+    const availability: CalendarAvailability[] = [];
+    const rows = roomTypes.map((type) => {
+      const entries = snapshot.data?.roomTypes.find((t) => t.id === type.id)?.days ?? [];
+      const known = entries.filter(
+        (d) => d.availableUnits !== undefined && d.status !== 'unavailable',
+      );
+      for (const d of known)
+        availability.push({
+          roomTypeId: type.id,
+          startsOn: d.date,
+          endsOn: addDays(d.date, 1),
+          isAvailable: d.status === 'available',
+          availableUnits: d.status === 'available' ? d.availableUnits! : 0,
+        });
+      return {
+        id: type.id,
+        label: type.name,
+        totalUnits: 0,
+        availableByDate: Object.fromEntries(
+          known.map((d) => [d.date, d.status === 'available' ? d.availableUnits! : 0]),
+        ),
+        closedByDate: Object.fromEntries(
+          entries.filter((d) => d.status === 'closed').map((d) => [d.date, true]),
+        ),
+      };
+    });
+    return { roomTypes, rooms: [], availability, rows };
+  }
   const [availability, rooms] = await Promise.all([
     Promise.all(
       roomTypes.flatMap((roomType) =>

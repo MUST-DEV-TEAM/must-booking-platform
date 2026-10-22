@@ -107,6 +107,19 @@ describe('AddReservation', () => {
     });
 
     expect(container.textContent).toContain('Add reservation');
+    const addChild =
+      container.querySelector<HTMLButtonElement>('button[aria-label="More children"]') ??
+      [...container.querySelectorAll<HTMLButtonElement>('button')].find((b) =>
+        b.getAttribute('aria-label')?.toLowerCase().includes('increase children'),
+      );
+    expect(addChild).toBeTruthy();
+    await act(async () => addChild!.click());
+    expect(container.querySelector('input[aria-label="Child 1 age at check-in"]')).toBeTruthy();
+    expect(
+      (container.querySelector('input[aria-label="Child 1 age at check-in"]') as HTMLInputElement)
+        .value,
+    ).toBe('');
+
     expect(container.querySelector('li[aria-current="step"]')?.textContent).toContain(
       'Stay details',
     );

@@ -247,11 +247,13 @@ describe('DashboardOverview', () => {
   it('keeps currencies separate and reads actual configured Clock rooms', async () => {
     vi.stubGlobal(
       'fetch',
-      vi
-        .fn()
-        .mockResolvedValue(
-          Response.json({ configuredRooms: 81, byRoomType: {}, readAt: '2026-10-21' }),
-        ),
+      vi.fn().mockResolvedValue(
+        Response.json({
+          data: { configuredRooms: 81, byRoomType: {}, readAt: '2026-10-21' },
+          status: 'SYNCED',
+          lastSyncedAt: '2026-10-21',
+        }),
+      ),
     );
     const { container, root } = await mount({
       initialOverview: {

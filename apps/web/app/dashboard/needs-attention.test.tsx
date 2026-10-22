@@ -50,6 +50,15 @@ const items = [
 afterEach(() => vi.unstubAllGlobals());
 
 describe('NeedsAttentionTab', () => {
+  it('does not call an uncertain booking total a confirmed debt', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ items: [row({ status: 'PMS_UNKNOWN_RESULT' })] })),
+    );
+    const { container, root } = await mount();
+    expect(container.textContent).toContain('Balance not confirmed');
+    await act(async () => root.unmount());
+  });
   it('asks the search endpoint for the attention view and lists each issue in staff words', async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ items })));
     vi.stubGlobal('fetch', fetch);

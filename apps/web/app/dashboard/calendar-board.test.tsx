@@ -15,11 +15,15 @@ describe('CalendarBoard permissions', () => {
     'keeps capacity and block controls correct for %s',
     async (provider) => {
       const fetch = vi.fn(async (url: string) => {
-        if (url.endsWith('/clock-catalog/room-counts'))
+        if (url.endsWith('/clock-sync/rooms'))
           return Response.json({
-            configuredRooms: 1,
-            byRoomType: { 'type-1': 1 },
-            readAt: '2026-10-21T00:00:00Z',
+            data: {
+              configuredRooms: 1,
+              byRoomType: { 'type-1': 1 },
+              readAt: '2026-10-21T00:00:00Z',
+            },
+            status: 'SYNCED',
+            lastSyncedAt: '2026-10-21T00:00:00Z',
           });
         if (url.endsWith('/pms-connection-status')) return Response.json({ provider });
         if (url.includes('/booking-rules/evaluate'))

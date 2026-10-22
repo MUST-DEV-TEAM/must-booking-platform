@@ -1,92 +1,35 @@
 'use client';
-
 import { useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-
-import { Alert, Badge, Card, Heading, Text } from '@must/ui';
-
-import { authAssets, AuthShell } from '../../../../auth-shell';
-import styles from './payment-outcome.module.css';
-
-const REDIRECT_DELAY_MS = 5000;
-
+import { useParams } from 'next/navigation';
 export default function BookingPaymentOutcomePage() {
-  const router = useRouter();
   const params = useParams<{ bookingId: string; outcome: string }>();
-  const isCancelled = params.outcome === 'cancel';
-
+  const cancelled = params.outcome === 'cancel';
   useEffect(() => {
-    // The payment page was opened by the dashboard in its own tab. Tell that tab the payment came
-    // back (it re-checks straight away) and close this one. A browser only lets a page close a tab
-    // it opened itself, so if it refuses the page just says the tab can be closed.
-    if (!isCancelled) {
-      try {
-        const channel = new BroadcastChannel('must-payment');
-        channel.postMessage({ bookingId: params.bookingId, outcome: params.outcome });
-        channel.close();
-      } catch {
-        // Not supported: the dashboard tab still re-checks on its own every few seconds.
-      }
-      window.close();
-      return;
+    try {
+      const channel = new BroadcastChannel('must-payment');
+      channel.postMessage({ bookingId: params.bookingId, outcome: params.outcome });
+      channel.close();
+    } catch {
+      /* The original booking screen also polls the verified result. */
     }
-    const timer = setTimeout(() => router.replace('/dashboard'), REDIRECT_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [isCancelled, params.bookingId, params.outcome, router]);
-
+    window.close();
+  }, [params.bookingId, params.outcome]);
   return (
-    <AuthShell sectionLabelledBy="payment-outcome-title">
-      <div className={styles.support}>
-        <span className={styles.supportLabel}>Need help?</span>
-        <a className={styles.supportLink} href="mailto:dejvis@must.al">
-          Contact administrator
-        </a>
-      </div>
-
-      <Badge
-        className={isCancelled ? styles.errorBadge : styles.statusBadge}
-        tone={isCancelled ? 'danger' : 'success'}
-      >
-        <img
-          alt=""
-          className={styles.badgeIcon}
-          src={isCancelled ? authAssets.shieldAlert : authAssets.shieldCheck}
-        />
-        <span>{isCancelled ? 'PAYMENT NOT COMPLETED' : 'PAYMENT PROCESSING'}</span>
-      </Badge>
-      <Heading className={styles.formTitle} id="payment-outcome-title">
-        {isCancelled ? 'Payment was not completed' : 'Payment submitted'}
-      </Heading>
-      <Text className={styles.formDescription} tone="secondary">
-        {isCancelled
-          ? 'The checkout was closed. Check the booking for the verified payment status before trying again.'
-          : 'Your payment is being checked. The booking screen updates after the provider confirms the result.'}
-      </Text>
-
-      {isCancelled ? (
-        <Alert className={styles.errorAlert} role="alert" tone="danger">
-          <img alt="" className={styles.errorIcon} src={authAssets.shieldAlert} />
-          <span>Check the booking before starting another payment.</span>
-        </Alert>
-      ) : (
-        <div aria-live="polite" role="status">
-          <Card className={styles.statusCard}>
-            <span className={styles.statusIcon}>
-              <img alt="" height="18" src={authAssets.shieldCheckExact} width="18" />
-            </span>
-            <span className={styles.statusCopy}>
-              <span className={styles.statusTitle}>Payment submitted</span>
-              <span className={styles.statusDescription}>
-                You can close this tab. The dashboard will check the payment result.
-              </span>
-            </span>
-          </Card>
-        </div>
-      )}
-
-      <a className={`${styles.backLink} must-button must-button--secondary`} href="/dashboard">
-        Go to dashboard
-      </a>
-    </AuthShell>
+    <main className="mx-auto flex min-h-dvh max-w-xl flex-col justify-center gap-4 px-6">
+      <h1 className="text-2xl font-semibold">
+        {cancelled ? 'Checkout closed' : 'Payment submitted'}
+      </h1>
+      <p>
+        {cancelled
+          ? 'Check the booking for the payment status before trying again.'
+          : 'The booking screen checks the payment result automatically.'}
+      </p>
+      <p>
+        You can close this tab. If it stayed open, your browser does not allow automatic closing.
+      </p>
+      <button className="self-start rounded-lg border px-4 py-2" onClick={() => window.close()}>
+        Close this tab
+      </button>
+    </main>
   );
 }

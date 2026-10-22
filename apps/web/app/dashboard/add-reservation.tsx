@@ -197,6 +197,7 @@ export function AddReservation({
   );
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
+  const [childrenAges, setChildrenAges] = useState<string[]>([]);
   const [ratePlanId, setRatePlanId] = useState('');
   const [roomTypeId, setRoomTypeId] = useState(() => prefill?.get('roomTypeId') ?? '');
   const [roomId, setRoomId] = useState(() => prefill?.get('roomId') ?? '');
@@ -285,6 +286,11 @@ export function AddReservation({
   const stayReady =
     Boolean(stayRules.data?.booking.valid) &&
     adults >= 1 &&
+    childrenAges.length === children &&
+    childrenAges.every(
+      (age) =>
+        age !== '' && Number.isInteger(Number(age)) && Number(age) >= 0 && Number(age) <= 120,
+    ) &&
     (isClock || !!ratePlanId) &&
     roomTypes.length > 0;
   const showRoomPick = bookingMode === 'INDIVIDUAL_ROOM_ONLY' || bookingMode === 'MIXED';
@@ -299,7 +305,7 @@ export function AddReservation({
   // Search every room type for the chosen stay once the form is complete.
   const [searchKey, setSearchKey] = useState('');
   const currentKey = stayReady
-    ? `${startsOn}|${endsOn}|${adults}|${children}|${ratePlanId}|${isClock}`
+    ? `${startsOn}|${endsOn}|${adults}|${children}|${childrenAges.join(',')}|${ratePlanId}|${isClock}`
     : '';
   useEffect(() => {
     const timer = window.setTimeout(() => setSearchKey(currentKey), 400);
@@ -313,6 +319,7 @@ export function AddReservation({
       endsOn,
       adults,
       children,
+      childrenAges: childrenAges.map(Number),
       items: items.map((i) => ({ ...i, ratePlanId: isClock ? undefined : ratePlanId })),
     })) as { offers: Record<string, Offer> };
     return result.offers;
@@ -396,6 +403,7 @@ export function AddReservation({
         endsOn,
         adults,
         children,
+        childrenAges: childrenAges.map(Number),
         guest: {
           firstName: guest.firstName.trim(),
           lastName: guest.lastName.trim(),
@@ -458,6 +466,8 @@ export function AddReservation({
   const reset = () => {
     setStep(0);
     setDates({ start: null, end: null });
+    setChildren(0);
+    setChildrenAges([]);
     setRoomTypeId('');
     setRoomId('');
     setGuest({ ...emptyGuest, arrivalTime: hotelCheckIn });
@@ -630,6 +640,7 @@ export function AddReservation({
                 <CardContent className="space-y-4">
                   <div className="grid gap-4 sm:grid-cols-2">
                     <FormField
+                      className="sm:col-span-2"
                       label="Stay dates"
                       required
                       error={stayRuleError ?? (stayRules.isError ? stayRules.error.message : null)}
@@ -683,9 +694,30 @@ export function AddReservation({
                         min={0}
                         max={20}
                         value={children}
-                        onChange={setChildren}
+                        onChange={(n) => {
+                          setChildren(n);
+                          setChildrenAges((old) =>
+                            Array.from({ length: n }, (_, i) => old[i] ?? ''),
+                          );
+                        }}
                       />
                     </FormField>
+                    {childrenAges.map((age, i) => (
+                      <FormField key={i} label={`Child ${i + 1} age at check-in`} required>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={120}
+                          value={age}
+                          aria-label={`Child ${i + 1} age at check-in`}
+                          onChange={(e) =>
+                            setChildrenAges((old) =>
+                              old.map((v, n) => (n === i ? e.target.value : v)),
+                            )
+                          }
+                        />
+                      </FormField>
+                    ))}
                   </div>
                   <p className="m-0 text-xs text-muted-foreground">
                     One room per reservation. For several rooms, create one reservation for each.

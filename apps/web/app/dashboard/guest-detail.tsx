@@ -456,7 +456,10 @@ export function GuestDetail({
                         <TableCell
                           className={`px-2 py-2 text-right tabular-nums ${Number(outstandingAmount(booking)) > 0 ? 'font-semibold text-warning' : 'text-muted-foreground'}`}
                         >
-                          {amount(outstandingAmount(booking))}
+                          {booking.balanceBasis === 'CLOCK' ||
+                          ['PMS_UNKNOWN_RESULT', 'MANUAL_REVIEW'].includes(booking.status)
+                            ? 'Balance not confirmed'
+                            : amount(outstandingAmount(booking))}
                         </TableCell>
                       </TableRow>
                     );

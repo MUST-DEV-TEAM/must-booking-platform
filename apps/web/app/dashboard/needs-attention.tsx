@@ -475,17 +475,19 @@ export function NeedsAttentionTab({
                     label: 'Balance due',
                     value: bookingWasNotCreated(selected.status)
                       ? NO_BOOKING_BALANCE
-                      : money(
-                          String(
-                            balanceDue({
-                              status: selected.status,
-                              total: selected.total.amount,
-                              paid: selected.paidAmount,
-                              refunded: selected.refundedAmount,
-                            }),
+                      : ['PMS_UNKNOWN_RESULT', 'MANUAL_REVIEW'].includes(selected.status)
+                        ? 'Balance not confirmed'
+                        : money(
+                            String(
+                              balanceDue({
+                                status: selected.status,
+                                total: selected.total.amount,
+                                paid: selected.paidAmount,
+                                refunded: selected.refundedAmount,
+                              }),
+                            ),
+                            selected.total.currency,
                           ),
-                          selected.total.currency,
-                        ),
                   },
                 ]}
               />

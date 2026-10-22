@@ -17,13 +17,13 @@ vi.mock('next/navigation', () => ({
 import BookingPaymentOutcomePage from './page';
 
 describe('Booking payment outcome page', () => {
-  it('confirms a successful payment and links back to the dashboard', () => {
+  it('explains a submitted payment without redirecting', () => {
     mockParams = { bookingId: 'booking-1', outcome: 'success' };
     const markup = renderToStaticMarkup(createElement(BookingPaymentOutcomePage));
 
     expect(markup).toContain('Payment submitted');
     expect(markup).toContain('You can close this tab');
-    expect(markup).toContain('href="/dashboard"');
+    expect(markup).not.toContain('href="/dashboard"');
     expect(markup).not.toContain('was not completed');
   });
 
@@ -31,9 +31,9 @@ describe('Booking payment outcome page', () => {
     mockParams = { bookingId: 'booking-1', outcome: 'cancel' };
     const markup = renderToStaticMarkup(createElement(BookingPaymentOutcomePage));
 
-    expect(markup).toContain('Payment was not completed');
-    expect(markup).toContain('verified payment status');
-    expect(markup).toContain('href="/dashboard"');
+    expect(markup).toContain('Checkout closed');
+    expect(markup).toContain('payment status');
+    expect(markup).not.toContain('href="/dashboard"');
   });
 });
 

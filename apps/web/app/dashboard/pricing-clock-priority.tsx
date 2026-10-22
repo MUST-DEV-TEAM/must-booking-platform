@@ -1,5 +1,6 @@
 'use client';
-import { useState } from 'react';
+import { useClockSnapshot } from './clock-sync';
+import { useState, useEffect } from 'react';
 import { Button } from '../../components/ui/button';
 import {
   Card,
@@ -37,8 +38,24 @@ export function ClockPricingPriority({
 }) {
   const [data, setData] = useState<Record<string, Rate[]> | null>(null),
     [busy, setBusy] = useState(false),
+    [dirty, setDirty] = useState<string[]>([]),
     [error, setError] = useState(''),
     [success, setSuccess] = useState('');
+  const parts = root.split('/');
+  const tenantId = parts[parts.indexOf('tenants') + 1]!,
+    propertyId = parts[parts.indexOf('properties') + 1]!;
+  const snapshot = useClockSnapshot<{ roomTypes: Record<string, Rate[]> }>(
+    tenantId,
+    propertyId,
+    'rates',
+  );
+  useEffect(() => {
+    if (snapshot.data?.data && !busy)
+      setData((old) => ({
+        ...snapshot.data!.data!.roomTypes,
+        ...Object.fromEntries(dirty.filter((id) => old?.[id]).map((id) => [id, old![id]])),
+      }));
+  }, [snapshot.data?.data, busy, dirty]);
   return (
     <Card>
       <CardHeader>
@@ -50,29 +67,11 @@ export function ClockPricingPriority({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        <Button
-          variant="outline"
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            setError('');
-            try {
-              setData(
-                (
-                  await inventoryRequest<{ roomTypes: Record<string, Rate[]> }>(
-                    `${root}/clock-rate-ranking`,
-                  )
-                ).roomTypes,
-              );
-            } catch (e) {
-              setError(e instanceof Error ? e.message : 'Clock rate list could not be loaded.');
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          Load Clock rate list
-        </Button>
+        <p className="text-xs text-muted-foreground">
+          {snapshot.data?.lastSyncedAt
+            ? `Last synchronized ${new Date(snapshot.data.lastSyncedAt).toLocaleString()}`
+            : 'Rates are synchronizing automatically.'}
+        </p>
         {data
           ? types.map((t) => (
               <div key={t.id} className="flex flex-col gap-2">
@@ -109,6 +108,7 @@ export function ClockPricingPriority({
                               const rates = [...data[t.id]!];
                               [rates[i - 1], rates[i]] = [rates[i]!, rates[i - 1]!];
                               setData({ ...data, [t.id]: rates });
+                              setDirty((old) => Array.from(new Set([...old, t.id])));
                               setSuccess('');
                             }}
                           >
@@ -122,6 +122,7 @@ export function ClockPricingPriority({
                               const rates = [...data[t.id]!];
                               [rates[i + 1], rates[i]] = [rates[i]!, rates[i + 1]!];
                               setData({ ...data, [t.id]: rates });
+                              setDirty((old) => Array.from(new Set([...old, t.id])));
                               setSuccess('');
                             }}
                           >
@@ -158,6 +159,8 @@ export function ClockPricingPriority({
                           },
                         );
                         setData({ ...data, [t.id]: result.rates });
+                        await snapshot.refetch();
+                        setDirty((old) => old.filter((id) => id !== t.id));
                         setSuccess('MUST rate priority saved. Clock prices were not changed.');
                       } catch (e) {
                         setError(e instanceof Error ? e.message : 'Priority could not be saved.');

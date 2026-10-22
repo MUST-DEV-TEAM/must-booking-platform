@@ -1,6 +1,5 @@
 'use client';
-import { ClockImportPanel } from '../clock-import-panel';
-import { ClockGuestDirectory } from '../clock-guest-directory';
+import { ClockSyncStatus } from '../clock-sync';
 import { Card, Heading, Stack, Text } from '@must/ui';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FormEvent, useState } from 'react';
@@ -582,8 +581,7 @@ function ClockCatalogSync({ tenantId, property }: { tenantId: string; property: 
         </div>
       ))}
       <ClockCancellationPolicies base={base} tenantId={tenantId} propertyId={property.id} />
-      <ClockImportPanel tenantId={tenantId} propertyId={property.id} />
-      <ClockGuestDirectory tenantId={tenantId} propertyId={property.id} />
+      <ClockSyncStatus tenantId={tenantId} propertyId={property.id} details />
     </Card>
   );
 }
