@@ -1,0 +1,429 @@
+﻿import { randomUUID } from 'node:crypto';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Inject,
+  Injectable,
+  OnModuleDestroy,
+  OnModuleInit,
+  Post,
+  Query,
+  Req,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
+import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
+import { CapabilitiesService } from '../../tenancy/capabilities.service';
+import { TenantScoped } from '../../tenancy/tenant-context.decorator';
+import { RequiresCapability } from '../../tenancy/capabilities.decorator';
+import { RequiresVerifiedEmail } from '../../auth/requires-verified-email.decorator';
+import { Role, Roles } from '../../tenancy/roles.decorator';
+import { IntegrationConnectionsService } from '../integration-connections.service';
+import { ClockCatalogSyncService } from './clock-catalog-sync.service';
+import { ClockAvailabilityService } from './clock-availability.service';
+import {
+  ClockBookingConsistencyService,
+  ClockBookingReadError,
+} from './clock-booking-consistency.service';
+import { ClockBookingHydrationService } from './clock-booking-hydration.service';
+import { ClockGuestImportService } from './clock-guest-import.service';
+import { ClockRateRankingService } from './clock-rate-ranking.service';
+import { parseClockCredentials } from './clock-credentials';
+
+type Scope = { tenantId: string; propertyId: string; connectionId: string };
+type Job = {
+  id: string;
+  resource: string;
+  progress: Record<string, any>;
+  snapshot: any;
+  processed: number;
+  leaseToken: string;
+};
+const monthOf = (date: Date) => date.toISOString().slice(0, 7);
+const enabled = () => process.env.CLOCK_BACKGROUND_SYNC_ENABLED === 'true';
+/** Durable local projections only. Provider commands and financial effects are never executed here. */
+@Injectable()
+export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy {
+  private timer?: ReturnType<typeof setInterval>;
+  private busy = false;
+  private readonly logger = new Logger(ClockBackgroundSyncService.name);
+  constructor(
+    @Inject(TenantDatabaseService) private readonly db: TenantDatabaseService,
+    @Inject(IntegrationConnectionsService)
+    private readonly connections: IntegrationConnectionsService,
+    @Inject(ClockCatalogSyncService) private readonly catalog: ClockCatalogSyncService,
+    @Inject(ClockAvailabilityService) private readonly availability: ClockAvailabilityService,
+    @Inject(ClockBookingConsistencyService) private readonly reader: ClockBookingConsistencyService,
+    @Inject(ClockBookingHydrationService) private readonly hydration: ClockBookingHydrationService,
+    @Inject(ClockGuestImportService) private readonly guests: ClockGuestImportService,
+    @Inject(ClockRateRankingService) private readonly rankings: ClockRateRankingService,
+  ) {}
+  onModuleInit() {
+    if (!enabled()) return;
+    this.timer = setInterval(() => void this.tick(), 1000);
+    this.timer.unref();
+  }
+  onModuleDestroy() {
+    if (this.timer) clearInterval(this.timer);
+  }
+  private allowed(propertyId: string) {
+    const filter = process.env.CLOCK_SYNC_ALLOWED_PROPERTY_IDS?.split(',')
+      .map((x) => x.trim())
+      .filter(Boolean);
+    return !filter?.length || filter.includes(propertyId);
+  }
+  private async scope(tenantId: string, propertyId: string): Promise<Scope | null> {
+    const rows = await this.db.withTenantTransaction(
+      { tenantId, propertyId },
+      (tx) =>
+        tx.$queryRaw<
+          Array<{ connectionId: string }>
+        >`SELECT pc.connection_id AS "connectionId" FROM property_integration_connections pc JOIN integration_connections c ON c.tenant_id=pc.tenant_id AND c.id=pc.connection_id WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid AND pc.enabled AND pc.kind='PMS' AND c.provider='CLOCK_PMS' AND c.status='CONNECTED'`,
+    );
+    return rows[0] ? { tenantId, propertyId, connectionId: rows[0].connectionId } : null;
+  }
+  async ensure(scope: Scope, resources?: string[]) {
+    const now = new Date();
+    const months = Array.from({ length: 13 }, (_, i) =>
+      monthOf(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + i, 1))),
+    );
+    const keys = resources ?? [
+      'catalog',
+      'rooms',
+      'rates',
+      ...months.map((m) => 'availability:' + m),
+      'bookings',
+      'guests',
+    ];
+    await this.db.withTenantTransaction(scope, async (tx) => {
+      for (const resource of keys)
+        await tx.$executeRaw`INSERT INTO clock_sync_jobs(tenant_id,property_id,connection_id,resource,next_run_at) VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${scope.connectionId}::uuid,${resource},date_trunc('minute',now())) ON CONFLICT(tenant_id,property_id,connection_id,resource) DO NOTHING`;
+    });
+  }
+  async status(tenantId: string, propertyId: string) {
+    const scope = await this.scope(tenantId, propertyId);
+    if (!scope) return { source: 'LOCAL', enabled: false, jobs: [] };
+    await this.ensure(scope);
+    const jobs = await this.db.withTenantTransaction(
+      scope,
+      (tx) =>
+        tx.$queryRaw`SELECT resource,status,processed,last_success_at AS "lastSyncedAt",last_error AS "lastError",updated_at AS "updatedAt",CASE WHEN progress->'ids' IS NOT NULL THEN jsonb_array_length(progress->'ids') ELSE NULL END AS total FROM clock_sync_jobs WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${scope.connectionId}::uuid ORDER BY resource`,
+    );
+    return { source: 'CLOCK_PMS', enabled: enabled() && this.allowed(propertyId), jobs };
+  }
+  async read(tenantId: string, propertyId: string, resource: string) {
+    const scope = await this.scope(tenantId, propertyId);
+    if (!scope) return { data: null, status: 'NOT_CONNECTED', lastSyncedAt: null };
+    if (!['rooms', 'rates'].includes(resource) && !/^availability:\d{4}-\d{2}$/.test(resource))
+      throw new BadRequestException('Invalid Clock snapshot.');
+    if (resource.startsWith('availability:')) {
+      const date = new Date(resource.slice(13) + '-01T00:00:00Z');
+      if (
+        !Number.isFinite(date.getTime()) ||
+        Math.abs(date.getTime() - Date.now()) > 10 * 366 * 86400000
+      )
+        throw new BadRequestException('Choose an availability month within ten years.');
+    }
+    await this.ensure(scope, [resource]);
+    const rows = await this.db.withTenantTransaction(
+      scope,
+      (tx) =>
+        tx.$queryRaw<
+          Array<{ data: any; status: string; lastSyncedAt: Date | null; lastError: string | null }>
+        >`SELECT snapshot AS data,status,last_success_at AS "lastSyncedAt",last_error AS "lastError" FROM clock_sync_jobs WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${scope.connectionId}::uuid AND resource=${resource}`,
+    );
+    const result = rows[0] ?? { data: null, status: 'READY', lastSyncedAt: null, lastError: null };
+    if (resource === 'rates' && result.data?.roomTypes) {
+      for (const [id, rates] of Object.entries(result.data.roomTypes) as Array<[string, any[]]>) {
+        const ranks = await this.rankings.getRanking(tenantId, propertyId, id);
+        const byId = new Map(ranks.map((r) => [r.externalRateId, r.rank]));
+        result.data.roomTypes[id] = rates.map((r) => ({
+          ...r,
+          rank: byId.get(r.externalRateId) ?? null,
+        }));
+      }
+    }
+    return result;
+  }
+  async requestRefresh(tenantId: string, propertyId: string) {
+    const scope = await this.scope(tenantId, propertyId);
+    if (!scope) throw new BadRequestException('Clock is not connected.');
+    await this.ensure(scope);
+    await this.db.withTenantTransaction(
+      scope,
+      (tx) =>
+        tx.$executeRaw`UPDATE clock_sync_jobs SET requested_at=now(),next_run_at=now(),status=CASE WHEN lease_until>now() THEN status ELSE 'READY' END,last_error=NULL WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${scope.connectionId}::uuid`,
+    );
+    return { queued: true };
+  }
+  async tick() {
+    if (this.busy || !enabled()) return;
+    this.busy = true;
+    try {
+      const properties = await this.db.$queryRaw<
+        Scope[]
+      >`SELECT * FROM clock_sync_properties(1000)`;
+      for (const scope of properties) {
+        if (!this.allowed(scope.propertyId)) continue;
+        await this.ensure(scope);
+        const job = await this.claim(scope);
+        if (!job) continue;
+        try {
+          await this.run(scope, job);
+        } catch (error) {
+          const retry =
+            error instanceof ClockBookingReadError
+              ? error.classified.retryable
+              : error instanceof Error &&
+                /Clock read did not finish|Clock did not finish reading this guest batch/.test(
+                  error.message,
+                );
+          const category =
+            error instanceof ClockBookingReadError ? error.classified.category : 'configuration';
+          await this.db.withTenantTransaction(
+            scope,
+            (tx) =>
+              tx.$executeRaw`UPDATE clock_sync_jobs SET status=${retry ? 'RETRY' : 'FAILED'},last_error=${retry ? 'Clock is temporarily unavailable. Synchronization will retry automatically.' : 'Synchronization needs connection or room-mapping review (' + category + ').'},next_run_at=now()+interval '1 minute',lease_token=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`,
+          );
+        }
+      }
+    } catch {
+      this.logger.warn(
+        'Clock background scheduling failed; it will retry. Inspect database connectivity.',
+      );
+    } finally {
+      this.busy = false;
+    }
+  }
+  private async claim(scope: Scope): Promise<Job | null> {
+    const token = randomUUID();
+    return this.db.withTenantTransaction(scope, async (tx) => {
+      const rows = await tx.$queryRaw<
+        Job[]
+      >`UPDATE clock_sync_jobs j SET status='RUNNING',lease_token=${token}::uuid,lease_until=now()+interval '5 minutes',updated_at=now() WHERE j.id=(SELECT id FROM clock_sync_jobs WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND connection_id=${scope.connectionId}::uuid AND status<>'FAILED' AND next_run_at<=now() AND (lease_until IS NULL OR lease_until<now()) ORDER BY next_run_at,CASE resource WHEN 'catalog' THEN 0 WHEN 'rooms' THEN 1 WHEN 'rates' THEN 2 ELSE 3 END,id FOR UPDATE SKIP LOCKED LIMIT 1) AND j.tenant_id=${scope.tenantId}::uuid AND j.property_id=${scope.propertyId}::uuid RETURNING j.id,j.resource,j.progress,j.snapshot,j.processed,j.lease_token AS "leaseToken"`;
+      return rows[0] ?? null;
+    });
+  }
+  private async save(
+    scope: Scope,
+    job: Job,
+    progress: Record<string, unknown>,
+    complete: boolean,
+    snapshot?: unknown,
+    processed = job.processed,
+    delay = complete ? 900 : 1,
+  ) {
+    await this.db.withTenantTransaction(
+      scope,
+      (tx) =>
+        tx.$executeRaw`UPDATE clock_sync_jobs SET progress=${JSON.stringify(progress)}::jsonb,snapshot=COALESCE(${snapshot === undefined ? null : JSON.stringify(snapshot)}::jsonb,snapshot),processed=${processed},status=${complete ? 'SYNCED' : 'READY'},last_success_at=CASE WHEN ${complete} THEN now() ELSE last_success_at END,next_run_at=CASE WHEN ${complete} AND requested_at IS NOT NULL THEN now() ELSE now()+make_interval(secs=>${delay}) END,requested_at=CASE WHEN ${complete} THEN NULL ELSE requested_at END,lease_token=NULL,lease_until=NULL,last_error=NULL,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`,
+    );
+  }
+  private async run(scope: Scope, job: Job) {
+    const connection = await this.connections.activePmsConnectionCredentials(
+      scope.tenantId,
+      scope.propertyId,
+    );
+    if (connection?.provider !== 'CLOCK_PMS' || connection.connectionId !== scope.connectionId)
+      throw new BadRequestException('Clock connection changed.');
+    const credentials = parseClockCredentials(connection.credentials);
+    if (!credentials.ok) throw new BadRequestException('Clock credentials need review.');
+    if (job.resource === 'catalog') {
+      await this.catalog.sync(scope.tenantId, scope.propertyId, null);
+      const result = await this.catalog.confirmAll(scope.tenantId, scope.propertyId, null);
+      if (result.skipped.length) throw new BadRequestException('Clock room mappings need review.');
+      await this.save(scope, job, {}, true, { confirmed: result.confirmed });
+      return;
+    }
+    if (job.resource === 'rooms') {
+      await this.save(
+        scope,
+        job,
+        {},
+        true,
+        await this.catalog.roomCounts(scope.tenantId, scope.propertyId, true),
+      );
+      return;
+    }
+    if (job.resource === 'rates') {
+      const result = await this.availability.ratesForAllRoomTypesDetailed(
+        scope.tenantId,
+        scope.propertyId,
+      );
+      if (!result.ok)
+        throw new ClockBookingReadError({
+          ...result.error,
+          category: result.error.retryable ? 'provider_unavailable' : 'configuration',
+        });
+      await this.save(scope, job, {}, true, { roomTypes: Object.fromEntries(result.value) });
+      return;
+    }
+    if (job.resource.startsWith('availability:')) {
+      const types = await this.db.withTenantTransaction(
+        scope,
+        (tx) =>
+          tx.$queryRaw<
+            Array<{ id: string; name: string }>
+          >`SELECT t.id,t.name FROM room_types t JOIN clock_catalog_mappings m ON m.tenant_id=t.tenant_id AND m.property_id=t.property_id AND m.local_entity_id=t.id WHERE t.tenant_id=${scope.tenantId}::uuid AND t.property_id=${scope.propertyId}::uuid AND m.connection_id=${scope.connectionId}::uuid AND m.entity_type='ROOM_TYPE' AND m.sync_status='CONFIRMED' ORDER BY t.id`,
+      );
+      if (!types.length) throw new BadRequestException('Clock room mappings need review.');
+      const index = Number(job.progress.index ?? 0),
+        type = types[index];
+      const collected = Array.isArray(job.progress.roomTypes) ? job.progress.roomTypes : [];
+      if (type) {
+        const result = await this.availability.getAvailabilityCalendar(
+          scope.tenantId,
+          scope.propertyId,
+          { roomTypeId: type.id, month: job.resource.slice(13), fresh: true },
+        );
+        if (!result.ok)
+          throw new ClockBookingReadError({
+            ...result.error,
+            category: result.error.retryable ? 'provider_unavailable' : 'configuration',
+          });
+        collected.push({ ...type, days: result.value });
+      }
+      const complete = index + 1 >= types.length;
+      await this.save(
+        scope,
+        job,
+        complete ? {} : { index: index + 1, roomTypes: collected },
+        complete,
+        complete ? { roomTypes: collected, occupancy: { adults: 1, children: 0 } } : undefined,
+        collected.length,
+      );
+      return;
+    }
+    if (job.resource === 'guests') {
+      const progress = Object.keys(job.progress).length
+        ? job.progress
+        : {
+            updatedFrom: job.snapshot?.highWater
+              ? new Date(Date.parse(job.snapshot.highWater) - 86400000).toISOString().slice(0, 10)
+              : '1970-01-01',
+            updatedUntil: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
+            cursor: '0',
+          };
+      const result = await this.guests.batch({ ...scope, userId: null }, progress);
+      const count = Object.keys(job.progress).length
+        ? job.processed + result.processed
+        : result.processed;
+      await this.save(
+        scope,
+        job,
+        result.completed ? {} : { ...progress, cursor: result.cursor },
+        result.completed,
+        result.completed
+          ? { highWater: progress.updatedUntil, total: result.total, initialComplete: true }
+          : undefined,
+        count,
+        result.completed ? 180 : 1,
+      );
+      return;
+    }
+    if (job.resource === 'bookings') {
+      const until =
+        typeof job.progress.until === 'string' ? job.progress.until : new Date().toISOString();
+      const ids = Array.isArray(job.progress.ids)
+        ? job.progress.ids
+        : await this.reader.updatedBookingIds(
+            credentials.value,
+            job.snapshot?.schemaVersion === 2 && job.snapshot?.highWater
+              ? new Date(Date.parse(job.snapshot.highWater) - 60000).toISOString()
+              : '1970-01-01T00:00:00.000Z',
+            until,
+          );
+      let index = Number(job.progress.index ?? 0);
+      const end = Math.min(index + 5, ids.length);
+      for (; index < end; index++) {
+        const result = await this.hydration.hydrateBooking(
+          scope.tenantId,
+          scope.propertyId,
+          scope.connectionId,
+          String(ids[index]),
+          undefined,
+          { notify: false },
+        );
+        if (!['created', 'updated'].includes(result.outcome))
+          throw new BadRequestException('Clock booking mapping or status needs review.');
+      }
+      const complete = index >= ids.length;
+      await this.save(
+        scope,
+        job,
+        complete ? {} : { until, ids, index },
+        complete,
+        complete
+          ? {
+              highWater: until,
+              total: ids.length,
+              initialComplete: true,
+              schemaVersion: 2,
+              initialTotal: job.snapshot?.initialTotal ?? ids.length,
+            }
+          : undefined,
+        index,
+        complete ? 120 : 1,
+      );
+      return;
+    }
+    throw new BadRequestException('Unsupported synchronization resource.');
+  }
+}
+
+type Request = { tenantContext: { tenantId: string; propertyId: string; userId: string } };
+@Controller('tenants/:tenantId/properties/:propertyId/clock-sync')
+@Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+export class ClockBackgroundSyncController {
+  constructor(
+    @Inject(ClockBackgroundSyncService) private readonly sync: ClockBackgroundSyncService,
+    @Inject(CapabilitiesService) private readonly capabilities: CapabilitiesService,
+  ) {}
+  private async allow(req: Request, keys: string[]) {
+    const caps = await this.capabilities.effective(req.tenantContext);
+    if (!keys.some((k) => caps.includes(k)))
+      throw new ForbiddenException('You do not have access to this Clock information.');
+  }
+  @Get('status')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  async status(@Req() req: Request) {
+    await this.allow(req, [
+      'calendar.view',
+      'guests.view',
+      'rates.manage',
+      'settings.manage',
+      'bookings.view',
+    ]);
+    return this.sync.status(req.tenantContext.tenantId, req.tenantContext.propertyId);
+  }
+  @Get('availability')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  async availability(@Req() req: Request, @Query('month') month: string) {
+    await this.allow(req, ['calendar.view', 'rates.manage']);
+    return this.sync.read(
+      req.tenantContext.tenantId,
+      req.tenantContext.propertyId,
+      'availability:' + month,
+    );
+  }
+  @Get('rooms')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  async rooms(@Req() req: Request) {
+    await this.allow(req, ['calendar.view', 'rooms.manage', 'bookings.view', 'settings.manage']);
+    return this.sync.read(req.tenantContext.tenantId, req.tenantContext.propertyId, 'rooms');
+  }
+  @Get('rates')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('rates.manage')
+  rates(@Req() req: Request) {
+    return this.sync.read(req.tenantContext.tenantId, req.tenantContext.propertyId, 'rates');
+  }
+  @Post('refresh')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresCapability('settings.manage')
+  @RequiresVerifiedEmail()
+  refresh(@Req() req: Request) {
+    return this.sync.requestRefresh(req.tenantContext.tenantId, req.tenantContext.propertyId);
+  }
+}

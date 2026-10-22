@@ -76,6 +76,7 @@ type ClockRateAvailabilityResponse = Array<{
 export type CalendarDayStatus = 'available' | 'sold_out' | 'closed' | 'unavailable';
 
 export interface CalendarDay {
+  referencePrice?: Money;
   /** Clock-reported physical free rooms, independent of stop-sale restrictions. */
   availableUnits?: number;
   date: string;
@@ -122,6 +123,7 @@ export type ClockStayQuoteQuery = {
   endsOn: string;
   adultCount?: number;
   childrenCount?: number;
+  childrenAges?: number[];
   roomCount?: number;
   currency?: string;
 };
@@ -222,6 +224,7 @@ export class ClockAvailabilityService {
       endsOn: string;
       adultCount?: number;
       childrenCount?: number;
+      childrenAges?: number[];
     },
     options: { cache?: boolean } = {},
   ): Promise<Result<boolean>> {
@@ -244,6 +247,7 @@ export class ClockAvailabilityService {
       query.endsOn,
       query.adultCount ?? 1,
       query.childrenCount ?? 0,
+      query.childrenAges ?? [],
     ]);
     if (options.cache) {
       const cached = this.bookingAvailabilityCache.get(cacheKey);
@@ -303,6 +307,7 @@ export class ClockAvailabilityService {
       room_types: externalRoomTypeId,
       adults: String(query.adultCount ?? 1),
       children: String(query.childrenCount ?? 0),
+      ...(query.childrenAges?.length ? { children_ages: query.childrenAges.map(String) } : {}),
     });
     if (!response.ok) return failure(response.error);
     const value = summarizeAvailability(
@@ -374,7 +379,7 @@ export class ClockAvailabilityService {
   async getAvailability(
     tenantId: string,
     propertyId: string,
-    query: AvailabilityQuery,
+    query: AvailabilityQuery & { childrenAges?: number[] },
     options: { skipCache?: boolean } = {},
   ): Promise<Result<AvailabilityResult>> {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
@@ -399,7 +404,7 @@ export class ClockAvailabilityService {
 
     const adultCount = query.adultCount ?? 1;
     const childrenCount = query.childrenCount ?? 0;
-    const cacheKey = `${connection.connectionId}:${externalRoomTypeId}:${query.startsOn}:${query.endsOn}:${adultCount}:${childrenCount}`;
+    const cacheKey = `${tenantId}:${propertyId}:${connection.connectionId}:${externalRoomTypeId}:${query.startsOn}:${query.endsOn}:${adultCount}:${childrenCount}:${JSON.stringify(query.childrenAges ?? [])}`;
     if (!options.skipCache) {
       const cached = this.availabilityCache.get(cacheKey);
       if (cached && cached.expiresAt > Date.now()) return { ok: true, value: cached.value };
@@ -424,6 +429,7 @@ export class ClockAvailabilityService {
       room_types: externalRoomTypeId,
       adults: String(adultCount),
       children: String(childrenCount),
+      ...(query.childrenAges?.length ? { children_ages: query.childrenAges.map(String) } : {}),
     });
     if (!response.ok) return failure(response.error);
 
@@ -448,6 +454,7 @@ export class ClockAvailabilityService {
       endsOn: string;
       adultCount?: number;
       childrenCount?: number;
+      childrenAges?: number[];
     },
   ): Promise<Result<Money>> {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
@@ -479,6 +486,7 @@ export class ClockAvailabilityService {
       endsOn: query.endsOn,
       adultCount: query.adultCount,
       childrenCount: query.childrenCount,
+      childrenAges: query.childrenAges,
     });
     if (!selection.ok) return selection;
     return { ok: true, value: selection.value.total };
@@ -596,6 +604,9 @@ export class ClockAvailabilityService {
         'product_search[departure]': first.endsOn,
         'product_search[adult_count]': String(first.adultCount ?? 1),
         'product_search[children_count]': String(first.childrenCount ?? 0),
+        ...(first.childrenAges?.length
+          ? { 'product_search[children_ages]': first.childrenAges.map(String) }
+          : {}),
         rates: rateIds,
       },
       '/products',
@@ -665,6 +676,7 @@ export class ClockAvailabilityService {
       query.endsOn,
       query.adultCount ?? 1,
       query.childrenCount ?? 0,
+      query.childrenAges ?? [],
       query.roomCount ?? 1,
       query.currency ?? '',
       rateIds,
@@ -692,6 +704,7 @@ export class ClockAvailabilityService {
       endsOn: string;
       adultCount?: number;
       childrenCount?: number;
+      childrenAges?: number[];
     },
   ): Promise<Result<ClockRateSelection>> {
     const rateIds = await this.ratesForRoomType(credentials, query.externalRoomTypeId);
@@ -702,11 +715,14 @@ export class ClockAvailabilityService {
     // to remember. Clock only enforces max_adults/max_children on a rate
     // when these are present, so defaulting here means enforcement cannot be
     // silently skipped.
-    const productSearch: Record<string, string> = {
+    const productSearch: Record<string, string | string[]> = {
       'product_search[arrival]': query.startsOn,
       'product_search[departure]': query.endsOn,
       'product_search[adult_count]': String(query.adultCount ?? 1),
       'product_search[children_count]': String(query.childrenCount ?? 0),
+      ...(query.childrenAges?.length
+        ? { 'product_search[children_ages]': query.childrenAges.map(String) }
+        : {}),
     };
 
     const response = await this.fetch<ClockProductsResponse>(
@@ -779,6 +795,7 @@ export class ClockAvailabilityService {
       endsOn: string;
       adultCount?: number;
       childrenCount?: number;
+      childrenAges?: number[];
     },
   ): Promise<Result<ClockQuote>> {
     const total = await this.getQuote(tenantId, propertyId, query);
@@ -829,6 +846,9 @@ export class ClockAvailabilityService {
         'product_search[departure]': nextDate.toISOString().slice(0, 10),
         'product_search[adult_count]': String(query.adultCount ?? 1),
         'product_search[children_count]': String(query.childrenCount ?? 0),
+        ...(query.childrenAges?.length
+          ? { 'product_search[children_ages]': query.childrenAges.map(String) }
+          : {}),
         rates: rateIds.value.ids,
       };
       const response = await this.fetch<ClockProductsResponse>(
@@ -864,7 +884,7 @@ export class ClockAvailabilityService {
     externalRoomTypeId: string,
     rateIds: string[],
     nights: string[],
-    query: { adultCount?: number; childrenCount?: number },
+    query: { adultCount?: number; childrenCount?: number; childrenAges?: number[] },
   ): Promise<Record<string, number> | null> {
     if (rateIds.length === 0 || nights.length === 0) return null;
 
@@ -875,6 +895,7 @@ export class ClockAvailabilityService {
       room_types: externalRoomTypeId,
       adults: String(query.adultCount ?? 1),
       children: String(query.childrenCount ?? 0),
+      ...(query.childrenAges?.length ? { children_ages: query.childrenAges.map(String) } : {}),
     };
 
     const response = await this.fetch<ClockRateAvailabilityResponse>(
@@ -919,9 +940,11 @@ export class ClockAvailabilityService {
     propertyId: string,
     query: {
       roomTypeId: string;
+      fresh?: boolean;
       month: string;
       adultCount?: number;
       childrenCount?: number;
+      childrenAges?: number[];
       roomCount?: number;
     },
   ): Promise<Result<CalendarDay[]>> {
@@ -953,12 +976,18 @@ export class ClockAvailabilityService {
       query.month,
       query.adultCount ?? 1,
       query.childrenCount ?? 0,
+      query.childrenAges ?? [],
       query.roomCount ?? 1,
     ]);
     const cachedCalendar = this.calendarCache.get(calendarKey);
-    if (cachedCalendar && cachedCalendar.expiresAt > Date.now())
+    if (!query.fresh && cachedCalendar && cachedCalendar.expiresAt > Date.now())
       return { ok: true, value: cachedCalendar.value };
-    const rateIds = await this.ratesForRoomType(parsed.value, externalRoomTypeId);
+    const rateIds = await this.ratesForRoomType(
+      parsed.value,
+      externalRoomTypeId,
+      undefined,
+      query.fresh,
+    );
     if (!rateIds.ok) return failure(rateIds.error);
     if (rateIds.value.ids.length === 0) return failure(noRatesError(rateIds.value));
 
@@ -979,6 +1008,7 @@ export class ClockAvailabilityService {
       room_types: externalRoomTypeId,
       adults: String(query.adultCount ?? 1),
       children: String(query.childrenCount ?? 0),
+      ...(query.childrenAges?.length ? { children_ages: query.childrenAges.map(String) } : {}),
     });
     if (!response.ok) return failure(response.error);
 
@@ -1005,6 +1035,28 @@ export class ClockAvailabilityService {
           date,
           isAvailable: true,
           status: 'available',
+          ...(() => {
+            const prices = openCells
+              .map((c) => c.price)
+              .filter(
+                (p): p is { cents: number; currency: string } =>
+                  !!p &&
+                  Number.isSafeInteger(p.cents) &&
+                  p.cents >= 0 &&
+                  typeof p.currency === 'string',
+              );
+            if (
+              prices.length !== openCells.length ||
+              new Set(prices.map((p) => p.currency)).size !== 1
+            )
+              return {};
+            return {
+              referencePrice: {
+                amount: (Math.min(...prices.map((p) => p.cents)) / 100).toFixed(2),
+                currency: prices[0].currency,
+              },
+            };
+          })(),
           ...(availableUnits === undefined ? {} : { availableUnits }),
         };
         // Restrictions only count when every open rate carries them, since a
@@ -1049,7 +1101,7 @@ export class ClockAvailabilityService {
       tx.$queryRawUnsafe<Array<{ externalEntityId: string }>>(
         `SELECT external_entity_id AS "externalEntityId" FROM clock_catalog_mappings
          WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND entity_type = 'ROOM_TYPE'
-           AND local_entity_id = $3::uuid AND sync_status = 'CONFIRMED'`,
+           AND local_entity_id = $3::uuid AND sync_status = 'CONFIRMED' AND connection_id=(SELECT connection_id FROM property_integration_connections WHERE tenant_id=$1::uuid AND property_id=$2::uuid AND kind='PMS' AND enabled)`,
         tenantId,
         propertyId,
         localRoomTypeId,
@@ -1067,7 +1119,7 @@ export class ClockAvailabilityService {
       tx.$queryRawUnsafe<Array<{ externalEntityId: string }>>(
         `SELECT external_entity_id AS "externalEntityId" FROM clock_catalog_mappings
          WHERE tenant_id = $1::uuid AND property_id = $2::uuid AND entity_type = 'ROOM'
-           AND local_entity_id = $3::uuid AND sync_status = 'CONFIRMED'`,
+           AND local_entity_id = $3::uuid AND sync_status = 'CONFIRMED' AND connection_id=(SELECT connection_id FROM property_integration_connections WHERE tenant_id=$1::uuid AND property_id=$2::uuid AND kind='PMS' AND enabled)`,
         tenantId,
         propertyId,
         localRoomId,
@@ -1090,10 +1142,11 @@ export class ClockAvailabilityService {
     credentials: ClockConnectionCredentials,
     externalRoomTypeId: string,
     loadRates?: () => Promise<ClockOutcome<ClockRateRow[]>>,
+    fresh = false,
   ): Promise<ClockOutcome<RoomTypeRates>> {
     const cacheKey = `${credentials.apiUser}:${externalRoomTypeId}`;
     const cached = this.ratesCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) return { ok: true, value: cached.value };
+    if (!fresh && cached && cached.expiresAt > Date.now()) return { ok: true, value: cached.value };
 
     const response = await (loadRates
       ? loadRates()
@@ -1421,7 +1474,7 @@ function evenSplitToNights(nights: string[], totalCents: number): NightlyRate[] 
 }
 
 function summarizeAvailability(
-  query: AvailabilityQuery,
+  query: AvailabilityQuery & { childrenAges?: number[] },
   nights: string[],
   response: ClockRateAvailabilityResponse,
   externalRoomTypeId: string,

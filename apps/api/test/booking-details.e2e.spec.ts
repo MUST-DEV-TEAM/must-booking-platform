@@ -192,6 +192,11 @@ afterAll(async () => {
 it('edits non-financial details, preserves shared directory/sibling, updates history and permission-aware search', async () => {
   const id = await fixture(),
     sibling = await fixture();
+  await db.withTenantTransaction(
+    c,
+    (tx) =>
+      tx.$executeRaw`UPDATE bookings SET children_ages='[]'::jsonb WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${id}::uuid`,
+  );
   await patch(id, {
     expectedVersion: 1,
     firstName: 'Changed',

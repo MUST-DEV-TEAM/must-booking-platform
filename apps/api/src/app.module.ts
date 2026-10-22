@@ -1,3 +1,9 @@
+import { ServerStorageProvider } from './storage/server-storage.provider';
+import { ServerMediaController } from './storage/server-media.controller';
+import {
+  ClockBackgroundSyncService,
+  ClockBackgroundSyncController,
+} from './integrations/clock/clock-background-sync.service';
 import {
   ClockGuestImportController,
   ClockGuestImportService,
@@ -245,7 +251,9 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
           req: (request: IncomingMessage & { id?: string }) => ({
             id: request.id,
             method: request.method,
-            path: request.url,
+            path: request.url?.startsWith('/media/upload/')
+              ? '/media/upload/[redacted]'
+              : request.url,
           }),
           res: (response: ServerResponse) => ({
             statusCode: response.statusCode,
@@ -255,8 +263,10 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     }),
   ],
   controllers: [
+    ServerMediaController,
     ClockImportController,
     ClockGuestImportController,
+    ClockBackgroundSyncController,
     HealthController,
     AuthController,
     StaffInviteController,
@@ -434,6 +444,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ClockBookingConsistencyService,
     ClockImportService,
     ClockGuestImportService,
+    ClockBackgroundSyncService,
     ClockBookingHydrationService,
     ClockFolioHydrationService,
     ClockPaymentReconciliationService,
@@ -448,7 +459,13 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ManualReviewService,
     { provide: PAYMENT_PROVIDER, useExisting: StripePaymentProvider },
     R2StorageProvider,
-    { provide: STORAGE_PROVIDER, useExisting: R2StorageProvider },
+    ServerStorageProvider,
+    {
+      provide: STORAGE_PROVIDER,
+      useFactory: (local: ServerStorageProvider, r2: R2StorageProvider) =>
+        process.env.STORAGE_BACKEND === 'server' ? local : r2,
+      inject: [ServerStorageProvider, R2StorageProvider],
+    },
     EmailMessageArchiveService,
     EmailTransportJournal,
     EmailTransportFailures,

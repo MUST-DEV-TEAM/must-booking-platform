@@ -217,4 +217,66 @@ describe('collecting a confirmed booking balance', () => {
       expect(manual.body).toMatchObject({ ok: false, error: { code: 'INVALID_BOOKING_STATE' } });
     }
   });
+  it('keeps bank and POS evidence in the audit and makes retries idempotent', async () => {
+    clock = false;
+    for (const method of ['bank_transfer', 'card_in_person']) {
+      const id = await booking();
+      const key = randomUUID();
+      const evidence = {
+        receivedOn: new Date().toISOString().slice(0, 10),
+        reference: method === 'bank_transfer' ? 'BANK-TEST-123' : 'POS-TEST-456',
+        payerName: 'Test payer',
+      };
+      const send = (data: object, attempt = key) =>
+        request(app.getHttpServer())
+          .post(`${base()}/${id}/manual-payment`)
+          .set('Cookie', cookie)
+          .set('Idempotency-Key', attempt)
+          .send(data)
+          .expect(200);
+      expect(
+        (await send({ method, evidence: { ...evidence, reference: '' } }, randomUUID())).body.ok,
+      ).toBe(false);
+      const first = await send({ method, evidence });
+      expect(first.body.ok).toBe(true);
+      expect((await send({ method, evidence })).body).toEqual(first.body);
+      const audit = await admin.$queryRaw<
+        Array<{ details: { evidence: unknown } }>
+      >`SELECT details FROM audit_logs WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND target_id=${id} AND action='payment.manual_recorded'`;
+      expect(audit).toHaveLength(1);
+      expect(audit[0].details.evidence).toMatchObject(evidence);
+      const ledger = await request(app.getHttpServer())
+        .get(`/tenants/${tenantId}/properties/${propertyId}/payments/bookings/${id}`)
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(
+        ledger.body.events.find((e: { action: string }) => e.action === 'payment.manual_recorded')
+          .details.evidence,
+      ).toMatchObject(evidence);
+      expect(ledger.body.entries[0].actorEmail).toBeTruthy();
+    }
+  });
+  it('does not collect an imported Clock total as if earlier external payments were missing', async () => {
+    clock = false;
+    const id = await booking();
+    await admin.$executeRaw`UPDATE bookings SET external_reference='CLOCK-imported-fixture',external_booking_id='999999999' WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${id}::uuid`;
+    const calls = create.mock.calls.length;
+    await request(app.getHttpServer())
+      .post(`${base()}/${id}/collect-pokpay`)
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', randomUUID())
+      .expect(409);
+    const manual = await request(app.getHttpServer())
+      .post(`${base()}/${id}/manual-payment`)
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ method: 'cash' })
+      .expect(200);
+    expect(manual.body.error.code).toBe('CLOCK_BALANCE_UNVERIFIED');
+    expect(create.mock.calls.length).toBe(calls);
+    const rows = await admin.$queryRaw<
+      Array<{ count: number }>
+    >`SELECT COUNT(*)::int AS count FROM payments WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND booking_id=${id}::uuid`;
+    expect(rows[0].count).toBe(0);
+  });
 });

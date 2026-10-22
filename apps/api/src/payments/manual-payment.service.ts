@@ -13,6 +13,12 @@ import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant
 
 type ManualPaymentMethod = 'cash' | 'card_in_person' | 'bank_transfer';
 
+export type PaymentEvidence = {
+  receivedOn: string;
+  reference?: string;
+  payerName?: string;
+  terminalId?: string;
+};
 type ManualPaymentCommand = {
   bookingId: string;
   idempotencyKey: string;
@@ -20,6 +26,7 @@ type ManualPaymentCommand = {
   method: ManualPaymentMethod;
   actorUserId: string;
   note?: string;
+  evidence?: PaymentEvidence;
 };
 
 type RecordedPayment = {
@@ -32,7 +39,13 @@ type RecordedPayment = {
   externalPaymentId: string;
 };
 
-type Booking = { id: string; totalAmount: string; currency: string; status: BookingStatus };
+type Booking = {
+  balanceManagedInClock: boolean;
+  id: string;
+  totalAmount: string;
+  currency: string;
+  status: BookingStatus;
+};
 type OperationRow = { requestHash: string; result: Result<RecordedPayment> | null };
 
 @Injectable()
@@ -53,6 +66,11 @@ export class ManualPaymentService {
         this.withIdempotency(tx, context, command, async () => {
           const booking = await this.booking(tx, context, command.bookingId);
           if (!booking) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
+          if (booking.balanceManagedInClock)
+            return this.failure(
+              'CLOCK_BALANCE_UNVERIFIED',
+              'Earlier payments for this imported booking are managed in Clock. Verify its balance in Clock before collecting money.',
+            );
           if (![BookingStatus.CONFIRMED, BookingStatus.PAYMENT_PENDING].includes(booking.status))
             return this.failure(
               'INVALID_BOOKING_STATE',
@@ -66,6 +84,24 @@ export class ManualPaymentService {
               'INVALID_PAYMENT_NOTE',
               'Use a payment note of up to 500 characters.',
             );
+          if (command.evidence) {
+            const evidence = command.evidence;
+            const date = new Date(evidence.receivedOn + 'T00:00:00Z');
+            if (
+              !/^\d{4}-\d{2}-\d{2}$/.test(evidence.receivedOn) ||
+              !Number.isFinite(date.getTime()) ||
+              date.toISOString().slice(0, 10) !== evidence.receivedOn ||
+              evidence.receivedOn > new Date().toISOString().slice(0, 10) ||
+              [evidence.reference, evidence.payerName, evidence.terminalId].some(
+                (v) => v !== undefined && (typeof v !== 'string' || v.length > 120),
+              ) ||
+              (command.method !== 'cash' && !evidence.reference?.trim())
+            )
+              return this.failure(
+                'INVALID_PAYMENT_EVIDENCE',
+                'Enter the received date and the bank transaction or POS receipt reference. Do not enter card numbers or security codes.',
+              );
+          }
           const alreadyPaid = await this.paidAmount(tx, context, booking.id);
           const remaining = this.minorUnits(booking.totalAmount) - alreadyPaid;
           if (remaining <= 0n)
@@ -126,6 +162,7 @@ export class ManualPaymentService {
               method: command.method,
               externalPaymentId,
               note: command.note?.trim() || null,
+              evidence: command.evidence ?? null,
             },
           });
           if (booking.status === BookingStatus.PAYMENT_PENDING) {
@@ -163,7 +200,7 @@ export class ManualPaymentService {
   ): Promise<Booking | null> {
     const rows = await tx.$queryRaw<Booking[]>`
       SELECT b.id, COALESCE(order_totals.total_amount, b.total_amount)::text AS "totalAmount",
-        rp.currency, b.status
+        rp.currency, b.status,(b.external_booking_id IS NOT NULL AND b.external_reference LIKE 'CLOCK-%') AS "balanceManagedInClock"
       FROM bookings b
       JOIN rate_plans rp
         ON rp.tenant_id = b.tenant_id AND rp.property_id = b.property_id AND rp.id = b.rate_plan_id

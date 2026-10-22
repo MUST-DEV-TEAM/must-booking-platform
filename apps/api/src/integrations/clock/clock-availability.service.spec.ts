@@ -1586,8 +1586,9 @@ describe('ClockAvailabilityService.selectRateForStay', () => {
       client: { request: responses() },
       rankOrder: ['803405'],
     }).service;
+    const bookingRequest = responses();
     const bookingService = makeService({
-      client: { request: responses() },
+      client: { request: bookingRequest },
       rankOrder: ['803405'],
     }).service;
     const stay = {
@@ -1597,6 +1598,7 @@ describe('ClockAvailabilityService.selectRateForStay', () => {
       endsOn: '2026-08-12',
       adultCount: 2,
       childrenCount: 1,
+      childrenAges: [2],
     };
 
     const quote = await quoteService.getQuote('t1', 'p1', {
@@ -1605,6 +1607,7 @@ describe('ClockAvailabilityService.selectRateForStay', () => {
       endsOn: stay.endsOn,
       adultCount: stay.adultCount,
       childrenCount: stay.childrenCount,
+      childrenAges: stay.childrenAges,
     });
     const selected = await bookingService.selectRateForStay(credentials, {
       tenantId: 't1',
@@ -1615,8 +1618,15 @@ describe('ClockAvailabilityService.selectRateForStay', () => {
       endsOn: stay.endsOn,
       adultCount: stay.adultCount,
       childrenCount: stay.childrenCount,
+      childrenAges: stay.childrenAges,
     });
 
+    expect(bookingRequest).toHaveBeenLastCalledWith(
+      credentials,
+      expect.objectContaining({
+        query: expect.objectContaining({ 'product_search[children_ages]': ['2'] }),
+      }),
+    );
     expect(quote).toEqual({ ok: true, value: { amount: '325.00', currency: 'EUR' } });
     expect(selected).toEqual({
       ok: true,

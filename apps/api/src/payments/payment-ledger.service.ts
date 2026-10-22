@@ -40,6 +40,8 @@ type EventRow = {
 
 // Audit details can carry provider payloads; only these fields are shown to staff.
 const VISIBLE_DETAIL_KEYS = [
+  'evidence',
+  'method',
   'amount',
   'note',
   'reason',
@@ -88,7 +90,7 @@ export class PaymentLedgerService {
         FROM audit_logs a
         LEFT JOIN users u ON u.id = a.actor_user_id
         WHERE a.target_type = 'booking' AND a.target_id = ${bookingId}
-          AND a.tenant_id = ${context.tenantId}::uuid
+          AND a.tenant_id = ${context.tenantId}::uuid AND a.property_id=${context.propertyId}::uuid
         ORDER BY a.created_at, a.id
       `;
 
@@ -97,7 +99,7 @@ export class PaymentLedgerService {
       const actorByPayment = new Map<string, string | null>();
       for (const event of events) {
         const details = event.details ?? {};
-        for (const key of ['refundExternalPaymentId', 'reference'] as const) {
+        for (const key of ['refundExternalPaymentId', 'reference', 'externalPaymentId'] as const) {
           const value = details[key];
           if (typeof value === 'string' && !actorByPayment.has(value))
             actorByPayment.set(value, event.actorEmail);

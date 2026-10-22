@@ -38,13 +38,14 @@ export class StaffAvailabilityService {
       endsOn: String(body.endsOn ?? ''),
       adults: Number(body.adults ?? 1),
       children: Number(body.children ?? 0),
+      childrenAges: body.childrenAges as number[] | undefined,
     };
     const types = await this.db.withTenantTransaction(
       scope,
       (tx) =>
         tx.$queryRaw<
           Array<{ id: string; max: number; rooms: string[] }>
-        >`SELECT t.id,t.max_occupancy AS max,ARRAY(SELECT r.id::text FROM rooms r WHERE r.tenant_id=t.tenant_id AND r.property_id=t.property_id AND r.room_type_id=t.id AND r.status='ACTIVE') AS rooms FROM room_types t WHERE t.tenant_id=${scope.tenantId}::uuid AND t.property_id=${scope.propertyId}::uuid AND t.status='PUBLISHED' AND t.id=ANY(${items.map((i) => i.roomTypeId)}::uuid[])`,
+        >`SELECT t.id,t.max_occupancy AS max,ARRAY(SELECT r.id::text FROM rooms r WHERE r.tenant_id=t.tenant_id AND r.property_id=t.property_id AND r.room_type_id=t.id AND r.is_active=true) AS rooms FROM room_types t WHERE t.tenant_id=${scope.tenantId}::uuid AND t.property_id=${scope.propertyId}::uuid AND t.status='PUBLISHED' AND t.id=ANY(${items.map((i) => i.roomTypeId)}::uuid[])`,
     );
     const eligible = items.filter((i) =>
       types.some(

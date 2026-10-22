@@ -166,7 +166,7 @@ export class BookingDetailsService {
         );
         if (Object.keys(changes).length) {
           await tx.$executeRaw`UPDATE bookings SET guest_contact=CASE WHEN ${contactChanged} THEN ${JSON.stringify({ firstName: next.firstName, lastName: next.lastName, email: next.email, phone: next.phone })}::jsonb ELSE guest_contact END,
-     special_requests=${next.specialRequests},estimated_arrival_time=${next.estimatedArrivalTime},adults=${next.adults},children=${next.children},guest_count=${next.adults + next.children},version=version+1,updated_at=now()
+     special_requests=${next.specialRequests},estimated_arrival_time=${next.estimatedArrivalTime},adults=${next.adults},children_ages=CASE WHEN children<>${next.children} THEN NULL ELSE children_ages END,children=${next.children},guest_count=${next.adults + next.children},version=version+1,updated_at=now()
      WHERE tenant_id=${c.tenantId}::uuid AND property_id=${c.propertyId}::uuid AND id=${id}::uuid AND version=${input.expectedVersion}`;
           await this.audit.recordInTransaction(tx, {
             ...c,

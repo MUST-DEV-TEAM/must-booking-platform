@@ -44,7 +44,7 @@ export class ClockCatalogSyncService {
   ) {}
 
   /** Read-only current configured room counts; this is capacity, never an occupancy claim. */
-  async roomCounts(tenantId: string, propertyId: string) {
+  async roomCounts(tenantId: string, propertyId: string, fresh = false) {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (!connection || connection.provider !== 'CLOCK_PMS')
       throw new BadRequestException('This hotel is not connected to Clock.');
@@ -52,7 +52,7 @@ export class ClockCatalogSyncService {
     if (!parsed.ok) throw new BadRequestException('Clock connection needs attention.');
     const key = [tenantId, propertyId, connection.connectionId].join(':');
     const cached = this.roomCountCache.get(key);
-    if (cached && cached.expires > Date.now()) return cached.value;
+    if (!fresh && cached && cached.expires > Date.now()) return cached.value;
     const rooms = await this.fetch<ClockRoom[]>(parsed.value, '/rooms');
     if (
       !Array.isArray(rooms) ||
@@ -166,7 +166,7 @@ export class ClockCatalogSyncService {
   async confirm(
     tenantId: string,
     propertyId: string,
-    actorUserId: string,
+    actorUserId: string | null,
     mappingId: string,
   ): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
@@ -197,7 +197,7 @@ export class ClockCatalogSyncService {
   async confirmAll(
     tenantId: string,
     propertyId: string,
-    actorUserId: string,
+    actorUserId: string | null,
   ): Promise<{
     confirmed: number;
     skipped: Array<{
@@ -252,7 +252,7 @@ export class ClockCatalogSyncService {
     tx: TenantTransaction,
     tenantId: string,
     propertyId: string,
-    actorUserId: string,
+    actorUserId: string | null,
     mapping: ClockCatalogMappingRow,
   ): Promise<void> {
     const localId = randomUUID();
@@ -348,7 +348,7 @@ export class ClockCatalogSyncService {
   async reject(
     tenantId: string,
     propertyId: string,
-    actorUserId: string,
+    actorUserId: string | null,
     mappingId: string,
   ): Promise<void> {
     await this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {

@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { resolveBookingOccupancy, validBookingOccupancy } from './booking-occupancy';
 
 describe('booking occupancy', () => {
+  it('accepts separately supplied ages without inventing ages for legacy bookings', () => {
+    expect(validBookingOccupancy({ adults: 1, children: 2, childrenAges: [0, 12] })).toBe(true);
+    expect(validBookingOccupancy({ adults: 1, children: 2 })).toBe(true);
+  });
   it('defaults to one adult and no children', () => {
     expect(resolveBookingOccupancy({})).toEqual({ adults: 1, children: 0, guestCount: 1 });
   });
@@ -29,6 +33,9 @@ describe('booking occupancy', () => {
     { adults: 1, children: -1 },
     { adults: 1, children: 1.5 },
     { guestCount: 0 },
+    { adults: 1, children: 2, childrenAges: [5] },
+    { adults: 1, children: 1, childrenAges: [-1] },
+    { adults: 1, children: 1, childrenAges: [2.5] },
   ])('rejects invalid occupancy: %s', (input) => {
     expect(validBookingOccupancy(input)).toBe(false);
   });

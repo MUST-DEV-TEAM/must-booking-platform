@@ -1,9 +1,15 @@
+import { ClockBookingHydrationService } from '../integrations/clock/clock-booking-hydration.service';
+import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
+import { CapabilitiesService } from '../tenancy/capabilities.service';
+import { BookingStateMachine } from './booking-state-machine';
+import { BookingStatus } from '@must/domain-contracts';
 import { Prisma } from '@prisma/client';
 import {
   Controller,
   Body,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpException,
@@ -22,7 +28,7 @@ import { ClockBookingService } from '../integrations/clock/clock-booking.service
 import { RequiresCapability } from '../tenancy/capabilities.decorator';
 import { Role, Roles } from '../tenancy/roles.decorator';
 import { TenantScoped } from '../tenancy/tenant-context.decorator';
-import { TenantDatabaseService } from '../tenancy/tenant-database.service';
+import { TenantDatabaseService, type TenantTransaction } from '../tenancy/tenant-database.service';
 import { BOOKING_NEEDS_ATTENTION_STATUSES } from './booking-attention';
 
 const CATEGORY_TEXT: Record<string, string> = {
@@ -45,12 +51,21 @@ export class BookingReviewService {
     @Inject(TenantDatabaseService) private readonly db: TenantDatabaseService,
     @Inject(ClockBookingService) private readonly clock: ClockBookingService,
     @Inject(AuditLogService) private readonly audit: AuditLogService,
+    @Inject(CapabilitiesService) private readonly capabilities: CapabilitiesService,
+    @Inject(ClockBookingHydrationService) private readonly hydration: ClockBookingHydrationService,
+    @Inject(IntegrationConnectionsService)
+    private readonly connections: IntegrationConnectionsService,
+    @Inject(BookingStateMachine) private readonly states: BookingStateMachine,
   ) {}
 
-  async get(tenantId: string, propertyId: string, bookingId: string) {
+  async get(tenantId: string, propertyId: string, bookingId: string, userId?: string) {
+    const grants = userId
+      ? await this.capabilities.effective({ tenantId, propertyId, userId })
+      : [];
+    const canResolve = grants.includes('bookings.edit') && grants.includes('payments.refund');
     return this.db.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
-      const booking = await tx.$queryRaw<Array<{ status: string }>>`
-        SELECT status::text AS status FROM bookings
+      const booking = await tx.$queryRaw<Array<{ status: string; dismissed: boolean }>>`
+        SELECT b.status::text AS status,EXISTS(SELECT 1 FROM audit_logs a WHERE a.tenant_id=b.tenant_id AND a.property_id=b.property_id AND a.target_type='booking' AND a.target_id=b.id::text AND a.action='booking.attention_dismissed' AND a.details->>'version'=b.version::text AND a.details->>'status'=b.status::text) AS dismissed FROM bookings b
         WHERE id = ${bookingId}::uuid AND tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid`;
       if (!booking[0]) throw new NotFoundException('Booking not found.');
       const items = await tx.$queryRaw<
@@ -70,9 +85,11 @@ export class BookingReviewService {
           AND pc.enabled AND pc.kind = 'PMS'`;
       const needsReview =
         items.length > 0 ||
-        (BOOKING_NEEDS_ATTENTION_STATUSES as readonly string[]).includes(booking[0].status);
+        (!booking[0].dismissed &&
+          (BOOKING_NEEDS_ATTENTION_STATUSES as readonly string[]).includes(booking[0].status));
       return {
         needsReview,
+        canResolve,
         canCheck: pms[0]?.provider === 'CLOCK_PMS',
         reasons: items.map((item) => ({
           text: item.clockDepositAdjustment
@@ -125,6 +142,151 @@ export class BookingReviewService {
     });
   }
 
+  async resolve(
+    scope: { tenantId: string; propertyId: string; userId: string },
+    bookingId: string,
+    body: Record<string, unknown>,
+  ) {
+    const grants = await this.capabilities.effective(scope);
+    if (!grants.includes('bookings.edit') || !grants.includes('payments.refund'))
+      throw new ForbiddenException(
+        'A booking reviewer with refund permission must resolve this issue.',
+      );
+    if (
+      !['link', 'not_created'].includes(String(body.action)) ||
+      typeof body.note !== 'string' ||
+      body.note.trim().length < 3 ||
+      body.note.trim().length > 500
+    )
+      throw new BadRequestException(
+        'Choose a resolution and add a review note of 3-500 characters.',
+      );
+    const load = (tx: TenantTransaction, lock = false) =>
+      tx.$queryRaw(Prisma.sql`SELECT b.status::text AS status,b.version,b.external_booking_id AS "clockId",b.created_at < now()-interval '5 minutes' AS aged,
+      EXISTS(SELECT 1 FROM payments p WHERE p.tenant_id=b.tenant_id AND p.property_id=b.property_id AND p.booking_id=b.id) OR EXISTS(SELECT 1 FROM payment_provider_sessions p WHERE p.tenant_id=b.tenant_id AND p.property_id=b.property_id AND p.booking_id=b.id) AS financial,
+      EXISTS(SELECT 1 FROM integration_operations o WHERE o.tenant_id=b.tenant_id AND o.property_id=b.property_id AND o.aggregate_id=b.id AND o.status='PENDING' AND o.updated_at>now()-interval '10 minutes') AS active
+      FROM bookings b WHERE b.tenant_id=${scope.tenantId}::uuid AND b.property_id=${scope.propertyId}::uuid AND b.id=${bookingId}::uuid ${lock ? Prisma.sql`FOR UPDATE OF b` : Prisma.empty}`) as Promise<
+        Array<{
+          status: string;
+          version: number;
+          clockId: string | null;
+          aged: boolean;
+          financial: boolean;
+          active: boolean;
+        }>
+      >;
+    const before = (await this.db.withTenantTransaction(scope, (tx) => load(tx)))[0];
+    if (!before) throw new NotFoundException('Booking not found.');
+    if (before.status !== 'PMS_UNKNOWN_RESULT' || before.active)
+      throw new ConflictException(
+        'The booking must have an uncertain result and no active booking operation.',
+      );
+    const pinned = await this.connections.activePmsConnectionCredentials(
+      scope.tenantId,
+      scope.propertyId,
+    );
+    if (pinned?.provider !== 'CLOCK_PMS') throw new ConflictException('Clock is not connected.');
+    const check = await this.clock.checkRemoteBooking(scope, bookingId);
+    if (check.result === 'unavailable') throw new ConflictException(check.message);
+    if (
+      body.action === 'not_created' &&
+      (check.result !== 'not_found' || !before.aged || before.financial || before.clockId)
+    )
+      throw new ConflictException(
+        'Closing requires a fresh Clock absence check, no payment or checkout, no linked Clock booking and a five-minute safety window.',
+      );
+    if (body.action === 'link' && check.result !== 'found')
+      throw new ConflictException(
+        'Clock must identify one exact matching reservation before it can be linked.',
+      );
+    const connection = await this.connections.activePmsConnectionCredentials(
+      scope.tenantId,
+      scope.propertyId,
+    );
+    if (connection?.provider !== 'CLOCK_PMS' || connection.connectionId !== pinned.connectionId)
+      throw new ConflictException('This resolution is only available for a connected Clock hotel.');
+    await this.db.withTenantTransaction(scope, async (tx) => {
+      const binding = await tx.$queryRaw<
+        Array<{ connectionId: string }>
+      >`SELECT pc.connection_id AS "connectionId" FROM property_integration_connections pc JOIN integration_connections c ON c.tenant_id=pc.tenant_id AND c.id=pc.connection_id WHERE pc.tenant_id=${scope.tenantId}::uuid AND pc.property_id=${scope.propertyId}::uuid AND pc.kind='PMS' AND pc.enabled AND c.status='CONNECTED' AND c.provider='CLOCK_PMS' FOR SHARE OF pc,c`;
+      if (binding[0]?.connectionId !== pinned.connectionId)
+        throw new ConflictException('The Clock connection changed. Run the check again.');
+      const current = (await load(tx, true))[0];
+      if (
+        !current ||
+        current.version !== before.version ||
+        current.status !== before.status ||
+        current.active ||
+        current.clockId !== before.clockId
+      )
+        throw new ConflictException('The booking changed during review. Run the check again.');
+      if (body.action === 'not_created') {
+        if (current.financial)
+          throw new ConflictException('Payment activity now requires finance review.');
+        const status = this.states.transition(
+          BookingStatus.PMS_UNKNOWN_RESULT,
+          BookingStatus.PMS_REJECTED,
+        );
+        await tx.$executeRaw`UPDATE bookings SET status=${status}::"BookingStatus",version=version+1,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${bookingId}::uuid`;
+        await this.audit.recordInTransaction(tx, {
+          ...scope,
+          actorUserId: scope.userId,
+          action: 'booking.attention_dismissed',
+          targetType: 'booking',
+          targetId: bookingId,
+          details: {
+            version: current.version + 1,
+            status,
+            note: body.note,
+            resolution: 'CLOCK_ABSENT',
+          },
+        });
+      } else if (check.result === 'found') {
+        const other = await tx.$queryRaw<
+          Array<{ id: string }>
+        >`SELECT id FROM bookings WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND external_booking_id=${check.clockBookingId} AND id<>${bookingId}::uuid`;
+        if (other.length)
+          throw new ConflictException(
+            'That Clock reservation is already linked to another local record. Review the duplicate records before proceeding.',
+          );
+        await tx.$executeRaw`UPDATE bookings SET external_booking_id=${check.clockBookingId},version=version+1,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${bookingId}::uuid`;
+      }
+      await this.audit.recordInTransaction(tx, {
+        ...scope,
+        actorUserId: scope.userId,
+        action:
+          body.action === 'not_created'
+            ? 'booking.clock_absence_confirmed'
+            : 'booking.clock_reference_linked',
+        targetType: 'booking',
+        targetId: bookingId,
+        details: { note: body.note, check },
+      });
+      if (body.action === 'not_created')
+        await tx.$executeRaw`UPDATE manual_review_items SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=${scope.userId}::uuid,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND reference_type='booking' AND reference_id=${bookingId} AND category='UNKNOWN_RESULT' AND status='OPEN'`;
+    });
+    if (check.result === 'found') {
+      const hydrated = await this.hydration.hydrateBooking(
+        scope.tenantId,
+        scope.propertyId,
+        connection.connectionId,
+        check.clockBookingId,
+        undefined,
+        { notify: false },
+      );
+      if (!['created', 'updated'].includes(hydrated.outcome))
+        throw new ConflictException(
+          'The Clock reference is linked, but synchronization needs attention before this review can close.',
+        );
+      await this.db.withTenantTransaction(
+        scope,
+        (tx) =>
+          tx.$executeRaw`UPDATE manual_review_items SET status='RESOLVED',resolved_at=now(),resolved_by_user_id=${scope.userId}::uuid,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND reference_type='booking' AND reference_id=${bookingId} AND category='UNKNOWN_RESULT' AND status='OPEN'`,
+      );
+    }
+    return { ok: true, resolution: body.action };
+  }
+
   async check(tenantId: string, propertyId: string, bookingId: string) {
     const review = await this.get(tenantId, propertyId, bookingId);
     if (!review.canCheck)
@@ -155,7 +317,26 @@ export class BookingReviewController {
   @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
   @RequiresCapability('bookings.view')
   get(@Param('bookingId') bookingId: string, @Req() r: Request) {
-    return this.review.get(r.tenantContext.tenantId, r.tenantContext.propertyId, bookingId);
+    return this.review.get(
+      r.tenantContext.tenantId,
+      r.tenantContext.propertyId,
+      bookingId,
+      r.tenantContext.userId,
+    );
+  }
+
+  @Post('resolve')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.edit')
+  @RequiresVerifiedEmail()
+  resolve(
+    @Param('bookingId') id: string,
+    @Req() r: Request,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.review.resolve(r.tenantContext, id, body ?? {});
   }
 
   @Post('dismiss')

@@ -19,7 +19,7 @@ import { LocalPmsProvider } from '../booking/local-pms.provider';
 import { RequiresCapability } from '../tenancy/capabilities.decorator';
 import { Role, Roles } from '../tenancy/roles.decorator';
 import { TenantScoped } from '../tenancy/tenant-context.decorator';
-import { ManualPaymentService } from './manual-payment.service';
+import { type PaymentEvidence, ManualPaymentService } from './manual-payment.service';
 import { PokPayPaymentService } from './pokpay-payment.service';
 
 @Controller('tenants/:tenantId/properties/:propertyId/bookings')
@@ -151,6 +151,7 @@ export class ManualPaymentController {
       amount: this.money(value.amount),
       method: this.method(value.method),
       note: this.note(value.note),
+      evidence: this.evidence(value.evidence),
       actorUserId: request.tenantContext.userId,
     });
     if (!result.ok && result.error.code === 'IDEMPOTENCY_KEY_CONFLICT')
@@ -160,6 +161,23 @@ export class ManualPaymentController {
     return result;
   }
 
+  private evidence(value: unknown): PaymentEvidence | undefined {
+    if (value === undefined) return undefined;
+    if (!value || typeof value !== 'object' || Array.isArray(value))
+      throw new BadRequestException('Invalid payment evidence.');
+    const v = value as Record<string, unknown>;
+    if (typeof v.receivedOn !== 'string')
+      throw new BadRequestException('Enter the date payment was received.');
+    for (const key of ['reference', 'payerName', 'terminalId'])
+      if (v[key] !== undefined && (typeof v[key] !== 'string' || (v[key] as string).length > 120))
+        throw new BadRequestException('Payment references must be at most 120 characters.');
+    return {
+      receivedOn: v.receivedOn,
+      reference: (v.reference as string | undefined)?.trim(),
+      payerName: (v.payerName as string | undefined)?.trim(),
+      terminalId: (v.terminalId as string | undefined)?.trim(),
+    };
+  }
   private note(value: unknown): string | undefined {
     if (value === undefined) return undefined;
     if (typeof value !== 'string' || value.length > 500)

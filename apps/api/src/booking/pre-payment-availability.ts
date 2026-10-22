@@ -7,7 +7,13 @@ import { ClockPrePaymentAvailability } from '../integrations/clock/clock-pre-pay
 export type PrePaymentStay = {
   startsOn: string;
   endsOn: string;
-  rooms: Array<{ roomTypeId: string; roomId?: string; adults: number; children: number }>;
+  rooms: Array<{
+    roomTypeId: string;
+    roomId?: string;
+    adults: number;
+    children: number;
+    childrenAges?: number[];
+  }>;
 };
 
 /**

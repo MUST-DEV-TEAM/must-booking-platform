@@ -26,6 +26,7 @@ export type QuoteInput = {
   endsOn: string;
   adults?: number;
   children?: number;
+  childrenAges?: number[];
   guestCount?: number;
 };
 
@@ -117,6 +118,7 @@ export class QuoteService {
         endsOn: normalizedInput.endsOn,
         adultCount: normalizedInput.adults,
         childrenCount: normalizedInput.children,
+        childrenAges: normalizedInput.childrenAges,
       });
       if (!quote.ok) throw new BadRequestException(quote.error.message);
       return quote.value;
@@ -146,6 +148,7 @@ export class QuoteService {
         endsOn: normalizedInput.endsOn,
         adultCount: normalizedInput.adults,
         childrenCount: normalizedInput.children,
+        childrenAges: normalizedInput.childrenAges,
       });
       if (!quote.ok) throw new BadRequestException(quote.error.message);
       return quote.value;
@@ -211,6 +214,7 @@ export class QuoteService {
         endsOn: normalized.endsOn,
         adultCount: normalized.adults,
         childrenCount: normalized.children,
+        childrenAges: normalized.childrenAges,
         roomCount,
         currency: item.currency,
       }));
@@ -337,6 +341,8 @@ export class QuoteService {
       payload.endsOn !== expected.endsOn ||
       quotedOccupancy.adults !== expectedOccupancy.adults ||
       quotedOccupancy.children !== expectedOccupancy.children ||
+      JSON.stringify(payload.childrenAges ?? null) !==
+        JSON.stringify(expected.childrenAges ?? null) ||
       payload.total.amount !== expected.total.amount ||
       payload.total.currency !== expected.total.currency
     ) {

@@ -29,6 +29,27 @@ afterEach(async () => {
 });
 
 describe('ClockHttpClient', () => {
+  it('encodes individual ages as one Rails array dimension', async () => {
+    let received: URL | undefined;
+    const host = await startMockServer((req, res) => {
+      received = new URL(req.url!, 'http://localhost');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('[]');
+    });
+    client = new ClockHttpClient('http:');
+    await client.request(
+      { ...credentials, host },
+      {
+        api: 'pms_api',
+        method: 'GET',
+        path: '/products',
+        query: { 'product_search[children_ages]': ['2', '12'] },
+      },
+    );
+    expect(received!.searchParams.getAll('product_search[children_ages][]')).toEqual(['2', '12']);
+    expect(received!.searchParams.has('product_search[children_ages][][]')).toBe(false);
+  });
+
   it('follows the Digest challenge/response round-trip and returns the JSON body', async () => {
     let secondRequestAuthorization: string | undefined;
     const host = await startMockServer((request, response) => {

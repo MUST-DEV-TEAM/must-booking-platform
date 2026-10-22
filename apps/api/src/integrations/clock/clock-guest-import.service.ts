@@ -21,7 +21,7 @@ import {
   ClockBookingConsistencyService,
 } from './clock-booking-consistency.service';
 import { parseClockCredentials } from './clock-credentials';
-type Scope = { tenantId: string; propertyId: string; userId: string };
+type Scope = { tenantId: string; propertyId: string; userId: string | null };
 const text = (v: unknown, max: number) =>
   typeof v === 'string' ? v.trim().slice(0, max) || null : null;
 @Injectable()

@@ -1,6 +1,7 @@
 export type BookingOccupancyInput = {
   adults?: number;
   children?: number;
+  childrenAges?: number[];
   /** Legacy input used only when neither new occupancy field is supplied. */
   guestCount?: number;
 };
@@ -27,6 +28,10 @@ export function validBookingOccupancy(input: BookingOccupancyInput): boolean {
     Number.isInteger(occupancy.adults) &&
     occupancy.adults >= 1 &&
     Number.isInteger(occupancy.children) &&
-    occupancy.children >= 0
+    occupancy.children >= 0 &&
+    (input.childrenAges === undefined ||
+      (Array.isArray(input.childrenAges) &&
+        input.childrenAges.length === occupancy.children &&
+        input.childrenAges.every((age) => Number.isInteger(age) && age >= 0 && age <= 120)))
   );
 }

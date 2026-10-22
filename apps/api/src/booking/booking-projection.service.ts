@@ -43,6 +43,8 @@ export type BookingProjection = {
   paymentMethod: BookingPaymentMethod;
   adults: number;
   children: number;
+  childrenAges?: number[] | null;
+  balanceBasis?: 'CLOCK' | 'MUST';
   total: { amount: string; currency: string };
   paidAmount: string;
   refundedAmount: string;
@@ -79,6 +81,8 @@ export type BookingSearchItem = {
   createdAt: string;
   adults: number;
   children: number;
+  childrenAges?: number[] | null;
+  balanceBasis?: 'CLOCK' | 'MUST';
   specialRequests: string | null;
   pmsStayStatus: string | null;
   roomId: string | null;
@@ -173,7 +177,12 @@ function toSearchItem(row: Record<string, unknown>): BookingSearchItem {
     createdAt:
       row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
     adults: Number(row.adults),
+    balanceBasis:
+      row.external_booking_id && String(row.external_reference).startsWith('CLOCK-')
+        ? 'CLOCK'
+        : 'MUST',
     children: Number(row.children),
+    childrenAges: (row.children_ages as number[] | null) ?? null,
     specialRequests: (row.special_requests as string | null) ?? null,
     pmsStayStatus: (row.pms_stay_status as string | null) ?? null,
     roomId: (row.room_id as string | null) ?? null,
@@ -196,7 +205,7 @@ function toSearchItem(row: Record<string, unknown>): BookingSearchItem {
 const BOOKING_BASE_SQL = `
       SELECT x.*, ${PAYMENT_STATE_SQL} AS payment_state FROM (
         SELECT NOT EXISTS (SELECT 1 FROM audit_logs a WHERE a.tenant_id=b.tenant_id AND a.property_id=b.property_id AND a.target_type='booking' AND a.target_id=b.id::text AND a.action='booking.attention_dismissed' AND a.details->>'version'=b.version::text AND a.details->>'status'=b.status::text) AS attention_open, b.id, b.external_reference, b.order_reference, b.status, b.payment_method, b.source,
-          b.starts_on, b.ends_on, b.created_at, b.total_amount, b.adults, b.children,
+          b.starts_on, b.ends_on, b.created_at, b.total_amount, b.adults, b.children,b.children_ages,
           EXISTS(SELECT 1 FROM booking_requests q WHERE q.tenant_id=b.tenant_id AND q.property_id=b.property_id AND q.booking_id=b.id AND q.type='cancellation' AND q.status='Pending') AS cancellation_pending,
           b.special_requests, b.pms_stay_status, b.room_id, r.name AS room_name,
           b.room_type_id, rt.name AS room_type_name, rp.name AS rate_plan_name, rp.currency,
@@ -496,7 +505,7 @@ export class BookingProjectionService {
           b.rate_plan_id AS "ratePlanId", rp.name AS "ratePlanName",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status, b.pms_stay_status AS "pmsStayStatus",
           b.payment_method AS "paymentMethod",
-          b.adults, b.children,
+          b.adults, b.children,b.children_ages AS "childrenAges",CASE WHEN b.external_booking_id IS NOT NULL AND b.external_reference LIKE 'CLOCK-%' THEN 'CLOCK' ELSE 'MUST' END AS "balanceBasis",
           b.total_amount::text AS "totalAmount", rp.currency, b.external_reference AS "externalReference",
           COALESCE(payment_totals."paidAmount", 0)::text AS "paidAmount",
           COALESCE(payment_totals."refundedAmount", 0)::text AS "refundedAmount",

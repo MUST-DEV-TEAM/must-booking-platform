@@ -364,6 +364,27 @@ export class ClockBookingConsistencyService {
    * has no write path.
    */
   /** CONFIRMED_BY_DOCS: Clock public Guests VIEW/index + first-level filter contract. */
+  /** CONFIRMED_BY_DOCS: first-level updated_at comparison filters on Bookings VIEW. */
+  async updatedBookingIds(
+    credentials: ClockConnectionCredentials,
+    from: string,
+    until: string,
+  ): Promise<string[]> {
+    const ids = await this.fetchClock<unknown>(credentials, '/bookings/', {
+      'updated_at.gteq': from,
+      'updated_at.lt': until,
+    });
+    if (!Array.isArray(ids) || ids.length > 100000 || !ids.every(isClockBookingId))
+      throw new ClockBookingReadError({
+        category: 'schema_mismatch',
+        code: 'clock_schema_mismatch',
+        message: 'Clock returned an unreadable or excessive booking index.',
+        retryable: false,
+      });
+    return [...new Set(ids.map(String))].sort((a, b) =>
+      BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0,
+    );
+  }
   async guestIds(
     credentials: ClockConnectionCredentials,
     updatedFrom: string,

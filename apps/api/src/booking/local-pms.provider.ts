@@ -42,6 +42,7 @@ import { resolveGuestWithPhoneSignal } from './guest-matching';
 export const PMS_PROVIDER = Symbol('PMS_PROVIDER');
 
 export type LocalCreateBookingCommand = CreateBookingCommand & {
+  childrenAges?: number[];
   quoteToken?: string;
   quoteSessionId?: string;
   staffActorId?: string;
@@ -72,6 +73,7 @@ type BookingRow = {
   totalAmount: string;
   adults: number;
   children: number;
+  childrenAges: number[] | null;
   currency: string;
   nightlyRates: unknown;
   externalReference: string;
@@ -265,7 +267,7 @@ export class LocalPmsProvider implements PmsProvider {
     if (
       !this.validStay(command.startsOn, command.endsOn) ||
       !this.validAmount(command.total.amount) ||
-      !this.validGuestCount(occupancy.adults, occupancy.children) ||
+      !validBookingOccupancy(command) ||
       !(command.quoteSessionId ?? command.staffActorId)
     ) {
       return this.failure(
@@ -345,7 +347,7 @@ export class LocalPmsProvider implements PmsProvider {
         INSERT INTO bookings (
           tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
           guest_session_id, special_requests, status, payment_method, starts_on, ends_on, rate_plan_id, total_amount,
-          adults, children, guest_count, source
+          adults, children, children_ages, guest_count, source
         ) VALUES (
           ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${command.roomTypeId}::uuid,
           ${command.roomId ?? null}::uuid, ${guestId}::uuid, ${externalReference},
@@ -354,7 +356,7 @@ export class LocalPmsProvider implements PmsProvider {
           ${BookingStatus.DRAFT}::"BookingStatus",
           ${paymentMethod.value}::"BookingPaymentMethod",
           ${command.startsOn}::date, ${command.endsOn}::date, ${ratePlanId}::uuid,
-          ${command.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children},
+          ${command.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children}, ${command.childrenAges === undefined ? null : JSON.stringify(command.childrenAges)}::jsonb,
           ${occupancy.guestCount}, ${command.staffActorId ? 'DIRECT' : 'WEBSITE'}
         )
         RETURNING id
@@ -405,6 +407,7 @@ export class LocalPmsProvider implements PmsProvider {
                     endsOn: command.endsOn,
                     adults: occupancy.adults,
                     children: occupancy.children,
+                    childrenAges: command.childrenAges,
                     guestCount: occupancy.guestCount,
                     total: command.total,
                   },
@@ -512,6 +515,7 @@ export class LocalPmsProvider implements PmsProvider {
                       roomId: command.roomId,
                       adults: occupancy.adults,
                       children: occupancy.children,
+                      childrenAges: command.childrenAges,
                     },
                   ],
                 });
@@ -1539,7 +1543,7 @@ export class LocalPmsProvider implements PmsProvider {
   private async validateRoomSelection(
     tx: TenantTransaction,
     context: PmsProviderContext,
-    command: CreateBookingCommand,
+    command: LocalCreateBookingCommand,
   ): Promise<RoomSelection | Result<Booking>> {
     const properties = await tx.$queryRaw<Array<{ bookingMode: string }>>`
       SELECT booking_mode AS "bookingMode"
@@ -1577,7 +1581,7 @@ export class LocalPmsProvider implements PmsProvider {
   private async reserveSamePricedRoom(
     tx: TenantTransaction,
     context: PmsProviderContext,
-    command: CreateBookingCommand,
+    command: LocalCreateBookingCommand,
   ): Promise<string | null> {
     const occupancy = resolveBookingOccupancy(command);
     const rooms = await tx.$queryRaw<Array<{ id: string }>>`
@@ -1598,6 +1602,7 @@ export class LocalPmsProvider implements PmsProvider {
         endsOn: command.endsOn,
         adults: occupancy.adults,
         children: occupancy.children,
+        childrenAges: command.childrenAges,
         guestCount: occupancy.guestCount,
       });
       if (price.amount !== command.total.amount || price.currency !== command.total.currency)
@@ -1736,7 +1741,7 @@ export class LocalPmsProvider implements PmsProvider {
         b.guest_session_id AS "guestSessionId", b.guest_return_url AS "guestReturnUrl", b.rate_plan_id AS "ratePlanId",
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
         b.payment_method AS "paymentMethod",
-        b.total_amount::text AS "totalAmount", b.adults, b.children, b.nightly_rates AS "nightlyRates",
+        b.total_amount::text AS "totalAmount", b.adults, b.children, b.children_ages AS "childrenAges", b.nightly_rates AS "nightlyRates",
         rp.currency, b.external_reference AS "externalReference", b.order_reference AS "orderReference",
         b.external_booking_id AS "externalBookingId",
         b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
@@ -1760,7 +1765,7 @@ export class LocalPmsProvider implements PmsProvider {
         b.guest_return_url AS "guestReturnUrl", b.rate_plan_id AS "ratePlanId",
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
         b.payment_method AS "paymentMethod",
-        b.total_amount::text AS "totalAmount", b.adults, b.children, b.nightly_rates AS "nightlyRates",
+        b.total_amount::text AS "totalAmount", b.adults, b.children, b.children_ages AS "childrenAges", b.nightly_rates AS "nightlyRates",
         rp.currency, b.external_reference AS "externalReference", b.order_reference AS "orderReference",
         b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
       FROM bookings b JOIN rate_plans rp
@@ -1857,7 +1862,7 @@ export class LocalPmsProvider implements PmsProvider {
   private async paymentMethod(
     tx: TenantTransaction,
     context: PmsProviderContext,
-    command: CreateBookingCommand,
+    command: LocalCreateBookingCommand,
   ): Promise<Result<BookingPaymentMethod>> {
     if (!this.requiresCheckout(command.total.amount))
       return { ok: true, value: BookingPaymentMethod.FREE };

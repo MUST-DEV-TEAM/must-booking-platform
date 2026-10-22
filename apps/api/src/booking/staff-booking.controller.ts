@@ -122,6 +122,7 @@ export class StaffBookingController {
       endsOn: typeof value.endsOn === 'string' ? value.endsOn : '',
       adults: typeof value.adults === 'number' ? value.adults : undefined,
       children: typeof value.children === 'number' ? value.children : undefined,
+      childrenAges: value.childrenAges as number[] | undefined,
       guestCount: typeof value.guestCount === 'number' ? value.guestCount : undefined,
       paymentMethod:
         value.paymentMethod === 'stripe' ||

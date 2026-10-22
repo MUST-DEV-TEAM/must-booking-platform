@@ -44,7 +44,7 @@ export class PaymentCollectionService {
     return this.db.withTenantTransaction(scope, async (tx) => {
       const rows = await tx.$queryRaw<
         Array<{ pokpay: boolean }>
-      >`SELECT p.pokpay_enabled AND EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections c ON c.tenant_id=pc.tenant_id AND c.id=pc.connection_id WHERE pc.tenant_id=p.tenant_id AND pc.property_id=p.id AND pc.enabled AND c.provider='POKPAY' AND c.status='CONNECTED') AS pokpay FROM properties p JOIN bookings b ON b.tenant_id=p.tenant_id AND b.property_id=p.id WHERE p.tenant_id=${scope.tenantId}::uuid AND p.id=${scope.propertyId}::uuid AND b.id=${bookingId}::uuid`;
+      >`SELECT (b.external_booking_id IS NULL OR b.external_reference NOT LIKE 'CLOCK-%') AND p.pokpay_enabled AND EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections c ON c.tenant_id=pc.tenant_id AND c.id=pc.connection_id WHERE pc.tenant_id=p.tenant_id AND pc.property_id=p.id AND pc.enabled AND c.provider='POKPAY' AND c.status='CONNECTED') AS pokpay FROM properties p JOIN bookings b ON b.tenant_id=p.tenant_id AND b.property_id=p.id WHERE p.tenant_id=${scope.tenantId}::uuid AND p.id=${scope.propertyId}::uuid AND b.id=${bookingId}::uuid`;
       if (!rows[0]) throw new NotFoundException('Booking not found.');
       return rows[0];
     });
@@ -61,14 +61,19 @@ export class PaymentCollectionService {
           paid: string;
           enabled: boolean;
           orderReference: string | null;
+          balanceManagedInClock: boolean;
         }>
       >`
-    SELECT b.status::text AS status,rp.currency,b.total_amount::text AS total,(p.pokpay_enabled AND EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id WHERE pc.tenant_id=p.tenant_id AND pc.property_id=p.id AND pc.enabled AND ic.provider='POKPAY' AND ic.status='CONNECTED')) AS enabled,b.order_reference AS "orderReference",
+    SELECT (b.external_booking_id IS NOT NULL AND b.external_reference LIKE 'CLOCK-%') AS "balanceManagedInClock",b.status::text AS status,rp.currency,b.total_amount::text AS total,(p.pokpay_enabled AND EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id WHERE pc.tenant_id=p.tenant_id AND pc.property_id=p.id AND pc.enabled AND ic.provider='POKPAY' AND ic.status='CONNECTED')) AS enabled,b.order_reference AS "orderReference",
       COALESCE((SELECT SUM(amount) FROM payments c WHERE c.tenant_id=b.tenant_id AND c.property_id=b.property_id AND c.booking_id=b.id AND c.kind='CHARGE' AND c.status IN ('PAID','succeeded')),0)::text AS paid
     FROM bookings b JOIN properties p ON p.tenant_id=b.tenant_id AND p.id=b.property_id JOIN rate_plans rp ON rp.tenant_id=b.tenant_id AND rp.property_id=b.property_id AND rp.id=b.rate_plan_id
     WHERE b.tenant_id=${scope.tenantId}::uuid AND b.property_id=${scope.propertyId}::uuid AND b.id=${bookingId}::uuid FOR UPDATE OF b`;
       const b = bookings[0];
       if (!b) throw new NotFoundException('Booking not found.');
+      if (b.balanceManagedInClock)
+        throw new ConflictException(
+          'Earlier payments for this imported booking are managed in Clock. Verify its balance in Clock before collecting money.',
+        );
       if (b.status !== 'CONFIRMED')
         throw new ConflictException('Confirm the booking before collecting a balance.');
       if (b.orderReference)
@@ -187,7 +192,7 @@ export class PaymentCollectionService {
         }>
       >`
    SELECT ${bookingContactSql.email} AS email,b.external_reference AS reference,p.name,p.logo_url AS "logoUrl",p.support_email AS "supportEmail"
-   FROM bookings b LEFT JOIN guests g ON g.tenant_id=b.tenant_id AND g.id=b.guest_id JOIN properties p ON p.tenant_id=b.tenant_id AND p.id=b.property_id
+   FROM bookings b LEFT JOIN guests g ON g.tenant_id=b.tenant_id AND g.id=b.guest_id JOIN properties p ON p.tenant_id=b.tenant_id AND p.id=b.property_id JOIN room_types rt ON rt.tenant_id=b.tenant_id AND rt.property_id=b.property_id AND rt.id=b.room_type_id
    WHERE b.tenant_id=${scope.tenantId}::uuid AND b.property_id=${scope.propertyId}::uuid AND b.id=${bookingId}::uuid`,
     );
     const row = rows[0];
@@ -347,17 +352,23 @@ export class PaymentCollectionService {
           logoUrl: string | null;
           supportEmail: string | null;
           brandColour: string | null;
+          phone: string | null;
+          address: string | null;
+          startsOn: string;
+          endsOn: string;
+          roomName: string;
+          guests: number;
         }>
       >`
-   SELECT ${bookingContactSql.email} AS email,b.external_reference AS reference,p.name,p.logo_url AS "logoUrl",p.support_email AS "supportEmail",p.brand_colour AS "brandColour"
-   FROM bookings b LEFT JOIN guests g ON g.tenant_id=b.tenant_id AND g.id=b.guest_id JOIN properties p ON p.tenant_id=b.tenant_id AND p.id=b.property_id
+   SELECT ${bookingContactSql.email} AS email,b.external_reference AS reference,p.name,p.logo_url AS "logoUrl",p.support_email AS "supportEmail",p.brand_colour AS "brandColour",p.phone,p.address,b.starts_on::text AS "startsOn",b.ends_on::text AS "endsOn",rt.name AS "roomName",(b.adults+b.children) AS guests
+   FROM bookings b LEFT JOIN guests g ON g.tenant_id=b.tenant_id AND g.id=b.guest_id JOIN properties p ON p.tenant_id=b.tenant_id AND p.id=b.property_id JOIN room_types rt ON rt.tenant_id=b.tenant_id AND rt.property_id=b.property_id AND rt.id=b.room_type_id
    WHERE b.tenant_id=${scope.tenantId}::uuid AND b.property_id=${scope.propertyId}::uuid AND b.id=${bookingId}::uuid`,
     );
     const row = rows[0];
     if (!row?.email) return;
     const subject = `Payment received - ${row.reference}`;
     const amount = `${collection.amount} ${collection.currency}`;
-    const text = `We received your payment of ${amount} for booking ${row.reference} at ${row.name}. This is a payment receipt; your reservation has not been created again.`;
+    const text = `We received your payment of ${amount} for booking ${row.reference} at ${row.name}. Stay: ${row.startsOn} to ${row.endsOn}. Room type: ${row.roomName}. Guests: ${row.guests}. Keep this receipt with your booking confirmation.`;
     await this.delivery.dispatch(
       'rendered',
       {
@@ -371,12 +382,18 @@ export class PaymentCollectionService {
             logoUrl: row.logoUrl,
             supportEmail: row.supportEmail,
             brandColour: row.brandColour,
+            phone: row.phone,
+            address: row.address,
           },
           heading: 'Payment received',
           content:
             '<p>Thank you. Your payment has been recorded against your existing reservation.</p>',
           summaryRows: [
             { label: 'Booking', value: row.reference },
+            { label: 'Stay', value: `${row.startsOn} to ${row.endsOn}` },
+            { label: 'Room type', value: row.roomName },
+            { label: 'Guests', value: String(row.guests) },
+            { label: 'Payment method', value: 'PokPay' },
             { label: 'Amount received', value: amount },
           ],
         }),

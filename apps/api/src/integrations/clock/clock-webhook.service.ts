@@ -446,7 +446,12 @@ export class ClockWebhookService {
           payloadHash,
           JSON.stringify(envelope),
         );
-        if (inserted[0]) return { id: inserted[0].id, status: 'RECEIVED' as ProviderEventStatus };
+        if (inserted[0]) {
+          // The verified event wakes local projections as well as the existing event worker.
+          // A request received during a batch remains recorded until that cycle finishes.
+          await tx.$executeRaw`UPDATE clock_sync_jobs SET requested_at=now(),next_run_at=LEAST(next_run_at,now()) WHERE tenant_id=${connection.tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${connection.connectionId}::uuid AND status<>'FAILED' AND (resource IN ('bookings','guests','rooms','rates','catalog') OR resource LIKE 'availability:%')`;
+          return { id: inserted[0].id, status: 'RECEIVED' as ProviderEventStatus };
+        }
 
         // Duplicate delivery of an event already persisted by an earlier
         // one. Read back its current status so the caller can decide

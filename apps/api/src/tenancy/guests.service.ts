@@ -12,6 +12,7 @@ import { AuditLogService } from './audit-log.service';
 import { TenantDatabaseService } from './tenant-database.service';
 
 export type GuestDirectoryEntry = {
+  source?: 'CLOCK' | 'MUST';
   id: string;
   email: string;
   firstName: string | null;
@@ -63,10 +64,8 @@ export class GuestsService {
     search: string | undefined,
   ): Promise<GuestDirectoryEntry[]> {
     const normalizedSearch = search?.trim() ?? '';
-    return this.database.withTenantTransaction(
-      { tenantId, propertyId },
-      (tx) =>
-        tx.$queryRaw<GuestDirectoryEntry[]>`
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const local = await tx.$queryRaw<GuestDirectoryEntry[]>`
         SELECT g.id, g.email, g.first_name AS "firstName", g.last_name AS "lastName", g.phone,
           g.street_address AS "streetAddress", g.address_line_2 AS "addressLine2", g.city, g.county,
           g.postcode,g.country_code AS "countryCode",g.capture_version AS "captureVersion",
@@ -94,8 +93,17 @@ export class GuestsService {
         GROUP BY g.id, g.email, g.first_name, g.last_name, g.phone, g.street_address, g.address_line_2,
           g.city, g.county, g.postcode, recent.starts_on, recent.ends_on
         ORDER BY recent.starts_on DESC, g.email ASC
-      `,
-    );
+      `;
+      const profiles = await tx.$queryRaw<GuestDirectoryEntry[]>`
+        SELECT p.id, COALESCE(p.email,'') AS email,p.first_name AS "firstName",p.last_name AS "lastName",p.phone,
+          NULL AS "streetAddress",NULL AS "addressLine2",NULL AS city,NULL AS county,NULL AS postcode,NULL AS "countryCode",0 AS "captureVersion",0 AS "bookingCount",NULL AS "mostRecentStartsOn",NULL AS "mostRecentEndsOn",'CLOCK' AS source
+        FROM clock_guest_profiles p JOIN property_integration_connections pc ON pc.tenant_id=p.tenant_id AND pc.property_id=p.property_id AND pc.connection_id=p.connection_id AND pc.enabled
+        WHERE p.tenant_id=${tenantId}::uuid AND p.property_id=${propertyId}::uuid
+          AND NOT EXISTS(SELECT 1 FROM clock_guest_mappings m WHERE m.tenant_id=p.tenant_id AND m.property_id=p.property_id AND m.external_guest_id=p.external_guest_id AND m.guest_id=ANY(${local.map((g) => g.id)}::uuid[]))
+          AND (${normalizedSearch}='' OR CONCAT_WS(' ',p.first_name,p.last_name,p.email,p.phone) ILIKE ${`%${normalizedSearch}%`})
+        ORDER BY p.last_name,p.first_name,p.id`;
+      return [...local.map((g) => ({ ...g, source: 'MUST' as const })), ...profiles];
+    });
   }
 
   async updateCountry(
