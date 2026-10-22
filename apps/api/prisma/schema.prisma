@@ -258,6 +258,8 @@ model Property {
   auditExportVersion Int @default(0) @map("audit_export_version")
 
   clockGuestProfiles ClockGuestProfile[]
+  clockSyncJobs ClockSyncJob[]
+  serverMediaUploads ServerMediaUpload[]
 }
 
 enum PropertyBookingMode {
@@ -849,6 +851,7 @@ model RoomPriceOverride {
 }
 
 model Booking {
+  pmsSourceUpdatedAt DateTime? @map("pms_source_updated_at") @db.Timestamptz(6)
   id                         String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId                   String                   @map("tenant_id") @db.Uuid
   propertyId                 String                   @map("property_id") @db.Uuid
@@ -909,6 +912,7 @@ model Booking {
   @@index([tenantId, propertyId, guestId])
   @@index([tenantId, propertyId, orderReference, orderRoomNumber])
   @@map("bookings")
+  childrenAges Json? @map("children_ages")
 }
 
 // Financial-flow gap Task B (docs/CLOCK_FINANCIAL_RECONCILIATION_PLAN.md,
@@ -1096,6 +1100,7 @@ model IntegrationConnection {
   @@index([tenantId, kind])
   @@map("integration_connections")
   clockGuestProfiles ClockGuestProfile[]
+  clockSyncJobs ClockSyncJob[]
 }
 
 // Join table: which properties have which connections enabled. `kind` is
@@ -1833,4 +1838,43 @@ model ClockGuestProfile {
  connection IntegrationConnection @relation(fields:[tenantId,connectionId],references:[tenantId,id],onDelete:Restrict,onUpdate:NoAction,map:"clock_guest_profiles_connection_fk")
  @@unique([tenantId,propertyId,connectionId,externalGuestId],map:"clock_guest_profiles_identity")
  @@map("clock_guest_profiles")
+}
+
+model ClockSyncJob {
+ id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ connectionId String @map("connection_id") @db.Uuid
+ resource String @db.VarChar(80)
+ status String @default("READY") @db.VarChar(16)
+ progress Json @default("{}")
+ snapshot Json?
+ lastSuccessAt DateTime? @map("last_success_at") @db.Timestamptz(6)
+ nextRunAt DateTime @default(now()) @map("next_run_at") @db.Timestamptz(6)
+ leaseToken String? @map("lease_token") @db.Uuid
+ leaseUntil DateTime? @map("lease_until") @db.Timestamptz(6)
+ lastError String? @map("last_error") @db.VarChar(300)
+ processed Int @default(0)
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+ updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+ property Property @relation(fields:[tenantId,propertyId],references:[tenantId,id],onDelete:Restrict,onUpdate:NoAction,map:"clock_sync_jobs_property_fk")
+ connection IntegrationConnection @relation(fields:[tenantId,connectionId],references:[tenantId,id],onDelete:Restrict,onUpdate:NoAction,map:"clock_sync_jobs_connection_fk")
+ @@unique([tenantId,propertyId,connectionId,resource],map:"clock_sync_jobs_scope")
+ @@map("clock_sync_jobs")
+  requestedAt DateTime? @map("requested_at") @db.Timestamptz(6)
+}
+
+model ServerMediaUpload {
+ id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+ tenantId String @map("tenant_id") @db.Uuid
+ propertyId String @map("property_id") @db.Uuid
+ tokenHash String @unique @map("token_hash") @db.VarChar(64)
+ objectKey String @unique @map("object_key")
+ contentType String @map("content_type") @db.VarChar(40)
+ contentLength Int @map("content_length")
+ expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+ uploadedAt DateTime? @map("uploaded_at") @db.Timestamptz(6)
+ createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+ property Property @relation(fields:[tenantId,propertyId],references:[tenantId,id],onDelete:NoAction,onUpdate:NoAction)
+ @@map("server_media_uploads")
 }

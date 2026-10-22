@@ -15,7 +15,11 @@ import {
   roomTypeImagePresentation,
   type RoomTypeImageProjectionRow,
 } from './room-type-image-projection';
-import { STORAGE_PROVIDER, type StorageProvider } from '../storage/storage.provider';
+import {
+  STORAGE_PROVIDER,
+  uploadObjectKey,
+  type StorageProvider,
+} from '../storage/storage.provider';
 import { resolveEffectiveHouseRules } from './effective-house-rules';
 
 type RoomType = {
@@ -378,7 +382,10 @@ export class RoomTypesService {
       `;
 
       const extension = input.contentType.split('/')[1];
-      const objectKey = `room-types/${tenantId}/${propertyId}/${roomTypeId}/${randomUUID()}.${extension}`;
+      const objectKey = uploadObjectKey(
+        this.storage,
+        `room-types/${tenantId}/${propertyId}/${roomTypeId}/${randomUUID()}.${extension}`,
+      );
       const { uploadUrl } = await this.storage.createPresignedUpload({
         key: objectKey,
         contentType: input.contentType,
@@ -782,7 +789,10 @@ export class RoomTypesService {
       typeof rawName === 'string' && rawName.trim() ? rawName.trim().slice(0, 255) : null;
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
       const extension = input.contentType.split('/')[1];
-      const objectKey = `library/${tenantId}/${propertyId}/${randomUUID()}.${extension}`;
+      const objectKey = uploadObjectKey(
+        this.storage,
+        `library/${tenantId}/${propertyId}/${randomUUID()}.${extension}`,
+      );
       const { uploadUrl } = await this.storage.createPresignedUpload({
         key: objectKey,
         contentType: input.contentType,

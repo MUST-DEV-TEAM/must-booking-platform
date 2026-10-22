@@ -10,7 +10,11 @@ import { randomUUID } from 'node:crypto';
 import { AuditLogService } from './audit-log.service';
 import { roomImagePresentation, type RoomImageProjectionRow } from './room-image-projection';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
-import { STORAGE_PROVIDER, type StorageProvider } from '../storage/storage.provider';
+import {
+  STORAGE_PROVIDER,
+  uploadObjectKey,
+  type StorageProvider,
+} from '../storage/storage.provider';
 import { resolveEffectiveHouseRules } from './effective-house-rules';
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
@@ -255,7 +259,10 @@ export class RoomsService {
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND room_id = ${roomId}::uuid
       `;
       const extension = input.contentType.split('/')[1];
-      const objectKey = `rooms/${tenantId}/${propertyId}/${roomId}/${randomUUID()}.${extension}`;
+      const objectKey = uploadObjectKey(
+        this.storage,
+        `rooms/${tenantId}/${propertyId}/${roomId}/${randomUUID()}.${extension}`,
+      );
       const { uploadUrl } = await this.storage.createPresignedUpload({
         key: objectKey,
         contentType: input.contentType,

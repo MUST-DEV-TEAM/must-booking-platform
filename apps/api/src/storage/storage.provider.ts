@@ -1,3 +1,7 @@
-import type { StorageProvider } from '@must/domain-contracts';
+import type { StorageProvider as DomainStorageProvider } from '@must/domain-contracts';
 export const STORAGE_PROVIDER = Symbol('STORAGE_PROVIDER');
-export type { StorageProvider };
+export interface StorageProvider extends DomainStorageProvider {
+  newObjectKey?(key: string): string;
+}
+export const uploadObjectKey = (storage: StorageProvider, key: string) =>
+  storage.newObjectKey?.(key) ?? key;
