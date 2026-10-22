@@ -18,6 +18,7 @@ import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Combobox } from '../../components/ui/combobox';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../../components/ui/dialog';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { DetailList } from '../../components/ui/detail-list';
 import { FormField } from '../../components/ui/form-field';
@@ -1316,22 +1317,34 @@ function EmailDeliveryDetail({
                 {showRendered ? 'Hide retained message' : 'View retained message'}
               </Button>
               {showRendered ? (
-                <div id={`retained-email-${id}`} className="flex flex-col gap-3">
-                  <DetailList
-                    items={[
-                      {
-                        label: 'Safe preview',
-                        value:
-                          'Links, remote images and active content are removed. This is prepared content, not proof of delivery.',
-                      },
-                    ]}
-                  />
-                  <MessagePreview
-                    subject={query.data.renderedPreview.subject}
-                    html={query.data.renderedPreview.html}
-                    text={query.data.renderedPreview.text}
-                  />
-                </div>
+                <Dialog open={showRendered} onOpenChange={setShowRendered}>
+                  <DialogContent
+                    id={`retained-email-${id}`}
+                    className="!max-w-5xl max-h-[90dvh] overflow-y-auto"
+                  >
+                    <DialogTitle>Retained email preview</DialogTitle>
+                    <DialogDescription>
+                      Review the saved message in desktop, mobile or plain text view.
+                    </DialogDescription>
+                    <DetailList
+                      items={[
+                        {
+                          label: 'Safe preview',
+                          value:
+                            'Links, remote images and active content are removed. This is prepared content, not proof of delivery.',
+                        },
+                      ]}
+                    />
+                    <MessagePreview
+                      subject={query.data.renderedPreview.subject}
+                      html={query.data.renderedPreview.html}
+                      text={query.data.renderedPreview.text}
+                    />
+                    <Button variant="outline" onClick={() => setShowRendered(false)}>
+                      Close preview
+                    </Button>
+                  </DialogContent>
+                </Dialog>
               ) : null}
             </>
           ) : (

@@ -398,6 +398,19 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
       : `${this.formatDate(command.stay.startsOn, options.dateFormat)} – ${this.formatDate(command.stay.endsOn, options.dateFormat)}`;
     const rows = [
       { label: 'Booking reference', value: command.bookingReference },
+      { label: 'Check-in date', value: this.formatDate(command.stay.startsOn, options.dateFormat) },
+      { label: 'Check-out date', value: this.formatDate(command.stay.endsOn, options.dateFormat) },
+      {
+        label: 'Nights',
+        value: String(
+          Math.max(
+            0,
+            Math.round(
+              (Date.parse(command.stay.endsOn) - Date.parse(command.stay.startsOn)) / 86400000,
+            ),
+          ),
+        ),
+      },
       command.rooms && command.rooms.length > 1
         ? { label: 'Rooms', value: this.roomLines(command.rooms) }
         : { label: 'Room', value: command.roomName },

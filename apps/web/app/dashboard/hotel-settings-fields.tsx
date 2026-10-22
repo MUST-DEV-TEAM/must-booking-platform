@@ -28,6 +28,20 @@ export const hotelSettingGroups: Record<
       description:
         'Hotel business details. The default currency is a preference; it never converts existing prices.',
       fields: [
+        {
+          key: 'supportEmail',
+          label: 'Guest contact email',
+          placeholder: 'reservations@example.com',
+          hint: 'Shown as an Email link in guest messages.',
+          max: 254,
+        },
+        {
+          key: 'phone',
+          label: 'Guest contact phone',
+          placeholder: '+355 ...',
+          hint: 'Include the country code. Shown as a clickable phone number.',
+          max: 100,
+        },
         { key: 'legalName', label: 'Legal business name', max: 200 },
         {
           key: 'taxNumber',
@@ -263,6 +277,8 @@ export function useHotelSettings(
       errors[prefix + 'Until'] = 'Enter the free-until time.';
   if (Boolean(values.quietHoursFrom) !== Boolean(values.quietHoursTo))
     errors.quietHoursTo = 'Enter both quiet-hours times, or leave both empty.';
+  if (values.supportEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(values.supportEmail)))
+    errors.supportEmail = 'Enter a valid contact email.';
   const update: Partial<Property> = {};
   for (const f of fields)
     if (JSON.stringify(values[f.key]) !== JSON.stringify(saved[f.key])) {

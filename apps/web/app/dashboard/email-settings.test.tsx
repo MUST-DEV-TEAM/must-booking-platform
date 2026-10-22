@@ -556,7 +556,8 @@ describe('Emails workspace and legacy links', () => {
     expect(document.body.textContent).toContain(
       'Links, remote images and active content are removed',
     );
-    await click(button('Hide retained message'));
+    expect(document.querySelector('[role="dialog"][id^="retained-email-"]')).not.toBeNull();
+    await click(button('Close preview'));
     expect(document.querySelector('iframe')).toBeNull();
     await click(button('Send another copy'));
     expect(button('Send copy').disabled).toBe(true);

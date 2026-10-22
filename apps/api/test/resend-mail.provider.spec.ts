@@ -507,6 +507,9 @@ describe('ResendMailProvider', () => {
       messages[8],
     ]) {
       expect(message.html).toContain('Dates');
+      expect(message.html).toContain('Check-in date');
+      expect(message.html).toContain('Check-out date');
+      expect(message.html).toContain('Nights');
     }
     for (const message of [messages[3], messages[4], messages[6], messages[8]])
       expect(message.html).toContain('— 120.00 USD');

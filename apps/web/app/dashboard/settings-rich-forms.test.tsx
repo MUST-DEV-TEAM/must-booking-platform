@@ -61,6 +61,10 @@ it('groups General, validates business/about fields, locks a priced currency and
     );
   try {
     expect(m.host.textContent).toContain('Business');
+    expect(m.host.querySelector<HTMLInputElement>('#hotel-supportEmail')?.placeholder).toBe(
+      'reservations@example.com',
+    );
+    expect(m.host.querySelector<HTMLInputElement>('#hotel-phone')?.placeholder).toBe('+355 ...');
     expect(m.host.textContent).toContain('About the hotel');
     expect(button('Save changes')).toBeUndefined();
     expect(

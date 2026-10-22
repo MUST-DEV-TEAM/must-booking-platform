@@ -75,6 +75,7 @@ export function GeneralSettings({ property, saving, onSave, canWrite = false }: 
         </FormField>
         <FormField
           label="Address"
+          hint="Used for the Find us link in guest emails. Enter the full hotel address."
           htmlFor="settings-address"
           required
           error={dirty ? errors.address : null}

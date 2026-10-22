@@ -22,6 +22,7 @@ export type SettingField = {
     | 'country'
     | 'currency';
   hint?: string;
+  placeholder?: string;
   options?: readonly { value: string; label: string }[];
   max?: number;
   defaultValue?: SettingValue;
@@ -140,6 +141,7 @@ export function SettingsFields({
                         rows={4}
                         value={String(v)}
                         maxLength={f.max}
+                        placeholder={f.placeholder}
                         disabled={locked}
                         onChange={(e) => onChange(f.key, e.target.value)}
                       />
@@ -151,6 +153,7 @@ export function SettingsFields({
                         }
                         type={f.kind === 'time' ? 'time' : 'text'}
                         inputMode={f.kind === 'number' ? 'numeric' : undefined}
+                        placeholder={f.placeholder}
                         value={String(v)}
                         disabled={locked}
                         onChange={(e) => onChange(f.key, e.target.value)}
