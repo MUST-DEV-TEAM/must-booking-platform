@@ -69,3 +69,10 @@ The `POST /bookings/` `booking` object includes optional integer `adults` and `c
 ### Guest directory read evidence (2026-10-21)
 
 `GET /guests` with documented `updated_at.gteq` / `updated_at.lt` filters returns numeric IDs; `GET /guests/{id}` supplies `family_id`, optional `e_mail`, names, phone and update timestamp. CONFIRMED_BY_DOCS in the [official workspace](https://www.postman.com/clockintegrations/clock-pms-integrations-s-public-workspace/documentation/pperm12/clock-pms-api-docs?entity=request-8389346-1fe52a79-026d-445a-beea-e7c7602c782e), and CONFIRMED_IN_SANDBOX on Demo Beach (456 index records and completed detail import, including missing email). The new bounded read projection is described in [Clock architecture](architecture.md#staff-read-projections-and-imports-2026-10-21). Actual provider 429 responses in consistency/hydration GET readers receive at most three backoff retries; exhausted reads remain errors. No write retry or undocumented endpoint is introduced.
+
+
+### Automatic read and child-age evidence (2026-10-22)
+
+- **CONFIRMED_IN_SANDBOX:** Demo Beach initial `/bookings` read with documented `updated_at.gteq` / `updated_at.lt` filters returned the historical and future IDs used by the completed local background import. Subsequent overlapping timestamp deltas completed. Detail hydration remains GET-only and does not invent financial history.
+- **CONFIRMED_IN_SANDBOX:** booking DBH-AGE-SYNC-20261022 / Clock 38995173 accepts `children_ages` containing 2 and returns `[2]` on detail GET. The actual provider booking total is EUR200, equal to the quoted/local total. The HTTP client's array encoder appends `[]`; adapter keys must therefore be bare `children_ages` and `product_search[children_ages]`, producing one array suffix. HTTP regression checks both request shapes.
+- **NOT VERIFIED:** a different price for different child age bands on this fixture; age 2/16 quote samples were equal. No local age-band discount or maximum-child-age pricing rule is inferred. Final eligibility and price remain Clock's actual-stay result.

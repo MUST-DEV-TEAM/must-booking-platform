@@ -48,3 +48,12 @@ Clock recovery, webhook setup and limitations belong in the [Clock runbook](../i
 Tests under `apps/api/test` cover RLS, auth/capabilities, last-unit concurrency, individual-room modes, orders, payments and Clock flows. Co-located API/web/UI unit specs cover narrower logic. Browser tests cover auth, booking-mode and calendar-blocking flows, and the guest journey: quote, pay-at-hotel booking, confirmation email, staff view and cancel, guest cancel from the emailed link, and the room becoming bookable again. Some plugin checks inspect source strings: label them structural checks, not behavior or concurrency proof.
 
 Documentation-only edits do not require starting services, exercising gateways or rebuilding product code. Report exactly which checks ran and their limits.
+
+
+## Persistent hotel media (ADR-0034)
+
+Set `STORAGE_BACKEND=server`, an absolute persistent `MEDIA_ROOT` outside build/container layers, and `MEDIA_PUBLIC_BASE_URL` pointing to the public `/api/media` proxy. The local verification directory is ignored; a deployed server must mount a persistent volume outside its replaceable checkout. With another backend, the existing R2 provider remains available. New server objects use a distinct `server-v1/` namespace; old R2 keys and remote source URLs remain unchanged.
+
+The authenticated image/library endpoints issue five-minute, tenant/property-bound upload tokens stored only as hashes. The upload route bounds bytes to the authorized size (maximum 10 MB), decodes/re-encodes JPEG/PNG/WebP with a pixel limit and strips metadata. Public serving requires a completed intent; path traversal, SVG and overwrites are refused. Upload-token paths are redacted from request logs. Only public hotel images use this route; private email archives retain their existing private access path.
+
+Back up `MEDIA_ROOT` together with the database and its `server_media_uploads` metadata. For a consistent backup, pause image writes, capture both, verify checksums and resume. Restore into an isolated directory/database, configure the same namespace/base route, and verify an image GET/HEAD and a new authorized upload before switching traffic. Server volume backup/restore has not been verified in production. Do not delete legacy remote objects as part of this switch.

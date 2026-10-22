@@ -1,6 +1,6 @@
 # ADR-0011: Object storage provider and access model
 
-Status: Accepted
+Status: Provider choice superseded by [ADR-0034](ADR-0034-clock-sync-and-server-media.md); access and isolation principles retained.
 Date: 2026-07-28
 
 ## Context
