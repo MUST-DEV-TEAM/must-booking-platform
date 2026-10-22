@@ -17,6 +17,7 @@ The owner also provided a screenshot of the legacy plugin's real guest-booking f
 
 **`User`** (one shared field set — covers Platform Admin, Tenant Owner, Tenant Admin, and Tenant Staff uniformly; role/capability system remains the only differentiator, not a different profile shape):
 - `firstName`, `lastName`
+- `birthDate` - optional; owner-authorized account-profile extension on 2026-10-22, never an authorization or booking-age rule
 - `phone` — structured (see Phone format below), not free-text
 - `jobTitle` — free-text display label (e.g. "Front Desk Manager"), distinct from the `TenantMembershipRole` enum and the capability-based role-template system; purely cosmetic, never used for authorization
 - `preferredLanguage`

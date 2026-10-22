@@ -10,7 +10,7 @@ Purpose: after the redesign screens are built, prove they behave correctly for a
 
 ## Rules every row must also satisfy
 
-- No MUST screen writes to Clock except the already-certified booking create/update/cancel paths; Inventory, Rates, Stock and Blocks make **no** Clock call and show "managed in Clock" / Unknown, never invented numbers.
+- Inventory, Rates and Blocks read saved Clock projections; automatic background jobs perform supported provider GETs. Booking and payment commands retain their certified provider paths, and final booking eligibility uses the actual-stay provider check. Unsupported values remain explicit rather than invented.
 - No raw error text or stack traces; failures show a reference.
 - Clock data that cannot be loaded is labelled Unknown, never "0" or "sold out".
 
@@ -312,3 +312,28 @@ Remaining issues / verification limits, ranked:
 5. **Low ? browser/email presentation:** browsers control whether a manually opened payment tab can close itself. Existing retained emails preserve their original content; richer wording applies to newly prepared messages. Reusing the owner's test inbox for AgeSync Verification updates that shared local test contact name through existing exact-email matching; no guessed restoration was made.
 
 Additive migrations: `20261022090000_clock_background_read_sync`, `20261022100000_server_media_uploads`, `20261022110000_booking_child_ages`, applied only to localhost. New API contracts are scoped Clock snapshot/status/recovery reads, guarded booking review resolution, optional child ages and optional structured manual-payment evidence; existing standalone flows retain their tests. ADR-0034 and the canonical Clock/operations documents own durable synchronization and storage details. This records implementation evidence without self-marking a milestone Done. No owner-level question remains for the approved local scope.
+
+
+## Owner-authorized follow-up corrections (2026-10-22)
+
+Scope: M24 S01/S02/S05, Calendar/Inventory, email presentation, My account and Settings integrations; owner approved the thirteen-area corrective plan. Implementation is ready for review, not marked Done.
+
+| Reported problem | Result |
+| --- | --- |
+| Room search returns HTTP500 | Removed dummy room-type identity from batch validation; real scoped UUIDs and per-room eligibility reach the actual quote path. Exact 30-31 October search returned HTTP200 with four room-type offers and three sampled individual-room offers. |
+| Duplicate Clock Calendar / empty Inventory | Clock Calendar links to one Inventory view. Inventory uses saved room counts, availability and day restrictions; unsupported local tabs are hidden. LOCAL controls are retained. |
+| Payment records have no next action | Failed/closed attempts explain that no payment is due and offer a new search. Verified balances control collection; confirmed payment details expose cancellation next to refund. |
+| Copy / QR / search / email layout | Copy uses only a toast; QR is centered; global search measured 672px; retained preview measured 760px with iframe/body height 556px and no iframe scrolling or scripts. |
+| Imported money is unclear | Separate Clock payments, refunds, guest credit and folio entries are shown without adding them to the MUST ledger. See Clock architecture for reconciliation limits. |
+| Cancellation and refund differ | Shared none/full/percentage/fixed chooser; combined cancel-and-refund entry; unchanged refund retries reuse their request key. No guessed Clock penalty. |
+| Optional account information | Additive optional profile migration applied and recorded locally; omitted values survive partial updates. |
+| Sparse emails | Richer uniform default event wording and common layout; compact language control. Existing published overrides and retained messages are preserved. No new email was sent in this pass. |
+| Empty demo rooms / branding | Four room types, all 81 rooms and five library assets populated with clearly labelled sample content; branding uses a verified hotel-owned server-library image. Clock capacity, IDs and assignments were preserved. |
+| Hidden integrations | Settings > Integrations exposes setup, test and safe credential replacement; account history blocks unsafe switching/deletion. No credential was replaced in this pass. |
+
+Live screenshots reviewed under ignored `output/playwright/beach-correction/`: search, Inventory, Integrations, payment, exact CLOCK-396 credit, Accommodations, global search and retained email preview. Checked screens had no page exceptions, application API errors or horizontal overflow. These are local/sandbox observations, not a production deployment.
+
+Open financial issues: CLOCK-396 shows EUR3400 paid for a EUR1700 booking (EUR1700 guest credit); no automatic refund or deletion was made. Some other Clock records contain contradictory ALL/EUR folio/payment currency labels; collection is blocked and checks retry automatically. Resolving provider financial history needs a reviewed money decision. Executable Clock cancellation policy terms remain unverified. Full block history/private rates and external webhook/deployment coverage remain as previously recorded. Localhost image URLs work locally but require a reachable HTTPS media base for external email images. No DNS, production, push or new card charge/refund was performed.
+
+
+Follow-up verification results: API focused seven files **66/66 passed**, quote occupancy/controller two files **5/5 passed**; affected web components thirteen files **141/141 passed** with one worker. The first concurrent web run had one account-password test timeout; it passed alone and in the final complete affected run. Earlier stale cancellation-copy assertions and an incorrect new-test HTTP201 expectation were corrected to the intended controls/existing HTTP200 contract; money, permissions and idempotency assertions remain. API production build, Next production build, final web typecheck and Prisma validation each exited 0. Server-library ownership/foreign-property refusal is exercised by the real upload/database regression. Migration history records the optional account migration on localhost. Live recovery returned catalog SYNCED and zero FAILED jobs at the observation point; currency-inconsistent records remain blocked and automatically rechecked. No new deployment or provider financial write is claimed.

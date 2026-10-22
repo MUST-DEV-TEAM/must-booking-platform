@@ -76,3 +76,11 @@ The `POST /bookings/` `booking` object includes optional integer `adults` and `c
 - **CONFIRMED_IN_SANDBOX:** Demo Beach initial `/bookings` read with documented `updated_at.gteq` / `updated_at.lt` filters returned the historical and future IDs used by the completed local background import. Subsequent overlapping timestamp deltas completed. Detail hydration remains GET-only and does not invent financial history.
 - **CONFIRMED_IN_SANDBOX:** booking DBH-AGE-SYNC-20261022 / Clock 38995173 accepts `children_ages` containing 2 and returns `[2]` on detail GET. The actual provider booking total is EUR200, equal to the quoted/local total. The HTTP client's array encoder appends `[]`; adapter keys must therefore be bare `children_ages` and `product_search[children_ages]`, producing one array suffix. HTTP regression checks both request shapes.
 - **NOT VERIFIED:** a different price for different child age bands on this fixture; age 2/16 quote samples were equal. No local age-band discount or maximum-child-age pricing rule is inferred. Final eligibility and price remain Clock's actual-stay result.
+
+
+### Booking financial read evidence (2026-10-22)
+
+- **CONFIRMED_BY_DOCS and CONFIRMED_IN_SANDBOX:** PMS `GET /bookings/{id}` supplies `balance`; PMS `GET /bookings/{id}/folios/` supplies numeric folio IDs; BASE `GET /folios/{id}` supplies payer identity, value, balance, deposit/void state; BASE `GET /folios/{id}/credit_items` supplies payment identity, amount/currency, type, reference and void/archive state. Source: [official public Clock API documentation](https://api-docs.clock-software.com/), published collection SzKQzg2h. These are bounded GET readers, not new financial writes.
+- **CONFIRMED_IN_SANDBOX:** CLOCK-396 has two distinct EUR1700 credit items, EUR3400 provider payments and EUR1700 guest credit against EUR1700 booking value. The MUST EUR1700 ledger entry overlaps provider history. No financial repair was performed.
+- **CONFIRMED_IN_SANDBOX:** CLOCK-382 has a deposit balance labelled ALL and an EUR credit item. This is rejected for collection rather than silently converted. Full mixed-currency reconciliation is **NOT SUPPORTED** by this reader.
+- Cancellation-policy calculation from a `guarantee_policy_id` remains **NOT VERIFIED**; no undocumented endpoint, penalty formula or free-cancellation assumption is introduced.
