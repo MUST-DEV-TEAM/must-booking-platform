@@ -167,23 +167,13 @@ describe('validateImageFile', () => {
 });
 
 describe('checkImageFiles', () => {
-  afterEach(() => vi.unstubAllGlobals());
-
-  it('rejects photos narrower than 1200 px', async () => {
-    vi.stubGlobal(
-      'createImageBitmap',
-      vi.fn(async (file: File) => ({ width: file.name === 'small.jpg' ? 800 : 1600, close() {} })),
-    );
-    const wide = new File(['x'], 'wide.jpg', { type: 'image/jpeg' });
+  it('accepts a photo of any width or height', async () => {
     const small = new File(['x'], 'small.jpg', { type: 'image/jpeg' });
-    expect(await checkImageFiles([wide])).toBeNull();
-    expect(await checkImageFiles([wide, small])).toBe(
-      'small.jpg is 800 px wide. Use a photo at least 1200 px wide.',
-    );
+    expect(await checkImageFiles([small])).toBeNull();
   });
 
-  it('skips the width check where the browser cannot measure the photo', async () => {
-    vi.stubGlobal('createImageBitmap', undefined);
-    expect(await checkImageFiles([new File(['x'], 'a.jpg', { type: 'image/jpeg' })])).toBeNull();
+  it('still rejects an unsupported type', async () => {
+    const gif = new File(['x'], 'a.gif', { type: 'image/gif' });
+    expect(await checkImageFiles([gif])).toContain('not a supported image');
   });
 });
