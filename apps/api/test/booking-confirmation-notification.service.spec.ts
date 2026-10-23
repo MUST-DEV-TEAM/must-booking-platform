@@ -87,7 +87,7 @@ describe('BookingConfirmationNotificationService', () => {
       string,
       unknown
     >;
-    expect(guest.cancellationUrl).toContain('cancellationToken=cancellation-token');
+    expect(guest.cancellationUrl).toContain('token=cancellation-token');
     expect(guest.recipientEnvelope).toBeUndefined();
   });
   it('continues guest confirmation if current staff recipients leave no valid To recipient', async () => {
@@ -121,7 +121,7 @@ describe('BookingConfirmationNotificationService', () => {
           address: '1 Ocean Road',
         },
         guestCount: 2,
-        cancellationUrl: expect.stringContaining('cancellationToken=cancellation-token'),
+        cancellationUrl: expect.stringContaining('token=cancellation-token'),
       }),
       context,
     );

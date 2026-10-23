@@ -211,7 +211,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
           dateFormat: paid ? 'gb' : 'us',
         }),
         cta: command.cancellationUrl
-          ? { url: command.cancellationUrl, label: 'Review or cancel booking' }
+          ? { url: command.cancellationUrl, label: 'Manage booking' }
           : null,
         footerNote: `You&#39;re receiving this email because you made a reservation at ${escapeHtml(hotelName)}.`,
       }),

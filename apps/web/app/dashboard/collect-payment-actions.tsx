@@ -29,6 +29,7 @@ export function CollectPaymentActions({
     status: string;
     total: { amount: string; currency: string };
     paidAmount: string;
+    refundedAmount?: string;
     balanceBasis?: 'CLOCK' | 'MUST';
     guestEmail?: string | null;
   };
@@ -45,6 +46,8 @@ export function CollectPaymentActions({
     [qr, setQr] = useState('');
   const paymentTab = useRef<Window | null>(null);
   const [waiting, setWaiting] = useState(false);
+  const [copyFallback, setCopyFallback] = useState('');
+  const prepared = useRef<{ signature: string; url: string; at: number } | null>(null);
   const attempt = useRef<string | null>(null);
   const busy = useRef(false);
   const caps = useQuery({
@@ -62,6 +65,15 @@ export function CollectPaymentActions({
     booking.balanceBasis === 'CLOCK',
   );
   const verifiedClock = clockFinancial.data?.data;
+  const linkSignature = JSON.stringify([
+    booking.id,
+    booking.status,
+    booking.total,
+    booking.paidAmount,
+    booking.refundedAmount,
+    verifiedClock?.fetchedAt,
+    verifiedClock?.balance,
+  ]);
   const eligible =
     booking.status === 'CONFIRMED' &&
     (booking.balanceBasis === 'CLOCK'
@@ -101,13 +113,23 @@ export function CollectPaymentActions({
       let tab: Window | null = null;
       try {
         if (action === 'open') tab = window.open('about:blank', '_blank');
-        const result = await post(action === 'send' ? 'send-pokpay-link' : 'collect-pokpay');
+        const cached = prepared.current;
+        const result =
+          action !== 'send' && cached?.signature === linkSignature && Date.now() - cached.at < 60000
+            ? { checkoutUrl: cached.url }
+            : await post(action === 'send' ? 'send-pokpay-link' : 'collect-pokpay');
+        if (action !== 'send')
+          prepared.current = { signature: linkSignature, url: result.checkoutUrl, at: Date.now() };
         if (action === 'send')
           setMessage('Payment email queued. Check Emails for delivery status.');
         else if (action === 'copy') {
-          await navigator.clipboard.writeText(result.checkoutUrl);
+          try {
+            await navigator.clipboard.writeText(result.checkoutUrl);
+            toast.success('Link copied');
+          } catch {
+            setCopyFallback(result.checkoutUrl);
+          }
           setMessage('');
-          toast.success('Link copied');
           setWaiting(true);
         } else if (action === 'qr') {
           setQr(
@@ -226,6 +248,40 @@ export function CollectPaymentActions({
           <p role="alert">{pay.error?.message || options.error?.message}</p>
         ) : null}
         {message ? <p role="status">{message}</p> : null}
+        <Dialog
+          open={!!copyFallback}
+          onOpenChange={(open) => {
+            if (!open) setCopyFallback('');
+          }}
+        >
+          <DialogContent>
+            <DialogTitle>Copy payment link</DialogTitle>
+            <DialogDescription>
+              Your browser could not copy automatically. Select and copy the link below.
+            </DialogDescription>
+            <Input
+              aria-label="Payment link"
+              readOnly
+              value={copyFallback}
+              onFocus={(e) => e.target.select()}
+            />
+            <Button
+              onClick={() => {
+                void navigator.clipboard
+                  .writeText(copyFallback)
+                  .then(() => {
+                    toast.success('Link copied');
+                    setCopyFallback('');
+                  })
+                  .catch(() => {
+                    /* The selectable link remains available. */
+                  });
+              }}
+            >
+              Copy link
+            </Button>
+          </DialogContent>
+        </Dialog>
         <Dialog
           open={!!qr}
           onOpenChange={(open) => {

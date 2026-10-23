@@ -139,6 +139,12 @@ beforeAll(async () => {
       );
       for (let run = 0; run < 2; run++)
         for (const statement of statements(correction)) await tx.$executeRawUnsafe(statement);
+      const policyMigration = readFileSync(
+        'prisma/migrations/20261023020000_booking_terms_and_guest_requests/migration.sql',
+        'utf8',
+      );
+      for (const statement of statements(policyMigration)) await tx.$executeRawUnsafe(statement);
+      for (const statement of statements(policyMigration)) await tx.$executeRawUnsafe(statement);
       await tx.$executeRawUnsafe(`GRANT USAGE ON SCHEMA "${schema}" TO must_booking_app`);
       await tx.$executeRawUnsafe(
         `GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA "${schema}" TO must_booking_app`,
@@ -606,4 +612,65 @@ it('Clock no-refund choice never automatically refunds; staff without refund cap
     >`SELECT count(*) FROM payments WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND booking_id=${id}::uuid AND kind='REFUND'`;
     expect(refunds[0].count).toBe(0n);
   }
+});
+
+it('freezes new MUST policy terms, preserves original terms after settings changes and queues guest-origin review once', async () => {
+  const id = randomUUID(),
+    session = randomUUID();
+  await admin.$executeRaw`INSERT INTO bookings(id,tenant_id,property_id,room_type_id,rate_plan_id,guest_id,guest_session_id,external_reference,status,source,starts_on,ends_on,total_amount,payment_method) VALUES(${id}::uuid,${tenantId}::uuid,${propertyId}::uuid,${roomType}::uuid,${ratePlan}::uuid,${guest}::uuid,${session}::uuid,${'POL-' + id},'CONFIRMED','WEBSITE','2030-07-10','2030-07-12',100,'PAY_AT_HOTEL')`;
+  const read = () =>
+    admin.$queryRaw<
+      Array<{ terms: { cutoffAt: string; source: string } }>
+    >`SELECT cancellation_terms AS terms FROM bookings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${id}::uuid`;
+  const before = (await read())[0].terms;
+  expect(before.source).toBe('MUST');
+  expect(before.cutoffAt).toBeTruthy();
+  await admin.$executeRaw`UPDATE properties SET free_cancellation_days_before_arrival=30 WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid`;
+  expect((await read())[0].terms).toEqual(before);
+  const one = await service.guestRequest(
+    { tenantId, propertyId },
+    id,
+    session,
+    'Guest requests review',
+    true,
+  );
+  const two = await service.guestRequest(
+    { tenantId, propertyId },
+    id,
+    session,
+    'Repeated guest request',
+    true,
+  );
+  expect(two.requestId).toBe(one.requestId);
+  const listed = await service.list({ ...context, userId: reviewer });
+  expect(
+    listed.items.some((q) => q.id === one.requestId && q.requesterName === 'Guest (email link)'),
+  ).toBe(true);
+  const rows = await admin.$queryRaw<
+    Array<{ status: string; requester: string | null; session: string }>
+  >`SELECT b.status::text,q.requester_id AS requester,q.guest_session_id AS session FROM bookings b JOIN booking_requests q ON q.tenant_id=b.tenant_id AND q.property_id=b.property_id AND q.booking_id=b.id WHERE b.tenant_id=${tenantId}::uuid AND b.property_id=${propertyId}::uuid AND b.id=${id}::uuid`;
+  expect(rows[0]).toMatchObject({ status: 'CONFIRMED', requester: null, session });
+  await expect(
+    service.guestRequest({ tenantId, propertyId }, id, randomUUID(), 'Wrong guest', true),
+  ).rejects.toThrow('not found');
+});
+
+it('requires staff acknowledgement of unknown original terms on an imported guest request', async () => {
+  const id = await fixture(false),
+    session = randomUUID();
+  await admin.$executeRaw`UPDATE bookings SET guest_session_id=${session}::uuid,external_booking_id='clock-guest-review' WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${id}::uuid`;
+  const q = await service.guestRequest(
+    { tenantId, propertyId },
+    id,
+    session,
+    'Imported booking review',
+    false,
+  );
+  await expect(
+    service.decide({ ...context, userId: reviewer }, q.requestId, {
+      decision: 'Approved',
+      note: 'Reviewed request',
+      version: 1,
+    }),
+  ).rejects.toThrow('original cancellation terms');
 });

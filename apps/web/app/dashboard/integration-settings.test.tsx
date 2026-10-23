@@ -76,7 +76,7 @@ describe('integration settings', () => {
     const v = await mount(true);
     await act(async () =>
       [...document.querySelectorAll('button')]
-        .find((b) => b.textContent === 'Replace credentials')!
+        .find((b) => b.textContent === 'Credentials')!
         .click(),
     );
     const password = document.querySelector<HTMLInputElement>('input[type="password"]')!;

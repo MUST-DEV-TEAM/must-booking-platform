@@ -26,6 +26,7 @@ type Profile = {
   jobTitle?: string | null;
   preferredLanguage?: string | null;
   personalTimezone?: string | null;
+  preferredDateTimeFormat?: string | null;
   email: string;
   emailVerified: boolean;
   firstName: string | null;
@@ -54,11 +55,13 @@ export function MyAccount({
   email,
   role,
   hotelName,
+  hotelTimezone = 'UTC',
   tenantId,
 }: {
   email?: string;
   role?: string;
   hotelName?: string;
+  hotelTimezone?: string;
   tenantId?: string;
 }) {
   const client = useQueryClient();
@@ -77,7 +80,10 @@ export function MyAccount({
     jobTitle: '',
     preferredLanguage: '',
     personalTimezone: '',
+    preferredDateTimeFormat: 'DD/MM/YYYY',
   });
+  const [birthday, setBirthday] = useState('');
+  const [birthdayTouched, setBirthdayTouched] = useState(false);
   const [phone, setPhone] = useState<PhoneValue>({ iso: 'AL', number: '' });
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -88,7 +94,14 @@ export function MyAccount({
         jobTitle: profile.data.jobTitle ?? '',
         preferredLanguage: profile.data.preferredLanguage ?? '',
         personalTimezone: profile.data.personalTimezone ?? '',
+        preferredDateTimeFormat: profile.data.preferredDateTimeFormat ?? 'DD/MM/YYYY',
       });
+      setBirthday(
+        formatAccountDate(
+          profile.data.birthDate ?? '',
+          profile.data.preferredDateTimeFormat ?? 'DD/MM/YYYY',
+        ),
+      );
       setPhone(
         parsePhone((profile.data.phoneCountryCode ?? '') + ' ' + (profile.data.phoneNumber ?? '')),
       );
@@ -179,7 +192,10 @@ export function MyAccount({
     firstName.trim() !== (profile.data.firstName ?? '') ||
     lastName.trim() !== (profile.data.lastName ?? '') ||
     Object.entries(details).some(
-      ([key, value]) => value !== (profile.data[key as keyof Profile] ?? ''),
+      ([key, value]) =>
+        value !==
+        (profile.data[key as keyof Profile] ??
+          (key === 'preferredDateTimeFormat' ? 'DD/MM/YYYY' : '')),
     ) ||
     phone.number !== (profile.data.phoneNumber ?? '') ||
     (!!phone.number && findDialCountry(phone.iso)?.prefix !== profile.data.phoneCountryCode);
@@ -219,7 +235,7 @@ export function MyAccount({
               ) : null}
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <FormField label="First name" htmlFor="account-first-name">
+              <FormField className="gap-2" label="First name" htmlFor="account-first-name">
                 <Input
                   id="account-first-name"
                   value={firstName}
@@ -230,7 +246,7 @@ export function MyAccount({
                   }}
                 />
               </FormField>
-              <FormField label="Last name" htmlFor="account-last-name">
+              <FormField className="gap-2" label="Last name" htmlFor="account-last-name">
                 <Input
                   id="account-last-name"
                   value={lastName}
@@ -242,13 +258,8 @@ export function MyAccount({
                 />
               </FormField>
             </div>
-            <p className="text-sm text-muted-foreground">
-              Additional details are optional and belong to your account, separate from hotel guest
-              records. Language and timezone are saved preferences; they do not change hotel
-              operating rules.
-            </p>
             <div className="grid gap-3 sm:grid-cols-2">
-              <FormField label="Phone (optional)" htmlFor="account-phone">
+              <FormField className="gap-2" label="Phone (optional)" htmlFor="account-phone">
                 <PhoneInput
                   id="account-phone"
                   value={phone}
@@ -258,19 +269,34 @@ export function MyAccount({
                   }}
                 />
               </FormField>
-              <FormField label="Birthday (optional)" htmlFor="account-birthday">
+              <FormField className="gap-2" label="Birthday (optional)" htmlFor="account-birthday">
                 <Input
                   id="account-birthday"
-                  type="date"
-                  max={new Date().toISOString().slice(0, 10)}
-                  value={details.birthDate}
+                  inputMode="numeric"
+                  placeholder={details.preferredDateTimeFormat}
+                  value={birthday}
+                  aria-invalid={
+                    birthdayTouched &&
+                    !!birthday &&
+                    !parseAccountDate(birthday, details.preferredDateTimeFormat)
+                  }
+                  onBlur={() => setBirthdayTouched(true)}
                   onChange={(e) => {
                     dirty.current = true;
-                    setDetails({ ...details, birthDate: e.target.value });
+                    setBirthday(e.target.value);
+                    const iso = parseAccountDate(e.target.value, details.preferredDateTimeFormat);
+                    if (iso !== null) setDetails({ ...details, birthDate: iso });
                   }}
                 />
+                {birthdayTouched &&
+                birthday &&
+                !parseAccountDate(birthday, details.preferredDateTimeFormat) ? (
+                  <p className="text-xs text-destructive">
+                    Enter a valid date as {details.preferredDateTimeFormat}.
+                  </p>
+                ) : null}
               </FormField>
-              <FormField label="Job title (optional)" htmlFor="account-job-title">
+              <FormField className="gap-2" label="Job title (optional)" htmlFor="account-job-title">
                 <Input
                   id="account-job-title"
                   maxLength={100}
@@ -281,7 +307,7 @@ export function MyAccount({
                   }}
                 />
               </FormField>
-              <FormField label="Preferred language">
+              <FormField className="gap-2" label="Preferred language">
                 <Combobox
                   label="Preferred language"
                   value={details.preferredLanguage}
@@ -296,12 +322,27 @@ export function MyAccount({
                   }}
                 />
               </FormField>
-              <FormField label="Personal timezone">
+              <FormField className="gap-2" label="Date format">
+                <Combobox
+                  label="Date format"
+                  value={details.preferredDateTimeFormat}
+                  options={['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'].map((value) => ({
+                    value,
+                    label: value,
+                  }))}
+                  onChange={(value) => {
+                    dirty.current = true;
+                    setDetails({ ...details, preferredDateTimeFormat: value });
+                    setBirthday(formatAccountDate(details.birthDate, value));
+                  }}
+                />
+              </FormField>
+              <FormField className="gap-2" label="Personal timezone">
                 <Combobox
                   label="Personal timezone"
                   value={details.personalTimezone}
                   options={[
-                    { value: '', label: 'Not set' },
+                    { value: '', label: `Use hotel timezone (${hotelTimezone})` },
                     ...timeZoneOptions(details.personalTimezone).map((v) => ({
                       value: v,
                       label: v,
@@ -314,6 +355,11 @@ export function MyAccount({
                 />
               </FormField>
             </div>
+            <p className="text-sm text-muted-foreground">
+              Additional details are optional and belong to your account, separate from hotel guest
+              records. Language and timezone are saved preferences; they do not change hotel
+              operating rules.
+            </p>
             {saveProfile.error ? (
               <Alert variant="destructive">
                 <AlertDescription>{saveProfile.error.message}</AlertDescription>
@@ -326,7 +372,11 @@ export function MyAccount({
             ) : null}
             <div>
               <Button
-                disabled={!nameChanged || saveProfile.isPending}
+                disabled={
+                  !nameChanged ||
+                  saveProfile.isPending ||
+                  (!!birthday && !parseAccountDate(birthday, details.preferredDateTimeFormat))
+                }
                 onClick={() => saveProfile.mutate()}
               >
                 Save profile
@@ -339,7 +389,11 @@ export function MyAccount({
             <CardTitle className="text-lg">Password</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            <FormField label="Current password" htmlFor="account-current-password">
+            <FormField
+              className="gap-2"
+              label="Current password"
+              htmlFor="account-current-password"
+            >
               <Input
                 id="account-current-password"
                 type="password"
@@ -355,7 +409,11 @@ export function MyAccount({
             >
               <PasswordField id="account-new-password" value={next} onChange={setNext} />
             </FormField>
-            <FormField label="Repeat new password" htmlFor="account-confirm-password">
+            <FormField
+              className="gap-2"
+              label="Repeat new password"
+              htmlFor="account-confirm-password"
+            >
               <Input
                 id="account-confirm-password"
                 type="password"
@@ -415,4 +473,33 @@ export function MyAccount({
       </div>
     </div>
   );
+}
+
+export function formatAccountDate(iso: string, format: string) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-');
+  return format === 'MM/DD/YYYY'
+    ? `${m}/${d}/${y}`
+    : format === 'YYYY-MM-DD'
+      ? iso
+      : `${d}/${m}/${y}`;
+}
+export function parseAccountDate(text: string, format: string): string | null {
+  if (!text.trim()) return '';
+  const pattern =
+    format === 'YYYY-MM-DD' ? /^(\d{4})-(\d{2})-(\d{2})$/ : /^(\d{2})\/(\d{2})\/(\d{4})$/;
+  const match = pattern.exec(text);
+  if (!match) return null;
+  const iso =
+    format === 'YYYY-MM-DD'
+      ? text
+      : format === 'MM/DD/YYYY'
+        ? `${match[3]}-${match[1]}-${match[2]}`
+        : `${match[3]}-${match[2]}-${match[1]}`;
+  const date = new Date(iso + 'T00:00:00Z');
+  return Number.isFinite(date.getTime()) &&
+    date.toISOString().slice(0, 10) === iso &&
+    iso <= new Date().toISOString().slice(0, 10)
+    ? iso
+    : null;
 }

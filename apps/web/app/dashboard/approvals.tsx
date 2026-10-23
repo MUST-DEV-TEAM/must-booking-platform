@@ -1,5 +1,6 @@
 'use client';
-import { useState } from 'react';
+import { SettingToggle } from '../../components/ui/setting-toggle';
+import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { requestJson } from './cancellation-dialog';
 import {
@@ -35,7 +36,7 @@ export type Approval = {
   id: string;
   bookingId: string;
   version: number;
-  requesterId: string;
+  requesterId: string | null;
   requesterName: string;
   status: string;
   createdAt: string;
@@ -66,16 +67,22 @@ export function ApprovalPanel({
 }: {
   request: Approval | null;
   onClose: () => void;
-  onDecide: (decision: string, note: string) => Promise<void>;
+  onDecide: (decision: string, note: string, clockTermsConfirmed?: boolean) => Promise<void>;
 }) {
   const [note, setNote] = useState(q?.decisionNote ?? q?.executionNote ?? ''),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
+  const [reviewedTerms, setReviewedTerms] = useState(false);
+  const needsTerms = q?.requesterId === null && q?.payload.evidence.policySource === 'CLOCK_PMS';
+  useEffect(() => {
+    setReviewedTerms(false);
+  }, [q?.id]);
   async function decide(decision: string) {
     setBusy(true);
     setError('');
     try {
-      await onDecide(decision, note.trim());
+      if (needsTerms) await onDecide(decision, note.trim(), reviewedTerms);
+      else await onDecide(decision, note.trim());
       setNote('');
       onClose();
     } catch (e) {
@@ -140,10 +147,20 @@ export function ApprovalPanel({
               readOnly={q.status !== 'Pending'}
               onChange={(e) => setNote(e.target.value)}
             />
+            {needsTerms && q.status === 'Pending' ? (
+              <SettingToggle
+                label="I reviewed the original cancellation terms and confirm this refund decision."
+                checked={reviewedTerms}
+                onChange={setReviewedTerms}
+              />
+            ) : null}
             {error ? <p role="alert">{error}</p> : null}
             {q.status === 'Pending' ? (
               <div className="flex gap-2">
-                <Button disabled={busy || !note.trim()} onClick={() => void decide('Approved')}>
+                <Button
+                  disabled={busy || !note.trim() || (needsTerms && !reviewedTerms)}
+                  onClick={() => void decide('Approved')}
+                >
                   Approve
                 </Button>
                 <Button
@@ -250,14 +267,19 @@ export function ApprovalsQueue({ tenantId, propertyId }: { tenantId: string; pro
         key={selected?.id ?? 'closed'}
         request={selected}
         onClose={() => setSelected(null)}
-        onDecide={async (decision, note) => {
+        onDecide={async (decision, note, clockTermsConfirmed) => {
           if (!selected) return;
           const result = await requestJson<{
             outcome?: { refundOutcome?: { ok: boolean; message?: string } };
           }>(`/api/tenants/${tenantId}/properties/${propertyId}/requests/${selected.id}/decision`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ decision, note, version: selected.version }),
+            body: JSON.stringify({
+              decision,
+              note,
+              version: selected.version,
+              ...(clockTermsConfirmed ? { clockTermsConfirmed: true } : {}),
+            }),
           }).catch(async (error: unknown) => {
             await client.invalidateQueries({ queryKey: ['dashboard'] });
             throw error;

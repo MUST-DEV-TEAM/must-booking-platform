@@ -106,7 +106,7 @@ export function CancellationDialog({
       reasonLabel="Details"
       reasonRequired
       destructive
-      contentClassName="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
+      contentClassName="max-h-[90dvh] overflow-y-auto gap-5 p-5 sm:max-w-[600px] sm:p-6 [&_[data-slot=dialog-footer]]:sticky [&_[data-slot=dialog-footer]]:bottom-0 [&_[data-slot=dialog-footer]]:border-t [&_[data-slot=dialog-footer]]:bg-card [&_[data-slot=dialog-footer]]:pt-4"
       confirmDisabled={
         !e ||
         query.isFetching ||
@@ -153,7 +153,7 @@ export function CancellationDialog({
       ) : e ? (
         <CancellationPreview evidence={e} refundAmount={amount} />
       ) : null}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 [&>div]:space-y-2">
         <div>
           <Label>Reason category</Label>
           <Select value={category} onValueChange={setCategory}>
@@ -198,7 +198,7 @@ export function CancellationDialog({
         />
       ) : null}
       {clockTerms ? (
-        <Label className="flex items-center gap-2">
+        <Label className="flex items-start gap-3 rounded-lg border p-3 text-sm leading-relaxed [&_[role=switch]]:mt-0.5 [&_[role=switch]]:shrink-0">
           <Switch
             checked={clockTermsConfirmed}
             onCheckedChange={setClockTermsConfirmed}
@@ -207,7 +207,7 @@ export function CancellationDialog({
           I confirm the refund decision for this Clock reservation.
         </Label>
       ) : null}
-      <Label className="flex items-center gap-2">
+      <Label className="flex items-start gap-3 rounded-lg border p-3 text-sm leading-relaxed [&_[role=switch]]:mt-0.5 [&_[role=switch]]:shrink-0">
         <Switch
           checked={notify}
           onCheckedChange={setNotify}

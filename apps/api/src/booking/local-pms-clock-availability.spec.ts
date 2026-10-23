@@ -197,3 +197,26 @@ describe('LocalPmsProvider pre-payment Clock availability', () => {
     expect(fixture.paymentProviders.forBookingMethod).toHaveBeenCalledOnce();
   });
 });
+
+it('requires review on the older guest cancellation route for shared Clock orders without cancelling or refunding', async () => {
+  const fixture = makeProvider({ clockConnected: true, clockAvailable: true });
+  const cancelled = vi.fn();
+  Object.assign(fixture.provider, {
+    bookingById: async () => ({
+      id: 'booking',
+      version: 1,
+      guestSessionId: 'guest',
+      orderReference: 'group',
+    }),
+    cancelMultiRoomOrder: cancelled,
+  });
+  const result = await fixture.provider.cancelBooking(context, {
+    bookingId: 'booking',
+    guestSessionId: 'guest',
+    expectedVersion: 1,
+    idempotencyKey: 'guest-shared-clock',
+    reason: 'Guest request',
+  });
+  expect(result).toMatchObject({ ok: false, error: { code: 'CANCELLATION_REQUIRES_REVIEW' } });
+  expect(cancelled).not.toHaveBeenCalled();
+});

@@ -129,7 +129,7 @@ describe('ResendMailProvider', () => {
       'MUST <Hotel> refund processed — MLDH-260814-2216-K7',
     ]);
     const payment = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
-    expect(payment.html).toContain('Review or cancel booking');
+    expect(payment.html).toContain('Manage booking');
     expect(payment.html).toContain('cancellationToken=token');
     expect(payment.html).toContain('MLDH-260814-2216-K7');
     expect(payment.html).toContain('Special requests');
@@ -353,7 +353,7 @@ describe('ResendMailProvider', () => {
       guestCount: 1,
     });
     expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).html).not.toContain(
-      'Review or cancel booking',
+      'Manage booking',
     );
   });
 

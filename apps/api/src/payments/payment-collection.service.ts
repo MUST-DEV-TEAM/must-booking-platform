@@ -55,6 +55,8 @@ export class PaymentCollectionService {
   async start(scope: Scope, bookingId: string, actorUserId: string, key: string) {
     if (!key || key.length > 200)
       throw new BadRequestException('A payment attempt key is required.');
+    const reusable = await this.reusableLink(scope, bookingId);
+    if (reusable) return reusable;
     const verified = await this.financial.refresh(scope, bookingId);
     const intent = await this.db.withTenantTransaction(scope, async (tx) => {
       const bookings = await tx.$queryRaw<
@@ -205,6 +207,42 @@ export class PaymentCollectionService {
       checkoutUrl: ready.checkoutUrl,
       amount: { amount: ready.amount, currency: ready.currency },
     };
+  }
+  private async reusableLink(scope: Scope, bookingId: string) {
+    return this.db.withTenantTransaction(scope, async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ result: Collection }>>`
+        SELECT op.result FROM bookings b JOIN properties p ON p.tenant_id=b.tenant_id AND p.id=b.property_id
+        JOIN rate_plans rp ON rp.tenant_id=b.tenant_id AND rp.property_id=b.property_id AND rp.id=b.rate_plan_id
+        JOIN integration_operations op ON op.tenant_id=b.tenant_id AND op.property_id=b.property_id AND op.aggregate_id=b.id
+        LEFT JOIN property_integration_connections pc ON pc.tenant_id=b.tenant_id AND pc.property_id=b.property_id AND pc.enabled AND pc.kind='PMS'
+        LEFT JOIN clock_sync_jobs j ON j.tenant_id=b.tenant_id AND j.property_id=b.property_id AND j.connection_id=pc.connection_id AND j.resource='financial:'||b.id::text
+        WHERE b.tenant_id=${scope.tenantId}::uuid AND b.property_id=${scope.propertyId}::uuid AND b.id=${bookingId}::uuid
+          AND b.status='CONFIRMED' AND b.order_reference IS NULL AND p.pokpay_enabled
+          AND op.result->>'kind'='balance_collection' AND op.result->>'stage'='READY'
+          AND op.result->>'checkoutUrl' IS NOT NULL AND op.updated_at>now()-interval '15 minutes'
+          AND op.result->>'currency'=rp.currency
+          AND EXISTS(SELECT 1 FROM property_integration_connections pay JOIN integration_connections ic ON ic.tenant_id=pay.tenant_id AND ic.id=pay.connection_id WHERE pay.tenant_id=b.tenant_id AND pay.property_id=b.property_id AND pay.enabled AND ic.provider='POKPAY' AND ic.status='CONNECTED')
+          AND CASE WHEN op.result->>'clockConnectionId' IS NULL THEN
+            b.external_booking_id IS NULL AND (op.result->>'amount')::numeric=b.total_amount-COALESCE((SELECT sum(amount) FROM payments a WHERE a.tenant_id=b.tenant_id AND a.property_id=b.property_id AND a.booking_id=b.id AND a.kind='CHARGE' AND a.status IN ('PAID','succeeded')),0)
+          ELSE j.status='SYNCED' AND j.last_error IS NULL AND j.snapshot->>'fetchedAt' IS NOT NULL
+            AND (j.snapshot->>'fetchedAt')::timestamptz>now()-interval '60 seconds'
+            AND op.result->>'clockConnectionId'=pc.connection_id::text
+            AND (j.snapshot->>'bookingVersion')::int=b.version
+            AND j.snapshot->'balance'->>'currency'=rp.currency
+            AND (j.snapshot->'balance'->>'amount')::numeric>0
+            AND (j.snapshot->'balance'->>'amount')::numeric=(op.result->>'amount')::numeric
+            AND (j.snapshot->>'localPaid')::numeric=COALESCE((SELECT sum(amount) FROM payments a WHERE a.tenant_id=b.tenant_id AND a.property_id=b.property_id AND a.booking_id=b.id AND a.kind='CHARGE' AND a.status IN ('PAID','succeeded')),0)
+            AND (j.snapshot->>'localRefunded')::numeric=COALESCE((SELECT sum(amount) FROM payments a WHERE a.tenant_id=b.tenant_id AND a.property_id=b.property_id AND a.booking_id=b.id AND a.kind='REFUND' AND a.status='REFUNDED'),0)
+          END
+        ORDER BY op.created_at DESC LIMIT 1 FOR SHARE OF b`;
+      const saved = rows[0]?.result;
+      return saved?.checkoutUrl
+        ? {
+            checkoutUrl: saved.checkoutUrl,
+            amount: { amount: saved.amount, currency: saved.currency },
+          }
+        : null;
+    });
   }
   async sendLink(scope: Scope, bookingId: string, actorUserId: string, key: string) {
     const checkout = await this.start(scope, bookingId, actorUserId, key);

@@ -1811,7 +1811,7 @@ describe('LocalPmsProvider', () => {
       paymentId: `pay-at-hotel:${payAtHotelBooking.body.value.id}`,
       guestCount: 2,
     });
-    expect(paymentConfirmationEmails.at(-1)?.cancellationUrl).toContain('must_action=cancel');
+    expect(paymentConfirmationEmails.at(-1)?.cancellationUrl).toContain('/booking/manage?');
     expect(staffBookingEmails).toHaveLength(
       payAtHotelStaffEmailCount + Number(propertyStaffRecipients[0].count),
     );
@@ -2279,7 +2279,8 @@ describe('LocalPmsProvider', () => {
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
         AND id = ${staffBooking.body.value.id}::uuid
     `;
-    expect(staffBookingGuestSession).toEqual([{ guestSessionId: null }]);
+    expect(staffBookingGuestSession).toEqual([{ guestSessionId: expect.any(String) }]);
+    expect(staffBookingGuestSession[0].guestSessionId).not.toBe(propertyStaffUserId);
     const forgedGuestCookie = `must_guest_session=${propertyStaffUserId}`;
     await request(app!.getHttpServer())
       .patch(`${propertyUrl}/bookings/${staffBooking.body.value.id}`)
@@ -2397,17 +2398,36 @@ describe('LocalPmsProvider', () => {
       UPDATE properties SET min_stay_nights = NULL
       WHERE tenant_id = ${tenantId}::uuid AND id = ${propertyId}::uuid
     `;
+    // The earlier pay-at-hotel reservation was cancelled in its own scenario.
+    // It must reject collection; use a separate confirmed fixture for payment evidence.
+    await request(app!.getHttpServer())
+      .post(`${propertyUrl}/bookings/${payAtHotelBooking.body.value.id}/manual-payment`)
+      .set('Cookie', propertyStaffCookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({ method: 'cash', amount: { amount: '150.00', currency: 'EUR' } })
+      .expect(200)
+      .expect((response) =>
+        expect(response.body).toMatchObject({
+          ok: false,
+          error: { code: 'INVALID_BOOKING_STATE' },
+        }),
+      );
+    const manualPaymentBookingId = randomUUID();
+    await admin.$executeRaw`INSERT INTO bookings(id,tenant_id,property_id,room_type_id,rate_plan_id,guest_id,external_reference,status,payment_method,starts_on,ends_on,total_amount)
+      SELECT ${manualPaymentBookingId}::uuid,tenant_id,property_id,room_type_id,rate_plan_id,guest_id,${'manual-' + manualPaymentBookingId},'CONFIRMED','PAY_AT_HOTEL',starts_on,ends_on,total_amount
+      FROM bookings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${payAtHotelBooking.body.value.id}::uuid`;
     const manualPaymentKey = randomUUID();
     const manualPayment = await request(app!.getHttpServer())
-      .post(`${propertyUrl}/bookings/${payAtHotelBooking.body.value.id}/manual-payment`)
+      .post(`${propertyUrl}/bookings/${manualPaymentBookingId}/manual-payment`)
       .set('Cookie', propertyStaffCookie)
       .set('Idempotency-Key', manualPaymentKey)
       .send({ method: 'cash', amount: { amount: '150.00', currency: 'EUR' } })
       .expect(200);
+    expect(manualPayment.body.error).toBeUndefined();
     expect(manualPayment.body).toMatchObject({
       ok: true,
       value: {
-        bookingId: payAtHotelBooking.body.value.id,
+        bookingId: manualPaymentBookingId,
         amount: { amount: '150.00', currency: 'EUR' },
         provider: 'manual',
         method: 'cash',
@@ -2416,14 +2436,14 @@ describe('LocalPmsProvider', () => {
       },
     });
     await request(app!.getHttpServer())
-      .post(`${propertyUrl}/bookings/${payAtHotelBooking.body.value.id}/manual-payment`)
+      .post(`${propertyUrl}/bookings/${manualPaymentBookingId}/manual-payment`)
       .set('Cookie', propertyStaffCookie)
       .set('Idempotency-Key', manualPaymentKey)
       .send({ method: 'cash', amount: { amount: '150.00', currency: 'EUR' } })
       .expect(200)
       .expect(manualPayment.body);
     await request(app!.getHttpServer())
-      .post(`${propertyUrl}/bookings/${payAtHotelBooking.body.value.id}/manual-payment`)
+      .post(`${propertyUrl}/bookings/${manualPaymentBookingId}/manual-payment`)
       .set('Cookie', propertyStaffCookie)
       .set('Idempotency-Key', randomUUID())
       .send({ method: 'cash', amount: { amount: '50.00', currency: 'EUR' } })
@@ -2454,7 +2474,7 @@ describe('LocalPmsProvider', () => {
         external_payment_id AS "externalPaymentId"
       FROM payments
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
-        AND booking_id = ${payAtHotelBooking.body.value.id}::uuid AND provider = 'manual'
+        AND booking_id = ${manualPaymentBookingId}::uuid AND provider = 'manual'
     `;
     expect(manualPayments).toEqual([
       {
@@ -2470,12 +2490,12 @@ describe('LocalPmsProvider', () => {
     const manualPaymentAudit = await admin.$queryRaw<Array<{ action: string }>>`
       SELECT action FROM audit_logs
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
-        AND target_id = ${payAtHotelBooking.body.value.id} AND action = 'payment.manual_recorded'
+        AND target_id = ${manualPaymentBookingId} AND action = 'payment.manual_recorded'
     `;
     expect(manualPaymentAudit).toEqual([{ action: 'payment.manual_recorded' }]);
     await request(app!.getHttpServer())
       .post(
-        `/tenants/${randomUUID()}/properties/${propertyId}/bookings/${payAtHotelBooking.body.value.id}/manual-payment`,
+        `/tenants/${randomUUID()}/properties/${propertyId}/bookings/${manualPaymentBookingId}/manual-payment`,
       )
       .set('Cookie', propertyStaffCookie)
       .set('Idempotency-Key', randomUUID())
@@ -2483,7 +2503,7 @@ describe('LocalPmsProvider', () => {
       .expect(403);
     await request(app!.getHttpServer())
       .post(
-        `/tenants/${tenantId}/properties/${randomUUID()}/bookings/${payAtHotelBooking.body.value.id}/manual-payment`,
+        `/tenants/${tenantId}/properties/${randomUUID()}/bookings/${manualPaymentBookingId}/manual-payment`,
       )
       .set('Cookie', propertyStaffCookie)
       .set('Idempotency-Key', randomUUID())
@@ -2737,6 +2757,7 @@ describe('LocalPmsProvider', () => {
         lateWebhookAction: 'payment.late_webhook_rejected',
       },
     ]);
+    await settleMail();
     expect(
       refundConfirmationEmails.filter((email) => email.bookingId === expiringBooking.value.id),
     ).toHaveLength(1);

@@ -74,3 +74,12 @@ M24 explicit staff recipient headers use additive fields on the existing forced-
 ### Optional account details (2026-10-22)
 
 Migration `20261022130000_optional_account_profile` adds nullable structured phone, birth date, preferred language, personal timezone and job title to the shared User identity. Auth profile reads/updates use narrowly scoped SECURITY DEFINER functions, pinned search paths and app-role grants; the authenticated user's ID is supplied by AuthService, never request body identity. Omitted fields are preserved and explicit null clears an optional value. Language/timezone are stored preferences; this change does not claim a complete application localization rollout. Guest profiles remain separate. The additive migration is idempotent; rollback requires preserving profile values and stopping function callers before owner-approved column/function removal. Applied and recorded only on localhost.
+
+
+### Immutable booking terms and guest-origin requests (2026-10-23)
+
+Migration `20261023020000_booking_terms_and_guest_requests` adds nullable `bookings.cancellation_terms`, captured by an insert trigger for new MUST-origin bookings without an external ID. An update trigger rejects changes; no historical backfill occurs. Existing tenant/property RLS remains. `booking_requests.requester_id` becomes nullable and `guest_session_id` is added; an exclusive-origin constraint requires exactly one staff requester or guest session, and a trigger prevents changing that origin. Signed guest access is bound to the tenant, property, booking and its actual stored session; it does not grant staff identity or capabilities. Review uses the authenticated reviewer for approved guest execution.
+
+Migration `20261023010000_account_date_format` adds optional user date-format preference through the existing own-profile SECURITY DEFINER functions, preserving their pinned search path and restricted grants. Both migrations were applied only to localhost. Rollback requires stopping new callers and preserving/exporting agreed terms and guest requests before restoring functions/triggers or removing fields; do not erase their history to downgrade.
+
+Signed guest previews return private/no-store and no-referrer headers. API request logging strips query strings (including guest capabilities and search terms) and retains existing upload-token path redaction. Direct guest Clock cancellation applies the same current money coverage, online-refund and shared-order safeguards as the management page.

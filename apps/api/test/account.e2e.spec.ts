@@ -103,6 +103,7 @@ describe('my account: profile and password', () => {
       preferredLanguage: 'en',
       personalTimezone: 'Europe/Tirane',
       jobTitle: 'Hotel manager',
+      preferredDateTimeFormat: 'DD/MM/YYYY',
     }).expect(200);
     const read = await http().get('/auth/profile').set('Cookie', cookie).expect(200);
     expect(read.body).toMatchObject({
@@ -111,6 +112,7 @@ describe('my account: profile and password', () => {
       phoneNumber: '691234567',
       personalTimezone: 'Europe/Tirane',
       jobTitle: 'Hotel manager',
+      preferredDateTimeFormat: 'DD/MM/YYYY',
     });
     await patch({ firstName: 'Ana', lastName: 'Owner' }).expect(200);
     expect((await http().get('/auth/profile').set('Cookie', cookie)).body.birthDate).toBe(
@@ -119,6 +121,7 @@ describe('my account: profile and password', () => {
     await patch({ birthDate: '2999-01-01' }).expect(400);
     await patch({ birthDate: '2001-02-30' }).expect(400);
     await patch({ personalTimezone: 'invalid/zone' }).expect(400);
+    await patch({ preferredDateTimeFormat: 'arbitrary' }).expect(400);
     await patch({
       firstName: 'Ana',
       lastName: 'Owner',

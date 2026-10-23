@@ -229,15 +229,31 @@ describe('Inventory screens', () => {
     expect(button('Edit')).toBeUndefined();
     expect(button('Activate')).toBeUndefined();
   });
-  it('shows useful Clock availability without duplicate local inventory tabs', async () => {
+  it('separates Clock availability, restrictions, blocks and synchronization tabs', async () => {
     fixture(['calendar.view', 'calendar.block'], true);
     await render(
       createElement(InventorySection, { tenantId: 't', propertyId: 'p', emailVerified: true }),
     );
-    await wait('Synchronized availability and restrictions');
+    await wait('Tonight by room type');
     expect(document.body.textContent).toContain('Available tonight');
     expect(document.body.textContent).toContain('Room types closed today');
-    expect(button('Restrictions')).toBeUndefined();
+    expect(button('Restrictions')).toBeDefined();
+    await act(async () =>
+      button('Availability')!.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, button: 0 }),
+      ),
+    );
+    await wait('Availability by room type and date');
+    await act(async () =>
+      button('Restrictions')!.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, button: 0 }),
+      ),
+    );
+    await wait('Sale closures and restrictions');
+    await act(async () =>
+      button('Blocks')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })),
+    );
+    expect(document.body.textContent).toContain('does not currently supply complete block records');
     expect(button('Manual Blocks')).toBeUndefined();
     expect(button('Create restriction')).toBeUndefined();
     expect(button('Conflict Review')).toBeUndefined();

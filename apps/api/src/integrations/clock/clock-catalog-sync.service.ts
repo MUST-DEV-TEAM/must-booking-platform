@@ -16,6 +16,11 @@ import {
   type ClockConnectionCredentials,
 } from './clock-http-client';
 import { ClockRateLimiterService } from './clock-rate-limiter';
+import { ClockBookingReadError } from './clock-booking-consistency.service';
+import {
+  classifyClockClientFailure,
+  classifyClockHttpResponse,
+} from './clock-error-classification';
 
 type ClockRoomType = { id: number | string; name: string };
 type ClockRoom = { id: number | string; name: string; room_type_id: number | string };
@@ -377,7 +382,8 @@ export class ClockCatalogSyncService {
     try {
       this.circuitBreaker.assertClosed(breakerKey);
     } catch (error) {
-      if (error instanceof CircuitOpenError) throw new BadRequestException(error.message);
+      if (error instanceof CircuitOpenError)
+        throw new ClockBookingReadError(classifyClockHttpResponse(503, null));
       throw error;
     }
     let permitted = false;
@@ -398,14 +404,21 @@ export class ClockCatalogSyncService {
         timeoutMs: 15_000,
       });
       if (response.status < 200 || response.status >= 300) {
-        this.circuitBreaker.recordFailure(breakerKey);
-        throw new BadRequestException(`Clock returned status ${response.status} for ${path}.`);
+        if (response.status !== 429) this.circuitBreaker.recordFailure(breakerKey);
+        throw new ClockBookingReadError(classifyClockHttpResponse(response.status, null));
       }
       this.circuitBreaker.recordSuccess(breakerKey);
       return response.body;
     } catch (error) {
+      if (error instanceof ClockBookingReadError) throw error;
       this.circuitBreaker.recordFailure(breakerKey);
-      if (error instanceof ClockHttpError) throw new BadRequestException(error.message);
+      if (error instanceof ClockHttpError)
+        throw new ClockBookingReadError(
+          classifyClockClientFailure(
+            error.isTimeout ? 'timeout' : 'network',
+            'Clock catalogue read did not finish.',
+          ),
+        );
       throw error;
     }
   }

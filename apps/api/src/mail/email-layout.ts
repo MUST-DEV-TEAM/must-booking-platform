@@ -111,7 +111,7 @@ function renderLogoBlock(brand: EmailBrand): string {
   const logoUrl = safeHttpUrl(brand.logoUrl);
   const websiteUrl = safeHttpUrl(brand.websiteUrl);
   const inner = logoUrl
-    ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(name || 'Hotel logo')}" width="180" style="display:block;width:180px;max-width:180px;height:auto;border:0;outline:none;text-decoration:none;margin:0 auto;" />`
+    ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(name || 'Hotel logo')}" width="96" style="display:block;width:96px;max-width:96px;max-height:72px;object-fit:contain;height:auto;border:0;outline:none;text-decoration:none;margin:0 auto;" />`
     : name
       ? `<span style="font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#141414;">${escapeHtml(name)}</span>`
       : '';

@@ -1,3 +1,5 @@
+import { requestLogPath } from './observability/request-log-path';
+import { GuestBookingManageController } from './booking/guest-booking-manage.controller';
 import { ClockFinancialService } from './integrations/clock/clock-financial.service';
 import { ServerStorageProvider } from './storage/server-storage.provider';
 import { ServerMediaController } from './storage/server-media.controller';
@@ -252,9 +254,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
           req: (request: IncomingMessage & { id?: string }) => ({
             id: request.id,
             method: request.method,
-            path: request.url?.startsWith('/media/upload/')
-              ? '/media/upload/[redacted]'
-              : request.url,
+            path: requestLogPath(request.url),
           }),
           res: (response: ServerResponse) => ({
             statusCode: response.statusCode,
@@ -317,6 +317,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     WordpressPairingRedeemController,
     QuoteController,
     BookingController,
+    GuestBookingManageController,
     BookingRequestsController,
     BookingDetailsController,
     BookingAmendController,

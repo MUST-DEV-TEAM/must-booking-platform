@@ -152,6 +152,7 @@ model User {
   birthDate DateTime? @map("birth_date") @db.Date
   preferredLanguage String? @map("preferred_language") @db.VarChar(35)
   personalTimezone String? @map("personal_timezone") @db.VarChar(100)
+  preferredDateTimeFormat String? @map("preferred_date_time_format") @db.VarChar(20)
   jobTitle String? @map("job_title") @db.VarChar(100)
   id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email             String             @unique @db.VarChar(320)
@@ -891,6 +892,7 @@ model Booking {
   guestCount                 Int                      @default(1) @map("guest_count")
   nightlyRates               Json?                    @map("nightly_rates")
   version                    Int                      @default(1)
+  cancellationTerms          Json? @map("cancellation_terms")
   cancellationIsFree         Boolean?                 @map("cancellation_is_free")
   cancellationFreeUntilHours Int?                     @map("cancellation_free_until_hours")
   cancellationCutoffAt       DateTime?                @map("cancellation_cutoff_at") @db.Timestamptz(6)
@@ -1808,7 +1810,8 @@ model BookingRequest {
   propertyId       String    @map("property_id") @db.Uuid
   bookingId        String    @map("booking_id") @db.Uuid
   type             String    @default("cancellation")
-  requesterId      String    @map("requester_id") @db.Uuid
+  requesterId      String?    @map("requester_id") @db.Uuid
+  guestSessionId   String?    @map("guest_session_id") @db.Uuid
   reasonCategory   String    @map("reason_category")
   priority         String
   details          String    @db.VarChar(2000)

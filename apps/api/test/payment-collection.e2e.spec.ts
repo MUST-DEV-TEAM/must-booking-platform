@@ -313,6 +313,18 @@ describe('collecting a confirmed booking balance', () => {
         .set('Idempotency-Key', randomUUID())
         .expect(200);
       expect(result.body.amount).toEqual({ amount: '30.00', currency: 'EUR' });
+      const stored = { ...snapshot, fetchedAt: new Date().toISOString() };
+      await admin.$executeRaw`INSERT INTO clock_sync_jobs(tenant_id,property_id,connection_id,resource,snapshot,status,last_success_at) VALUES(${tenantId}::uuid,${propertyId}::uuid,${connection}::uuid,${'financial:' + id},${JSON.stringify(stored)}::jsonb,'SYNCED',now())`;
+      const reads = financial.refresh.mock.calls.length;
+      const reused = await request(app.getHttpServer())
+        .post(`${base()}/${id}/collect-pokpay`)
+        .set('Cookie', cookie)
+        .set('Idempotency-Key', randomUUID())
+        .expect(200);
+      expect(reused.body.checkoutUrl).toBe(result.body.checkoutUrl);
+      expect(financial.refresh.mock.calls.length).toBe(reads);
+      await admin.$executeRaw`UPDATE clock_sync_jobs SET status='RETRY' WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${connection}::uuid AND resource=${'financial:' + id}`;
+
       const count = create.mock.calls.length;
       financial.refresh.mockResolvedValue({
         ...snapshot,

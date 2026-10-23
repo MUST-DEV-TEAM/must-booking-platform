@@ -70,6 +70,12 @@ describe('staff view of a booking that needs review', () => {
 
   afterAll(async () => {
     if (app) await app.close();
+    // Remove only this file's generated guest-review fixture. Production requests remain immutable.
+    if (tenantId)
+      await admin.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe('SET LOCAL session_replication_role = replica');
+        await tx.$executeRaw`DELETE FROM booking_requests WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND requester_id IS NULL AND details='Guest needs staff review'`;
+      });
     if (tenantId) await cleanupTenant(admin, tenantId);
     if (userId) await admin.$executeRaw`DELETE FROM users WHERE id=${userId}::uuid`;
     await admin.$disconnect();
@@ -494,5 +500,81 @@ describe('staff view of a booking that needs review', () => {
     } finally {
       vi.restoreAllMocks();
     }
+  });
+  it('checks the real financial guard before a direct guest Clock cancellation', async () => {
+    const id = randomUUID(),
+      session = randomUUID(),
+      guest = randomUUID();
+    await admin.$executeRaw`INSERT INTO guests(id,tenant_id,email) VALUES(${guest}::uuid,${tenantId}::uuid,${guest + '@example.test'})`;
+    await admin.$executeRaw`INSERT INTO bookings(id,tenant_id,property_id,room_type_id,rate_plan_id,guest_id,guest_session_id,external_reference,status,source,starts_on,ends_on,total_amount) VALUES(${id}::uuid,${tenantId}::uuid,${propertyId}::uuid,${roomType}::uuid,${ratePlan}::uuid,${guest}::uuid,${session}::uuid,${'GUEST-GUARD-' + id},'CONFIRMED','WEBSITE','2030-07-10','2030-07-12',100)`;
+    const { LocalPmsProvider } = await import('../src/booking/local-pms.provider');
+    const provider = app.get(LocalPmsProvider);
+    const connection = vi
+      .spyOn(
+        provider as unknown as { isClockConnected: () => Promise<boolean> },
+        'isClockConnected',
+      )
+      .mockResolvedValue(true);
+    try {
+      const result = await provider.cancelBooking(
+        { tenantId, propertyId },
+        {
+          bookingId: id,
+          guestSessionId: session,
+          expectedVersion: 1,
+          idempotencyKey: randomUUID(),
+          reason: 'Guest cancellation',
+        },
+      );
+      expect(result).toMatchObject({ ok: false, error: { code: 'CANCELLATION_REQUIRES_REVIEW' } });
+      const stored = await admin.$queryRaw<
+        Array<{ status: string }>
+      >`SELECT status::text FROM bookings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${id}::uuid`;
+      expect(stored[0].status).toBe('CONFIRMED');
+    } finally {
+      connection.mockRestore();
+    }
+  });
+
+  it('serves signed guest management anonymously and queues a review request without cancelling', async () => {
+    const id = randomUUID(),
+      session = randomUUID();
+    await admin.$executeRaw`INSERT INTO bookings(id,tenant_id,property_id,room_type_id,rate_plan_id,guest_session_id,external_reference,status,source,starts_on,ends_on,total_amount) VALUES(${id}::uuid,${tenantId}::uuid,${propertyId}::uuid,${roomType}::uuid,${ratePlan}::uuid,${session}::uuid,'GUEST-MANAGE-HTTP','CONFIRMED','WEBSITE','2030-07-10','2030-07-12',100)`;
+    const { CancellationLinkService } = await import('../src/booking/cancellation-link.service');
+    const token = app
+      .get(CancellationLinkService)
+      .create({ tenantId, propertyId, bookingId: id, guestSessionId: session });
+    const path = `${base()}/${id}/manage`;
+    const before = await request(app.getHttpServer()).get(path).query({ token }).expect(200);
+    expect(before.headers['cache-control']).toBe('private, no-store');
+    expect(before.headers['referrer-policy']).toBe('no-referrer');
+    expect(before.body).toMatchObject({
+      reference: 'GUEST-MANAGE-HTTP',
+      status: 'CONFIRMED',
+      policyKnown: true,
+    });
+    await request(app.getHttpServer())
+      .get(path)
+      .query({ token: token + 'tampered' })
+      .expect(400);
+    const send = () =>
+      request(app.getHttpServer())
+        .post(path)
+        .set('Idempotency-Key', 'guest-request-' + id)
+        .send({
+          token,
+          version: before.body.version,
+          action: 'request',
+          details: 'Guest needs staff review',
+          requestRefund: true,
+        });
+    const first = await send().expect(201);
+    const second = await send().expect(201);
+    expect(first.body.requestId).toBe(second.body.requestId);
+    const stored = await admin.$queryRaw<
+      Array<{ status: string; requester: string | null }>
+    >`SELECT b.status::text,q.requester_id AS requester FROM bookings b JOIN booking_requests q ON q.tenant_id=b.tenant_id AND q.property_id=b.property_id AND q.booking_id=b.id WHERE b.tenant_id=${tenantId}::uuid AND b.property_id=${propertyId}::uuid AND b.id=${id}::uuid`;
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ status: 'CONFIRMED', requester: null });
   });
 });

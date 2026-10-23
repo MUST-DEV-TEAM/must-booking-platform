@@ -13,7 +13,11 @@ export type RefundChoiceValue = { mode: RefundMode; percentage: string; amount: 
 
 export const noRefund: RefundChoiceValue = { mode: 'none', percentage: '', amount: '' };
 
-type Paid = { paidAmount: string; refundedAmount: string; total: { amount: string; currency: string } };
+type Paid = {
+  paidAmount: string;
+  refundedAmount: string;
+  total: { amount: string; currency: string };
+};
 
 const formatMoney = (amount: string, currency: string) =>
   new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(Number(amount));
@@ -22,7 +26,8 @@ const formatMoney = (amount: string, currency: string) =>
 export function refundAmountText(choice: RefundChoiceValue, booking: Paid): string | null {
   if (choice.mode === 'none') return null;
   if (choice.mode === 'full') return remainingRefundable(booking).amount;
-  if (choice.mode === 'percentage') return refundPreview(booking, 'percentage', '', choice.percentage);
+  if (choice.mode === 'percentage')
+    return refundPreview(booking, 'percentage', '', choice.percentage);
   return refundPreview(booking, 'fixed', choice.amount, '');
 }
 
@@ -36,7 +41,8 @@ export function refundChoiceError(choice: RefundChoiceValue, booking: Paid): str
   }
   if (choice.mode === 'fixed') {
     const value = Number(choice.amount);
-    if (!choice.amount.trim() || !Number.isFinite(value) || value <= 0) return 'Enter the amount to refund.';
+    if (!choice.amount.trim() || !Number.isFinite(value) || value <= 0)
+      return 'Enter the amount to refund.';
     if (value > remaining) return `The most that can be refunded is ${remaining.toFixed(2)}.`;
   }
   return null;
@@ -55,10 +61,14 @@ export function refundRequestBody(choice: RefundChoiceValue, booking: Paid) {
 export function refundPayload(choice: RefundChoiceValue, booking: Paid) {
   if (choice.mode === 'none') return { kind: 'none' as const };
   if (choice.mode === 'full') return { kind: 'full' as const };
-  if (choice.mode === 'percentage') return { kind: 'percentage' as const, percentage: Number(choice.percentage) };
+  if (choice.mode === 'percentage')
+    return { kind: 'percentage' as const, percentage: Number(choice.percentage) };
   return {
     kind: 'fixed' as const,
-    amount: { amount: refundAmountText(choice, booking) ?? '0.00', currency: booking.total.currency },
+    amount: {
+      amount: refundAmountText(choice, booking) ?? '0.00',
+      currency: booking.total.currency,
+    },
   };
 }
 
@@ -127,7 +137,10 @@ export function RefundChoice({
                 placeholder="%"
                 value={value.percentage}
                 onChange={(event) =>
-                  onChange({ ...value, percentage: event.target.value.replace(/\D/g, '').slice(0, 3) })
+                  onChange({
+                    ...value,
+                    percentage: event.target.value.replace(/\D/g, '').slice(0, 3),
+                  })
                 }
               />
             </div>
@@ -148,7 +161,9 @@ export function RefundChoice({
       ) : null}
 
       {value.mode !== 'none' ? (
-        error ? (
+        error &&
+        ((value.mode === 'fixed' && value.amount !== '') ||
+          (value.mode === 'percentage' && value.percentage !== '')) ? (
           <p role="alert" className="m-0 text-xs font-semibold text-destructive">
             {error}
           </p>
@@ -162,7 +177,8 @@ export function RefundChoice({
         )
       ) : (
         <p className="m-0 text-sm text-muted-foreground">
-          The payment stays with the hotel. You can still refund it from Payments for 24 hours after cancelling.
+          The payment stays with the hotel. You can still refund it from Payments for 24 hours after
+          cancelling.
         </p>
       )}
       {policyNote ? <p className="m-0 text-xs text-muted-foreground">{policyNote}</p> : null}

@@ -38,6 +38,7 @@ Index of durable, cross-cutting, or hard-to-reverse decisions. Routine implement
 | [ADR-0032](ADR-0032-shadcn-tailwind-for-new-dashboard-ui.md) | shadcn/ui and Tailwind for the new dashboard UI | Accepted — new UI is built under owner-only `/design` with shadcn components mapped to the `--must-*` tokens; Tailwind is scoped to that route until pages migrate |
 | [ADR-0033](ADR-0033-property-email-transports.md) | Property email transports and uncertain acceptance | Accepted owner requirements; implementation in progress under corrective M24 E4 |
 | [ADR-0034](ADR-0034-clock-sync-and-server-media.md) | Automatic Clock read synchronization and persistent server media | Accepted owner direction 2026-10-22; supersedes ADR-0011 provider choice; local verification recorded in Milestone 24 |
+| [ADR-0035](ADR-0035-booking-policy-snapshots-and-guest-requests.md) | Immutable booking cancellation terms and guest requests | Accepted owner direction 2026-10-23; implementation in progress |
 
 ## Interpretation and unresolved implementation details
 

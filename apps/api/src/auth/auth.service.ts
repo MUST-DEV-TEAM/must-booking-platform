@@ -311,6 +311,7 @@ export class AuthService implements OnModuleDestroy {
     birthDate?: string | null;
     preferredLanguage?: string | null;
     personalTimezone?: string | null;
+    preferredDateTimeFormat?: string | null;
     jobTitle?: string | null;
   }> {
     const userId = await this.requireSessionUserId(sessionId);
@@ -359,6 +360,7 @@ export class AuthService implements OnModuleDestroy {
       birthDate: 10,
       preferredLanguage: 35,
       personalTimezone: 100,
+      preferredDateTimeFormat: 20,
       jobTitle: 100,
     };
     for (const [key, max] of Object.entries(limits))
@@ -383,6 +385,11 @@ export class AuthService implements OnModuleDestroy {
       !/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(extras.preferredLanguage)
     )
       throw new BadRequestException('Enter a valid language preference.');
+    if (
+      extras.preferredDateTimeFormat &&
+      !['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'].includes(extras.preferredDateTimeFormat)
+    )
+      throw new BadRequestException('Choose a supported date format.');
     if (extras.personalTimezone) {
       try {
         new Intl.DateTimeFormat('en', { timeZone: extras.personalTimezone });

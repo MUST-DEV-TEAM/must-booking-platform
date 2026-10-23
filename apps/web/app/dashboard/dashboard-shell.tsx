@@ -34,7 +34,6 @@ import {
   SelectValue,
 } from '../../components/ui/select';
 import { fetchSessionUser, type SessionUser } from '../auth-routing';
-import styles from './dashboard-shell.module.css';
 import { NeedsAttentionTab } from './needs-attention';
 import { SystemHealthTab } from './system-health';
 import { GlobalSearch } from './global-search';
@@ -66,6 +65,7 @@ type Membership = { tenantId: string; role: TenantRole };
 type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
 type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
 type Property = {
+  timezone?: string;
   id: string;
   name: string;
   logoUrl?: string | null;
@@ -686,6 +686,7 @@ export function DashboardShell({
           email={user?.email}
           role={role ? roleLabels[role] : undefined}
           hotelName={selectedProperty.name}
+          hotelTimezone={selectedProperty.timezone}
         />
       ) : null}
       {selectedProperty && role && canViewSection && section === 'audit' ? (

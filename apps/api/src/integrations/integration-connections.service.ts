@@ -368,6 +368,19 @@ export class IntegrationConnectionsService {
         connectionId,
       );
       if (!connection[0]) throw new BadRequestException('Connection not found.');
+      if (!enabled && connection[0].provider === 'CLOCK_PMS') {
+        const active = await tx.$queryRaw<Array<{ unsafe: boolean }>>`
+          SELECT EXISTS(SELECT 1 FROM property_integration_connections pc
+          WHERE pc.tenant_id=${tenantId}::uuid AND pc.property_id=${propertyId}::uuid
+          AND pc.connection_id=${connectionId}::uuid AND pc.enabled)
+          AND EXISTS(SELECT 1 FROM bookings WHERE tenant_id=${tenantId}::uuid
+          AND property_id=${propertyId}::uuid AND ends_on>=CURRENT_DATE
+          AND status IN ('CONFIRMED','PAYMENT_PENDING','PMS_CONFIRMATION_PENDING','PMS_UNKNOWN_RESULT')) AS unsafe`;
+        if (active[0]?.unsafe)
+          throw new ConflictException(
+            'This hotel has active bookings. Replace credentials to repair the connection; disabling Clock requires a reviewed migration to standalone inventory.',
+          );
+      }
       if (enabled && ['CLOCK_PMS', 'POKPAY'].includes(connection[0].provider)) {
         const history = await tx.$queryRaw<
           Array<{ unsafe: boolean }>

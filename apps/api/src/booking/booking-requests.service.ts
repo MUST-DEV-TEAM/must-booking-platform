@@ -59,7 +59,7 @@ type Snapshot = { evidence: CancellationEvidence; input: CancellationInput; refu
 type RequestRow = {
   id: string;
   bookingId: string;
-  requesterId: string;
+  requesterId: string | null;
   status: string;
   version: number;
   executionActorId?: string | null;
@@ -122,7 +122,7 @@ export class BookingRequestsService {
   }
   private async evidence(
     tx: TenantTransaction,
-    c: RequestContext,
+    c: Pick<RequestContext, 'tenantId' | 'propertyId'>,
     bookingId: string,
   ): Promise<CancellationEvidence> {
     const rows = await tx.$queryRaw<
@@ -130,22 +130,27 @@ export class BookingRequestsService {
         Omit<
           CancellationEvidence,
           'previewHash' | 'legacyPolicy' | 'penalty' | 'eligible' | 'isFree'
-        > & { total: string; orderReference: string | null; evaluatedAt: Date }
+        > & {
+          total: string;
+          orderReference: string | null;
+          evaluatedAt: Date;
+          frozenPolicy: boolean;
+        }
       >
     >`
       SELECT b.id AS "bookingId", b.external_reference AS reference, b.version, b.status::text,
-        CASE WHEN b.external_booking_id IS NOT NULL OR EXISTS (
+        CASE WHEN b.cancellation_terms->>'arrivalDate'=b.starts_on::text THEN 'MUST' WHEN b.external_booking_id IS NOT NULL OR EXISTS (
           SELECT 1 FROM property_integration_connections pc JOIN integration_connections c
           ON c.tenant_id=pc.tenant_id AND c.id=pc.connection_id
           WHERE pc.tenant_id=b.tenant_id AND pc.property_id=b.property_id
             AND pc.enabled AND pc.kind='PMS' AND c.provider='CLOCK_PMS'
         ) THEN 'CLOCK_PMS' ELSE 'MUST' END AS "policySource",
-        b.order_reference AS "orderReference", rp.name AS "ratePlan", p.timezone, rp.currency,
+        b.order_reference AS "orderReference", rp.name AS "ratePlan", COALESCE(b.cancellation_terms->>'timezone',p.timezone) AS timezone, rp.currency,
         b.total_amount::text AS total,
         COALESCE((SELECT concat(provider,' / ',COALESCE(method,'')) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='CHARGE' AND status IN ('PAID','LATE_AFTER_EXPIRY','succeeded') ORDER BY created_at DESC,id DESC LIMIT 1),b.payment_method::text) AS method,
-        ((b.starts_on::timestamp AT TIME ZONE p.timezone) - make_interval(hours =>
-          COALESCE(cp.free_cancellation_days_before_arrival*24,rp.free_cancellation_until_hours)))::text AS "cutoffAt",
-        CURRENT_TIMESTAMP AS "evaluatedAt",
+        CASE WHEN b.cancellation_terms->>'arrivalDate'=b.starts_on::text THEN b.cancellation_terms->>'cutoffAt' ELSE ((b.starts_on::timestamp AT TIME ZONE p.timezone) - make_interval(hours =>
+          COALESCE(cp.free_cancellation_days_before_arrival*24,rp.free_cancellation_until_hours)))::text END AS "cutoffAt",
+        CURRENT_TIMESTAMP AS "evaluatedAt", (b.cancellation_terms IS NOT NULL) AS "frozenPolicy",
         COALESCE((SELECT sum(amount) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='CHARGE' AND status IN ('PAID','LATE_AFTER_EXPIRY','succeeded')),0)::text AS paid,
         COALESCE((SELECT sum(amount) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='REFUND' AND status='REFUNDED'),0)::text AS "alreadyRefunded"
       FROM bookings b JOIN properties p ON p.tenant_id=b.tenant_id AND p.id=b.property_id
@@ -157,7 +162,7 @@ export class BookingRequestsService {
     const orderRemaining = row.orderReference
       ? await this.orderBalance(tx, c, row.orderReference)
       : null;
-    const { total, evaluatedAt, ...base } = row;
+    const { total, evaluatedAt, frozenPolicy, ...base } = row;
     const clockTerms = row.policySource === 'CLOCK_PMS';
     const isFree = !clockTerms && withinFreeWindow(row.cutoffAt, evaluatedAt);
     const evidence = {
@@ -166,7 +171,7 @@ export class BookingRequestsService {
       cutoffAt: !clockTerms && row.cutoffAt ? new Date(row.cutoffAt).toISOString() : null,
       ...refundPreview(row.paid, row.alreadyRefunded, total, isFree),
       ...(clockTerms ? { penalty: '0.00', eligible: '0.00' } : {}),
-      legacyPolicy: !clockTerms,
+      legacyPolicy: !clockTerms && !frozenPolicy,
     };
     if (orderRemaining !== null) {
       const share = isFree ? minor(total) : 0n;
@@ -182,7 +187,11 @@ export class BookingRequestsService {
   }
   /** A booking-owned charge is an explicit split. Do not infer allocations for
    * pooled charges, mixed currencies, or multiple captures the refund path cannot select. */
-  private async orderBalance(tx: TenantTransaction, c: RequestContext, reference: string) {
+  private async orderBalance(
+    tx: TenantTransaction,
+    c: Pick<RequestContext, 'tenantId' | 'propertyId'>,
+    reference: string,
+  ) {
     const rows = await tx.$queryRaw<
       Array<{
         total: string;
@@ -376,6 +385,61 @@ export class BookingRequestsService {
       refundOutcome: refund.ok ? { ok: true } : { ok: false, message: refund.error.message },
     };
   }
+  async guestRequest(
+    scope: { tenantId: string; propertyId: string },
+    bookingId: string,
+    guestSessionId: string,
+    details: string,
+    requestRefund: boolean,
+  ) {
+    return this.db.withTenantTransaction(scope, async (tx) => {
+      const owner = await tx.$queryRaw<
+        Array<{ status: string }>
+      >`SELECT status::text FROM bookings WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${bookingId}::uuid AND guest_session_id=${guestSessionId}::uuid FOR UPDATE`;
+      if (!owner[0]) throw new NotFoundException('Booking not found.');
+      if (owner[0].status !== 'CONFIRMED')
+        throw new ConflictException(
+          'Only an active confirmed booking can be requested for cancellation.',
+        );
+      const existing = await tx.$queryRaw<
+        Array<{ id: string }>
+      >`SELECT id FROM booking_requests WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND booking_id=${bookingId}::uuid AND type='cancellation' AND status='Pending'`;
+      if (existing[0]) return { requested: true, requestId: existing[0].id };
+      const evidence = await this.evidence(tx, scope, bookingId);
+      const refundAmount = requestRefund
+        ? money(minor(evidence.paid) - minor(evidence.alreadyRefunded))
+        : '0.00';
+      const input = {
+        expectedVersion: evidence.version,
+        previewHash: evidence.previewHash,
+        reasonCategory: 'guest_request',
+        priority: 'normal',
+        details,
+        refund: requestRefund ? 'custom' : 'none',
+        customAmount: refundAmount,
+        notifyGuest: true,
+        clockTermsConfirmed: false,
+      };
+      const payload = { evidence, input, refundAmount };
+      const rows = await tx.$queryRaw<
+        Array<{ id: string }>
+      >`INSERT INTO booking_requests(tenant_id,property_id,booking_id,requester_id,guest_session_id,reason_category,priority,details,payload) VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${bookingId}::uuid,NULL,${guestSessionId}::uuid,'guest_request','normal',${details},${JSON.stringify(payload)}::jsonb) RETURNING id`;
+      await this.notifications.recordInTransaction(tx, {
+        ...scope,
+        type: 'CANCELLATION_REQUESTED',
+        payload: { bookingId, requestId: rows[0].id, guestRequest: true },
+      });
+      await this.audit.recordInTransaction(tx, {
+        ...scope,
+        actorUserId: null,
+        action: 'request.guest_created',
+        targetType: 'booking',
+        targetId: bookingId,
+        details: { requestId: rows[0].id, requestRefund },
+      });
+      return { requested: true, requestId: rows[0].id };
+    });
+  }
   async list(c: RequestContext) {
     await this.require(c, 'requests.review');
     return this.db.withTenantTransaction(c, async (tx) => {
@@ -392,8 +456,8 @@ export class BookingRequestsService {
       >`
         SELECT q.id,q.booking_id AS "bookingId",q.requester_id AS "requesterId",q.status,q.version,q.payload,q.self_approved AS "selfApproved",q.decision_note AS "decisionNote",q.execution_actor_id AS "executionActorId",q.execution_note AS "executionNote",
           q.created_at AS "createdAt",q.reason_category AS "reasonCategory",q.priority,q.details,
-          COALESCE(NULLIF(trim(concat_ws(' ',u.first_name,u.last_name)),''),u.email) AS "requesterName"
-        FROM booking_requests q JOIN users u ON u.id=q.requester_id
+          COALESCE(NULLIF(trim(concat_ws(' ',u.first_name,u.last_name)),''),u.email,'Guest (email link)') AS "requesterName"
+        FROM booking_requests q LEFT JOIN users u ON u.id=q.requester_id
         WHERE q.tenant_id=${c.tenantId}::uuid AND q.property_id=${c.propertyId}::uuid AND (q.status='Pending' OR q.id IN (SELECT d.id FROM booking_requests d WHERE d.tenant_id=${c.tenantId}::uuid AND d.property_id=${c.propertyId}::uuid AND d.status<>'Pending' ORDER BY d.decided_at DESC,d.id LIMIT 20))
         ORDER BY CASE q.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 ELSE 2 END,q.created_at,q.id`;
       const pending = items.filter((q) => q.status === 'Pending');
@@ -407,7 +471,7 @@ export class BookingRequestsService {
   async decide(
     c: RequestContext,
     id: string,
-    body: { decision?: string; note?: string; version?: number },
+    body: { decision?: string; note?: string; version?: number; clockTermsConfirmed?: boolean },
   ) {
     this.uuid(id);
     const caps = await this.require(c, 'requests.review');
@@ -435,6 +499,15 @@ export class BookingRequestsService {
         >`SELECT status,version,execution_actor_id AS "executionActorId",execution_note AS "executionNote" FROM booking_requests WHERE tenant_id=${c.tenantId}::uuid AND property_id=${c.propertyId}::uuid AND id=${id}::uuid`;
         if (fresh[0]?.status !== 'Pending' || fresh[0]?.version !== body.version)
           throw new ConflictException('This request has already changed.');
+        if (
+          body.decision === 'Approved' &&
+          q.requesterId === null &&
+          q.payload.evidence.policySource === 'CLOCK_PMS' &&
+          body.clockTermsConfirmed !== true
+        )
+          throw new ConflictException(
+            'Confirm that you reviewed the original cancellation terms before approving this guest request.',
+          );
         const selfApproved = body.decision === 'Approved' && q.requesterId === c.userId;
         if (selfApproved && !(await this.canSelfApprove(tx, c)))
           throw new ForbiddenException(
@@ -480,7 +553,12 @@ export class BookingRequestsService {
           );
           // Stable actor and command permit recovery if cancellation committed but this
           // decision transaction was interrupted. The actual reviewer is audited below.
-          outcome = await this.execute(c, q.payload, `b1-request:${q.id}`, q.requesterId);
+          outcome = await this.execute(
+            c,
+            q.payload,
+            `b1-request:${q.id}`,
+            q.requesterId ?? c.userId,
+          );
           if (!outcome.ok) {
             await this.notifications.recordInTransaction(tx, {
               ...c,

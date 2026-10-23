@@ -45,7 +45,8 @@ export class BookingRequestsController {
   decide(
     @Req() r: { tenantContext: RequestContext },
     @Param('id') id: string,
-    @Body() body: { decision?: string; note?: string; version?: number },
+    @Body()
+    body: { decision?: string; note?: string; version?: number; clockTermsConfirmed?: boolean },
   ) {
     return this.requests.decide(r.tenantContext, id, body);
   }

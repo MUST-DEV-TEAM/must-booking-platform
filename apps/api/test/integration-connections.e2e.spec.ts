@@ -327,7 +327,7 @@ describe('integration connections', () => {
       .patch(`${base}/${a.id}`)
       .set('Cookie', cookie)
       .send({ enabled: false })
-      .expect(200);
+      .expect(409);
     const rejected = await request(app!.getHttpServer())
       .patch(`${base}/${b.id}`)
       .set('Cookie', cookie)

@@ -128,6 +128,12 @@ describe('confirmed booking collection controls', () => {
     expect(view.host.textContent).not.toContain('Waiting for PokPay');
     expect(open).not.toHaveBeenCalled();
     expect(view.requests.filter((u) => u.endsWith('/collect-pokpay'))).toHaveLength(1);
+    await act(async () =>
+      [...view.host.querySelectorAll('button')]
+        .find((b) => b.textContent === 'Copy PokPay link')!
+        .click(),
+    );
+    expect(view.requests.filter((u) => u.endsWith('/collect-pokpay'))).toHaveLength(1);
     await view.close();
   });
   it('asks for confirmation and records the received date rather than silently marking paid', async () => {
@@ -155,6 +161,22 @@ describe('confirmed booking collection controls', () => {
       method: 'cash',
       evidence: { receivedOn: new Date().toISOString().slice(0, 10) },
     });
+    await view.close();
+  });
+  it('leaves a selectable link when clipboard permission is denied', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error('Permission denied')) },
+    });
+    const view = await mount();
+    await act(async () =>
+      [...view.host.querySelectorAll('button')]
+        .find((b) => b.textContent === 'Copy PokPay link')!
+        .click(),
+    );
+    expect(
+      document.querySelector<HTMLInputElement>('input[aria-label="Payment link"]')?.value,
+    ).toBe('https://staging.example/checkout');
     await view.close();
   });
 });

@@ -489,12 +489,28 @@ describe('Multi-room booking orders', () => {
       { externalBookingId: `clock-${held.value.bookings[1]!.id}` },
     ]);
     const provider = app!.get(LocalPmsProvider);
+    const guestAttempt = await provider.cancelBooking(
+      { tenantId, propertyId },
+      {
+        idempotencyKey: randomUUID(),
+        bookingId: held.value.bookings[0]!.id,
+        guestSessionId: sessionId,
+        expectedVersion: 1,
+        reason: 'Guest needs group cancellation',
+      },
+    );
+    expect(guestAttempt).toMatchObject({
+      ok: false,
+      error: { code: 'CANCELLATION_REQUIRES_REVIEW' },
+    });
+    expect(cancelledClockBookingIds).toEqual([]);
     const cancelledOrder = await provider.cancelBooking(
       { tenantId, propertyId },
       {
         idempotencyKey: randomUUID(),
         bookingId: held.value.bookings[0]!.id,
         guestSessionId: sessionId,
+        staffActorId: userId,
         expectedVersion: 1,
         reason: 'The family changed its plans.',
       },
@@ -569,6 +585,7 @@ describe('Multi-room booking orders', () => {
         idempotencyKey: randomUUID(),
         bookingId: partialCancellationOrder.value.bookings[0]!.id,
         guestSessionId: partialCancellationSessionId,
+        staffActorId: userId,
         expectedVersion: 1,
         reason: 'Force the second Clock cancellation to fail.',
       },
@@ -768,6 +785,7 @@ describe('Multi-room booking orders', () => {
         idempotencyKey: randomUUID(),
         bookingId: paidOrder.value.bookings[0]!.id,
         guestSessionId: paidSessionId,
+        staffActorId: userId,
         expectedVersion: paidAnchor[0]!.version,
         reason: 'The group needs to cancel.',
       },

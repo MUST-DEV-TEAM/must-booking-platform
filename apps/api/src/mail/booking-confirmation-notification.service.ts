@@ -74,6 +74,13 @@ export class BookingConfirmationNotificationService {
       `;
       const row = rows[0] ?? null;
       if (!row) return null;
+      if (!row.guestSessionId) {
+        const access = await tx.$queryRaw<
+          Array<{ session: string }>
+        >`UPDATE bookings SET guest_session_id=COALESCE(guest_session_id,gen_random_uuid()) WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${bookingId}::uuid RETURNING guest_session_id AS session`;
+        row.guestSessionId = access[0].session;
+      }
+
       // A multi-room order is paid and confirmed as one, so it gets one email that
       // lists every room, not one email per room (or only the first room).
       const orderRooms = row.orderReference
@@ -105,7 +112,9 @@ export class BookingConfirmationNotificationService {
         : undefined;
     const brand = {
       name: row.propertyName,
-      brandColour: row.brandColour,emailFooterText: row.emailFooterText,termsUrl: row.termsUrl,
+      brandColour: row.brandColour,
+      emailFooterText: row.emailFooterText,
+      termsUrl: row.termsUrl,
       logoUrl: row.logoUrl,
       supportEmail: row.supportEmail,
       phone: row.propertyPhone,
@@ -129,16 +138,8 @@ export class BookingConfirmationNotificationService {
         nightlyRates: row.nightlyRates ?? undefined,
         rooms,
         specialRequests: row.specialRequests,
-        cancellationUrl: row.guestReturnUrl
-          ? this.cancellationUrl(
-              row.guestReturnUrl,
-              bookingId,
-              this.cancellations.create({
-                ...context,
-                bookingId,
-                guestSessionId: row.guestSessionId,
-              }),
-            )
+        cancellationUrl: row.guestSessionId
+          ? this.manageUrl(context, bookingId, row.guestSessionId, row.endsOn)
           : undefined,
       },
       context,
@@ -181,11 +182,24 @@ export class BookingConfirmationNotificationService {
     };
   }
 
-  private cancellationUrl(base: string, bookingId: string, cancellationToken: string): string {
-    const url = new URL(base);
-    url.searchParams.set('booking_id', bookingId);
-    url.searchParams.set('cancellationToken', cancellationToken);
-    url.searchParams.set('must_action', 'cancel');
+  private manageUrl(
+    context: { tenantId: string; propertyId: string },
+    bookingId: string,
+    guestSessionId: string,
+    endsOn: string,
+  ) {
+    const url = new URL('/booking/manage', process.env.WEB_APP_URL || 'http://localhost:3001');
+    url.searchParams.set('tenant', context.tenantId);
+    url.searchParams.set('property', context.propertyId);
+    url.searchParams.set('booking', bookingId);
+    url.searchParams.set(
+      'token',
+      this.cancellations.create(
+        { ...context, bookingId, guestSessionId },
+        undefined,
+        new Date(Date.parse(endsOn + 'T23:59:59Z') + 86400000).toISOString(),
+      ),
+    );
     return url.toString();
   }
 

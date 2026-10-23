@@ -202,7 +202,7 @@ export class ClockFinancialService {
         Array<{ id: string }>
       >`SELECT id FROM bookings WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${bookingId}::uuid AND external_booking_id IS NOT NULL`;
       if (!booking[0]) return { data: null, status: 'NOT_LINKED' };
-      await tx.$executeRaw`INSERT INTO clock_sync_jobs(tenant_id,property_id,connection_id,resource,next_run_at) VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${connection.connectionId}::uuid,${'financial:' + bookingId},now()) ON CONFLICT DO NOTHING`;
+      await tx.$executeRaw`INSERT INTO clock_sync_jobs(tenant_id,property_id,connection_id,resource,next_run_at) VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${connection.connectionId}::uuid,${'financial:' + bookingId},now()) ON CONFLICT(tenant_id,property_id,connection_id,resource) DO UPDATE SET next_run_at=LEAST(clock_sync_jobs.next_run_at,now()) WHERE clock_sync_jobs.status='SYNCED' AND (clock_sync_jobs.snapshot->>'fetchedAt')::timestamptz<now()-interval '60 seconds'`;
       const rows = await tx.$queryRaw<
         Array<{ data: ClockFinancialSnapshot | null; status: string; lastError: string | null }>
       >`SELECT snapshot AS data,status,last_error AS "lastError" FROM clock_sync_jobs WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND connection_id=${connection.connectionId}::uuid AND resource=${'financial:' + bookingId}`;

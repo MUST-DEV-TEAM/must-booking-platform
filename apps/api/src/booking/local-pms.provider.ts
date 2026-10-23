@@ -1035,6 +1035,11 @@ export class LocalPmsProvider implements PmsProvider {
                 true,
               );
             if (row.orderReference && !(command.staffActorId && command.singleBooking)) {
+              if (!command.staffActorId && (await this.isClockConnected(context)))
+                return this.failure(
+                  'CANCELLATION_REQUIRES_REVIEW',
+                  'Multi-room Clock bookings require staff review. Please send a cancellation request.',
+                );
               const cancelled = await this.cancelMultiRoomOrder(tx, context, command, row);
               refundConfirmations.push(...cancelled.refundConfirmations);
               cancelledBookingIds.push(...cancelled.cancelledBookingIds);
@@ -1057,8 +1062,9 @@ export class LocalPmsProvider implements PmsProvider {
             const selfServiceWindow = command.staffActorId
               ? [{ canCancel: true }]
               : await tx.$queryRaw<Array<{ canCancel: boolean }>>`
-            SELECT CURRENT_TIMESTAMP <= (b.starts_on::timestamp AT TIME ZONE p.timezone)
-              - make_interval(days => p.free_cancellation_days_before_arrival) AS "canCancel"
+            SELECT CASE WHEN b.cancellation_terms IS NOT NULL THEN b.cancellation_terms->>'arrivalDate'=b.starts_on::text AND CURRENT_TIMESTAMP <= (b.cancellation_terms->>'cutoffAt')::timestamptz
+              WHEN b.external_booking_id IS NOT NULL OR EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id WHERE pc.tenant_id=b.tenant_id AND pc.property_id=b.property_id AND pc.enabled AND pc.kind='PMS' AND ic.provider='CLOCK_PMS') THEN false
+              ELSE CURRENT_TIMESTAMP <= (b.starts_on::timestamp AT TIME ZONE p.timezone)-make_interval(days=>p.free_cancellation_days_before_arrival) END AS "canCancel"
             FROM bookings b JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
             WHERE b.id = ${row.id}::uuid AND b.tenant_id = ${context.tenantId}::uuid
           `;
@@ -1069,6 +1075,23 @@ export class LocalPmsProvider implements PmsProvider {
               );
 
             if (await this.isClockConnected(context)) {
+              if (!command.staffActorId) {
+                const checked = await tx.$queryRaw<
+                  Array<{ safe: boolean }>
+                >`SELECT EXISTS(SELECT 1 FROM clock_sync_jobs j JOIN property_integration_connections pc ON pc.tenant_id=j.tenant_id AND pc.property_id=j.property_id AND pc.connection_id=j.connection_id AND pc.enabled AND pc.kind='PMS' WHERE j.tenant_id=${context.tenantId}::uuid AND j.property_id=${context.propertyId}::uuid AND j.resource=${'financial:' + row.id} AND j.status='SYNCED' AND j.last_error IS NULL AND (j.snapshot->>'fetchedAt')::timestamptz>now()-interval '60 seconds' AND (j.snapshot->>'bookingVersion')::int=${row.version}
+                  AND (j.snapshot#>>'{paid,amount}')::numeric=(j.snapshot->>'localPaid')::numeric
+                  AND (j.snapshot#>>'{refunded,amount}')::numeric=(j.snapshot->>'localRefunded')::numeric
+                  AND j.snapshot#>>'{balance,currency}'=${row.currency}
+                  AND (j.snapshot#>>'{balance,amount}')::numeric>=0
+                  AND (SELECT count(*) FROM payments WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND booking_id=${row.id}::uuid AND kind='CHARGE' AND status IN ('PAID','succeeded'))<=1
+                  AND NOT EXISTS(SELECT 1 FROM payments WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND booking_id=${row.id}::uuid AND kind='CHARGE' AND status IN ('PAID','succeeded') AND provider NOT IN ('pokpay','stripe'))
+                  AND (j.snapshot->>'localPaid')::numeric=COALESCE((SELECT sum(amount) FROM payments WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND booking_id=${row.id}::uuid AND kind='CHARGE' AND status IN ('PAID','succeeded')),0) AND (j.snapshot->>'localRefunded')::numeric=COALESCE((SELECT sum(amount) FROM payments WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND booking_id=${row.id}::uuid AND kind='REFUND' AND status='REFUNDED'),0)) AS safe`;
+                if (!checked[0]?.safe)
+                  return this.failure(
+                    'CANCELLATION_REQUIRES_REVIEW',
+                    'The payment position changed. Hotel staff must review this cancellation.',
+                  );
+              }
               if (row.externalBookingId) {
                 const cancelledAtClock = await this.clockBooking.cancelRealReservation(
                   context,
@@ -1356,8 +1379,10 @@ export class LocalPmsProvider implements PmsProvider {
     bookingId: string,
   ): Promise<boolean> {
     const rows = await tx.$queryRaw<Array<{ canCancel: boolean }>>`
-      SELECT CURRENT_TIMESTAMP <= (b.starts_on::timestamp AT TIME ZONE p.timezone)
-        - make_interval(days => p.free_cancellation_days_before_arrival) AS "canCancel"
+      SELECT CASE WHEN b.cancellation_terms IS NOT NULL THEN
+        b.cancellation_terms->>'arrivalDate'=b.starts_on::text AND CURRENT_TIMESTAMP <= (b.cancellation_terms->>'cutoffAt')::timestamptz
+        ELSE CURRENT_TIMESTAMP <= (b.starts_on::timestamp AT TIME ZONE p.timezone)
+        - make_interval(days => p.free_cancellation_days_before_arrival) END AS "canCancel"
       FROM bookings b JOIN properties p ON p.tenant_id = b.tenant_id AND p.id = b.property_id
       WHERE b.id = ${bookingId}::uuid AND b.tenant_id = ${context.tenantId}::uuid
         AND b.property_id = ${context.propertyId}::uuid
@@ -1627,6 +1652,31 @@ export class LocalPmsProvider implements PmsProvider {
     context: PmsProviderContext,
     bookingId: string,
   ): Promise<CancellationPolicy> {
+    const saved = await tx.$queryRaw<
+      Array<{
+        terms: {
+          arrivalDate: string;
+          cutoffAt: string;
+          freeCancellationUntilHours: number;
+          autoRefund: boolean;
+        } | null;
+        arrival: string;
+        external: string | null;
+        clock: boolean;
+      }>
+    >`SELECT b.cancellation_terms AS terms,b.starts_on::text AS arrival,b.external_booking_id AS external,EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id WHERE pc.tenant_id=b.tenant_id AND pc.property_id=b.property_id AND pc.enabled AND pc.kind='PMS' AND ic.provider='CLOCK_PMS') AS clock FROM bookings b WHERE b.tenant_id=${context.tenantId}::uuid AND b.property_id=${context.propertyId}::uuid AND b.id=${bookingId}::uuid`;
+    if (saved[0]?.terms) {
+      const terms = saved[0].terms;
+      const cutoffAt = new Date(terms.cutoffAt);
+      return {
+        freeCancellationUntilHours: terms.freeCancellationUntilHours,
+        cutoffAt,
+        isFree: terms.arrivalDate === saved[0].arrival && Date.now() <= cutoffAt.valueOf(),
+        autoRefund: terms.autoRefund,
+      };
+    }
+    if (saved[0]?.clock || saved[0]?.external)
+      return { freeCancellationUntilHours: null, cutoffAt: null, isFree: false, autoRefund: false };
     const rows = await tx.$queryRaw<
       Array<{
         freeCancellationUntilHours: number | null;

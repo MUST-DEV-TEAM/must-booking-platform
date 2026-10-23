@@ -2,7 +2,7 @@
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MyAccount } from './my-account';
+import { MyAccount, parseAccountDate, formatAccountDate } from './my-account';
 import { DashboardQueryProvider } from './query-provider';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -124,4 +124,13 @@ describe('My account', () => {
     expect(write[0]).toBe('/api/tenants/t/my-email-preferences');
     expect(JSON.parse(String(write[1]!.body))).toEqual({ muteOptionalEmails: true });
   });
+});
+
+it('parses European birthdays and rejects invalid or future dates without swapping day and month', () => {
+  expect(parseAccountDate('23/10/1990', 'DD/MM/YYYY')).toBe('1990-10-23');
+  expect(parseAccountDate('29/02/2000', 'DD/MM/YYYY')).toBe('2000-02-29');
+  expect(parseAccountDate('29/02/2001', 'DD/MM/YYYY')).toBeNull();
+  expect(parseAccountDate('01/01/2999', 'DD/MM/YYYY')).toBeNull();
+  expect(parseAccountDate('10/23/1990', 'MM/DD/YYYY')).toBe('1990-10-23');
+  expect(formatAccountDate('1990-10-23', 'DD/MM/YYYY')).toBe('23/10/1990');
 });

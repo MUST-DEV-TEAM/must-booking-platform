@@ -270,3 +270,25 @@ it('keeps the selected percentage when entering combined cancellation from Refun
   expect(document.body.textContent).toContain('22.50 EUR');
   expect(fetch.mock.calls.every((c) => !String(c[0]).endsWith('/payments/refunds'))).toBe(true);
 });
+
+it('requires a reviewer acknowledgement for a guest request with unknown Clock terms', async () => {
+  const decide = vi.fn(async () => {});
+  await mount(
+    <ApprovalPanel
+      request={{
+        ...request,
+        requesterId: null,
+        payload: { ...request.payload, evidence: { ...evidence, policySource: 'CLOCK_PMS' } },
+      }}
+      onClose={() => {}}
+      onDecide={decide}
+    />,
+  );
+  await write('textarea', 'Original policy checked');
+  expect(button('Approve').disabled).toBe(true);
+  const checkbox = [...document.querySelectorAll<HTMLButtonElement>('[role="checkbox"]')].at(-1)!;
+  await act(async () => checkbox.click());
+  expect(button('Approve').disabled).toBe(false);
+  await act(async () => button('Approve').click());
+  expect(decide).toHaveBeenCalledWith('Approved', 'Original policy checked', true);
+});

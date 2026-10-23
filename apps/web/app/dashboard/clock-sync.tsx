@@ -59,10 +59,12 @@ export function ClockSyncStatus({
   tenantId,
   propertyId,
   details = false,
+  inventoryOnly = false,
 }: {
   tenantId: string;
   propertyId: string;
   details?: boolean;
+  inventoryOnly?: boolean;
 }) {
   const source = usePmsSource(tenantId, propertyId),
     client = useQueryClient();
@@ -95,7 +97,14 @@ export function ClockSyncStatus({
     onSuccess: () => client.invalidateQueries({ queryKey: ['dashboard'] }),
   });
   if (source.data !== 'CLOCK_PMS') return null;
-  const jobs = status.data?.jobs ?? [];
+  const jobs = (status.data?.jobs ?? []).filter(
+    (job) =>
+      !inventoryOnly ||
+      job.resource === 'catalog' ||
+      job.resource === 'rooms' ||
+      job.resource === 'rates' ||
+      job.resource.startsWith('availability:'),
+  );
   const failed = jobs.filter((j) => j.status === 'FAILED');
   const pending = jobs.some(
     (j) => !j.lastSyncedAt || ['RUNNING', 'READY', 'RETRY'].includes(j.status),
