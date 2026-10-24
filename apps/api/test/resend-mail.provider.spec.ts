@@ -13,6 +13,7 @@ describe('ResendMailProvider', () => {
     process.env.MAIL_FROM_EMAIL = originalFromEmail;
     process.env.WEB_APP_URL = originalWebAppUrl;
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('gives every Resend request a timeout signal and surfaces a timeout as a failure', async () => {
@@ -31,6 +32,24 @@ describe('ResendMailProvider', () => {
       }),
     ).rejects.toThrow('timed out');
     expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('does not call Resend for a reserved test address in production', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    process.env.MAIL_FROM_EMAIL = 'MUST Booking <noreply@must.al>';
+    vi.stubEnv('NODE_ENV', 'production');
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      provider.sendPasswordResetEmail({
+        userId: '8beaf323-2f86-46fd-999a-78a0cf52bb5f',
+        to: 'frontdesktesting@must.test',
+        resetUrl: 'https://app.must.al/reset?token=t',
+      }),
+    ).rejects.toMatchObject({ name: 'MailDeliveryError', retryable: false });
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
   });
 
   it('sends verification messages through Resend with the required request metadata', async () => {

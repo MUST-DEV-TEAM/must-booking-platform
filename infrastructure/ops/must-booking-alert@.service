@@ -1,0 +1,6 @@
+[Unit]
+Description=Email the platform admin that %i failed
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/must-booking-alert %i

@@ -74,19 +74,49 @@ async function call(session, method, path, body, headers = {}) {
   return { status: response.status, json, text: text.slice(0, 300) };
 }
 
-async function book(session, roomType, paymentMethod, firstName) {
+// The catalog needs the stay dates for properties that sell individual rooms, and
+// then says which rooms are free for them.
+async function catalogFor(stay) {
+  const query = `?startsOn=${stay.startsOn}&endsOn=${stay.endsOn}`;
+  const response = await call(randomUUID(), 'GET', `/public/catalog${query}`);
+  if (response.status !== 200) fail(`catalog request returned HTTP ${response.status}.`);
+  return response.json;
+}
+
+function pickRoom(catalog) {
+  for (const roomType of catalog.roomTypes ?? []) {
+    if (roomType.requiresRatePlanSelection && !roomType.ratePlans?.length) continue;
+    const rooms = roomType.rooms ?? [];
+    if (rooms.length === 0) return { roomType };
+    const free = rooms.find((room) => room.isAvailable);
+    if (free) return { roomType, room: free };
+  }
+  return null;
+}
+
+async function book(session, paymentMethod, firstName) {
   // Try a few stays 30-60 days out, so one sold-out night doesn't fail the check.
   for (const offset of [30, 37, 44, 51, 58]) {
     const stay = { startsOn: isoDay(offset), endsOn: isoDay(offset + 1) };
+    const catalog = await catalogFor(stay);
+    const choice = pickRoom(catalog);
+    if (!choice) {
+      note(`- ${stay.startsOn}: no free room in the catalog, trying another date.`);
+      continue;
+    }
+    const { roomType, room } = choice;
     const selection = {
       roomTypeId: roomType.id,
+      ...(room ? { roomId: room.id } : {}),
       ...(roomType.requiresRatePlanSelection ? { ratePlanId: roomType.ratePlans[0]?.id } : {}),
       ...stay,
       adults: 1,
     };
     const quote = await call(session, 'POST', '/quotes', selection);
     if (quote.status !== 201 || !quote.json?.quoteToken) {
-      note(`- ${stay.startsOn}: no quote (HTTP ${quote.status}), trying another date.`);
+      note(
+        `- ${stay.startsOn}: no quote (HTTP ${quote.status} ${quote.text}), trying another date.`,
+      );
       continue;
     }
     const created = await call(
@@ -102,7 +132,7 @@ async function book(session, roomType, paymentMethod, firstName) {
       },
       { 'Idempotency-Key': randomUUID() },
     );
-    if (created.json?.ok) return { booking: created.json.value, stay };
+    if (created.json?.ok) return { booking: created.json.value, stay, roomType };
     const code = created.json?.error?.code ?? `HTTP ${created.status}`;
     if (code !== 'AVAILABILITY_FAILED')
       fail(`${paymentMethod} booking was refused: ${code} ${created.text}`);
@@ -133,32 +163,27 @@ async function waitForClock(session, bookingId) {
   fail(`booking ${bookingId} did not get a Clock reservation within a minute.`);
 }
 
-const catalog = await call(randomUUID(), 'GET', '/public/catalog');
-if (catalog.status !== 200) fail(`catalog request returned HTTP ${catalog.status}.`);
-const roomType = catalog.json.roomTypes?.find(
-  (candidate) => !candidate.requiresRatePlanSelection || candidate.ratePlans?.length > 0,
-);
-if (!roomType) fail('Must Hotel has no bookable room type in its public catalog.');
+const catalog = await catalogFor({ startsOn: isoDay(30), endsOn: isoDay(31) });
 note(`Must Hotel live check, ${new Date().toISOString()}`);
 note(
-  `Room type: ${roomType.name}. Payment methods offered: ${catalog.json.paymentMethods.join(', ')}.`,
+  `Payment methods offered: ${catalog.paymentMethods.join(', ')}. Booking mode: ${catalog.bookingMode ?? 'unknown'}.`,
 );
 
-if (!catalog.json.paymentMethods.includes('pay_at_hotel'))
+if (!catalog.paymentMethods.includes('pay_at_hotel'))
   fail('pay at hotel is not enabled for Must Hotel, so the Clock check cannot run.');
 const payAtHotelSession = randomUUID();
-const payAtHotel = await book(payAtHotelSession, roomType, 'pay_at_hotel', 'PayAtHotel');
+const payAtHotel = await book(payAtHotelSession, 'pay_at_hotel', 'PayAtHotel');
 if (!String(payAtHotel.booking.externalReference).startsWith(REFERENCE_PREFIX))
   fail(
     `booking reference ${payAtHotel.booking.externalReference} is not a Must Hotel (MH-) reference.`,
   );
 const confirmed = await waitForClock(payAtHotelSession, payAtHotel.booking.id);
 note(
-  `OK pay at hotel: ${confirmed.externalReference}, ${payAtHotel.stay.startsOn}, Clock reservation ${confirmed.externalBookingId}.`,
+  `OK pay at hotel (${payAtHotel.roomType.name}): ${confirmed.externalReference}, ${payAtHotel.stay.startsOn}, Clock reservation ${confirmed.externalBookingId}.`,
 );
 
-if (catalog.json.paymentMethods.includes('pokpay')) {
-  const pokpay = await book(randomUUID(), roomType, 'pokpay', 'PokPay');
+if (catalog.paymentMethods.includes('pokpay')) {
+  const pokpay = await book(randomUUID(), 'pokpay', 'PokPay');
   const checkout = pokpay.booking.checkoutUrl ? new URL(pokpay.booking.checkoutUrl) : null;
   if (!checkout || !/pokpay/i.test(checkout.hostname))
     fail(
