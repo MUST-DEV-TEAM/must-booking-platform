@@ -68,6 +68,8 @@ async function mount({
   const fetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     const json = (data: unknown) => new Response(JSON.stringify(data));
+    // The board only offers blocking for a hotel whose stock MUST owns, so these tests run as one.
+    if (url.endsWith('/pms-connection-status')) return json({ provider: 'LOCAL' });
     if (url.includes('/booking-rules/evaluate')) {
       const selected = new URL(url, 'http://localhost').searchParams.has('startsOn');
       const result = {

@@ -35,7 +35,7 @@ beforeAll(async () => {
     `CREATE POLICY scoped ON "${schema}".audit_logs USING(tenant_id=public.app_current_tenant_id() AND property_id=public.app_current_property_id()) WITH CHECK(tenant_id=public.app_current_tenant_id() AND property_id=public.app_current_property_id())`,
   );
   const sql = await readFile(
-    new URL('../prisma/migrations/20261024010000_audit_append_only/migration.sql', import.meta.url),
+    'prisma/migrations/20261024010000_audit_append_only/migration.sql',
     'utf8',
   );
   for (let replay = 0; replay < 2; replay++)

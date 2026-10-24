@@ -110,12 +110,16 @@ async function mount(data = fixture(), status = 200) {
   return { host, fetch };
 }
 async function rendered(text: string) {
-  await vi.waitFor(async () => {
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 5));
-    });
-    expect(document.body.textContent).toContain(text);
-  });
+  await vi.waitFor(
+    async () => {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 5));
+      });
+      expect(document.body.textContent).toContain(text);
+    },
+    // The default 1 s is too tight when the whole web suite runs in parallel.
+    { timeout: 10_000 },
+  );
 }
 async function click(text: string) {
   const button = [...document.querySelectorAll('button')].find((b) => b.textContent === text)!;
