@@ -49,7 +49,9 @@ export function ClockImportPanel({
         setFrom(saved.startsOn);
         setTo(saved.endsOn);
       }
-    } catch {}
+    } catch {
+      // Saved filters are optional; fall back to the defaults.
+    }
     return () => {
       pause.current = true;
     };

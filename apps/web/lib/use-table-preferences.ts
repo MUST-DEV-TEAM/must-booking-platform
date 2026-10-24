@@ -23,13 +23,15 @@ export function useTablePreferences<K extends string>(key: string, defaults: Rec
       // Fall back to the defaults.
     }
     // The defaults are a constant of the caller; only the key decides what to load.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
   const save = useCallback(
     (nextColumns: Record<K, boolean>, nextDensity: Density) => {
       try {
-        window.localStorage.setItem(key, JSON.stringify({ columns: nextColumns, density: nextDensity }));
+        window.localStorage.setItem(
+          key,
+          JSON.stringify({ columns: nextColumns, density: nextDensity }),
+        );
       } catch {
         // Remembering the choice is a convenience.
       }

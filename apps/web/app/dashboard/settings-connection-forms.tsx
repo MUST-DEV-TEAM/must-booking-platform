@@ -69,7 +69,7 @@ export function BrandingSettings({
       property.emailFooterText,
       property.termsUrl,
     ],
-  ); // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
   useUnsavedChanges(canWrite && dirty);
   const errors = {

@@ -70,14 +70,8 @@ const tenantId = randomUUID(),
   otherProperty = randomUUID(),
   owner = randomUUID(),
   staff = randomUUID(),
-  guest = randomUUID(),
   roomType = randomUUID(),
   ratePlan = randomUUID();
-const c: { tenantId: string; propertyId: string; userId: string } = {
-  tenantId,
-  propertyId,
-  userId: owner,
-};
 
 let app: INestApplication;
 const session = randomUUID();
@@ -214,16 +208,27 @@ beforeAll(async () => {
     .useValue({ canActivate: () => true })
     .compile();
   app = mod.createNestApplication();
-  app.use((req: any, _res: any, next: () => void) => {
-    const p = req.originalUrl.split('/');
-    req.tenantContext = {
-      tenantId: p[2],
-      propertyId: p[4],
-      userId: req.headers['x-fixture-user'] ?? owner,
-    };
-    req.guestSessionId = session;
-    next();
-  });
+  app.use(
+    (
+      req: {
+        originalUrl: string;
+        headers: Record<string, string | undefined>;
+        tenantContext?: unknown;
+        guestSessionId?: unknown;
+      },
+      _res: unknown,
+      next: () => void,
+    ) => {
+      const p = req.originalUrl.split('/');
+      req.tenantContext = {
+        tenantId: p[2],
+        propertyId: p[4],
+        userId: req.headers['x-fixture-user'] ?? owner,
+      };
+      req.guestSessionId = session;
+      next();
+    },
+  );
   app.useGlobalGuards(
     new CapabilitiesGuard(new Reflector(), mod.get(CapabilitiesService), mod.get(AuditLogService)),
   );
@@ -240,7 +245,7 @@ afterAll(async () => {
 it('round-trips the grouped settings, refuses invalid policies/currency changes and preserves another hotel', async () => {
   const list = await request(app.getHttpServer()).get(`/tenants/${tenantId}/properties`);
   expect(list.status, list.text).toBe(200);
-  expect(list.body.find((p: any) => p.id === propertyId)).toMatchObject({
+  expect(list.body.find((p: { id: string }) => p.id === propertyId)).toMatchObject({
     allowSameDayBooking: true,
     noShowRule: 'flag_for_review',
     defaultCurrencyLocked: true,
@@ -289,7 +294,7 @@ it('round-trips the grouped settings, refuses invalid policies/currency changes 
     ).status,
   ).toBe(403);
   const others = await request(app.getHttpServer()).get(`/tenants/${tenantId}/properties`);
-  expect(others.body.find((p: any) => p.id === otherProperty).legalName).toBeNull();
+  expect(others.body.find((p: { id: string }) => p.id === otherProperty).legalName).toBeNull();
 });
 it('applies the property-local same-day flag and cutoff to public quotes and staff bookings', async () => {
   await patch({ allowSameDayBooking: false }).expect(200);

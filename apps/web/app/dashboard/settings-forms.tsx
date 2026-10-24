@@ -36,7 +36,7 @@ export function GeneralSettings({ property, saving, onSave, canWrite = false }: 
   const rich = useHotelSettings(property, 'general', canWrite);
   const initial = { name: property.name, address: property.address, timezone: property.timezone };
   const [draft, setDraft] = useState(initial);
-  useEffect(() => setDraft(initial), [property.name, property.address, property.timezone]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => setDraft(initial), [property.name, property.address, property.timezone]);
   const zones = useMemo(() => timeZoneOptions(property.timezone), [property.timezone]);
   const errors = {
     name: draft.name.trim() ? null : 'Enter the hotel name.',
@@ -158,7 +158,7 @@ export function BookingRulesSettings({ property, saving, onSave, canWrite = fals
   });
   const [draft, setDraft] = useState(initial);
   const [confirmMode, setConfirmMode] = useState(false);
-  useEffect(() => setDraft(initial()), [property]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => setDraft(initial()), [property]);
   const errors = validateRules(draft);
   const saved = initial();
   const dirty = (Object.keys(saved) as Array<keyof typeof saved>).some(
@@ -330,7 +330,7 @@ export function CheckInOutSettings({ property, saving, onSave, canWrite = false 
     checkOutTime: property.checkOutTime ?? '',
   };
   const [draft, setDraft] = useState(initial);
-  useEffect(() => setDraft(initial), [property.checkInTime, property.checkOutTime]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => setDraft(initial), [property.checkInTime, property.checkOutTime]);
   const errors = {
     checkInTime: validTime(draft.checkInTime) ? null : 'Use a time like 15:00.',
     checkOutTime: validTime(draft.checkOutTime) ? null : 'Use a time like 11:00.',

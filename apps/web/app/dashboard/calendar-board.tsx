@@ -120,7 +120,6 @@ export function CalendarBoard({
   const source = usePmsSource(tenantId, propertyId);
   const stockKnown = source.data === 'LOCAL';
   const clockCounts = useClockRoomCounts(tenantId, propertyId, source.data === 'CLOCK_PMS');
-  const capacityLabel = source.data === 'CLOCK_PMS' ? 'Unknown - managed in Clock' : 'Unknown';
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const [start, setStart] = useState(() => addDays(todayIso(), -1));
   const [preset, setPreset] = useState<Preset>('14');

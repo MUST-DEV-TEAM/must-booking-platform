@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -327,7 +326,9 @@ describe('DashboardSettings', () => {
       ([, init]) => init?.method === 'PATCH' && !!JSON.parse(init.body as string).paymentGateways,
     )!;
     expect(JSON.parse(paymentGatewaysRequest[1]!.body as string)).toEqual({
-      paymentGateways:{stripe:false,pokpay:true,payAtHotel:true},onlinePaymentHoldMinutes:30,autoRefundOnFreeCancellation:true,
+      paymentGateways: { stripe: false, pokpay: true, payAtHotel: true },
+      onlinePaymentHoldMinutes: 30,
+      autoRefundOnFreeCancellation: true,
     });
 
     const generateCodeButton = Array.from(container.querySelectorAll('button')).find(
@@ -463,7 +464,8 @@ describe('DashboardSettings', () => {
       if (init?.method === 'PATCH') {
         property = { ...property, ...JSON.parse(init.body as string) };
         // Existing update responses omit wordpressConnectedAt.
-        const { wordpressConnectedAt, ...response } = property;
+        const response: Record<string, unknown> = { ...property };
+        delete response.wordpressConnectedAt;
         return new Response(JSON.stringify(response));
       }
       if (url.endsWith('/properties')) return new Response(JSON.stringify([property]));
@@ -625,14 +627,5 @@ async function saveChanges(container: HTMLElement) {
       await new Promise((resolve) => window.setTimeout(resolve, 20));
       await Promise.resolve();
     }
-  });
-}
-
-async function select(element: Element, next: string) {
-  await act(async () => {
-    const input = element as HTMLSelectElement;
-    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!.set!.call(input, next);
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    await Promise.resolve();
   });
 }

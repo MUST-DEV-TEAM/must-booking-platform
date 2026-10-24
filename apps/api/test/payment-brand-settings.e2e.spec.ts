@@ -51,14 +51,8 @@ const tenantId = randomUUID(),
   otherProperty = randomUUID(),
   owner = randomUUID(),
   staff = randomUUID(),
-  guest = randomUUID(),
   roomType = randomUUID(),
   ratePlan = randomUUID();
-const c: { tenantId: string; propertyId: string; userId: string } = {
-  tenantId,
-  propertyId,
-  userId: owner,
-};
 
 let app: INestApplication;
 const oldCipher = process.env.INTEGRATION_CREDENTIALS_KEY;
@@ -131,15 +125,25 @@ beforeAll(async () => {
     ],
   }).compile();
   app = module.createNestApplication();
-  app.use((req: any, _res: any, next: () => void) => {
-    const parts = req.originalUrl.split('/');
-    req.tenantContext = {
-      tenantId: parts[2],
-      propertyId: parts[4],
-      userId: req.headers['x-fixture-user'] ?? owner,
-    };
-    next();
-  });
+  app.use(
+    (
+      req: {
+        originalUrl: string;
+        headers: Record<string, string | undefined>;
+        tenantContext?: unknown;
+      },
+      _res: unknown,
+      next: () => void,
+    ) => {
+      const parts = req.originalUrl.split('/');
+      req.tenantContext = {
+        tenantId: parts[2],
+        propertyId: parts[4],
+        userId: req.headers['x-fixture-user'] ?? owner,
+      };
+      next();
+    },
+  );
   app.useGlobalGuards(
     new CapabilitiesGuard(
       new Reflector(),
@@ -161,7 +165,7 @@ afterAll(async () => {
 it('defaults, validates and atomically saves the new fields with payment methods, preserving other hotels', async () => {
   const list = await request(app.getHttpServer()).get(`/tenants/${tenantId}/properties`);
   expect(list.status, list.text).toBe(200);
-  expect(list.body.find((p: any) => p.id === propertyId)).toMatchObject({
+  expect(list.body.find((p: { id: string }) => p.id === propertyId)).toMatchObject({
     onlinePaymentHoldMinutes: 30,
     autoRefundOnFreeCancellation: true,
     brandColour: null,
@@ -196,7 +200,9 @@ it('defaults, validates and atomically saves the new fields with payment methods
     paymentGateways: { stripe: false, pokpay: true, payAtHotel: false },
   });
   const others = await request(app.getHttpServer()).get(`/tenants/${tenantId}/properties`);
-  expect(others.body.find((p: any) => p.id === otherProperty).onlinePaymentHoldMinutes).toBe(30);
+  expect(
+    others.body.find((p: { id: string }) => p.id === otherProperty).onlinePaymentHoldMinutes,
+  ).toBe(30);
   expect(
     (
       await request(app.getHttpServer())
@@ -269,12 +275,18 @@ it('uses the existing encrypted PokPay create/test/assignment path without retur
     .send({ enabled: true })
     .expect(200);
   const assignments = await request(app.getHttpServer()).get(`${url}/integration-connections`);
-  expect(assignments.body.find((a: any) => a.connectionId === old.body.id).enabled).toBe(false);
-  expect(assignments.body.find((a: any) => a.connectionId === next.body.id).enabled).toBe(true);
+  expect(
+    assignments.body.find((a: { connectionId: string }) => a.connectionId === old.body.id).enabled,
+  ).toBe(false);
+  expect(
+    assignments.body.find((a: { connectionId: string }) => a.connectionId === next.body.id).enabled,
+  ).toBe(true);
   const other = await request(app.getHttpServer()).get(
     `/tenants/${tenantId}/properties/${otherProperty}/integration-connections`,
   );
-  expect(other.body.find((a: any) => a.connectionId === old.body.id).enabled).toBe(true);
+  expect(
+    other.body.find((a: { connectionId: string }) => a.connectionId === old.body.id).enabled,
+  ).toBe(true);
   const list = await request(app.getHttpServer()).get(base);
   expect(list.text).not.toContain('fixture-private-secret');
   expect(list.text).not.toContain('encryptedCredentials');

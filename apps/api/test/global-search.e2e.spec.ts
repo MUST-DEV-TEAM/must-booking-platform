@@ -28,7 +28,6 @@ describe('Global search', () => {
   let ownerId = '';
   let ownerCookie = '';
   const http = () => request(app.getHttpServer());
-  const roles = () => `/tenants/${tenantId}/properties/${propertyId}/role-templates`;
   const find = (cookie: string, q: string) =>
     http()
       .get(`/tenants/${tenantId}/properties/${propertyId}/search`)

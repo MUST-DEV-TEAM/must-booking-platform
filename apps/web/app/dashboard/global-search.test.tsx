@@ -28,7 +28,10 @@ const wait = async (ms: number) => {
     await new Promise((resolve) => setTimeout(resolve, ms));
   });
 };
-async function mount(canOpen = (_section: string) => true, can = (_capability: string) => true) {
+async function mount(
+  canOpen: (section: string) => boolean = () => true,
+  can: (capability: string) => boolean = () => true,
+) {
   const root = createRoot(document.body.appendChild(document.createElement('div')));
   roots.push(root);
   await act(async () => {

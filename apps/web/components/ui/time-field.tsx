@@ -34,7 +34,6 @@ function Wheel({
     const index = Math.max(0, items.indexOf(value));
     if (list.current) list.current.scrollTop = index * ROW;
     // Only on first show; later changes come from scrolling or clicking.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const pad = ((VISIBLE_ROWS - 1) / 2) * ROW;

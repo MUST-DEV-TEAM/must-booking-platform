@@ -55,7 +55,9 @@ export function ClockGuestDirectory({
         setFrom(p.updatedFrom);
         setUntil(p.updatedUntil);
       }
-    } catch {}
+    } catch {
+      // Saved filters are optional; fall back to the defaults.
+    }
     return () => {
       pause.current = true;
     };

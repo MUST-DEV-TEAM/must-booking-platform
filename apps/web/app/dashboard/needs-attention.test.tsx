@@ -143,7 +143,7 @@ describe('NeedsAttentionTab', () => {
 
   it('requires a note and removes a failed unpaid attempt through the audited action', async () => {
     let closed = false;
-    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+    const fetcher = vi.fn(async (url: string) => {
       if (url.endsWith('/review/dismiss')) {
         closed = true;
         return Response.json({ ok: true });
