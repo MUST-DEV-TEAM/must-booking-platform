@@ -9,6 +9,7 @@ import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { ClockBookingService } from '../src/integrations/clock/clock-booking.service';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
+import { retryOnClockRateLimit } from './helpers/clock-retry';
 import { sandboxStay } from './helpers/sandbox-stay';
 
 // Milestone 11 Task 10's real-sandbox gate. Booking CRUD isn't reachable
@@ -225,12 +226,14 @@ describe.skipIf(!hasSandboxCredentials)('Clock booking CRUD (real sandbox)', () 
     // Real cancellation against a real, Clock-confirmed booking — the
     // lock_version re-fetch + PUT status=canceled path, never exercised for
     // real before 2026-08-05 since no booking had ever reached CONFIRMED.
-    const cancelResult = await bookingService.cancelBooking(context, {
-      idempotencyKey: `clock-booking-e2e-cancel-${randomUUID()}`,
-      bookingId: bookingRow[0]!.id,
-      expectedVersion: 1,
-      reason: 'E2E test cleanup.',
-    });
+    const cancelResult = await retryOnClockRateLimit(() =>
+      bookingService.cancelBooking(context, {
+        idempotencyKey: `clock-booking-e2e-cancel-${randomUUID()}`,
+        bookingId: bookingRow[0]!.id,
+        expectedVersion: 1,
+        reason: 'E2E test cleanup.',
+      }),
+    );
     expect(cancelResult.ok, JSON.stringify(cancelResult)).toBe(true);
     const cancelledRow = await admin.$queryRaw<Array<{ status: string }>>`
       SELECT status FROM bookings WHERE id = ${bookingRow[0]!.id}::uuid
