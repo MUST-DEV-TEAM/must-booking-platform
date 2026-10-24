@@ -50,8 +50,8 @@ export const credentialFieldsByProvider: Record<
   ],
   CLOCK_PMS: [
     { key: 'host', label: 'Host' },
-    { key: 'accountId', label: 'Account ID' },
-    { key: 'subscriptionId', label: 'Subscription ID' },
+    { key: 'accountId', label: 'Subscription ID' },
+    { key: 'subscriptionId', label: 'Account ID' },
     { key: 'apiUser', label: 'API user' },
     { key: 'apiKey', label: 'API key', secret: true },
   ],

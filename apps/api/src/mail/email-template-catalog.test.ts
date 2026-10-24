@@ -52,6 +52,28 @@ describe('safe complete situation catalog and local civil stay dates', () => {
         .stay_range,
     ).toContain('tetor');
   });
+  it('renders occupied dates without rates or the checkout day', () => {
+    const values = stayTemplateValues({
+      guestName: 'G',
+      hotelName: 'H',
+      reference: 'R',
+      roomName: 'King',
+      guestCount: 2,
+      startsOn: '2026-04-11',
+      endsOn: '2026-04-14',
+    });
+    expect(values.stay_dates).toBe('11 April 2026\n12 April 2026\n13 April 2026');
+    const result = renderTemplate(
+      'booking_confirmed',
+      { subject: 'Stay', body: '{stay_dates}' },
+      values,
+    );
+    expect(result.hasStayBlock).toBe(true);
+    expect(result.html).toContain('data-summary-label="Dates"');
+    expect(result.html).toContain('11 April 2026<br>12 April 2026<br>13 April 2026');
+    expect(result.html).not.toContain('Nightly rate');
+    expect(result.html).not.toContain('14 April');
+  });
   it('lists the recorded amount for every room without averaging or inventing missing nights', () => {
     const result = stayTemplateValues({
       guestName: 'G',

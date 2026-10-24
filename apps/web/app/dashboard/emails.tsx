@@ -857,27 +857,6 @@ function TemplateDraft({
                 onChange={(e) => setPreviewText(e.target.value)}
               />
             </FormField>
-            {template.placeholders.includes('stay_range') ? (
-              <FormField label="Stay date display">
-                <Combobox
-                  label="Stay date display"
-                  value={body.includes('{stay_nights}') ? 'nights' : 'range'}
-                  options={[
-                    { value: 'range', label: 'Date range' },
-                    { value: 'nights', label: 'Per-night list with recorded rates' },
-                  ]}
-                  disabled={!canWrite || busy}
-                  onChange={(mode) => {
-                    const token = mode === 'nights' ? '{stay_nights}' : '{stay_range}';
-                    setBody((current) =>
-                      /\{stay_(range|nights)\}/.test(current)
-                        ? current.replace(/\{stay_(range|nights)\}/g, token)
-                        : current + '\n\n' + token,
-                    );
-                  }}
-                />
-              </FormField>
-            ) : null}
             <FormField
               label="Message"
               htmlFor="template-body"
@@ -903,6 +882,42 @@ function TemplateDraft({
                 onChange={(name) => setBody((current) => `${current} {${name}}`)}
               />
             </FormField>
+            {template.placeholders.includes('stay_range') ? (
+              <FormField
+                label="Dates display"
+                hint="Choose a date range or list each occupied date on its own line. Check-out day is excluded from the list."
+              >
+                <Combobox
+                  label="Dates display"
+                  value={
+                    body.includes('{stay_nights}')
+                      ? 'nights'
+                      : body.includes('{stay_dates}')
+                        ? 'dates'
+                        : 'range'
+                  }
+                  options={[
+                    { value: 'range', label: 'Date range' },
+                    { value: 'dates', label: 'Individual dates (one per line)' },
+                    { value: 'nights', label: 'Per-night list with recorded rates' },
+                  ]}
+                  disabled={!canWrite || busy}
+                  onChange={(mode) => {
+                    const token =
+                      mode === 'nights'
+                        ? '{stay_nights}'
+                        : mode === 'dates'
+                          ? '{stay_dates}'
+                          : '{stay_range}';
+                    setBody((current) =>
+                      /\{stay_(range|nights|dates)\}/.test(current)
+                        ? current.replace(/\{stay_(range|nights|dates)\}/g, token)
+                        : current + '\n\n' + token,
+                    );
+                  }}
+                />
+              </FormField>
+            ) : null}
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"

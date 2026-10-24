@@ -145,9 +145,14 @@ describe('property audit evidence workspace', () => {
     );
     await mount();
     await click(button(event.action));
-    expect(
-      document.querySelector('[role="dialog"]')?.textContent?.match(/Not recorded/g)?.length,
-    ).toBeGreaterThanOrEqual(4);
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      'Outcome not specified',
+    );
+    for (const title of ['Before (recorded)', 'After (recorded)', 'Request context (recorded)'])
+      expect(document.querySelector(`pre[aria-label="${title}"]`)).toBeNull();
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      'No field-by-field change was saved',
+    );
   });
   it('confirms a server-audited filtered export with the exact version/cutoff and downloads BOM CSV', async () => {
     const fetch = fixture(),
@@ -261,4 +266,49 @@ describe('property audit evidence workspace', () => {
     );
     expect(document.querySelector('pre')).toBeNull();
   });
+});
+
+it('shows readable outcomes, saved field changes and an explicitly linked operation timeline', async () => {
+  const detailed: AuditEvent = {
+    ...event,
+    title: 'Stay changed',
+    source: 'Staff in MUST',
+    operationId: 'amend:1',
+    result: 'Not recorded',
+    details: {
+      changes: {
+        endsOn: { old: '2028-04-13', new: '2028-04-14' },
+        total: { old: '1000.00', new: '1250.00' },
+      },
+    },
+    linked: [
+      { ...event, id: 'linked', title: 'Payment received', result: 'Succeeded', source: 'PokPay' },
+    ],
+  };
+  fixture({ items: [detailed] }, detailed);
+  await mount();
+  expect(document.body.textContent).toContain('Outcome not specified');
+  expect(document.body.textContent).toContain('Staff in MUST');
+  await click(button('Stay changed'));
+  expect(document.querySelector('table[aria-label="Recorded changes"]')?.textContent).toContain(
+    'Check-out',
+  );
+  expect(document.querySelector('table[aria-label="Recorded changes"]')?.textContent).toContain(
+    '1250.00',
+  );
+  expect(document.querySelector('section[aria-label="Operation timeline"]')?.textContent).toContain(
+    'Payment received',
+  );
+  expect(document.querySelector('section[aria-label="Operation timeline"]')?.textContent).toContain(
+    'Completed',
+  );
+});
+it('requests separate business and routine system views without losing the server filters', async () => {
+  const fetcher = fixture();
+  await mount();
+  expect(String(fetcher.mock.calls[0][0])).toContain('view=business');
+  await click(button('Routine system activity'));
+  expect(fetcher.mock.calls.some(([url]) => String(url).includes('view=system'))).toBe(true);
+  await click(button('All activity'));
+  expect(fetcher.mock.calls.some(([url]) => String(url).includes('view=all'))).toBe(true);
 });

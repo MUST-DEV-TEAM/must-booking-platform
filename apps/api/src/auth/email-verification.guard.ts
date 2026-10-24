@@ -1,3 +1,5 @@
+import { AuditLogService } from '../tenancy/audit-log.service';
+import { auditDenial } from '../tenancy/audit-denial';
 import {
   CanActivate,
   ExecutionContext,
@@ -15,6 +17,7 @@ export class EmailVerificationGuard implements CanActivate {
   constructor(
     @Inject(Reflector) private readonly reflector: Reflector,
     @Inject(AuthService) private readonly auth: AuthService,
+    @Inject(AuditLogService) private readonly audit: AuditLogService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -24,9 +27,13 @@ export class EmailVerificationGuard implements CanActivate {
     ]);
     if (!required) return true;
 
-    const userId = context.switchToHttp().getRequest<{ tenantContext?: { userId: string } }>()
-      .tenantContext?.userId;
-    if (!userId || !(await this.auth.isEmailVerified(userId))) {
+    const scope = context
+      .switchToHttp()
+      .getRequest<{
+        tenantContext?: { tenantId: string; propertyId?: string; userId: string };
+      }>().tenantContext;
+    if (!scope?.userId || !(await this.auth.isEmailVerified(scope.userId))) {
+      await auditDenial(this.audit, scope, 'VERIFIED_EMAIL_REQUIRED');
       throw new ForbiddenException('Verify your email before performing this action.');
     }
     return true;

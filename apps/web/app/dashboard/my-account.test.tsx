@@ -90,7 +90,9 @@ describe('My account', () => {
       firstName: 'Ana',
       lastName: 'Owner',
     });
-    expect(document.querySelector('#account-birthday')).not.toBeNull();
+    expect(document.querySelector('button[aria-label="Birthday (optional)"]')).not.toBeNull();
+    expect(document.body.textContent).not.toContain('Date format');
+    expect(JSON.parse(String(write[1]!.body))).not.toHaveProperty('preferredDateTimeFormat');
   });
 
   it('validates the new password before sending and then changes it', async () => {

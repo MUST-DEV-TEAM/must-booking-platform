@@ -342,7 +342,92 @@ export interface CancelBookingCommand {
   skipAutomaticRefund?: boolean;
 }
 
+export interface MoveBookingRoomCommand {
+  bookingId: string;
+  roomId: string;
+  expectedVersion: number;
+  idempotencyKey: string;
+  staffActorId: string;
+  reason: string;
+}
+
+export interface StayAmendmentQuery {
+  roomTypeId?: string;
+  bookingId: string;
+  startsOn: string;
+  endsOn: string;
+}
+export interface StayAmendmentCommand extends StayAmendmentQuery {
+  notifyGuest?: boolean;
+  termsReviewed?: boolean;
+  expectedVersion: number;
+  previewHash: string;
+  reason: string;
+  idempotencyKey: string;
+  staffActorId: string;
+  outcome?: string;
+  outcomeReason?: string;
+}
+export interface StayAmendmentPreview {
+  roomTypeId?: string;
+  roomTypeName?: string;
+  rateId?: string;
+  confirmationAvailable?: boolean;
+  bookingId: string;
+  startsOn: string;
+  endsOn: string;
+  nights: number;
+  available: boolean;
+  oldTotal: string;
+  newTotal: string;
+  recordedTotal: string;
+  difference: string;
+  currency: string;
+  paid: string;
+  refunded: string;
+  balance: string;
+  balanceState: string;
+  policyNotes: string[];
+  version: number;
+  previewHash: string;
+  outcome: string;
+  outcomeReason: string;
+  availableOutcomes: string[];
+  canRefund: boolean;
+  refundToIssue: string;
+}
+export interface RoomMoveAvailabilityQuery {
+  roomIds: string[];
+  startsOn: string;
+  endsOn: string;
+  excludeBookingId: string;
+  excludeExternalBookingId?: string;
+}
+export interface RoomMoveAvailabilitySnapshot {
+  unavailableRoomIds: string[];
+  source: 'LOCAL' | 'CLOCK_SNAPSHOT';
+  lastSyncedAt: string | null;
+  complete: boolean;
+  stale: boolean;
+}
 export interface PmsProvider {
+  unavailableRoomsForMove?(
+    context: PmsProviderContext,
+    query: RoomMoveAvailabilityQuery,
+  ): Promise<Result<RoomMoveAvailabilitySnapshot>>;
+
+  previewStayAmendment?(
+    context: PmsProviderContext,
+    query: StayAmendmentQuery,
+  ): Promise<Result<StayAmendmentPreview>>;
+  amendBookingStay?(
+    context: PmsProviderContext,
+    command: StayAmendmentCommand,
+  ): Promise<Result<Booking>>;
+  moveBookingRoom?(
+    context: PmsProviderContext,
+    command: MoveBookingRoomCommand,
+  ): Promise<Result<Booking>>;
   testConnection(context: PmsProviderContext): Promise<Result<void>>;
   syncCatalog(context: PmsProviderContext, cursor?: string): Promise<Page<CatalogItem>>;
   getAvailability(

@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -32,8 +32,12 @@ export function ChangeBookingDatesDialog({
   startsOn,
   endsOn,
   managedInClock,
+  roomTypeId: originalRoomTypeId,
+  roomTypeName,
   onClose,
   onSaved,
+  onReviewRefund,
+  onCollectPayment,
 }: {
   tenantId: string;
   propertyId: string;
@@ -41,8 +45,12 @@ export function ChangeBookingDatesDialog({
   startsOn: string;
   endsOn: string;
   managedInClock: boolean;
+  roomTypeId?: string;
+  roomTypeName?: string;
   onClose: () => void;
   onSaved: () => Promise<void>;
+  onReviewRefund?: (amount: string) => void;
+  onCollectPayment?: () => void;
 }) {
   const [dates, setDates] = useState({ startsOn, endsOn }),
     [preview, setPreview] = useState<StayChangePreviewData | null>(null),
@@ -52,69 +60,117 @@ export function ChangeBookingDatesDialog({
     [loading, setLoading] = useState(false),
     [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
+  const [roomTypeId, setRoomTypeId] = useState(originalRoomTypeId || '');
+  const [roomTypes, setRoomTypes] = useState<Array<{ id: string; name: string }>>([]);
+  useEffect(() => {
+    if (!managedInClock || !originalRoomTypeId) return;
+    const abort = new AbortController();
+    void fetch(`/api/tenants/${tenantId}/properties/${propertyId}/room-types`, {
+      credentials: 'include',
+      signal: abort.signal,
+    })
+      .then(async (r) => {
+        if (r.ok) {
+          const types = await r.json();
+          if (Array.isArray(types)) setRoomTypes(types);
+        }
+      })
+      .catch(() => {});
+    return () => abort.abort();
+  }, [tenantId, propertyId, managedInClock, originalRoomTypeId]);
+  const [termsReviewed, setTermsReviewed] = useState(false);
+  const [pending, setPending] = useState<boolean | null>(managedInClock ? null : false);
   const [choice, setChoice] = useState<{ outcome?: string; outcomeReason: string }>({
     outcomeReason: '',
   });
-  const [window, setWindow] = useState<{ edge: 'start' | 'end'; from: string; to: string } | null>(
-    null,
-  );
-  const [calendar, setCalendar] = useState<{
-    key: string;
-    days: Record<string, string | null>;
-  } | null>(null);
-  const [calendarError, setCalendarError] = useState('');
-  const startWindow = useCallback(
-    (from: string, to: string) => setWindow({ edge: 'start', from, to }),
-    [],
-  );
-  const endWindow = useCallback(
-    (from: string, to: string) => setWindow({ edge: 'end', from, to }),
-    [],
-  );
   const attempt = useRef({ body: '', key: '' });
   const base = `/api/tenants/${tenantId}/properties/${propertyId}/bookings/${bookingId}`;
+  useEffect(() => {
+    if (!managedInClock) return;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const r = await fetch(base + '/amend-status', {
+          credentials: 'include',
+          signal: controller.signal,
+        });
+        const result = await r.json();
+        if (!r.ok) throw Error(result.message || 'Could not check pending amendments.');
+        setPending(!!result.pending);
+      } catch (e) {
+        if (!controller.signal.aborted)
+          setError(e instanceof Error ? e.message : 'Could not check pending amendments.');
+      }
+    })();
+    return () => controller.abort();
+  }, [managedInClock, base, refresh]);
+  async function checkProvider() {
+    setBusy(true);
+    setError('');
+    try {
+      const r = await fetch(base + '/amend-check', { method: 'POST', credentials: 'include' });
+      const result = await r.json();
+      if (!r.ok || result.ok === false)
+        throw Error(
+          result.error?.message || result.message || 'The date change is not verified yet.',
+        );
+      await onSaved();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'The date change is not verified yet.');
+    } finally {
+      setBusy(false);
+    }
+  }
   useEffect(() => {
     setPreview(null);
     setError('');
     if (
-      managedInClock ||
+      (managedInClock && pending !== false) ||
       !dates.startsOn ||
       !dates.endsOn ||
       dates.endsOn <= dates.startsOn ||
-      (dates.startsOn === startsOn && dates.endsOn === endsOn)
+      (dates.startsOn === startsOn &&
+        dates.endsOn === endsOn &&
+        roomTypeId === (originalRoomTypeId || ''))
     ) {
       setLoading(false);
       return;
     }
     const controller = new AbortController();
     setLoading(true);
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const response = await fetch(
-            `${base}/amend-preview?${new URLSearchParams({ ...dates, ...(choice.outcome ? { outcome: choice.outcome } : {}), outcomeReason: choice.outcomeReason })}`,
-            {
-              credentials: 'include',
-              signal: controller.signal,
-            },
-          );
-          const result = await response.json();
-          if (!response.ok) throw new Error(result.message ?? 'Could not check these dates.');
-          if (!controller.signal.aborted) setPreview(result);
-        } catch (e) {
-          if (!controller.signal.aborted)
-            setError(e instanceof Error ? e.message : 'Could not check these dates.');
-        } finally {
-          if (!controller.signal.aborted) setLoading(false);
-        }
-      })();
-    }, 250);
+    const timer = setTimeout(
+      () => {
+        void (async () => {
+          try {
+            const response = await fetch(
+              `${base}/amend-preview?${new URLSearchParams({ ...dates, ...(roomTypeId ? { roomTypeId } : {}), ...(choice.outcome ? { outcome: choice.outcome } : {}), outcomeReason: choice.outcomeReason })}`,
+              {
+                credentials: 'include',
+                signal: controller.signal,
+              },
+            );
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.message ?? 'Could not check these dates.');
+            if (!controller.signal.aborted) setPreview(result);
+          } catch (e) {
+            if (!controller.signal.aborted)
+              setError(e instanceof Error ? e.message : 'Could not check these dates.');
+          } finally {
+            if (!controller.signal.aborted) setLoading(false);
+          }
+        })();
+      },
+      managedInClock ? 800 : 250,
+    );
     return () => {
       clearTimeout(timer);
       controller.abort();
     };
   }, [
     base,
+    roomTypeId,
+    originalRoomTypeId,
     dates.startsOn,
     dates.endsOn,
     managedInClock,
@@ -123,74 +179,38 @@ export function ChangeBookingDatesDialog({
     refresh,
     choice.outcome,
     choice.outcomeReason,
+    pending,
   ]);
-  const calendarKey = JSON.stringify({ window, dates });
-  useEffect(() => {
-    if (
-      !window ||
-      managedInClock ||
-      !dates.startsOn ||
-      !dates.endsOn ||
-      dates.endsOn <= dates.startsOn
-    )
-      return;
-    const controller = new AbortController();
-    setCalendarError('');
-    void (async () => {
-      try {
-        const response = await fetch(
-          `${base}/amend-calendar?${new URLSearchParams({ ...dates, ...window })}`,
-          { credentials: 'include', signal: controller.signal },
-        );
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.message ?? 'Could not load date availability.');
-        if (!controller.signal.aborted)
-          setCalendar({
-            key: calendarKey,
-            days: Object.fromEntries(
-              result.days.map((d: { date: string; disabled: boolean; reason: string | null }) => [
-                d.date,
-                d.disabled ? d.reason || 'Unavailable' : null,
-              ]),
-            ),
-          });
-      } catch (e) {
-        if (!controller.signal.aborted)
-          setCalendarError(e instanceof Error ? e.message : 'Could not load date availability.');
-      }
-    })();
-    return () => controller.abort();
-  }, [base, calendarKey, managedInClock, refresh]);
-  const dateReason = (edge: 'start' | 'end', day: string) =>
-    calendar?.key === calendarKey && window?.edge === edge && Object.hasOwn(calendar.days, day)
-      ? (calendar.days[day] ?? undefined)
-      : calendarError || 'Checking availability...';
   // Match the preview to the current fields even before the effect invalidates an old response.
   const current =
+    (!preview?.roomTypeId || preview.roomTypeId === roomTypeId) &&
     preview?.startsOn === dates.startsOn &&
     preview?.endsOn === dates.endsOn &&
     (!choice.outcome || preview.outcome === choice.outcome) &&
     (preview.outcomeReason ?? '') === choice.outcomeReason.trim()
       ? preview
       : null;
-  async function confirm() {
+  async function confirm(followUp: 'none' | 'refund' | 'payment' = 'none') {
     if (
       !current?.available ||
+      current.confirmationAvailable === false ||
       (['waive', 'no_refund'].includes(current.outcome ?? '') && !choice.outcomeReason.trim()) ||
       !reason.trim() ||
       reason.length > 2000 ||
       busy ||
-      managedInClock
+      (managedInClock && (!termsReviewed || pending !== false))
     )
       return;
     const body = JSON.stringify({
       ...dates,
+      ...(roomTypeId ? { roomTypeId } : {}),
       expectedVersion: current.version,
       previewHash: current.previewHash,
       reason: reason.trim(),
       notifyGuest: notify,
       outcome: current.outcome,
       outcomeReason: choice.outcomeReason.trim(),
+      ...(managedInClock ? { termsReviewed } : {}),
     });
     if (attempt.current.body !== body) attempt.current = { body, key: crypto.randomUUID() };
     setBusy(true);
@@ -203,15 +223,29 @@ export function ChangeBookingDatesDialog({
         body,
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.message ?? 'Could not change the dates.');
+      if (!response.ok || result.ok === false)
+        throw new Error(result.error?.message ?? result.message ?? 'Could not change the dates.');
       await onSaved();
       onClose();
+      if (followUp === 'refund' && current?.balanceState === 'refund_due' && current.balance)
+        onReviewRefund?.(current.balance.replace(/^-/, ''));
+      if (followUp === 'payment') onCollectPayment?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not change the dates.');
     } finally {
       setBusy(false);
     }
   }
+  const confirmDisabled =
+    busy ||
+    !current?.available ||
+    current.confirmationAvailable === false ||
+    (managedInClock && !termsReviewed) ||
+    !reason.trim() ||
+    reason.length > 2000 ||
+    loading ||
+    choice.outcomeReason.length > 2000 ||
+    (['waive', 'no_refund'].includes(choice.outcome ?? '') && !choice.outcomeReason.trim());
   return (
     <Dialog
       open
@@ -219,66 +253,90 @@ export function ChangeBookingDatesDialog({
         if (!open && !busy) onClose();
       }}
     >
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-xl [&_[data-slot=dialog-footer]]:sticky [&_[data-slot=dialog-footer]]:bottom-0 [&_[data-slot=dialog-footer]]:bg-card [&_[data-slot=dialog-footer]]:pt-4">
         <DialogHeader>
-          <DialogTitle>Change dates</DialogTitle>
+          <DialogTitle>Change stay</DialogTitle>
           <DialogDescription>
-            Keep the same room type, rate plan and assigned room. Review the price before
-            confirming.
+            Review new dates or a different room type and compare the updated price. Payments and
+            refunds are handled separately after staff confirmation.
           </DialogDescription>
         </DialogHeader>
         {managedInClock ? (
           <Alert>
-            <AlertDescription>Managed in Clock. Change dates there.</AlertDescription>
+            <AlertDescription>
+              {roomTypeId && roomTypeId !== originalRoomTypeId
+                ? 'Clock checks available rates for the new room type and dates. The previous room assignment will be cleared.'
+                : 'Clock rechecks the original rate, room and price before applying the dates.'}{' '}
+              Payments and refunds remain separate.
+            </AlertDescription>
           </Alert>
         ) : null}
-        {(['startsOn', 'endsOn'] as const).map((key) => (
-          <FormField
-            key={key}
-            htmlFor={`amend-${key}`}
-            label={key === 'startsOn' ? 'Check-in date' : 'Check-out date'}
-            error={
-              key === 'endsOn' && dates.endsOn <= dates.startsOn
-                ? 'Choose a check-out date after check-in.'
-                : null
-            }
-          >
-            <CalendarPicker
-              label={key === 'startsOn' ? 'Check-in date' : 'Check-out date'}
-              mode="single"
-              disabled={busy || managedInClock}
-              value={{ start: dates[key], end: null }}
-              dateReason={(day) => dateReason(key === 'startsOn' ? 'start' : 'end', day)}
-              onVisibleWindowChange={key === 'startsOn' ? startWindow : endWindow}
-              onChange={(selection) => {
-                if (!selection.start) return;
-                const next = { ...dates, [key]: selection.start };
-                if (key === 'startsOn' && next.endsOn <= next.startsOn) {
-                  const nights = (Date.parse(dates.endsOn) - Date.parse(dates.startsOn)) / 86400000;
-                  next.endsOn = new Date(
-                    Date.parse(next.startsOn + 'T00:00:00Z') + nights * 86400000,
-                  )
-                    .toISOString()
-                    .slice(0, 10);
-                }
-                setDates(next);
+        {managedInClock && originalRoomTypeId ? (
+          <FormField label="Room type">
+            <Select
+              value={roomTypeId}
+              onValueChange={(v) => {
+                setRoomTypeId(v);
+                setTermsReviewed(false);
                 setChoice({ outcomeReason: '' });
               }}
-            />
+            >
+              <SelectTrigger aria-label="Room type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(roomTypes.length
+                  ? roomTypes
+                  : [{ id: originalRoomTypeId, name: roomTypeName || 'Current room type' }]
+                ).map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </FormField>
-        ))}
-        {calendarError ? (
-          <Alert variant="destructive">
+        ) : null}
+        <FormField
+          label="Stay dates"
+          error={dates.endsOn <= dates.startsOn ? 'Choose check-out after check-in.' : null}
+        >
+          <CalendarPicker
+            label="Stay dates"
+            mode="range"
+            disabled={busy || (managedInClock && pending !== false)}
+            value={{ start: dates.startsOn, end: dates.endsOn }}
+            onChange={(selection) => {
+              if (!selection.start || !selection.end) return;
+              setTermsReviewed(false);
+              setDates({ startsOn: selection.start, endsOn: selection.end });
+              setChoice({ outcomeReason: '' });
+            }}
+          />
+        </FormField>
+        {managedInClock && pending ? (
+          <Alert>
             <AlertDescription>
-              {calendarError}
-              <Button variant="outline" onClick={() => setRefresh((n) => n + 1)}>
-                Retry availability
+              A previous date change needs provider confirmation.{' '}
+              <Button variant="outline" disabled={busy} onClick={() => void checkProvider()}>
+                Check provider result
               </Button>
             </AlertDescription>
           </Alert>
         ) : null}
         {loading ? <p role="status">Checking dates and price...</p> : null}
+        {current?.roomTypeName ? (
+          <p className="text-sm font-medium">New accommodation: {current.roomTypeName}</p>
+        ) : null}
         {current ? <StayChangePreview preview={current} /> : null}
+        {current?.confirmationAvailable === false ? (
+          <Alert>
+            <AlertDescription>
+              The new room-type price can be reviewed here. Applying the room-type change is waiting
+              for dedicated Clock sandbox verification.
+            </AlertDescription>
+          </Alert>
+        ) : null}
         {preview?.available &&
         preview.startsOn === dates.startsOn &&
         preview.endsOn === dates.endsOn &&
@@ -301,7 +359,7 @@ export function ChangeBookingDatesDialog({
                         waive: 'Waive the difference',
                         refund: 'Refund the difference',
                         no_refund: "Don't refund",
-                        refund_due: 'Leave refund due for a manager',
+                        refund_due: 'Update price; review refund separately',
                         equal: 'Keep price',
                       }[outcome]
                     }
@@ -314,9 +372,11 @@ export function ChangeBookingDatesDialog({
         {preview && !preview.canRefund && preview.difference && preview.difference !== '0.00' ? (
           <Alert>
             <AlertDescription>
-              {preview.difference.startsWith('-')
-                ? 'Refund permission is required to issue a refund or keep the old price. Any amount owed stays as Refund due for a manager.'
-                : 'Refund permission is required to waive the price increase. Collect the balance through manual payment or the existing PokPay payment link.'}
+              {managedInClock
+                ? 'The stay update does not move money. Any refund is reviewed separately after the new dates are confirmed.'
+                : preview.difference.startsWith('-')
+                  ? 'Refund permission is required to issue a refund or keep the old price. Any amount owed stays as Refund due for a manager.'
+                  : 'Refund permission is required to waive the price increase. Collect the balance through manual payment or the existing PokPay payment link.'}
             </AlertDescription>
           </Alert>
         ) : null}
@@ -347,7 +407,7 @@ export function ChangeBookingDatesDialog({
         >
           <Textarea
             id="amend-reason"
-            disabled={busy || managedInClock}
+            disabled={busy || (managedInClock && pending !== false)}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
           />
@@ -359,11 +419,25 @@ export function ChangeBookingDatesDialog({
         >
           <Switch
             id="amend-notify"
-            disabled={busy || managedInClock}
+            disabled={busy || (managedInClock && pending !== false)}
             checked={notify}
             onCheckedChange={setNotify}
           />
         </FormField>
+        {managedInClock ? (
+          <FormField
+            label="I reviewed the original cancellation terms for this date change"
+            htmlFor="amend-terms"
+            hint="Original terms are retained; a changed arrival or imported policy may require staff review for cancellation."
+          >
+            <Switch
+              id="amend-terms"
+              checked={termsReviewed}
+              onCheckedChange={setTermsReviewed}
+              disabled={busy}
+            />
+          </FormField>
+        ) : null}
         {error ? (
           <Alert variant="destructive">
             <AlertDescription>
@@ -382,22 +456,30 @@ export function ChangeBookingDatesDialog({
           <Button variant="outline" disabled={busy} onClick={onClose}>
             Close
           </Button>
-          {!managedInClock ? (
-            <Button
-              loading={busy}
-              disabled={
-                !current?.available ||
-                !reason.trim() ||
-                reason.length > 2000 ||
-                loading ||
-                choice.outcomeReason.length > 2000 ||
-                (['waive', 'no_refund'].includes(choice.outcome ?? '') &&
-                  !choice.outcomeReason.trim())
-              }
-              onClick={() => void confirm()}
-            >
-              Confirm date change
-            </Button>
+          {!managedInClock || pending === false ? (
+            managedInClock && current?.balanceState === 'refund_due' && onReviewRefund ? (
+              <>
+                <Button variant="outline" disabled={confirmDisabled} onClick={() => void confirm()}>
+                  Confirm & refund later
+                </Button>
+                <Button disabled={confirmDisabled} onClick={() => void confirm('refund')}>
+                  Confirm & review refund
+                </Button>
+              </>
+            ) : managedInClock && current?.balanceState === 'due' && onCollectPayment ? (
+              <>
+                <Button variant="outline" disabled={confirmDisabled} onClick={() => void confirm()}>
+                  Confirm & collect later
+                </Button>
+                <Button disabled={confirmDisabled} onClick={() => void confirm('payment')}>
+                  Confirm & choose payment
+                </Button>
+              </>
+            ) : (
+              <Button loading={busy} disabled={confirmDisabled} onClick={() => void confirm()}>
+                Confirm date change
+              </Button>
+            )
           ) : null}
         </DialogFooter>
       </DialogContent>

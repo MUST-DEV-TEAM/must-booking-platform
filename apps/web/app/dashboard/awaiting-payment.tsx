@@ -1,8 +1,17 @@
 'use client';
+import { CheckoutLinkActions } from './checkout-link-actions';
 
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ArrowRight, CircleAlert, CircleCheck, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import {
+  ArrowRight,
+  CircleAlert,
+  CircleCheck,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
+} from 'lucide-react';
+import { minorUnits } from './payment-status';
+import { useEffect, useRef, useState } from 'react';
 
 import { Alert, AlertDescription, AlertTitle } from '../../components/ui/alert';
 import { Button } from '../../components/ui/button';
@@ -25,8 +34,10 @@ export function AwaitingPayment({
   bookingId,
   reference,
   checkoutUrl,
+  checkoutOrderId,
   providerName,
   reservationHref,
+  canSendPaymentLink = false,
   canCheckPayment = false,
   canViewBooking = false,
   onStartOver,
@@ -36,31 +47,59 @@ export function AwaitingPayment({
   bookingId: string;
   reference: string;
   checkoutUrl?: string;
+  checkoutOrderId?: string;
   providerName: string;
   reservationHref: string;
+  canSendPaymentLink?: boolean;
   canCheckPayment?: boolean;
   canViewBooking?: boolean;
   onStartOver: () => void;
 }) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const [waited, setWaited] = useState(0);
+  const paymentTab = useRef<Window | null>(null);
 
   const status = useQuery({
     queryKey: ['dashboard', 'awaiting-payment', tenantId, propertyId, bookingId],
     enabled: canViewBooking,
-    queryFn: async (): Promise<string> => {
+    queryFn: async (): Promise<{ status: string; paid: boolean }> => {
       const response = await fetch(`${base}/bookings/${bookingId}`, { credentials: 'include' });
       if (!response.ok) throw new Error('Could not read the reservation.');
-      return ((await response.json()) as { status: string }).status;
+      const body = (await response.json()) as { status: string; paidAmount?: string };
+      return { status: body.status, paid: minorUnits(body.paidAmount ?? '0') > 0n };
     },
-    refetchInterval: (query) => (query.state.data === 'PAYMENT_PENDING' || !query.state.data ? POLL_STATUS_MS : false),
+    refetchInterval: (query) =>
+      !query.state.data ||
+      [
+        'PAYMENT_PENDING',
+        'PMS_CREATION_PENDING',
+        'PMS_CONFIRMATION_PENDING',
+        'PAYMENT_NOT_REQUIRED',
+      ].includes(query.state.data.status)
+        ? POLL_STATUS_MS
+        : false,
   });
-  const current = status.data;
+  const current = status.data?.status;
+  const verifiedPaid = status.data?.paid || current === 'CONFIRMED';
+  useEffect(() => {
+    if (!verifiedPaid || !checkoutOrderId) return;
+    paymentTab.current?.close();
+    try {
+      const channel = new BroadcastChannel('must-payment');
+      channel.postMessage({ bookingId, orderId: checkoutOrderId, state: 'PAID' });
+      channel.close();
+    } catch {
+      /* Closing the tab is optional. */
+    }
+  }, [verifiedPaid, bookingId, checkoutOrderId]);
   const pending = current === undefined || current === 'PAYMENT_PENDING';
 
   const check = useMutation({
     mutationFn: async () => {
-      await fetch(`${base}/bookings/${bookingId}/check-payment`, { method: 'POST', credentials: 'include' });
+      await fetch(`${base}/bookings/${bookingId}/check-payment`, {
+        method: 'POST',
+        credentials: 'include',
+      });
       await status.refetch();
     },
   });
@@ -69,14 +108,24 @@ export function AwaitingPayment({
   useEffect(() => {
     if (!pending || !canCheckPayment || typeof BroadcastChannel === 'undefined') return;
     const channel = new BroadcastChannel('must-payment');
-    channel.onmessage = (event: MessageEvent<{ bookingId?: string }>) => {
-      if (event.data?.bookingId === bookingId) {
+    channel.onmessage = (
+      event: MessageEvent<{ bookingId?: string; orderId?: string; state?: string }>,
+    ) => {
+      if (event.data?.bookingId === bookingId && !event.data?.state) {
+        if (checkoutOrderId && event.data.orderId === checkoutOrderId)
+          channel.postMessage({
+            bookingId,
+            orderId: checkoutOrderId,
+            state: 'HOTEL_CONTEXT',
+            tenantId,
+            propertyId,
+          });
         check.mutate();
         window.focus();
       }
     };
     return () => channel.close();
-  }, [pending, bookingId]);
+  }, [pending, bookingId, checkoutOrderId, tenantId, propertyId]);
 
   useEffect(() => {
     if (!pending || !canCheckPayment) return;
@@ -122,8 +171,9 @@ export function AwaitingPayment({
               <CircleAlert aria-hidden="true" /> The payment did not complete
             </AlertTitle>
             <AlertDescription>
-              Reservation {reference} is now <BookingStatusBadge status={current!} /> ({bookingStatusDisplay(current!).label}).
-              No room is held for it. Open the reservation to decide what to do, or start a new one.
+              Reservation {reference} is now <BookingStatusBadge status={current!} /> (
+              {bookingStatusDisplay(current!).label}). No room is held for it. Open the reservation
+              to decide what to do, or start a new one.
             </AlertDescription>
           </Alert>
           <div className="flex flex-wrap gap-2">
@@ -146,16 +196,31 @@ export function AwaitingPayment({
         </span>
         <h3 className="m-0 text-xl font-extrabold">Waiting for the payment</h3>
         <p className="m-0 max-w-md text-sm text-muted-foreground">
-          Reservation {reference} is held but not confirmed. Complete the payment in the {providerName} window. It
-          confirms by itself as soon as {providerName} reports the payment as paid. Do not close this page.
+          Reservation {reference} is held but not confirmed. Open the payment page or share its link
+          below. It confirms by itself as soon as {providerName} reports the payment as paid. Do not
+          close this page.
           {!canViewBooking ? ' Your role cannot view the payment status for this reservation.' : ''}
         </p>
         <p aria-live="polite" className="m-0 text-xs text-muted-foreground">
           Waiting {Math.floor(waited / 60)}:{String(waited % 60).padStart(2, '0')}
-          {waited > 600 ? ' · The hold may expire soon; if the guest has not paid, start again.' : ''}
+          {waited > 600
+            ? ' · The hold may expire soon; if the guest has not paid, start again.'
+            : ''}
         </p>
+        {checkoutUrl && providerName === 'PokPay' ? (
+          <CheckoutLinkActions
+            url={checkoutUrl}
+            tenantId={tenantId}
+            propertyId={propertyId}
+            bookingId={bookingId}
+            canSend={canSendPaymentLink}
+            onOpened={(tab) => {
+              paymentTab.current = tab;
+            }}
+          />
+        ) : null}
         <div className="flex flex-wrap justify-center gap-2">
-          {checkoutUrl ? (
+          {checkoutUrl && providerName !== 'PokPay' ? (
             <Button
               variant="outline"
               onClick={() => {

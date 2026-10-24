@@ -1,4 +1,5 @@
 'use client';
+import { useHotelDateFormat, formatHotelDate } from '../../lib/hotel-date-format';
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -150,6 +151,7 @@ export function CalendarMonths({
   mode,
   onChange,
   months = 1,
+  yearNavigation = false,
   minDate,
   dateReason,
   onVisibleWindowChange,
@@ -158,6 +160,7 @@ export function CalendarMonths({
   mode: 'single' | 'range';
   onChange: (selection: CalendarSelection) => void;
   months?: 1 | 2;
+  yearNavigation?: boolean;
   /** Days before this date (YYYY-MM-DD) cannot be chosen. */
   minDate?: string;
   dateReason?: (date: string) => string | undefined;
@@ -200,6 +203,43 @@ export function CalendarMonths({
 
   return (
     <div className="space-y-2">
+      {yearNavigation ? (
+        <div className="mb-2 grid grid-cols-2 gap-2">
+          <select
+            aria-label="Birthday month"
+            className="h-9 rounded-md border px-2"
+            value={visibleMonth.getMonth()}
+            onChange={(e) =>
+              setVisibleMonth(new Date(visibleMonth.getFullYear(), Number(e.target.value), 1))
+            }
+          >
+            {Array.from({ length: 12 }, (_, month) => (
+              <option key={month} value={month}>
+                {new Intl.DateTimeFormat('en-GB', { month: 'long' }).format(
+                  new Date(2000, month, 1),
+                )}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Birthday year"
+            className="h-9 rounded-md border px-2"
+            value={visibleMonth.getFullYear()}
+            onChange={(e) =>
+              setVisibleMonth(new Date(Number(e.target.value), visibleMonth.getMonth(), 1))
+            }
+          >
+            {Array.from(
+              { length: new Date().getFullYear() - 1899 },
+              (_, offset) => new Date().getFullYear() - offset,
+            ).map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
       <div className="flex items-center justify-between">
         <Button
           variant="ghost"
@@ -241,6 +281,8 @@ export function CalendarPicker({
   value,
   onChange,
   months = 1,
+  yearNavigation = false,
+  displayFormat,
   className,
   open: controlledOpen,
   onOpenChange,
@@ -257,6 +299,8 @@ export function CalendarPicker({
   value: CalendarSelection;
   onChange: (value: CalendarSelection) => void;
   months?: 1 | 2;
+  yearNavigation?: boolean;
+  displayFormat?: string;
   className?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -279,7 +323,12 @@ export function CalendarPicker({
     if (controlledOpen === undefined) setInternalOpen(next);
     onOpenChange?.(next);
   };
-  const labelText = formatCalendarSelection(value, mode);
+  const hotelFormat = useHotelDateFormat();
+  const dateFormat = displayFormat || hotelFormat;
+  const labelText =
+    mode === 'single' && value.start
+      ? formatHotelDate(value.start, dateFormat)
+      : formatCalendarSelection(value, mode);
 
   return (
     <Popover
@@ -328,6 +377,7 @@ export function CalendarPicker({
           mode={mode}
           onChange={setDraft}
           months={months}
+          yearNavigation={yearNavigation}
           minDate={minDate}
           dateReason={dateReason}
           onVisibleWindowChange={onVisibleWindowChange}

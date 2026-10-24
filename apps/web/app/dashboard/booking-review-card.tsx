@@ -11,6 +11,7 @@ type Review = {
   needsReview: boolean;
   canCheck: boolean;
   canResolve?: boolean;
+  pendingChange?: 'stay' | 'room' | null;
   reasons: Array<{ text: string; openedAt: string }>;
 };
 type CheckResult =
@@ -43,11 +44,13 @@ export function BookingReviewCard({
   propertyId,
   bookingId,
   canRunCheck,
+  alwaysShow = false,
 }: {
   tenantId: string;
   propertyId: string;
   bookingId: string;
   canRunCheck: boolean;
+  alwaysShow?: boolean;
 }) {
   const base = `/api/tenants/${tenantId}/properties/${propertyId}/bookings/${bookingId}/review`;
   const client = useQueryClient();
@@ -68,7 +71,31 @@ export function BookingReviewCard({
   const check = useMutation({
     mutationFn: () => request<CheckResult>(`${base}/check`, { method: 'POST' }),
   });
-  if (!review.data?.needsReview) return null;
+  const verifyChange = useMutation({
+    mutationFn: async () => {
+      const bookingBase = base.slice(0, -'/review'.length);
+      const result = await request<{ ok: boolean; error?: { message?: string } }>(
+        review.data?.pendingChange === 'room'
+          ? bookingBase + '/room-move/check'
+          : bookingBase + '/amend-check',
+        { method: 'POST' },
+      );
+      if (!result.ok)
+        throw new Error(
+          result.error?.message || 'Clock could not verify this change. Try again shortly.',
+        );
+      return result;
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: ['dashboard'] }),
+  });
+  if (review.isPending) return alwaysShow ? <p role="status">Loading provider review...</p> : null;
+  if (review.error) return alwaysShow ? <p role="alert">{review.error.message}</p> : null;
+  if (!review.data?.needsReview)
+    return alwaysShow ? (
+      <p className="text-sm text-muted-foreground">
+        No open provider issues are recorded for this reservation.
+      </p>
+    ) : null;
   return (
     <Alert variant="warning">
       <AlertTitle>This booking needs review</AlertTitle>
@@ -81,11 +108,40 @@ export function BookingReviewCard({
               </span>
             ))
           ) : (
-            <span>The booking is in a state that needs a person to look at it.</span>
+            <span>
+              {review.data.pendingChange
+                ? 'The saved booking change needs confirmation from Clock.'
+                : 'The booking is in a state that needs a person to look at it.'}
+            </span>
           )}
+          {review.data.pendingChange && canRunCheck && review.data.canCheck ? (
+            <span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={verifyChange.isPending}
+                onClick={() => verifyChange.mutate()}
+              >
+                {verifyChange.isPending
+                  ? 'Verifying saved change...'
+                  : review.data.pendingChange === 'room'
+                    ? 'Verify room move'
+                    : 'Verify stay change'}
+              </Button>
+              {verifyChange.error ? (
+                <span role="alert" className="mt-2 block">
+                  {verifyChange.error.message}
+                </span>
+              ) : null}
+              <span className="mt-2 block text-xs">
+                Checks the result of the saved change without submitting it again. Any guest email
+                you selected is sent after successful verification.
+              </span>
+            </span>
+          ) : null}
           {check.data ? <span role="status">{checkMessage(check.data)}</span> : null}
           {check.error ? <span role="alert">{check.error.message}</span> : null}
-          {review.data.canCheck && canRunCheck ? (
+          {review.data.canCheck && canRunCheck && !review.data.pendingChange ? (
             <span>
               <Button
                 variant="outline"
@@ -97,7 +153,10 @@ export function BookingReviewCard({
               </Button>
             </span>
           ) : null}
-          {review.data.canResolve && check.data && check.data.result !== 'unavailable' ? (
+          {!review.data.pendingChange &&
+          review.data.canResolve &&
+          check.data &&
+          check.data.result !== 'unavailable' ? (
             <span className="flex flex-col gap-2">
               <Input
                 aria-label="Resolution note"
@@ -120,10 +179,12 @@ export function BookingReviewCard({
               {resolve.error ? <span role="alert">{resolve.error.message}</span> : null}
             </span>
           ) : null}
-          <span className="text-xs">
-            Resolution checks Clock again and records who reviewed the outcome. No new reservation
-            or payment is created.
-          </span>
+          {!review.data.pendingChange ? (
+            <span className="text-xs">
+              Resolution checks Clock again and records who reviewed the outcome. No new reservation
+              or payment is created.
+            </span>
+          ) : null}
         </span>
       </AlertDescription>
     </Alert>

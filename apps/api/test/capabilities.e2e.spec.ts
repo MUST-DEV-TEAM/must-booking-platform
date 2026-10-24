@@ -1,3 +1,4 @@
+import { AuditLogService } from '../src/tenancy/audit-log.service';
 import { randomUUID } from 'node:crypto';
 
 import { ForbiddenException } from '@nestjs/common';
@@ -29,6 +30,7 @@ const capabilities = new CapabilitiesService(database);
 const guard = new CapabilitiesGuard(
   { getAllAndOverride: () => 'settings.manage' } as never,
   capabilities,
+  new AuditLogService(database),
 );
 
 describe('property staff capabilities', () => {
@@ -43,6 +45,7 @@ describe('property staff capabilities', () => {
   } as never;
 
   afterAll(async () => {
+    await migrationPrisma.$executeRaw`DELETE FROM audit_logs WHERE tenant_id=${tenantId}::uuid`;
     await migrationPrisma.$executeRaw`DELETE FROM "property_staff_capability_overrides" WHERE "tenant_id" = ${tenantId}::uuid`;
     await migrationPrisma.$executeRaw`DELETE FROM "property_staff_assignments" WHERE "tenant_id" = ${tenantId}::uuid`;
     await migrationPrisma.$executeRaw`DELETE FROM "property_role_template_capabilities" WHERE "tenant_id" = ${tenantId}::uuid`;

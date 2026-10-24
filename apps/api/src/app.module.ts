@@ -1,3 +1,6 @@
+import { AuditMutationInterceptor } from './tenancy/audit-mutation.interceptor';
+import { ClockStayAmendmentService } from './integrations/clock/clock-stay-amendment.service';
+import { BookingRoomMoveController } from './booking/booking-room-move.controller';
 import { requestLogPath } from './observability/request-log-path';
 import { GuestBookingManageController } from './booking/guest-booking-manage.controller';
 import { ClockFinancialService } from './integrations/clock/clock-financial.service';
@@ -42,7 +45,7 @@ import { auditRequestContext } from './tenancy/audit-request-context';
 import { ActivityAuditController } from './tenancy/activity-audit.controller';
 import { ActivityAuditService } from './tenancy/activity-audit.service';
 import { ConfigModule } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { LoggerModule } from 'nestjs-pino';
@@ -321,6 +324,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     BookingRequestsController,
     BookingDetailsController,
     BookingAmendController,
+    BookingRoomMoveController,
     StaffBookingController,
     PublicBookingController,
     StripeWebhookController,
@@ -410,6 +414,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     BookingRequestsService,
     BookingDetailsService,
     BookingAmendService,
+    ClockStayAmendmentService,
     { provide: PMS_PROVIDER, useExisting: LocalPmsProvider },
     StripePaymentProvider,
     PokPayPaymentProvider,
@@ -484,6 +489,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     BookingConfirmationNotificationService,
     BookingCancellationNotificationService,
     { provide: MAIL_PROVIDER, useExisting: ResendMailProvider },
+    { provide: APP_INTERCEPTOR, useClass: AuditMutationInterceptor },
     { provide: APP_GUARD, useExisting: TenantContextGuard },
     { provide: APP_GUARD, useExisting: PublicTenantScopedGuard },
     { provide: APP_GUARD, useExisting: RolesGuard },

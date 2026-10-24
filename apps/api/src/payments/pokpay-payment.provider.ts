@@ -1,3 +1,4 @@
+import { pokpayBaseUrl, validPokpayWebhook } from './pokpay-environment';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   type CheckoutSession,
@@ -237,16 +238,13 @@ export class PokPayPaymentProvider implements PaymentProvider {
     );
     if (!keyId || !keySecret || !merchantId || !webhookUrl)
       return this.failure('POKPAY_NOT_CONFIGURED', 'PokPay is not configured for this property.');
-    if (baseUrl !== 'https://api-staging.pokpay.io')
+    if (!pokpayBaseUrl(baseUrl))
+      return this.failure('POKPAY_INVALID_ENVIRONMENT', 'Choose a supported PokPay environment.');
+    if (!validPokpayWebhook(webhookUrl, baseUrl))
       return this.failure(
-        'POKPAY_TEST_MODE_REQUIRED',
-        'Only PokPay staging may be used at this stage.',
+        'POKPAY_WEBHOOK_URL_INVALID',
+        'Use a valid webhook URL; production requires public HTTPS.',
       );
-    try {
-      new URL(webhookUrl);
-    } catch {
-      return this.failure('POKPAY_WEBHOOK_URL_INVALID', 'webhookUrl must be a valid URL.');
-    }
     return { ok: true, value: { baseUrl, keyId, keySecret, merchantId, webhookUrl } };
   }
 
@@ -259,11 +257,8 @@ export class PokPayPaymentProvider implements PaymentProvider {
     ).replace(/\/$/, '');
     if (!keyId || !keySecret || !merchantId)
       return this.failure('POKPAY_NOT_CONFIGURED', 'PokPay is not configured for health checks.');
-    if (baseUrl !== 'https://api-staging.pokpay.io')
-      return this.failure(
-        'POKPAY_TEST_MODE_REQUIRED',
-        'Only PokPay staging may be used at this stage.',
-      );
+    if (!pokpayBaseUrl(baseUrl))
+      return this.failure('POKPAY_INVALID_ENVIRONMENT', 'Choose a supported PokPay environment.');
     return {
       ok: true,
       value: { baseUrl, keyId, keySecret, merchantId, webhookUrl: '' },
@@ -295,7 +290,7 @@ export class PokPayPaymentProvider implements PaymentProvider {
       }
       const body = JSON.parse(rawBody) as PokPayResponse;
       return { ok: true, value: body };
-    } catch (error) {
+    } catch {
       this.logger.warn('PokPay request could not be completed.');
       return this.failure(
         'POKPAY_REQUEST_FAILED',
@@ -326,7 +321,7 @@ export class PokPayPaymentProvider implements PaymentProvider {
         return this.failure('POKPAY_AUTH_FAILED', 'PokPay authentication failed.', true);
       }
       return { ok: true, value: token };
-    } catch (error) {
+    } catch {
       this.logger.warn('PokPay request could not be completed.');
       return this.failure('POKPAY_AUTH_FAILED', 'PokPay authentication failed.', true);
     }

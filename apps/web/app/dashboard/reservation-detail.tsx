@@ -1,4 +1,13 @@
 'use client';
+import { toast } from 'sonner';
+import { MoveRoomDialog } from './move-room-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '../../components/ui/dialog';
 import { CollectPaymentActions } from './collect-payment-actions';
 import { ChangeBookingDatesDialog } from './change-booking-dates-dialog';
 import { minorUnits as paymentMinor, money as decimalMoney } from './payment-status';
@@ -24,7 +33,7 @@ import {
   Wallet,
   type LucideIcon,
 } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
@@ -79,6 +88,7 @@ type Detail = {
   childrenAges?: number[] | null;
   specialRequests: string | null;
   roomName: string | null;
+  roomTypeId?: string;
   roomTypeName: string;
   ratePlanName: string;
   guestId: string | null;
@@ -243,6 +253,8 @@ export function ReservationDetail({
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const queryClient = useQueryClient();
   const [cancelling, setCancelling] = useState(false);
+  const [movingRoom, setMovingRoom] = useState(false);
+  const [providerReview, setProviderReview] = useState(false);
   const [changingDates, setChangingDates] = useState(false);
   const [editingDetails, setEditingDetails] = useState(false);
   const [showAllActivity, setShowAllActivity] = useState(false);
@@ -253,6 +265,7 @@ export function ReservationDetail({
     if (wasNew) unseen.markSeen(bookingId);
   }, [wasNew, bookingId]);
   const [refunding, setRefunding] = useState(false);
+  const refundAttempt = useRef({ body: '', key: '' });
   const [refundOnlyPick, setRefundOnlyPick] = useState<RefundChoiceValue>({
     ...noRefund,
     mode: 'full',
@@ -372,19 +385,26 @@ export function ReservationDetail({
   const refundOnly = async (note: string) => {
     const body = refundRequestBody(refundOnlyPick, booking);
     if (!body) throw new Error('Choose how much to refund.');
+    const payload = JSON.stringify({ bookingId: booking.id, ...body, note: note.slice(0, 500) });
+    if (refundAttempt.current.body !== payload)
+      refundAttempt.current = { body: payload, key: crypto.randomUUID() };
     const response = await fetch(`${base}/payments/refunds`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
-      body: JSON.stringify({ bookingId: booking.id, ...body, note: note.slice(0, 500) }),
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': refundAttempt.current.key },
+      body: payload,
     });
     const result = (await response.json().catch(() => null)) as {
       ok?: boolean;
+      value?: { status?: string };
       error?: { message?: string };
       message?: string;
     } | null;
     if (!response.ok || result?.ok === false)
       throw new Error(result?.error?.message ?? result?.message ?? 'The refund could not be made.');
+    if (result?.value?.status === 'REFUND_PENDING')
+      toast.info('Refund submitted. Provider confirmation is pending; review it before retrying.');
+    else refundAttempt.current = { body: '', key: '' };
     await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
   };
 
@@ -398,7 +418,9 @@ export function ReservationDetail({
   const lastClock = booking.activity.find((event) => event.action.startsWith('booking.clock'));
   const methodLabel = booking.paymentMethod.toLowerCase().replaceAll('_', ' ');
   const methodTitle = methodLabel.charAt(0).toUpperCase() + methodLabel.slice(1);
-  const statusLabel = bookingStatusDisplay(booking.status).label;
+  const statusLabel = booking.cancellationPending
+    ? 'Cancellation requested'
+    : bookingStatusDisplay(booking.status).label;
   const paymentLabel = paymentDisplay({
     status: booking.status,
     paymentMethod: booking.paymentMethod,
@@ -429,7 +451,11 @@ export function ReservationDetail({
         pager={pager}
         badges={
           <>
-            <BookingStatusBadge status={booking.status} />
+            {booking.cancellationPending ? (
+              <Badge variant="warning">Cancellation requested</Badge>
+            ) : (
+              <BookingStatusBadge status={booking.status} />
+            )}
             <PaymentStatusBadge
               status={booking.status}
               paymentMethod={booking.paymentMethod}
@@ -505,6 +531,40 @@ export function ReservationDetail({
           }}
         />
       ) : null}
+      {movingRoom ? (
+        <MoveRoomDialog
+          tenantId={tenantId}
+          propertyId={propertyId}
+          bookingId={bookingId}
+          onClose={() => setMovingRoom(false)}
+          onSaved={async () => {
+            await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+          }}
+        />
+      ) : null}
+      <Dialog open={providerReview} onOpenChange={setProviderReview}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Provider review</DialogTitle>
+            <DialogDescription>
+              Review the Clock link and any synchronization issues for this reservation.
+            </DialogDescription>
+          </DialogHeader>
+          <DetailList
+            items={[
+              { label: 'Clock reservation', value: booking.externalBookingId || 'Not linked' },
+              { label: 'Booking status', value: bookingStatusDisplay(booking.status).label },
+            ]}
+          />
+          <BookingReviewCard
+            tenantId={tenantId}
+            propertyId={propertyId}
+            bookingId={bookingId}
+            canRunCheck={canEditBooking}
+            alwaysShow
+          />
+        </DialogContent>
+      </Dialog>
       {changingDates ? (
         <ChangeBookingDatesDialog
           tenantId={tenantId}
@@ -513,6 +573,21 @@ export function ReservationDetail({
           startsOn={booking.startsOn}
           endsOn={booking.endsOn}
           managedInClock={booking.detailsManagedInClock ?? !!booking.externalBookingId}
+          roomTypeId={booking.roomTypeId}
+          roomTypeName={booking.roomTypeName}
+          onReviewRefund={
+            canRefundHere
+              ? (amount) => {
+                  setRefundOnlyPick({ mode: 'fixed', percentage: '', amount });
+                  setRefunding(true);
+                }
+              : undefined
+          }
+          onCollectPayment={() =>
+            document
+              .getElementById('booking-collection')
+              ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }
           onClose={() => setChangingDates(false)}
           onSaved={async () => {
             await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
@@ -624,16 +699,16 @@ export function ReservationDetail({
                 <Button
                   variant="ghost"
                   size="sm"
-                  disabled
-                  title="Moving a reservation to another room is planned, not built yet"
+                  disabled={!canEditBooking || booking.status !== 'CONFIRMED'}
+                  onClick={() => setMovingRoom(true)}
                 >
                   <ArrowLeftRight aria-hidden="true" /> Move room
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
-                  disabled
-                  title="Provider review is planned, not built yet"
+                  disabled={!hasClock}
+                  onClick={() => setProviderReview(true)}
                 >
                   <Plug aria-hidden="true" /> Provider review
                 </Button>
@@ -679,7 +754,9 @@ export function ReservationDetail({
               </div>
               <div className="grid grid-cols-2 gap-4">
                 {field(
-                  `${methodTitle} transaction`,
+                  firstCharge
+                    ? `${firstCharge.provider === 'pokpay' ? 'PokPay' : firstCharge.provider === 'stripe' ? 'Card' : 'Recorded payment'} transaction`
+                    : 'Payment transaction',
                   firstCharge?.externalPaymentId ?? 'No online payment',
                 )}
                 {field('Amount received', money(String(received), currency))}
@@ -777,7 +854,15 @@ export function ReservationDetail({
       </div>
 
       {booking.cancellationPending ? (
-        <Badge variant="warning">Cancellation pending approval</Badge>
+        <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm">
+          Cancellation requested: this reservation is still active until the request is approved.{' '}
+          <a
+            className="font-semibold underline"
+            href={href(tenantId, propertyId, 'section=overview&tab=approvals')}
+          >
+            Review cancellation request
+          </a>
+        </div>
       ) : null}
       <CancellationDialog
         tenantId={tenantId}
@@ -793,12 +878,24 @@ export function ReservationDetail({
         open={canRefundPayment && refunding}
         onOpenChange={setRefunding}
         title={`Refund ${booking.externalReference}`}
-        description={`${guest}. The money goes back to the guest through ${methodTitle}.`}
+        description={`${guest}. Review the amount and original payment method before confirming. The stay remains booked.`}
         confirmLabel="Make refund"
         reasonLabel="Note"
         confirmDisabled={!!refundChoiceError(refundOnlyPick, booking)}
         onConfirm={refundOnly}
       >
+        {canCancelBooking && booking.status === 'CONFIRMED' ? (
+          <Button
+            variant="outline"
+            className="w-fit"
+            onClick={() => {
+              setRefunding(false);
+              setCancelling(true);
+            }}
+          >
+            Also cancel booking
+          </Button>
+        ) : null}
         <RefundChoice
           booking={booking}
           heading="How much"

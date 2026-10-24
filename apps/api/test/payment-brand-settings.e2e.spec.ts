@@ -140,7 +140,13 @@ beforeAll(async () => {
     };
     next();
   });
-  app.useGlobalGuards(new CapabilitiesGuard(new Reflector(), module.get(CapabilitiesService)));
+  app.useGlobalGuards(
+    new CapabilitiesGuard(
+      new Reflector(),
+      module.get(CapabilitiesService),
+      module.get(AuditLogService),
+    ),
+  );
   await app.init();
 });
 afterAll(async () => {

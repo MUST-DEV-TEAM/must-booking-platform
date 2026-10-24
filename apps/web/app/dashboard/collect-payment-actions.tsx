@@ -16,7 +16,7 @@ import { toast } from 'sonner';
 import { Input } from '../../components/ui/input';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../../components/ui/dialog';
 import { useClockFinancial } from './clock-financial';
-import { minorUnits } from './payment-status';
+import { minorUnits, money as decimalMoney } from './payment-status';
 export function CollectPaymentActions({
   tenantId,
   propertyId,
@@ -46,8 +46,11 @@ export function CollectPaymentActions({
     [qr, setQr] = useState('');
   const paymentTab = useRef<Window | null>(null);
   const [waiting, setWaiting] = useState(false);
+  const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
   const [copyFallback, setCopyFallback] = useState('');
-  const prepared = useRef<{ signature: string; url: string; at: number } | null>(null);
+  const prepared = useRef<{ signature: string; url: string; orderId: string; at: number } | null>(
+    null,
+  );
   const attempt = useRef<string | null>(null);
   const busy = useRef(false);
   const caps = useQuery({
@@ -64,7 +67,19 @@ export function CollectPaymentActions({
     booking.id,
     booking.balanceBasis === 'CLOCK',
   );
-  const verifiedClock = clockFinancial.data?.data;
+  const snapshot = clockFinancial.data?.data;
+  const snapshotMatchesLedger =
+    !snapshot ||
+    ((snapshot.localPaid === undefined ||
+      minorUnits(snapshot.localPaid) === minorUnits(booking.paidAmount)) &&
+      (snapshot.localRefunded === undefined ||
+        minorUnits(snapshot.localRefunded) === minorUnits(booking.refundedAmount ?? '0')));
+  const verifiedClock =
+    clockFinancial.data?.isCurrent === false ||
+    clockFinancial.data?.status !== 'SYNCED' ||
+    !snapshotMatchesLedger
+      ? undefined
+      : snapshot;
   const linkSignature = JSON.stringify([
     booking.id,
     booking.status,
@@ -81,14 +96,21 @@ export function CollectPaymentActions({
       : minorUnits(booking.total.amount) > minorUnits(booking.paidAmount)) &&
     !!caps.data?.includes('payments.record');
   const options = useQuery({
-    queryKey: ['dashboard', 'collection-options', tenantId, propertyId, booking.id],
+    queryKey: [
+      'dashboard',
+      'collection-options',
+      tenantId,
+      propertyId,
+      booking.id,
+      verifiedClock?.fetchedAt,
+    ],
     enabled: eligible,
     queryFn: async () => {
       const r = await fetch(`${base}/bookings/${booking.id}/collection-options`, {
         credentials: 'include',
       });
       if (!r.ok) throw Error('Could not check payment options.');
-      return (await r.json()) as { pokpay: boolean };
+      return (await r.json()) as { pokpay: boolean; unavailableReason?: string | null };
     },
   });
   const post = async (action: string, body?: unknown) => {
@@ -116,13 +138,22 @@ export function CollectPaymentActions({
         const cached = prepared.current;
         const result =
           action !== 'send' && cached?.signature === linkSignature && Date.now() - cached.at < 60000
-            ? { checkoutUrl: cached.url }
+            ? { checkoutUrl: cached.url, orderId: cached.orderId }
             : await post(action === 'send' ? 'send-pokpay-link' : 'collect-pokpay');
+        if (!result.orderId && action !== 'send')
+          throw Error('The payment attempt could not be identified. Refresh before trying again.');
+        if (result.orderId) setActiveOrderId(result.orderId);
         if (action !== 'send')
-          prepared.current = { signature: linkSignature, url: result.checkoutUrl, at: Date.now() };
-        if (action === 'send')
+          prepared.current = {
+            signature: linkSignature,
+            url: result.checkoutUrl,
+            orderId: result.orderId,
+            at: Date.now(),
+          };
+        if (action === 'send') {
           setMessage('Payment email queued. Check Emails for delivery status.');
-        else if (action === 'copy') {
+          if (result.orderId) setWaiting(true);
+        } else if (action === 'copy') {
           try {
             await navigator.clipboard.writeText(result.checkoutUrl);
             toast.success('Link copied');
@@ -155,7 +186,7 @@ export function CollectPaymentActions({
     },
   });
   useEffect(() => {
-    if (!eligible || !waiting) return;
+    if (!activeOrderId || !waiting) return;
     let stopped = false,
       polling = false;
     const check = async () => {
@@ -165,11 +196,20 @@ export function CollectPaymentActions({
         const r = await fetch(`${base}/bookings/${booking.id}/check-collection`, {
           method: 'POST',
           credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderId: activeOrderId }),
         });
         if (r.ok) {
           const d = await r.json();
-          if (d.paid && !stopped) {
+          if (d.paid && d.orderId === activeOrderId && !stopped) {
             paymentTab.current?.close();
+            try {
+              const signal = new BroadcastChannel('must-payment');
+              signal.postMessage({ bookingId: booking.id, orderId: activeOrderId, state: 'PAID' });
+              signal.close();
+            } catch {
+              /* The original tab still updates. */
+            }
             setQr('');
             setWaiting(false);
             await client.invalidateQueries({ queryKey: ['dashboard'] });
@@ -189,7 +229,20 @@ export function CollectPaymentActions({
     try {
       channel = new BroadcastChannel('must-payment');
       channel.onmessage = (e) => {
-        if (e.data?.bookingId === booking.id) void check();
+        if (
+          e.data?.bookingId === booking.id &&
+          e.data?.orderId === activeOrderId &&
+          !e.data?.state
+        ) {
+          channel?.postMessage({
+            bookingId: booking.id,
+            orderId: activeOrderId,
+            state: 'HOTEL_CONTEXT',
+            tenantId,
+            propertyId,
+          });
+          void check();
+        }
       };
     } catch {
       /* Optional browser capability unavailable; keep the normal UI path. */
@@ -200,17 +253,45 @@ export function CollectPaymentActions({
       window.removeEventListener('focus', focus);
       channel?.close();
     };
-  }, [eligible, waiting, base, booking.id, client]);
+  }, [activeOrderId, waiting, base, booking.id, client, tenantId, propertyId]);
+  const checkingBalance =
+    booking.status === 'CONFIRMED' &&
+    booking.balanceBasis === 'CLOCK' &&
+    !!caps.data?.includes('payments.record') &&
+    (!verifiedClock ||
+      clockFinancial.data?.status !== 'SYNCED' ||
+      (eligible && options.isPending) ||
+      options.data?.unavailableReason?.startsWith('Online payment is waiting'));
+  if (checkingBalance && !clockFinancial.isError && !clockFinancial.data?.lastError)
+    return (
+      <Card id="booking-collection" aria-busy="true">
+        <CardHeader>
+          <CardTitle>Collect payment</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p role="status" className="text-sm text-muted-foreground">
+            Updating balance and payment options...
+          </p>
+          <div aria-hidden="true" className="flex flex-wrap gap-2">
+            {[1, 2, 3, 4].map((n) => (
+              <div key={n} className="h-9 w-36 animate-pulse rounded-md bg-muted" />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    );
   if (!eligible) return null;
   return (
-    <Card>
+    <Card id="booking-collection">
       <CardHeader>
         <CardTitle>Collect payment</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm">
-          Collect the outstanding balance for this confirmed reservation. A recorded cash, card or
-          bank payment means you have already received the money.
+          Balance to collect: {booking.total.currency}{' '}
+          {verifiedClock?.balance.amount ??
+            decimalMoney(minorUnits(booking.total.amount) - minorUnits(booking.paidAmount))}
+          . A recorded cash, card or bank payment means you have already received the money.
         </p>
         <div className="flex flex-wrap gap-2">
           {options.data?.pokpay ? (
@@ -244,6 +325,9 @@ export function CollectPaymentActions({
             Record payment received
           </Button>
         </div>
+        {options.data?.unavailableReason ? (
+          <p className="text-sm text-muted-foreground">{options.data.unavailableReason}</p>
+        ) : null}
         {pay.error || options.error ? (
           <p role="alert">{pay.error?.message || options.error?.message}</p>
         ) : null}

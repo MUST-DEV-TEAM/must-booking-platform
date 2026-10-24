@@ -45,7 +45,7 @@ export class AdminStaffService {
     await this.database.withTenantTransaction({ tenantId }, async (tx) => {
       const memberships = await tx.$queryRaw<Array<{ role: MembershipRole }>>`
         SELECT "role" FROM "tenant_memberships"
-        WHERE "tenant_id" = ${tenantId}::uuid AND "user_id" = ${userId}::uuid
+        WHERE "tenant_id" = ${tenantId}::uuid AND "user_id" = ${userId}::uuid FOR UPDATE
       `;
       if (!memberships[0]) throw new NotFoundException('Tenant membership not found.');
       if (memberships[0].role === 'OWNER')
@@ -60,7 +60,11 @@ export class AdminStaffService {
         action: 'membership.role_changed',
         targetType: 'user',
         targetId: userId,
-        details: { previousRole: memberships[0].role, role },
+        details: {
+          previousRole: memberships[0].role,
+          role,
+          changes: { Role: { old: memberships[0].role, new: role } },
+        },
       });
     });
   }

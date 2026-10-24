@@ -1,3 +1,4 @@
+import { pokpayBaseUrl, validPokpayWebhook } from './pokpay-environment';
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
 import { ConnectionTestRegistry, type ConnectionTester } from '../integrations/connection-tester';
@@ -27,13 +28,10 @@ export class PokpayConnectionTester implements ConnectionTester, OnModuleInit {
     );
     if (!keyId || !keySecret || !merchantId || !webhookUrl)
       return { ok: false, message: 'keyId, keySecret, merchantId, and webhookUrl are required.' };
-    if (baseUrl !== 'https://api-staging.pokpay.io')
-      return { ok: false, message: 'Only PokPay staging may be used at this stage.' };
-    try {
-      new URL(webhookUrl);
-    } catch {
-      return { ok: false, message: 'webhookUrl must be a valid URL.' };
-    }
+    if (!pokpayBaseUrl(baseUrl))
+      return { ok: false, message: 'Choose a supported PokPay environment.' };
+    if (!validPokpayWebhook(webhookUrl, baseUrl))
+      return { ok: false, message: 'Use a valid webhook URL; production requires public HTTPS.' };
 
     try {
       const login = await fetch(`${baseUrl}/auth/sdk/login`, {
@@ -54,7 +52,7 @@ export class PokpayConnectionTester implements ConnectionTester, OnModuleInit {
         return { ok: false, message: 'PokPay authentication failed.' };
       }
       return { ok: true, message: 'Connected to PokPay successfully.' };
-    } catch (error) {
+    } catch {
       this.logger.warn('PokPay authentication could not be completed.');
       return { ok: false, message: 'Could not reach PokPay.' };
     }

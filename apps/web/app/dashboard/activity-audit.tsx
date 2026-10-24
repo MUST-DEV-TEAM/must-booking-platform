@@ -17,6 +17,8 @@ import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import { StatTile } from '../../components/ui/stat-tile';
 import {
   auditRequest,
+  auditResultLabel,
+  recordedChanges,
   auditPage,
   AuditRequestError,
   createAuditExporter,
@@ -41,6 +43,8 @@ export function ActivityAudit({
     [actor, setActor] = useState(''),
     [target, setTarget] = useState(''),
     [result, setResult] = useState(''),
+    [view, setView] = useState('business'),
+    [source, setSource] = useState(''),
     [from, setFrom] = useState(''),
     [to, setTo] = useState(''),
     [selected, setSelected] = useState<string | null>(null),
@@ -58,6 +62,8 @@ export function ActivityAudit({
     actor,
     target,
     result,
+    view,
+    source,
     ...(from ? { from } : {}),
     ...(to ? { to } : {}),
   });
@@ -98,6 +104,22 @@ export function ActivityAudit({
       ) : null}
       {data ? (
         <>
+          <div className="flex flex-wrap gap-2" aria-label="Audit activity views">
+            {[
+              ['business', 'Business activity'],
+              ['system', 'Routine system activity'],
+              ['all', 'All activity'],
+            ].map(([key, label]) => (
+              <Button
+                key={key}
+                variant={view === key ? 'default' : 'outline'}
+                aria-pressed={view === key}
+                onClick={() => change(setView)(key)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <StatTile
               label="Today"
@@ -162,10 +184,31 @@ export function ActivityAudit({
             onChange={change(setResult)}
             options={[
               { value: '', label: 'All recorded results' },
-              ...['Succeeded', 'Failed', 'Denied', 'Not recorded'].map((value) => ({
-                value,
-                label: value,
-              })),
+              ...['Succeeded', 'Failed', 'Denied', 'Pending', 'Unknown', 'Not recorded'].map(
+                (value) => ({
+                  value,
+                  label: auditResultLabel(value),
+                }),
+              ),
+            ]}
+          />
+        </FormField>
+        <FormField label="Source">
+          <Combobox
+            label="Source"
+            value={source}
+            onChange={change(setSource)}
+            options={[
+              { value: '', label: 'All sources' },
+              ...Object.entries({
+                MUST_STAFF: 'Staff in MUST',
+                MUST_AUTOMATION: 'MUST automation',
+                GUEST: 'Guest',
+                CLOCK: 'Clock',
+                POKPAY: 'PokPay',
+                STRIPE: 'Stripe',
+                PLATFORM_ADMIN: 'Platform administrator',
+              }).map(([value, label]) => ({ value, label })),
             ]}
           />
         </FormField>
@@ -255,10 +298,15 @@ export function ActivityAudit({
             {
               id: 'action',
               label: 'Action',
-              value: (e) => e.action,
+              value: (e) => e.title ?? e.action,
               render: (e) => (
                 <span className="block max-w-52 truncate" title={e.action}>
-                  {e.action}
+                  {e.title ?? e.action}
+                  {e.summary ? (
+                    <span className="block text-xs font-normal text-muted-foreground">
+                      {e.summary}
+                    </span>
+                  ) : null}
                 </span>
               ),
             },
@@ -269,14 +317,16 @@ export function ActivityAudit({
               render: (e) => (
                 <Badge
                   variant={
-                    e.result === 'Failed'
+                    ['Failed', 'Denied'].includes(e.result)
                       ? 'danger'
                       : e.result === 'Succeeded'
                         ? 'success'
-                        : 'secondary'
+                        : ['Pending', 'Unknown'].includes(e.result)
+                          ? 'warning'
+                          : 'secondary'
                   }
                 >
-                  {e.result}
+                  {auditResultLabel(e.result)}
                 </Badge>
               ),
             },
@@ -287,6 +337,7 @@ export function ActivityAudit({
               render: (e) => new Date(e.createdAt).toLocaleString(),
             },
             { id: 'family', label: 'Family', value: (e) => e.family },
+            { id: 'source', label: 'Source', value: (e) => e.source ?? 'Not specified' },
             {
               id: 'actor',
               label: 'Actor',
@@ -341,7 +392,7 @@ export function ActivityAudit({
         open={!!selected}
         onClose={() => setSelected(null)}
         title="Audit event detail"
-        description="Stored evidence only. Related events have the same target within 24 hours."
+        description="Operation links use saved references. Other nearby activity is shown separately."
         badges={
           event ? (
             <>
@@ -365,35 +416,123 @@ export function ActivityAudit({
               items={[
                 { label: 'Evidence ID', value: event.id },
                 { label: 'Time', value: new Date(event.createdAt).toLocaleString() },
-                { label: 'Action', value: event.action },
+                { label: 'Action', value: event.title ?? event.action },
+                { label: 'Source', value: event.source ?? 'Not specified' },
+                ...(event.operationId
+                  ? [{ label: 'Operation reference', value: event.operationId }]
+                  : []),
                 { label: 'Actor', value: event.actor },
                 {
                   label: 'Target',
                   value: `${event.targetType} / ${event.targetId ?? 'Hidden (requires staff.view)'}`,
                 },
-                { label: 'Recorded result', value: event.result },
+                { label: 'Recorded result', value: auditResultLabel(event.result) },
                 { label: 'Reason', value: event.reason ?? 'Not recorded' },
               ]}
             />
-            <DataSnapshot title="Before (recorded)" value={event.before} />
-            <DataSnapshot title="After (recorded)" value={event.after} />
-            <DataSnapshot title="Request context (recorded)" value={event.requestContext} />
-            <DataSnapshot title="Other recorded details" value={event.details} />
-            {event.related?.length ? (
-              <DataSnapshot
-                title="Related evidence identifiers"
-                value={event.related.map((e) => ({
-                  id: e.id,
-                  action: e.action,
-                  time: e.createdAt,
-                }))}
-              />
+            {event.result === 'Unknown' ? (
+              <Alert>
+                <AlertDescription>
+                  The outcome needs verification. This entry is not proof of success or failure in
+                  the provider.
+                </AlertDescription>
+              </Alert>
             ) : null}
-            {event.related?.map((e) => (
-              <Button key={e.id} variant="outline" size="sm" onClick={() => setSelected(e.id)}>
-                {e.action}
-              </Button>
-            ))}
+            {recordedChanges(event).length ? (
+              <div className="overflow-x-auto rounded-lg border">
+                <table className="w-full text-left text-sm" aria-label="Recorded changes">
+                  <thead className="bg-muted">
+                    <tr>
+                      <th className="p-3">Field</th>
+                      <th className="p-3">Before</th>
+                      <th className="p-3">After</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recordedChanges(event).map((change) => (
+                      <tr key={change.field} className="border-t">
+                        <th className="p-3 font-medium">{change.field}</th>
+                        <td className="p-3 break-words">
+                          {typeof change.before === 'object'
+                            ? JSON.stringify(change.before)
+                            : String(change.before ?? 'Not specified')}
+                        </td>
+                        <td className="p-3 break-words">
+                          {typeof change.after === 'object'
+                            ? JSON.stringify(change.after)
+                            : String(change.after ?? 'Not specified')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No field-by-field change was saved for this event.
+              </p>
+            )}
+            {event.linked?.length ? (
+              <section aria-label="Operation timeline">
+                <h3 className="mb-3 font-semibold">Operation timeline</h3>
+                <ol className="space-y-3 border-l pl-4">
+                  {event.linked.map((item) => (
+                    <li key={item.id}>
+                      <Button
+                        variant="link"
+                        className="h-auto p-0 text-left"
+                        onClick={() => setSelected(item.id)}
+                      >
+                        {item.title ?? item.action}
+                      </Button>
+                      <p className="text-xs text-muted-foreground">
+                        {auditResultLabel(item.result)}
+                        {item.source ? ' · ' + item.source : ''} ·{' '}
+                        {new Date(item.createdAt).toLocaleString()}
+                      </p>
+                    </li>
+                  ))}
+                </ol>
+                {event.linkedTruncated ? (
+                  <p className="text-xs text-muted-foreground">
+                    Showing the first 50 linked events.
+                  </p>
+                ) : null}
+              </section>
+            ) : null}
+            <details className="space-y-3">
+              <summary className="cursor-pointer text-sm font-medium">Technical evidence</summary>
+              <p className="break-all text-xs text-muted-foreground">Event type: {event.action}</p>
+              <DataSnapshot title="Before (recorded)" value={event.before} />
+              <DataSnapshot title="After (recorded)" value={event.after} />
+              <DataSnapshot title="Request context (recorded)" value={event.requestContext} />
+              <DataSnapshot title="Other recorded details" value={event.details} />
+            </details>
+            {event.related?.length ? (
+              <section aria-label="Other nearby activity">
+                <h3 className="mb-2 font-semibold">Other nearby activity</h3>
+                <p className="mb-3 text-xs text-muted-foreground">
+                  These events concern the same record. They may belong to separate actions.
+                </p>
+                <ul className="space-y-2">
+                  {event.related.map((item) => (
+                    <li key={item.id}>
+                      <Button
+                        variant="link"
+                        className="h-auto p-0 text-left"
+                        onClick={() => setSelected(item.id)}
+                      >
+                        {item.title ?? item.action}
+                      </Button>
+                      <p className="text-xs text-muted-foreground">
+                        {auditResultLabel(item.result)} ·{' '}
+                        {new Date(item.createdAt).toLocaleString()}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
           </>
         ) : (
           <ListSkeleton rows={3} />

@@ -24,6 +24,7 @@ async function mount({ canCheckPayment = true, canViewBooking = true } = {}) {
           bookingId: 'b',
           reference: 'MB-1',
           checkoutUrl: 'https://pay.example.test/checkout',
+          checkoutOrderId: 'initial-order',
           providerName: 'PokPay',
           reservationHref: '/dashboard/t?propertyId=p&section=reservations&reservation=b',
           canCheckPayment,
@@ -51,7 +52,7 @@ describe('AwaitingPayment', () => {
     expect(container.textContent).not.toContain('Payment received');
     expect(
       Array.from(container.querySelectorAll('button')).some((button) =>
-        button.textContent?.includes('Reopen payment window'),
+        button.textContent?.includes('Pay with PokPay'),
       ),
     ).toBe(true);
     await act(async () => root.unmount());
@@ -77,7 +78,9 @@ describe('AwaitingPayment', () => {
     await settle();
     await settle();
 
-    expect(fetch.mock.calls.some(([url]) => String(url).endsWith('/bookings/b/check-payment'))).toBe(true);
+    expect(
+      fetch.mock.calls.some(([url]) => String(url).endsWith('/bookings/b/check-payment')),
+    ).toBe(true);
     expect(container.textContent).toContain('Payment received');
     await act(async () => root.unmount());
   });
@@ -104,4 +107,24 @@ describe('AwaitingPayment', () => {
     expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
     await act(async () => root.unmount());
   });
+});
+
+it('signals verified money receipt while Clock confirmation is still pending', async () => {
+  const postMessage = vi.fn();
+  vi.stubGlobal(
+    'BroadcastChannel',
+    class {
+      postMessage = postMessage;
+      close() {}
+      onmessage: unknown;
+    },
+  );
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ status: 'PMS_CONFIRMATION_PENDING', paidAmount: '100.00' })),
+  );
+  const { root } = await mount();
+  await settle();
+  expect(postMessage).toHaveBeenCalledWith({ bookingId: 'b', orderId: 'initial-order', state: 'PAID' });
+  await act(async () => root.unmount());
 });

@@ -50,7 +50,9 @@ describe('balanceDue', () => {
   it('subtracts the amount paid, never creates debt after a refund, and never goes below zero', () => {
     expect(balanceDue({ total: '200.00', paid: '60.00', refunded: '0' })).toBe(140);
     expect(balanceDue({ total: '200.00', paid: '260.00', refunded: '0' })).toBe(0);
-    expect(balanceDue({status:'CONFIRMED',total:'220.00',paid:'220.00',refunded:'55.00'})).toBe(0);
+    expect(
+      balanceDue({ status: 'CONFIRMED', total: '220.00', paid: '220.00', refunded: '55.00' }),
+    ).toBe(0);
   });
 });
 
@@ -89,3 +91,15 @@ describe('failed booking balances', () => {
     },
   );
 });
+
+it.each(['CANCELLED', 'EXPIRED'])(
+  'shows no payment due or collectible balance for an unpaid %s hold',
+  (status) => {
+    expect(paymentDisplay({ ...base, status }).label).toBe('No payment due');
+    expect(balanceDue({ ...base, status })).toBe(0);
+    expect(paymentDisplay({ ...base, status, paid: '200.00' }).label).toBe('Paid');
+    expect(paymentDisplay({ ...base, status, paid: '200.00', refunded: '200.00' }).label).toBe(
+      'Refunded',
+    );
+  },
+);

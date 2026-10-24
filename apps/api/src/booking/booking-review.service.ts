@@ -69,9 +69,14 @@ export class BookingReviewService {
         WHERE id = ${bookingId}::uuid AND tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid`;
       if (!booking[0]) throw new NotFoundException('Booking not found.');
       const items = await tx.$queryRaw<
-        Array<{ category: string; createdAt: Date; clockDepositAdjustment: boolean }>
+        Array<{
+          category: string;
+          createdAt: Date;
+          clockDepositAdjustment: boolean;
+          operationKey: string | null;
+        }>
       >`
-        SELECT category::text AS category, created_at AS "createdAt",
+        SELECT category::text AS category, created_at AS "createdAt",context->>'operationKey' AS "operationKey",
           (category = 'PAYMENT_BOOKING_MISMATCH' AND context->>'message' =
             'Clock refund payment was posted. In Clock, issue the Deposit Adjustment to create the required correction document.') AS "clockDepositAdjustment"
           FROM manual_review_items
@@ -83,18 +88,32 @@ export class BookingReviewService {
         JOIN integration_connections c ON c.tenant_id = pc.tenant_id AND c.id = pc.connection_id
         WHERE pc.tenant_id = ${tenantId}::uuid AND pc.property_id = ${propertyId}::uuid
           AND pc.enabled AND pc.kind = 'PMS'`;
+      const pending = await tx.$queryRaw<
+        Array<{ key: string }>
+      >`SELECT idempotency_key AS key FROM integration_operations WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND aggregate_id=${bookingId}::uuid AND status='PENDING' AND (idempotency_key LIKE 'clock-stay-amend:%' OR idempotency_key LIKE 'clock-room-move:%') ORDER BY created_at LIMIT 1`;
+      const pendingChange = pending[0]?.key.startsWith('clock-stay-amend:')
+        ? 'stay'
+        : pending[0]?.key.startsWith('clock-room-move:')
+          ? 'room'
+          : null;
       const needsReview =
+        !!pendingChange ||
         items.length > 0 ||
         (!booking[0].dismissed &&
           (BOOKING_NEEDS_ATTENTION_STATUSES as readonly string[]).includes(booking[0].status));
       return {
         needsReview,
-        canResolve,
+        canResolve: canResolve && booking[0].status === 'PMS_UNKNOWN_RESULT' && !pendingChange,
+        pendingChange,
         canCheck: pms[0]?.provider === 'CLOCK_PMS',
         reasons: items.map((item) => ({
-          text: item.clockDepositAdjustment
-            ? 'Refund posted to Clock. Complete the Deposit Adjustment document in Clock.'
-            : (CATEGORY_TEXT[item.category] ?? 'The booking needs a manual review.'),
+          text: item.operationKey?.startsWith('clock-stay-amend:')
+            ? 'The stay change is awaiting confirmation from Clock. Verify the saved change; do not submit it again.'
+            : item.operationKey?.startsWith('clock-room-move:')
+              ? 'The room move is awaiting confirmation from Clock. Verify the saved move; do not submit it again.'
+              : item.clockDepositAdjustment
+                ? 'Refund posted to Clock. Complete the Deposit Adjustment document in Clock.'
+                : (CATEGORY_TEXT[item.category] ?? 'The booking needs a manual review.'),
           openedAt: item.createdAt,
         })),
       };

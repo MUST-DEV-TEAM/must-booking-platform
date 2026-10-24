@@ -68,9 +68,12 @@ export class ManualPaymentController {
   @RequiresCapability('payments.record')
   checkCollection(
     @Param('bookingId') id: string,
+    @Body() body: { orderId?: unknown },
     @Req() req: { tenantContext: { tenantId: string; propertyId: string } },
   ) {
-    return this.collections.refresh(req.tenantContext, id);
+    if (body?.orderId !== undefined && typeof body.orderId !== 'string')
+      throw new BadRequestException('Choose a valid payment attempt.');
+    return this.collections.refresh(req.tenantContext, id, body?.orderId as string | undefined);
   }
 
   @Post(':bookingId/send-pokpay-link')

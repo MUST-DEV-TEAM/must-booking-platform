@@ -336,7 +336,12 @@ export class ClockAvailabilityService {
   async unavailableRoomsForBooking(
     tenantId: string,
     propertyId: string,
-    query: { roomIds: string[]; startsOn: string; endsOn: string },
+    query: {
+      roomIds: string[];
+      startsOn: string;
+      endsOn: string;
+      excludeExternalBookingId?: string;
+    },
   ): Promise<Result<string[]>> {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (!connection || connection.provider !== 'CLOCK_PMS')
@@ -362,6 +367,7 @@ export class ClockAvailabilityService {
         parsed.value,
         { startsOn: query.startsOn, endsOn: query.endsOn },
         [...externalIds.values()],
+        query.excludeExternalBookingId,
       );
       return {
         ok: true,
@@ -730,11 +736,19 @@ export class ClockAvailabilityService {
       adultCount?: number;
       childrenCount?: number;
       childrenAges?: number[];
+      requiredRateId?: string;
     },
   ): Promise<Result<ClockRateSelection>> {
     const rateIds = await this.ratesForRoomType(credentials, query.externalRoomTypeId);
     if (!rateIds.ok) return failure(rateIds.error);
     if (rateIds.value.ids.length === 0) return failure(noRatesError(rateIds.value));
+    if (query.requiredRateId && !rateIds.value.ids.includes(query.requiredRateId))
+      return failure(
+        classifyConfigurationError(
+          'The original Clock rate is private or unavailable. Review this amendment in Clock.',
+        ),
+      );
+    const selectedIds = query.requiredRateId ? [query.requiredRateId] : rateIds.value.ids;
 
     // adult_count/children_count are always sent, never left to the caller
     // to remember. Clock only enforces max_adults/max_children on a rate
@@ -752,7 +766,7 @@ export class ClockAvailabilityService {
 
     const response = await this.fetch<ClockProductsResponse>(
       credentials,
-      { ...productSearch, rates: rateIds.value.ids },
+      { ...productSearch, rates: selectedIds },
       '/products',
     );
     if (!response.ok) return failure(response.error);

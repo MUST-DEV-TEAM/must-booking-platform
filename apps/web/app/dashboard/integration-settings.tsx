@@ -1,10 +1,17 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Card, CardHeader, CardContent } from '../../components/ui/card';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../components/ui/select';
 import { Input } from '../../components/ui/input';
 import { FormField } from '../../components/ui/form-field';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../../components/ui/dialog';
@@ -34,6 +41,9 @@ export function IntegrationSettings({
   const [edit, setEdit] = useState<{ provider: 'CLOCK_PMS' | 'POKPAY'; id?: string } | null>(null);
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [name, setName] = useState('');
+  const [environmentDrafts, setEnvironmentDrafts] = useState<
+    Record<string, { id?: string; credentials: Record<string, string>; name: string }>
+  >({});
   const [category, setCategory] = useState('All');
   const query = useQuery({
     queryKey: ['dashboard', 'integration-settings', tenantId, propertyId],
@@ -76,6 +86,48 @@ export function IntegrationSettings({
     },
     onError: (e) => toast.error(e.message),
   });
+  const storedCredentials = useQuery({
+    queryKey: ['dashboard', 'integration-credential-details', tenantId, edit?.id],
+    enabled: !!edit?.id,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    queryFn: () =>
+      request(`/integration-connections/${edit!.id}/credentials`, 'GET') as Promise<{
+        fields: Record<string, string>;
+      }>,
+  });
+  useEffect(() => {
+    if (!edit?.id || !storedCredentials.data) return;
+    setCredentials(
+      Object.fromEntries(
+        Object.entries(storedCredentials.data.fields ?? {}).filter(
+          ([key]) => !['apiKey', 'keySecret', 'secretKey', 'webhookSecret'].includes(key),
+        ),
+      ),
+    );
+  }, [edit?.id, storedCredentials.data]);
+  const setup = useQuery({
+    queryKey: ['dashboard', 'integration-setup', tenantId],
+    enabled: edit?.provider === 'POKPAY',
+    queryFn: () => request('/integration-setup', 'GET') as Promise<{ pokpayWebhookUrl: string }>,
+  });
+  function selectEnvironment(environment: string) {
+    const current = credentials.baseUrl === 'https://api.pokpay.io' ? 'production' : 'staging';
+    if (environment === current) return;
+    setEnvironmentDrafts((drafts) => ({
+      ...drafts,
+      [current]: { id: edit?.id, credentials: { ...credentials }, name },
+    }));
+    const target = environmentDrafts[environment];
+    setEdit({ provider: 'POKPAY', ...(target?.id ? { id: target.id } : {}) });
+    setCredentials(
+      target?.credentials || {
+        baseUrl:
+          environment === 'production' ? 'https://api.pokpay.io' : 'https://api-staging.pokpay.io',
+      },
+    );
+    setName(target?.name || `PokPay ${environment === 'production' ? 'Production' : 'Staging'}`);
+  }
   const save = useMutation({
     mutationFn: async () => {
       if (!edit) return;
@@ -88,9 +140,15 @@ export function IntegrationSettings({
       );
       const supplied = Object.fromEntries(
         fields
-          .filter((f) => credentials[f.key]?.trim())
+          .filter(
+            (f) =>
+              credentials[f.key]?.trim() &&
+              (!edit.id || credentials[f.key].trim() !== storedCredentials.data?.fields?.[f.key]),
+          )
           .map((f) => [f.key, credentials[f.key].trim()]),
       );
+      if (!edit.id && edit.provider === 'POKPAY')
+        supplied.baseUrl = credentials.baseUrl || 'https://api-staging.pokpay.io';
       if (edit.id)
         await request(`/integration-connections/${edit.id}/credentials`, 'PATCH', {
           credentials: supplied,
@@ -136,8 +194,8 @@ export function IntegrationSettings({
   return (
     <div className="space-y-5">
       <p className="text-sm text-muted-foreground">
-        Connect this hotel's own accounts. Credentials are encrypted and never shown again. Use
-        sandbox or staging accounts for testing.
+        Connect this hotel's own accounts. Credentials are encrypted. Secret values are shown only
+        by their last four characters. Use sandbox or staging accounts for testing.
       </p>
       <Tabs value={category} onValueChange={setCategory}>
         <TabsList className="h-auto max-w-full flex-wrap justify-start">
@@ -154,9 +212,11 @@ export function IntegrationSettings({
             const connections = query.data!.connections.filter((c) => c.provider === item.provider);
             return (connections.length ? connections : [null]).map((connection) => (
               <Card key={connection?.id ?? item.provider} className="overflow-hidden">
-                <CardHeader className="flex h-36 items-center justify-center bg-muted/30">
+                <CardHeader
+                  className={`flex h-36 items-center justify-center ${item.provider === 'POKPAY' ? 'bg-[#151c2c]' : 'bg-muted/30'}`}
+                >
                   <img
-                    src={`/integrations/${item.provider.toLowerCase()}.svg`}
+                    src={`/integrations/${item.provider.toLowerCase()}.${item.provider === 'PAYPAL' ? 'jpg' : 'svg'}`}
                     width={190}
                     height={64}
                     alt={item.name}
@@ -183,7 +243,9 @@ export function IntegrationSettings({
                     </Badge>
                   </div>
                   {connection?.provider === 'POKPAY' ? (
-                    <p className="text-xs text-muted-foreground">Staging environment</p>
+                    <p className="text-xs text-muted-foreground">
+                      Environment and account details in Credentials
+                    </p>
                   ) : null}
                   {connection?.lastTestResult ? (
                     <p className="text-xs text-muted-foreground">{connection.lastTestResult}</p>
@@ -213,6 +275,8 @@ export function IntegrationSettings({
                               id: connection.id,
                             });
                             setCredentials({});
+                            setName(connection.name);
+                            setEnvironmentDrafts({});
                           }}
                         >
                           Credentials
@@ -270,6 +334,7 @@ export function IntegrationSettings({
           if (!open && !save.isPending) {
             setEdit(null);
             setCredentials({});
+            setEnvironmentDrafts({});
           }
         }}
       >
@@ -289,20 +354,28 @@ export function IntegrationSettings({
           >
             {edit?.provider === 'POKPAY' ? (
               <FormField label="Environment">
-                <select
-                  aria-label="PokPay environment"
-                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                  value="staging"
-                  onChange={() => {}}
+                <Select
+                  value={
+                    (credentials.baseUrl || 'https://api-staging.pokpay.io') ===
+                    'https://api.pokpay.io'
+                      ? 'production'
+                      : 'staging'
+                  }
+                  disabled={save.isPending || (!!edit?.id && storedCredentials.isPending)}
+                  onValueChange={selectEnvironment}
                 >
-                  <option value="staging">Staging</option>
-                  <option value="production" disabled>
-                    Production - not yet enabled
-                  </option>
-                </select>
+                  <SelectTrigger className="w-full" aria-label="PokPay environment">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="staging">Staging</SelectItem>
+                    <SelectItem value="production">Production</SelectItem>
+                  </SelectContent>
+                </Select>
                 <p className="text-xs text-muted-foreground">
-                  Production requires gateway verification before live payments can be enabled.
-                  Changing credentials keeps the existing merchant account.
+                  Production uses real payments and requires production credentials and a public
+                  HTTPS webhook. Environment and merchant changes need a separate connection to
+                  protect payment history.
                 </p>
               </FormField>
             ) : (
@@ -311,6 +384,17 @@ export function IntegrationSettings({
                 subscription ID.
               </p>
             )}
+            {edit?.provider === 'POKPAY' ? (
+              <p className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
+                Payment notifications are set up automatically by MUST.{' '}
+                {edit.id
+                  ? 'The saved connection keeps its original callback.'
+                  : 'The callback uses the public address configured for this installation.'}
+                <span className="mt-1 block break-all">
+                  {edit.id ? credentials.webhookUrl : setup.data?.pokpayWebhookUrl}
+                </span>
+              </p>
+            ) : null}
             {!edit?.id ? (
               <FormField label="Connection name">
                 <Input
@@ -321,29 +405,50 @@ export function IntegrationSettings({
                 />
               </FormField>
             ) : null}
+            {storedCredentials.isError && edit?.id ? (
+              <p role="alert">Saved credentials could not be loaded. Close and try again.</p>
+            ) : null}
             {edit
               ? credentialFieldsByProvider[edit.provider]
-                  .filter(
-                    (f) =>
+                  .filter((f) => !(edit.provider === 'POKPAY' && f.key === 'webhookUrl'))
+                  .map((f) => {
+                    const editable =
                       !edit.id ||
                       (edit.provider === 'CLOCK_PMS'
                         ? ['apiUser', 'apiKey']
                         : ['keyId', 'keySecret']
-                      ).includes(f.key),
-                  )
-                  .map((f) => (
-                    <FormField key={f.key} label={f.label}>
-                      <Input
-                        autoComplete="off"
-                        type={f.secret ? 'password' : 'text'}
-                        required={!edit.id}
-                        value={credentials[f.key] ?? ''}
-                        onChange={(e) =>
-                          setCredentials({ ...credentials, [f.key]: e.target.value })
-                        }
-                      />
-                    </FormField>
-                  ))
+                      ).includes(f.key);
+                    return (
+                      <FormField key={f.key} label={f.label}>
+                        <Input
+                          aria-label={f.label}
+                          type={f.secret ? 'password' : 'text'}
+                          required={!edit.id}
+                          readOnly={!editable}
+                          disabled={!!edit.id && storedCredentials.isPending}
+                          value={f.secret ? credentials[f.key] || '' : credentials[f.key] || ''}
+                          placeholder={
+                            f.secret && edit.id
+                              ? `${storedCredentials.data?.fields?.[f.key] || 'Stored securely'} ? leave blank to keep`
+                              : undefined
+                          }
+                          onChange={(event) =>
+                            setCredentials({ ...credentials, [f.key]: event.target.value })
+                          }
+                        />
+                        {f.secret && edit.id ? (
+                          <p className="text-xs text-muted-foreground">
+                            Saved: {storedCredentials.data?.fields?.[f.key] || 'Loading?'}. Enter a
+                            new value only to replace it.
+                          </p>
+                        ) : !editable ? (
+                          <p className="text-xs text-muted-foreground">
+                            Account setting; changing it requires a separate connection.
+                          </p>
+                        ) : null}
+                      </FormField>
+                    );
+                  })
               : null}
             {save.error ? <p role="alert">{save.error.message}</p> : null}
             <Button type="submit" disabled={save.isPending}>

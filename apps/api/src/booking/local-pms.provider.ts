@@ -1,3 +1,8 @@
+import type {
+  RoomMoveAvailabilityQuery,
+  RoomMoveAvailabilitySnapshot,
+} from '@must/domain-contracts';
+import type { MoveBookingRoomCommand } from '@must/domain-contracts';
 import { enforcePropertyBookingLimits } from './property-booking-limits';
 import { BadRequestException, HttpException, Inject, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
@@ -89,7 +94,7 @@ type IntegrationOperationRow = {
   result: Result<BookingWithCheckout> | null;
 };
 
-type BookingWithCheckout = Booking & { checkoutUrl?: string };
+type BookingWithCheckout = Booking & { checkoutUrl?: string; checkoutOrderId?: string };
 
 type ConfirmedPaymentDetails = {
   reference: string;
@@ -374,6 +379,8 @@ export class LocalPmsProvider implements PmsProvider {
                 propertyId: context.propertyId,
                 actorUserId: command.staffActorId ?? null,
                 action: 'booking.created',
+                source: command.staffActorId ? 'MUST_STAFF' : 'GUEST',
+                operationId: command.idempotencyKey,
                 targetType: 'booking',
                 targetId: bookingId,
                 details: { guestId },
@@ -537,8 +544,8 @@ export class LocalPmsProvider implements PmsProvider {
                   idempotencyKey: command.idempotencyKey,
                   bookingId,
                   amount: command.total,
-                  successUrl: this.checkoutReturnUrl(bookingId, 'success', guestReturnUrl),
-                  cancelUrl: this.checkoutReturnUrl(bookingId, 'cancel', guestReturnUrl),
+                  successUrl: this.checkoutReturnUrl(bookingId, 'success', guestReturnUrl, context),
+                  cancelUrl: this.checkoutReturnUrl(bookingId, 'cancel', guestReturnUrl, context),
                 });
                 if (!checkout.ok) throw new CheckoutSessionCreationError(checkout);
                 if (paymentMethod.value === BookingPaymentMethod.POKPAY) {
@@ -555,7 +562,14 @@ export class LocalPmsProvider implements PmsProvider {
                 const row = await this.bookingById(tx, context, bookingId);
                 const booking = row && this.toBooking(row);
                 return booking
-                  ? { ok: true, value: { ...booking, checkoutUrl: checkout.value.url } }
+                  ? {
+                      ok: true,
+                      value: {
+                        ...booking,
+                        checkoutUrl: checkout.value.url,
+                        checkoutOrderId: checkout.value.id,
+                      },
+                    }
                   : this.failure('BOOKING_NOT_FOUND', 'Created booking could not be loaded.');
               }
 
@@ -624,6 +638,115 @@ export class LocalPmsProvider implements PmsProvider {
       if (error instanceof PrePaymentAvailabilityError) return error.result;
       throw error;
     }
+  }
+
+  async unavailableRoomsForMove(
+    context: PmsProviderContext,
+    query: RoomMoveAvailabilityQuery,
+  ): Promise<Result<RoomMoveAvailabilitySnapshot>> {
+    // Clock properties must never fall back to local occupancy.
+    if (await this.isClockConnected(context))
+      return this.failure(
+        'PROVIDER_REQUIRED',
+        'The Clock connection must be available to check rooms.',
+      );
+    const unavailable = await this.database.withTenantTransaction(context, (tx) =>
+      this.availability.unavailableRoomsForMove(tx, context.tenantId, context.propertyId, query),
+    );
+    return {
+      ok: true,
+      value: {
+        unavailableRoomIds: unavailable,
+        source: 'LOCAL',
+        lastSyncedAt: new Date().toISOString(),
+        complete: true,
+        stale: false,
+      },
+    };
+  }
+
+  async moveBookingRoom(
+    context: PmsProviderContext,
+    command: MoveBookingRoomCommand,
+  ): Promise<Result<Booking>> {
+    return this.database.withTenantTransaction(context, (tx) =>
+      this.withIdempotency(
+        tx,
+        context,
+        'move-room:' + command.idempotencyKey,
+        command,
+        command.bookingId,
+        null,
+        async () => {
+          await this.availability.lockRoom(
+            tx,
+            context.tenantId,
+            context.propertyId,
+            command.roomId,
+          );
+          const row = await this.bookingById(tx, context, command.bookingId);
+          if (!row) return this.failure('BOOKING_NOT_FOUND', 'Booking was not found.');
+          if (row.version !== command.expectedVersion)
+            return this.failure('VERSION_CONFLICT', 'The reservation changed. Review it again.');
+          if (row.status !== 'CONFIRMED')
+            return this.failure(
+              'INVALID_BOOKING_STATE',
+              'Only confirmed reservations can move rooms.',
+            );
+          if (row.externalBookingId || (await this.isClockConnected(context)))
+            return this.failure(
+              'PROVIDER_REQUIRED',
+              'Use the active PMS connection to move this reservation.',
+            );
+          const eligible = await tx.$queryRaw<
+            Array<{ allowed: boolean }>
+          >`SELECT (p.booking_mode<>'ROOM_TYPE_ONLY' AND b.starts_on>=(now() AT TIME ZONE p.timezone)::date AND COALESCE(b.pms_stay_status,'expected')='expected') AS allowed FROM bookings b JOIN properties p ON p.tenant_id=b.tenant_id AND p.id=b.property_id WHERE b.tenant_id=${context.tenantId}::uuid AND b.property_id=${context.propertyId}::uuid AND b.id=${row.id}::uuid`;
+          if (!eligible[0]?.allowed)
+            return this.failure(
+              'ROOM_MOVE_UNAVAILABLE',
+              'Only upcoming stays with individual room assignment can move rooms here.',
+            );
+          const rooms = await tx.$queryRaw<
+            Array<{ id: string }>
+          >`SELECT id FROM rooms WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${command.roomId}::uuid AND room_type_id=${row.roomTypeId}::uuid AND is_active`;
+          if (!rooms[0])
+            return this.failure('ROOM_NOT_FOUND', 'Choose an active room in the booked room type.');
+          if (row.roomId === command.roomId) return { ok: true, value: this.toBooking(row)! };
+          const available = await this.availability.reserveRoom(
+            tx,
+            context.tenantId,
+            context.propertyId,
+            { roomId: command.roomId, startsOn: row.startsOn, endsOn: row.endsOn },
+          );
+          if (!available)
+            return this.failure(
+              'ROOM_UNAVAILABLE',
+              'This room is no longer available for the whole stay.',
+            );
+          if (!row.roomId)
+            await this.availability.releaseBookedUnits(tx, context.tenantId, context.propertyId, {
+              roomTypeId: row.roomTypeId,
+              startsOn: row.startsOn,
+              endsOn: row.endsOn,
+              units: 1,
+            });
+          await tx.$executeRaw`UPDATE bookings SET room_id=${command.roomId}::uuid,version=version+1,updated_at=now() WHERE tenant_id=${context.tenantId}::uuid AND property_id=${context.propertyId}::uuid AND id=${row.id}::uuid`;
+          await this.audit.recordInTransaction(tx, {
+            ...context,
+            actorUserId: command.staffActorId,
+            action: 'booking.room_moved',
+            operationId: command.idempotencyKey,
+            targetType: 'booking',
+            targetId: row.id,
+            details: { oldRoomId: row.roomId, newRoomId: command.roomId, reason: command.reason },
+          });
+          return {
+            ok: true,
+            value: this.toBooking((await this.bookingById(tx, context, row.id))!)!,
+          };
+        },
+      ),
+    );
   }
 
   async updateBooking(
@@ -740,8 +863,18 @@ export class LocalPmsProvider implements PmsProvider {
               idempotencyKey: command.idempotencyKey,
               bookingId: booking.id,
               amount: { amount: checkoutAmount, currency: booking.currency },
-              successUrl: this.checkoutReturnUrl(booking.id, 'success', booking.guestReturnUrl),
-              cancelUrl: this.checkoutReturnUrl(booking.id, 'cancel', booking.guestReturnUrl),
+              successUrl: this.checkoutReturnUrl(
+                booking.id,
+                'success',
+                booking.guestReturnUrl,
+                context,
+              ),
+              cancelUrl: this.checkoutReturnUrl(
+                booking.id,
+                'cancel',
+                booking.guestReturnUrl,
+                context,
+              ),
             });
             if (!checkout.ok) return checkout;
             // Keep every gateway order binding. A guest may still complete an
@@ -767,7 +900,14 @@ export class LocalPmsProvider implements PmsProvider {
             });
             const value = this.toBooking(booking);
             return value
-              ? { ok: true, value: { ...value, checkoutUrl: checkout.value.url } }
+              ? {
+                  ok: true,
+                  value: {
+                    ...value,
+                    checkoutUrl: checkout.value.url,
+                    checkoutOrderId: checkout.value.id,
+                  },
+                }
               : this.failure('BOOKING_NOT_FOUND', 'Booking could not be reloaded.');
           },
         ),
@@ -1966,12 +2106,16 @@ export class LocalPmsProvider implements PmsProvider {
     bookingId: string,
     outcome: 'success' | 'cancel',
     returnUrl?: string | null,
+    scope?: { tenantId: string; propertyId: string },
   ): string {
-    if (!returnUrl)
-      return new URL(
-        `/bookings/${bookingId}/payment/${outcome}`,
-        process.env.WEB_APP_URL!,
-      ).toString();
+    if (!returnUrl) {
+      const result = new URL(`/bookings/${bookingId}/payment/${outcome}`, process.env.WEB_APP_URL!);
+      if (scope) {
+        result.searchParams.set('tenantId', scope.tenantId);
+        result.searchParams.set('propertyId', scope.propertyId);
+      }
+      return result.toString();
+    }
 
     const candidate = new URL(returnUrl);
     candidate.searchParams.set('booking_id', bookingId);

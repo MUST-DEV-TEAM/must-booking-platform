@@ -1,6 +1,7 @@
 import { DetailList } from './detail-list';
 import { Alert, AlertDescription, AlertTitle } from './alert';
 export type CancellationEvidence = {
+  orderReference?: string | null;
   bookingId: string;
   reference: string;
   version: number;

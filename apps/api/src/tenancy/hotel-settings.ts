@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { BadRequestException } from '@nestjs/common';
 import { COUNTRY_CODES } from '@must/domain-contracts';
 export type HotelSettings = {
+  dateFormat?: string;
   legalName?: string | null;
   taxNumber?: string | null;
   country?: string | null;
@@ -31,6 +32,7 @@ export type HotelSettings = {
   petsPolicyNote?: string | null;
 };
 export const hotelFields = [
+  { key: 'dateFormat', column: 'date_format', kind: 'text', max: 20 },
   { key: 'legalName', column: 'legal_name', kind: 'text', max: 200 },
   { key: 'taxNumber', column: 'tax_number', kind: 'text', max: 100 },
   { key: 'country', column: 'country', kind: 'country', max: 2 },
@@ -130,6 +132,8 @@ export function hotelInput(raw: Record<string, unknown>): HotelSettings {
     }
     if (v === null && (f.kind === 'no_show' || f.kind === 'arrival' || f.kind === 'boolean'))
       bad('Choose a policy from the list.');
+    if (f.key === 'dateFormat' && !['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'].includes(String(v)))
+      bad('Choose a supported hotel date format.');
     out[f.key] = v;
   }
   return out as HotelSettings;

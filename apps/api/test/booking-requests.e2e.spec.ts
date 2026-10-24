@@ -233,6 +233,33 @@ describe('B1 risky cancellation paths', () => {
     });
     expect(refundPreview('100.01', '0', '100.01', false).eligible).toBe('0.00');
   });
+  it('authorized staff cancel an unpaid payment hold directly even outside the free window', async () => {
+    const id = await fixture(false),
+      c = { ...context, userId: reviewer };
+    await admin.$executeRaw`UPDATE bookings SET status='PAYMENT_PENDING',payment_method='POKPAY' WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${id}::uuid`;
+    await admin.$executeRaw`UPDATE rate_plans SET free_cancellation_until_hours=NULL WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${ratePlan}::uuid`;
+    const e = await service.preview(c, id);
+    expect(e.isFree).toBe(false);
+    const result = await service.submit(c, id, {
+      expectedVersion: e.version,
+      previewHash: e.previewHash,
+      reasonCategory: 'guest_request',
+      details: 'Guest abandoned unpaid checkout',
+      refund: 'none',
+      notifyGuest: false,
+    });
+    expect(result.ok).toBe(true);
+    expect('request' in result).toBe(false);
+    const rows = await admin.$queryRaw<
+      Array<{ status: string }>
+    >`SELECT status::text FROM bookings WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${id}::uuid`;
+    expect(rows[0].status).toBe('CANCELLED');
+    const requests = await admin.$queryRaw<
+      Array<{ count: bigint }>
+    >`SELECT count(*) AS count FROM booking_requests WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND booking_id=${id}::uuid`;
+    expect(Number(requests[0].count)).toBe(0);
+    await admin.$executeRaw`UPDATE rate_plans SET free_cancellation_until_hours=24 WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${ratePlan}::uuid`;
+  });
   it('fails closed without cancellation/review capability; allows only a pending request', async () => {
     const id = await fixture();
     const q = await request(id);

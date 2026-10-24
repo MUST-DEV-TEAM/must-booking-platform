@@ -34,6 +34,9 @@ export function safeEmailPreview(message: { subject: string; html: string; text:
       'th',
       'caption',
     ],
+    transformTags: {
+      a: (_tag, attributes) => ({ tagName: 'span', attribs: { style: attributes.style || '' } }),
+    },
     allowedAttributes: {
       '*': ['style'],
       td: ['colspan', 'rowspan', 'style'],
@@ -68,6 +71,7 @@ export function safeEmailPreview(message: { subject: string; html: string; text:
         padding: [/^[\d.]+(?:px|em|rem|%)?(?:\s+[\d.]+(?:px|em|rem|%)?){0,3}$/],
         margin: [/^[\d.]+(?:px|em|rem|%)?(?:\s+(?:[\d.]+(?:px|em|rem|%)?|auto)){0,3}$/],
         border: [/^\d+(?:\.\d+)?px (?:solid|dashed|dotted) #[0-9a-f]{3,8}$/i],
+        'border-radius': [/^\d+(?:px|%)$/],
         'border-collapse': [/^(?:collapse|separate)$/],
         display: [/^(?:none|block|inline|inline-block|table|table-row|table-cell)$/],
       },

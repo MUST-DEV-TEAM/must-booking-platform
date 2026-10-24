@@ -109,27 +109,21 @@ async function mount() {
   };
 }
 async function changeCheckout() {
-  await click(named('Check-out date'));
+  await click(named('Stay dates'));
   await pause(30);
+  await click(named('Choose 10 July 2030'));
   await click(named('Choose 14 July 2030'));
   await click(button('Apply'));
   await pause();
 }
-it('uses the shared calendar, greys booked dates with a focus reason, keeps own nights, auto-previews and preserves retry identity', async () => {
+it('uses a single stay-range calendar, auto-previews and preserves retry identity', async () => {
   const fetch = mockFetch(),
     view = await mount();
   try {
     expect(document.querySelector('input[type=date]')).toBeNull();
-    await click(named('Check-out date'));
+    await click(named('Stay dates'));
     await pause(30);
-    const unavailable = named('Choose 15 July 2030');
-    expect(unavailable.getAttribute('aria-disabled')).toBe('true');
-    expect(unavailable.className).toContain('line-through');
-    expect(named('Choose 11 July 2030').getAttribute('aria-disabled')).toBe('false');
-    await act(async () => unavailable.focus());
-    await pause(30);
-    expect(document.body.textContent).toContain('Booked: another reservation overlaps.');
-    await click(unavailable);
+    await click(named('Choose 10 July 2030'));
     await click(named('Choose 14 July 2030'));
     await click(button('Apply'));
     expect(fetch.mock.calls.filter(([url]) => url.includes('amend-preview'))).toHaveLength(0);
@@ -193,7 +187,7 @@ it('refreshes the hash when staff choose waive and requires the price-decision r
   }
 });
 it.each([false, true])(
-  'shows permission guidance for a decrease=%s and keeps Clock read-only',
+  'shows permission guidance for a decrease=%s and requires terms review for Clock',
   async (decrease) => {
     mockFetch(false, decrease);
     const view = await mount();
@@ -207,11 +201,97 @@ it.each([false, true])(
       await act(async () =>
         view.root.render(<ChangeBookingDatesDialog key="clock" {...props} managedInClock />),
       );
-      expect(document.body.textContent).toContain('Managed in Clock');
-      expect(named('Check-in date').disabled).toBe(true);
-      expect(button('Confirm date change')).toBeUndefined();
+      await pause();
+      expect(document.body.textContent).toContain('Clock rechecks the original rate');
+      expect(named('Stay dates').disabled).toBe(false);
+      expect(button('Confirm date change').disabled).toBe(true);
+      expect(document.querySelector('#amend-terms')).not.toBeNull();
     } finally {
       await view.dispose();
+    }
+  },
+);
+
+it.each(['refund', 'payment'] as const)(
+  'saves the Clock amendment before opening the separate %s review',
+  async (followUp) => {
+    const onReviewRefund = vi.fn(),
+      onCollectPayment = vi.fn(),
+      onSaved = vi.fn(async () => {});
+    let patches = 0;
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/amend-status')) return Response.json({ pending: false });
+      if (init?.method === 'PATCH') {
+        patches++;
+        return Response.json(
+          patches === 1
+            ? { ok: false, error: { message: 'Stay update needs review' } }
+            : { ok: true },
+        );
+      }
+      if (url.includes('amend-calendar')) return Response.json({ days: [] });
+      const q = new URL(url, 'http://localhost').searchParams;
+      return Response.json({
+        startsOn: q.get('startsOn'),
+        endsOn: q.get('endsOn'),
+        nights: 4,
+        available: true,
+        oldTotal: '1000.00',
+        newTotal: followUp === 'refund' ? '500.00' : '1250.00',
+        recordedTotal: followUp === 'refund' ? '500.00' : '1250.00',
+        paid: '1000.00',
+        refunded: '0.00',
+        difference: followUp === 'refund' ? '-500.00' : '250.00',
+        balance: followUp === 'refund' ? '-500.00' : '250.00',
+        balanceState: followUp === 'refund' ? 'refund_due' : 'due',
+        currency: 'EUR',
+        version: 2,
+        previewHash: 'reviewed-preview',
+        outcome: 'refund_due',
+        canRefund: false,
+        policyNotes: [],
+      });
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const host = document.body.appendChild(document.createElement('div')),
+      root = createRoot(host);
+    await act(async () =>
+      root.render(
+        <ChangeBookingDatesDialog
+          {...props}
+          managedInClock
+          onSaved={onSaved}
+          onReviewRefund={onReviewRefund}
+          onCollectPayment={onCollectPayment}
+        />,
+      ),
+    );
+    try {
+      await changeCheckout();
+      await pause(600);
+      await value('#amend-reason', 'Guest requested revised stay');
+      await click(document.querySelector<HTMLElement>('#amend-terms')!);
+      const label = followUp === 'refund' ? 'Confirm & review refund' : 'Confirm & choose payment';
+      expect(
+        button(followUp === 'refund' ? 'Confirm & refund later' : 'Confirm & collect later'),
+      ).toBeTruthy();
+      await click(button(label));
+      expect(onReviewRefund).not.toHaveBeenCalled();
+      expect(onCollectPayment).not.toHaveBeenCalled();
+      expect(onSaved).not.toHaveBeenCalled();
+      await click(button(label));
+      expect(onSaved).toHaveBeenCalledOnce();
+      if (followUp === 'refund') expect(onReviewRefund).toHaveBeenCalledWith('500.00');
+      else expect(onCollectPayment).toHaveBeenCalledOnce();
+      expect(
+        fetcher.mock.calls.every(
+          ([url]) => !url.includes('/payments/refunds') && !url.endsWith('/collect-pokpay'),
+        ),
+      ).toBe(true);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      vi.unstubAllGlobals();
     }
   },
 );

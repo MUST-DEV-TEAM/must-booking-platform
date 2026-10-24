@@ -1,6 +1,9 @@
 import { FormSection } from './form-section';
 import { Alert, AlertDescription } from './alert';
 export type StayChangePreviewData = {
+  roomTypeId?: string;
+  roomTypeName?: string;
+  confirmationAvailable?: boolean;
   startsOn: string;
   endsOn: string;
   nights: number;
@@ -28,9 +31,13 @@ export function StayChangePreview({ preview: p }: { preview: StayChangePreviewDa
     value === null ? 'Unavailable' : `${p.currency} ${value}`;
   return (
     <FormSection
-      title="Review date change"
+      title={p.roomTypeName ? 'Review stay change' : 'Review date change'}
       description={
-        p.available ? 'The same accommodation is available.' : 'These dates cannot be confirmed.'
+        p.available
+          ? p.roomTypeName
+            ? 'Review the new accommodation and price.'
+            : 'The same accommodation is available.'
+          : 'This stay cannot be confirmed.'
       }
     >
       <dl className="m-0 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">

@@ -3,6 +3,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ClockFinancialService } from '../integrations/clock/clock-financial.service';
@@ -33,6 +34,7 @@ type Operation = { id: string; result: Collection };
  */
 @Injectable()
 export class PaymentCollectionService {
+  private readonly logger = new Logger(PaymentCollectionService.name);
   constructor(
     @Inject(TenantDatabaseService) private readonly db: TenantDatabaseService,
     @Inject(PaymentProviderRegistry) private readonly providers: PaymentProviderRegistry,
@@ -46,10 +48,29 @@ export class PaymentCollectionService {
   async options(scope: Scope, bookingId: string) {
     return this.db.withTenantTransaction(scope, async (tx) => {
       const rows = await tx.$queryRaw<
-        Array<{ pokpay: boolean }>
-      >`SELECT (b.external_booking_id IS NULL OR b.external_reference NOT LIKE 'CLOCK-%' OR EXISTS(SELECT 1 FROM clock_sync_jobs j JOIN property_integration_connections ap ON ap.tenant_id=j.tenant_id AND ap.property_id=j.property_id AND ap.connection_id=j.connection_id AND ap.enabled AND ap.kind='PMS' WHERE j.tenant_id=b.tenant_id AND j.property_id=b.property_id AND j.resource='financial:'||b.id::text AND j.last_success_at>now()-interval '5 minutes' AND (j.snapshot->'balance'->>'amount')::numeric>0)) AND p.pokpay_enabled AND EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections c ON c.tenant_id=pc.tenant_id AND c.id=pc.connection_id WHERE pc.tenant_id=p.tenant_id AND pc.property_id=p.id AND pc.enabled AND c.provider='POKPAY' AND c.status='CONNECTED') AS pokpay FROM properties p JOIN bookings b ON b.tenant_id=p.tenant_id AND b.property_id=p.id WHERE p.tenant_id=${scope.tenantId}::uuid AND p.id=${scope.propertyId}::uuid AND b.id=${bookingId}::uuid`;
+        Array<{ gatewayReady: boolean; financialReady: boolean }>
+      >`SELECT
+        (p.pokpay_enabled AND EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections c ON c.tenant_id=pc.tenant_id AND c.id=pc.connection_id WHERE pc.tenant_id=p.tenant_id AND pc.property_id=p.id AND pc.enabled AND c.provider='POKPAY' AND c.status='CONNECTED')) AS "gatewayReady",
+        (b.external_booking_id IS NULL OR b.external_reference NOT LIKE 'CLOCK-%' OR EXISTS(
+          SELECT 1 FROM clock_sync_jobs j JOIN property_integration_connections ap ON ap.tenant_id=j.tenant_id AND ap.property_id=j.property_id AND ap.connection_id=j.connection_id AND ap.enabled AND ap.kind='PMS'
+          JOIN rate_plans rp ON rp.tenant_id=b.tenant_id AND rp.property_id=b.property_id AND rp.id=b.rate_plan_id
+          WHERE j.tenant_id=b.tenant_id AND j.property_id=b.property_id AND j.resource='financial:'||b.id::text
+          AND j.status='SYNCED' AND j.last_error IS NULL AND j.last_success_at>now()-interval '5 minutes'
+          AND (j.snapshot->>'bookingVersion')::int=b.version AND j.snapshot#>>'{balance,currency}'=rp.currency
+          AND (j.snapshot->>'localPaid')::numeric=COALESCE((SELECT sum(amount) FROM payments a WHERE a.tenant_id=b.tenant_id AND a.property_id=b.property_id AND a.booking_id=b.id AND a.kind='CHARGE' AND a.status IN ('PAID','succeeded')),0)
+          AND (j.snapshot->>'localRefunded')::numeric=COALESCE((SELECT sum(amount) FROM payments a WHERE a.tenant_id=b.tenant_id AND a.property_id=b.property_id AND a.booking_id=b.id AND a.kind='REFUND' AND a.status='REFUNDED'),0)
+          AND (j.snapshot#>>'{balance,amount}')::numeric>0)) AS "financialReady"
+        FROM properties p JOIN bookings b ON b.tenant_id=p.tenant_id AND b.property_id=p.id WHERE p.tenant_id=${scope.tenantId}::uuid AND p.id=${scope.propertyId}::uuid AND b.id=${bookingId}::uuid`;
       if (!rows[0]) throw new NotFoundException('Booking not found.');
-      return rows[0];
+      const row = rows[0];
+      return {
+        pokpay: row.gatewayReady && row.financialReady,
+        unavailableReason: !row.gatewayReady
+          ? 'PokPay is disabled or not connected for this hotel.'
+          : !row.financialReady
+            ? 'Online payment is waiting for a current, verified Clock balance.'
+            : null,
+      };
     });
   }
   async start(scope: Scope, bookingId: string, actorUserId: string, key: string) {
@@ -152,6 +173,7 @@ export class PaymentCollectionService {
         ...scope,
         actorUserId,
         action: 'payment.collection_requested',
+        operationId: id,
         targetType: 'booking',
         targetId: bookingId,
         details: { operationId: id, amount, currency: b.currency },
@@ -161,6 +183,7 @@ export class PaymentCollectionService {
     if (intent.existing)
       return {
         checkoutUrl: intent.result.checkoutUrl,
+        orderId: intent.result.externalPaymentId,
         amount: { amount: intent.result.amount, currency: intent.result.currency },
       };
     const origin = process.env.WEB_APP_URL ?? 'http://localhost:3001';
@@ -170,8 +193,14 @@ export class PaymentCollectionService {
         idempotencyKey: intent.id,
         bookingId,
         amount: { amount: intent.result.amount, currency: intent.result.currency },
-        successUrl: new URL(`/bookings/${bookingId}/payment/success`, origin).toString(),
-        cancelUrl: new URL(`/bookings/${bookingId}/payment/cancel`, origin).toString(),
+        successUrl: new URL(
+          `/bookings/${bookingId}/payment/success?${new URLSearchParams(scope)}`,
+          origin,
+        ).toString(),
+        cancelUrl: new URL(
+          `/bookings/${bookingId}/payment/cancel?${new URLSearchParams(scope)}`,
+          origin,
+        ).toString(),
       });
     } catch {
       checkout = {
@@ -189,6 +218,19 @@ export class PaymentCollectionService {
         (tx) =>
           tx.$executeRaw`UPDATE integration_operations SET status='FAILED',result=jsonb_set(result,'{stage}','"UNCERTAIN"'::jsonb),updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${intent.id}::uuid`,
       );
+      await this.audit.record({
+        ...scope,
+        actorUserId,
+        action: 'payment.collection_unknown',
+        targetType: 'booking',
+        targetId: bookingId,
+        operationId: intent.id,
+        details: {
+          amount: { amount: intent.result.amount, currency: intent.result.currency },
+          reason:
+            'The provider did not confirm checkout creation. The saved attempt requires review.',
+        },
+      });
       throw new ConflictException(
         'The payment link could not be confirmed. Its attempt is saved for review; retrying will not create another charge.',
       );
@@ -203,8 +245,22 @@ export class PaymentCollectionService {
       await tx.$executeRaw`INSERT INTO payment_provider_sessions(tenant_id,property_id,booking_id,provider,external_payment_id) VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${bookingId}::uuid,'pokpay',${checkout.value.id}) ON CONFLICT(tenant_id,provider,external_payment_id) DO NOTHING`;
       await tx.$executeRaw`UPDATE integration_operations SET status='COMPLETED',external_reference=${checkout.value.id},result=${JSON.stringify(ready)}::jsonb,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${intent.id}::uuid`;
     });
+    await this.audit.record({
+      ...scope,
+      actorUserId,
+      action: 'payment.checkout_ready',
+      targetType: 'booking',
+      targetId: bookingId,
+      operationId: intent.id,
+      source: 'POKPAY',
+      details: {
+        amount: { amount: ready.amount, currency: ready.currency },
+        externalPaymentId: ready.externalPaymentId,
+      },
+    });
     return {
       checkoutUrl: ready.checkoutUrl,
+      orderId: ready.externalPaymentId,
       amount: { amount: ready.amount, currency: ready.currency },
     };
   }
@@ -239,13 +295,28 @@ export class PaymentCollectionService {
       return saved?.checkoutUrl
         ? {
             checkoutUrl: saved.checkoutUrl,
+            orderId: saved.externalPaymentId,
             amount: { amount: saved.amount, currency: saved.currency },
           }
         : null;
     });
   }
   async sendLink(scope: Scope, bookingId: string, actorUserId: string, key: string) {
-    const checkout = await this.start(scope, bookingId, actorUserId, key);
+    const initial = await this.db.withTenantTransaction(scope, async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ url: string; amount: string; currency: string }>>`
+        SELECT op.result->'value'->>'checkoutUrl' AS url,b.total_amount::text AS amount,rp.currency
+        FROM bookings b JOIN properties p ON p.tenant_id=b.tenant_id AND p.id=b.property_id
+        JOIN rate_plans rp ON rp.tenant_id=b.tenant_id AND rp.property_id=b.property_id AND rp.id=b.rate_plan_id
+        JOIN LATERAL (SELECT result FROM integration_operations WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND external_entity_id=b.id AND status='SUCCEEDED' AND result->'value'->>'checkoutUrl' IS NOT NULL ORDER BY created_at DESC LIMIT 1) op ON true
+        WHERE b.tenant_id=${scope.tenantId}::uuid AND b.property_id=${scope.propertyId}::uuid AND b.id=${bookingId}::uuid
+        AND b.status='PAYMENT_PENDING' AND b.payment_method='POKPAY'
+        AND b.created_at>now()-make_interval(mins=>p.online_payment_hold_minutes)`;
+      const row = rows[0];
+      return row
+        ? { checkoutUrl: row.url, amount: { amount: row.amount, currency: row.currency } }
+        : null;
+    });
+    const checkout = initial ?? (await this.start(scope, bookingId, actorUserId, key));
     const rows = await this.db.withTenantTransaction(
       scope,
       (tx) => tx.$queryRaw<
@@ -298,22 +369,31 @@ export class PaymentCollectionService {
       targetId: bookingId,
       details: { recipient: row.email, amount: checkout.amount },
     });
-    return { queued: true };
+    return { queued: true, orderId: 'orderId' in checkout ? checkout.orderId : undefined };
   }
-  async refresh(scope: Scope, bookingId: string) {
+  async refresh(scope: Scope, bookingId: string, orderId?: string) {
+    if (orderId !== undefined && (!orderId.trim() || orderId.length > 320))
+      throw new BadRequestException('Choose a valid payment attempt.');
     const rows = await this.db.withTenantTransaction(
       scope,
       (tx) =>
         tx.$queryRaw<
           Array<{ externalReference: string }>
-        >`SELECT external_reference AS "externalReference" FROM integration_operations WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND aggregate_id=${bookingId}::uuid AND result->>'kind'='balance_collection' AND result->>'stage' IN ('READY','PAID') AND external_reference IS NOT NULL ORDER BY created_at DESC LIMIT 5`,
+        >`SELECT external_reference AS "externalReference" FROM integration_operations WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND aggregate_id=${bookingId}::uuid AND result->>'kind'='balance_collection' AND result->>'stage' IN ('READY','PAID') AND external_reference IS NOT NULL AND (${orderId ?? null}::text IS NULL OR external_reference=${orderId ?? null}) ORDER BY created_at DESC LIMIT 1`,
     );
-    let paid = false;
-    for (const row of rows) {
-      const result = await this.process(scope, bookingId, row.externalReference);
-      paid ||= result?.ok === true;
+    if (!rows[0]) {
+      if (orderId)
+        throw new NotFoundException('This payment attempt does not belong to the reservation.');
+      return { paid: false, orderId: null };
     }
-    return { paid };
+    // Never let an older successful order confirm a newer checkout.
+    const selected = rows[0].externalReference;
+    const result = await this.process(scope, bookingId, selected);
+    return {
+      paid: result?.ok === true,
+      orderId: selected,
+      ...(result && !result.ok ? { message: result.error.message } : {}),
+    };
   }
   async process(
     scope: Scope,
@@ -329,6 +409,27 @@ export class PaymentCollectionService {
     );
     const op = ops[0];
     if (!op) return null;
+    if (op.result.stage === 'PAID') {
+      const recorded = await this.db.withTenantTransaction(
+        scope,
+        (tx) =>
+          tx.$queryRaw<
+            Array<{ id: string }>
+          >`SELECT id FROM payments WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND booking_id=${bookingId}::uuid AND provider='pokpay' AND external_payment_id=${orderId} AND kind='CHARGE' AND status='PAID' AND amount=${op.result.amount}::numeric AND currency=${op.result.currency}`,
+      );
+      if (recorded[0]) {
+        await this.sendReceiptSafely(scope, bookingId, orderId, op.result);
+        return { ok: true as const, value: { duplicate: true } };
+      }
+      return {
+        ok: false as const,
+        error: {
+          code: 'COLLECTION_REQUIRES_REVIEW',
+          message: 'The saved payment and ledger need review.',
+          retryable: false,
+        },
+      };
+    }
     const payment = await this.providers.pokpay.getPayment(scope, orderId);
     if (
       !payment ||
@@ -398,12 +499,15 @@ export class PaymentCollectionService {
             { amount: op.result.amount, currency: op.result.currency },
             'PokPay',
             orderId,
+            'on-line',
+            op.id,
           );
         await tx.$executeRaw`UPDATE integration_operations SET result=jsonb_set(result,'{stage}','"PAID"'::jsonb),updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${op.id}::uuid`;
         await this.audit.recordInTransaction(tx, {
           ...scope,
           actorUserId: null,
           action: 'payment.balance_collected',
+          operationId: op.id,
           targetType: 'booking',
           targetId: bookingId,
           details: {
@@ -416,8 +520,22 @@ export class PaymentCollectionService {
       },
       { timeoutMs: 90000 },
     );
-    if (result.ok) await this.sendReceipt(scope, bookingId, orderId, op.result);
+    if (result.ok) await this.sendReceiptSafely(scope, bookingId, orderId, op.result);
     return result;
+  }
+  private async sendReceiptSafely(
+    scope: Scope,
+    bookingId: string,
+    orderId: string,
+    collection: Collection,
+  ) {
+    try {
+      await this.sendReceipt(scope, bookingId, orderId, collection);
+    } catch {
+      this.logger.error(
+        `Receipt could not be queued for recorded payment ${orderId}; a later payment check can retry delivery without charging again.`,
+      );
+    }
   }
   private async sendReceipt(
     scope: Scope,

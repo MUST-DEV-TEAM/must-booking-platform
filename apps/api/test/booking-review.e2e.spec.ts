@@ -97,6 +97,33 @@ describe('staff view of a booking that needs review', () => {
     expect(ok.body).toMatchObject({ needsReview: false, reasons: [] });
   });
 
+  it('identifies a pending stay amendment instead of offering unknown-booking resolution', async () => {
+    const key = 'clock-stay-amend:' + propertyId + ':' + randomUUID();
+    await admin.$executeRaw`INSERT INTO integration_operations(tenant_id,property_id,idempotency_key,aggregate_id,request_hash,status,result) VALUES(${tenantId}::uuid,${propertyId}::uuid,${key},${fine}::uuid,'fixture','PENDING','{}'::jsonb)`;
+    await admin.$executeRaw`INSERT INTO manual_review_items(tenant_id,property_id,category,reference_type,reference_id,message,context) VALUES(${tenantId}::uuid,${propertyId}::uuid,'SIMULTANEOUS_CHANGE','booking',${fine},'Pending amendment',${JSON.stringify({ operationKey: key })}::jsonb)`;
+    try {
+      const res = await request(app.getHttpServer())
+        .get(`${base()}/${fine}/review`)
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(res.body).toMatchObject({
+        needsReview: true,
+        pendingChange: 'stay',
+        canResolve: false,
+      });
+      expect(
+        res.body.reasons.some((r: { text: string }) =>
+          r.text.includes('awaiting confirmation from Clock'),
+        ),
+      ).toBe(true);
+      expect(
+        res.body.reasons.some((r: { text: string }) => r.text.includes('changed in two places')),
+      ).toBe(false);
+    } finally {
+      await admin.$executeRaw`DELETE FROM integration_operations WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND idempotency_key=${key}`;
+      await admin.$executeRaw`DELETE FROM manual_review_items WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND reference_id=${fine} AND context->>'operationKey'=${key}`;
+    }
+  });
   it('explains a posted Clock refund document follow-up without calling it a mismatch', async () => {
     const message =
       'Clock refund payment was posted. In Clock, issue the Deposit Adjustment to create the required correction document.';

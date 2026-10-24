@@ -14,6 +14,7 @@ import { PageHero } from '../../components/ui/page-hero';
 import { PhoneInput, parsePhone, type PhoneValue } from '../../components/ui/phone-input';
 import { findDialCountry } from '../../lib/dial-codes';
 import { Combobox } from '../../components/ui/combobox';
+import { CalendarPicker } from '../../components/ui/calendar-picker';
 import { timeZoneOptions } from './settings-areas';
 import { PasswordField } from '../../components/ui/password-field';
 import { SettingToggle } from '../../components/ui/setting-toggle';
@@ -56,12 +57,14 @@ export function MyAccount({
   role,
   hotelName,
   hotelTimezone = 'UTC',
+  hotelDateFormat = 'DD/MM/YYYY',
   tenantId,
 }: {
   email?: string;
   role?: string;
   hotelName?: string;
   hotelTimezone?: string;
+  hotelDateFormat?: string;
   tenantId?: string;
 }) {
   const client = useQueryClient();
@@ -80,10 +83,8 @@ export function MyAccount({
     jobTitle: '',
     preferredLanguage: '',
     personalTimezone: '',
-    preferredDateTimeFormat: 'DD/MM/YYYY',
   });
   const [birthday, setBirthday] = useState('');
-  const [birthdayTouched, setBirthdayTouched] = useState(false);
   const [phone, setPhone] = useState<PhoneValue>({ iso: 'AL', number: '' });
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -94,21 +95,15 @@ export function MyAccount({
         jobTitle: profile.data.jobTitle ?? '',
         preferredLanguage: profile.data.preferredLanguage ?? '',
         personalTimezone: profile.data.personalTimezone ?? '',
-        preferredDateTimeFormat: profile.data.preferredDateTimeFormat ?? 'DD/MM/YYYY',
       });
-      setBirthday(
-        formatAccountDate(
-          profile.data.birthDate ?? '',
-          profile.data.preferredDateTimeFormat ?? 'DD/MM/YYYY',
-        ),
-      );
+      setBirthday(formatAccountDate(profile.data.birthDate ?? '', hotelDateFormat));
       setPhone(
         parsePhone((profile.data.phoneCountryCode ?? '') + ' ' + (profile.data.phoneNumber ?? '')),
       );
       setFirstName(profile.data.firstName ?? '');
       setLastName(profile.data.lastName ?? '');
     }
-  }, [profile.data]);
+  }, [profile.data, hotelDateFormat]);
 
   const saveProfile = useMutation({
     mutationFn: () =>
@@ -270,31 +265,29 @@ export function MyAccount({
                 />
               </FormField>
               <FormField className="gap-2" label="Birthday (optional)" htmlFor="account-birthday">
-                <Input
-                  id="account-birthday"
-                  inputMode="numeric"
-                  placeholder={details.preferredDateTimeFormat}
-                  value={birthday}
-                  aria-invalid={
-                    birthdayTouched &&
-                    !!birthday &&
-                    !parseAccountDate(birthday, details.preferredDateTimeFormat)
+                <CalendarPicker
+                  label="Birthday (optional)"
+                  mode="single"
+                  className="w-full"
+                  yearNavigation
+                  value={{ start: details.birthDate || null, end: null }}
+                  displayFormat={hotelDateFormat}
+                  dateReason={(day) =>
+                    day >
+                    [
+                      new Date().getFullYear(),
+                      String(new Date().getMonth() + 1).padStart(2, '0'),
+                      String(new Date().getDate()).padStart(2, '0'),
+                    ].join('-')
+                      ? 'Choose a birthday on or before today.'
+                      : undefined
                   }
-                  onBlur={() => setBirthdayTouched(true)}
-                  onChange={(e) => {
+                  onChange={(selection) => {
                     dirty.current = true;
-                    setBirthday(e.target.value);
-                    const iso = parseAccountDate(e.target.value, details.preferredDateTimeFormat);
-                    if (iso !== null) setDetails({ ...details, birthDate: iso });
+                    setDetails({ ...details, birthDate: selection.start || '' });
+                    setBirthday(formatAccountDate(selection.start || '', hotelDateFormat));
                   }}
                 />
-                {birthdayTouched &&
-                birthday &&
-                !parseAccountDate(birthday, details.preferredDateTimeFormat) ? (
-                  <p className="text-xs text-destructive">
-                    Enter a valid date as {details.preferredDateTimeFormat}.
-                  </p>
-                ) : null}
               </FormField>
               <FormField className="gap-2" label="Job title (optional)" htmlFor="account-job-title">
                 <Input
@@ -319,21 +312,6 @@ export function MyAccount({
                   onChange={(v) => {
                     dirty.current = true;
                     setDetails({ ...details, preferredLanguage: v });
-                  }}
-                />
-              </FormField>
-              <FormField className="gap-2" label="Date format">
-                <Combobox
-                  label="Date format"
-                  value={details.preferredDateTimeFormat}
-                  options={['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'].map((value) => ({
-                    value,
-                    label: value,
-                  }))}
-                  onChange={(value) => {
-                    dirty.current = true;
-                    setDetails({ ...details, preferredDateTimeFormat: value });
-                    setBirthday(formatAccountDate(details.birthDate, value));
                   }}
                 />
               </FormField>
@@ -375,7 +353,7 @@ export function MyAccount({
                 disabled={
                   !nameChanged ||
                   saveProfile.isPending ||
-                  (!!birthday && !parseAccountDate(birthday, details.preferredDateTimeFormat))
+                  (!!birthday && !parseAccountDate(birthday, hotelDateFormat))
                 }
                 onClick={() => saveProfile.mutate()}
               >

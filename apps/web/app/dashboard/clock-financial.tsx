@@ -14,6 +14,8 @@ type Money = { amount: string; currency: string };
 export type ClockFinancial = {
   fetchedAt: string;
   bookingVersion: number;
+  localPaid?: string;
+  localRefunded?: string;
   balance: Money;
   paid: Money;
   refunded: Money;
@@ -48,6 +50,7 @@ export function useClockFinancial(
         data: ClockFinancial | null;
         status: string;
         lastError?: string | null;
+        isCurrent?: boolean;
       };
     },
     refetchInterval: 10000,
@@ -72,6 +75,11 @@ export function ClockFinancialCard({
       </CardHeader>
       <CardContent className="space-y-4">
         {error ? <p role="alert">{error} Last verified information remains visible.</p> : null}
+        {data && status !== 'SYNCED' ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            Updating balance. The figures below are from the last completed check.
+          </p>
+        ) : null}
         {!data ? (
           <p role="status">
             Clock bills and payments are being synchronized automatically. Collection will be

@@ -31,60 +31,69 @@ describe('PokPayPaymentProvider', () => {
     delete process.env.POKPAY_API_BASE_URL;
   });
 
-  it('creates SDK orders and uses authenticated authoritative order reads', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(json({ data: { accessToken: 'token' } }))
-      .mockResolvedValueOnce(
-        json({
-          data: {
-            sdkOrder: { id: 'order-1', _self: { confirmUrl: 'https://pay.pokpay.test/order-1' } },
-          },
+  it.each(['https://api-staging.pokpay.io', 'https://api.pokpay.io'])(
+    'creates SDK orders and uses authenticated authoritative order reads on %s',
+    async (baseUrl) => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(json({ data: { accessToken: 'token' } }))
+        .mockResolvedValueOnce(
+          json({
+            data: {
+              sdkOrder: { id: 'order-1', _self: { confirmUrl: 'https://pay.pokpay.test/order-1' } },
+            },
+          }),
+        )
+        .mockResolvedValueOnce(json({ data: { accessToken: 'token' } }))
+        .mockResolvedValueOnce(
+          json({
+            data: {
+              sdkOrder: { id: 'order-1', amount: 12.5, currencyCode: 'EUR', isCompleted: true },
+            },
+          }),
+        );
+      vi.stubGlobal('fetch', fetchMock);
+      const provider = makeProvider({
+        baseUrl,
+        keyId: 'key-id',
+        keySecret: 'key-secret',
+        merchantId: 'merchant-id',
+        webhookUrl: 'https://api.example.test/webhooks/pokpay',
+      });
+
+      await expect(
+        provider.createCheckoutSession(context, {
+          idempotencyKey: 'create-1',
+          bookingId: 'booking-1',
+          amount: { amount: '12.50', currency: 'EUR' },
+          successUrl: 'https://guest.example.test/success',
+          cancelUrl: 'https://guest.example.test/cancel',
         }),
-      )
-      .mockResolvedValueOnce(json({ data: { accessToken: 'token' } }))
-      .mockResolvedValueOnce(
-        json({
-          data: {
-            sdkOrder: { id: 'order-1', amount: 12.5, currencyCode: 'EUR', isCompleted: true },
-          },
+      ).resolves.toEqual({
+        ok: true,
+        value: { id: 'order-1', url: 'https://pay.pokpay.test/order-1' },
+      });
+      await expect(provider.getPayment(context, 'order-1')).resolves.toEqual({
+        id: 'order-1',
+        bookingId: 'order-1',
+        amount: { amount: '12.50', currency: 'EUR' },
+        status: 'COMPLETED',
+      });
+      expect(fetchMock).toHaveBeenCalledWith(
+        `${baseUrl}/merchants/merchant-id/sdk-orders`,
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({ authorization: 'Bearer token' }),
         }),
       );
-    vi.stubGlobal('fetch', fetchMock);
-    const provider = makeProvider();
-
-    await expect(
-      provider.createCheckoutSession(context, {
-        idempotencyKey: 'create-1',
-        bookingId: 'booking-1',
-        amount: { amount: '12.50', currency: 'EUR' },
-        successUrl: 'https://guest.example.test/success',
-        cancelUrl: 'https://guest.example.test/cancel',
-      }),
-    ).resolves.toEqual({
-      ok: true,
-      value: { id: 'order-1', url: 'https://pay.pokpay.test/order-1' },
-    });
-    await expect(provider.getPayment(context, 'order-1')).resolves.toEqual({
-      id: 'order-1',
-      bookingId: 'order-1',
-      amount: { amount: '12.50', currency: 'EUR' },
-      status: 'COMPLETED',
-    });
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://api-staging.pokpay.io/merchants/merchant-id/sdk-orders',
-      expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({ authorization: 'Bearer token' }),
-      }),
-    );
-    // PokPay's own API sends/returns the raw currency amount, not cents —
-    // confirmed against the real sandbox (a 900.00 EUR total sent as 90000
-    // was rejected as "maximum amount of 1000 EUR exceeded"). 12.50 EUR
-    // must be sent as 12.5, never 1250.
-    const orderCall = fetchMock.mock.calls[1]!;
-    expect(JSON.parse(orderCall[1].body as string)).toMatchObject({ amount: 12.5 });
-  });
+      // PokPay's own API sends/returns the raw currency amount, not cents —
+      // confirmed against the real sandbox (a 900.00 EUR total sent as 90000
+      // was rejected as "maximum amount of 1000 EUR exceeded"). 12.50 EUR
+      // must be sent as 12.5, never 1250.
+      const orderCall = fetchMock.mock.calls[1]!;
+      expect(JSON.parse(orderCall[1].body as string)).toMatchObject({ amount: 12.5 });
+    },
+  );
 
   it('does not represent an unsigned callback as verified', async () => {
     await expect(

@@ -128,6 +128,7 @@ export class StaffAccessService {
     input: RoleInput,
   ): Promise<RoleView> {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      await tx.$queryRaw`SELECT id FROM property_role_templates WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${roleId}::uuid FOR UPDATE`;
       const role = (await this.listRolesInTransaction(tx, tenantId, propertyId)).find(
         (entry) => entry.id === roleId,
       );
@@ -167,7 +168,17 @@ export class StaffAccessService {
         action: 'role.updated',
         targetType: 'role',
         targetId: roleId,
-        details: { name, capabilityCount: keys.length, overviewType },
+        details: {
+          name,
+          capabilityCount: keys.length,
+          overviewType,
+          before: {
+            name: role.name,
+            capabilities: role.capabilities,
+            overviewType: role.overviewType,
+          },
+          after: { name, capabilities: keys, overviewType },
+        },
       });
       return (await this.listRolesInTransaction(tx, tenantId, propertyId)).find(
         (entry) => entry.id === roleId,

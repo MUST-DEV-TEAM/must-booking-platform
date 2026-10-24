@@ -148,13 +148,17 @@ export class ClockBookingConsistencyService {
     credentials: ClockConnectionCredentials,
     range: { startsOn: string; endsOn: string },
     externalRoomIds: string[],
+    excludeExternalBookingId?: string,
   ): Promise<Set<string>> {
     const wanted = new Set(externalRoomIds);
     const bookings = await this.fetchBookings(credentials, range);
     return new Set(
       bookings
         .filter(
-          (booking) => booking.status !== 'canceled' && wanted.has(String(booking.arrival_room_id)),
+          (booking) =>
+            String(booking.id) !== excludeExternalBookingId &&
+            booking.status !== 'canceled' &&
+            wanted.has(String(booking.arrival_room_id)),
         )
         .map((booking) => String(booking.arrival_room_id)),
     );

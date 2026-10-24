@@ -131,6 +131,72 @@ describe('booking review card', () => {
     ).toBe(false);
   });
 
+  it.each(['stay', 'room'])(
+    'verifies a pending %s change through its saved operation, then removes the warning',
+    async (pendingChange) => {
+      let pending = true;
+      const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === 'POST') {
+          pending = false;
+          return Response.json({ ok: true });
+        }
+        return Response.json({
+          needsReview: pending,
+          canCheck: true,
+          canResolve: true,
+          pendingChange: pending ? pendingChange : null,
+          reasons: [],
+        });
+      });
+      vi.stubGlobal('fetch', fetcher);
+      await mount();
+      expect(document.body.textContent).not.toContain('Run check');
+      const label = pendingChange === 'stay' ? 'Verify stay change' : 'Verify room move';
+      await act(async () => {
+        [...document.querySelectorAll('button')].find((b) => b.textContent === label)!.click();
+        await settle();
+      });
+      expect(
+        fetcher.mock.calls.some(
+          ([url, init]) =>
+            url.endsWith(pendingChange === 'stay' ? '/amend-check' : '/room-move/check') &&
+            init?.method === 'POST',
+        ),
+      ).toBe(true);
+      expect(
+        fetcher.mock.calls.some(
+          ([url]) => url.endsWith('/review/check') || url.endsWith('/resolve'),
+        ),
+      ).toBe(false);
+      expect(document.body.textContent).not.toContain('This booking needs review');
+    },
+  );
+  it('keeps a failed change verification reviewable without falling back to generic linking', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) =>
+        init?.method === 'POST'
+          ? Response.json({ message: 'Clock could not verify this change.' }, { status: 409 })
+          : Response.json({
+              needsReview: true,
+              canCheck: true,
+              canResolve: true,
+              pendingChange: 'stay',
+              reasons: [],
+            }),
+      ),
+    );
+    await mount();
+    await act(async () => {
+      [...document.querySelectorAll('button')]
+        .find((b) => b.textContent === 'Verify stay change')!
+        .click();
+      await settle();
+    });
+    expect(document.body.textContent).toContain('Clock could not verify this change.');
+    expect(document.body.textContent).not.toContain('Link and synchronize booking');
+    expect(document.body.textContent).not.toContain('Close as not created');
+  });
   it('words each check outcome so nobody retries blindly', () => {
     expect(checkMessage({ result: 'found', clockBookingId: '1', linked: true })).toContain(
       'matching reservation',

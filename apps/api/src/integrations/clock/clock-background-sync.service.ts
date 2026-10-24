@@ -217,7 +217,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     return this.db.withTenantTransaction(scope, async (tx) => {
       const rows = await tx.$queryRaw<
         Job[]
-      >`UPDATE clock_sync_jobs j SET status='RUNNING',lease_token=${token}::uuid,lease_until=now()+interval '5 minutes',updated_at=now() WHERE j.id=(SELECT id FROM clock_sync_jobs WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND connection_id=${scope.connectionId}::uuid AND status<>'FAILED' AND next_run_at<=now() AND (lease_until IS NULL OR lease_until<now()) ORDER BY next_run_at,CASE resource WHEN 'catalog' THEN 0 WHEN 'rooms' THEN 1 WHEN 'rates' THEN 2 ELSE 3 END,id FOR UPDATE SKIP LOCKED LIMIT 1) AND j.tenant_id=${scope.tenantId}::uuid AND j.property_id=${scope.propertyId}::uuid RETURNING j.id,j.resource,j.progress,j.snapshot,j.processed,j.lease_token AS "leaseToken"`;
+      >`UPDATE clock_sync_jobs j SET status='RUNNING',requested_at=NULL,lease_token=${token}::uuid,lease_until=now()+interval '5 minutes',updated_at=now() WHERE j.id=(SELECT id FROM clock_sync_jobs WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND connection_id=${scope.connectionId}::uuid AND status<>'FAILED' AND next_run_at<=now() AND (lease_until IS NULL OR lease_until<now()) ORDER BY (requested_at IS NOT NULL) DESC,requested_at NULLS LAST,next_run_at,CASE resource WHEN 'catalog' THEN 0 WHEN 'rooms' THEN 1 WHEN 'rates' THEN 2 ELSE 3 END,id FOR UPDATE SKIP LOCKED LIMIT 1) AND j.tenant_id=${scope.tenantId}::uuid AND j.property_id=${scope.propertyId}::uuid RETURNING j.id,j.resource,j.progress,j.snapshot,j.processed,j.lease_token AS "leaseToken"`;
       return rows[0] ?? null;
     });
   }

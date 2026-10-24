@@ -31,6 +31,18 @@ describe('retained email preview safety', () => {
     expect(result.html).toContain("default-src 'none'");
     expect(result.text).toBe('Guest stay\n[link removed]');
   });
+  it('retains a non-interactive button appearance while stripping its signed URL', () => {
+    const result = safeEmailPreview({
+      subject: 'Stay',
+      text: 'Open reservation',
+      html: '<table><tr><td style="border-radius:6px;background-color:#215448"><a href="https://hotel.test/manage?token=secret" style="display:block;padding:14px 26px;color:#ffffff">Open reservation</a></td></tr></table>',
+    });
+    expect(result.html).toContain('border-radius:6px');
+    expect(result.html).toContain('<span');
+    expect(result.html).toContain('Open reservation');
+    expect(result.html).not.toContain('token=');
+    expect(result.html).not.toContain('href=');
+  });
   it('isolates simultaneous message identities and removes context after the attempt', async () => {
     const result = await Promise.all(
       ['first', 'second'].map((messageId) =>

@@ -91,7 +91,6 @@ const tables = [
   'notification_recipient_rules',
   'property_role_templates',
 ];
-const base = `/tenants/${tenantId}/properties/${propertyId}/bookings`;
 const patch = (
   id: string,
   body: Record<string, unknown>,
@@ -178,7 +177,9 @@ beforeAll(async () => {
       next();
     },
   );
-  app.useGlobalGuards(new CapabilitiesGuard(new Reflector(), mod.get(CapabilitiesService)));
+  app.useGlobalGuards(
+    new CapabilitiesGuard(new Reflector(), mod.get(CapabilitiesService), mod.get(AuditLogService)),
+  );
   await app.init();
   search = new GlobalSearchService(db, mod.get(CapabilitiesService));
 });
@@ -254,7 +255,7 @@ it('edits non-financial details, preserves shared directory/sibling, updates his
   } as unknown as PaymentNotificationService;
   await new BookingConfirmationNotificationService(
     db,
-    {} as CancellationLinkService,
+    { create: () => 'fixture-cancellation-token' } as unknown as CancellationLinkService,
     notifications,
   ).sendAfterConfirmation(c, id, 'manual-fixture');
   expect(sent).toMatchObject({ to: 'changed@example.test', guest: { name: 'Changed Contact' } });

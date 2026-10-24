@@ -1,3 +1,10 @@
+import {
+  AUDIT_EVENTS,
+  AUDIT_SOURCES,
+  AUDIT_SOURCE_LABELS,
+  ROUTINE_AUDIT_ACTIONS,
+  auditTitle,
+} from './audit-event';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   BadRequestException,
@@ -31,6 +38,8 @@ type Filters = {
   actor: string;
   target: string;
   result: string;
+  view: string;
+  source: string;
 };
 type Row = {
   id: string;
@@ -48,6 +57,10 @@ type Row = {
   family: string;
   result: string;
   critical: boolean;
+  source: string | null;
+  operationId: string | null;
+  amount: unknown;
+  routine: boolean;
 };
 /** One authorized read model feeds list, detail, counters and audited exports. */
 @Injectable()
@@ -115,9 +128,28 @@ export class ActivityAuditService {
       throw new ForbiddenException('This audit family is not available.');
     if (actor && (!a.actors || (!NOTIFICATION_UUID.test(actor) && actor !== 'system')))
       throw new ForbiddenException('staff.view is required for a valid actor filter.');
-    if (result && !['Succeeded', 'Failed', 'Denied', 'Not recorded'].includes(result))
+    if (
+      result &&
+      !['Succeeded', 'Failed', 'Denied', 'Pending', 'Unknown', 'Not recorded'].includes(result)
+    )
       throw new BadRequestException('Unknown recorded audit result.');
-    return { from, to, search: text('search'), family, actor, target: text('target', 320), result };
+    const view = text('view') || 'all',
+      source = text('source');
+    if (!['all', 'business', 'system'].includes(view))
+      throw new BadRequestException('Unknown audit view.');
+    if (source && !AUDIT_SOURCES.some((value) => value === source))
+      throw new BadRequestException('Unknown audit source.');
+    return {
+      from,
+      to,
+      search: text('search'),
+      family,
+      actor,
+      target: text('target', 320),
+      result,
+      view,
+      source,
+    };
   }
   private base(c: AuditContext, a: Access) {
     const familyCase = Prisma.join(
@@ -127,21 +159,31 @@ export class ActivityAuditService {
       ),
       ' ',
     );
-    return Prisma.sql`SELECT a.id,a.actor_user_id AS "actorUserId",a.actor_type::text AS "actorType",u.email AS "actorEmail",u.first_name AS "actorFirst",u.last_name AS "actorLast",a.action,a.target_type AS "targetType",a.target_id AS "targetId",a.details,a.request_context AS "requestContext",a.created_at AS "createdAt",
+    return Prisma.sql`SELECT a.id,a.actor_user_id AS "actorUserId",a.actor_type::text AS "actorType",u.email AS "actorEmail",u.first_name AS "actorFirst",u.last_name AS "actorLast",a.action,a.target_type AS "targetType",a.target_id AS "targetId",a.details,a.request_context AS "requestContext",a.created_at AS "createdAt",a.details#>>'{_audit,source}' AS source,COALESCE(a.details#>>'{_audit,operationId}',a.details->>'operationId') AS "operationId",a.details->'amount' AS amount,(a.action=ANY(${ROUTINE_AUDIT_ACTIONS}::text[]) AND lower(COALESCE(a.details#>>'{_audit,result}',a.details->>'result','completed')) NOT IN ('failed','unknown','denied')) AS routine,
    CASE WHEN starts_with(a.action,'booking.clock_deposit_') THEN 'Payments' ${familyCase} WHEN a.action='audit.exported' THEN 'Exports' ELSE 'Other' END AS family,
-   CASE WHEN lower(COALESCE(a.details->>'result',a.details->>'outcome','')) IN('success','succeeded','successful','ok') THEN 'Succeeded' WHEN lower(COALESCE(a.details->>'result',a.details->>'outcome','')) IN('failure','failed','error') OR a.action LIKE '%.failed' THEN 'Failed' WHEN lower(COALESCE(a.details->>'result',a.details->>'outcome','')) IN('denied','forbidden') OR a.action LIKE '%.denied' THEN 'Denied' ELSE 'Not recorded' END AS result,
+   CASE
+   WHEN lower(COALESCE(a.details#>>'{_audit,result}',a.details->>'result',a.details->>'outcome','')) IN('success','succeeded','successful','ok','completed') THEN 'Succeeded'
+   WHEN lower(COALESCE(a.details#>>'{_audit,result}',a.details->>'result',a.details->>'outcome','')) IN('pending','queued','processing') THEN 'Pending'
+   WHEN lower(COALESCE(a.details#>>'{_audit,result}',a.details->>'result',a.details->>'outcome','')) IN('unknown','uncertain') THEN 'Unknown'
+   WHEN lower(COALESCE(a.details#>>'{_audit,result}',a.details->>'result',a.details->>'outcome','')) IN('failure','failed','error') OR a.action LIKE '%.failed' THEN 'Failed'
+   WHEN lower(COALESCE(a.details#>>'{_audit,result}',a.details->>'result',a.details->>'outcome','')) IN('denied','forbidden') OR a.action LIKE '%.denied' THEN 'Denied' ELSE 'Not recorded' END AS result,
    (a.action ~ ${AUDIT_CRITICAL_PATTERN}) AS critical
    FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id
    WHERE a.tenant_id=${c.tenantId}::uuid AND a.property_id=${c.propertyId}::uuid AND (${a.broad} OR EXISTS(SELECT 1 FROM unnest(${a.prefixes}::text[]) AS allowed(prefix) WHERE starts_with(a.action,allowed.prefix)) OR (a.action='audit.exported' AND a.actor_user_id=${c.userId}::uuid)) AND (NOT starts_with(a.action,'booking.clock_deposit_') OR ${a.broad || a.prefixes.includes('payment.')})`;
   }
   private where(f: Filters, timezone: string, a: Access, through?: Date) {
+    const matchingActions = Object.entries(AUDIT_EVENTS)
+      .filter(([, definition]) => definition.title.toLowerCase().includes(f.search.toLowerCase()))
+      .map(([action]) => action);
     return Prisma.sql`
   ("createdAt" AT TIME ZONE ${timezone})::date BETWEEN ${f.from}::date AND ${f.to}::date
   AND (${through ?? null}::timestamptz IS NULL OR "createdAt"<=${through ?? null})
+  AND (${f.view}='all' OR (${f.view}='system' AND routine) OR (${f.view}='business' AND NOT routine))
+  AND (${f.source}='' OR source=${f.source})
   AND (${f.family}='' OR family=${f.family}) AND (${f.result}='' OR result=${f.result})
   AND (${f.actor}='' OR (${f.actor === 'system'} AND "actorUserId" IS NULL) OR "actorUserId"::text=${f.actor})
   AND (${f.target}='' OR "targetType" ILIKE ${'%' + f.target + '%'} OR ((${a.actors} OR "targetType" NOT IN('user','staff','tenant_membership')) AND "targetId" ILIKE ${'%' + f.target + '%'}))
-  AND (${f.search}='' OR action ILIKE ${'%' + f.search + '%'} OR id::text ILIKE ${'%' + f.search + '%'} OR "targetType" ILIKE ${'%' + f.search + '%'} OR ((${a.actors} OR "targetType" NOT IN('user','staff','tenant_membership')) AND "targetId" ILIKE ${'%' + f.search + '%'}) OR (${a.actors} AND concat_ws(' ',"actorEmail","actorFirst","actorLast") ILIKE ${'%' + f.search + '%'}))`;
+  AND (${f.search}='' OR action=ANY(${matchingActions}::text[]) OR action ILIKE ${'%' + f.search + '%'} OR id::text ILIKE ${'%' + f.search + '%'} OR "targetType" ILIKE ${'%' + f.search + '%'} OR ((${a.actors} OR "targetType" NOT IN('user','staff','tenant_membership')) AND "targetId" ILIKE ${'%' + f.search + '%'}) OR (${a.actors} AND concat_ws(' ',"actorEmail","actorFirst","actorLast") ILIKE ${'%' + f.search + '%'}))`;
   }
   private present(row: Row, a: Access, summary = false) {
     const redactions = a.actors
@@ -159,7 +201,13 @@ export class ActivityAuditService {
     const personalTarget = ['user', 'staff', 'tenant_membership'].includes(row.targetType);
     return {
       id: row.id,
-      action: row.action,
+      action: auditText(row.action, redactions),
+      title: auditTitle(auditText(row.action, redactions)),
+      source: AUDIT_SOURCE_LABELS[row.source ?? ''] ?? 'Not specified',
+      sourceKey: row.source && AUDIT_SOURCE_LABELS[row.source] ? row.source : null,
+      operationId: row.operationId ? auditText(row.operationId, redactions) : null,
+      routine: row.routine,
+      summary: this.amountSummary(row.amount),
       family: row.family,
       result: row.result,
       critical: row.critical,
@@ -189,6 +237,16 @@ export class ActivityAuditService {
             requestContext: safeAuditValue(row.requestContext, a.actors, redactions),
           }),
     };
+  }
+  private amountSummary(value: unknown): string | null {
+    if (!value || typeof value !== 'object') return null;
+    const amount = value as { amount?: unknown; currency?: unknown };
+    return typeof amount.amount === 'string' &&
+      /^-?\d+(?:\.\d{1,2})?$/.test(amount.amount) &&
+      typeof amount.currency === 'string' &&
+      /^[A-Z]{3}$/.test(amount.currency)
+      ? `${amount.currency} ${amount.amount}`
+      : null;
   }
   private async property(tx: TenantTransaction, c: AuditContext) {
     const rows = await tx.$queryRaw<
@@ -222,7 +280,7 @@ export class ActivityAuditService {
           base = this.base(c, a),
           where = this.where(f, p.timezone, a);
         const items = await tx.$queryRaw<Row[]>(
-          Prisma.sql`WITH events AS (${base}) SELECT id,"actorUserId","actorType","actorEmail","actorFirst","actorLast",action,"targetType","targetId","createdAt",family,result,critical FROM events WHERE ${where} ORDER BY "createdAt" DESC,id DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
+          Prisma.sql`WITH events AS (${base}) SELECT id,"actorUserId","actorType","actorEmail","actorFirst","actorLast",action,"targetType","targetId","createdAt",family,result,critical,source,"operationId",amount,routine FROM events WHERE ${where} ORDER BY "createdAt" DESC,id DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
         );
         const stats = await tx.$queryRaw<
           { total: number; today: number; critical: number; uniqueActors: number }[]
@@ -269,7 +327,17 @@ export class ActivityAuditService {
       const related = await tx.$queryRaw<Row[]>(
         Prisma.sql`WITH events AS (${this.base(c, a)}) SELECT * FROM events WHERE "targetType"=${row.targetType} AND "targetId"=${row.targetId} AND id<>${id}::uuid AND "createdAt" BETWEEN ${row.createdAt}::timestamptz-interval '24 hours' AND ${row.createdAt}::timestamptz+interval '24 hours' ORDER BY "createdAt" DESC,id DESC LIMIT 10`,
       );
-      return { ...this.present(row, a), related: related.map((r) => this.present(r, a)) };
+      const linked = row.operationId
+        ? await tx.$queryRaw<Row[]>(
+            Prisma.sql`WITH events AS (${this.base(c, a)}) SELECT * FROM events WHERE "operationId"=${row.operationId} ORDER BY "createdAt",id LIMIT 51`,
+          )
+        : [];
+      return {
+        ...this.present(row, a),
+        related: related.map((r) => this.present(r, a)),
+        linked: linked.slice(0, 50).map((r) => this.present(r, a)),
+        linkedTruncated: linked.length > 50,
+      };
     });
   }
   async cleanupExports(c: { tenantId: string; propertyId: string }, now = new Date()) {
@@ -382,6 +450,9 @@ export class ActivityAuditService {
               'Target type',
               'Target ID',
               'Recorded result',
+              'Readable action',
+              'Source',
+              'Operation reference',
               'Critical classification',
               'Reason',
               'Before (recorded)',
@@ -397,7 +468,14 @@ export class ActivityAuditService {
               r.actorUserId,
               r.targetType,
               r.targetId,
-              r.result,
+              r.result === 'Not recorded'
+                ? 'Outcome not specified'
+                : r.result === 'Succeeded'
+                  ? 'Completed'
+                  : r.result,
+              r.title,
+              r.source,
+              r.operationId,
               r.critical ? 'Sensitive' : 'Standard',
               r.reason,
               JSON.stringify(r.before),

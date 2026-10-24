@@ -204,6 +204,8 @@ export class EmailTransportJournal {
         propertyId: scope.propertyId,
         actorUserId: null,
         action: 'email_transport.attempt_finished',
+        result: success ? 'completed' : result.acceptance === 'unknown' ? 'unknown' : 'failed',
+        operationId: 'email:' + scope.messageId,
         targetType: 'email',
         targetId: scope.messageId,
         details: {

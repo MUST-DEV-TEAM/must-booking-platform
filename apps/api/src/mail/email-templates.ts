@@ -23,6 +23,7 @@ const COMMON = [
   'check_in_time',
   'directions',
   'stay_range',
+  'stay_dates',
   'stay_nights',
 ] as const;
 
@@ -239,7 +240,7 @@ export function defaultTemplate(key: EmailTemplateKey): SavedTemplate {
         'booking_changed',
         'post_stay',
       ].includes(key) &&
-      !body.includes('{stay_range}')
+      !/{stay_(?:range|dates|nights)}/.test(body)
     )
       body += '\n\n{stay_range}';
     if (
@@ -263,6 +264,18 @@ function fill(text: string, values: TemplateValues, escape: (value: string) => s
  * Fills a template (the property's saved one, else the default). The message becomes
  * paragraphs at blank lines and line breaks within them; everything is escaped.
  */
+function detailLabel(paragraph: string): string {
+  const labels: Record<string, string> = {
+    stay_range: 'Dates',
+    hotel_contact: 'Hotel contact',
+    hotel_policies: 'Cancellation terms',
+    check_in_time: 'Check-in information',
+    directions: 'Directions',
+  };
+  const key = Object.keys(labels).find((key) => paragraph.includes('{' + key + '}'));
+  return key ? ` data-summary-label="${labels[key]}"` : '';
+}
+
 export function renderTemplate(
   key: EmailTemplateKey,
   saved: SavedTemplate | null,
@@ -278,16 +291,18 @@ export function renderTemplate(
     .map((paragraph) => paragraph.trim())
     .filter(Boolean);
   const html = paragraphs
-    .map((paragraph) =>
-      paragraph.trim() === '{stay_nights}' && values.stay_nights
-        ? `<table role="presentation" style="width:100%;border-collapse:collapse;margin:0 0 18px 0"><thead><tr><th scope="col" style="text-align:left">Date</th><th scope="col" style="text-align:right">Nightly rate</th></tr></thead><tbody>${values.stay_nights
-            .split('\n')
-            .map((line) => {
-              const [date, ...details] = line.split(' - ');
-              return `<tr><td style="padding:6px 0">${escapeHtml(date ?? '')}</td><td style="padding:6px 0;text-align:right">${escapeHtml(details.join(' - '))}</td></tr>`;
-            })
-            .join('')}</tbody></table>`
-        : `<p style="margin:0 0 18px 0;">${fill(escapeHtml(paragraph), values, escapeHtml).replace(/\n/g, '<br>')}</p>`,
+    .map((paragraph, index) =>
+      paragraph.trim() === '{stay_dates}' && values.stay_dates
+        ? `<p data-summary-label="Dates" style="margin:0 0 18px 0;">${values.stay_dates.split('\n').map(escapeHtml).join('<br>')}</p>`
+        : paragraph.trim() === '{stay_nights}' && values.stay_nights
+          ? `<table role="presentation" style="width:100%;border-collapse:collapse;margin:0 0 18px 0"><thead><tr><th scope="col" style="text-align:left">Date</th><th scope="col" style="text-align:right">Nightly rate</th></tr></thead><tbody>${values.stay_nights
+              .split('\n')
+              .map((line) => {
+                const [date, ...details] = line.split(' - ');
+                return `<tr><td style="padding:6px 0">${escapeHtml(date ?? '')}</td><td style="padding:6px 0;text-align:right">${escapeHtml(details.join(' - '))}</td></tr>`;
+              })
+              .join('')}</tbody></table>`
+          : `<p${index > 0 ? detailLabel(paragraph) : ''} style="margin:0 0 18px 0;">${fill(escapeHtml(paragraph), values, escapeHtml).replace(/\n/g, '<br>')}</p>`,
     )
     .join('');
   const text = paragraphs
@@ -300,7 +315,7 @@ export function renderTemplate(
     subject,
     html,
     text,
-    hasStayBlock: /\{stay_(range|nights)\}/.test(source.body),
+    hasStayBlock: /\{stay_(range|nights|dates)\}/.test(source.body),
     ...(previewText ? { previewText } : {}),
   };
 }
@@ -365,6 +380,16 @@ export function stayTemplateValues(input: {
     check_in_time: input.checkInTime || 'Contact the hotel for check-in time',
     directions: input.directions || 'Contact the hotel for directions',
     stay_range: `${date(input.startsOn)} - ${date(input.endsOn)}`,
+    stay_dates: dates
+      .map((value) =>
+        new Intl.DateTimeFormat(input.language === 'sq' ? 'sq-AL' : 'en-GB', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+          timeZone: 'UTC',
+        }).format(new Date(value + 'T12:00:00Z')),
+      )
+      .join('\n'),
     stay_nights: dates
       .flatMap((day) =>
         input.roomNightlyRates?.length

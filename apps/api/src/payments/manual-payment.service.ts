@@ -192,6 +192,7 @@ export class ManualPaymentService {
             propertyId: context.propertyId,
             actorUserId: command.actorUserId,
             action: 'payment.manual_recorded',
+            operationId: command.idempotencyKey,
             targetType: 'booking',
             targetId: booking.id,
             details: {

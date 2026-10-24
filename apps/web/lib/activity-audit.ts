@@ -1,6 +1,12 @@
 export type AuditEvent = {
   id: string;
   action: string;
+  title?: string;
+  summary?: string | null;
+  source?: string;
+  sourceKey?: string | null;
+  operationId?: string | null;
+  routine?: boolean;
   family: string;
   result: string;
   critical: boolean;
@@ -15,6 +21,8 @@ export type AuditEvent = {
   reason?: string | null;
   requestContext?: unknown;
   related?: AuditEvent[];
+  linked?: AuditEvent[];
+  linkedTruncated?: boolean;
 };
 export type AuditFilters = {
   from: string;
@@ -24,6 +32,8 @@ export type AuditFilters = {
   actor: string;
   target: string;
   result: string;
+  view?: string;
+  source?: string;
 };
 export type AuditPage = {
   items: AuditEvent[];
@@ -127,4 +137,63 @@ export function downloadAuditCsv(file: AuditExport) {
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+export const auditResultLabel = (result: string) =>
+  result === 'Not recorded'
+    ? 'Outcome not specified'
+    : result === 'Succeeded'
+      ? 'Completed'
+      : result;
+export function recordedChanges(
+  event: AuditEvent,
+): Array<{ field: string; before: unknown; after: unknown }> {
+  const labels: Record<string, string> = {
+    startsOn: 'Check-in',
+    endsOn: 'Check-out',
+    total: 'Stay total',
+    roomTypeId: 'Room type',
+    roomId: 'Room',
+    adults: 'Adults',
+    children: 'Children',
+    email: 'Email',
+    phone: 'Phone',
+  };
+  const changes = event.details?.changes;
+  if (changes && typeof changes === 'object' && !Array.isArray(changes))
+    return Object.entries(changes).flatMap(([field, value]) =>
+      value && typeof value === 'object' && 'old' in value && 'new' in value
+        ? [
+            {
+              field: labels[field] ?? field,
+              before: (value as { old: unknown }).old,
+              after: (value as { new: unknown }).new,
+            },
+          ]
+        : [],
+    );
+  const before = event.before,
+    after = event.after;
+  if (
+    before &&
+    after &&
+    typeof before === 'object' &&
+    typeof after === 'object' &&
+    !Array.isArray(before) &&
+    !Array.isArray(after)
+  )
+    return [...new Set([...Object.keys(before), ...Object.keys(after)])]
+      .filter(
+        (field) =>
+          JSON.stringify((before as Record<string, unknown>)[field]) !==
+          JSON.stringify((after as Record<string, unknown>)[field]),
+      )
+      .map((field) => ({
+        field: labels[field] ?? field,
+        before: (before as Record<string, unknown>)[field],
+        after: (after as Record<string, unknown>)[field],
+      }));
+  if (event.details && 'oldRoomId' in event.details && 'newRoomId' in event.details)
+    return [{ field: 'Room', before: event.details.oldRoomId, after: event.details.newRoomId }];
+  return [];
 }

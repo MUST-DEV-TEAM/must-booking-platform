@@ -21,9 +21,9 @@ describe('Booking payment outcome page', () => {
     mockParams = { bookingId: 'booking-1', outcome: 'success' };
     const markup = renderToStaticMarkup(createElement(BookingPaymentOutcomePage));
 
-    expect(markup).toContain('Payment submitted');
-    expect(markup).toContain('You can close this tab');
-    expect(markup).not.toContain('href="/dashboard"');
+    expect(markup).toContain('Checking your payment');
+    expect(markup).toContain('Close this tab');
+    expect(markup).toContain('href="/dashboard"');
     expect(markup).not.toContain('was not completed');
   });
 
@@ -32,19 +32,29 @@ describe('Booking payment outcome page', () => {
     const markup = renderToStaticMarkup(createElement(BookingPaymentOutcomePage));
 
     expect(markup).toContain('Checkout closed');
-    expect(markup).toContain('payment status');
-    expect(markup).not.toContain('href="/dashboard"');
+    expect(markup).toContain('payment');
+    expect(markup).toContain('href="/dashboard"');
   });
 });
 
-it('notifies the original dashboard and closes the payment tab after return', async () => {
+it('waits for the matching verified confirmation before closing the payment tab', async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  vi.useFakeTimers();
+  window.history.replaceState({}, '', '/bookings/booking-1/payment/success?orderId=new-order');
   mockParams = { bookingId: 'booking-1', outcome: 'success' };
+  let channel: { onmessage: ((event: { data: unknown }) => void) | null };
+  const register = (value: typeof channel) => {
+    channel = value;
+  };
   const postMessage = vi.fn(),
     channelClose = vi.fn();
   vi.stubGlobal(
     'BroadcastChannel',
     class {
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      constructor() {
+        register(this);
+      }
       postMessage = postMessage;
       close = channelClose;
     },
@@ -53,10 +63,63 @@ it('notifies the original dashboard and closes the payment tab after return', as
   const host = document.createElement('div'),
     root = createRoot(host);
   await act(async () => root.render(createElement(BookingPaymentOutcomePage)));
-  expect(postMessage).toHaveBeenCalledWith({ bookingId: 'booking-1', outcome: 'success' });
+  expect(postMessage).toHaveBeenCalledWith({
+    bookingId: 'booking-1',
+    orderId: 'new-order',
+    outcome: 'success',
+  });
+  expect(close).not.toHaveBeenCalled();
+  await act(async () => channel!.onmessage?.({ data: { bookingId: 'other', state: 'CONFIRMED' } }));
+  expect(close).not.toHaveBeenCalled();
+  await act(async () =>
+    channel!.onmessage?.({ data: { bookingId: 'booking-1', state: 'PAYMENT_PENDING' } }),
+  );
+  expect(close).not.toHaveBeenCalled();
+  await act(async () =>
+    channel!.onmessage?.({ data: { bookingId: 'booking-1', orderId: 'old-order', state: 'PAID' } }),
+  );
+  expect(close).not.toHaveBeenCalled();
+  await act(async () =>
+    channel!.onmessage?.({ data: { bookingId: 'booking-1', orderId: 'new-order', state: 'PAID' } }),
+  );
+  expect(host.textContent).toContain('Payment received');
+  await act(async () => vi.advanceTimersByTime(1500));
   expect(close).toHaveBeenCalledOnce();
-  expect(channelClose).toHaveBeenCalledOnce();
   await act(async () => root.unmount());
+  expect(channelClose).toHaveBeenCalledOnce();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+it('loads the hotel logo, animates only the checking state and falls back to the hotel name on image error', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const tenant = '11111111-1111-4111-8111-111111111111',
+    property = '22222222-2222-4222-8222-222222222222';
+  window.history.replaceState(
+    {},
+    '',
+    `/bookings/booking-1/payment/success?orderId=new-order&tenantId=${tenant}&propertyId=${property}`,
+  );
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ name: 'Beach Hotel', logoUrl: '/api/media/hotel-logo.png' })),
+  );
+  mockParams = { bookingId: 'booking-1', outcome: 'success' };
+  const host = document.createElement('div'),
+    root = createRoot(host);
+  await act(async () => root.render(createElement(BookingPaymentOutcomePage)));
+  expect(fetch).toHaveBeenCalledWith(
+    `/api/tenants/${tenant}/properties/${property}/public/branding`,
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  );
+  const logo = host.querySelector('img')!;
+  expect(logo.getAttribute('src')).toBe('/api/media/hotel-logo.png');
+  expect(logo.alt).toBe('Beach Hotel');
+  expect(host.querySelector('[data-testid="payment-checking-dots"]')?.children).toHaveLength(3);
+  await act(async () => logo.dispatchEvent(new Event('error')));
+  expect(host.textContent).toContain('Beach Hotel');
+  expect(host.querySelector('img')).toBeNull();
+  await act(async () => root.unmount());
+  vi.unstubAllGlobals();
 });

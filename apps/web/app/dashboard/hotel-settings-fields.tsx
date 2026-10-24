@@ -42,6 +42,18 @@ export const hotelSettingGroups: Record<
           hint: 'Include the country code. Shown as a clickable phone number.',
           max: 100,
         },
+        {
+          key: 'dateFormat',
+          defaultValue: 'DD/MM/YYYY',
+          label: 'Hotel date format',
+          kind: 'choice',
+          options: options([
+            ['DD/MM/YYYY', 'DD/MM/YYYY'],
+            ['MM/DD/YYYY', 'MM/DD/YYYY'],
+            ['YYYY-MM-DD', 'YYYY-MM-DD'],
+          ]),
+          hint: 'Shared by everyone working in this hotel.',
+        },
         { key: 'legalName', label: 'Legal business name', max: 200 },
         {
           key: 'taxNumber',

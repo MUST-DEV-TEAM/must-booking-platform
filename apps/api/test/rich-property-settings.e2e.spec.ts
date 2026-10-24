@@ -224,7 +224,9 @@ beforeAll(async () => {
     req.guestSessionId = session;
     next();
   });
-  app.useGlobalGuards(new CapabilitiesGuard(new Reflector(), mod.get(CapabilitiesService)));
+  app.useGlobalGuards(
+    new CapabilitiesGuard(new Reflector(), mod.get(CapabilitiesService), mod.get(AuditLogService)),
+  );
   await app.init();
 });
 afterAll(async () => {

@@ -1,4 +1,5 @@
 'use client';
+import { HotelDateFormatProvider } from '../../lib/hotel-date-format';
 import { SectionAccess } from '../../components/ui/state-panel';
 import { ApprovalsQueue, useApprovals } from './approvals';
 
@@ -66,6 +67,7 @@ type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
 type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: boolean };
 type Property = {
   timezone?: string;
+  dateFormat?: string;
   id: string;
   name: string;
   logoUrl?: string | null;
@@ -468,296 +470,299 @@ export function DashboardShell({
       : tab;
 
   return (
-    <AppShell
-      hotelBrand={
-        selectedProperty
-          ? { name: selectedProperty.name, logoUrl: selectedProperty.logoUrl }
-          : undefined
-      }
-      homeHref="/dashboard"
-      navigation={navigation}
-      title={sectionLabel}
-      accountLinks={
-        selectedProperty
-          ? [
-              {
-                label: 'Profile',
-                href: `/dashboard/${tenantId}?propertyId=${encodeURIComponent(selectedProperty.id)}&section=account`,
-              },
-              {
-                label: 'Settings',
-                href: `/dashboard/${tenantId}?propertyId=${encodeURIComponent(selectedProperty.id)}&section=settings`,
-              },
-            ]
-          : undefined
-      }
-      userEmail={user?.email}
-      userRole={role ? roleLabels[role] : undefined}
-      headerActions={
-        <>
-          {properties && properties.length > 1 && role !== 'STAFF' ? (
-            <Select
-              value={selectedProperty?.id ?? ''}
-              onValueChange={(value) => {
-                if (!value) return;
-                setSelectedPropertyId(value);
-                setSection('overview');
-                setTab('overview');
-                setSettingsArea(null);
-                window.location.href = `/dashboard/${tenantId}?propertyId=${encodeURIComponent(value)}&section=overview`;
+    <HotelDateFormatProvider value={selectedProperty?.dateFormat}>
+      <AppShell
+        hotelBrand={
+          selectedProperty
+            ? { name: selectedProperty.name, logoUrl: selectedProperty.logoUrl }
+            : undefined
+        }
+        homeHref="/dashboard"
+        navigation={navigation}
+        title={sectionLabel}
+        accountLinks={
+          selectedProperty
+            ? [
+                {
+                  label: 'Profile',
+                  href: `/dashboard/${tenantId}?propertyId=${encodeURIComponent(selectedProperty.id)}&section=account`,
+                },
+                {
+                  label: 'Settings',
+                  href: `/dashboard/${tenantId}?propertyId=${encodeURIComponent(selectedProperty.id)}&section=settings`,
+                },
+              ]
+            : undefined
+        }
+        userEmail={user?.email}
+        userRole={role ? roleLabels[role] : undefined}
+        headerActions={
+          <>
+            {properties && properties.length > 1 && role !== 'STAFF' ? (
+              <Select
+                value={selectedProperty?.id ?? ''}
+                onValueChange={(value) => {
+                  if (!value) return;
+                  setSelectedPropertyId(value);
+                  setSection('overview');
+                  setTab('overview');
+                  setSettingsArea(null);
+                  window.location.href = `/dashboard/${tenantId}?propertyId=${encodeURIComponent(value)}&section=overview`;
+                }}
+              >
+                <SelectTrigger aria-label="Switch property" className="h-10 w-auto min-w-44 gap-2">
+                  <Layers aria-hidden="true" className="size-4 text-muted-foreground" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {properties.map((property) => (
+                    <SelectItem key={property.id} value={property.id}>
+                      {property.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : selectedProperty ? (
+              <Chip icon={Layers}>{selectedProperty.name}</Chip>
+            ) : null}
+            {selectedProperty && role ? (
+              <GlobalSearch
+                tenantId={tenantId}
+                propertyId={selectedProperty.id}
+                canOpen={(target) => canAccessSection(role, capabilities ?? [], target)}
+                userId={user?.id}
+                can={(capability) =>
+                  capability === 'tenant.admin' ? role !== 'STAFF' : hasCapability(capability)
+                }
+              />
+            ) : null}
+            {selectedProperty && role ? (
+              <DashboardNotifications tenantId={tenantId} propertyId={selectedProperty.id} />
+            ) : null}
+          </>
+        }
+      >
+        {selectedProperty && role && capabilities !== undefined && !canViewSection ? (
+          <SectionAccess
+            allowed={false}
+            backHref={dashboardTabHref(tenantId, selectedProperty.id, 'overview')}
+          />
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'overview' ? (
+          <Stack gap="lg">
+            <DashboardSectionTabs
+              currentTab={visibleDashboardTab}
+              canAccessQuickBooking={canAccessQuickBooking}
+              canAccessSystemHealth={canAccessSystemHealth}
+              canReviewRequests={hasCapability('requests.review')}
+              onSelectTab={(next) => {
+                setTab(next);
+                window.history.pushState(
+                  null,
+                  '',
+                  dashboardTabHref(tenantId, selectedProperty.id, next),
+                );
               }}
-            >
-              <SelectTrigger aria-label="Switch property" className="h-10 w-auto min-w-44 gap-2">
-                <Layers aria-hidden="true" className="size-4 text-muted-foreground" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="end">
-                {properties.map((property) => (
-                  <SelectItem key={property.id} value={property.id}>
-                    {property.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : selectedProperty ? (
-            <Chip icon={Layers}>{selectedProperty.name}</Chip>
-          ) : null}
-          {selectedProperty && role ? (
-            <GlobalSearch
-              tenantId={tenantId}
               propertyId={selectedProperty.id}
-              canOpen={(target) => canAccessSection(role, capabilities ?? [], target)}
-              userId={user?.id}
-              can={(capability) =>
-                capability === 'tenant.admin' ? role !== 'STAFF' : hasCapability(capability)
-              }
-            />
-          ) : null}
-          {selectedProperty && role ? (
-            <DashboardNotifications tenantId={tenantId} propertyId={selectedProperty.id} />
-          ) : null}
-        </>
-      }
-    >
-      {selectedProperty && role && capabilities !== undefined && !canViewSection ? (
-        <SectionAccess
-          allowed={false}
-          backHref={dashboardTabHref(tenantId, selectedProperty.id, 'overview')}
-        />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'overview' ? (
-        <Stack gap="lg">
-          <DashboardSectionTabs
-            currentTab={visibleDashboardTab}
-            canAccessQuickBooking={canAccessQuickBooking}
-            canAccessSystemHealth={canAccessSystemHealth}
-            canReviewRequests={hasCapability('requests.review')}
-            onSelectTab={(next) => {
-              setTab(next);
-              window.history.pushState(
-                null,
-                '',
-                dashboardTabHref(tenantId, selectedProperty.id, next),
-              );
-            }}
-            propertyId={selectedProperty.id}
-            tenantId={tenantId}
-          />
-          {visibleDashboardTab === 'overview' ? (
-            <DashboardOverview
-              canManageQuickBooking={canAccessQuickBooking}
-              canOpen={(target) => canAccessSection(role, capabilities ?? [], target)}
               tenantId={tenantId}
-              propertyId={selectedProperty.id}
-              role={role}
             />
-          ) : visibleDashboardTab === 'approvals' ? (
-            <ApprovalsQueue tenantId={tenantId} propertyId={selectedProperty.id} />
-          ) : visibleDashboardTab === 'needs-attention' ? (
-            <NeedsAttentionTab
-              tenantId={tenantId}
-              propertyId={selectedProperty.id}
-              canEdit={hasCapability('bookings.edit')}
-            />
-          ) : visibleDashboardTab === 'system-health' ? (
-            <SystemHealthTab
-              tenantId={tenantId}
-              propertyId={selectedProperty.id}
-              canOpen={(target) => canAccessSection(role, capabilities ?? [], target)}
-            />
-          ) : visibleDashboardTab === 'quick-booking' ? (
-            <AddReservation
-              tenantId={tenantId}
-              propertyId={selectedProperty.id}
-              bookingMode={selectedProperty.bookingMode}
-              paymentGateways={selectedProperty.paymentGateways}
-              checkInTime={selectedProperty.checkInTime}
-              canRecordPayment={hasCapability('payments.record')}
-              canCheckPayment={hasCapability('bookings.edit')}
-              canViewBooking={hasCapability('bookings.view')}
-            />
-          ) : (
-            <DashboardTabPlaceholder tab={visibleDashboardTab} />
-          )}
-        </Stack>
-      ) : null}
-      {properties && role && canViewSection && section === 'hotels' ? (
-        <HotelsSection
-          tenantId={tenantId}
-          role={role}
-          emailVerified={user?.emailVerified === true}
-        />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'inventory' ? (
-        <InventorySection
-          key={selectedProperty.id}
-          tenantId={tenantId}
-          propertyId={selectedProperty.id}
-          emailVerified={user?.emailVerified === true}
-          currentUser={user ?? undefined}
-          bookingMode={selectedProperty.bookingMode}
-        />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'reservations' ? (
-        reservationId ? (
-          <ReservationDetail
+            {visibleDashboardTab === 'overview' ? (
+              <DashboardOverview
+                canManageQuickBooking={canAccessQuickBooking}
+                canOpen={(target) => canAccessSection(role, capabilities ?? [], target)}
+                tenantId={tenantId}
+                propertyId={selectedProperty.id}
+                role={role}
+              />
+            ) : visibleDashboardTab === 'approvals' ? (
+              <ApprovalsQueue tenantId={tenantId} propertyId={selectedProperty.id} />
+            ) : visibleDashboardTab === 'needs-attention' ? (
+              <NeedsAttentionTab
+                tenantId={tenantId}
+                propertyId={selectedProperty.id}
+                canEdit={hasCapability('bookings.edit')}
+              />
+            ) : visibleDashboardTab === 'system-health' ? (
+              <SystemHealthTab
+                tenantId={tenantId}
+                propertyId={selectedProperty.id}
+                canOpen={(target) => canAccessSection(role, capabilities ?? [], target)}
+              />
+            ) : visibleDashboardTab === 'quick-booking' ? (
+              <AddReservation
+                tenantId={tenantId}
+                propertyId={selectedProperty.id}
+                bookingMode={selectedProperty.bookingMode}
+                paymentGateways={selectedProperty.paymentGateways}
+                checkInTime={selectedProperty.checkInTime}
+                canRecordPayment={hasCapability('payments.record')}
+                canCheckPayment={hasCapability('bookings.edit')}
+                canViewBooking={hasCapability('bookings.view')}
+              />
+            ) : (
+              <DashboardTabPlaceholder tab={visibleDashboardTab} />
+            )}
+          </Stack>
+        ) : null}
+        {properties && role && canViewSection && section === 'hotels' ? (
+          <HotelsSection
             tenantId={tenantId}
-            propertyId={selectedProperty.id}
-            bookingId={reservationId}
-            propertyName={selectedProperty.name}
-            checkInTime={selectedProperty.checkInTime}
-            checkOutTime={selectedProperty.checkOutTime}
-            bookingMode={selectedProperty.bookingMode}
-            canCancelBooking={hasCapability('bookings.cancel')}
-            canRefundPayment={hasCapability('payments.refund')}
-            canEditBooking={hasCapability('bookings.edit')}
+            role={role}
+            emailVerified={user?.emailVerified === true}
           />
-        ) : (
-          <ReservationsPage
-            tenantId={tenantId}
-            propertyId={selectedProperty.id}
-            canCreateBooking={hasCapability('bookings.create')}
-          />
-        )
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'calendar' ? (
-        <CalendarPage
-          tenantId={tenantId}
-          propertyId={selectedProperty.id}
-          bookingMode={selectedProperty.bookingMode}
-          canManageAvailability={hasCapability('calendar.block')}
-          canCreateBooking={hasCapability('bookings.create')}
-        />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'payments' ? (
-        paymentId ? (
-          <PaymentDetail
-            tenantId={tenantId}
-            propertyId={selectedProperty.id}
-            bookingId={paymentId}
-          />
-        ) : (
-          <DashboardPayments tenantId={tenantId} propertyId={selectedProperty.id} />
-        )
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'guests' ? (
-        guestId ? (
-          <GuestDetail
-            tenantId={tenantId}
-            propertyId={selectedProperty.id}
-            guestId={guestId}
-            canEditCountry={
-              hasCapability('bookings.edit') &&
-              hasCapability('guests.view') &&
-              user?.emailVerified === true
-            }
-          />
-        ) : (
-          <DashboardGuests
-            tenantId={tenantId}
-            propertyId={selectedProperty.id}
-            canMergeGuests={hasCapability('guests.merge')}
-          />
-        )
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'account' ? (
-        <MyAccount
-          tenantId={tenantId}
-          email={user?.email}
-          role={role ? roleLabels[role] : undefined}
-          hotelName={selectedProperty.name}
-          hotelTimezone={selectedProperty.timezone}
-        />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'audit' ? (
-        <ActivityAudit tenantId={tenantId} propertyId={selectedProperty.id} userId={user?.id} />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'notifications' ? (
-        <NotificationsInbox tenantId={tenantId} propertyId={selectedProperty.id} />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'accommodations' ? (
-        <RoomManagement
-          propertyId={selectedProperty.id}
-          tenantId={tenantId}
-          canManageAccommodations={hasCapability('accommodations.manage')}
-          canManagePhotos={hasCapability('photos.manage')}
-          canViewCalendar={hasCapability('calendar.view')}
-          canBlockCalendar={hasCapability('calendar.block')}
-          canCreateBooking={hasCapability('bookings.create')}
-          canManageRates={hasCapability('rates.manage')}
-          canManageInventorySource={role === 'OWNER' || role === 'ADMIN'}
-          onNavigateSection={setSection}
-        />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'rates-pricing' ? (
-        <RateManagement
-          propertyId={selectedProperty.id}
-          tenantId={tenantId}
-          emailVerified={user?.emailVerified === true}
-        />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'staff' ? (
-        <DashboardStaff tenantId={tenantId} propertyId={selectedProperty.id} />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'emails' ? (
-        <EmailsWorkspace
-          viewerId={user?.id}
-          key={selectedProperty.id}
-          tenantId={tenantId}
-          propertyId={selectedProperty.id}
-          canWrite={user?.emailVerified === true && hasCapability('settings.manage')}
-        />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'reports' ? (
-        <DashboardReports tenantId={tenantId} propertyId={selectedProperty.id} />
-      ) : null}
-      {selectedProperty && role && canViewSection && section === 'settings' ? (
-        settingsArea === 'email' ? (
-          <EmailSettings
-            viewerId={user?.id}
-            tenantId={tenantId}
-            propertyId={selectedProperty.id}
-            initialTab={emailTab}
-            canWrite={user?.emailVerified === true && hasCapability('settings.manage')}
-          />
-        ) : settingsArea ? (
-          <DashboardSettings
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'inventory' ? (
+          <InventorySection
             key={selectedProperty.id}
             tenantId={tenantId}
             propertyId={selectedProperty.id}
-            settingsArea={settingsArea}
-            canWrite={user?.emailVerified === true && hasCapability('settings.manage')}
-            canManagePhotos={hasCapability('photos.manage')}
-            onPropertySaved={(updated) =>
-              setProperties((current) =>
-                current?.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)),
-              )
-            }
+            emailVerified={user?.emailVerified === true}
+            currentUser={user ?? undefined}
+            bookingMode={selectedProperty.bookingMode}
           />
-        ) : (
-          <SettingsHub tenantId={tenantId} propertyId={selectedProperty.id} />
-        )
-      ) : null}
-    </AppShell>
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'reservations' ? (
+          reservationId ? (
+            <ReservationDetail
+              tenantId={tenantId}
+              propertyId={selectedProperty.id}
+              bookingId={reservationId}
+              propertyName={selectedProperty.name}
+              checkInTime={selectedProperty.checkInTime}
+              checkOutTime={selectedProperty.checkOutTime}
+              bookingMode={selectedProperty.bookingMode}
+              canCancelBooking={hasCapability('bookings.cancel')}
+              canRefundPayment={hasCapability('payments.refund')}
+              canEditBooking={hasCapability('bookings.edit')}
+            />
+          ) : (
+            <ReservationsPage
+              tenantId={tenantId}
+              propertyId={selectedProperty.id}
+              canCreateBooking={hasCapability('bookings.create')}
+            />
+          )
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'calendar' ? (
+          <CalendarPage
+            tenantId={tenantId}
+            propertyId={selectedProperty.id}
+            bookingMode={selectedProperty.bookingMode}
+            canManageAvailability={hasCapability('calendar.block')}
+            canCreateBooking={hasCapability('bookings.create')}
+          />
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'payments' ? (
+          paymentId ? (
+            <PaymentDetail
+              tenantId={tenantId}
+              propertyId={selectedProperty.id}
+              bookingId={paymentId}
+            />
+          ) : (
+            <DashboardPayments tenantId={tenantId} propertyId={selectedProperty.id} />
+          )
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'guests' ? (
+          guestId ? (
+            <GuestDetail
+              tenantId={tenantId}
+              propertyId={selectedProperty.id}
+              guestId={guestId}
+              canEditCountry={
+                hasCapability('bookings.edit') &&
+                hasCapability('guests.view') &&
+                user?.emailVerified === true
+              }
+            />
+          ) : (
+            <DashboardGuests
+              tenantId={tenantId}
+              propertyId={selectedProperty.id}
+              canMergeGuests={hasCapability('guests.merge')}
+            />
+          )
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'account' ? (
+          <MyAccount
+            tenantId={tenantId}
+            email={user?.email}
+            role={role ? roleLabels[role] : undefined}
+            hotelName={selectedProperty.name}
+            hotelTimezone={selectedProperty.timezone}
+            hotelDateFormat={selectedProperty.dateFormat}
+          />
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'audit' ? (
+          <ActivityAudit tenantId={tenantId} propertyId={selectedProperty.id} userId={user?.id} />
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'notifications' ? (
+          <NotificationsInbox tenantId={tenantId} propertyId={selectedProperty.id} />
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'accommodations' ? (
+          <RoomManagement
+            propertyId={selectedProperty.id}
+            tenantId={tenantId}
+            canManageAccommodations={hasCapability('accommodations.manage')}
+            canManagePhotos={hasCapability('photos.manage')}
+            canViewCalendar={hasCapability('calendar.view')}
+            canBlockCalendar={hasCapability('calendar.block')}
+            canCreateBooking={hasCapability('bookings.create')}
+            canManageRates={hasCapability('rates.manage')}
+            canManageInventorySource={role === 'OWNER' || role === 'ADMIN'}
+            onNavigateSection={setSection}
+          />
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'rates-pricing' ? (
+          <RateManagement
+            propertyId={selectedProperty.id}
+            tenantId={tenantId}
+            emailVerified={user?.emailVerified === true}
+          />
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'staff' ? (
+          <DashboardStaff tenantId={tenantId} propertyId={selectedProperty.id} />
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'emails' ? (
+          <EmailsWorkspace
+            viewerId={user?.id}
+            key={selectedProperty.id}
+            tenantId={tenantId}
+            propertyId={selectedProperty.id}
+            canWrite={user?.emailVerified === true && hasCapability('settings.manage')}
+          />
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'reports' ? (
+          <DashboardReports tenantId={tenantId} propertyId={selectedProperty.id} />
+        ) : null}
+        {selectedProperty && role && canViewSection && section === 'settings' ? (
+          settingsArea === 'email' ? (
+            <EmailSettings
+              viewerId={user?.id}
+              tenantId={tenantId}
+              propertyId={selectedProperty.id}
+              initialTab={emailTab}
+              canWrite={user?.emailVerified === true && hasCapability('settings.manage')}
+            />
+          ) : settingsArea ? (
+            <DashboardSettings
+              key={selectedProperty.id}
+              tenantId={tenantId}
+              propertyId={selectedProperty.id}
+              settingsArea={settingsArea}
+              canWrite={user?.emailVerified === true && hasCapability('settings.manage')}
+              canManagePhotos={hasCapability('photos.manage')}
+              onPropertySaved={(updated) =>
+                setProperties((current) =>
+                  current?.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)),
+                )
+              }
+            />
+          ) : (
+            <SettingsHub tenantId={tenantId} propertyId={selectedProperty.id} />
+          )
+        ) : null}
+      </AppShell>
+    </HotelDateFormatProvider>
   );
 }

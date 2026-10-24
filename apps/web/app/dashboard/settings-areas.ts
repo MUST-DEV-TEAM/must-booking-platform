@@ -3,6 +3,7 @@ export type PaymentGateways = { stripe: boolean; pokpay: boolean; payAtHotel: bo
 export type BookingMode = 'ROOM_TYPE_ONLY' | 'INDIVIDUAL_ROOM_ONLY' | 'MIXED';
 
 export type Property = {
+  dateFormat?: string;
   legalName?: string | null;
   taxNumber?: string | null;
   country?: string | null;

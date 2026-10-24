@@ -1,3 +1,5 @@
+import { AuditLogService } from './audit-log.service';
+import { auditDenial } from './audit-denial';
 import {
   CanActivate,
   ExecutionContext,
@@ -15,6 +17,7 @@ export class CapabilitiesGuard implements CanActivate {
   constructor(
     @Inject(Reflector) private readonly reflector: Reflector,
     @Inject(CapabilitiesService) private readonly capabilities: CapabilitiesService,
+    @Inject(AuditLogService) private readonly audit: AuditLogService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -30,7 +33,10 @@ export class CapabilitiesGuard implements CanActivate {
     if (!tenantContext)
       throw new ForbiddenException('A tenant context is required for capability checks.');
     const allowed = (await this.capabilities.effective(tenantContext)).includes(capability);
-    if (!allowed) throw new ForbiddenException('Missing required capability.');
+    if (!allowed) {
+      await auditDenial(this.audit, tenantContext, 'CAPABILITY_REQUIRED', capability);
+      throw new ForbiddenException('Missing required capability.');
+    }
     return true;
   }
 }

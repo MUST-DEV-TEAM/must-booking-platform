@@ -64,6 +64,7 @@ export function RefundDialog({
     });
     const result = (await response.json().catch(() => null)) as {
       ok?: boolean;
+      value?: { status?: string };
       error?: { message?: string };
       message?: string;
     } | null;
@@ -71,7 +72,9 @@ export function RefundDialog({
       throw new Error(result?.error?.message ?? result?.message ?? 'The refund could not be made.');
     await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     onRefunded();
-    toast.success('Refund recorded.');
+    if (result?.value?.status === 'REFUND_PENDING')
+      toast.info('Refund submitted. Provider confirmation is pending; review it before retrying.');
+    else toast.success('Refund recorded.');
     onClose();
   };
 

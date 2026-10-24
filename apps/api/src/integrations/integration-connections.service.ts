@@ -60,8 +60,55 @@ export class IntegrationConnectionsService {
     );
   }
 
+  async credentialDetails(tenantId: string, connectionId: string) {
+    return this.database.withTenantTransaction({ tenantId }, async (tx) => {
+      const rows = await tx.$queryRaw<
+        Array<{ provider: ConnectionProvider; encrypted: string }>
+      >`SELECT provider, encrypted_credentials AS encrypted FROM integration_connections WHERE tenant_id=${tenantId}::uuid AND id=${connectionId}::uuid`;
+      if (!rows[0]) throw new BadRequestException('Connection not found.');
+      const data = this.cipher.decrypt(rows[0].encrypted);
+      const fields =
+        rows[0].provider === 'CLOCK_PMS'
+          ? ['host', 'accountId', 'subscriptionId', 'apiUser', 'apiKey']
+          : rows[0].provider === 'POKPAY'
+            ? ['keyId', 'keySecret', 'merchantId', 'webhookUrl', 'baseUrl']
+            : ['secretKey', 'webhookSecret'];
+      const secretKeys = new Set(['apiKey', 'keySecret', 'secretKey', 'webhookSecret']);
+      return {
+        provider: rows[0].provider,
+        fields: Object.fromEntries(
+          fields.map((key) => [
+            key,
+            secretKeys.has(key)
+              ? data[key]?.length > 4
+                ? '***' + data[key].slice(-4)
+                : '****'
+              : data[key] || (key === 'baseUrl' ? 'https://api-staging.pokpay.io' : ''),
+          ]),
+        ),
+      };
+    });
+  }
+
+  setup() {
+    const explicit = process.env.POKPAY_WEBHOOK_URL?.trim();
+    const origin = process.env.WEB_APP_URL?.trim();
+    return {
+      pokpayWebhookUrl:
+        explicit || (origin ? new URL('/api/webhooks/pokpay', origin).toString() : ''),
+    };
+  }
+
   async create(tenantId: string, actorUserId: string, body: unknown): Promise<ConnectionSummary> {
     const input = this.createInput(body);
+    if (input.provider === 'POKPAY' && !input.credentials.webhookUrl) {
+      const callback = this.setup().pokpayWebhookUrl;
+      if (!callback)
+        throw new BadRequestException(
+          'MUST needs its public payment notification address configured before activation.',
+        );
+      input.credentials = { ...input.credentials, webhookUrl: callback };
+    }
     const id = randomUUID();
     return this.database.withTenantTransaction({ tenantId }, async (tx) => {
       if (input.kind === 'PMS') {
@@ -177,6 +224,9 @@ export class IntegrationConnectionsService {
         throw new ConflictException(
           'Keep this connection for existing bookings and payments. Disable it or replace its credentials instead of deleting its history.',
         );
+      const affected = await tx.$queryRaw<
+        Array<{ id: string }>
+      >`SELECT property_id AS id FROM property_integration_connections WHERE tenant_id=${tenantId}::uuid AND connection_id=${connectionId}::uuid`;
       const deleted = await tx.$queryRawUnsafe<Array<{ id: string }>>(
         `DELETE FROM integration_connections WHERE tenant_id = $1::uuid AND id = $2::uuid RETURNING id`,
         tenantId,
@@ -187,6 +237,7 @@ export class IntegrationConnectionsService {
         tenantId,
         actorUserId,
         action: 'integration_connection.deleted',
+        affectedPropertyIds: affected.map((row) => row.id),
         targetType: 'integration_connection',
         targetId: connectionId,
       });
@@ -223,6 +274,7 @@ export class IntegrationConnectionsService {
         tenantId,
         actorUserId,
         action: 'integration_connection.tested',
+        result: result.ok ? 'completed' : 'failed',
         targetType: 'integration_connection',
         targetId: connectionId,
         details: { ok: result.ok, message: result.message },

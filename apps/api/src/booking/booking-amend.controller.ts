@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Headers, Inject, Param, Patch, Query, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
 import { TenantScoped } from '../tenancy/tenant-context.decorator';
 import { RequiresCapability } from '../tenancy/capabilities.decorator';
 import { Role, Roles } from '../tenancy/roles.decorator';
@@ -19,6 +30,17 @@ export class BookingAmendController {
   @TenantScoped({ propertyParam: 'propertyId' })
   calendar(@Req() r: Request, @Param('bookingId') id: string, @Query() query: unknown) {
     return this.service.calendar(r.tenantContext, id, query);
+  }
+  @Get(':bookingId/amend-status')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  status(@Req() r: Request, @Param('bookingId') id: string) {
+    return this.service.amendmentStatus(r.tenantContext, id);
+  }
+  @Post(':bookingId/amend-check')
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @RequiresVerifiedEmail()
+  check(@Req() r: Request, @Param('bookingId') id: string) {
+    return this.service.checkAmendment(r.tenantContext, id);
   }
   @Patch(':bookingId/amend')
   @TenantScoped({ propertyParam: 'propertyId' })

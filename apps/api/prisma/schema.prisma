@@ -170,6 +170,7 @@ model User {
 }
 
 model Property {
+  dateFormat String @default("DD/MM/YYYY") @map("date_format") @db.VarChar(20)
   legalName String? @map("legal_name") @db.VarChar(200)
   taxNumber String? @map("tax_number") @db.VarChar(100)
   country String? @map("country") @db.VarChar(2)

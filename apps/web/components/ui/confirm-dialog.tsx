@@ -33,6 +33,7 @@ export function ConfirmDialog({
   typedWord,
   confirmDisabled = false,
   contentClassName,
+  scrollBody = false,
   children,
   onConfirm,
 }: {
@@ -52,6 +53,7 @@ export function ConfirmDialog({
   /** Keeps the confirm button off while something in `children` is not valid yet. */
   confirmDisabled?: boolean;
   contentClassName?: string;
+  scrollBody?: boolean;
   /** Extra content, such as an impact summary, shown above the reason. */
   children?: ReactNode;
   onConfirm: (reason: string) => Promise<void>;
@@ -94,47 +96,53 @@ export function ConfirmDialog({
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className={contentClassName}>
-        <DialogHeader>
+      <DialogContent
+        className={`${scrollBody ? 'flex max-h-[90dvh] flex-col overflow-hidden p-0 gap-0' : ''} ${contentClassName || ''}`}
+      >
+        <DialogHeader className={scrollBody ? 'shrink-0 p-6 pb-4' : undefined}>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription asChild>
             <div className="text-sm text-muted-foreground">{description}</div>
           </DialogDescription>
         </DialogHeader>
-        {children}
-        {reasonLabel ? (
-          <div className="space-y-1.5">
-            <Label htmlFor="confirm-reason">
-              {reasonLabel}
-              {reasonRequired ? <span className="text-destructive"> *</span> : null}
-            </Label>
-            <Textarea
-              id="confirm-reason"
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-              placeholder={reasonPlaceholder}
-            />
-          </div>
-        ) : null}
-        {typedWord ? (
-          <div className="space-y-1.5">
-            <Label htmlFor="confirm-typed">
-              Type <span className="font-mono font-bold">{typedWord}</span> to confirm
-            </Label>
-            <Input
-              id="confirm-typed"
-              value={typed}
-              onChange={(event) => setTyped(event.target.value)}
-              autoComplete="off"
-            />
-          </div>
-        ) : null}
-        {error ? (
-          <p role="alert" className="text-sm font-semibold text-destructive">
-            {error}
-          </p>
-        ) : null}
-        <DialogFooter>
+        <div
+          className={scrollBody ? 'min-h-0 flex-1 overflow-y-auto px-6 pb-5 space-y-5' : 'contents'}
+        >
+          {children}
+          {reasonLabel ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="confirm-reason">
+                {reasonLabel}
+                {reasonRequired ? <span className="text-destructive"> *</span> : null}
+              </Label>
+              <Textarea
+                id="confirm-reason"
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                placeholder={reasonPlaceholder}
+              />
+            </div>
+          ) : null}
+          {typedWord ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="confirm-typed">
+                Type <span className="font-mono font-bold">{typedWord}</span> to confirm
+              </Label>
+              <Input
+                id="confirm-typed"
+                value={typed}
+                onChange={(event) => setTyped(event.target.value)}
+                autoComplete="off"
+              />
+            </div>
+          ) : null}
+          {error ? (
+            <p role="alert" className="text-sm font-semibold text-destructive">
+              {error}
+            </p>
+          ) : null}
+        </div>
+        <DialogFooter className={scrollBody ? 'shrink-0 border-t bg-card px-6 py-4' : undefined}>
           <Button variant="outline" onClick={() => close(false)} disabled={busy}>
             {cancelLabel}
           </Button>

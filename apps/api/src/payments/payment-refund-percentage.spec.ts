@@ -49,6 +49,14 @@ async function refundRequested(
     { recordInTransaction: vi.fn().mockResolvedValue(undefined) } as never,
   );
 
+  // This suite isolates amount/Clock behavior; durable gateway retries use real PostgreSQL in payment-collection.e2e.
+  vi.spyOn(
+    service as unknown as { gatewayRefund: (...args: unknown[]) => Promise<unknown> },
+    'gatewayRefund',
+  ).mockImplementation(async (...args) =>
+    refund(args[0], { ...(args[3] as object), paymentId: 'order-1' }),
+  );
+
   const result = await service.manualRefund(context, {
     bookingId,
     idempotencyKey: 'key',
@@ -78,13 +86,14 @@ describe('manual percentage refunds apply to what is still refundable', () => {
     expect(requested).toBe('200.00');
   });
 
-  it('leaves a fixed amount alone: it is taken as typed, up to what is left', async () => {
+  it('refunds the exact requested amount and rejects an excess instead of silently clipping', async () => {
     const typed = await refundRequested('50.00', { amount: { amount: '30.00', currency: 'EUR' } });
     const tooMuch = await refundRequested('50.00', {
       amount: { amount: '999.00', currency: 'EUR' },
     });
 
     expect(typed.requested).toBe('30.00');
-    expect(tooMuch.requested).toBe('200.00');
+    expect(tooMuch.requested).toBeUndefined();
+    expect(tooMuch.result).toMatchObject({ ok: false, error: { code: 'INVALID_REFUND_AMOUNT' } });
   });
 });

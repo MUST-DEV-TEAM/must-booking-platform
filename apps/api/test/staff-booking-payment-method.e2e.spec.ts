@@ -1,3 +1,4 @@
+import { withoutExternalWorkers } from './helpers/without-external-workers';
 import * as crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
@@ -57,6 +58,11 @@ describe('staff-bookings: payment method selection', () => {
   };
   const payments: PaymentProvider = {
     async createCheckoutSession(_context, command) {
+      for (const target of [command.successUrl, command.cancelUrl]) {
+        const url = new URL(target);
+        expect(url.searchParams.get('tenantId')).toBe(_context.tenantId);
+        expect(url.searchParams.get('propertyId')).toBe(_context.propertyId);
+      }
       return {
         ok: true,
         value: {
@@ -77,6 +83,11 @@ describe('staff-bookings: payment method selection', () => {
   };
   const pokpay: PaymentProvider = {
     async createCheckoutSession(_context, command) {
+      for (const target of [command.successUrl, command.cancelUrl]) {
+        const url = new URL(target);
+        expect(url.searchParams.get('tenantId')).toBe(_context.tenantId);
+        expect(url.searchParams.get('propertyId')).toBe(_context.propertyId);
+      }
       const attempt = (pokpayCheckoutAttempts.get(command.bookingId) ?? 0) + 1;
       pokpayCheckoutAttempts.set(command.bookingId, attempt);
       const id = `pok_test_${command.bookingId}_${attempt}`;
@@ -109,7 +120,9 @@ describe('staff-bookings: payment method selection', () => {
     process.env.WEB_APP_URL = 'http://localhost:3001';
     await clearSignupRateLimits();
     const { AppModule } = await import('../src/app.module');
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    const moduleRef = await withoutExternalWorkers(
+      Test.createTestingModule({ imports: [AppModule] }),
+    )
       .overrideProvider(MAIL_PROVIDER)
       .useValue(mail)
       .overrideProvider(PAYMENT_PROVIDER)

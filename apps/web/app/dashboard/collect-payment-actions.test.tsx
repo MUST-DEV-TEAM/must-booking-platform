@@ -11,20 +11,29 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
-async function mount(status = 'CONFIRMED', capabilities = ['payments.record']) {
+async function mount(
+  status = 'CONFIRMED',
+  capabilities = ['payments.record'],
+  clock = false,
+  paidAmount = '25',
+  clockResult?: unknown,
+) {
   const requests: string[] = [];
-  const fetcher = vi.fn(async (url: string) => {
+  const fetcher = vi.fn(async (url: string, _init?: RequestInit) => {
+    void _init;
     requests.push(url);
     return {
       ok: true,
       json: async () =>
-        url.endsWith('/mine')
-          ? capabilities
-          : url.endsWith('/collection-options')
-            ? { pokpay: true }
-            : url.endsWith('/check-collection')
-              ? { paid: true }
-              : { checkoutUrl: 'https://staging.example/checkout' },
+        url.includes('/clock-sync/financial/') && clockResult
+          ? clockResult
+          : url.endsWith('/mine')
+            ? capabilities
+            : url.endsWith('/collection-options')
+              ? { pokpay: true }
+              : url.endsWith('/check-collection')
+                ? { paid: true, orderId: 'current-order' }
+                : { checkoutUrl: 'https://staging.example/checkout', orderId: 'current-order' },
     };
   });
   vi.stubGlobal('fetch', fetcher);
@@ -42,9 +51,10 @@ async function mount(status = 'CONFIRMED', capabilities = ['payments.record']) {
           propertyId: 'p',
           booking: {
             id: 'b',
+            ...(clock ? { balanceBasis: 'CLOCK' as const } : {}),
             status,
             total: { amount: '100', currency: 'EUR' },
-            paidAmount: '25',
+            paidAmount,
             guestEmail: 'guest@example.test',
           },
         }),
@@ -67,6 +77,49 @@ async function mount(status = 'CONFIRMED', capabilities = ['payments.record']) {
   };
 }
 describe('confirmed booking collection controls', () => {
+  it('shows a checking skeleton before imported payment options become available', async () => {
+    const v = await mount('CONFIRMED', ['payments.record'], true);
+    expect(v.host.textContent).toContain('Updating balance and payment options');
+    expect(v.host.querySelector('[aria-busy="true"]')).not.toBeNull();
+    expect(v.requests.some((url) => url.endsWith('/collect-pokpay'))).toBe(false);
+    await v.close();
+  });
+  it('hides collection once the booking has been paid in full', async () => {
+    const view = await mount('CONFIRMED', ['payments.record'], false, '100.00');
+    expect(view.host.textContent).toBe('');
+    expect(view.requests.some((url) => url.endsWith('/collection-options'))).toBe(false);
+    await view.close();
+  });
+  it('shows updating rather than an old positive Clock balance after a capture', async () => {
+    const view = await mount('CONFIRMED', ['payments.record'], true, '100.00', {
+      status: 'SYNCED',
+      isCurrent: true,
+      data: {
+        localPaid: '0.00',
+        localRefunded: '0.00',
+        balance: { amount: '100.00', currency: 'EUR' },
+        fetchedAt: new Date().toISOString(),
+      },
+    });
+    expect(view.host.textContent).toContain('Updating balance');
+    expect(view.host.textContent).not.toContain('Pay with PokPay');
+    expect(view.requests.some((url) => url.endsWith('/collection-options'))).toBe(false);
+    await view.close();
+  });
+  it('hides collection for a verified zero Clock balance', async () => {
+    const view = await mount('CONFIRMED', ['payments.record'], true, '100.00', {
+      status: 'SYNCED',
+      isCurrent: true,
+      data: {
+        localPaid: '100.00',
+        localRefunded: '0.00',
+        balance: { amount: '0.00', currency: 'EUR' },
+        fetchedAt: new Date().toISOString(),
+      },
+    });
+    expect(view.host.textContent).toBe('');
+    await view.close();
+  });
   it.each(['PMS_UNKNOWN_RESULT', 'AVAILABILITY_FAILED', 'CANCELLED'])(
     'never offers collection for %s',
     async (status) => {
@@ -99,6 +152,30 @@ describe('confirmed booking collection controls', () => {
     expect(view.requests.some((x) => x.endsWith('/check-collection'))).toBe(true);
     expect(view.invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] });
     expect(tab.close).toHaveBeenCalledOnce();
+    await view.close();
+  });
+  it('keeps checkout open when the server reports a different order as paid', async () => {
+    const tab = { location: { href: '' }, close: vi.fn() };
+    vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window);
+    const view = await mount();
+    await act(async () =>
+      [...view.host.querySelectorAll('button')]
+        .find((b) => b.textContent === 'Pay with PokPay')!
+        .click(),
+    );
+    const original = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) =>
+      String(url).endsWith('/check-collection')
+        ? ({ ok: true, json: async () => ({ paid: true, orderId: 'older-order' }) } as Response)
+        : original(url, init),
+    );
+    await act(async () => window.dispatchEvent(new Event('focus')));
+    expect(tab.close).not.toHaveBeenCalled();
+    expect(view.invalidate).not.toHaveBeenCalled();
+    const call = vi
+      .mocked(fetch)
+      .mock.calls.find(([url]) => String(url).endsWith('/check-collection'))!;
+    expect(JSON.parse(call[1]!.body as string)).toEqual({ orderId: 'current-order' });
     await view.close();
   });
   it('asks for explicit received-money confirmation before recording a manual payment', async () => {

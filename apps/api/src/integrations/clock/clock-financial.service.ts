@@ -9,6 +9,10 @@ import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
 import { IntegrationConnectionsService } from '../integration-connections.service';
 import { ClockBookingConsistencyService } from './clock-booking-consistency.service';
 import { parseClockCredentials } from './clock-credentials';
+const decimalMinor = (value: string) => {
+  const [whole, fraction = ''] = value.split('.');
+  return BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0').slice(0, 2));
+};
 export class ClockFinancialCurrencyError extends Error {
   constructor() {
     super(
@@ -199,14 +203,30 @@ export class ClockFinancialService {
     if (connection?.provider !== 'CLOCK_PMS') return { data: null, status: 'NOT_CONNECTED' };
     return this.db.withTenantTransaction(scope, async (tx) => {
       const booking = await tx.$queryRaw<
-        Array<{ id: string }>
-      >`SELECT id FROM bookings WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${bookingId}::uuid AND external_booking_id IS NOT NULL`;
+        Array<{ id: string; version: number; paid: string; refunded: string }>
+      >`SELECT id,version,COALESCE((SELECT sum(amount) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='CHARGE' AND status IN ('PAID','succeeded')),0)::text AS paid,COALESCE((SELECT sum(amount) FROM payments WHERE tenant_id=b.tenant_id AND property_id=b.property_id AND booking_id=b.id AND kind='REFUND' AND status='REFUNDED'),0)::text AS refunded FROM bookings b WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${bookingId}::uuid AND external_booking_id IS NOT NULL`;
       if (!booking[0]) return { data: null, status: 'NOT_LINKED' };
-      await tx.$executeRaw`INSERT INTO clock_sync_jobs(tenant_id,property_id,connection_id,resource,next_run_at) VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${connection.connectionId}::uuid,${'financial:' + bookingId},now()) ON CONFLICT(tenant_id,property_id,connection_id,resource) DO UPDATE SET next_run_at=LEAST(clock_sync_jobs.next_run_at,now()) WHERE clock_sync_jobs.status='SYNCED' AND (clock_sync_jobs.snapshot->>'fetchedAt')::timestamptz<now()-interval '60 seconds'`;
+      await tx.$executeRaw`INSERT INTO clock_sync_jobs(tenant_id,property_id,connection_id,resource,next_run_at,requested_at) VALUES(${scope.tenantId}::uuid,${scope.propertyId}::uuid,${connection.connectionId}::uuid,${'financial:' + bookingId},now(),now()) ON CONFLICT(tenant_id,property_id,connection_id,resource) DO UPDATE SET requested_at=COALESCE(clock_sync_jobs.requested_at,now()),next_run_at=LEAST(clock_sync_jobs.next_run_at,now()) WHERE clock_sync_jobs.status IN ('SYNCED','RETRY','READY') AND (clock_sync_jobs.snapshot IS NULL OR (clock_sync_jobs.snapshot->>'fetchedAt')::timestamptz<now()-interval '60 seconds' OR (clock_sync_jobs.snapshot->>'bookingVersion')::int IS DISTINCT FROM ${booking[0].version} OR (clock_sync_jobs.snapshot->>'localPaid')::numeric IS DISTINCT FROM ${booking[0].paid}::numeric OR (clock_sync_jobs.snapshot->>'localRefunded')::numeric IS DISTINCT FROM ${booking[0].refunded}::numeric)`;
       const rows = await tx.$queryRaw<
         Array<{ data: ClockFinancialSnapshot | null; status: string; lastError: string | null }>
       >`SELECT snapshot AS data,status,last_error AS "lastError" FROM clock_sync_jobs WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND connection_id=${connection.connectionId}::uuid AND resource=${'financial:' + bookingId}`;
-      return rows[0];
+      const row = rows[0];
+      const data = row?.data;
+      const equalMoney = (a: string | undefined, b: string) =>
+        a !== undefined && decimalMinor(a) === decimalMinor(b);
+      const isCurrent =
+        !!data &&
+        data.bookingVersion === booking[0].version &&
+        equalMoney(data.localPaid, booking[0].paid) &&
+        equalMoney(data.localRefunded, booking[0].refunded) &&
+        Date.now() - Date.parse(data.fetchedAt) < 5 * 60_000;
+      return row
+        ? {
+            ...row,
+            isCurrent,
+            status: !isCurrent && row.status !== 'FAILED' ? 'UPDATING' : row.status,
+          }
+        : { data: null, status: 'UPDATING', isCurrent: false };
     });
   }
 }

@@ -739,8 +739,13 @@ export class AvailabilityService {
     tenantId: string,
     propertyId: string,
     input: {
-      bookingId: string; roomTypeId: string; roomId: string | null;
-      oldStartsOn: string; oldEndsOn: string; startsOn: string; endsOn: string;
+      bookingId: string;
+      roomTypeId: string;
+      roomId: string | null;
+      oldStartsOn: string;
+      oldEndsOn: string;
+      startsOn: string;
+      endsOn: string;
     },
     apply = false,
     reasons?: string[],
@@ -750,7 +755,10 @@ export class AvailabilityService {
     const pooled = !input.roomId;
     if (pooled) {
       await this.releaseBookedUnits(tx, tenantId, propertyId, {
-        roomTypeId: input.roomTypeId, startsOn: input.oldStartsOn, endsOn: input.oldEndsOn, units: 1,
+        roomTypeId: input.roomTypeId,
+        startsOn: input.oldStartsOn,
+        endsOn: input.oldEndsOn,
+        units: 1,
       });
     }
     let available = pooled
@@ -759,12 +767,22 @@ export class AvailabilityService {
     if (available && input.roomId) {
       await this.lockRoom(tx, tenantId, propertyId, input.roomId);
       available = await this.roomIsAvailable(
-        tx, tenantId, propertyId, { ...input, roomId: input.roomId }, input.bookingId, reasons,
+        tx,
+        tenantId,
+        propertyId,
+        { ...input, roomId: input.roomId },
+        input.bookingId,
+        reasons,
       );
     }
-    if (!available && reasons && reasons.length===0) {
-      const blocked = pooled && await this.roomTypeIsBlocked(tx,tenantId,propertyId,input.roomTypeId,input);
-      reasons.push(blocked ? 'Blocked: a manual block overlaps these dates.' : 'Booked or unavailable: the same accommodation has no inventory for these dates.');
+    if (!available && reasons && reasons.length === 0) {
+      const blocked =
+        pooled && (await this.roomTypeIsBlocked(tx, tenantId, propertyId, input.roomTypeId, input));
+      reasons.push(
+        blocked
+          ? 'Blocked: a manual block overlaps these dates.'
+          : 'Booked or unavailable: the same accommodation has no inventory for these dates.',
+      );
     }
     if (!apply || !available)
       await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT booking_amend_inventory');
@@ -940,6 +958,28 @@ export class AvailabilityService {
     return { roomId: input.roomId, ...this.rangeInput(input) };
   }
 
+  async unavailableRoomsForMove(
+    tx: TenantTransaction,
+    tenantId: string,
+    propertyId: string,
+    query: { roomIds: string[]; startsOn: string; endsOn: string; excludeBookingId: string },
+  ): Promise<string[]> {
+    const unavailable: string[] = [];
+    for (const roomId of query.roomIds) {
+      if (
+        !(await this.roomIsAvailable(
+          tx,
+          tenantId,
+          propertyId,
+          { roomId, startsOn: query.startsOn, endsOn: query.endsOn },
+          query.excludeBookingId,
+        ))
+      )
+        unavailable.push(roomId);
+    }
+    return unavailable;
+  }
+
   private async roomIsAvailable(
     tx: TenantTransaction,
     tenantId: string,
@@ -948,7 +988,9 @@ export class AvailabilityService {
     excludeBookingId?: string,
     reasons?: string[],
   ): Promise<boolean> {
-    const rows = await tx.$queryRaw<Array<{ active:boolean; closed:boolean; booked:boolean; blocked:boolean }>>`
+    const rows = await tx.$queryRaw<
+      Array<{ active: boolean; closed: boolean; booked: boolean; blocked: boolean }>
+    >`
       SELECT
         EXISTS (
           SELECT 1 FROM rooms r
@@ -1020,7 +1062,7 @@ export class AvailabilityService {
             )
         ) AS blocked
     `;
-    const row=rows[0];
+    const row = rows[0];
     if (row && reasons) {
       if (!row.active) reasons.push('Closed: this room is inactive.');
       if (row.closed || row.blocked) reasons.push('Blocked: a manual block overlaps these dates.');

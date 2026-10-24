@@ -84,3 +84,7 @@ The `POST /bookings/` `booking` object includes optional integer `adults` and `c
 - **CONFIRMED_IN_SANDBOX:** CLOCK-396 has two distinct EUR1700 credit items, EUR3400 provider payments and EUR1700 guest credit against EUR1700 booking value. The MUST EUR1700 ledger entry overlaps provider history. No financial repair was performed.
 - **CONFIRMED_IN_SANDBOX:** CLOCK-382 has a deposit balance labelled ALL and an EUR credit item. This is rejected for collection rather than silently converted. Full mixed-currency reconciliation is **NOT SUPPORTED** by this reader.
 - Cancellation-policy calculation from a `guarantee_policy_id` remains **NOT VERIFIED**; no undocumented endpoint, penalty formula or free-cancellation assumption is introduced.
+
+### Reviewed amendment evidence (2026-10-23)
+
+CONFIRMED_IN_SANDBOX on one owner-authorized dedicated reservation (Clock 39009015): documented `PUT /bookings/{id}` with only `arrival_room_id` and `lock_version` preserved its rate and EUR220 total. Changing only `departure` and `lock_version` recalculated the original public rate from EUR220/two nights to EUR330/three nights, then the guarded service confirmed EUR440/four nights. Final status was `canceled`; no payment/refund. This does not establish private-rate, last-unit exclusion or arbitrary folio-charge amendment semantics. The [lifecycle](booking-lifecycle.md#reviewed-room-reassignment-2026-10-23) owns implemented guards and recovery.

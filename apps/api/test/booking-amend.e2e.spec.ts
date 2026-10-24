@@ -1,3 +1,4 @@
+import { PmsProviderRegistry } from '../src/booking/pms-provider-registry';
 import { PaymentRefundService } from '../src/payments/payment-refund.service';
 import { PaymentProviderRegistry } from '../src/payments/payment-provider-registry';
 import { PaymentNotificationService } from '../src/mail/payment-notification.service';
@@ -61,11 +62,7 @@ const tenantId = randomUUID(),
   guest = randomUUID(),
   roomType = randomUUID(),
   ratePlan = randomUUID();
-const c: { tenantId: string; propertyId: string; userId: string } = {
-  tenantId,
-  propertyId,
-  userId: owner,
-};
+type FixtureContext = { tenantId: string; propertyId: string; userId: string };
 let app: INestApplication;
 const receipt = { sendRefundConfirmationEmailSafely: vi.fn(async () => {}) };
 const email = { sendBookingChanged: vi.fn(async () => {}) };
@@ -203,6 +200,7 @@ beforeAll(async () => {
     controllers: [BookingAmendController],
     providers: [
       BookingAmendService,
+      { provide: PmsProviderRegistry, useValue: { forProperty: async () => ({}) } },
       PaymentRefundService,
       { provide: PaymentProviderRegistry, useValue: {} },
       { provide: PaymentNotificationService, useValue: receipt },
@@ -222,7 +220,7 @@ beforeAll(async () => {
   app = mod.createNestApplication();
   app.use(
     (
-      req: { originalUrl: string; headers: Record<string, string>; tenantContext?: typeof c },
+      req: { originalUrl: string; headers: Record<string, string>; tenantContext?: FixtureContext },
       _res: unknown,
       next: () => void,
     ) => {
@@ -235,7 +233,9 @@ beforeAll(async () => {
       next();
     },
   );
-  app.useGlobalGuards(new CapabilitiesGuard(new Reflector(), mod.get(CapabilitiesService)));
+  app.useGlobalGuards(
+    new CapabilitiesGuard(new Reflector(), mod.get(CapabilitiesService), mod.get(AuditLogService)),
+  );
   await app.init();
 });
 afterAll(async () => {
@@ -269,7 +269,7 @@ it('reprices upward, moves stock including overlapping own nights, audits once, 
   expect(email.sendBookingChanged).toHaveBeenCalledTimes(1);
   expect((await patch(f.id, { ...body, reason: 'Different' }, key)).status).toBe(409);
   const audit = await admin.$queryRaw<
-    { details: any }[]
+    { details: { changes: { total: { old: string; new: string } }; [key: string]: unknown } }[]
   >`SELECT details FROM audit_logs WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND target_id=${f.id} AND action='booking.dates_amended'`;
   expect(audit).toHaveLength(1);
   expect(audit[0]!.details.changes.total).toEqual({ old: '200.00', new: '300.00' });
@@ -338,14 +338,14 @@ it('fails closed for missing edit capability, wrong hotel and wrong tenant', asy
   const service = app.get(BookingAmendService);
   await expect(service.preview(c2, f.id, dates)).rejects.toThrow('Requires bookings.edit');
 });
-it('refuses Clock-managed and cancelled reservations without changing inventory', async () => {
+it('requires original terms review for Clock and refuses cancelled reservations without changing inventory', async () => {
   const f = await fixture(),
     p = await preview(f.id),
     before = await stock(f.type);
   await admin.$executeRaw`UPDATE bookings SET external_booking_id='clock-managed' WHERE id=${f.id}::uuid`;
   const clock = await patch(f.id, input(p.body));
-  expect(clock.status).toBe(409);
-  expect(clock.body.message).toContain('managed in Clock');
+  expect(clock.status).toBe(400);
+  expect(clock.body.message).toContain('Review the original cancellation terms');
   await admin.$executeRaw`UPDATE bookings SET external_booking_id=NULL,status='CANCELLED' WHERE id=${f.id}::uuid`;
   expect((await patch(f.id, input(p.body))).status).toBe(409);
   expect(await stock(f.type)).toEqual(before);
@@ -483,7 +483,7 @@ it('waives an increase only with permission and a reason, binds the choice to th
   expect(result.status, result.text).toBe(200);
   expect(result.body.total).toBe('200.00');
   const audit = await admin.$queryRaw<
-    { details: any }[]
+    { details: { changes: { total: { old: string; new: string } }; [key: string]: unknown } }[]
   >`SELECT details FROM audit_logs WHERE target_id=${f.id} AND action='booking.dates_amended'`;
   expect(audit[0]!.details).toMatchObject({
     outcome: 'waive',
@@ -492,14 +492,18 @@ it('waives an increase only with permission and a reason, binds the choice to th
     changes: { total: { old: '200.00', new: '200.00' } },
   });
 });
-it('refunds a paid decrease once under concurrent replay through the existing ledger and receipt path', async () => {
+it('leaves a paid decrease refundable without moving money, even under concurrent replay', async () => {
   const f = await fixture(200),
     d = { startsOn: '2030-07-11', endsOn: '2030-07-12' },
     p = await preview(f.id, d),
     key = randomUUID();
-  expect(p.body).toMatchObject({ outcome: 'refund', refundToIssue: '100.00', balance: '0.00' });
+  expect(p.body).toMatchObject({
+    outcome: 'refund_due',
+    refundToIssue: '0.00',
+    balance: '-100.00',
+  });
   const before = receipt.sendRefundConfirmationEmailSafely.mock.calls.length;
-  const body = { ...input(p.body, d), outcome: 'refund', outcomeReason: '' };
+  const body = { ...input(p.body, d), outcome: 'refund_due', outcomeReason: '' };
   const results = await Promise.all([patch(f.id, body, key), patch(f.id, body, key)]);
   expect(
     results.map((r) => r.status),
@@ -507,15 +511,15 @@ it('refunds a paid decrease once under concurrent replay through the existing le
   ).toEqual([200, 200]);
   expect(results[0]!.body).toMatchObject({
     total: '100.00',
-    refundIssued: '100.00',
-    balanceState: 'settled',
+    refundIssued: '0.00',
+    balanceState: 'refund_due',
   });
   expect(results[0]!.body).toEqual(results[1]!.body);
   const refunds = await admin.$queryRaw<
     { amount: string }[]
   >`SELECT amount::text AS amount FROM payments WHERE booking_id=${f.id}::uuid AND kind='REFUND'`;
-  expect(refunds).toEqual([{ amount: '100.00' }]);
-  expect(receipt.sendRefundConfirmationEmailSafely.mock.calls.length - before).toBe(1);
+  expect(refunds).toEqual([]);
+  expect(receipt.sendRefundConfirmationEmailSafely.mock.calls.length - before).toBe(0);
   expect((await patch(f.id, { ...body, outcome: 'no_refund' }, key)).status).toBe(409);
 });
 it('keeps the agreed total for no-refund, lowers an unpaid decrease without refunding, and handles equal prices', async () => {
@@ -537,7 +541,7 @@ it('keeps the agreed total for no-refund, lowers an unpaid decrease without refu
   });
   const unpaid = await fixture(),
     u = await preview(unpaid.id, d);
-  expect(u.body).toMatchObject({ outcome: 'refund', refundToIssue: '0.00' });
+  expect(u.body).toMatchObject({ outcome: 'refund_due', refundToIssue: '0.00' });
   expect((await patch(unpaid.id, input(u.body, d))).body).toMatchObject({
     total: '100.00',
     balance: '100.00',
@@ -599,8 +603,16 @@ it('calendar uses preview rules and own-night exclusion for pooled and assigned 
         to: '2030-07-17',
       });
     expect(response.status, response.text).toBe(200);
-    expect(response.body.days.find((d: any) => d.date === '2030-07-10').disabled).toBe(false);
-    expect(response.body.days.find((d: any) => d.date === '2030-07-15')).toMatchObject({
+    expect(
+      response.body.days.find(
+        (d: { date: string; disabled: boolean; reason: string | null }) => d.date === '2030-07-10',
+      ).disabled,
+    ).toBe(false);
+    expect(
+      response.body.days.find(
+        (d: { date: string; disabled: boolean; reason: string | null }) => d.date === '2030-07-15',
+      ),
+    ).toMatchObject({
       disabled: true,
       reason: expect.stringMatching(/Booked/),
     });
@@ -611,15 +623,13 @@ it('calendar uses preview rules and own-night exclusion for pooled and assigned 
 it('calendar explains manual blocks, stop sale, arrival/departure closure and minimum stay through the same preview evaluator', async () => {
   const f = await fixture();
   const calendar = (edge = 'start') =>
-    request(app.getHttpServer())
-      .get(`${base}/${f.id}/amend-calendar`)
-      .query({
-        startsOn: '2030-07-14',
-        endsOn: '2030-07-17',
-        edge,
-        from: '2030-07-15',
-        to: '2030-07-16',
-      });
+    request(app.getHttpServer()).get(`${base}/${f.id}/amend-calendar`).query({
+      startsOn: '2030-07-14',
+      endsOn: '2030-07-17',
+      edge,
+      from: '2030-07-15',
+      to: '2030-07-16',
+    });
   for (const [type, value, edge, reason] of [
     ['minimum_stay', 3, 'start', 'minimum stay'],
     ['closed_to_arrival', 1, 'start', 'Arrival is closed'],

@@ -92,9 +92,16 @@ export function CancellationDialog({
       : !clockTerms && amount === e?.eligible
         ? 'eligible'
         : 'custom';
-  const approval = clockTerms
-    ? !canCancel || !canRefund
-    : !canCancel || !e?.isFree || refundChoice === 'custom';
+  const unpaidHold =
+    e?.status === 'PAYMENT_PENDING' &&
+    previewMinor(e.paid) === 0n &&
+    !e.orderReference &&
+    refundChoice === 'none';
+  const approval = unpaidHold
+    ? !canCancel
+    : clockTerms
+      ? !canCancel || !canRefund
+      : !canCancel || !e?.isFree || refundChoice === 'custom';
   const invalidCustom = !!refundChoiceError(refundValue, paidBooking);
   return (
     <ConfirmDialog
@@ -106,7 +113,8 @@ export function CancellationDialog({
       reasonLabel="Details"
       reasonRequired
       destructive
-      contentClassName="max-h-[90dvh] overflow-y-auto gap-5 p-5 sm:max-w-[600px] sm:p-6 [&_[data-slot=dialog-footer]]:sticky [&_[data-slot=dialog-footer]]:bottom-0 [&_[data-slot=dialog-footer]]:border-t [&_[data-slot=dialog-footer]]:bg-card [&_[data-slot=dialog-footer]]:pt-4"
+      scrollBody
+      contentClassName="sm:max-w-[600px]"
       confirmDisabled={
         !e ||
         query.isFetching ||

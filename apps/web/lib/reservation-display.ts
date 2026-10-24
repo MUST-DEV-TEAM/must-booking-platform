@@ -81,6 +81,8 @@ export function paymentDisplay(input: PaymentInput): Display {
       ? { label: 'Refunded', tone: 'warning' }
       : { label: 'Partly refunded', tone: 'warning' };
   }
+  if (['CANCELLED', 'EXPIRED'].includes(input.status) && paid === 0)
+    return { label: 'No payment due', tone: 'muted' };
   if (input.status === 'PAYMENT_FAILED') return { label: 'Failed', tone: 'danger' };
   if (total > 0 && paid >= total) return { label: 'Paid', tone: 'success' };
   if (paid > 0) return { label: 'Deposit paid', tone: 'info' };
@@ -95,7 +97,11 @@ export function paymentDisplay(input: PaymentInput): Display {
 export function balanceDue(
   input: Pick<PaymentInput, 'total' | 'paid' | 'refunded'> & { status?: string },
 ): number {
-  if (input.status && bookingWasNotCreated(input.status)) return 0;
+  if (
+    input.status &&
+    (bookingWasNotCreated(input.status) || ['CANCELLED', 'EXPIRED'].includes(input.status))
+  )
+    return 0;
   return Math.max(0, cents(input.total) - cents(input.paid)) / 100;
 }
 

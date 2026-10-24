@@ -478,7 +478,7 @@ describe('ResendMailProvider', () => {
       messages[6],
       messages[7],
     ])
-      expect(message.html).toContain('border-radius:2px');
+      expect(message.html).toContain('border-radius:6px');
     expect(messages[0].html).toContain(
       'Confirm this email address to activate your account and start setting up your property.',
     );
@@ -517,7 +517,7 @@ describe('ResendMailProvider', () => {
     for (const message of [messages[0], messages[1], messages[2], messages[6], messages[7]])
       expect(message.html).toContain('padding:16px 18px;');
     for (const message of [messages[3], messages[4], messages[5], messages[8]])
-      expect(message.html).toContain('border-radius:24px');
+      expect(message.html).toContain('Here to help with your stay');
   });
   it('uses a fresh stable provider key for an explicit copy without changing the approved command', async () => {
     process.env.RESEND_API_KEY = 'mock-key';

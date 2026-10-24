@@ -39,6 +39,9 @@ Index of durable, cross-cutting, or hard-to-reverse decisions. Routine implement
 | [ADR-0033](ADR-0033-property-email-transports.md) | Property email transports and uncertain acceptance | Accepted owner requirements; implementation in progress under corrective M24 E4 |
 | [ADR-0034](ADR-0034-clock-sync-and-server-media.md) | Automatic Clock read synchronization and persistent server media | Accepted owner direction 2026-10-22; supersedes ADR-0011 provider choice; local verification recorded in Milestone 24 |
 | [ADR-0035](ADR-0035-booking-policy-snapshots-and-guest-requests.md) | Immutable booking cancellation terms and guest requests | Accepted owner direction 2026-10-23; implementation in progress |
+| [ADR-0036](ADR-0036-reviewed-booking-amendments.md) | Reviewed room/stay amendments with separate money actions | Accepted owner direction 2026-10-23 |
+
+| [ADR-0037](ADR-0037-audit-event-evidence.md) | Explicit audit metadata, operation links and application append-only history | Accepted owner direction 2026-10-24 |
 
 ## Interpretation and unresolved implementation details
 

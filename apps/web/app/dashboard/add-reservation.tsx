@@ -94,6 +94,7 @@ type Created = {
   reference: string;
   outcome: 'checkout' | 'settled' | 'pay-at-hotel';
   checkoutUrl?: string;
+  checkoutOrderId?: string;
   gateway?: GatewayMethod;
 };
 
@@ -139,7 +140,7 @@ const gatewayLabels: Record<GatewayMethod, { title: string; description: string 
   },
   pokpay: {
     title: 'Card payment (PokPay)',
-    description: 'A payment window opens; the reservation confirms once the guest pays.',
+    description: 'Pay, send or copy a link, or show a QR code after creating the reservation.',
   },
 };
 
@@ -429,7 +430,7 @@ export function AddReservation({
       if (result.value.checkoutUrl) {
         const url = String(result.value.checkoutUrl);
         if (payWindow.current && !payWindow.current.closed) payWindow.current.location.href = url;
-        else {
+        else if (gateway !== 'pokpay') {
           const fallback = window.open(url, '_blank');
           if (fallback) fallback.opener = null;
         }
@@ -439,6 +440,10 @@ export function AddReservation({
           reference,
           outcome: 'checkout',
           checkoutUrl: String(result.value.checkoutUrl),
+          checkoutOrderId:
+            typeof result.value.checkoutOrderId === 'string'
+              ? result.value.checkoutOrderId
+              : undefined,
           gateway: gateway || undefined,
         };
       }
@@ -520,12 +525,14 @@ export function AddReservation({
           bookingId={created.id}
           reference={created.reference}
           checkoutUrl={created.checkoutUrl}
+          checkoutOrderId={created.checkoutOrderId}
           providerName={created.gateway === 'stripe' ? 'Stripe' : 'PokPay'}
           reservationHref={href(
             tenantId,
             propertyId,
             `section=reservations&reservation=${created.id}`,
           )}
+          canSendPaymentLink={canRecordPayment}
           canCheckPayment={canCheckPayment}
           canViewBooking={canViewBooking}
           onStartOver={reset}
@@ -1322,8 +1329,9 @@ export function AddReservation({
                       <ol className="m-0 list-decimal space-y-1 pl-5 text-foreground">
                         <li>The reservation is created and the room is held, but not confirmed.</li>
                         <li>
-                          A secure {gateway === 'stripe' ? 'Stripe' : 'PokPay'} window opens for the
-                          guest to pay.
+                          {gateway === 'stripe'
+                            ? 'A secure Stripe window opens for payment.'
+                            : 'Choose Pay, Send link, Copy link or QR code once the reservation is held.'}
                         </li>
                         <li>
                           This page watches the payment and confirms the reservation only when the
@@ -1454,7 +1462,7 @@ export function AddReservation({
                 disabled={!gateway || create.isPending}
                 loading={create.isPending}
                 onClick={() => {
-                  if (gateway === 'stripe' || gateway === 'pokpay') {
+                  if (gateway === 'stripe') {
                     const opened = window.open('', '_blank');
                     if (opened) {
                       // The provider's page must not be able to control this page.

@@ -88,9 +88,18 @@ export function refundPreview(paid: string, refunded: string, total: string, isF
 }
 export function needsApproval(
   caps: string[],
-  evidence: Pick<CancellationEvidence, 'isFree' | 'policySource'>,
+  evidence: Pick<CancellationEvidence, 'isFree' | 'policySource'> &
+    Partial<Pick<CancellationEvidence, 'status' | 'paid' | 'orderReference'>>,
   choice: string,
 ) {
+  if (
+    evidence.status === 'PAYMENT_PENDING' &&
+    evidence.paid !== undefined &&
+    minor(evidence.paid) === 0n &&
+    !evidence.orderReference &&
+    choice === 'none'
+  )
+    return !caps.includes('bookings.cancel');
   if (evidence.policySource === 'CLOCK_PMS')
     return !caps.includes('bookings.cancel') || !caps.includes('payments.refund');
   return !caps.includes('bookings.cancel') || !evidence.isFree || choice === 'custom';

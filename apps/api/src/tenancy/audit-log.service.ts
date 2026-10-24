@@ -1,5 +1,15 @@
+import { randomUUID } from 'node:crypto';
+import {
+  AUDIT_EVENTS,
+  explicitAuditResult,
+  operationReference,
+  type AuditResult,
+  type AuditSource,
+} from './audit-event';
+import { safeAuditValue } from './audit-workspace';
+import { reportOperationalFailure } from '../observability/error-tracking';
 import { currentAuditContext } from './audit-request-context';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 
@@ -14,10 +24,15 @@ export interface AuditEntry {
   tenantId?: string;
   propertyId?: string;
   details?: Record<string, unknown>;
+  result?: AuditResult;
+  source?: AuditSource;
+  operationId?: string;
+  affectedPropertyIds?: string[];
 }
 
 @Injectable()
 export class AuditLogService {
+  private readonly logger = new Logger(AuditLogService.name);
   constructor(@Inject(TenantDatabaseService) private readonly database: TenantDatabaseService) {}
 
   async record(entry: AuditEntry): Promise<void> {
@@ -34,10 +49,82 @@ export class AuditLogService {
   }
 
   async recordInTransaction(tx: TenantTransaction, entry: AuditEntry): Promise<void> {
-    await tx.$executeRaw`
+    const definition = AUDIT_EVENTS[entry.action];
+    const sharedConnection =
+      !!entry.tenantId &&
+      !entry.propertyId &&
+      entry.targetType === 'integration_connection' &&
+      /^[a-f0-9-]{36}$/i.test(entry.targetId);
+    const sharedMembership =
+      !!entry.tenantId &&
+      !entry.propertyId &&
+      ['membership.role_changed', 'membership.removed'].includes(entry.action);
+    const operationId =
+      operationReference(entry.operationId ?? entry.details?.operationId) ??
+      (sharedConnection || sharedMembership ? 'shared:' + randomUUID() : undefined);
+    const result =
+      entry.result ??
+      explicitAuditResult(entry.details?.result ?? entry.details?.outcome) ??
+      definition?.result;
+    const cleaned = safeAuditValue(entry.details ?? {}, true) as Record<string, unknown>;
+    const details = {
+      ...cleaned,
+      _audit: {
+        version: 1,
+        ...(result ? { result } : {}),
+        source:
+          entry.source ??
+          definition?.source ??
+          (entry.actorType === 'PLATFORM_ADMIN'
+            ? 'PLATFORM_ADMIN'
+            : entry.actorUserId
+              ? 'MUST_STAFF'
+              : entry.details?.source === 'WEBSITE'
+                ? 'GUEST'
+                : 'MUST_AUTOMATION'),
+        ...(operationId ? { operationId } : {}),
+      },
+    };
+    try {
+      await tx.$executeRaw`
       INSERT INTO "audit_logs" ("tenant_id", "property_id", "actor_user_id", "actor_type", "action", "target_type", "target_id", "details", "request_context")
-      VALUES (${entry.tenantId ?? null}::uuid, ${entry.propertyId ?? null}::uuid, ${entry.actorUserId}::uuid, ${entry.actorType ?? 'TENANT_USER'}::"AuditActorType", ${entry.action}, ${entry.targetType}, ${entry.targetId}, ${JSON.stringify(entry.details ?? {})}::jsonb, ${JSON.stringify(currentAuditContext())}::jsonb)
+      VALUES (${entry.tenantId ?? null}::uuid, ${entry.propertyId ?? null}::uuid, ${entry.actorUserId}::uuid, ${entry.actorType ?? 'TENANT_USER'}::"AuditActorType", ${entry.action}, ${entry.targetType}, ${entry.targetId}, ${JSON.stringify(details)}::jsonb, ${JSON.stringify(currentAuditContext())}::jsonb)
     `;
+      if (sharedConnection || sharedMembership) {
+        const properties =
+          entry.affectedPropertyIds?.map((id) => ({ id })) ??
+          (sharedConnection
+            ? await tx.$queryRaw<
+                Array<{ id: string }>
+              >`SELECT property_id AS id FROM property_integration_connections WHERE tenant_id=${entry.tenantId!}::uuid AND connection_id=${entry.targetId}::uuid`
+            : await tx.$queryRaw<
+                Array<{ id: string }>
+              >`SELECT id FROM properties WHERE tenant_id=${entry.tenantId!}::uuid`);
+        for (const property of properties)
+          await this.recordInTransaction(tx, {
+            ...entry,
+            propertyId: property.id,
+            operationId,
+            details: {
+              ...entry.details,
+              eventScope: sharedConnection
+                ? 'Shared connection event; hotel assignment existed at occurrence.'
+                : 'Shared tenant access event; not a claim that the actor used this hotel.',
+            },
+          });
+      }
+    } catch (error) {
+      this.logger.error(
+        'Audit record could not be stored; the associated local transaction must not be reported as committed.',
+      );
+      reportOperationalFailure(new Error('Audit storage write failed'), {
+        component: 'audit',
+        operation: 'record',
+        tenantId: entry.tenantId,
+        propertyId: entry.propertyId,
+      });
+      throw error;
+    }
   }
 
   /** Copy new successful account observations only to the properties accessible at occurrence. */

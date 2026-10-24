@@ -133,6 +133,105 @@ describe('property audit workspace and actual export/security evidence', () => {
     }
     await admin.$disconnect();
   });
+  it('keeps historical outcomes unspecified and links only recorded operations through authorized sources/views', async () => {
+    const audit = app.get(AuditLogService),
+      operation = randomUUID(),
+      eventId = randomUUID();
+    await admin.$executeRaw`INSERT INTO audit_logs(id,tenant_id,property_id,actor_user_id,action,target_type,target_id,details) VALUES(${eventId}::uuid,${tenantId}::uuid,${propertyId}::uuid,${owner}::uuid,'booking.cancelled','booking','historical-test','{}'::jsonb)`;
+    const old = await get(owner, '?search=' + eventId).expect(200);
+    expect(old.body.items[0].result).toBe('Not recorded');
+    await audit.record({
+      tenantId,
+      propertyId,
+      actorUserId: owner,
+      action: 'payment.collection_requested',
+      targetType: 'booking',
+      targetId: 'linked-booking',
+      operationId: operation,
+    });
+    await audit.record({
+      tenantId,
+      propertyId,
+      actorUserId: null,
+      action: 'payment.balance_collected',
+      targetType: 'booking',
+      targetId: 'linked-booking',
+      operationId: operation,
+      details: { amount: { amount: '250.00', currency: 'EUR' } },
+    });
+    await audit.record({
+      tenantId,
+      propertyId: otherPropertyId,
+      actorUserId: null,
+      action: 'payment.balance_collected',
+      targetType: 'booking',
+      targetId: 'foreign-linked-booking',
+      operationId: operation,
+    });
+    const r = await get(owner, '?search=linked-booking&source=POKPAY').expect(200);
+    expect(r.body.items[0]).toMatchObject({
+      title: 'Payment received',
+      result: 'Succeeded',
+      source: 'PokPay',
+      summary: 'EUR 250.00',
+    });
+    const detail = await http()
+      .get(base + '/' + r.body.items[0].id)
+      .set('Cookie', cookies.get(owner)!)
+      .expect(200);
+    expect(detail.body.linked).toHaveLength(2);
+    expect(detail.body.linked.map((e: { result: string }) => e.result)).toEqual([
+      'Pending',
+      'Succeeded',
+    ]);
+    expect(JSON.stringify(detail.body.linked)).not.toContain('foreign-linked-booking');
+    await audit.record({
+      tenantId,
+      propertyId,
+      actorUserId: null,
+      action: 'clock_catalog.synced',
+      targetType: 'integration_connection',
+      targetId: 'routine-test',
+    });
+    expect(
+      (await get(owner, '?view=system&search=routine-test').expect(200)).body.items,
+    ).toHaveLength(1);
+    expect(
+      (await get(owner, '?view=business&search=routine-test').expect(200)).body.items,
+    ).toHaveLength(0);
+    await get(owner, '?source=NOT_A_PROVIDER').expect(400);
+    await admin.$executeRaw`DELETE FROM audit_logs WHERE tenant_id=${tenantId}::uuid AND (id=${eventId}::uuid OR details#>>'{_audit,operationId}'=${operation} OR target_id='routine-test')`;
+  });
+  it('records shared connection changes only in properties assigned at occurrence with an explicit shared scope', async () => {
+    const connection = randomUUID(),
+      audit = app.get(AuditLogService);
+    await admin.$executeRaw`INSERT INTO integration_connections(id,tenant_id,kind,provider,name,encrypted_credentials,status) VALUES(${connection}::uuid,${tenantId}::uuid,'PAYMENT','POKPAY','Audit mock connection','not-decryptable','CONNECTED')`;
+    await admin.$executeRaw`INSERT INTO property_integration_connections(tenant_id,property_id,connection_id,kind) VALUES(${tenantId}::uuid,${propertyId}::uuid,${connection}::uuid,'PAYMENT')`;
+    await audit.record({
+      tenantId,
+      actorUserId: owner,
+      action: 'integration_connection.credentials_replaced',
+      targetType: 'integration_connection',
+      targetId: connection,
+      details: { apiKey: 'never-store-this', verified: true },
+    });
+    const response = await get(owner, '?search=' + connection).expect(200);
+    expect(response.body.items).toHaveLength(1);
+    expect(response.body.items[0].result).toBe('Succeeded');
+    const record = await http()
+      .get(base + '/' + response.body.items[0].id)
+      .set('Cookie', cookies.get(owner)!)
+      .expect(200);
+    expect(record.body.details.eventScope).toContain('hotel assignment existed');
+    expect(JSON.stringify(record.body)).not.toContain('never-store-this');
+    const elsewhere = await http()
+      .get(`/tenants/${tenantId}/properties/${otherPropertyId}/activity-audit?search=${connection}`)
+      .set('Cookie', cookies.get(owner)!)
+      .expect(200);
+    expect(elsewhere.body.items).toHaveLength(0);
+    await admin.$executeRaw`DELETE FROM audit_logs WHERE tenant_id=${tenantId}::uuid AND target_id=${connection}`;
+    await admin.$executeRaw`DELETE FROM integration_connections WHERE tenant_id=${tenantId}::uuid AND id=${connection}::uuid`;
+  });
   it('lists real property records, scoped counts, recorded snapshots and privileged unknown families', async () => {
     const r = await get().expect(200);
     expect(r.body.items.some((r: { id: string }) => r.id === unknown)).toBe(true);

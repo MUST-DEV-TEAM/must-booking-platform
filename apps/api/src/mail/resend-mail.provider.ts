@@ -372,6 +372,7 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
   private bookingSummaryRows(
     command: {
       bookingReference: string;
+      guest?: { email?: string; name?: string };
       roomName: string;
       stay: { startsOn: string; endsOn: string };
       guestCount: number;
@@ -398,8 +399,19 @@ export class ResendMailProvider implements MailProvider, OnModuleInit {
       : `${this.formatDate(command.stay.startsOn, options.dateFormat)} – ${this.formatDate(command.stay.endsOn, options.dateFormat)}`;
     const rows = [
       { label: 'Booking reference', value: command.bookingReference },
-      { label: 'Check-in date', value: this.formatDate(command.stay.startsOn, options.dateFormat) },
-      { label: 'Check-out date', value: this.formatDate(command.stay.endsOn, options.dateFormat) },
+      ...(command.guest?.email ? [{ label: 'Guest email', value: command.guest.email }] : []),
+      ...(!command.template?.hasStayBlock
+        ? [
+            {
+              label: 'Check-in date',
+              value: this.formatDate(command.stay.startsOn, options.dateFormat),
+            },
+            {
+              label: 'Check-out date',
+              value: this.formatDate(command.stay.endsOn, options.dateFormat),
+            },
+          ]
+        : []),
       {
         label: 'Nights',
         value: String(

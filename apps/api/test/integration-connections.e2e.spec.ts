@@ -86,6 +86,13 @@ describe('integration connections', () => {
     userId = signup.body.user.id;
     cookie = signup.headers['set-cookie'][0];
     const tenantUrl = `/tenants/${tenantId}`;
+    const setup = await request(app!.getHttpServer())
+      .get(`${tenantUrl}/integration-setup`)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(setup.body.pokpayWebhookUrl).toBe(
+      process.env.POKPAY_WEBHOOK_URL?.trim() || 'http://localhost:3001/api/webhooks/pokpay',
+    );
 
     await request(app!.getHttpServer())
       .post(`${tenantUrl}/integration-connections`)
@@ -302,6 +309,14 @@ describe('integration connections', () => {
       .send({ credentials: { keySecret: 'new-private-value' } })
       .expect(200);
     expect(replaced.body.status).toBe('CONNECTED');
+    const details = await request(app!.getHttpServer())
+      .get(`${base}/${id}/credentials`)
+      .set('Cookie', cookie)
+      .expect(200);
+    expect(details.body.fields.keySecret).toBe('***alue');
+    expect(JSON.stringify(details.body)).not.toContain('new-private-value');
+    expect(details.headers['cache-control']).toContain('no-store');
+
     expect(JSON.stringify(replaced.body)).not.toContain('private-value');
     const logs = await admin.$queryRaw<
       Array<{ details: unknown }>

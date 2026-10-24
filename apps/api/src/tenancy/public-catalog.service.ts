@@ -3,7 +3,7 @@ import { evaluatePricing } from '../booking/pricing-evaluator';
 import { propertyClock } from '../booking/booking-rules';
 import { applicableRestrictions } from './inventory-restrictions.repository';
 import { evaluateBookingRules } from '../booking/booking-rules';
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 
 import { TenantDatabaseService } from './tenant-database.service';
 import { roomImagePresentation, type RoomImageProjectionRow } from './room-image-projection';
@@ -79,6 +79,15 @@ export class PublicCatalogService {
     @Inject(TenantDatabaseService) private readonly database: TenantDatabaseService,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
   ) {}
+
+  async getBranding(tenantId: string, propertyId: string) {
+    return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ name: string; logoUrl: string | null }>>`
+        SELECT name,logo_url AS "logoUrl" FROM properties WHERE tenant_id=${tenantId}::uuid AND id=${propertyId}::uuid`;
+      if (!rows[0]) throw new NotFoundException('Hotel not found.');
+      return { name: rows[0].name, logoUrl: rows[0].logoUrl };
+    });
+  }
 
   async getCatalog(tenantId: string, propertyId: string, query: unknown): Promise<PublicCatalog> {
     return this.database.withTenantTransaction({ tenantId, propertyId }, async (tx) => {

@@ -1,5 +1,5 @@
-import { PaymentRefundService, type RefundConfirmation } from '../payments/payment-refund.service';
-import { PaymentNotificationService } from '../mail/payment-notification.service';
+import type { StayAmendmentCommand } from '@must/domain-contracts';
+import { PmsProviderRegistry } from './pms-provider-registry';
 import {
   BadRequestException,
   ConflictException,
@@ -55,13 +55,12 @@ const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(valu
 export class BookingAmendService {
   constructor(
     @Inject(TenantDatabaseService) private readonly db: TenantDatabaseService,
+    @Inject(PmsProviderRegistry) private readonly providers: PmsProviderRegistry,
     @Inject(CapabilitiesService) private readonly caps: CapabilitiesService,
     @Inject(AuditLogService) private readonly audit: AuditLogService,
     @Inject(AvailabilityService) private readonly availability: AvailabilityService,
     @Inject(BookingUpdateNotificationService)
     private readonly emails: BookingUpdateNotificationService,
-    @Inject(PaymentRefundService) private readonly refunds: PaymentRefundService,
-    @Inject(PaymentNotificationService) private readonly receipts: PaymentNotificationService,
   ) {}
   private async require(c: Context, id: string) {
     if (!NOTIFICATION_UUID.test(id)) throw new BadRequestException('Choose a valid reservation.');
@@ -69,6 +68,46 @@ export class BookingAmendService {
     if (!capabilities.includes('bookings.edit'))
       throw new ForbiddenException('Requires bookings.edit.');
     return capabilities;
+  }
+  private async external(c: Context, id: string) {
+    return this.db.withTenantTransaction(c, async (tx) => {
+      const rows = await tx.$queryRaw<
+        Array<{ external: boolean }>
+      >`SELECT external_booking_id IS NOT NULL AS external FROM bookings WHERE tenant_id=${c.tenantId}::uuid AND property_id=${c.propertyId}::uuid AND id=${id}::uuid`;
+      return rows[0]?.external ?? false;
+    });
+  }
+  async amendmentStatus(c: Context, id: string) {
+    await this.require(c, id);
+    const command = await this.pendingCommand(c, id);
+    return { pending: !!command };
+  }
+  private async pendingCommand(c: Context, id: string) {
+    return this.db.withTenantTransaction(c, async (tx) => {
+      const rows = await tx.$queryRaw<
+        Array<{
+          command: StayAmendmentCommand;
+          previous: { startsOn: string; endsOn: string; roomTypeId: string };
+        }>
+      >`SELECT result->'command' AS command,result->'row' AS previous FROM integration_operations WHERE tenant_id=${c.tenantId}::uuid AND property_id=${c.propertyId}::uuid AND aggregate_id=${id}::uuid AND idempotency_key LIKE 'clock-stay-amend:%' AND status='PENDING' ORDER BY created_at LIMIT 1`;
+      return rows[0] ?? null;
+    });
+  }
+  async checkAmendment(c: Context, id: string) {
+    await this.require(c, id);
+    const pending = await this.pendingCommand(c, id);
+    if (!pending) return { ok: true };
+    const command = pending.command;
+    const provider = await this.providers.forProperty(c.tenantId, c.propertyId);
+    if (!provider.amendBookingStay)
+      throw new ConflictException(
+        'The original PMS connection must be available to check this amendment.',
+      );
+    const result = await provider.amendBookingStay(c, command);
+    if (!result.ok) throw new ConflictException(result.error.message);
+    if (command.notifyGuest && pending.previous)
+      await this.emails.sendBookingChanged(c, id, pending.previous);
+    return result;
   }
   private dates(value: unknown): Dates {
     const raw = (value ?? {}) as Record<string, unknown>;
@@ -81,6 +120,13 @@ export class BookingAmendService {
     if (ruleNights(d.startsOn, d.endsOn) > 366)
       throw new BadRequestException('Choose a stay of no more than 366 nights.');
     return d;
+  }
+  private roomType(value: unknown) {
+    const id = (value as { roomTypeId?: unknown } | null)?.roomTypeId;
+    if (id === undefined) return {};
+    if (typeof id !== 'string' || !NOTIFICATION_UUID.test(id))
+      throw new BadRequestException('Choose a valid room type.');
+    return { roomTypeId: id };
   }
   private choice(value: unknown): Choice {
     const raw = (value ?? {}) as Record<string, unknown>;
@@ -159,9 +205,32 @@ export class BookingAmendService {
     const capabilities = await this.require(c, id);
     const dates = this.dates(query);
     const choice = this.choice(query);
+    if (await this.external(c, id)) {
+      const provider = await this.providers.forProperty(c.tenantId, c.propertyId);
+      if (!provider.previewStayAmendment)
+        throw new ConflictException('Clock must be connected to amend this reservation.');
+      const result = await provider.previewStayAmendment(c, {
+        bookingId: id,
+        ...dates,
+        ...this.roomType(query),
+      });
+      if (!result.ok) throw new ConflictException(result.error.message);
+      return result.value;
+    }
     return this.db.withTenantTransaction(
       c,
-      async (tx) => (await this.evidence(tx, c, id, dates, choice, capabilities)).preview,
+      async (tx) =>
+        (
+          await this.evidence(
+            tx,
+            c,
+            id,
+            dates,
+            choice,
+            capabilities,
+            this.roomType(query).roomTypeId,
+          )
+        ).preview,
       { timeoutMs: 20000 },
     );
   }
@@ -172,6 +241,7 @@ export class BookingAmendService {
     dates: Dates,
     choice: Choice,
     capabilities: string[],
+    requestedRoomTypeId?: string,
   ) {
     const property = await pricingContext(tx, c.tenantId, c.propertyId, true);
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${c.tenantId}:${c.propertyId}:booking:${id}`},0))`;
@@ -189,6 +259,10 @@ export class BookingAmendService {
   WHERE b.tenant_id=${c.tenantId}::uuid AND b.property_id=${c.propertyId}::uuid AND b.id=${id}::uuid `;
     const row = rows[0];
     if (!row) throw new NotFoundException('Reservation not found in this hotel.');
+    if (requestedRoomTypeId && requestedRoomTypeId !== row.roomTypeId)
+      throw new ConflictException(
+        'Room-type changes are currently supported only through the guarded Clock editor.',
+      );
     if (property.readOnly || row.externalBookingId)
       throw new ConflictException('This reservation is managed in Clock. Change dates there.');
     if (!['CONFIRMED', 'PAYMENT_NOT_REQUIRED'].includes(row.status))
@@ -279,7 +353,7 @@ export class BookingAmendService {
             ? ['charge', 'waive']
             : ['charge']
           : canRefund
-            ? ['refund', 'no_refund', 'refund_due']
+            ? ['refund_due', 'no_refund']
             : ['refund_due'];
     const outcome = choice.outcome ?? availableOutcomes[0]!;
     if (!availableOutcomes.includes(outcome)) {
@@ -289,11 +363,7 @@ export class BookingAmendService {
     }
     const recordedTotal = outcome === 'waive' || outcome === 'no_refund' ? row.total : total;
     const netPaid = minor(row.paid) - minor(row.refunded);
-    const refundAmount =
-      outcome === 'refund' && difference !== null && difference < 0n && total !== null
-        ? [-difference, netPaid - minor(total)].reduce((a, b) => (a < b ? a : b))
-        : 0n;
-    const refundToIssue = refundAmount > 0n ? refundAmount : 0n;
+    const refundToIssue = 0n; // Money is settled separately after a reviewed date amendment.
     const balance = recordedTotal === null ? null : minor(recordedTotal) - netPaid + refundToIssue;
     const preview = {
       bookingId: id,
@@ -351,10 +421,12 @@ export class BookingAmendService {
             'notifyGuest',
             'outcome',
             'outcomeReason',
+            'termsReviewed',
+            'roomTypeId',
           ].includes(k),
       )
     )
-      throw new BadRequestException('Only dates can be changed here.');
+      throw new BadRequestException('Only stay dates and room type can be changed here.');
     if (
       !Number.isSafeInteger(raw.expectedVersion) ||
       Number(raw.expectedVersion) < 1 ||
@@ -369,15 +441,57 @@ export class BookingAmendService {
       throw new BadRequestException('An Idempotency-Key of up to 200 characters is required.');
     const input = {
       ...dates,
+      ...this.roomType(raw),
       ...choice,
       expectedVersion: raw.expectedVersion,
       previewHash: raw.previewHash,
       reason: raw.reason.trim(),
       notifyGuest: raw.notifyGuest === true,
     };
+    if (await this.external(c, id)) {
+      if (raw.termsReviewed !== true)
+        throw new BadRequestException(
+          'Review the original cancellation terms before confirming the date change.',
+        );
+      const provider = await this.providers.forProperty(c.tenantId, c.propertyId);
+      if (!provider.amendBookingStay)
+        throw new ConflictException('Clock must be connected to amend this reservation.');
+      const old = await this.db.withTenantTransaction(
+        c,
+        async (tx) =>
+          (
+            await tx.$queryRaw<
+              Array<{ startsOn: string; endsOn: string; roomTypeId: string }>
+            >`SELECT starts_on::text AS "startsOn",ends_on::text AS "endsOn",room_type_id AS "roomTypeId" FROM bookings WHERE tenant_id=${c.tenantId}::uuid AND property_id=${c.propertyId}::uuid AND id=${id}::uuid`
+          )[0],
+      );
+      const result = await provider.amendBookingStay(c, {
+        bookingId: id,
+        ...dates,
+        ...this.roomType(input),
+        expectedVersion: input.expectedVersion as number,
+        previewHash: input.previewHash as string,
+        reason: input.reason,
+        idempotencyKey: key.trim(),
+        staffActorId: c.userId,
+        outcome: choice.outcome,
+        outcomeReason: choice.outcomeReason,
+        notifyGuest: input.notifyGuest,
+        termsReviewed: true,
+      });
+      if (!result.ok) throw new ConflictException(result.error.message);
+      if (
+        input.notifyGuest &&
+        old &&
+        (old.startsOn !== dates.startsOn ||
+          old.endsOn !== dates.endsOn ||
+          (!!input.roomTypeId && old.roomTypeId !== input.roomTypeId))
+      )
+        await this.emails.sendBookingChanged(c, id, old);
+      return result;
+    }
     const operationKey = `booking-amend:${key.trim()}`,
       requestHash = hash({ id, actor: c.userId, input });
-    let refundReceipt: RefundConfirmation | null = null;
     let previous: { startsOn: string; endsOn: string; roomTypeId: string } | undefined;
     const result = await this.db.withTenantTransaction(
       c,
@@ -399,7 +513,15 @@ export class BookingAmendService {
             );
           return prior[0].result;
         }
-        const evidence = await this.evidence(tx, c, id, dates, choice, capabilities),
+        const evidence = await this.evidence(
+            tx,
+            c,
+            id,
+            dates,
+            choice,
+            capabilities,
+            input.roomTypeId,
+          ),
           p = evidence.preview,
           row = evidence.row;
         if (p.version !== input.expectedVersion || p.previewHash !== input.previewHash)
@@ -430,6 +552,7 @@ export class BookingAmendService {
           ...c,
           actorUserId: c.userId,
           action: 'booking.dates_amended',
+          operationId: key?.trim(),
           targetType: 'booking',
           targetId: id,
           details: {
@@ -461,22 +584,6 @@ export class BookingAmendService {
             notifyGuest: input.notifyGuest,
           },
         });
-        if (minor(p.refundToIssue) > 0n) {
-          const refunded = await this.refunds.refundPaidChargeForBookingAmount(
-            tx,
-            c,
-            id,
-            { amount: p.refundToIssue, currency: p.currency },
-            `booking-amend-refund:${key.trim()}`,
-            { actorUserId: c.userId, note: input.reason },
-          );
-          if (!refunded.result.ok) throw new ConflictException(refunded.result.error.message);
-          if (!refunded.result.value)
-            throw new ConflictException(
-              'The paid charge cannot be refunded here. Leave a refund due for a manager.',
-            );
-          refundReceipt = refunded.confirmation;
-        }
         const saved = {
           ok: true,
           version: row.version + 1,
@@ -501,7 +608,6 @@ export class BookingAmendService {
       },
       { timeoutMs: 20000 },
     );
-    if (refundReceipt) await this.receipts.sendRefundConfirmationEmailSafely(refundReceipt, c);
     if (previous) await this.emails.sendBookingChanged(c, id, previous);
     return result;
   }

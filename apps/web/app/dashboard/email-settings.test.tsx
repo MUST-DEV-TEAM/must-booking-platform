@@ -16,7 +16,14 @@ const template = {
   subject: 'Hello {guest_name}',
   body: 'Welcome to {hotel_name}',
   custom: false,
-  placeholders: ['guest_name', 'hotel_name', 'booking_reference'],
+  placeholders: [
+    'guest_name',
+    'hotel_name',
+    'booking_reference',
+    'stay_range',
+    'stay_dates',
+    'stay_nights',
+  ],
 };
 const message = {
   id: 'm1',
@@ -365,6 +372,25 @@ describe('Emails workspace and legacy links', () => {
       'allow-scripts',
     );
     expect(frame.getAttribute('srcdoc')).toBe('<p>Example only</p>');
+    expect(calls.some((row) => row.url.endsWith('/publish'))).toBe(false);
+  });
+  it('previews and saves the selected date layout as draft without publishing', async () => {
+    const calls = mockFetch();
+    await mount('templates');
+    await click(button('Pre-arrival reminder'));
+    await click(document.querySelector<HTMLButtonElement>('[aria-label="Dates display"]')!);
+    await click(button('Individual dates (one per line)'));
+    expect(document.querySelector<HTMLTextAreaElement>('#template-body')!.value).toContain(
+      '{stay_dates}',
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    });
+    await settle();
+    const preview = calls.filter((row) => row.url.endsWith('/preview')).at(-1);
+    expect(preview?.body?.body).toContain('{stay_dates}');
+    await click(button('Save draft'));
+    expect(calls.find((row) => row.url.endsWith('/draft'))?.body?.body).toContain('{stay_dates}');
     expect(calls.some((row) => row.url.endsWith('/publish'))).toBe(false);
   });
   it('requires a reason for controlled tests and never offers guest recipient input', async () => {
