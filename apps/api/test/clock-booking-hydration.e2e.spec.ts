@@ -464,6 +464,39 @@ describe('Clock booking hydration', () => {
     expect(emails).toEqual([{ eventType: 'booking.staff_cancelled', recipient: email }]);
   });
 
+  it('stops emailing staff after a few Clock cancellations in an hour (bulk cancellation guard)', async () => {
+    await admin.$executeRaw`
+      DELETE FROM email_messages
+      WHERE tenant_id = ${tenantId}::uuid AND event_type = 'booking.staff_cancelled'
+    `;
+    const hydration = app!.get(ClockBookingHydrationService);
+    const ids = [38144030, 38144031, 38144032, 38144033, 38144034];
+    for (const id of ids) {
+      const detail = { id, number: String(id), guest_e_mail: `bulk-${id}@example.test` };
+      queuedResponses = [{ status: 200, body: realBookingDetail(detail) }];
+      await hydration.hydrateBooking(tenantId, propertyId, connectionId, String(id));
+      queuedResponses = [
+        { status: 200, body: realBookingDetail({ ...detail, status: 'canceled' }) },
+      ];
+      const outcome = await hydration.hydrateBooking(
+        tenantId,
+        propertyId,
+        connectionId,
+        String(id),
+      );
+      expect(outcome).toMatchObject({ outcome: 'updated', cancelledInPms: true });
+    }
+
+    const emailed = await admin.$queryRaw<Array<{ bookings: number }>>`
+      SELECT count(DISTINCT booking_id)::int AS bookings FROM email_messages
+      WHERE tenant_id = ${tenantId}::uuid AND event_type = 'booking.staff_cancelled'
+    `;
+    expect(emailed[0]!.bookings).toBe(3);
+    // All five are cancelled in MUST either way; only the emails stop.
+    for (const id of ids)
+      expect(await bookingState(String(id))).toMatchObject({ status: 'CANCELLED' });
+  });
+
   it('emails the guest of a direct booking when the hotel moves it in Clock, once', async () => {
     const guestEmail = `hydration-change-${randomUUID()}@example.test`;
     const detail = {
