@@ -9,6 +9,7 @@ import { MAIL_PROVIDER, type MailProvider } from '../src/mail/mail.provider';
 import { ClockBookingService } from '../src/integrations/clock/clock-booking.service';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
+import { paceClockRequests } from './helpers/clock-pacing';
 import { retryOnClockRateLimit } from './helpers/clock-retry';
 import { sandboxStay } from './helpers/sandbox-stay';
 
@@ -62,6 +63,7 @@ describe.skipIf(!hasSandboxCredentials)('Clock booking CRUD (real sandbox)', () 
   };
 
   beforeAll(async () => {
+    paceClockRequests();
     process.env.APP_PORT = '3000';
     process.env.DATABASE_URL =
       'postgresql://must_booking_app:must_booking_app_dev@localhost:5432/must_booking';
