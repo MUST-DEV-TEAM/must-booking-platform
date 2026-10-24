@@ -21,6 +21,24 @@ Owner: Astra plans, Claude implements and verifies. Branch `claude/platform-admi
 
 Not in Phase 1 (listed again under Gaps): health scores, integration diagnostics, notes/timeline/tasks, billing and plan changes (Milestone 15), custom platform roles UI, mandatory two-factor.
 
+## Planned for Phase 2: platform-wide mail transport (moved here from Milestone 22 Task 17, owner decision 2026-10-25)
+
+**Why.** Today the platform's outgoing mail (verification, reset, invitations and every hotel that has not set up its own sender) goes through one Resend account configured by environment variables. The owner describes that Resend account as a production trial, so the platform needs its own provider choice that a platform admin can change without a deploy. Per-hotel senders (custom domain via Resend, or the hotel's own SMTP) already exist on the redesign branch and keep precedence over the platform default for that hotel.
+
+**Scope.**
+
+1. A platform-level **transport setting** in the console: choose the active platform transport (Resend or SMTP: host, port, TLS mode, user, password, From address, reply-to). Secrets encrypted at rest with the existing credential cipher and never returned by the API.
+2. **Connection check and "send test email"** to the signed-in platform admin only, with the same bounded-socket and network policy used for per-hotel SMTP (no private-address targets).
+3. **Audited, versioned change**: reason, idempotency key, before/after (non-secret fields only), platform audit entry. A new capability (`platform.email.manage`, super admin only by default) guards every write; read of non-secret status for operations/auditor.
+4. **Fail-safe activation**: a transport becomes active only after a successful check and test; a failing active transport raises a platform-level alert and never silently falls back to another sender. Keep the environment-variable Resend configuration as the documented bootstrap/fallback until the setting is populated.
+5. **Uses the existing transport abstraction** (`prepared-mail-transport`); hotels with their own verified, active sender are unaffected.
+
+**Industry-standard reading.** A platform default transport with per-tenant override is the usual multi-tenant SaaS pattern. Providers with an API (Resend, SES, Postmark, SendGrid) are preferred as the platform default because they give bounce and complaint webhooks, suppression handling and per-message ids; plain SMTP is the portability option. SMTP gives no delivery or bounce events, so delivered/bounced tracking, suppression updates and the email-health numbers will be incomplete for any mail sent over a platform SMTP transport. This limit has to be shown in the UI, not hidden. A single shared sending domain also shares one reputation: platform mail should use the platform's own authenticated domain (SPF, DKIM, DMARC) and a hotel's guest mail should only use a hotel domain after that hotel has verified it.
+
+**Open questions for the owner before building.** Which provider will replace the trial account (API provider or SMTP relay)? Is one platform transport enough, or is a standby transport wanted? Should platform admins see per-hotel email health in the console (it is not in Phase 1)?
+
+**Status:** Planned, not started. Depends on the redesign's transport and sender code being merged first.
+
 ## Decisions (owner, do not re-litigate)
 
 Separate platform accounts; four roles; basic console security now with a written hardening gap list; append-only platform audit; additive lifecycle; view-as first, act-as with approval; components only; both hotel modes everywhere.
