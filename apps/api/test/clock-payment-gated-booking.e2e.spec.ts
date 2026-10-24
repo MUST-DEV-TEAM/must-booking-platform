@@ -12,6 +12,8 @@ import { ClockHttpClient } from '../src/integrations/clock/clock-http-client';
 import { ClockBookingService } from '../src/integrations/clock/clock-booking.service';
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
+import { paceClockRequests } from './helpers/clock-pacing';
+import { retryOnClockRateLimit } from './helpers/clock-retry';
 import { sandboxSecondNight, sandboxStay } from './helpers/sandbox-stay';
 
 const sandboxCredentials = () => {
@@ -74,6 +76,7 @@ describe.skipIf(!hasSandboxCredentials)(
     };
 
     beforeAll(async () => {
+      paceClockRequests();
       process.env.APP_PORT = '3000';
       process.env.DATABASE_URL =
         'postgresql://must_booking_app:must_booking_app_dev@localhost:5432/must_booking';
@@ -239,9 +242,9 @@ describe.skipIf(!hasSandboxCredentials)(
       const bookingId = created.body.value.id as string;
 
       const row = await admin.$queryRaw<
-        Array<{ status: string; externalBookingId: string | null }>
+        Array<{ status: string; externalBookingId: string | null; version: number }>
       >`
-      SELECT status, external_booking_id AS "externalBookingId" FROM bookings WHERE id = ${bookingId}::uuid
+      SELECT status, external_booking_id AS "externalBookingId", version FROM bookings WHERE id = ${bookingId}::uuid
     `;
       expect(row[0]?.status).toBe('CONFIRMED');
       expect(row[0]?.externalBookingId).toMatch(/^\d+$/);
@@ -258,22 +261,26 @@ describe.skipIf(!hasSandboxCredentials)(
       UPDATE properties SET free_cancellation_days_before_arrival = 0 WHERE id = ${propertyId}::uuid
     `;
       const bookings = app!.get(LocalPmsProvider);
-      const cancelResult = await bookings.cancelBooking(
-        { tenantId, propertyId },
-        {
-          idempotencyKey: `pay-at-hotel-cancel-${randomUUID()}`,
-          bookingId,
-          // Staff-created bookings carry no guest session (staff-booking.controller
-          // never passes quoteSessionId). CancelBookingCommand's type is
-          // `string | undefined` (production callers always have a real
-          // session id), but the comparison against the row is a strict
-          // `!==`, so this test must pass the literal null to match.
-          guestSessionId: null as unknown as string,
-          expectedVersion: 1,
-          reason: 'Task 4 e2e cleanup.',
-        },
+      const cancelResult = await retryOnClockRateLimit(() =>
+        bookings.cancelBooking(
+          { tenantId, propertyId },
+          {
+            idempotencyKey: `pay-at-hotel-cancel-${randomUUID()}`,
+            bookingId,
+            // Staff-created bookings carry no guest session (staff-booking.controller
+            // never passes quoteSessionId). CancelBookingCommand's type is
+            // `string | undefined` (production callers always have a real
+            // session id), but the comparison against the row is a strict
+            // `!==`, so this test must pass the literal null to match.
+            guestSessionId: null as unknown as string,
+            // Read the real version: a background Clock job can bump it after
+            // creation, and a hard-coded 1 then leaves the real reservation uncancelled.
+            expectedVersion: row[0]!.version,
+            reason: 'Task 4 e2e cleanup.',
+          },
+        ),
       );
-      expect(cancelResult.ok).toBe(true);
+      expect(cancelResult.ok, JSON.stringify(cancelResult)).toBe(true);
       const cancelled = await admin.$queryRaw<Array<{ status: string }>>`
       SELECT status FROM bookings WHERE id = ${bookingId}::uuid
     `;
