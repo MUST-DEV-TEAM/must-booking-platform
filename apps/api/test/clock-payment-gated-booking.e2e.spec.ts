@@ -239,9 +239,9 @@ describe.skipIf(!hasSandboxCredentials)(
       const bookingId = created.body.value.id as string;
 
       const row = await admin.$queryRaw<
-        Array<{ status: string; externalBookingId: string | null }>
+        Array<{ status: string; externalBookingId: string | null; version: number }>
       >`
-      SELECT status, external_booking_id AS "externalBookingId" FROM bookings WHERE id = ${bookingId}::uuid
+      SELECT status, external_booking_id AS "externalBookingId", version FROM bookings WHERE id = ${bookingId}::uuid
     `;
       expect(row[0]?.status).toBe('CONFIRMED');
       expect(row[0]?.externalBookingId).toMatch(/^\d+$/);
@@ -269,11 +269,13 @@ describe.skipIf(!hasSandboxCredentials)(
           // session id), but the comparison against the row is a strict
           // `!==`, so this test must pass the literal null to match.
           guestSessionId: null as unknown as string,
-          expectedVersion: 1,
+          // Read the real version: a background Clock job can bump it after
+          // creation, and a hard-coded 1 then leaves the real reservation uncancelled.
+          expectedVersion: row[0]!.version,
           reason: 'Task 4 e2e cleanup.',
         },
       );
-      expect(cancelResult.ok).toBe(true);
+      expect(cancelResult.ok, JSON.stringify(cancelResult)).toBe(true);
       const cancelled = await admin.$queryRaw<Array<{ status: string }>>`
       SELECT status FROM bookings WHERE id = ${bookingId}::uuid
     `;

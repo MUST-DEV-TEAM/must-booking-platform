@@ -188,7 +188,7 @@ describe.skipIf(!hasSandboxCredentials)('Clock booking CRUD (real sandbox)', () 
     };
 
     const first = await bookingService.createBooking(context, command);
-    expect(first.ok).toBe(true);
+    expect(first.ok, JSON.stringify(first)).toBe(true);
     if (first.ok) expect(first.value.externalBookingId).toMatch(/^\d+$/);
 
     const bookingRow = await admin.$queryRaw<
@@ -231,7 +231,7 @@ describe.skipIf(!hasSandboxCredentials)('Clock booking CRUD (real sandbox)', () 
       expectedVersion: 1,
       reason: 'E2E test cleanup.',
     });
-    expect(cancelResult.ok).toBe(true);
+    expect(cancelResult.ok, JSON.stringify(cancelResult)).toBe(true);
     const cancelledRow = await admin.$queryRaw<Array<{ status: string }>>`
       SELECT status FROM bookings WHERE id = ${bookingRow[0]!.id}::uuid
     `;
