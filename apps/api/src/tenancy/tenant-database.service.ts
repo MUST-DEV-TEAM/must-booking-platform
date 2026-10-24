@@ -59,6 +59,44 @@ export class TenantDatabaseService extends PrismaClient implements OnModuleDestr
   }
 
   /**
+   * Platform-global tables (platform accounts, roles, sessions, audit log) are readable only under
+   * this role. Only server code that has authenticated a platform session may call it.
+   */
+  async withPlatformConsoleTransaction<T>(
+    operation: (transaction: TenantTransaction) => Promise<T>,
+  ): Promise<T> {
+    return this.$transaction(async (transaction) => {
+      await transaction.$executeRaw`
+        SELECT set_config('app.role', 'platform_console', true)
+      `;
+
+      return operation(transaction);
+    });
+  }
+
+  /**
+   * Console role plus one hotel's tenant context in the same transaction, so a change to hotel
+   * data and its platform audit row commit or roll back together. The tenant id must come from a
+   * validated route parameter or a session row, never from a client-supplied body.
+   */
+  async withConsoleTenantTransaction<T>(
+    context: TenantDatabaseContext,
+    operation: (transaction: TenantTransaction) => Promise<T>,
+  ): Promise<T> {
+    const tenantId = this.requireUuid(context.tenantId, 'tenantId');
+    const propertyId = context.propertyId ? this.requireUuid(context.propertyId, 'propertyId') : '';
+    return this.$transaction(async (transaction) => {
+      await transaction.$executeRaw`
+        SELECT set_config('app.role', 'platform_console', true),
+               set_config('app.tenant_id', ${tenantId}, true),
+               set_config('app.property_id', ${propertyId}, true)
+      `;
+
+      return operation(transaction);
+    });
+  }
+
+  /**
    * The public webhook endpoint doesn't know a request's tenant until it has
    * looked the connection up by its random webhookPublicId — this is that
    * one lookup, running under the read-only "webhook_gateway" RLS carve-out

@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { AuthService } from '../auth/auth.service';
 import { PUBLIC_TENANT_SCOPE, type TenantScopeOptions } from './tenant-context.decorator';
 import { TenantDatabaseService } from './tenant-database.service';
+import { publicBookingAllowed, type LifecycleState } from '../platform/console/hotel-lifecycle';
 
 type RequestWithContext = {
   headers: { cookie?: string };
@@ -44,15 +45,25 @@ export class PublicTenantScopedGuard implements CanActivate {
     const exists = await this.database.withTenantTransaction(
       { tenantId, propertyId },
       async (tx) => {
-        if (!propertyId) return true;
+        const organization = await tx.$queryRaw<Array<{ state: LifecycleState }>>`
+          SELECT "lifecycle_state"::text AS "state" FROM "organizations" WHERE "id" = ${tenantId}::uuid
+        `;
+        // A hotel that is suspended, cancelled or archived takes no new public bookings or searches.
+        if (organization[0] && !publicBookingAllowed(organization[0].state)) return 'unavailable';
+        if (!propertyId) return 'ok';
         const properties = await tx.$queryRaw<Array<{ allowed: number }>>`
         SELECT 1 AS allowed FROM "properties"
         WHERE "tenant_id" = ${tenantId}::uuid AND "id" = ${propertyId}::uuid
       `;
-        return properties.length === 1;
+        return properties.length === 1 ? 'ok' : 'missing';
       },
     );
-    if (!exists) throw new ForbiddenException('Invalid tenant scope.');
+    if (exists === 'unavailable')
+      throw new ForbiddenException({
+        message: 'This hotel is not taking bookings right now.',
+        code: 'HOTEL_UNAVAILABLE',
+      });
+    if (exists !== 'ok') throw new ForbiddenException('Invalid tenant scope.');
 
     const staffSessionId = this.cookie(request.headers.cookie, 'must_session');
     const userId = await this.auth.getSessionUserId(staffSessionId);

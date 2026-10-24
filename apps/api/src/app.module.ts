@@ -63,6 +63,22 @@ import { PublicTenantScopedGuard } from './tenancy/public-tenant-scoped.guard';
 import { PublicRateLimitGuard } from './tenancy/public-rate-limit.guard';
 import { PublicRateLimiterService } from './tenancy/public-rate-limiter.service';
 import { RolesGuard } from './tenancy/roles.guard';
+import { PlatformAccessGuard } from './platform/console/platform-access.guard';
+import { PlatformAuditService } from './platform/console/platform-audit.service';
+import { PlatformAuditController } from './platform/console/platform-audit.controller';
+import { PlatformHotelsController } from './platform/console/platform-hotels.controller';
+import { PlatformHotelsService } from './platform/console/platform-hotels.service';
+import { PlatformLifecycleService } from './platform/console/platform-lifecycle.service';
+import { HotelSupportController } from './platform/console/hotel-support.controller';
+import { PlatformSupportController } from './platform/console/platform-support.controller';
+import { PlatformSupportService } from './platform/console/platform-support.service';
+import { PlatformAuthController } from './platform/console/platform-auth.controller';
+import { PlatformAuthService } from './platform/console/platform-auth.service';
+import { PlatformIdempotencyService } from './platform/console/platform-idempotency.service';
+import { PlatformRouteInterceptor } from './platform/console/platform-route.interceptor';
+import { PlatformSessionService } from './platform/console/platform-session.service';
+import { PlatformTeamController } from './platform/console/platform-team.controller';
+import { PlatformTeamService } from './platform/console/platform-team.service';
 import { CapabilitiesGuard } from './tenancy/capabilities.guard';
 import { CapabilitiesService } from './tenancy/capabilities.service';
 import { CapabilitiesController } from './tenancy/capabilities.controller';
@@ -334,6 +350,12 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PaymentLedgerController,
     ManualPaymentController,
     PlatformAdminController,
+    PlatformAuthController,
+    PlatformTeamController,
+    PlatformAuditController,
+    PlatformHotelsController,
+    PlatformSupportController,
+    HotelSupportController,
     IntegrationConnectionsController,
     ClockCatalogSyncController,
     ClockRateRankingController,
@@ -342,6 +364,16 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
   ],
   providers: [
     TenantDatabaseService,
+    PlatformSessionService,
+    PlatformAuditService,
+    PlatformIdempotencyService,
+    PlatformAuthService,
+    PlatformTeamService,
+    PlatformLifecycleService,
+    PlatformHotelsService,
+    PlatformSupportService,
+    PlatformAccessGuard,
+    PlatformRouteInterceptor,
     AuthService,
     EmailVerificationGuard,
     SignupRateLimitGuard,
@@ -496,6 +528,8 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     { provide: APP_GUARD, useExisting: CapabilitiesGuard },
     { provide: APP_GUARD, useExisting: EmailVerificationGuard },
     { provide: APP_GUARD, useExisting: SignupRateLimitGuard },
+    { provide: APP_GUARD, useExisting: PlatformAccessGuard },
+    { provide: APP_INTERCEPTOR, useExisting: PlatformRouteInterceptor },
   ],
 })
 export class AppModule implements NestModule {
