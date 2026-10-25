@@ -16,6 +16,8 @@ Each hotel has one **money currency**: bookings, payments and refunds always use
 - Empire: money currency EUR; the WordPress website gets a currency converter (display only) for guests.
 - The rate feed is fetched once a day and cached; the source must be free and include the lek.
 
+**Live 2026-10-25:** WordPress plugin 0.4.110 is installed on Empire (room card price and facts, checkout rate picker inert until the new API, Elementor Currency Switcher widget). Until the platform API serves rates, the plugin reads the free daily euro feed directly (base EUR, prices on the site are EUR); the widget still has to be placed in the header in Elementor by the owner. At cutover the plugin uses the platform endpoint automatically.
+
 ## Findings
 
 - The ECB euro reference rates cover 29 currencies and **do not include the Albanian lek (ALL)** (checked 2026-10-25 on the ECB page).
