@@ -1,6 +1,6 @@
 # Milestone 29: Hotel currency and display conversion
 
-Status: **Planned — opened 2026-10-25.** Nothing below is built. Whether it gates the cutover is the owner's call (Empire's client wants converted prices on their website).
+Status: **Planned — opened 2026-10-25.** Nothing below is built. **Gates the cutover (owner decision 2026-10-25): it must be ready on the day the redesign goes live, because Empire's client needs the website currency converter from day one.**
 
 ## Goal
 

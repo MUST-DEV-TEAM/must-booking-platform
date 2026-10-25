@@ -70,6 +70,7 @@ type Room = { id: string; name: string; roomTypeId: string; roomTypeName: string
 type RatePlan = { id: string; name: string; currency: string };
 type Money = { amount: string; currency: string };
 type Offer = { ok: true; total: Money } | { ok: false; reason: string; transient?: boolean };
+type RateOffer = { rateId: string; label: string; mealNames: string[]; total: Money };
 type Guest = {
   firstName: string;
   lastName: string;
@@ -200,6 +201,7 @@ export function AddReservation({
   const [children, setChildren] = useState(0);
   const [childrenAges, setChildrenAges] = useState<string[]>([]);
   const [ratePlanId, setRatePlanId] = useState('');
+  const [clockRateId, setClockRateId] = useState('');
   const [roomTypeId, setRoomTypeId] = useState(() => prefill?.get('roomTypeId') ?? '');
   const [roomId, setRoomId] = useState(() => prefill?.get('roomId') ?? '');
   const [chooseBy, setChooseBy] = useState<'type' | 'room'>(
@@ -368,7 +370,32 @@ export function AddReservation({
       : roomTypeId
         ? offers[roomTypeId]
         : undefined;
-  const total = searchKey === currentKey && selectedOffer?.ok ? selectedOffer.total : null;
+  // A Clock hotel can sell the same room under several rates (for example Bed & breakfast or
+  // Full board). The first rate is the default; the picker only appears when there is a choice.
+  const rateOffersQuery = useQuery({
+    queryKey: ['dashboard', 'add-reservation-rate-offers', tenantId, propertyId, searchKey, roomTypeId],
+    enabled: isClock && searchKey !== '' && searchKey === currentKey && !!roomTypeId,
+    queryFn: async () =>
+      (
+        (await post(`${base}/staff-bookings/rate-offers`, {
+          roomTypeId,
+          startsOn,
+          endsOn,
+          adults,
+          children,
+          childrenAges: childrenAges.map(Number),
+        })) as { offers: RateOffer[] }
+      ).offers,
+    staleTime: 30000,
+    refetchOnWindowFocus: false,
+  });
+  const rateOptions = rateOffersQuery.data ?? [];
+  const rateChoice = rateOptions.length > 1;
+  const chosenRate = rateChoice
+    ? (rateOptions.find((option) => option.rateId === clockRateId) ?? rateOptions[0]!)
+    : null;
+  const baseTotal = searchKey === currentKey && selectedOffer?.ok ? selectedOffer.total : null;
+  const total = baseTotal && chosenRate ? chosenRate.total : baseTotal;
   const roomOptions = rooms.filter((room) => room.roomTypeId === roomTypeId);
   const selectedRoom = rooms.find((room) => room.id === roomId) ?? null;
 
@@ -400,6 +427,7 @@ export function AddReservation({
         roomTypeId,
         roomId: showRoomPick && roomId ? roomId : undefined,
         ratePlanId: isClock ? undefined : ratePlanId,
+        clockRateId: chosenRate?.rateId,
         startsOn,
         endsOn,
         adults,
@@ -604,6 +632,7 @@ export function AddReservation({
               value: `${adults} adult${adults === 1 ? '' : 's'}${children ? ` · ${children} child${children === 1 ? '' : 'ren'}` : ''}`,
             },
             { label: 'Room type', value: selectedType?.name },
+            ...(chosenRate ? [{ label: 'Rate', value: chosenRate.label }] : []),
             {
               label: 'Room',
               value: selectedRoom?.name ?? (selectedType && showRoomPick ? 'Auto-assign' : null),
@@ -984,6 +1013,39 @@ export function AddReservation({
                   ) : null}
                 </CardContent>
               </Card>
+              {chosenRate ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Rate</CardTitle>
+                    <p className="m-0 text-xs text-muted-foreground">
+                      This room is sold under more than one rate for these dates.
+                    </p>
+                  </CardHeader>
+                  <CardContent>
+                    <div role="radiogroup" aria-label="Rates" className="space-y-3">
+                      {rateOptions.map((option) => (
+                        <OptionCard
+                          key={option.rateId}
+                          title={option.label}
+                          description={`${nights} night${nights === 1 ? '' : 's'} · ${adults} adult${adults === 1 ? '' : 's'}${children ? ` · ${children} child${children === 1 ? '' : 'ren'}` : ''}`}
+                          aside={
+                            <span className="block">
+                              <span className="block text-base font-extrabold">
+                                {money(option.total)}
+                              </span>
+                              <span className="block text-xs text-muted-foreground">
+                                for the stay
+                              </span>
+                            </span>
+                          }
+                          selected={chosenRate.rateId === option.rateId}
+                          onSelect={() => setClockRateId(option.rateId)}
+                        />
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : null}
             </>
           ) : null}
 
@@ -1357,6 +1419,7 @@ export function AddReservation({
                           value: `${longDate(startsOn)} – ${longDate(endsOn)} (${nights} nights)`,
                         },
                         { label: 'Room type', value: selectedType?.name },
+                        ...(chosenRate ? [{ label: 'Rate', value: chosenRate.label }] : []),
                         {
                           label: 'Room',
                           value: selectedRoom?.name ?? (showRoomPick ? 'Auto-assign' : null),

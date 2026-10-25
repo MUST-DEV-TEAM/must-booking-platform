@@ -44,6 +44,18 @@ export class StaffBookingController {
     return this.availability.search(req.tenantContext, body ?? {});
   }
 
+  @Post('rate-offers')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.create')
+  rateOffers(
+    @Req() req: { tenantContext: { tenantId: string; propertyId: string } },
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.availability.rateOffers(req.tenantContext, body ?? {});
+  }
+
   @Delete(':bookingId')
   @HttpCode(200)
   @TenantScoped({ propertyParam: 'propertyId' })

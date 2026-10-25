@@ -3,7 +3,10 @@ import type { Money } from '@must/domain-contracts';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { AvailabilityService } from '../tenancy/availability.service';
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
-import { ClockAvailabilityService } from '../integrations/clock/clock-availability.service';
+import {
+  ClockAvailabilityService,
+  NO_CLOCK_CONNECTION_MESSAGE,
+} from '../integrations/clock/clock-availability.service';
 import { QuoteService, type DisplayPriceItem } from './quote.service';
 type Offer = { ok: true; total: Money } | { ok: false; reason: string };
 @Injectable()
@@ -16,6 +19,23 @@ export class StaffAvailabilityService {
     private readonly connections: IntegrationConnectionsService,
     @Inject(ClockAvailabilityService) private readonly clock: ClockAvailabilityService,
   ) {}
+  /** The rates a Clock hotel offers for one room type and stay; empty for any other hotel. */
+  async rateOffers(scope: { tenantId: string; propertyId: string }, body: Record<string, unknown>) {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const roomTypeId = String(body.roomTypeId ?? '');
+    if (!uuid.test(roomTypeId)) throw new BadRequestException('Invalid room type.');
+    const result = await this.clock.listOffersForStay(scope.tenantId, scope.propertyId, {
+      roomTypeId,
+      startsOn: String(body.startsOn ?? ''),
+      endsOn: String(body.endsOn ?? ''),
+      adultCount: Number(body.adults ?? 1),
+      childrenCount: Number(body.children ?? 0),
+      childrenAges: Array.isArray(body.childrenAges) ? (body.childrenAges as number[]) : undefined,
+    });
+    if (result.ok) return { offers: result.value };
+    if (result.error.message === NO_CLOCK_CONNECTION_MESSAGE) return { offers: [] };
+    throw new BadRequestException(result.error.message);
+  }
   async search(scope: { tenantId: string; propertyId: string }, body: Record<string, unknown>) {
     const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > 250)
