@@ -45,7 +45,6 @@ $taxes_total = isset($summary['taxes_total']) ? (float) $summary['taxes_total'] 
 $total_price = isset($summary['total_price']) ? (float) $summary['total_price'] : 0.0;
 $room_subtotal = isset($summary['room_subtotal']) ? (float) $summary['room_subtotal'] : 0.0;
 $nights = isset($summary['nights']) ? (int) $summary['nights'] : 0;
-$stay_days = $nights > 0 ? $nights + 1 : 0;
 $selected_country = isset($guest_form['country']) ? (string) $guest_form['country'] : '';
 $selected_phone_country_code = isset($guest_form['phone_country_code']) ? (string) $guest_form['phone_country_code'] : \must_hotel_booking\get_checkout_default_phone_option_value();
 $phone_number = isset($guest_form['phone_number']) ? (string) $guest_form['phone_number'] : '';
@@ -299,9 +298,8 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                                         <?php
                                         echo \esc_html(
                                             \sprintf(
-                                                /* translators: 1: days count, 2: nights count. */
-                                                __('%1$d Days, %2$d Nights', 'must-hotel-booking'),
-                                                $stay_days,
+                                                /* translators: %d: number of nights. */
+                                                \_n('%d Night', '%d Nights', $room_nights, 'must-hotel-booking'),
                                                 $room_nights
                                             )
                                         );
