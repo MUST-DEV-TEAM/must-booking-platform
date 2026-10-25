@@ -283,3 +283,23 @@ Source: Clock's public Postman documentation, [api-docs.clock-software.com](http
 | | |  | Clock PMS+ configurations | Testing&Certification |
 | | |  | In-house testing | Testing&Certification |
 | | |  | Certification testing | Testing&Certification |
+
+## Other Clock collections found through Postman (2026-10-25)
+
+The Postman connection (account `dejvis0001`) was authorised and checked. Its workspaces hold one Clock collection, a fork of Clock's public documentation made on 2026-09-10 (same content as above). A search of the public Postman network found two more collections published by "Clock PMS+ Integrations":
+
+| Collection | What it is | Relevance |
+| --- | --- | --- |
+| **Clock PMS+ API Docs+** (restricted, last updated 2022) | The Payment API v2 protocol: requests to a payment provider (pay with card data, HPP, terminal or token; pre-authorisation, capture, release; refund; tokenisation) and the provider's responses. States that use is "only possible with a special permission from Clock Software". | Only if MUST ever uses Clock's Payment Enablement Service; not part of the current plan. |
+| **Clock PMS+ API Docs WORKSHOP** (drafts, last updated 2025-06) | Draft guides: the Revenue Management Systems API (availability adjustment, rate price updates) and **"Custom Booking Engine"**, Clock's own best practices for direct booking. | The Custom Booking Engine guide is the closest thing to a specification for MUST. |
+
+**What Clock's Custom Booking Engine guide says (read in full):**
+
+- Availability and price come from two requests: `rates_availability` (calendar, per rate, per date) and `products` (the search; it "evaluates rate restrictions" and can show "N/A" when a requirement such as advance booking, party size or length of stay is not met).
+- A rate's **"Publish in WRS" setting is the switch for the booking engine**: a published rate shows `"wbe": true` in `rates`. MUST already filters on `wbe`.
+- A booking needs `arrival`, `departure`, `arrival_room_type_id` and either `main_booking_guest` or `source_of_business_company_id`. Statuses `canceled` and `no_show` are not counted in availability, and a status can be changed back.
+- Returning guests are found with `guests/search` (free text on name, email, phone) and linked through `family_id` as `main_booking_guest`.
+- Payments are recorded with `credit_item (payment) - CREATE` (`value`, `currency`, `payment_type`, `payment_sub_type`, optional `reference`, `text`). **A refund must be made at the payment provider; voiding a payment in Clock does not refund. It is then reflected in Clock with a payment of a negative amount.**
+- The guide says **nothing** about cancellation policies, discounts, original prices or per-endpoint rights.
+
+Outcome for Milestone 27: nothing in any Clock collection exposes a cancellation policy, an original price or a list of rights per endpoint, so those remain questions for Clock support (or the rights check in Task 5).
