@@ -44,21 +44,27 @@ function register_elementor_currency_switcher_assets(): void
  */
 function ajax_get_currency_switcher_rates(): void
 {
-    $currencies = normalize_currency_switcher_list(\explode(',', (string) \wp_unslash($_GET['currencies'] ?? '')));
-    if ($currencies === [] || \count($currencies) > 20) \wp_send_json_error(['message' => 'Invalid currencies.'], 400);
-    $cacheKey = 'must_fx_' . \md5(\implode(',', $currencies));
-    $cached = \get_transient($cacheKey);
-    if (\is_array($cached)) \wp_send_json_success($cached);
-    $response = MustApiClient::get('/public/exchange-rates', ['currencies' => \implode(',', $currencies)]);
-    $body = $response['body'] ?? null;
-    if (!$response['ok'] || !\is_array($body) || empty($body['rates'])) {
-        $stale = \get_option($cacheKey . '_last');
-        if (\is_array($stale)) \wp_send_json_success($stale);
-        \wp_send_json_error(['message' => 'Rates are not available right now.'], 502);
+    // The caller's list only filters the answer. Rates are fetched and stored once for the whole fixed
+    // set of supported currencies, so a caller cannot create cache entries or options.
+    $supported = \array_keys(get_currency_switcher_currency_options());
+    $requested = normalize_currency_switcher_list(\explode(',', (string) \wp_unslash($_GET['currencies'] ?? '')));
+    $currencies = \array_values(\array_intersect($supported, $requested));
+    if ($currencies === []) \wp_send_json_error(['message' => 'Invalid currencies.'], 400);
+    $cacheKey = 'must_fx_rates';
+    $payload = \get_transient($cacheKey);
+    if (!\is_array($payload)) {
+        $response = MustApiClient::get('/public/exchange-rates', ['currencies' => \implode(',', $supported)]);
+        $data = $response['body'] ?? null;
+        if ($response['ok'] && \is_array($data) && !empty($data['rates'])) {
+            $payload = ['base' => (string) ($data['base'] ?? ''), 'date' => (string) ($data['date'] ?? ''), 'rates' => (array) $data['rates']];
+            \set_transient($cacheKey, $payload, 3 * HOUR_IN_SECONDS);
+            \update_option($cacheKey . '_last', $payload, false);
+        } else {
+            $payload = \get_option($cacheKey . '_last');
+        }
     }
-    $payload = ['base' => (string) ($body['base'] ?? ''), 'date' => (string) ($body['date'] ?? ''), 'rates' => (array) $body['rates']];
-    \set_transient($cacheKey, $payload, 3 * HOUR_IN_SECONDS);
-    \update_option($cacheKey . '_last', $payload, false);
+    if (!\is_array($payload)) \wp_send_json_error(['message' => 'Rates are not available right now.'], 502);
+    $payload['rates'] = \array_intersect_key((array) $payload['rates'], \array_flip($currencies));
     \wp_send_json_success($payload);
 }
 

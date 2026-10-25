@@ -36,11 +36,11 @@ export class PublicExchangeRatesController {
     const currencies = typeof raw === 'string' ? raw.split(',').map((code) => code.trim()) : [];
     if (
       currencies.length === 0 ||
-      currencies.length > 20 ||
+      currencies.length > 30 ||
       currencies.some((c) => !/^[A-Za-z]{3}$/.test(c))
     )
       throw new BadRequestException(
-        'currencies must be a comma-separated list of 1 to 20 currency codes.',
+        'currencies must be a comma-separated list of 1 to 30 currency codes.',
       );
     const rows = await this.db.withTenantTransaction(
       request.tenantContext,
