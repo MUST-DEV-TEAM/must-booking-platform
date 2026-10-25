@@ -1,6 +1,6 @@
 # Milestone 13: Application UI/UX & Feature Enhancements
 
-Status: **Superseded in part by [Milestone 24](24-dashboard-redesign.md) (owner, 2026-10-16).** Dashboard/UI tasks moved to 24; Tasks 6-7 and 33-36 remain open here. Implementation present, acceptance never reconciled.
+Status: **Superseded in part by [Milestone 24](24-dashboard-redesign.md) (owner, 2026-10-16).** Dashboard/UI tasks moved to 24; Tasks 6-7 and 33-36 remain open here. Implementation present, acceptance never reconciled. **2026-10-25: archived as a planning milestone.** Its remaining open rows are payments (Tasks 6-7) and the WordPress booking flow (Tasks 33-36); they are followed through [Milestone 28](28-release-and-cutover.md) (checked at cutover) and [Milestone 26](26-public-api.md), not re-planned here.
 Depends on: Milestone 12 (Integration & Initial Release Readiness — this milestone does not start until Milestone 12 is fully closed out, per ADR-0028's "no parallel milestones" decision)
 
 ## Disposition (owner decision 2026-10-16)

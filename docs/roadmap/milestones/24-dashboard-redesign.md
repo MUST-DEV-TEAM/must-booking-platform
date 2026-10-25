@@ -1,6 +1,6 @@
 # Milestone 24: Dashboard redesign
 
-Status: **Planning — design intake in progress (opened 2026-10-16).** No page implementation is authorized yet beyond the foundation listed below.
+Status: **Built and verified on `codex/design-dashboard-latest` (2026-10-25); not live.** Opened 2026-10-16 as design intake. The screens, the platform admin console (merged in from its own branch on 2026-10-25) and the email system are built there; the full isolated verification passed (frozen install, build, lint, format, 167 migrations, web 710/710, API 1,616 passed, browser 8/8). What remains is release work, tracked in [Milestone 28](28-release-and-cutover.md), and the Clock rate/cancellation/permission work in [Milestone 27](27-clock-rates-cancellation-permissions.md), both gating the merge into `main`. The sections below keep the original intake history; their "Not started" labels in the task tables were not re-stamped.
 Supersedes the dashboard/UI tasks of [Milestone 13](13-app-ui-ux-and-features.md) (see its disposition table). Login, signup and the other auth pages are **out of scope** and keep their current design.
 Related: [Milestone 25 — Native PMS](25-native-pms.md) (feature work; this milestone reserves screen space for it but does not build it).
 

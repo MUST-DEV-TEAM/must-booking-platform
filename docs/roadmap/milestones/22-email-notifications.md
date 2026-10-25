@@ -1,6 +1,8 @@
 # Milestone 22: Email Notifications (delivery, recipients, templates)
 
 Status: **Phase A and Phase B (Tasks 1-6) implemented and running in production since 2026-10-01 (verified below); Phases C-G (recipient rules, templates, Email tab, pluggable transport) not started.** One open correctness gap: guest pay-at-hotel bookings produced no email in the 2026-09-30 evidence (see "Verified in production 2026-10-01").
+**2026-10-25: this milestone ships with [Milestone 24](24-dashboard-redesign.md).** The email work (recipient rules, templates, Email screens, per-hotel sender) is built on the redesign branch and verified with it; deploying it is part of [Milestone 28](28-release-and-cutover.md). The 12 email situations with no sender yet are Task 2 there.
+
 Runs as an authorized ad hoc track, parallel to the main 13 - 14 - 15 sequence (same pattern as Milestone 21). It does not renumber the main sequence.
 
 ## Reconciliation against the redesign branch (2026-10-25)
