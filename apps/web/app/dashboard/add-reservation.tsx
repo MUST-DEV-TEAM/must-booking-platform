@@ -70,7 +70,7 @@ type Room = { id: string; name: string; roomTypeId: string; roomTypeName: string
 type RatePlan = { id: string; name: string; currency: string };
 type Money = { amount: string; currency: string };
 type Offer = { ok: true; total: Money } | { ok: false; reason: string; transient?: boolean };
-type RateOffer = { rateId: string; label: string; mealNames: string[]; total: Money };
+type RateOffer = { rateId: string; name: string; label: string; mealNames: string[]; total: Money };
 type Guest = {
   firstName: string;
   lastName: string;
@@ -373,7 +373,14 @@ export function AddReservation({
   // A Clock hotel can sell the same room under several rates (for example Bed & breakfast or
   // Full board). The first rate is the default; the picker only appears when there is a choice.
   const rateOffersQuery = useQuery({
-    queryKey: ['dashboard', 'add-reservation-rate-offers', tenantId, propertyId, searchKey, roomTypeId],
+    queryKey: [
+      'dashboard',
+      'add-reservation-rate-offers',
+      tenantId,
+      propertyId,
+      searchKey,
+      roomTypeId,
+    ],
     enabled: isClock && searchKey !== '' && searchKey === currentKey && !!roomTypeId,
     queryFn: async () =>
       (
@@ -1027,7 +1034,11 @@ export function AddReservation({
                         <OptionCard
                           key={option.rateId}
                           title={option.label}
-                          description={`${nights} night${nights === 1 ? '' : 's'} · ${adults} adult${adults === 1 ? '' : 's'}${children ? ` · ${children} child${children === 1 ? '' : 'ren'}` : ''}`}
+                          description={`${
+                            rateOptions.filter((other) => other.label === option.label).length > 1
+                              ? `${option.name} · `
+                              : ''
+                          }${nights} night${nights === 1 ? '' : 's'} · ${adults} adult${adults === 1 ? '' : 's'}${children ? ` · ${children} child${children === 1 ? '' : 'ren'}` : ''}`}
                           aside={
                             <span className="block">
                               <span className="block text-base font-extrabold">

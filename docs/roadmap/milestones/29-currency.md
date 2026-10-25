@@ -12,6 +12,7 @@ Each hotel has one **money currency**: bookings, payments and refunds always use
 - The guest pays in the hotel's currency. Display currencies are chosen per property (for example EUR, USD, GBP, ALL).
 - Conversion is automatic from a daily rate feed that is cached, with the last known rate used if the feed is down; every converted price is labelled approximate. The hotel can switch display currencies on or off.
 
+- Empire: guests on the website see ALL, EUR, GBP and USD. The converter is an **Elementor widget** placed in the site header on the right side, to the left of the header button widget (element f01df27), so the owner can choose the display currencies and the default in Elementor.
 - Empire: money currency EUR; the WordPress website gets a currency converter (display only) for guests.
 - The rate feed is fetched once a day and cached; the source must be free and include the lek.
 
