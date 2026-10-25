@@ -302,6 +302,9 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                             $display_price_label = $display_price_available
                                 ? \must_hotel_booking\format_frontend_money((float) ($display_price['total']['amount'] ?? 0), $display_price_currency) . ' ' . \__('total', 'must-hotel-booking')
                                 : \__('Price unavailable', 'must-hotel-booking');
+                            $display_price_html = $display_price_available
+                                ? \MustHotelBooking\Frontend\format_frontend_money_html((float) ($display_price['total']['amount'] ?? 0), $display_price_currency) . ' ' . \esc_html__('total', 'must-hotel-booking')
+                                : \esc_html($display_price_label);
                             $display_nights = 0;
                             if ($checkin !== '' && $checkout !== '') {
                                 try {
@@ -401,7 +404,7 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                                                 <?php if ($display_price_available) : ?>
                                                     <p class="must-booking-room-from-price">
                                                         <span><?php echo \esc_html__('From', 'must-hotel-booking'); ?></span>
-                                                        <strong><?php echo \esc_html($display_price_label); ?></strong>
+                                                        <strong><?php echo $display_price_html; ?></strong>
                                                         <?php if ($display_nights > 0) : ?>
                                                             <small>
                                                                 <?php
@@ -593,7 +596,7 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                                                 <?php endif; ?>
 
                                                 <section class="must-booking-room-popup-section">
-                                                    <h3><?php echo \esc_html($display_price_label); ?></h3>
+                                                    <h3><?php echo $display_price_html; ?></h3>
                                                     <?php if ($display_price_available && $display_nights > 0) : ?>
                                                         <p>
                                                             <?php

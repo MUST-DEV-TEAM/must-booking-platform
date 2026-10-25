@@ -211,7 +211,7 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                                     <?php endif; ?>
                                 </span>
                                 <span class="must-checkout-rate-price">
-                                    <?php echo \esc_html($format_money($offer_total, $offer_currency !== "" ? $offer_currency : $summary_currency)); ?>
+                                    <?php echo \MustHotelBooking\Frontend\format_frontend_money_html($offer_total, $offer_currency !== "" ? $offer_currency : $summary_currency); ?>
                                 </span>
                             </label>
                         <?php endforeach; ?>
@@ -404,7 +404,7 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                                             <p><?php echo \esc_html($rate_plan_name); ?></p>
                                         <?php endif; ?>
                                     </div>
-                                    <strong><?php echo \esc_html($format_money($room_total, $room_currency)); ?></strong>
+                                    <strong><?php echo \MustHotelBooking\Frontend\format_frontend_money_html($room_total, $room_currency); ?></strong>
                                 </div>
 
                                 <div class="must-checkout-room-pricing-card">
@@ -453,7 +453,7 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                                         <div class="must-checkout-divider is-dark"></div>
                                         <div class="must-checkout-price-line">
                                             <span><?php echo \esc_html__('Accommodation Total', 'must-hotel-booking'); ?></span>
-                                            <span><?php echo \esc_html($format_money($room_accommodation_total, $room_currency)); ?></span>
+                                            <span><?php echo \MustHotelBooking\Frontend\format_frontend_money_html($room_accommodation_total, $room_currency); ?></span>
                                         </div>
                                         <?php if ($room_discount_total > 0.0) : ?>
                                             <div class="must-checkout-price-line is-discount">
@@ -480,7 +480,7 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                                         <div class="must-checkout-divider is-dark"></div>
                                         <div class="must-checkout-price-line is-total">
                                             <span><?php echo \esc_html__('Total', 'must-hotel-booking'); ?></span>
-                                            <span><?php echo \esc_html($format_money($room_total, $room_currency)); ?></span>
+                                            <span><?php echo \MustHotelBooking\Frontend\format_frontend_money_html($room_total, $room_currency); ?></span>
                                         </div>
                                         <p class="must-checkout-price-note"><?php echo \esc_html__('Including Taxes & Fees', 'must-hotel-booking'); ?></p>
                                     </div>
@@ -501,7 +501,7 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                             );
                             ?>
                         </h2>
-                        <strong><?php echo \esc_html($format_money($total_price, $summary_currency)); ?></strong>
+                        <strong><?php echo \MustHotelBooking\Frontend\format_frontend_money_html($total_price, $summary_currency); ?></strong>
                     </div>
                 </section>
 
