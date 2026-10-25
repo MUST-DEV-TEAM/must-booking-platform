@@ -125,6 +125,10 @@ it('signals verified money receipt while Clock confirmation is still pending', a
   );
   const { root } = await mount();
   await settle();
-  expect(postMessage).toHaveBeenCalledWith({ bookingId: 'b', orderId: 'initial-order', state: 'PAID' });
+  expect(postMessage).toHaveBeenCalledWith({
+    bookingId: 'b',
+    orderId: 'initial-order',
+    state: 'PAID',
+  });
   await act(async () => root.unmount());
 });

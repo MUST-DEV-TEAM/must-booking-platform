@@ -73,10 +73,14 @@ export function ListRow({
     <>
       <div className="min-w-0 flex-1">
         <p className="m-0 truncate text-sm leading-5 font-semibold">{title}</p>
-        {subtitle ? <p className="m-0 truncate text-xs leading-4 text-muted-foreground">{subtitle}</p> : null}
+        {subtitle ? (
+          <p className="m-0 truncate text-xs leading-4 text-muted-foreground">{subtitle}</p>
+        ) : null}
       </div>
       {trailing ? <div className="shrink-0 text-xs text-muted-foreground">{trailing}</div> : null}
-      {href ? <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" /> : null}
+      {href ? (
+        <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+      ) : null}
     </>
   );
   const row = 'flex items-center gap-3 py-2.5';
@@ -85,7 +89,10 @@ export function ListRow({
       {href ? (
         <a
           href={href}
-          className={cn(row, '-mx-2 rounded-md px-2 text-inherit no-underline outline-none hover:bg-muted/60 focus-visible:ring-[3px] focus-visible:ring-ring/50')}
+          className={cn(
+            row,
+            '-mx-2 rounded-md px-2 text-inherit no-underline outline-none hover:bg-muted/60 focus-visible:ring-[3px] focus-visible:ring-ring/50',
+          )}
         >
           {body}
         </a>

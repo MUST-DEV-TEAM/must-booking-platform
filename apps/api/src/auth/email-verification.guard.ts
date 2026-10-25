@@ -27,11 +27,9 @@ export class EmailVerificationGuard implements CanActivate {
     ]);
     if (!required) return true;
 
-    const scope = context
-      .switchToHttp()
-      .getRequest<{
-        tenantContext?: { tenantId: string; propertyId?: string; userId: string };
-      }>().tenantContext;
+    const scope = context.switchToHttp().getRequest<{
+      tenantContext?: { tenantId: string; propertyId?: string; userId: string };
+    }>().tenantContext;
     if (!scope?.userId || !(await this.auth.isEmailVerified(scope.userId))) {
       await auditDenial(this.audit, scope, 'VERIFIED_EMAIL_REQUIRED');
       throw new ForbiddenException('Verify your email before performing this action.');

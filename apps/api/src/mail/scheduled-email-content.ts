@@ -205,7 +205,11 @@ export function postStayEmail(
   reviewButtons: Array<{ url: string; label: string }>,
 ): Omit<RenderedEmailCommand, 'idempotencyKey'> {
   const hotel = brand.name || 'the hotel';
-  const buttons = reviewButtons.map(cta=>renderCtaButton(cta,(brand as MailBrand & {brandColour?:string|null}).brandColour)).join('');
+  const buttons = reviewButtons
+    .map((cta) =>
+      renderCtaButton(cta, (brand as MailBrand & { brandColour?: string | null }).brandColour),
+    )
+    .join('');
   const html = renderBrandedEmail({
     subject: message.subject,
     brand,

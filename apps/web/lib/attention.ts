@@ -22,21 +22,24 @@ const issues: Record<string, AttentionIssue> = {
     group: 'payments',
     priority: 'urgent',
     reason: 'The online payment for this reservation did not go through.',
-    nextStep: 'Contact the guest for another payment method, or cancel the reservation if they do not respond.',
+    nextStep:
+      'Contact the guest for another payment method, or cancel the reservation if they do not respond.',
   },
   PMS_UNKNOWN_RESULT: {
     title: 'Provider result unknown',
     group: 'bookings',
     priority: 'urgent',
     reason: 'The hotel system did not confirm whether this reservation was created.',
-    nextStep: 'Check the reservation in the hotel system before retrying, so the room is not booked twice.',
+    nextStep:
+      'Check the reservation in the hotel system before retrying, so the room is not booked twice.',
   },
   PMS_REJECTED: {
     title: 'Rejected by the hotel system',
     group: 'bookings',
     priority: 'urgent',
     reason: 'The hotel system refused this reservation.',
-    nextStep: 'Open the reservation, check availability and rates, then rebook or contact the guest.',
+    nextStep:
+      'Open the reservation, check availability and rates, then rebook or contact the guest.',
   },
   MANUAL_REVIEW: {
     title: 'Reservation awaiting review',

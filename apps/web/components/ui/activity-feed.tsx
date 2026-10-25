@@ -55,7 +55,10 @@ export function ActivityFeed({
               return (
                 <li key={entry.key} className="relative flex gap-3 pb-6 last:pb-0">
                   {index < group.items.length - 1 ? (
-                    <span aria-hidden="true" className="absolute top-8 bottom-0 left-4 w-px -translate-x-1/2 bg-border" />
+                    <span
+                      aria-hidden="true"
+                      className="absolute top-8 bottom-0 left-4 w-px -translate-x-1/2 bg-border"
+                    />
                   ) : null}
                   <span
                     className={cn(
@@ -68,12 +71,21 @@ export function ActivityFeed({
                   <div className="min-w-0 flex min-w-0 flex-1 flex-col gap-1 pt-1">
                     <div className="flex items-start justify-between gap-3">
                       <p className="m-0 text-sm leading-5 font-semibold">{entry.title}</p>
-                      <time dateTime={entry.at} className="m-0 shrink-0 text-xs leading-5 text-muted-foreground">
+                      <time
+                        dateTime={entry.at}
+                        className="m-0 shrink-0 text-xs leading-5 text-muted-foreground"
+                      >
                         {timeLabel(entry.at)}
                       </time>
                     </div>
-                    {entry.detail ? <p className="m-0 text-xs leading-4 text-muted-foreground">{entry.detail}</p> : null}
-                    {entry.actor ? <p className="m-0 text-xs leading-4 text-muted-foreground">by {entry.actor}</p> : null}
+                    {entry.detail ? (
+                      <p className="m-0 text-xs leading-4 text-muted-foreground">{entry.detail}</p>
+                    ) : null}
+                    {entry.actor ? (
+                      <p className="m-0 text-xs leading-4 text-muted-foreground">
+                        by {entry.actor}
+                      </p>
+                    ) : null}
                   </div>
                 </li>
               );

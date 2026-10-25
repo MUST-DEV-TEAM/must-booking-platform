@@ -68,7 +68,9 @@ export function OptionCard({
           {title}
           {badges}
         </span>
-        {description ? <span className="block text-xs text-muted-foreground">{description}</span> : null}
+        {description ? (
+          <span className="block text-xs text-muted-foreground">{description}</span>
+        ) : null}
       </span>
       {aside ? <span className="shrink-0 text-right">{aside}</span> : null}
     </button>

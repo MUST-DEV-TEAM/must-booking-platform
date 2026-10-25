@@ -17,8 +17,10 @@
   /* Popovers, menus, tooltips, selects and dialogs render in a portal outside .ui-root, so the
      reset also covers the wrappers Radix puts them in. */
   :where(.ui-root, [data-radix-popper-content-wrapper], [role='dialog'], [role='alertdialog']) *,
-  :where(.ui-root, [data-radix-popper-content-wrapper], [role='dialog'], [role='alertdialog']) ::before,
-  :where(.ui-root, [data-radix-popper-content-wrapper], [role='dialog'], [role='alertdialog']) ::after {
+  :where(.ui-root, [data-radix-popper-content-wrapper], [role='dialog'], [role='alertdialog'])
+    ::before,
+  :where(.ui-root, [data-radix-popper-content-wrapper], [role='dialog'], [role='alertdialog'])
+    ::after {
     box-sizing: border-box;
     border: 0 solid;
   }

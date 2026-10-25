@@ -10,23 +10,37 @@ import * as bcrypt from 'bcrypt';
 const API = process.env.PLATFORM_DEMO_API ?? 'http://localhost:3100';
 const migrationUrl = process.env.MIGRATION_DATABASE_URL?.trim();
 if (!migrationUrl) throw new Error('MIGRATION_DATABASE_URL must be configured.');
-if (/(prod|live)/i.test(migrationUrl)) throw new Error('Refusing to seed a production-looking database.');
+if (/(prod|live)/i.test(migrationUrl))
+  throw new Error('Refusing to seed a production-looking database.');
 
 const PLATFORM_PASSWORD = 'Console-Demo-Pass-1';
 const OWNER_PASSWORD = 'Owner-demo-pass-1';
 const db = new PrismaClient({ datasources: { db: { url: migrationUrl } } });
 
-async function http(method: string, path: string, body?: unknown, cookie = '', extra: Record<string, string> = {}) {
+async function http(
+  method: string,
+  path: string,
+  body?: unknown,
+  cookie = '',
+  extra: Record<string, string> = {},
+) {
   const response = await fetch(`${API}${path}`, {
     method,
-    headers: { 'content-type': 'application/json', 'x-platform-console': '1', ...(cookie ? { cookie } : {}), ...extra },
+    headers: {
+      'content-type': 'application/json',
+      'x-platform-console': '1',
+      ...(cookie ? { cookie } : {}),
+      ...extra,
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await response.text();
   return {
     status: response.status,
     body: text ? JSON.parse(text) : undefined,
-    cookie: (response.headers.getSetCookie?.() ?? []).map((entry) => entry.split(';')[0]).join('; '),
+    cookie: (response.headers.getSetCookie?.() ?? [])
+      .map((entry) => entry.split(';')[0])
+      .join('; '),
   };
 }
 
@@ -80,36 +94,66 @@ async function main() {
     WHERE NOT EXISTS (SELECT 1 FROM integration_connections WHERE tenant_id = ${harbor}::uuid AND provider = 'POKPAY')`;
 
   // Everything below goes through the real console API, so it is audited like production use.
-  const ops = await http('POST', '/platform-console/auth/login', { email: 'ops@example.test', password: PLATFORM_PASSWORD });
-  const superAdmin = await http('POST', '/platform-console/auth/login', { email: 'super@example.test', password: PLATFORM_PASSWORD });
+  const ops = await http('POST', '/platform-console/auth/login', {
+    email: 'ops@example.test',
+    password: PLATFORM_PASSWORD,
+  });
+  const superAdmin = await http('POST', '/platform-console/auth/login', {
+    email: 'super@example.test',
+    password: PLATFORM_PASSWORD,
+  });
   const key = () => ({ 'idempotency-key': crypto.randomUUID() });
-  const state = async (id: string) => (await http('GET', `/platform-console/hotels/${id}`, undefined, ops.cookie)).body.lifecycle;
+  const state = async (id: string) =>
+    (await http('GET', `/platform-console/hotels/${id}`, undefined, ops.cookie)).body.lifecycle;
 
-  const created = await http('POST', '/platform-console/hotels', {
-    hotelName: 'Sea Breeze Hotel',
-    ownerName: 'Sara Seabreeze',
-    ownerEmail: 'sara@seabreeze.example',
-    country: 'AL',
-    timeZone: 'Europe/Tirane',
-    currency: 'EUR',
-    mode: 'MUST_SOURCE',
-  }, ops.cookie, key());
+  const created = await http(
+    'POST',
+    '/platform-console/hotels',
+    {
+      hotelName: 'Sea Breeze Hotel',
+      ownerName: 'Sara Seabreeze',
+      ownerEmail: 'sara@seabreeze.example',
+      country: 'AL',
+      timeZone: 'Europe/Tirane',
+      currency: 'EUR',
+      mode: 'MUST_SOURCE',
+    },
+    ops.cookie,
+    key(),
+  );
   console.log('Sea Breeze Hotel:', created.status);
 
   const move = async (id: string, to: string, reason: string, client = ops) => {
     const current = await state(id);
     if (current.state === to) return;
-    const response = await http('POST', `/platform-console/hotels/${id}/lifecycle`, { to, reason, version: current.version }, client.cookie, key());
-    if (response.status !== 201) console.log(`  ${to} for ${id}: ${response.status} ${JSON.stringify(response.body)}`);
+    const response = await http(
+      'POST',
+      `/platform-console/hotels/${id}/lifecycle`,
+      { to, reason, version: current.version },
+      client.cookie,
+      key(),
+    );
+    if (response.status !== 201)
+      console.log(`  ${to} for ${id}: ${response.status} ${JSON.stringify(response.body)}`);
   };
   await move(empire, 'ACTIVE', 'Contract signed and Clock connected');
   await move(lagoon, 'ACTIVE', 'Contract signed');
   await move(lagoon, 'PAST_DUE', 'Invoice 2026-114 is 30 days overdue');
-  await move(harbor, 'SUSPENDED', 'Owner asked us to pause the account while they change payment provider');
+  await move(
+    harbor,
+    'SUSPENDED',
+    'Owner asked us to pause the account while they change payment provider',
+  );
   void superAdmin;
 
-  console.log('Demo ready. Platform sign-in: super|ops|finance|auditor@example.test /', PLATFORM_PASSWORD);
-  console.log('Hotel owners: owner-empire|owner-harbor|owner-lagoon@example.test /', OWNER_PASSWORD);
+  console.log(
+    'Demo ready. Platform sign-in: super|ops|finance|auditor@example.test /',
+    PLATFORM_PASSWORD,
+  );
+  console.log(
+    'Hotel owners: owner-empire|owner-harbor|owner-lagoon@example.test /',
+    OWNER_PASSWORD,
+  );
 }
 
 main()

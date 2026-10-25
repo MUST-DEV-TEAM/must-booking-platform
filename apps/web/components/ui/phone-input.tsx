@@ -28,7 +28,8 @@ export function parsePhone(stored: string | null | undefined, fallbackIso = 'AL'
   if (!match) return { iso: fallbackIso, number: digits };
   // Where several countries share a prefix, keep the default country when it is one of them.
   const sameLength = dialCountries().filter(
-    (country) => country.prefix === match.prefix && digits.startsWith(country.prefix.replace('+', '')),
+    (country) =>
+      country.prefix === match.prefix && digits.startsWith(country.prefix.replace('+', '')),
   );
   const chosen = sameLength.find((country) => country.iso === fallbackIso) ?? match;
   return { iso: chosen.iso, number: digits.slice(chosen.prefix.length - 1) };
@@ -90,10 +91,12 @@ export function PhoneInput({
         aria-invalid={invalid || undefined}
         disabled={disabled}
         value={value.number}
-        onChange={(event) => onChange({
+        onChange={(event) =>
+          onChange({
             ...value,
             number: cleanDigits(event.target.value).slice(0, LIMITS.phoneDigits - prefixDigits),
-          })}
+          })
+        }
         className="h-full border-0 shadow-none focus-visible:ring-0"
       />
     </div>

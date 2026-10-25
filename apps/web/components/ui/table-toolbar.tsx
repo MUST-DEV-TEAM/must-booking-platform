@@ -28,7 +28,10 @@ export function ColumnChooser<K extends string>({
       <PopoverContent align="end" className="w-48 p-2">
         <p className="m-0 px-2 py-1 text-xs font-semibold">Show columns</p>
         {(Object.keys(labels) as K[]).map((column) => (
-          <label key={column} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-muted">
+          <label
+            key={column}
+            className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-muted"
+          >
             <Checkbox checked={visible[column]} onCheckedChange={() => onToggle(column)} />
             {labels[column]}
           </label>

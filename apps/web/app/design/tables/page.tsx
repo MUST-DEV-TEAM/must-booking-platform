@@ -51,9 +51,22 @@ import {
 } from '../../../components/ui/dropdown-menu';
 import { Input } from '../../../components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../components/ui/select';
 import { Skeleton } from '../../../components/ui/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../../components/ui/table';
 import { PageHeader } from '../_ui/hotel';
 
 type StayState = 'Upcoming' | 'In house' | 'Departed' | 'Not staying';

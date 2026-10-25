@@ -110,13 +110,23 @@ it('renders selectable sortable hotels, counted tabs, readiness, density and a q
   expect(document.querySelectorAll('tbody tr:first-child [aria-label^=Website]')).toHaveLength(1);
   expect(document.querySelectorAll('tbody tr:first-child [aria-label^=Payments]')).toHaveLength(1);
   await click('Columns');
-  const setupToggle = [...document.querySelectorAll('label')].find((label) => label.textContent === 'Setup')!.querySelector<HTMLButtonElement>('[role=checkbox]')!;
+  const setupToggle = [...document.querySelectorAll('label')]
+    .find((label) => label.textContent === 'Setup')!
+    .querySelector<HTMLButtonElement>('[role=checkbox]')!;
   await act(async () => setupToggle.click());
-  expect([...document.querySelectorAll('th')].some((head) => head.textContent === 'Setup')).toBe(false);
-  expect([...document.querySelectorAll('th')].some((head) => head.textContent === 'Status')).toBe(true);
+  expect([...document.querySelectorAll('th')].some((head) => head.textContent === 'Setup')).toBe(
+    false,
+  );
+  expect([...document.querySelectorAll('th')].some((head) => head.textContent === 'Status')).toBe(
+    true,
+  );
   await act(async () => setupToggle.click());
-  expect([...document.querySelectorAll('th')].some((head) => head.textContent === 'Setup')).toBe(true);
-  await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  expect([...document.querySelectorAll('th')].some((head) => head.textContent === 'Setup')).toBe(
+    true,
+  );
+  await act(async () =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+  );
   await click('Compact rows');
   expect(buttons().find((b) => b.getAttribute('aria-label') === 'Comfortable rows')).toBeTruthy();
   await click('Preview Beach Hotel');

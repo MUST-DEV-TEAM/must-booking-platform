@@ -21,7 +21,11 @@ import {
   type NotificationType,
 } from './notification-registry';
 import { BOOKING_NEEDS_ATTENTION_STATUSES } from '../booking/booking-attention';
-const ACTIONABLE_TYPES: NotificationType[] = ['EMAIL_DELIVERY_FAILED', 'BOOKING_NEEDS_ATTENTION', 'CANCELLATION_REQUESTED'];
+const ACTIONABLE_TYPES: NotificationType[] = [
+  'EMAIL_DELIVERY_FAILED',
+  'BOOKING_NEEDS_ATTENTION',
+  'CANCELLATION_REQUESTED',
+];
 export type InboxContext = { tenantId: string; propertyId: string; userId: string };
 type Row = {
   id: string;
@@ -88,15 +92,15 @@ export class NotificationInboxService {
       row.type === 'CANCELLATION_REQUESTED' && caps.includes('requests.review')
         ? `/dashboard/${c.tenantId}?propertyId=${c.propertyId}&section=overview&tab=approvals`
         : row.type === 'EMAIL_DELIVERY_FAILED' &&
-      caps.includes('settings.manage') &&
-      row.emailMessageId &&
-      NOTIFICATION_UUID.test(row.emailMessageId)
-        ? `/dashboard/${c.tenantId}?propertyId=${c.propertyId}&section=emails&emailMessageId=${row.emailMessageId}`
-        : canBooking && row.bookingId
-          ? `/dashboard/${c.tenantId}?propertyId=${c.propertyId}&section=reservations&reservation=${row.bookingId}`
-          : row.type === 'STAFF_SEAT_CAP_REACHED' && canStaff
-            ? `/dashboard/${c.tenantId}?propertyId=${c.propertyId}&section=staff`
-            : null;
+            caps.includes('settings.manage') &&
+            row.emailMessageId &&
+            NOTIFICATION_UUID.test(row.emailMessageId)
+          ? `/dashboard/${c.tenantId}?propertyId=${c.propertyId}&section=emails&emailMessageId=${row.emailMessageId}`
+          : canBooking && row.bookingId
+            ? `/dashboard/${c.tenantId}?propertyId=${c.propertyId}&section=reservations&reservation=${row.bookingId}`
+            : row.type === 'STAFF_SEAT_CAP_REACHED' && canStaff
+              ? `/dashboard/${c.tenantId}?propertyId=${c.propertyId}&section=staff`
+              : null;
     return {
       id: row.id,
       type: row.type,
@@ -367,7 +371,8 @@ export class NotificationInboxService {
         Prisma.sql`SELECT n.type FROM notifications n WHERE n.tenant_id=${c.tenantId}::uuid AND n.property_id=${c.propertyId}::uuid AND n.id=${id}::uuid AND n.type=ANY(${types}::text[]) FOR UPDATE`,
       );
       if (!rows[0]) throw new NotFoundException('Notification not found.');
-      if (rows[0].type === 'CANCELLATION_REQUESTED') throw new BadRequestException('Decide the request in Approvals.');
+      if (rows[0].type === 'CANCELLATION_REQUESTED')
+        throw new BadRequestException('Decide the request in Approvals.');
       if (!ACTIONABLE_TYPES.includes(rows[0].type))
         throw new BadRequestException('Only needs-action notifications can be resolved.');
       const changed =

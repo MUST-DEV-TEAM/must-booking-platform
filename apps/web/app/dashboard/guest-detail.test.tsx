@@ -139,11 +139,15 @@ describe('GuestDetail', () => {
     const cancelled = Array.from(c.querySelectorAll('tbody tr'))[1];
     expect(cancelled.textContent).toContain('Cancelled');
     await act(async () => {
-      Array.from(c.querySelectorAll<HTMLElement>('[role="tab"]')).find((entry) => entry.textContent?.startsWith('Payments'))!.click();
+      Array.from(c.querySelectorAll<HTMLElement>('[role="tab"]'))
+        .find((entry) => entry.textContent?.startsWith('Payments'))!
+        .click();
     });
     const paymentRow = Array.from(c.querySelectorAll('tbody tr'))[1];
     expect(paymentRow.textContent).toContain('Partially refunded');
-    expect(paymentRow.querySelector('a')?.getAttribute('href')).toBe('/dashboard/t?propertyId=p&section=payments&payment=old');
+    expect(paymentRow.querySelector('a')?.getAttribute('href')).toBe(
+      '/dashboard/t?propertyId=p&section=payments&payment=old',
+    );
     await unmount();
   });
 
@@ -162,7 +166,9 @@ describe('GuestDetail', () => {
     expect(c.textContent).toContain('Vlorë');
     expect(c.textContent).toContain('Possible duplicate');
     await act(async () => {
-      Array.from(c.querySelectorAll<HTMLElement>('[role="tab"]')).find((entry) => entry.textContent?.startsWith('Activity'))!.click();
+      Array.from(c.querySelectorAll<HTMLElement>('[role="tab"]'))
+        .find((entry) => entry.textContent?.startsWith('Activity'))!
+        .click();
     });
     expect(c.textContent).toContain('Reservation EBR-NEW created');
     expect(c.textContent).toContain('Reservation EBR-OLD cancelled');

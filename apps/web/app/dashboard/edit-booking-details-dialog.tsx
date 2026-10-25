@@ -159,7 +159,9 @@ export function EditBookingDetailsDialog({
         {field('estimatedArrivalTime', 'Estimated arrival (hotel local time)', 'time')}
         <div className="space-y-1.5">
           <Label htmlFor="edit-notes">Special requests / notes</Label>
-          <p className="text-sm text-muted-foreground">Use guest-facing requests here; these can appear in booking emails.</p>
+          <p className="text-sm text-muted-foreground">
+            Use guest-facing requests here; these can appear in booking emails.
+          </p>
           <Textarea
             id="edit-notes"
             value={values.specialRequests}

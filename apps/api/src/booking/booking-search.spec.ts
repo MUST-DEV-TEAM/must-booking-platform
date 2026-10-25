@@ -24,7 +24,9 @@ describe('parseBookingSearchQuery', () => {
       'CONFIRMED',
       'CANCELLED',
     ]);
-    expect(() => parseBookingSearchQuery({ status: 'CONFIRMED,NOPE' })).toThrow(BadRequestException);
+    expect(() => parseBookingSearchQuery({ status: 'CONFIRMED,NOPE' })).toThrow(
+      BadRequestException,
+    );
   });
 
   it.each([
@@ -43,7 +45,10 @@ describe('parseBookingSearchQuery', () => {
 
 describe('buildBookingSearch', () => {
   it('never puts user text in the SQL, only in parameters', () => {
-    const query = parseBookingSearchQuery({ search: "x'; DROP TABLE bookings;--", from: '2026-10-01' });
+    const query = parseBookingSearchQuery({
+      search: "x'; DROP TABLE bookings;--",
+      from: '2026-10-01',
+    });
     const built = buildBookingSearch(query);
     expect(built.where).not.toContain('DROP');
     expect(built.params).toContain("%x'; DROP TABLE bookings;--%");
@@ -57,7 +62,12 @@ describe('buildBookingSearch', () => {
 
   it('numbers parameters from $3 because $1 and $2 are tenant and property', () => {
     const built = buildBookingSearch(
-      parseBookingSearchQuery({ search: 'ana', payment: 'paid', from: '2026-10-01', to: '2026-10-31' }),
+      parseBookingSearchQuery({
+        search: 'ana',
+        payment: 'paid',
+        from: '2026-10-01',
+        to: '2026-10-31',
+      }),
     );
     expect(built.where).toContain('$3');
     expect(built.where).toContain('$4');

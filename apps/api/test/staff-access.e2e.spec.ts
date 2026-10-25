@@ -46,8 +46,12 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
   const base = `/tenants/${tenantId}/properties/${propertyId}`;
 
   const login = async (email: string, pass: string) =>
-    (await request(app.getHttpServer()).post('/auth/login').send({ email, password: pass }).expect(201))
-      .headers['set-cookie'][0] as string;
+    (
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email, password: pass })
+        .expect(201)
+    ).headers['set-cookie'][0] as string;
 
   beforeAll(async () => {
     const passwordHash = await bcrypt.hash(password, 12);
@@ -83,7 +87,8 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
         (${tenantId}::uuid, ${leadId}::uuid, 'STAFF')
     `;
     process.env.APP_PORT = '3000';
-    process.env.DATABASE_URL = 'postgresql://must_booking_app:must_booking_app_dev@localhost:5432/must_booking';
+    process.env.DATABASE_URL =
+      'postgresql://must_booking_app:must_booking_app_dev@localhost:5432/must_booking';
     process.env.REDIS_URL = 'redis://localhost:6379';
     process.env.WEB_APP_URL = 'http://localhost:3001';
     const { AppModule } = await import('../src/app.module');
@@ -94,7 +99,9 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
     app = moduleRef.createNestApplication();
     await app.init();
     await moduleRef.get(PropertyRoleTemplatesService).ensureBuiltInTemplates(tenantId, propertyId);
-    await moduleRef.get(PropertyRoleTemplatesService).ensureBuiltInTemplates(tenantId, otherPropertyId);
+    await moduleRef
+      .get(PropertyRoleTemplatesService)
+      .ensureBuiltInTemplates(tenantId, otherPropertyId);
     const roles = await migrationPrisma.$queryRaw<Array<{ id: string; name: string }>>`
       SELECT "id", "name" FROM "property_role_templates" WHERE "tenant_id" = ${tenantId}::uuid AND "property_id" = ${propertyId}::uuid
     `;
@@ -112,7 +119,10 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
     const leadRole = await request(app.getHttpServer())
       .post(`${base}/role-templates`)
       .set('Cookie', adminCookie)
-      .send({ name: 'Team lead', capabilities: ['staff.view', 'staff.create', 'staff.manage_roles', 'bookings.view'] })
+      .send({
+        name: 'Team lead',
+        capabilities: ['staff.view', 'staff.create', 'staff.manage_roles', 'bookings.view'],
+      })
       .expect(201);
     await migrationPrisma.$executeRaw`
       INSERT INTO "property_staff_assignments" ("tenant_id", "property_id", "user_id", "role_template_id")
@@ -154,11 +164,18 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
   });
 
   it('lists the permission catalog grouped by area', async () => {
-    const response = await request(app.getHttpServer()).get(`${base}/capabilities/catalog`).set('Cookie', adminCookie).expect(200);
+    const response = await request(app.getHttpServer())
+      .get(`${base}/capabilities/catalog`)
+      .set('Cookie', adminCookie)
+      .expect(200);
     const keys = (response.body as Array<{ key: string; group: string }>).map((entry) => entry.key);
     expect(keys).toContain('bookings.cancel');
     expect(keys).toContain('staff.suspend');
-    expect(response.body).toEqual(expect.arrayContaining([expect.objectContaining({ group: 'Bookings', key: 'bookings.view' })]));
+    expect(response.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ group: 'Bookings', key: 'bookings.view' }),
+      ]),
+    );
   });
 
   it('lets a team lead invite only roles and extra permissions they hold', async () => {
@@ -170,7 +187,10 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
     await request(app.getHttpServer())
       .post(`${base}/staff-invitations`)
       .set('Cookie', leadCookie)
-      .send({ email: `lead-forbidden-role-${randomUUID()}@example.test`, roleTemplateId: frontDeskId })
+      .send({
+        email: `lead-forbidden-role-${randomUUID()}@example.test`,
+        roleTemplateId: frontDeskId,
+      })
       .expect(403);
     await request(app.getHttpServer())
       .post(`${base}/staff-invitations`)
@@ -193,7 +213,10 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
     await request(app.getHttpServer())
       .post(`${base}/staff-invitations`)
       .set('Cookie', leadCookie)
-      .send({ email: `lead-foreign-role-${randomUUID()}@example.test`, roleTemplateId: foreignRoleId })
+      .send({
+        email: `lead-foreign-role-${randomUUID()}@example.test`,
+        roleTemplateId: foreignRoleId,
+      })
       .expect(404);
     await request(app.getHttpServer())
       .post(`${base}/staff-invitations`)
@@ -239,10 +262,17 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
     await request(app.getHttpServer())
       .post(`${base}/staff`)
       .set('Cookie', adminCookie)
-      .send({ firstName: 'Again', email: newEmail, password: chosenPassword, roleTemplateId: frontDeskId })
+      .send({
+        firstName: 'Again',
+        email: newEmail,
+        password: chosenPassword,
+        roleTemplateId: frontDeskId,
+      })
       .expect(409);
 
-    const stored = await migrationPrisma.$queryRaw<Array<{ passwordHash: string; verified: boolean; firstName: string }>>`
+    const stored = await migrationPrisma.$queryRaw<
+      Array<{ passwordHash: string; verified: boolean; firstName: string }>
+    >`
       SELECT "password_hash" AS "passwordHash", "email_verified_at" IS NOT NULL AS "verified", "first_name" AS "firstName"
       FROM "users" WHERE "id" = ${createdUserId}::uuid
     `;
@@ -250,8 +280,13 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
     expect(stored[0]!.passwordHash).not.toContain(chosenPassword);
     await login(newEmail, chosenPassword);
 
-    const list = await request(app.getHttpServer()).get(`${base}/staff`).set('Cookie', adminCookie).expect(200);
-    const row = (list.body as Array<Record<string, unknown>>).find((entry) => entry.userId === createdUserId)!;
+    const list = await request(app.getHttpServer())
+      .get(`${base}/staff`)
+      .set('Cookie', adminCookie)
+      .expect(200);
+    const row = (list.body as Array<Record<string, unknown>>).find(
+      (entry) => entry.userId === createdUserId,
+    )!;
     expect(row).toMatchObject({
       firstName: 'Mira',
       lastName: 'Kola',
@@ -271,7 +306,12 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
       .get(`${base}/staff/${createdUserId}/effective-capabilities`)
       .set('Cookie', adminCookie)
       .expect(200);
-    const byKey = new Map((response.body as Array<{ key: string; granted: boolean; source: string }>).map((entry) => [entry.key, entry]));
+    const byKey = new Map(
+      (response.body as Array<{ key: string; granted: boolean; source: string }>).map((entry) => [
+        entry.key,
+        entry,
+      ]),
+    );
     expect(byKey.get('bookings.create')).toMatchObject({ granted: true, source: 'role' });
     expect(byKey.get('calendar.block')).toMatchObject({ granted: true, source: 'extra' });
     expect(byKey.get('bookings.cancel')).toMatchObject({ granted: false, source: 'denied' });
@@ -286,8 +326,16 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
       .expect(201);
     expect(created.body).toMatchObject({ name: 'Night auditor', kind: 'CUSTOM', memberCount: 0 });
     expect(created.body.capabilities).toContain('bookings.view');
-    await request(app.getHttpServer()).post(`${base}/role-templates`).set('Cookie', adminCookie).send({ name: 'night AUDITOR', capabilities: [] }).expect(409);
-    await request(app.getHttpServer()).post(`${base}/role-templates`).set('Cookie', adminCookie).send({ name: 'Bad', capabilities: ['nope.nope'] }).expect(400);
+    await request(app.getHttpServer())
+      .post(`${base}/role-templates`)
+      .set('Cookie', adminCookie)
+      .send({ name: 'night AUDITOR', capabilities: [] })
+      .expect(409);
+    await request(app.getHttpServer())
+      .post(`${base}/role-templates`)
+      .set('Cookie', adminCookie)
+      .send({ name: 'Bad', capabilities: ['nope.nope'] })
+      .expect(400);
 
     const updated = await request(app.getHttpServer())
       .put(`${base}/role-templates/${created.body.id}`)
@@ -296,14 +344,35 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
       .expect(200);
     expect(updated.body.capabilities).toEqual(['bookings.view']);
 
-    await request(app.getHttpServer()).put(`${base}/role-templates/${frontDeskId}`).set('Cookie', adminCookie).send({ name: 'X' }).expect(409);
-    await request(app.getHttpServer()).delete(`${base}/role-templates/${frontDeskId}`).set('Cookie', adminCookie).expect(409);
+    await request(app.getHttpServer())
+      .put(`${base}/role-templates/${frontDeskId}`)
+      .set('Cookie', adminCookie)
+      .send({ name: 'X' })
+      .expect(409);
+    await request(app.getHttpServer())
+      .delete(`${base}/role-templates/${frontDeskId}`)
+      .set('Cookie', adminCookie)
+      .expect(409);
 
-    await request(app.getHttpServer()).put(`${base}/staff/${createdUserId}`).set('Cookie', adminCookie).send({ roleTemplateId: created.body.id }).expect(204);
-    const inUse = await request(app.getHttpServer()).delete(`${base}/role-templates/${created.body.id}`).set('Cookie', adminCookie).expect(409);
+    await request(app.getHttpServer())
+      .put(`${base}/staff/${createdUserId}`)
+      .set('Cookie', adminCookie)
+      .send({ roleTemplateId: created.body.id })
+      .expect(204);
+    const inUse = await request(app.getHttpServer())
+      .delete(`${base}/role-templates/${created.body.id}`)
+      .set('Cookie', adminCookie)
+      .expect(409);
     expect(inUse.body.message).toContain('1 staff member');
-    await request(app.getHttpServer()).put(`${base}/staff/${createdUserId}`).set('Cookie', adminCookie).send({ roleTemplateId: frontDeskId }).expect(204);
-    await request(app.getHttpServer()).delete(`${base}/role-templates/${created.body.id}`).set('Cookie', adminCookie).expect(204);
+    await request(app.getHttpServer())
+      .put(`${base}/staff/${createdUserId}`)
+      .set('Cookie', adminCookie)
+      .send({ roleTemplateId: frontDeskId })
+      .expect(204);
+    await request(app.getHttpServer())
+      .delete(`${base}/role-templates/${created.body.id}`)
+      .set('Cookie', adminCookie)
+      .expect(204);
   });
 
   it('never lets someone hand out a permission they do not hold', async () => {
@@ -321,28 +390,77 @@ describe('staff access: create staff, custom roles, suspension and the rules aro
     await request(app.getHttpServer())
       .post(`${base}/staff`)
       .set('Cookie', leadCookie)
-      .send({ firstName: 'No', email: `access-no-${randomUUID()}@example.test`, password: chosenPassword, roleTemplateId: managerId })
+      .send({
+        firstName: 'No',
+        email: `access-no-${randomUUID()}@example.test`,
+        password: chosenPassword,
+        roleTemplateId: managerId,
+      })
       .expect(403);
     await request(app.getHttpServer())
       .post(`${base}/staff`)
       .set('Cookie', leadCookie)
-      .send({ firstName: 'Extra', email: `access-extra-${randomUUID()}@example.test`, password: chosenPassword, roleTemplateId: frontDeskId })
+      .send({
+        firstName: 'Extra',
+        email: `access-extra-${randomUUID()}@example.test`,
+        password: chosenPassword,
+        roleTemplateId: frontDeskId,
+      })
       .expect(403);
     // Someone without the permission cannot reach the endpoint at all.
-    await request(app.getHttpServer()).post(`${base}/staff/${createdUserId}/status`).set('Cookie', leadCookie).expect(404);
-    await request(app.getHttpServer()).patch(`${base}/staff/${createdUserId}/status`).set('Cookie', leadCookie).send({ status: 'SUSPENDED' }).expect(403);
+    await request(app.getHttpServer())
+      .post(`${base}/staff/${createdUserId}/status`)
+      .set('Cookie', leadCookie)
+      .expect(404);
+    await request(app.getHttpServer())
+      .patch(`${base}/staff/${createdUserId}/status`)
+      .set('Cookie', leadCookie)
+      .send({ status: 'SUSPENDED' })
+      .expect(403);
   });
 
   it('suspends and reactivates a person at this hotel without touching their account', async () => {
     const newCookie = await login(newEmail, chosenPassword);
-    await request(app.getHttpServer()).get(`${base}/capabilities/mine`).set('Cookie', newCookie).expect(200);
-    await request(app.getHttpServer()).patch(`${base}/staff/${createdUserId}/status`).set('Cookie', adminCookie).send({ status: 'SUSPENDED' }).expect(204);
-    await request(app.getHttpServer()).get(`${base}/capabilities/mine`).set('Cookie', newCookie).expect(403);
-    const suspended = await request(app.getHttpServer()).get(`${base}/staff`).set('Cookie', adminCookie).expect(200);
-    expect((suspended.body as Array<{ userId: string; status: string }>).find((entry) => entry.userId === createdUserId)!.status).toBe('SUSPENDED');
-    await request(app.getHttpServer()).patch(`${base}/staff/${createdUserId}/status`).set('Cookie', adminCookie).send({ status: 'BANANA' }).expect(400);
-    await request(app.getHttpServer()).patch(`${base}/staff/${createdUserId}/status`).set('Cookie', adminCookie).send({ status: 'ACTIVE' }).expect(204);
-    await request(app.getHttpServer()).get(`${base}/capabilities/mine`).set('Cookie', newCookie).expect(200);
-    await request(app.getHttpServer()).patch(`${base}/staff/${adminId}/status`).set('Cookie', adminCookie).send({ status: 'SUSPENDED' }).expect(403);
+    await request(app.getHttpServer())
+      .get(`${base}/capabilities/mine`)
+      .set('Cookie', newCookie)
+      .expect(200);
+    await request(app.getHttpServer())
+      .patch(`${base}/staff/${createdUserId}/status`)
+      .set('Cookie', adminCookie)
+      .send({ status: 'SUSPENDED' })
+      .expect(204);
+    await request(app.getHttpServer())
+      .get(`${base}/capabilities/mine`)
+      .set('Cookie', newCookie)
+      .expect(403);
+    const suspended = await request(app.getHttpServer())
+      .get(`${base}/staff`)
+      .set('Cookie', adminCookie)
+      .expect(200);
+    expect(
+      (suspended.body as Array<{ userId: string; status: string }>).find(
+        (entry) => entry.userId === createdUserId,
+      )!.status,
+    ).toBe('SUSPENDED');
+    await request(app.getHttpServer())
+      .patch(`${base}/staff/${createdUserId}/status`)
+      .set('Cookie', adminCookie)
+      .send({ status: 'BANANA' })
+      .expect(400);
+    await request(app.getHttpServer())
+      .patch(`${base}/staff/${createdUserId}/status`)
+      .set('Cookie', adminCookie)
+      .send({ status: 'ACTIVE' })
+      .expect(204);
+    await request(app.getHttpServer())
+      .get(`${base}/capabilities/mine`)
+      .set('Cookie', newCookie)
+      .expect(200);
+    await request(app.getHttpServer())
+      .patch(`${base}/staff/${adminId}/status`)
+      .set('Cookie', adminCookie)
+      .send({ status: 'SUSPENDED' })
+      .expect(403);
   });
 });

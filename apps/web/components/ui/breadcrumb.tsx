@@ -18,15 +18,24 @@ export function Breadcrumb({ items }: { items: readonly BreadcrumbItem[] }) {
           return (
             <li
               key={`${item.label}-${index}`}
-              className={cn('max-w-full min-w-0 items-center gap-1.5 break-words', hiddenOnPhone ? 'hidden sm:flex' : 'flex')}
+              className={cn(
+                'max-w-full min-w-0 items-center gap-1.5 break-words',
+                hiddenOnPhone ? 'hidden sm:flex' : 'flex',
+              )}
             >
               {index > 0 ? <ChevronRight aria-hidden="true" className="size-3.5 shrink-0" /> : null}
               {last || !item.href ? (
-                <span aria-current={last ? 'page' : undefined} className={cn(last && 'font-semibold text-foreground')}>
+                <span
+                  aria-current={last ? 'page' : undefined}
+                  className={cn(last && 'font-semibold text-foreground')}
+                >
                   {item.label}
                 </span>
               ) : (
-                <a href={item.href} className="text-inherit no-underline hover:text-foreground hover:underline">
+                <a
+                  href={item.href}
+                  className="text-inherit no-underline hover:text-foreground hover:underline"
+                >
                   {item.label}
                 </a>
               )}

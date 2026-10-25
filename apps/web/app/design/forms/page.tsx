@@ -36,7 +36,13 @@ import {
 import { Input, Textarea } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../components/ui/select';
 import { Switch } from '../../../components/ui/switch';
 
 type FieldState = 'Default' | 'Focused' | 'Filled' | 'Error' | 'Disabled';

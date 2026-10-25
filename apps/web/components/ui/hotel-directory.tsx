@@ -72,7 +72,9 @@ function paymentLabel(h: DirectoryHotel) {
         : 'Needs setup';
 }
 function websiteLabel(h: DirectoryHotel) {
-  return hotelReadiness(h).health['managed-pages'].status === 'done' ? 'Connected' : 'Not connected';
+  return hotelReadiness(h).health['managed-pages'].status === 'done'
+    ? 'Connected'
+    : 'Not connected';
 }
 function connectionLabel(h: DirectoryHotel) {
   return h.pmsSource === 'CLOCK_PMS'
@@ -138,8 +140,7 @@ export function HotelDirectory({
           [h.name, h.address].join(' ').toLowerCase().includes(search.trim().toLowerCase())) &&
         (connection === 'all' || h.pmsSource === connection) &&
         (mode === 'all' || h.bookingMode === mode) &&
-        (website === 'all' ||
-          (websiteLabel(h) === 'Connected') === (website === 'connected')) &&
+        (website === 'all' || (websiteLabel(h) === 'Connected') === (website === 'connected')) &&
         (payment === 'all' || paymentLabel(h) === payment),
     )
     .sort((a, b) => {
@@ -390,7 +391,10 @@ export function HotelDirectory({
                                 <Badge variant="outline" aria-label={`Website: ${websiteLabel(h)}`}>
                                   Website: {websiteLabel(h)}
                                 </Badge>
-                                <Badge variant="outline" aria-label={`Payments: ${paymentLabel(h)}`}>
+                                <Badge
+                                  variant="outline"
+                                  aria-label={`Payments: ${paymentLabel(h)}`}
+                                >
                                   {paymentLabel(h)}
                                 </Badge>
                               </div>

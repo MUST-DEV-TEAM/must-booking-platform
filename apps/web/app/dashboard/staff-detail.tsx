@@ -127,12 +127,16 @@ export function StaffDetail({
                 <Mail aria-hidden="true" /> Email
               </a>
             </Button>
-            {canChangeStatus ? <Button
-              variant={member.status === 'ACTIVE' ? 'destructive' : 'success'}
-              size="sm"
-              disabled={statusPending}
-              onClick={onChangeStatus}
-            >{member.status === 'ACTIVE' ? 'Suspend access' : 'Reactivate access'}</Button> : null}
+            {canChangeStatus ? (
+              <Button
+                variant={member.status === 'ACTIVE' ? 'destructive' : 'success'}
+                size="sm"
+                disabled={statusPending}
+                onClick={onChangeStatus}
+              >
+                {member.status === 'ACTIVE' ? 'Suspend access' : 'Reactivate access'}
+              </Button>
+            ) : null}
           </>
         }
       />
@@ -223,7 +227,9 @@ export function StaffDetail({
               ) : canManageRoles ? (
                 <p className="m-0 text-sm text-muted-foreground">No roles are available.</p>
               ) : (
-                <p className="m-0 text-sm text-muted-foreground">Current role: {template?.name ?? member.roleTemplateName}</p>
+                <p className="m-0 text-sm text-muted-foreground">
+                  Current role: {template?.name ?? member.roleTemplateName}
+                </p>
               )}
               <p className="m-0 text-xs text-muted-foreground">
                 Role-change impact preview is not available yet (G158).
@@ -255,39 +261,43 @@ export function StaffDetail({
                     />
                   </section>
 
-                  {canManagePermissions ? <section className="space-y-3 border-t pt-4">
-                    <div className="space-y-1">
-                      <h3 className="m-0 text-sm font-semibold">Extra permissions</h3>
-                      <p className="m-0 text-xs text-muted-foreground">
-                        These grants add access to what the role already provides.
-                      </p>
-                    </div>
-                    <MultiSelect
-                      options={permissionOptions}
-                      value={extraKeys}
-                      onChange={onExtraChange}
-                      placeholder="Choose extra permissions"
-                      disabled={pendingOverride !== undefined}
-                      label="Extra permissions"
-                    />
-                  </section> : null}
+                  {canManagePermissions ? (
+                    <section className="space-y-3 border-t pt-4">
+                      <div className="space-y-1">
+                        <h3 className="m-0 text-sm font-semibold">Extra permissions</h3>
+                        <p className="m-0 text-xs text-muted-foreground">
+                          These grants add access to what the role already provides.
+                        </p>
+                      </div>
+                      <MultiSelect
+                        options={permissionOptions}
+                        value={extraKeys}
+                        onChange={onExtraChange}
+                        placeholder="Choose extra permissions"
+                        disabled={pendingOverride !== undefined}
+                        label="Extra permissions"
+                      />
+                    </section>
+                  ) : null}
 
-                  {canManagePermissions ? <section className="space-y-3 border-t pt-4">
-                    <div className="space-y-1">
-                      <h3 className="m-0 text-sm font-semibold">Denied permissions</h3>
-                      <p className="m-0 text-xs text-muted-foreground">
-                        A denial overrides a permission granted by the role.
-                      </p>
-                    </div>
-                    <MultiSelect
-                      options={permissionOptions}
-                      value={deniedKeys}
-                      onChange={onDeniedChange}
-                      placeholder="Choose denied permissions"
-                      disabled={pendingOverride !== undefined}
-                      label="Denied permissions"
-                    />
-                  </section> : null}
+                  {canManagePermissions ? (
+                    <section className="space-y-3 border-t pt-4">
+                      <div className="space-y-1">
+                        <h3 className="m-0 text-sm font-semibold">Denied permissions</h3>
+                        <p className="m-0 text-xs text-muted-foreground">
+                          A denial overrides a permission granted by the role.
+                        </p>
+                      </div>
+                      <MultiSelect
+                        options={permissionOptions}
+                        value={deniedKeys}
+                        onChange={onDeniedChange}
+                        placeholder="Choose denied permissions"
+                        disabled={pendingOverride !== undefined}
+                        label="Denied permissions"
+                      />
+                    </section>
+                  ) : null}
                   <p className="m-0 text-xs text-muted-foreground">
                     Override reasons and expiry dates are not available yet (G156).
                   </p>

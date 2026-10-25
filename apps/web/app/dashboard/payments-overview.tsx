@@ -51,8 +51,12 @@ export function PaymentsOverview({
     />
   );
   const attention = bookings.filter((booking) => needsAction(booking));
-  const owed = bookings.filter((booking) => !isDead(booking) && minorUnits(outstandingAmount(booking)) > 0n);
-  const paid = bookings.filter((booking) => minorUnits(booking.paidAmount) > 0n && !isDead(booking));
+  const owed = bookings.filter(
+    (booking) => !isDead(booking) && minorUnits(outstandingAmount(booking)) > 0n,
+  );
+  const paid = bookings.filter(
+    (booking) => minorUnits(booking.paidAmount) > 0n && !isDead(booking),
+  );
   const refunded = bookings.filter((booking) => minorUnits(booking.refundedAmount) > 0n);
 
   return (
@@ -63,13 +67,18 @@ export function PaymentsOverview({
         description="Money held for cancelled bookings, failed payments and bookings stuck in review."
         empty="Nothing needs action right now."
       >
-        {attention.slice(0, SHOWN).map((booking) =>
-          row(
-            booking,
-            attentionReason(booking),
-            money(String(Number(booking.paidAmount) - Number(booking.refundedAmount)), booking.total.currency),
-          ),
-        )}
+        {attention
+          .slice(0, SHOWN)
+          .map((booking) =>
+            row(
+              booking,
+              attentionReason(booking),
+              money(
+                String(Number(booking.paidAmount) - Number(booking.refundedAmount)),
+                booking.total.currency,
+              ),
+            ),
+          )}
       </ListCard>
       <ListCard
         title="Still owed"
@@ -87,7 +96,10 @@ export function PaymentsOverview({
               subtitle={`${booking.startsOn ?? ''} – ${booking.endsOn ?? ''}`}
               trailing={
                 <span className="flex items-center gap-2">
-                  <Badge variant={PAYMENT_BADGE_TONE[status.state]} className="rounded-full px-2 py-0 text-[10px]">
+                  <Badge
+                    variant={PAYMENT_BADGE_TONE[status.state]}
+                    className="rounded-full px-2 py-0 text-[10px]"
+                  >
                     {status.label}
                   </Badge>
                   <span className="font-semibold text-foreground">
@@ -103,14 +115,22 @@ export function PaymentsOverview({
         {paid
           .slice(0, SHOWN)
           .map((booking) =>
-            row(booking, paymentStatus(booking).label, money(booking.paidAmount, booking.total.currency)),
+            row(
+              booking,
+              paymentStatus(booking).label,
+              money(booking.paidAmount, booking.total.currency),
+            ),
           )}
       </ListCard>
       <ListCard title="Recent refunds" count={refunded.length} empty="No refunds yet.">
         {refunded
           .slice(0, SHOWN)
           .map((booking) =>
-            row(booking, paymentStatus(booking).label, money(booking.refundedAmount, booking.total.currency)),
+            row(
+              booking,
+              paymentStatus(booking).label,
+              money(booking.refundedAmount, booking.total.currency),
+            ),
           )}
       </ListCard>
     </div>

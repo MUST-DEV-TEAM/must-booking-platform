@@ -14,11 +14,17 @@ describe('attentionIssue', () => {
   });
 
   it('puts failed payments in the payments group as urgent', () => {
-    expect(attentionIssue('PAYMENT_FAILED')).toMatchObject({ group: 'payments', priority: 'urgent' });
+    expect(attentionIssue('PAYMENT_FAILED')).toMatchObject({
+      group: 'payments',
+      priority: 'urgent',
+    });
   });
 
   it('falls back to a generic review item for an unknown status', () => {
-    expect(attentionIssue('SOMETHING_NEW')).toMatchObject({ title: 'Needs review', priority: 'review' });
+    expect(attentionIssue('SOMETHING_NEW')).toMatchObject({
+      title: 'Needs review',
+      priority: 'review',
+    });
   });
 
   it('ranks urgent before review', () => {

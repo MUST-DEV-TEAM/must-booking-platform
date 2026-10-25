@@ -9,7 +9,13 @@ export type TimelineItem = {
 };
 
 /** A vertical list of what happened and when, newest first as given. */
-export function Timeline({ items, empty = 'Nothing has happened yet.' }: { items: readonly TimelineItem[]; empty?: string }) {
+export function Timeline({
+  items,
+  empty = 'Nothing has happened yet.',
+}: {
+  items: readonly TimelineItem[];
+  empty?: string;
+}) {
   if (items.length === 0) return <p className="text-sm text-muted-foreground">{empty}</p>;
   return (
     <ol className="list-none space-y-4">
@@ -27,7 +33,9 @@ export function Timeline({ items, empty = 'Nothing has happened yet.' }: { items
           ) : null}
           <p className="text-sm font-semibold">{item.title}</p>
           {item.meta ? <p className="text-xs text-muted-foreground">{item.meta}</p> : null}
-          {item.detail ? <div className="mt-1 text-xs text-muted-foreground">{item.detail}</div> : null}
+          {item.detail ? (
+            <div className="mt-1 text-xs text-muted-foreground">{item.detail}</div>
+          ) : null}
         </li>
       ))}
     </ol>

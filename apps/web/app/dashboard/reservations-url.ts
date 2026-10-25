@@ -32,7 +32,20 @@ export const DEFAULT_FILTERS: ReservationFilters = {
   pageSize: 25,
 };
 
-const KEYS = ['rv', 'rq', 'rs', 'rp', 'rsrc', 'rdt', 'rfrom', 'rto', 'rsort', 'rdir', 'rpage', 'rsize'];
+const KEYS = [
+  'rv',
+  'rq',
+  'rs',
+  'rp',
+  'rsrc',
+  'rdt',
+  'rfrom',
+  'rto',
+  'rsort',
+  'rdir',
+  'rpage',
+  'rsize',
+];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const word = /^[A-Za-z0-9_,-]{1,200}$/;
 
@@ -60,7 +73,10 @@ export function filtersToParams(filters: ReservationFilters, search: string): UR
 }
 
 /** Reads the filters back. Anything unrecognised or malformed falls back to the default. */
-export function paramsToFilters(params: URLSearchParams): { filters: ReservationFilters; search: string } {
+export function paramsToFilters(params: URLSearchParams): {
+  filters: ReservationFilters;
+  search: string;
+} {
   const text = (key: string, fallback: string) => {
     const value = params.get(key);
     return value && word.test(value) ? value : fallback;
@@ -94,7 +110,11 @@ export function paramsToFilters(params: URLSearchParams): { filters: Reservation
 }
 
 /** The page address with the filter parameters replaced and every other parameter kept. */
-export function withFilterParams(currentSearch: string, filters: ReservationFilters, search: string): string {
+export function withFilterParams(
+  currentSearch: string,
+  filters: ReservationFilters,
+  search: string,
+): string {
   const params = new URLSearchParams(currentSearch);
   for (const key of KEYS) params.delete(key);
   filtersToParams(filters, search).forEach((value, key) => params.set(key, value));

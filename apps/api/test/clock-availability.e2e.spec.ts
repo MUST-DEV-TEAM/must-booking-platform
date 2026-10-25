@@ -221,7 +221,9 @@ describe.skipIf(!hasSandboxCredentials)('Clock getAvailability (real sandbox)', 
     if (calendar.ok) {
       expect(calendar.value.length).toBe(monthDays());
       expect(calendar.value[0]!.date).toBe(`${STAY_MONTH}-01`);
-      expect(calendar.value.at(-1)!.date).toBe(`${STAY_MONTH}-${String(monthDays()).padStart(2, '0')}`);
+      expect(calendar.value.at(-1)!.date).toBe(
+        `${STAY_MONTH}-${String(monthDays()).padStart(2, '0')}`,
+      );
       const knownAvailable = calendar.value.find((day) => day.date === STAY_STARTS_ON);
       expect(knownAvailable?.isAvailable).toBe(true);
     }

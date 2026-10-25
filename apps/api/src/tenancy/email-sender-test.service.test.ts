@@ -133,17 +133,15 @@ it('rejects a stale configuration before publishing a test', async () => {
 });
 it('does not publish expired recovered intentions', async () => {
   const f = fixture();
-  f.query
-    .mockReset()
-    .mockResolvedValue([
-      {
-        intent: {
-          createdAt: new Date(Date.now() - 8 * 86400000).toISOString(),
-          command: {},
-          kind: 'CUSTOM_SENDER_TEST',
-        },
+  f.query.mockReset().mockResolvedValue([
+    {
+      intent: {
+        createdAt: new Date(Date.now() - 8 * 86400000).toISOString(),
+        command: {},
+        kind: 'CUSTOM_SENDER_TEST',
       },
-    ]);
+    },
+  ]);
   await f.service.recover(scope);
   expect(f.dispatch).not.toHaveBeenCalled();
 });

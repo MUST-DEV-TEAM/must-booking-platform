@@ -85,7 +85,11 @@ export function Combobox({
             triggerClassName,
           )}
         >
-          {renderTrigger ? renderTrigger(selected) : <span className="truncate">{selected?.label ?? placeholder}</span>}
+          {renderTrigger ? (
+            renderTrigger(selected)
+          ) : (
+            <span className="truncate">{selected?.label ?? placeholder}</span>
+          )}
           <ChevronDown aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
@@ -120,7 +124,11 @@ export function Combobox({
             className="h-10 w-full bg-transparent pr-3 pl-9 text-sm outline-none"
           />
         </div>
-        <ul role="listbox" aria-label={label} className="m-0 max-h-64 list-none overflow-y-auto p-1">
+        <ul
+          role="listbox"
+          aria-label={label}
+          className="m-0 max-h-64 list-none overflow-y-auto p-1"
+        >
           {visible.length === 0 ? (
             <li className="px-3 py-2 text-sm text-muted-foreground">{emptyText}</li>
           ) : (
@@ -137,10 +145,15 @@ export function Combobox({
                 >
                   <Check
                     aria-hidden="true"
-                    className={cn('size-4 shrink-0', option.value === value ? 'opacity-100' : 'opacity-0')}
+                    className={cn(
+                      'size-4 shrink-0',
+                      option.value === value ? 'opacity-100' : 'opacity-0',
+                    )}
                   />
                   <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                  {option.hint ? <span className="shrink-0 text-xs text-muted-foreground">{option.hint}</span> : null}
+                  {option.hint ? (
+                    <span className="shrink-0 text-xs text-muted-foreground">{option.hint}</span>
+                  ) : null}
                 </button>
               </li>
             ))

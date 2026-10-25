@@ -8,7 +8,8 @@
 export const cleanDigits = (value: string) => value.replace(/\D+/g, '');
 
 /** Letters of any alphabet, spaces, apostrophes, dots and hyphens (names of people and places). */
-export const cleanName = (value: string) => value.replace(/[^\p{L}\p{M}\s'’.-]+/gu, '').replace(/\s{2,}/g, ' ');
+export const cleanName = (value: string) =>
+  value.replace(/[^\p{L}\p{M}\s'’.-]+/gu, '').replace(/\s{2,}/g, ' ');
 
 /** Letters, digits, spaces, commas, dots, hyphens, slashes and apostrophes (street addresses). */
 export const cleanAddress = (value: string) =>
@@ -16,7 +17,10 @@ export const cleanAddress = (value: string) =>
 
 /** Letters, digits, spaces and hyphens (postcodes). */
 export const cleanPostcode = (value: string) =>
-  value.replace(/[^\p{L}\p{N}\s-]+/gu, '').replace(/\s{2,}/g, ' ').toUpperCase();
+  value
+    .replace(/[^\p{L}\p{N}\s-]+/gu, '')
+    .replace(/\s{2,}/g, ' ')
+    .toUpperCase();
 
 /** An email as typed: no spaces. */
 export const cleanEmail = (value: string) => value.replace(/\s+/g, '');

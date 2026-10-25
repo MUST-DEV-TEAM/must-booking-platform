@@ -22,8 +22,12 @@ export function Brand({ compact = false }: { compact?: boolean }) {
       </span>
       {compact ? null : (
         <div className="min-w-0 leading-tight">
-          <div className="truncate font-extrabold" title="MUST Hotel">MUST Hotel</div>
-          <div className="truncate text-xs text-muted-foreground" title="Reservation operations">Reservation operations</div>
+          <div className="truncate font-extrabold" title="MUST Hotel">
+            MUST Hotel
+          </div>
+          <div className="truncate text-xs text-muted-foreground" title="Reservation operations">
+            Reservation operations
+          </div>
         </div>
       )}
     </div>

@@ -101,7 +101,8 @@ export class MultiRoomBookingService {
               startsOn: command.startsOn,
               endsOn: command.endsOn,
               adults: command.rooms.reduce(
-                (count, room) => count + resolveBookingOccupancy({ guestCount: room.guestCount }).adults,
+                (count, room) =>
+                  count + resolveBookingOccupancy({ guestCount: room.guestCount }).adults,
                 0,
               ),
               children: 0,

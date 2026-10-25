@@ -9,7 +9,11 @@ type Unseen = { count: number; ids: string[] };
  * Recent reservations this staff member has not opened yet. They get a dot in the list and add to
  * the count on the Bookings item. Opening one (the preview or the detail page) clears it.
  */
-export function useUnseenBookings(tenantId: string, propertyId: string | undefined, enabled = true) {
+export function useUnseenBookings(
+  tenantId: string,
+  propertyId: string | undefined,
+  enabled = true,
+) {
   const queryClient = useQueryClient();
   const base = `/api/tenants/${tenantId}/properties/${propertyId}/bookings`;
   const key = ['dashboard', 'unseen-bookings', tenantId, propertyId] as const;
@@ -32,7 +36,10 @@ export function useUnseenBookings(tenantId: string, propertyId: string | undefin
     onMutate: (bookingId: string) => {
       queryClient.setQueryData<Unseen>(key, (current) =>
         current && current.ids.includes(bookingId)
-          ? { count: Math.max(0, current.count - 1), ids: current.ids.filter((id) => id !== bookingId) }
+          ? {
+              count: Math.max(0, current.count - 1),
+              ids: current.ids.filter((id) => id !== bookingId),
+            }
           : current,
       );
     },

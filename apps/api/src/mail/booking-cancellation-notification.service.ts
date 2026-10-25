@@ -108,7 +108,9 @@ export class BookingCancellationNotificationService {
       [row.firstName, row.lastName].filter(Boolean).join(' ').trim() || row.email || 'Guest';
     const brand = {
       name: row.propertyName,
-      brandColour: row.brandColour,emailFooterText: row.emailFooterText,termsUrl: row.termsUrl,
+      brandColour: row.brandColour,
+      emailFooterText: row.emailFooterText,
+      termsUrl: row.termsUrl,
       logoUrl: row.logoUrl,
       supportEmail: row.supportEmail,
       phone: row.propertyPhone,

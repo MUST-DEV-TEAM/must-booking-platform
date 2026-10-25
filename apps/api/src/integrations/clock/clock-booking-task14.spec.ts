@@ -204,14 +204,12 @@ describe('Clock review lookup', () => {
           .mockResolvedValue([{ reference: 'MUST-1', externalBookingId: '42' }]),
       },
       credentials: vi.fn().mockResolvedValue({ ok: true, value: credentials }),
-      fetch: vi
-        .fn()
-        .mockImplementation((_c: unknown, input: { path: string }) =>
-          Promise.resolve({
-            ok: true,
-            value: input.path === '/bookings/' ? list : details[input.path],
-          }),
-        ),
+      fetch: vi.fn().mockImplementation((_c: unknown, input: { path: string }) =>
+        Promise.resolve({
+          ok: true,
+          value: input.path === '/bookings/' ? list : details[input.path],
+        }),
+      ),
     });
     return service;
   }

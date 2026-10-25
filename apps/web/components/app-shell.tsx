@@ -38,7 +38,6 @@ export type AppNavigationItem = {
   badgeLabel?: string;
 };
 
-
 async function logOut() {
   await fetch('/api/auth/logout', { credentials: 'include', method: 'POST' }).catch(
     () => undefined,
@@ -170,7 +169,10 @@ export function AccountMenu({
               </span>
             ) : null}
           </span>
-          <ChevronDown aria-hidden="true" className="hidden size-4 text-muted-foreground sm:block" />
+          <ChevronDown
+            aria-hidden="true"
+            className="hidden size-4 text-muted-foreground sm:block"
+          />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
@@ -206,7 +208,7 @@ export function AppShell({
   userRole?: string;
   homeHref?: string;
   headerActions?: ReactNode;
-  hotelBrand?: {name:string;logoUrl?:string|null};
+  hotelBrand?: { name: string; logoUrl?: string | null };
   accountLinks?: readonly AccountLink[];
   children: ReactNode;
 }) {
@@ -234,7 +236,9 @@ export function AppShell({
   useEffect(() => {
     const root = document.documentElement;
     const keyboard = (event: KeyboardEvent) => {
-      if (['Tab', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Enter', ' '].includes(event.key))
+      if (
+        ['Tab', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Enter', ' '].includes(event.key)
+      )
         root.dataset.inputModality = 'keyboard';
     };
     const pointer = () => {
@@ -248,7 +252,6 @@ export function AppShell({
       delete root.dataset.inputModality;
     };
   }, []);
-
 
   return (
     <div className="flex min-h-screen">
@@ -265,13 +268,22 @@ export function AppShell({
             collapsed ? 'w-16' : 'w-60',
           )}
         >
-          <div className={cn('flex min-h-10 min-w-0 items-center px-1 pt-1', collapsed && 'justify-center')}>
+          <div
+            className={cn(
+              'flex min-h-10 min-w-0 items-center px-1 pt-1',
+              collapsed && 'justify-center',
+            )}
+          >
             <a
               href={homeHref}
               aria-label="MUST Hotel home"
               className="min-w-0 flex-1 rounded-md text-inherit no-underline outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
             >
-              {hotelBrand ? <HotelBrand {...hotelBrand} compact={collapsed}/> : <Brand compact={collapsed} />}
+              {hotelBrand ? (
+                <HotelBrand {...hotelBrand} compact={collapsed} />
+              ) : (
+                <Brand compact={collapsed} />
+              )}
             </a>
           </div>
           <IconButton
@@ -293,7 +305,10 @@ export function AppShell({
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header ref={headerRef} className="sticky top-0 z-30 flex min-h-[68px] shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-card/95 px-4 py-3 backdrop-blur sm:px-6">
+        <header
+          ref={headerRef}
+          className="sticky top-0 z-30 flex min-h-[68px] shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-card/95 px-4 py-3 backdrop-blur sm:px-6"
+        >
           <h2 className="min-w-0 flex-[1_1_12rem] truncate text-xl font-extrabold tracking-tight">
             {title}
           </h2>
@@ -325,8 +340,12 @@ export function AppShell({
           <SheetTitle className="sr-only">Hotel workspace navigation</SheetTitle>
           <div className="flex h-full flex-col gap-4 bg-card p-3">
             <div className="flex min-w-0 items-center justify-between gap-2 px-1 pt-1">
-              <a href={homeHref} aria-label="MUST Hotel home" className="min-w-0 flex-1 text-inherit no-underline">
-                {hotelBrand ? <HotelBrand {...hotelBrand}/> : <Brand />}
+              <a
+                href={homeHref}
+                aria-label="MUST Hotel home"
+                className="min-w-0 flex-1 text-inherit no-underline"
+              >
+                {hotelBrand ? <HotelBrand {...hotelBrand} /> : <Brand />}
               </a>
               <Button
                 variant="ghost"

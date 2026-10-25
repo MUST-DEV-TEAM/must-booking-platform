@@ -20,7 +20,11 @@ export function SegmentedControl<T extends string>({
   className?: string;
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className={cn('inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-muted p-1', className)}>
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className={cn('inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-muted p-1', className)}
+    >
       {options.map((option) => {
         const active = option.value === value;
         return (

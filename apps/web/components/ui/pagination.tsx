@@ -55,7 +55,11 @@ export function Pagination({
           <>
             <label htmlFor="rows-per-page">Rows per page</label>
             <Select value={String(pageSize)} onValueChange={(value) => onPageSize(Number(value))}>
-              <SelectTrigger id="rows-per-page" aria-label="Rows per page" className="h-8 w-[68px] text-xs">
+              <SelectTrigger
+                id="rows-per-page"
+                aria-label="Rows per page"
+                className="h-8 w-[68px] text-xs"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

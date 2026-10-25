@@ -29,12 +29,17 @@ describe('reservation filters in the address', () => {
       pageSize: 50,
     };
     const params = filtersToParams(filters, 'ana');
-    expect(paramsToFilters(new URLSearchParams(params.toString()))).toEqual({ filters, search: 'ana' });
+    expect(paramsToFilters(new URLSearchParams(params.toString()))).toEqual({
+      filters,
+      search: 'ana',
+    });
   });
 
   it('ignores malformed values instead of failing', () => {
     const { filters } = paramsToFilters(
-      new URLSearchParams('rpage=abc&rsize=9999&rfrom=2026-13-99x&rto=2026-10-01&rdir=sideways&rv=%3Cscript%3E'),
+      new URLSearchParams(
+        'rpage=abc&rsize=9999&rfrom=2026-13-99x&rto=2026-10-01&rdir=sideways&rv=%3Cscript%3E',
+      ),
     );
     expect(filters.page).toBe(1);
     expect(filters.pageSize).toBe(25);

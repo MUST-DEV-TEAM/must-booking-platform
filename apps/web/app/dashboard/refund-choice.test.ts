@@ -17,7 +17,9 @@ describe('refund choice', () => {
   it('refunds everything that is left for a full refund', () => {
     const choice = { ...noRefund, mode: 'full' as const };
     expect(refundAmountText(choice, booking)).toBe('200.00');
-    expect(refundRequestBody(choice, booking)).toEqual({ amount: { amount: '200.00', currency: 'EUR' } });
+    expect(refundRequestBody(choice, booking)).toEqual({
+      amount: { amount: '200.00', currency: 'EUR' },
+    });
   });
 
   it('refunds a percentage of what is left and checks the range', () => {
@@ -31,9 +33,13 @@ describe('refund choice', () => {
 
   it('refunds a fixed amount and refuses more than what is left', () => {
     const fixed = { ...noRefund, mode: 'fixed' as const, amount: '75.50' };
-    expect(refundRequestBody(fixed, booking)).toEqual({ amount: { amount: '75.50', currency: 'EUR' } });
+    expect(refundRequestBody(fixed, booking)).toEqual({
+      amount: { amount: '75.50', currency: 'EUR' },
+    });
     expect(refundChoiceError(fixed, booking)).toBeNull();
-    expect(refundChoiceError({ ...fixed, amount: '500' }, booking)).toMatch(/most that can be refunded/);
+    expect(refundChoiceError({ ...fixed, amount: '500' }, booking)).toMatch(
+      /most that can be refunded/,
+    );
     expect(refundChoiceError({ ...fixed, amount: '' }, booking)).toMatch(/Enter the amount/);
   });
 });

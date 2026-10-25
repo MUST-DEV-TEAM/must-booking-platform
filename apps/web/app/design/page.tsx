@@ -21,7 +21,14 @@ import { Alert, AlertDescription, AlertTitle } from '../../components/ui/alert';
 import { Avatar, AvatarFallback } from '../../components/ui/avatar';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../../components/ui/card';
 import { Checkbox } from '../../components/ui/checkbox';
 import {
   Dialog,
@@ -64,7 +71,14 @@ import {
   SheetTrigger,
 } from '../../components/ui/sheet';
 import { Skeleton } from '../../components/ui/skeleton';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../../components/ui/tooltip';
 

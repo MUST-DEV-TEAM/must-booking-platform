@@ -32,7 +32,13 @@ import { cn } from '../../../lib/utils';
 import { Alert, AlertDescription } from '../../../components/ui/alert';
 import { Badge } from '../../../components/ui/badge';
 import { Button } from '../../../components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../../../components/ui/card';
 import {
   Dialog,
   DialogClose,
@@ -53,7 +59,14 @@ import {
 import { PageHeader } from '../_ui/hotel';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../../components/ui/table';
 
 type Variant = 'default' | 'secondary' | 'ghost' | 'destructive' | 'success';
 type ButtonState = 'default' | 'hover' | 'pressed' | 'focus' | 'disabled' | 'loading';

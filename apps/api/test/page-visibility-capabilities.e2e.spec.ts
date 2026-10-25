@@ -136,7 +136,10 @@ describe('page-visibility capabilities', () => {
       .expect(200);
     // Finance reads bookings because the payments screen is built from them; guests and the
     // availability grid stay closed to it.
-    await request(app.getHttpServer()).get(`${propertyUrl}/bookings`).set('Cookie', financeCookie).expect(200);
+    await request(app.getHttpServer())
+      .get(`${propertyUrl}/bookings`)
+      .set('Cookie', financeCookie)
+      .expect(200);
     for (const path of [
       `${propertyUrl}/availability?roomTypeId=${roomTypeId}&startsOn=2040-01-01&endsOn=2040-01-02`,
       `${propertyUrl}/guests`,

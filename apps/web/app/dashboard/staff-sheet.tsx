@@ -103,12 +103,16 @@ export function StaffSheet({
                 <Mail aria-hidden="true" /> Email
               </a>
             </Button>
-            {canChangeStatus ? <Button
-              size="sm"
-              variant={member.status === 'ACTIVE' ? 'destructive' : 'success'}
-              disabled={statusPending}
-              onClick={onChangeStatus}
-            >{member.status === 'ACTIVE' ? 'Suspend access' : 'Reactivate access'}</Button> : null}
+            {canChangeStatus ? (
+              <Button
+                size="sm"
+                variant={member.status === 'ACTIVE' ? 'destructive' : 'success'}
+                disabled={statusPending}
+                onClick={onChangeStatus}
+              >
+                {member.status === 'ACTIVE' ? 'Suspend access' : 'Reactivate access'}
+              </Button>
+            ) : null}
           </>
         ) : null
       }
@@ -125,32 +129,36 @@ export function StaffSheet({
               { label: 'Added by', value: member.createdByEmail ?? 'Not recorded' },
             ]}
           />
-          {canManagePermissions ? <div className="space-y-2">
-            <SectionLabel>Effective permissions</SectionLabel>
-            {effectiveQuery.isPending ? (
-              <p className="m-0 text-sm text-muted-foreground">Loading permissions…</p>
-            ) : effectiveQuery.error ? (
-              <p role="alert" className="m-0 text-sm text-destructive">
-                {effectiveQuery.error.message}
-              </p>
-            ) : (
-              <PermissionList
-                permissions={sourcedPermissions}
-                ariaLabel="Quick peek effective permissions"
+          {canManagePermissions ? (
+            <div className="space-y-2">
+              <SectionLabel>Effective permissions</SectionLabel>
+              {effectiveQuery.isPending ? (
+                <p className="m-0 text-sm text-muted-foreground">Loading permissions…</p>
+              ) : effectiveQuery.error ? (
+                <p role="alert" className="m-0 text-sm text-destructive">
+                  {effectiveQuery.error.message}
+                </p>
+              ) : (
+                <PermissionList
+                  permissions={sourcedPermissions}
+                  ariaLabel="Quick peek effective permissions"
+                />
+              )}
+            </div>
+          ) : null}
+          {canManagePermissions ? (
+            <div className="space-y-2">
+              <SectionLabel>Extra permissions</SectionLabel>
+              <MultiSelect
+                options={permissionOptions}
+                value={extraKeys}
+                onChange={onExtraChange}
+                placeholder="Choose extra permissions"
+                disabled={pendingOverride !== undefined}
+                label="Quick peek extra permissions"
               />
-            )}
-          </div> : null}
-          {canManagePermissions ? <div className="space-y-2">
-            <SectionLabel>Extra permissions</SectionLabel>
-            <MultiSelect
-              options={permissionOptions}
-              value={extraKeys}
-              onChange={onExtraChange}
-              placeholder="Choose extra permissions"
-              disabled={pendingOverride !== undefined}
-              label="Quick peek extra permissions"
-            />
-          </div> : null}
+            </div>
+          ) : null}
           <div className="space-y-2">
             <SectionLabel>Denied permissions</SectionLabel>
             <MultiSelect

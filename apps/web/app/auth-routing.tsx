@@ -115,7 +115,13 @@ export function AuthRouteGuard({
       <main
         role="status"
         aria-live="polite"
-        style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', gap: 12, alignContent: 'center' }}
+        style={{
+          display: 'grid',
+          placeItems: 'center',
+          minHeight: '100vh',
+          gap: 12,
+          alignContent: 'center',
+        }}
       >
         <style>{'@keyframes must-spin{to{transform:rotate(360deg)}}'}</style>
         <Loader2

@@ -16,14 +16,12 @@ import { currentAuditContext } from './audit-request-context';
 export class AuditMutationInterceptor implements NestInterceptor {
   constructor(@Inject(AuditLogService) private readonly audit: AuditLogService) {}
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const req = context
-      .switchToHttp()
-      .getRequest<{
-        method: string;
-        headers?: Record<string, unknown>;
-        route?: { path?: string };
-        tenantContext?: { tenantId: string; propertyId?: string; userId?: string };
-      }>();
+    const req = context.switchToHttp().getRequest<{
+      method: string;
+      headers?: Record<string, unknown>;
+      route?: { path?: string };
+      tenantContext?: { tenantId: string; propertyId?: string; userId?: string };
+    }>();
     const scope = req.tenantContext;
     if (
       !scope?.tenantId ||

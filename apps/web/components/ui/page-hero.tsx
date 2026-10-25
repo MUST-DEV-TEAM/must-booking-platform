@@ -22,10 +22,14 @@ export function PageHero({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 space-y-1.5">
             {eyebrow ? (
-              <p className="m-0 text-[10px] font-bold tracking-wide text-muted-foreground uppercase">{eyebrow}</p>
+              <p className="m-0 text-[10px] font-bold tracking-wide text-muted-foreground uppercase">
+                {eyebrow}
+              </p>
             ) : null}
             <h2 className="m-0 text-3xl font-extrabold tracking-tight">{title}</h2>
-            {description ? <p className="m-0 max-w-2xl text-sm text-muted-foreground">{description}</p> : null}
+            {description ? (
+              <p className="m-0 max-w-2xl text-sm text-muted-foreground">{description}</p>
+            ) : null}
           </div>
           {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
         </div>
