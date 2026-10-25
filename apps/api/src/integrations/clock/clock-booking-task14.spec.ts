@@ -172,6 +172,8 @@ describe('ClockBookingService.attachRealReservation Task 14 failure handling', (
         2,
         1,
         undefined,
+        // No rate was chosen for this booking, so the cheapest or staff-ranked one is used.
+        undefined,
       );
       expect(internals.fetch).not.toHaveBeenCalled();
       if (code === 'clock_rate_unavailable') {

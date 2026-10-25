@@ -295,6 +295,8 @@ export class BookingController {
           : (undefined as GuestPaymentMethod | undefined),
       payAtHotel: typeof value.payAtHotel === 'boolean' ? value.payAtHotel : undefined,
       quoteToken: typeof value.quoteToken === 'string' ? value.quoteToken : '',
+      clockRateId:
+        typeof value.clockRateId === 'string' && value.clockRateId ? value.clockRateId : undefined,
       returnUrl: typeof value.returnUrl === 'string' ? value.returnUrl : undefined,
     };
   }

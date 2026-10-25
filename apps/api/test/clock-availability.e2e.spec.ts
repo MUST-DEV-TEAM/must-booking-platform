@@ -208,6 +208,40 @@ describe.skipIf(!hasSandboxCredentials)('Clock getAvailability (real sandbox)', 
     expect(priced.currency).toBe('EUR');
     if (quote.ok) expect(priced.amount).toBe(quote.value.amount);
 
+    // Rate choice (Milestone 27): every published rate comes back with a plain label and its own
+    // real total, and a quote for the chosen rate is exactly that rate's total.
+    const offers = await availability.listOffersForStay(tenantId, propertyId, {
+      roomTypeId: localRoomType[0].id,
+      startsOn: STAY_STARTS_ON,
+      endsOn: STAY_ENDS_ON,
+    });
+    expect(offers.ok).toBe(true);
+    if (offers.ok) {
+      expect(offers.value.length).toBeGreaterThan(1);
+      for (const offer of offers.value) {
+        expect(offer.label).not.toBe('');
+        expect(Number(offer.total.amount)).toBeGreaterThan(0);
+        expect(offer.total.currency).toBe('EUR');
+      }
+      const chosen = offers.value.at(-1)!;
+      const chosenQuote = await quoteService.price(tenantId, propertyId, {
+        roomTypeId: localRoomType[0].id,
+        startsOn: STAY_STARTS_ON,
+        endsOn: STAY_ENDS_ON,
+        clockRateId: chosen.rateId,
+      });
+      expect(chosenQuote.amount).toBe(chosen.total.amount);
+      // A rate that is not published for this room type is refused, not silently replaced.
+      await expect(
+        quoteService.price(tenantId, propertyId, {
+          roomTypeId: localRoomType[0].id,
+          startsOn: STAY_STARTS_ON,
+          endsOn: STAY_ENDS_ON,
+          clockRateId: '1',
+        }),
+      ).rejects.toThrow();
+    }
+
     // Whole-month calendar via a single real /rates_availability call
     // (previously only ever exercised with a 2-3 night range) — proves
     // Clock actually returns per-day data across a full month in one

@@ -942,6 +942,7 @@ model Booking {
   @@index([tenantId, propertyId, orderReference, orderRoomNumber])
   @@map("bookings")
   childrenAges Json? @map("children_ages")
+  clockRateId String? @map("clock_rate_id")
 }
 
 // Financial-flow gap Task B (docs/CLOCK_FINANCIAL_RECONCILIATION_PLAN.md,

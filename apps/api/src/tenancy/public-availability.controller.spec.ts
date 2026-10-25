@@ -185,3 +185,83 @@ describe('PublicAvailabilityController.checkAvailability', () => {
     ).resolves.toEqual({ isAvailable: true, checked: false });
   });
 });
+
+describe('PublicAvailabilityController.getRateOffers', () => {
+  const stay = {
+    roomTypeId: 'room-type-1',
+    startsOn: '2026-09-20',
+    endsOn: '2026-09-22',
+    adults: '2',
+    children: '0',
+  };
+
+  function make(listOffersForStay: ReturnType<typeof vi.fn>) {
+    const availability = {
+      getCalendar: vi.fn(),
+      assertBookableSelection: vi.fn().mockResolvedValue(undefined),
+    };
+    const controller = new PublicAvailabilityController(
+      { forProperty: vi.fn() } as never,
+      availability as never,
+      { listOffersForStay } as never,
+    );
+    return { controller, availability };
+  }
+
+  it('returns the rates a guest can choose between for the stay', async () => {
+    const offers = [
+      {
+        rateId: '546549',
+        name: 'BB',
+        label: 'Bed & breakfast',
+        mealNames: ['Breakfast'],
+        total: { amount: '210.00', currency: 'EUR' },
+      },
+    ];
+    const listOffersForStay = vi.fn().mockResolvedValue({ ok: true, value: offers });
+    const { controller, availability } = make(listOffersForStay);
+
+    await expect(controller.getRateOffers(stay, request)).resolves.toEqual({ offers });
+
+    expect(availability.assertBookableSelection).toHaveBeenCalledWith(
+      'tenant-1',
+      'property-1',
+      'room-type-1',
+    );
+    expect(listOffersForStay).toHaveBeenCalledWith('tenant-1', 'property-1', {
+      roomTypeId: 'room-type-1',
+      startsOn: '2026-09-20',
+      endsOn: '2026-09-22',
+      adultCount: 2,
+      childrenCount: 0,
+    });
+  });
+
+  it('gives a property without Clock an empty list instead of an error', async () => {
+    const listOffersForStay = vi.fn().mockResolvedValue({
+      ok: false,
+      error: { message: 'This property has no active Clock PMS connection.' },
+    });
+    const { controller } = make(listOffersForStay);
+
+    await expect(controller.getRateOffers(stay, request)).resolves.toEqual({ offers: [] });
+  });
+
+  it('reports a real Clock failure to the caller', async () => {
+    const listOffersForStay = vi.fn().mockResolvedValue({
+      ok: false,
+      error: { message: 'Clock did not respond.' },
+    });
+    const { controller } = make(listOffersForStay);
+
+    await expect(controller.getRateOffers(stay, request)).rejects.toThrow('Clock did not respond.');
+  });
+
+  it('rejects a stay whose end date is not after its start', async () => {
+    const { controller } = make(vi.fn());
+
+    await expect(
+      controller.getRateOffers({ ...stay, endsOn: stay.startsOn }, request),
+    ).rejects.toThrow('endsOn must be after startsOn.');
+  });
+});

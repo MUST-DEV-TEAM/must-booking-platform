@@ -118,6 +118,8 @@ export class StaffBookingController {
       roomTypeId: typeof value.roomTypeId === 'string' ? value.roomTypeId : '',
       roomId: typeof value.roomId === 'string' ? value.roomId : undefined,
       ratePlanId: typeof value.ratePlanId === 'string' ? value.ratePlanId : '',
+      clockRateId:
+        typeof value.clockRateId === 'string' && value.clockRateId ? value.clockRateId : undefined,
       startsOn: typeof value.startsOn === 'string' ? value.startsOn : '',
       endsOn: typeof value.endsOn === 'string' ? value.endsOn : '',
       adults: typeof value.adults === 'number' ? value.adults : undefined,

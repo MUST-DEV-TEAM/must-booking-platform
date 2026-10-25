@@ -52,6 +52,8 @@ export type LocalCreateBookingCommand = CreateBookingCommand & {
   quoteSessionId?: string;
   staffActorId?: string;
   skipQuoteValidation?: boolean;
+  /** Clock hotels: the published Clock rate chosen for the stay; it is part of the signed quote. */
+  clockRateId?: string;
   /** Only the local development demo seed sets this, to create booking history in the past. */
   allowPastStay?: boolean;
   returnUrl?: string;
@@ -355,7 +357,7 @@ export class LocalPmsProvider implements PmsProvider {
         INSERT INTO bookings (
           tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
           guest_session_id, special_requests, status, payment_method, starts_on, ends_on, rate_plan_id, total_amount,
-          adults, children, children_ages, guest_count, source
+          adults, children, children_ages, guest_count, source, clock_rate_id
         ) VALUES (
           ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${command.roomTypeId}::uuid,
           ${command.roomId ?? null}::uuid, ${guestId}::uuid, ${externalReference},
@@ -365,7 +367,7 @@ export class LocalPmsProvider implements PmsProvider {
           ${paymentMethod.value}::"BookingPaymentMethod",
           ${command.startsOn}::date, ${command.endsOn}::date, ${ratePlanId}::uuid,
           ${command.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children}, ${command.childrenAges === undefined ? null : JSON.stringify(command.childrenAges)}::jsonb,
-          ${occupancy.guestCount}, ${command.staffActorId ? 'DIRECT' : 'WEBSITE'}
+          ${occupancy.guestCount}, ${command.staffActorId ? 'DIRECT' : 'WEBSITE'}, ${command.clockRateId ?? null}
         )
         RETURNING id
       `;
@@ -413,6 +415,7 @@ export class LocalPmsProvider implements PmsProvider {
                     roomTypeId: command.roomTypeId,
                     roomId: command.roomId,
                     ratePlanId: command.ratePlanId,
+                    clockRateId: command.clockRateId,
                     startsOn: command.startsOn,
                     endsOn: command.endsOn,
                     adults: occupancy.adults,

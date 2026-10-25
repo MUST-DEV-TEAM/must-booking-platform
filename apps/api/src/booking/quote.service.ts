@@ -28,6 +28,12 @@ export type QuoteInput = {
   children?: number;
   childrenAges?: number[];
   guestCount?: number;
+  /**
+   * Clock hotels only: the published Clock rate the guest chose from the offers (for example
+   * Bed & breakfast or Full board). Signed into the quote token, so a booking cannot change it.
+   * Omitted means the cheapest or staff-ranked rate, as before.
+   */
+  clockRateId?: string;
 };
 
 type QuotePayload = QuoteInput & {
@@ -128,6 +134,7 @@ export class QuoteService {
         adultCount: normalizedInput.adults,
         childrenCount: normalizedInput.children,
         childrenAges: normalizedInput.childrenAges,
+        clockRateId: normalizedInput.clockRateId,
       });
       if (!quote.ok) throw new BadRequestException(quote.error.message);
       return quote.value;
@@ -161,6 +168,7 @@ export class QuoteService {
         adultCount: normalizedInput.adults,
         childrenCount: normalizedInput.children,
         childrenAges: normalizedInput.childrenAges,
+        clockRateId: normalizedInput.clockRateId,
       });
       if (!quote.ok) throw new BadRequestException(quote.error.message);
       return quote.value;
@@ -376,6 +384,7 @@ export class QuoteService {
       payload.roomTypeId !== expected.roomTypeId ||
       payload.roomId !== expected.roomId ||
       payload.ratePlanId !== expected.ratePlanId ||
+      payload.clockRateId !== expected.clockRateId ||
       payload.startsOn !== expected.startsOn ||
       payload.endsOn !== expected.endsOn ||
       quotedOccupancy.adults !== expectedOccupancy.adults ||
@@ -415,6 +424,7 @@ export class QuoteService {
         typeof value.roomTypeId !== 'string' ||
         (value.roomId !== undefined && typeof value.roomId !== 'string') ||
         typeof value.ratePlanId !== 'string' ||
+        (value.clockRateId !== undefined && typeof value.clockRateId !== 'string') ||
         typeof value.startsOn !== 'string' ||
         typeof value.endsOn !== 'string' ||
         (value.adults !== undefined && (!Number.isInteger(value.adults) || value.adults < 1)) ||

@@ -112,6 +112,9 @@ type ClockProductsResponse = Array<{
 
 type ClockQuote = { total: Money; nightlyRates: NightlyRate[] };
 
+/** Said when a property is not connected to Clock; callers that only apply to Clock hotels match it. */
+export const NO_CLOCK_CONNECTION_MESSAGE = 'This property has no active Clock PMS connection.';
+
 export type ClockRateSelection = {
   rateId: string;
   total: Money;
@@ -146,7 +149,46 @@ type ClockProductOffer = {
  * distinguish "this room type has no Clock rate at all" from "it has rates,
  * but none are public" — the two need different, clearly-worded errors.
  */
-type RoomTypeRates = { ids: string[]; excludedForWbe: number };
+type RoomTypeRates = {
+  ids: string[];
+  excludedForWbe: number;
+  /** Display facts per published rate id (name and meals), from the same `/rates/` call. */
+  info: Record<string, ClockRateInfo>;
+};
+
+/** What a guest needs to tell two published rates of one room type apart. */
+export type ClockRateInfo = {
+  rateId: string;
+  /** Clock's own rate name, for example "BB" or "FB". */
+  name: string;
+  /** Plain-language label derived from the rate's meals, for example "Bed & breakfast". */
+  label: string;
+  mealNames: string[];
+  currency: string | null;
+};
+
+/** One bookable offer for a stay: a published rate with its real total from `/products`. */
+export type ClockStayOffer = {
+  rateId: string;
+  name: string;
+  label: string;
+  mealNames: string[];
+  total: Money;
+};
+
+/**
+ * A plain label for a rate from its meals. Clock names rates by code ("BB", "FB"), which means
+ * nothing to a guest. Unrecognised meal combinations fall back to Clock's own rate name.
+ */
+export function rateOfferLabel(mealNames: string[], fallbackName: string): string {
+  const meals = new Set(mealNames.map((meal) => meal.trim().toLowerCase()).filter(Boolean));
+  const has = (meal: string) => meals.has(meal);
+  if (meals.size === 0) return 'Room only';
+  if (has('breakfast') && has('lunch') && has('dinner')) return 'Full board';
+  if (has('breakfast') && meals.size === 1) return 'Bed & breakfast';
+  if (has('breakfast') && meals.size === 2 && (has('lunch') || has('dinner'))) return 'Half board';
+  return fallbackName.trim() || mealNames.join(', ');
+}
 
 /** For the Task 13 staff rate-ranking UI — Clock's real, live rate data for
  * one room type, narrowed to `wbe: true` (a rate staff can never see never
@@ -184,6 +226,9 @@ type ClockRateRow = {
   bookable_id: number | string;
   bookable_type: string;
   wbe: boolean;
+  name?: string;
+  currency?: string;
+  meals?: Array<{ name?: string }>;
 };
 
 @Injectable()
@@ -463,6 +508,7 @@ export class ClockAvailabilityService {
       adultCount?: number;
       childrenCount?: number;
       childrenAges?: number[];
+      clockRateId?: string;
     },
   ): Promise<Result<Money>> {
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
@@ -495,6 +541,7 @@ export class ClockAvailabilityService {
       adultCount: query.adultCount,
       childrenCount: query.childrenCount,
       childrenAges: query.childrenAges,
+      chosenRateId: query.clockRateId,
     });
     if (!selection.ok) return selection;
     return { ok: true, value: selection.value.total };
@@ -737,6 +784,8 @@ export class ClockAvailabilityService {
       childrenCount?: number;
       childrenAges?: number[];
       requiredRateId?: string;
+      /** The rate the guest chose from the offers; only that rate may win. */
+      chosenRateId?: string;
     },
   ): Promise<Result<ClockRateSelection>> {
     const rateIds = await this.ratesForRoomType(credentials, query.externalRoomTypeId);
@@ -748,7 +797,18 @@ export class ClockAvailabilityService {
           'The original Clock rate is private or unavailable. Review this amendment in Clock.',
         ),
       );
-    const selectedIds = query.requiredRateId ? [query.requiredRateId] : rateIds.value.ids;
+    if (query.chosenRateId && !rateIds.value.ids.includes(query.chosenRateId))
+      return failure({
+        category: 'validation',
+        code: 'clock_rate_unavailable',
+        message: 'The selected rate is not available for this room type.',
+        retryable: false,
+      });
+    const selectedIds = query.requiredRateId
+      ? [query.requiredRateId]
+      : query.chosenRateId
+        ? [query.chosenRateId]
+        : rateIds.value.ids;
 
     // adult_count/children_count are always sent, never left to the caller
     // to remember. Clock only enforces max_adults/max_children on a rate
@@ -810,6 +870,82 @@ export class ClockAvailabilityService {
   }
 
   /**
+   * Every published rate that can be booked for the stay, with its real total, so a guest can
+   * choose between for example "Bed & breakfast" and "Full board". Uses the same `/products`
+   * search and the same validity rules as `selectRateForStay` (available, no errors, published
+   * to the booking engine). Ordered by the staff's rate ranking first, then price. An empty list
+   * means nothing is bookable for those dates; the caller decides how to say so.
+   */
+  async listOffersForStay(
+    tenantId: string,
+    propertyId: string,
+    query: {
+      roomTypeId: string;
+      startsOn: string;
+      endsOn: string;
+      adultCount?: number;
+      childrenCount?: number;
+      childrenAges?: number[];
+    },
+  ): Promise<Result<ClockStayOffer[]>> {
+    const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
+    if (!connection || connection.provider !== 'CLOCK_PMS')
+      return failure(classifyConfigurationError(NO_CLOCK_CONNECTION_MESSAGE));
+    const parsed = parseClockCredentials(connection.credentials);
+    if (!parsed.ok) return failure(classifyConfigurationError(parsed.message));
+    const externalRoomTypeId = await this.mappedExternalRoomTypeId(
+      tenantId,
+      propertyId,
+      query.roomTypeId,
+    );
+    if (!externalRoomTypeId)
+      return failure(
+        classifyConfigurationError(
+          'This room type has no confirmed Clock catalog mapping — sync and confirm it first.',
+        ),
+      );
+    const rates = await this.ratesForRoomType(parsed.value, externalRoomTypeId);
+    if (!rates.ok) return failure(rates.error);
+    if (rates.value.ids.length === 0) return failure(noRatesError(rates.value));
+
+    const response = await this.fetch<ClockProductsResponse>(
+      parsed.value,
+      {
+        'product_search[arrival]': query.startsOn,
+        'product_search[departure]': query.endsOn,
+        'product_search[adult_count]': String(query.adultCount ?? 1),
+        'product_search[children_count]': String(query.childrenCount ?? 0),
+        ...(query.childrenAges?.length
+          ? { 'product_search[children_ages]': query.childrenAges.map(String) }
+          : {}),
+        rates: rates.value.ids,
+      },
+      '/products',
+    );
+    if (!response.ok) return failure(response.error);
+
+    const rankOrder = await this.rateRankings.rankOrder(tenantId, propertyId, query.roomTypeId);
+    const roomType = response.value.find((item) => String(item.id) === externalRoomTypeId);
+    const offers = roomType ? collectValidOffers(roomType.rates) : [];
+    return {
+      ok: true,
+      value: orderOffers(offers, rankOrder).map(({ rateId, offer }) => {
+        const info = rates.value.info[rateId];
+        return {
+          rateId,
+          name: info?.name ?? '',
+          label: info?.label ?? rateOfferLabel([], info?.name ?? ''),
+          mealNames: info?.mealNames ?? [],
+          total: {
+            amount: (offer.price.cents / 100).toFixed(2),
+            currency: offer.price.currency,
+          },
+        };
+      }),
+    };
+  }
+
+  /**
    * Returns the authoritative stay total (from `getQuote`, unchanged — this
    * is what a guest is actually charged) plus a nightly breakdown for
    * display. The breakdown's *shape* comes from a single `/rates_availability`
@@ -835,6 +971,7 @@ export class ClockAvailabilityService {
       adultCount?: number;
       childrenCount?: number;
       childrenAges?: number[];
+      clockRateId?: string;
     },
   ): Promise<Result<ClockQuote>> {
     const total = await this.getQuote(tenantId, propertyId, query);
@@ -860,12 +997,14 @@ export class ClockAvailabilityService {
       );
     const rateIds = await this.ratesForRoomType(parsed.value, externalRoomTypeId);
     if (!rateIds.ok) return failure(rateIds.error);
+    // A guest-chosen rate prices every night; otherwise every published rate competes.
+    const pricedRateIds = query.clockRateId ? [query.clockRateId] : rateIds.value.ids;
 
     const nights = nightsBetween(query.startsOn, query.endsOn);
     const shape = await this.nightlyShapeFromAvailability(
       parsed.value,
       externalRoomTypeId,
-      rateIds.value.ids,
+      pricedRateIds,
       nights,
       query,
     );
@@ -888,7 +1027,7 @@ export class ClockAvailabilityService {
         ...(query.childrenAges?.length
           ? { 'product_search[children_ages]': query.childrenAges.map(String) }
           : {}),
-        rates: rateIds.value.ids,
+        rates: pricedRateIds,
       };
       const response = await this.fetch<ClockProductsResponse>(
         parsed.value,
@@ -1196,9 +1335,21 @@ export class ClockAvailabilityService {
         rate.bookable_type === 'Pms::RoomType' && String(rate.bookable_id) === externalRoomTypeId,
     );
     const published = forRoomType.filter((rate) => rate.wbe);
+    const info: Record<string, ClockRateInfo> = {};
+    for (const rate of published) {
+      const mealNames = (rate.meals ?? []).map((meal) => String(meal.name ?? '')).filter(Boolean);
+      info[String(rate.id)] = {
+        rateId: String(rate.id),
+        name: rate.name ?? '',
+        label: rateOfferLabel(mealNames, rate.name ?? ''),
+        mealNames,
+        currency: rate.currency ?? null,
+      };
+    }
     const value: RoomTypeRates = {
       ids: published.map((rate) => String(rate.id)),
       excludedForWbe: forRoomType.length - published.length,
+      info,
     };
     this.ratesCache.set(cacheKey, { value, expiresAt: Date.now() + CACHE_TTL_MS });
     return { ok: true, value };
@@ -1463,6 +1614,37 @@ function selectBestOffer(
 
   return valid.reduce((best, entry) =>
     entry.offer.price.cents < best.offer.price.cents ? entry : best,
+  );
+}
+
+/** The offers a guest could actually book: available and without any restriction error. */
+function collectValidOffers(
+  rateOffers: Record<string, ClockProductOffer[]>,
+): Array<{ rateId: string; offer: ClockProductOffer }> {
+  const valid: Array<{ rateId: string; offer: ClockProductOffer }> = [];
+  for (const [rateId, offers] of Object.entries(rateOffers)) {
+    for (const offer of offers) {
+      if (offer.available && Object.keys(offer.errors ?? {}).length === 0)
+        valid.push({ rateId, offer });
+    }
+  }
+  return valid;
+}
+
+/** Staff-ranked rates first (in rank order), then the rest by price, then by rate id. */
+function orderOffers(
+  offers: Array<{ rateId: string; offer: ClockProductOffer }>,
+  rankOrder?: string[],
+): Array<{ rateId: string; offer: ClockProductOffer }> {
+  const rankOf = (rateId: string) => {
+    const index = rankOrder?.indexOf(rateId) ?? -1;
+    return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+  };
+  return [...offers].sort(
+    (a, b) =>
+      rankOf(a.rateId) - rankOf(b.rateId) ||
+      a.offer.price.cents - b.offer.price.cents ||
+      a.rateId.localeCompare(b.rateId, undefined, { numeric: true }),
   );
 }
 

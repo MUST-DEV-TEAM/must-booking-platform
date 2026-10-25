@@ -161,6 +161,7 @@ type BookingRow = {
   adults: number;
   children: number;
   childrenAges: number[] | null;
+  clockRateId: string | null;
   currency: string;
   externalReference: string;
   roomGuestFirstName: string | null;
@@ -195,7 +196,7 @@ export class ClockBookingService {
 
   async createBooking(
     context: PmsProviderContext,
-    command: CreateBookingCommand & { childrenAges?: number[] },
+    command: CreateBookingCommand & { childrenAges?: number[]; clockRateId?: string },
   ): Promise<Result<Booking>> {
     const occupancy = resolveBookingOccupancy(command);
     if (
@@ -257,7 +258,7 @@ export class ClockBookingService {
           INSERT INTO bookings (
             tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
             status, payment_method, starts_on, ends_on, rate_plan_id, total_amount,
-            adults, children, children_ages, guest_count, source
+            adults, children, children_ages, guest_count, source, clock_rate_id
           ) VALUES (
             ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${command.roomTypeId}::uuid,
             ${command.roomId ?? null}::uuid, ${guestId}::uuid, ${externalReference},
@@ -265,7 +266,7 @@ export class ClockBookingService {
             ${this.paymentMethodOf(command)}::"BookingPaymentMethod",
             ${command.startsOn}::date, ${command.endsOn}::date, ${command.ratePlanId}::uuid,
             ${command.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children}, ${command.childrenAges === undefined ? null : JSON.stringify(command.childrenAges)}::jsonb,
-            ${occupancy.guestCount}, ${(command as CreateBookingCommand & { staffActorId?: string }).staffActorId ? 'DIRECT' : 'WEBSITE'}
+            ${occupancy.guestCount}, ${(command as CreateBookingCommand & { staffActorId?: string }).staffActorId ? 'DIRECT' : 'WEBSITE'}, ${command.clockRateId ?? null}
           )
           RETURNING id
         `;
@@ -314,6 +315,7 @@ export class ClockBookingService {
             occupancy.adults,
             occupancy.children,
             command.childrenAges,
+            command.clockRateId,
           );
           if (!rate.ok) {
             if (rate.error.code === 'clock_rate_unavailable') {
@@ -599,6 +601,7 @@ export class ClockBookingService {
       row.adults,
       row.children,
       row.childrenAges ?? undefined,
+      row.clockRateId ?? undefined,
     );
     if (!rate.ok) {
       if (rate.error.code === 'clock_rate_unavailable') {
@@ -1798,7 +1801,7 @@ export class ClockBookingService {
           b.room_id AS "roomId", b.guest_id AS "guestId", b.rate_plan_id AS "ratePlanId",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
           b.payment_method AS "paymentMethod", b.total_amount::text AS "totalAmount",
-          b.adults, b.children,b.children_ages AS "childrenAges", rp.currency,
+          b.adults, b.children,b.children_ages AS "childrenAges", b.clock_rate_id AS "clockRateId", rp.currency,
           b.external_reference AS "externalReference", b.external_booking_id AS "externalBookingId",
           b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
         FROM bookings b JOIN rate_plans rp
@@ -1820,7 +1823,7 @@ export class ClockBookingService {
           b.room_id AS "roomId", b.guest_id AS "guestId", b.rate_plan_id AS "ratePlanId",
           b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
           b.payment_method AS "paymentMethod", b.total_amount::text AS "totalAmount",
-          b.adults, b.children,b.children_ages AS "childrenAges", rp.currency,
+          b.adults, b.children,b.children_ages AS "childrenAges", b.clock_rate_id AS "clockRateId", rp.currency,
           b.external_reference AS "externalReference", b.external_booking_id AS "externalBookingId",
           b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
         FROM bookings b JOIN rate_plans rp
@@ -2077,6 +2080,7 @@ export class ClockBookingService {
     adultCount: number,
     childrenCount: number,
     childrenAges?: number[],
+    chosenRateId?: string,
   ): Promise<Result<string>> {
     const selection = await this.availability.selectRateForStay(credentials, {
       tenantId: context.tenantId,
@@ -2088,6 +2092,7 @@ export class ClockBookingService {
       adultCount,
       childrenCount,
       childrenAges,
+      chosenRateId,
     });
     if (!selection.ok) return selection;
     return { ok: true, value: selection.value.rateId };
@@ -2204,7 +2209,7 @@ export class ClockBookingService {
         b.room_id AS "roomId", b.guest_id AS "guestId", b.rate_plan_id AS "ratePlanId",
         b.starts_on::text AS "startsOn", b.ends_on::text AS "endsOn", b.status,
         b.payment_method AS "paymentMethod", b.total_amount::text AS "totalAmount",
-        b.adults, b.children,b.children_ages AS "childrenAges", rp.currency,
+        b.adults, b.children,b.children_ages AS "childrenAges", b.clock_rate_id AS "clockRateId", rp.currency,
         b.external_reference AS "externalReference", b.external_booking_id AS "externalBookingId",
         b.room_guest_first_name AS "roomGuestFirstName", b.room_guest_last_name AS "roomGuestLastName",
         b.version, b.created_at AS "createdAt", b.updated_at AS "updatedAt"
