@@ -4,7 +4,7 @@ Tags: hotel, booking, reservation, accommodation
 Requires at least: 5.0
 Tested up to: 6.0
 Requires PHP: 7.4
-Stable tag: 0.4.109
+Stable tag: 0.4.110
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,9 @@ Main features include:
 5. When updating, upload the new release ZIP or use the configured updater, then review **Diagnostics & Maintenance** after the update completes.
 
 == Changelog ==
+
+= 0.4.110 =
+* Room cards show the lowest price and key room facts; checkout lets guests choose between a room's rates (when the hotel offers several); Elementor Currency Switcher widget with approximate converted prices (display only). The currency converter reads a free daily euro rate feed until the platform API serves rates; rate choice needs the matching platform API release.
 
 = 0.4.109 =
 * Checkout stay summary shows only the number of nights ("1 Night", "2 Nights"), not a days count.

@@ -272,6 +272,9 @@ function maybe_process_confirm_booking_submission(): string
             'specialRequests' => $specialRequests !== '' ? $specialRequests : null,
         ],
     ];
+    if (!empty($selection['clockRateId'])) {
+        $bookingInput['clockRateId'] = $selection['clockRateId'];
+    }
     if (!empty($selection['roomId'])) {
         $bookingInput['roomId'] = $selection['roomId'];
     }

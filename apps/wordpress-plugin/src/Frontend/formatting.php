@@ -55,3 +55,17 @@ function format_frontend_money(float $amount, string $currency = ''): string
 
     return \trim(\number_format_i18n($amount, 2) . ' ' . $symbol);
 }
+
+/**
+ * Money as escaped HTML that a currency switcher can convert for display (the booking itself is
+ * always priced and paid in the hotel's currency).
+ */
+function format_frontend_money_html(float $amount, string $currency = ''): string
+{
+    return \sprintf(
+        '<span class="must-price" data-amount="%s" data-currency="%s">%s</span>',
+        \esc_attr(\number_format($amount, 2, '.', '')),
+        \esc_attr(\strtoupper($currency)),
+        \esc_html(format_frontend_money($amount, $currency))
+    );
+}
