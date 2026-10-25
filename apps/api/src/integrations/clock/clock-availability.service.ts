@@ -222,6 +222,16 @@ const DISPLAY_PRICE_STALE_MS = 24 * 60 * 60 * 1000;
 // the default uncached and remains the authoritative final check.
 const BOOKING_AVAILABILITY_CACHE_TTL_MS = 45_000;
 
+/** Cache keys must name the whole Clock connection: two hotels can share an API user name. */
+function connectionIdentity(credentials: ClockConnectionCredentials): string {
+  return [
+    credentials.host,
+    credentials.accountId,
+    credentials.subscriptionId,
+    credentials.apiUser,
+  ].join('|');
+}
+
 interface CacheEntry<T> {
   value: T;
   expiresAt: number;
@@ -1340,7 +1350,7 @@ export class ClockAvailabilityService {
     credentials: ClockConnectionCredentials,
     fresh: boolean,
   ): Promise<ClockOutcome<ClockRateRow[]>> {
-    const key = credentials.apiUser;
+    const key = connectionIdentity(credentials);
     const cached = this.catalogueCache.get(key);
     if (!fresh && cached && cached.expiresAt > Date.now())
       return Promise.resolve({ ok: true, value: cached.value });
@@ -1368,7 +1378,7 @@ export class ClockAvailabilityService {
     loadRates?: () => Promise<ClockOutcome<ClockRateRow[]>>,
     fresh = false,
   ): Promise<ClockOutcome<RoomTypeRates>> {
-    const cacheKey = `${credentials.apiUser}:${externalRoomTypeId}`;
+    const cacheKey = `${connectionIdentity(credentials)}:${externalRoomTypeId}`;
     const cached = this.ratesCache.get(cacheKey);
     if (!fresh && cached && cached.expiresAt > Date.now()) return { ok: true, value: cached.value };
 
