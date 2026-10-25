@@ -6170,3 +6170,36 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
 .must-hotel-booking-page-checkout .must-checkout-rate-price {
     font-size: 20px;
 }
+
+/* Room card: lowest price and key facts, so a guest does not have to open the details. */
+.must-booking-room-from-price {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 10px;
+    margin: 12px 0 0;
+    color: inherit;
+    font-family: inherit;
+}
+
+.must-booking-room-from-price strong {
+    font-size: 24px;
+    font-weight: 500;
+}
+
+.must-booking-room-from-price small {
+    font-size: 14px;
+    opacity: 0.65;
+}
+
+.must-booking-room-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    margin: 12px 0 0;
+    padding: 0;
+    list-style: none;
+    font-family: inherit;
+    font-size: 15px;
+    opacity: 0.8;
+}
