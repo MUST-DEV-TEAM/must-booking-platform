@@ -1440,6 +1440,73 @@ describe('ClockAvailabilityService.getQuotesForStay', () => {
     expect(request).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps a display price for hours and shows the last known one when a refresh fails', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-08-01T08:00:00Z'));
+      const rates = {
+        status: 200,
+        body: [{ id: 69242, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true }],
+      };
+      const request = vi
+        .fn()
+        .mockResolvedValueOnce(rates)
+        .mockResolvedValueOnce({
+          status: 200,
+          body: [
+            {
+              id: 42023,
+              rates: {
+                '69242': [
+                  {
+                    available: true,
+                    room_type_free_rooms: 2,
+                    price: { cents: 11000, currency: 'EUR' },
+                    errors: {},
+                  },
+                ],
+              },
+            },
+          ],
+        });
+      const { service } = makeService({ client: { request } });
+      const stay = [
+        {
+          roomTypeId: 'local-rt-1',
+          externalRoomTypeId: '42023',
+          startsOn: '2026-08-10',
+          endsOn: '2026-08-12',
+          adultCount: 2,
+          childrenCount: 0,
+          currency: 'EUR',
+        },
+      ];
+      const first = await service.getQuotesForStay('t1', 'p1', stay);
+      expect(first['local-rt-1']).toEqual({
+        ok: true,
+        value: { amount: '110.00', currency: 'EUR' },
+      });
+
+      // Two hours later the price is still served from memory: only the room's rate list is read
+      // again, Clock is not asked for prices.
+      vi.setSystemTime(new Date('2026-08-01T10:00:00Z'));
+      request.mockResolvedValueOnce(rates);
+      await service.getQuotesForStay('t1', 'p1', stay);
+      expect(request).toHaveBeenCalledTimes(3);
+
+      // Five hours later the price is refreshed; Clock is down, so the last known price stays.
+      vi.setSystemTime(new Date('2026-08-01T13:00:00Z'));
+      request.mockResolvedValueOnce(rates).mockResolvedValue({ status: 503, body: {} });
+      const refreshed = await service.getQuotesForStay('t1', 'p1', stay);
+      expect(refreshed['local-rt-1']).toEqual({
+        ok: true,
+        value: { amount: '110.00', currency: 'EUR' },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not share display prices across tenants', async () => {
     const request = vi.fn().mockImplementation((_credentials, options: { path: string }) => {
       if (options.path === '/rates/') {

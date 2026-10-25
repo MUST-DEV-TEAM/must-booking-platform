@@ -208,9 +208,12 @@ export type ClockRateSummary = {
 // (skipCache) always bypasses this regardless, so a stale cached answer can
 // never actually gate a real booking.
 const CACHE_TTL_MS = 1_200_000;
-// Display prices are informational only, so keep them short-lived while
-// avoiding one provider request per accommodation card on every page load.
-const DISPLAY_PRICE_CACHE_TTL_MS = 300_000;
+// Display prices are informational only (the quote before payment is re-priced and
+// authoritative), so they are kept for a few hours: a hotel is not a fast-moving market
+// and a cold page load costs many Clock requests. If a refresh fails, the last known
+// price is still shown for up to a day rather than "Price unavailable".
+const DISPLAY_PRICE_CACHE_TTL_MS = 3 * 60 * 60 * 1000;
+const DISPLAY_PRICE_STALE_MS = 24 * 60 * 60 * 1000;
 // Search-time checks are advisory, so a short cache prevents repeated date
 // changes and parallel tabs from hammering Clock. The pre-payment guard keeps
 // the default uncached and remains the authoritative final check.
@@ -650,6 +653,8 @@ export class ClockAvailabilityService {
         rankOrder: await this.rateRankings.rankOrder(tenantId, propertyId, entry.query.roomTypeId),
       })),
     );
+    // Expired but recent prices, used only if Clock cannot be reached for the refresh.
+    const lastKnown: Record<string, Money> = {};
     const misses = ranked.filter(({ entry, rankOrder }) => {
       const cacheKey = this.displayPriceCacheKey(
         tenantId,
@@ -663,7 +668,9 @@ export class ClockAvailabilityService {
       const cached = this.displayPriceCache.get(cacheKey);
       if (!cached) return true;
       if (cached.expiresAt <= Date.now()) {
-        this.displayPriceCache.delete(cacheKey);
+        if (cached.expiresAt + DISPLAY_PRICE_STALE_MS > Date.now())
+          lastKnown[entry.query.roomTypeId] = cached.value;
+        else this.displayPriceCache.delete(cacheKey);
         return true;
       }
       results[entry.query.roomTypeId] = { ok: true, value: cached.value };
@@ -691,7 +698,10 @@ export class ClockAvailabilityService {
     );
     if (!response.ok) {
       misses.forEach(({ entry }) => {
-        results[entry.query.roomTypeId] = failure(response.error);
+        const known = lastKnown[entry.query.roomTypeId];
+        results[entry.query.roomTypeId] = known
+          ? { ok: true, value: known }
+          : failure(response.error);
       });
       return results;
     }
