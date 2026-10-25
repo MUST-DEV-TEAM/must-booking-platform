@@ -65,7 +65,7 @@ test('a guest books, the property sees and cancels it, and the room is bookable 
     const booking = (booked as Extract<BookingResult, { ok: true }>).value;
 
     const confirmation = await capturedEmail(guestEmail, (subject) =>
-      subject.endsWith(`booking confirmed — ${booking.externalReference}`),
+      subject.endsWith(`is confirmed - ${booking.externalReference}`),
     );
     expect(confirmation.text).toContain('Payment will be collected at the hotel on arrival.');
     expect(confirmation.text).toContain(`${startsOn} to ${endsOn}`);
@@ -79,21 +79,26 @@ test('a guest books, the property sees and cancels it, and the room is bookable 
       `/dashboard/${tenant.tenantId}?propertyId=${tenant.propertyId}&section=reservations`,
     );
     await expect(page.getByRole('heading', { name: 'Reservations' })).toBeVisible();
-    await page.getByLabel('Search guest').fill(guestEmail);
-    await page.getByRole('button', { name: 'View details' }).first().click();
-    const details = page.getByRole('region', { name: 'Reservation details' });
-    await expect(details.getByRole('heading', { name: 'Ada Guest' })).toBeVisible();
-    await expect(details.getByText(booking.externalReference)).toBeVisible();
-    await expect(details.getByText(guestEmail)).toBeVisible();
-    await expect(details.getByText('Confirmed', { exact: true })).toBeVisible();
+    // The reservations table is wide; a roomy window keeps the row actions on screen.
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await page.getByRole('textbox', { name: 'Search reservations' }).fill(guestEmail);
+    const row = page.getByRole('row', { name: /Ada Guest/ });
+    await expect(row).toBeVisible();
+    await row
+      .getByRole('button', { name: `More actions for ${booking.externalReference}` })
+      .click();
+    await page.getByRole('menuitem', { name: 'View details' }).click();
+    const summary = page.getByRole('dialog', { name: booking.externalReference });
+    await expect(summary.getByText('Ada Guest').first()).toBeVisible();
+    await expect(summary.getByText(guestEmail)).toBeVisible();
+    await expect(summary.getByText('Confirmed', { exact: true })).toBeVisible();
 
-    page.once('dialog', (dialog) => void dialog.accept());
-    await details.getByRole('button', { name: 'Cancel reservation' }).click();
-    // Cancelling closes the details panel; the list row shows the new status.
-    await expect(details).toHaveCount(0);
-    await expect(
-      page.getByRole('row', { name: /Ada Guest/ }).getByText('Cancelled', { exact: true }),
-    ).toBeVisible();
+    await summary.getByRole('link', { name: 'Reservation' }).click();
+    await page.getByRole('button', { name: 'Cancel reservation' }).click();
+    const confirm = page.getByRole('dialog', { name: 'Confirm cancellation' });
+    await confirm.getByRole('textbox', { name: 'Details *' }).fill('The guest asked to cancel.');
+    await confirm.getByRole('button', { name: 'Cancel reservation' }).click();
+    await expect(page.getByText('Cancelled', { exact: true }).first()).toBeVisible();
 
     await capturedEmail(
       guestEmail,
@@ -137,12 +142,14 @@ test('a guest cancels from the link in their confirmation email on another devic
     const booking = (booked as Extract<BookingResult, { ok: true }>).value;
 
     const confirmation = await capturedEmail(guestEmail, (subject) =>
-      subject.endsWith(`booking confirmed — ${booking.externalReference}`),
+      subject.endsWith(`is confirmed - ${booking.externalReference}`),
     );
-    const link = emailLinks(confirmation).find((url) => url.origin === websiteOrigin);
-    expect(link?.searchParams.get('must_action')).toBe('cancel');
-    expect(link?.searchParams.get('booking_id')).toBe(booking.id);
-    const cancellationToken = link?.searchParams.get('cancellationToken') ?? '';
+    // The email now links to the app's own "manage booking" page (not the hotel website).
+    const link = emailLinks(confirmation).find((url) => url.pathname === '/booking/manage');
+    expect(link?.searchParams.get('booking')).toBe(booking.id);
+    expect(link?.searchParams.get('tenant')).toBe(tenant.tenantId);
+    const cancellationToken = link?.searchParams.get('token') ?? '';
+    expect(cancellationToken).not.toBe('');
 
     // Without the token, another browser cannot see or cancel the booking.
     const propertyBase = `/api/tenants/${tenant.tenantId}/properties/${tenant.propertyId}`;
@@ -195,7 +202,11 @@ async function createSingleRoomCatalog(page: Page, tenant: Tenant): Promise<Cata
         const response = await fetch(`${propertyBase}${path}`, {
           ...init,
           credentials: 'include',
-          headers: { 'content-type': 'application/json', ...init?.headers },
+          headers: {
+            'content-type': 'application/json',
+            'idempotency-key': crypto.randomUUID(),
+            ...init?.headers,
+          },
         });
         const body = await response.json().catch(() => null);
         if (!response.ok) throw new Error(`Request to ${path} failed with ${response.status}.`);
