@@ -822,7 +822,9 @@ export function ReservationsPage({
                   ) : null}
                   <SortHeader label="Stay" sortKey="stay" filters={filters} onSort={toggleSort} />
                   {columns.source ? (
-                    <TableHead className="px-2 py-2 normal-case tracking-normal">Source</TableHead>
+                    <TableHead className="px-2 py-2 normal-case tracking-normal max-[1399px]:hidden">
+                      Source
+                    </TableHead>
                   ) : null}
                   <TableHead className="px-2 py-2 normal-case tracking-normal">Status</TableHead>
                   {columns.payment ? (
@@ -905,14 +907,19 @@ export function ReservationsPage({
                             Created {createdLabel(row.createdAt)}
                           </span>
                         </TableCell>
-                        <TableCell className="px-2 py-2">
+                        {/* The guest column takes the leftover width and truncates, so a long email cannot push
+                            the row actions off the screen. */}
+                        <TableCell className="w-full max-w-0 px-2 py-2">
                           <div className="flex min-w-0 items-center gap-2">
                             <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-secondary text-primary">
                               <UserRound aria-hidden="true" className="size-3.5" />
                             </span>
                             <span className="min-w-0">
                               <span className="block truncate font-semibold">{guestName(row)}</span>
-                              <span className="block truncate text-[10px] text-muted-foreground group-data-[density=compact]:hidden">
+                              <span
+                                title={row.guestEmail ?? row.guestPhone ?? undefined}
+                                className="block truncate text-[10px] text-muted-foreground group-data-[density=compact]:hidden"
+                              >
                                 {row.guestEmail ?? row.guestPhone ?? ''}
                               </span>
                             </span>
@@ -935,7 +942,7 @@ export function ReservationsPage({
                           </span>
                         </TableCell>
                         {columns.source ? (
-                          <TableCell className="px-2 py-2">
+                          <TableCell className="px-2 py-2 max-[1399px]:hidden">
                             <SourceBadge source={row.source} />
                           </TableCell>
                         ) : null}

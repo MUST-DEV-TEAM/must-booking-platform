@@ -79,14 +79,18 @@ test('a guest books, the property sees and cancels it, and the room is bookable 
       `/dashboard/${tenant.tenantId}?propertyId=${tenant.propertyId}&section=reservations`,
     );
     await expect(page.getByRole('heading', { name: 'Reservations' })).toBeVisible();
-    // The reservations table is wide; a roomy window keeps the row actions on screen.
-    await page.setViewportSize({ width: 1600, height: 1000 });
     await page.getByRole('textbox', { name: 'Search reservations' }).fill(guestEmail);
     const row = page.getByRole('row', { name: /Ada Guest/ });
     await expect(row).toBeVisible();
-    await row
-      .getByRole('button', { name: `More actions for ${booking.externalReference}` })
-      .click();
+    // On a standard laptop-width window the row actions must stay on screen, even with the very
+    // long email this test uses.
+    const actions = row.getByRole('button', {
+      name: `More actions for ${booking.externalReference}`,
+    });
+    const box = await actions.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    await actions.click();
     await page.getByRole('menuitem', { name: 'View details' }).click();
     const summary = page.getByRole('dialog', { name: booking.externalReference });
     await expect(summary.getByText('Ada Guest').first()).toBeVisible();
