@@ -30,13 +30,6 @@ const isoDay = (day: number) =>
     .slice(0, 10);
 const firstNight = isoDay(10);
 const secondNight = isoDay(11);
-const firstNightLabel = new Intl.DateTimeFormat('en-US', {
-  weekday: 'long',
-  month: 'long',
-  day: 'numeric',
-  year: 'numeric',
-  timeZone: 'UTC',
-}).format(new Date(`${firstNight}T00:00:00Z`));
 
 test('Calendar blocks selected room types and rooms, then refreshes their availability', async ({
   browser,
