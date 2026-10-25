@@ -24,6 +24,17 @@ describe('classifyClockHttpResponse', () => {
     });
   });
 
+  it('names the missing right on a 403', () => {
+    const result = classifyClockHttpResponse(403, {
+      error: "The User doesn't have pms_api_rate_plans_index right",
+    });
+    expect(result).toMatchObject({
+      category: 'authorization',
+      missingRight: 'pms_api_rate_plans_index',
+    });
+    expect(classifyClockHttpResponse(403, 'Forbidden')).not.toHaveProperty('missingRight');
+  });
+
   it('classifies 400 as validation using the real sandbox contract-error shape', () => {
     const result = classifyClockHttpResponse(400, {
       error: 'RestApi::Interactions::RateAvailability::Contract\nfrom.filled?',

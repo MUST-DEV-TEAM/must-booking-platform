@@ -8,6 +8,7 @@ import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { PageHero } from '../../components/ui/page-hero';
 import { ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
+import { ClockPermissionsPanel } from './clock-permissions-panel';
 
 type Signal = {
   key: string;
@@ -130,6 +131,7 @@ export function SystemHealthTab({
           );
         })}
       </div>
+      <ClockPermissionsPanel tenantId={tenantId} propertyId={propertyId} />
       <p className="m-0 text-xs text-muted-foreground">
         Checked {new Date(health.checkedAt).toLocaleString()}. Readings come from stored records; no
         outside system is contacted.

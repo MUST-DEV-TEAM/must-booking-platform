@@ -230,6 +230,8 @@ import { ClockConnectionTester } from './integrations/clock/clock-connection-tes
 import { ClockPmsProvider } from './integrations/clock/clock-pms.provider';
 import { ClockCatalogSyncService } from './integrations/clock/clock-catalog-sync.service';
 import { ClockCatalogSyncController } from './integrations/clock/clock-catalog-sync.controller';
+import { ClockPermissionsController } from './integrations/clock/clock-permissions.controller';
+import { ClockPermissionsService } from './integrations/clock/clock-permissions.service';
 import { ClockAvailabilityService } from './integrations/clock/clock-availability.service';
 import { ClockPrePaymentAvailability } from './integrations/clock/clock-pre-payment-availability';
 import { PrePaymentAvailabilityRegistry } from './booking/pre-payment-availability';
@@ -361,6 +363,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     HotelSupportController,
     IntegrationConnectionsController,
     ClockCatalogSyncController,
+    ClockPermissionsController,
     ClockRateRankingController,
     ClockRateRankingBatchController,
     ClockWebhookController,
@@ -478,6 +481,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ClockPmsProvider,
     PmsProviderRegistry,
     ClockCatalogSyncService,
+    ClockPermissionsService,
     ClockAvailabilityService,
     ClockPrePaymentAvailability,
     PrePaymentAvailabilityRegistry,
