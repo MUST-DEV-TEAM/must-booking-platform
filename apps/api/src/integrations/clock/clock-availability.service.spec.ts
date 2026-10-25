@@ -1349,6 +1349,40 @@ describe('ClockAvailabilityService.getQuote', () => {
   });
 });
 
+describe('ClockAvailabilityService rate catalogue', () => {
+  it('reads the whole rate catalogue once for many room types, even at the same moment', async () => {
+    const request = vi.fn().mockImplementation((_credentials, options: { path: string }) =>
+      Promise.resolve(
+        options.path === '/rates/'
+          ? {
+              status: 200,
+              body: [
+                { id: 1, bookable_id: 42023, bookable_type: 'Pms::RoomType', wbe: true },
+                { id: 2, bookable_id: 42024, bookable_type: 'Pms::RoomType', wbe: true },
+              ],
+            }
+          : { status: 200, body: [] },
+      ),
+    );
+    const { service } = makeService({ client: { request } });
+    const read = (externalRoomTypeId: string) =>
+      (
+        service as unknown as {
+          ratesForRoomType: (
+            credentials: unknown,
+            externalRoomTypeId: string,
+          ) => Promise<{ ok: boolean; value?: { ids: string[] } }>;
+        }
+      ).ratesForRoomType(credentials, externalRoomTypeId);
+
+    const [first, second] = await Promise.all([read('42023'), read('42024')]);
+
+    expect(first.value?.ids).toEqual(['1']);
+    expect(second.value?.ids).toEqual(['2']);
+    expect(request.mock.calls.filter(([, options]) => options.path === '/rates/')).toHaveLength(1);
+  });
+});
+
 describe('ClockAvailabilityService.getQuotesForStay', () => {
   it('uses one catalogue and one products request for multiple cold-cache room types', async () => {
     const request = vi

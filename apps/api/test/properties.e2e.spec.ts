@@ -16,8 +16,10 @@ const admin = new PrismaClient({
     },
   },
 });
+// The hotel is ahead of UTC, so late in the UTC evening its calendar day is already tomorrow;
+// counting from 14 hours ahead keeps every offset in the future for any hotel timezone.
 const dateFromToday = (offset: number) => {
-  const date = new Date();
+  const date = new Date(Date.now() + 14 * 60 * 60 * 1000);
   date.setUTCDate(date.getUTCDate() + offset);
   return date.toISOString().slice(0, 10);
 };
