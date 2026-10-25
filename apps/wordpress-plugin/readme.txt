@@ -33,7 +33,7 @@ Main features include:
 == Changelog ==
 
 = 0.4.110 =
-* Room cards show the lowest price and key room facts; checkout lets guests choose between a room's rates (when the hotel offers several); Elementor Currency Switcher widget with approximate converted prices (display only). Rate choice and currency conversion need the matching platform API release.
+* Room cards show the lowest price and key room facts; checkout lets guests choose between a room's rates (when the hotel offers several); Elementor Currency Switcher widget with approximate converted prices (display only). The currency converter reads a free daily euro rate feed until the platform API serves rates; rate choice needs the matching platform API release.
 
 = 0.4.109 =
 * Checkout stay summary shows only the number of nights ("1 Night", "2 Nights"), not a days count.
