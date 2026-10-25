@@ -15,3 +15,8 @@
     font-size: 14px;
     opacity: 0.7;
 }
+
+.must-currency-switcher select option {
+    background: #ffffff;
+    color: #141414;
+}

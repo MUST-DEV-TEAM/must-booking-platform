@@ -182,6 +182,38 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                 <input type="hidden" name="room_count" value="<?php echo \esc_attr((string) $room_count); ?>" />
                 <input type="hidden" name="applied_coupon_code" value="<?php echo \esc_attr($applied_coupon_code); ?>" />
 
+                <section class="must-checkout-coupon-row">
+                    <div class="<?php echo \esc_attr($coupon_control_classes); ?>">
+                        <label class="screen-reader-text" for="must-checkout-coupon"><?php echo \esc_html__('Coupon Code', 'must-hotel-booking'); ?></label>
+                        <input
+                            id="must-checkout-coupon"
+                            type="text"
+                            name="coupon_code"
+                            value="<?php echo \esc_attr($coupon_input_value); ?>"
+                            placeholder="<?php echo \esc_attr__('Add Coupon', 'must-hotel-booking'); ?>"
+                        />
+                        <button
+                            type="submit"
+                            name="must_checkout_action"
+                            value="preview_coupon"
+                            class="must-checkout-coupon-submit"
+                            formnovalidate
+                            aria-label="<?php echo \esc_attr__('Apply Coupon', 'must-hotel-booking'); ?>"
+                        >
+                            <?php if ($check_icon_url !== '') : ?>
+                                <img src="<?php echo \esc_url($check_icon_url); ?>" alt="" aria-hidden="true" />
+                            <?php endif; ?>
+                            <span class="screen-reader-text"><?php echo \esc_html__('Apply Coupon', 'must-hotel-booking'); ?></span>
+                        </button>
+                    </div>
+                </section>
+
+                <?php if (\is_array($coupon_notice) && (string) ($coupon_notice['message'] ?? '') !== '') : ?>
+                    <div class="must-checkout-coupon-notice is-<?php echo \esc_attr((string) ($coupon_notice['type'] ?? 'info')); ?>">
+                        <p><?php echo \esc_html((string) $coupon_notice['message']); ?></p>
+                    </div>
+                <?php endif; ?>
+
                 <?php $rate_offers = isset($view['rate_offers']) && \is_array($view['rate_offers']) ? $view['rate_offers'] : []; ?>
                 <?php if ($rate_offers !== []) : ?>
                     <?php $selected_rate_id = (string) ($view['selected_rate_id'] ?? ''); ?>
@@ -224,38 +256,6 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                             <?php echo \esc_html__('Update price', 'must-hotel-booking'); ?>
                         </button>
                     </fieldset>
-                <?php endif; ?>
-
-                <section class="must-checkout-coupon-row">
-                    <div class="<?php echo \esc_attr($coupon_control_classes); ?>">
-                        <label class="screen-reader-text" for="must-checkout-coupon"><?php echo \esc_html__('Coupon Code', 'must-hotel-booking'); ?></label>
-                        <input
-                            id="must-checkout-coupon"
-                            type="text"
-                            name="coupon_code"
-                            value="<?php echo \esc_attr($coupon_input_value); ?>"
-                            placeholder="<?php echo \esc_attr__('Add Coupon', 'must-hotel-booking'); ?>"
-                        />
-                        <button
-                            type="submit"
-                            name="must_checkout_action"
-                            value="preview_coupon"
-                            class="must-checkout-coupon-submit"
-                            formnovalidate
-                            aria-label="<?php echo \esc_attr__('Apply Coupon', 'must-hotel-booking'); ?>"
-                        >
-                            <?php if ($check_icon_url !== '') : ?>
-                                <img src="<?php echo \esc_url($check_icon_url); ?>" alt="" aria-hidden="true" />
-                            <?php endif; ?>
-                            <span class="screen-reader-text"><?php echo \esc_html__('Apply Coupon', 'must-hotel-booking'); ?></span>
-                        </button>
-                    </div>
-                </section>
-
-                <?php if (\is_array($coupon_notice) && (string) ($coupon_notice['message'] ?? '') !== '') : ?>
-                    <div class="must-checkout-coupon-notice is-<?php echo \esc_attr((string) ($coupon_notice['type'] ?? 'info')); ?>">
-                        <p><?php echo \esc_html((string) $coupon_notice['message']); ?></p>
-                    </div>
                 <?php endif; ?>
 
                 <div class="must-checkout-room-stack">
