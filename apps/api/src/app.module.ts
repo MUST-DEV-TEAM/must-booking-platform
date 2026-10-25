@@ -178,6 +178,8 @@ import { AmenitiesService } from './tenancy/amenities.service';
 import { AvailabilityController } from './tenancy/availability.controller';
 import { AvailabilityService } from './tenancy/availability.service';
 import { PublicAvailabilityController } from './tenancy/public-availability.controller';
+import { PublicExchangeRatesController } from './tenancy/public-exchange-rates.controller';
+import { ExchangeRatesService } from './tenancy/exchange-rates.service';
 import { PublicCatalogController } from './tenancy/public-catalog.controller';
 import { PublicCatalogService } from './tenancy/public-catalog.service';
 import { WordpressPairingController } from './tenancy/wordpress-pairing.controller';
@@ -331,6 +333,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     AvailabilityController,
     CapabilitiesController,
     PublicAvailabilityController,
+    PublicExchangeRatesController,
     PublicCatalogController,
     WordpressPairingController,
     WordpressPairingRedeemController,
@@ -364,6 +367,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
   ],
   providers: [
     TenantDatabaseService,
+    ExchangeRatesService,
     PlatformSessionService,
     PlatformAuditService,
     PlatformIdempotencyService,
