@@ -4,10 +4,10 @@ namespace MustHotelBooking\Elementor;
 
 use MustHotelBooking\Core\MustApiClient;
 
-/** @return array<string, string> code => label */
-function get_currency_switcher_currency_options(): array
+/** @return array<string, string> code => name */
+function get_currency_switcher_currency_names(): array
 {
-    $names = [
+    return [
         'EUR' => 'Euro', 'USD' => 'US Dollar', 'GBP' => 'British Pound', 'ALL' => 'Albanian Lek', 'CHF' => 'Swiss Franc',
         'CAD' => 'Canadian Dollar', 'AUD' => 'Australian Dollar', 'SEK' => 'Swedish Krona', 'NOK' => 'Norwegian Krone',
         'DKK' => 'Danish Krone', 'PLN' => 'Polish Zloty', 'CZK' => 'Czech Koruna', 'HUF' => 'Hungarian Forint',
@@ -15,6 +15,12 @@ function get_currency_switcher_currency_options(): array
         'RSD' => 'Serbian Dinar', 'BAM' => 'Bosnian Mark', 'ILS' => 'Israeli Shekel', 'AED' => 'UAE Dirham',
         'JPY' => 'Japanese Yen', 'CNY' => 'Chinese Yuan', 'INR' => 'Indian Rupee', 'BRL' => 'Brazilian Real',
     ];
+}
+
+/** @return array<string, string> code => label */
+function get_currency_switcher_currency_options(): array
+{
+    $names = get_currency_switcher_currency_names();
     $options = [];
     foreach ($names as $code => $name) $options[$code] = $code . ' - ' . $name;
     return $options;

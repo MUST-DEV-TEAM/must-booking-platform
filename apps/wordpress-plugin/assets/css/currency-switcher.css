@@ -1,13 +1,124 @@
-.must-currency-switcher select {
-    appearance: none;
-    padding: 8px 28px 8px 12px;
-    border: 1px solid currentColor;
+/* Currency switcher: a quiet, editorial control that sits next to the header menu. */
+.must-currency-switcher {
+    --must-cs-ink: #f5f3ec;
+    --must-cs-panel: #f5f3ec;
+    --must-cs-panel-ink: #141414;
+    --must-cs-line: rgba(245, 243, 236, 0.28);
+    position: relative;
+    display: inline-block;
+    font-family: inherit;
+}
+
+.must-currency-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    margin: 0;
+    padding: 0 14px;
+    border: 1px solid var(--must-cs-line);
     border-radius: 0;
-    background-color: transparent;
-    color: inherit;
+    background: transparent;
+    color: var(--must-cs-ink);
     font: inherit;
-    line-height: 1.2;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    line-height: 1;
     cursor: pointer;
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.must-currency-trigger:hover,
+.must-currency-switcher.is-open .must-currency-trigger {
+    border-color: var(--must-cs-ink);
+    background: rgba(245, 243, 236, 0.08);
+}
+
+.must-currency-trigger:focus-visible {
+    outline: 2px solid var(--must-cs-ink);
+    outline-offset: 3px;
+}
+
+.must-currency-trigger svg {
+    width: 16px;
+    height: 16px;
+    flex: none;
+}
+
+.must-currency-trigger .must-currency-chevron {
+    width: 12px;
+    height: 12px;
+    transition: transform 0.2s ease;
+}
+
+.must-currency-switcher.is-open .must-currency-chevron {
+    transform: rotate(180deg);
+}
+
+.must-currency-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 9999;
+    min-width: 230px;
+    margin: 0;
+    padding: 6px;
+    list-style: none;
+    background: var(--must-cs-panel);
+    color: var(--must-cs-panel-ink);
+    border: 1px solid rgba(20, 20, 20, 0.12);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+    opacity: 0;
+    transform: translateY(-6px);
+    pointer-events: none;
+    visibility: hidden;
+    transition: opacity 0.18s ease, transform 0.18s ease, visibility 0s linear 0.18s;
+}
+
+.must-currency-switcher.is-open .must-currency-menu {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+    visibility: visible;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.must-currency-option {
+    display: grid;
+    grid-template-columns: 34px 1fr 16px;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 12px;
+    font-size: 15px;
+    letter-spacing: 0;
+    text-transform: none;
+    cursor: pointer;
+}
+
+.must-currency-option .must-currency-code {
+    font-weight: 600;
+    letter-spacing: 0.06em;
+}
+
+.must-currency-option .must-currency-name {
+    opacity: 0.7;
+}
+
+.must-currency-option .must-currency-check {
+    width: 14px;
+    height: 14px;
+    opacity: 0;
+}
+
+.must-currency-option[aria-selected='true'] .must-currency-check {
+    opacity: 1;
+}
+
+.must-currency-option:hover,
+.must-currency-option.is-active {
+    background: rgba(20, 20, 20, 0.07);
 }
 
 .must-currency-note {
@@ -16,7 +127,39 @@
     opacity: 0.7;
 }
 
-.must-currency-switcher select option {
-    background: #ffffff;
-    color: #141414;
+@media (max-width: 767px) {
+    .must-currency-trigger {
+        height: 36px;
+        padding: 0 10px;
+        font-size: 13px;
+    }
+
+    .must-currency-menu {
+        min-width: 210px;
+        max-width: calc(100vw - 24px);
+    }
+}
+
+@media (max-width: 480px) {
+    .must-currency-trigger {
+        gap: 6px;
+        padding: 0 8px;
+    }
+
+    .must-currency-trigger > svg:first-child {
+        display: none;
+    }
+
+    .must-currency-option {
+        grid-template-columns: 34px 1fr 16px;
+        padding: 12px 10px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .must-currency-trigger,
+    .must-currency-trigger .must-currency-chevron,
+    .must-currency-menu {
+        transition: none;
+    }
 }
