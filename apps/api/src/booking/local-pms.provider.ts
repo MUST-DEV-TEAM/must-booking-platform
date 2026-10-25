@@ -1769,6 +1769,8 @@ export class LocalPmsProvider implements PmsProvider {
         roomTypeId: command.roomTypeId,
         roomId: room.id,
         ratePlanId: command.ratePlanId,
+        // The room must cost the same under the rate the guest chose, not the default rate.
+        clockRateId: command.clockRateId,
         startsOn: command.startsOn,
         endsOn: command.endsOn,
         adults: occupancy.adults,
