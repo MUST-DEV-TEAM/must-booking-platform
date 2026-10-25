@@ -652,7 +652,8 @@ describe('Reports R2 real scoped projections, cache and export audit', () => {
     } finally {
       await admin.$executeRaw`DELETE FROM bookings WHERE tenant_id=${tenant}::uuid AND property_id=${property}::uuid AND external_reference LIKE 'R2-CAP-%'`;
     }
-  });
+    // Inserts and reads back 25,001 bookings, so it needs more than the 45 s default on a loaded machine.
+  }, 120_000);
   it('uses Unknown for historical individual-room supply and rejects invalid inputs', async () => {
     await admin.$executeRaw`UPDATE properties SET booking_mode='INDIVIDUAL_ROOM_ONLY' WHERE tenant_id=${tenant}::uuid AND id=${property}::uuid`;
     const result = await get({ report: 'occupancy', group: 'week' }).expect(200);

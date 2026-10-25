@@ -15,6 +15,7 @@ import { CapabilitiesGuard } from '../src/tenancy/capabilities.guard';
 import { AuditLogService } from '../src/tenancy/audit-log.service';
 import { QuoteController } from '../src/booking/quote.controller';
 import { QuoteService } from '../src/booking/quote.service';
+import { StaffAvailabilityService } from '../src/booking/staff-availability.service';
 import { StaffBookingController } from '../src/booking/staff-booking.controller';
 import { BookingController } from '../src/booking/booking.controller';
 import { LocalPmsProvider } from '../src/booking/local-pms.provider';
@@ -190,6 +191,7 @@ beforeAll(async () => {
     ClockBookingService,
     ClockAvailabilityService,
     PrePaymentAvailabilityRegistry,
+    StaffAvailabilityService,
   ];
   const mod = await Test.createTestingModule({
     controllers: [PropertiesController, QuoteController, StaffBookingController, BookingController],

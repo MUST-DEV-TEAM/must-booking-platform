@@ -39,14 +39,24 @@ describe('booking rules', () => {
     expect(codes(evaluateBookingRules({ ...input, startsOn, endsOn }))).toContain(code);
   });
   it.each([
-    ['2026-10-18', '2026-10-20'],
     ['2026-10-19', '2026-10-21'],
     ['2026-10-19', '2026-10-24'],
     ['2026-10-28', '2026-10-30'],
   ])('accepts today and exact stay/advance boundaries: %s to %s', (startsOn, endsOn) => {
     expect(evaluateBookingRules({ ...input, startsOn, endsOn }).valid).toBe(true);
   });
-  it('uses property timezone at midnight and allows staff same-day bookings after cutoff', () => {
+  it('accepts a same-day stay before the cutoff', () => {
+    const beforeCutoff = new Date('2026-10-18T10:00:00Z');
+    expect(
+      evaluateBookingRules({
+        ...input,
+        now: beforeCutoff,
+        startsOn: '2026-10-18',
+        endsOn: '2026-10-20',
+      }).valid,
+    ).toBe(true);
+  });
+  it('uses property timezone at midnight and closes same-day bookings after the cutoff for staff too', () => {
     const nearMidnight = new Date('2026-10-18T23:00:00Z');
     expect(
       codes(
@@ -68,9 +78,10 @@ describe('booking rules', () => {
         }),
       ),
     ).toContain('SAME_DAY_CLOSED');
+    // The documented rule (booking-and-payments.md) applies the cutoff to staff as well as guests.
     expect(
-      evaluateBookingRules({ ...input, startsOn: '2026-10-18', endsOn: '2026-10-20' }).valid,
-    ).toBe(true);
+      codes(evaluateBookingRules({ ...input, startsOn: '2026-10-18', endsOn: '2026-10-20' })),
+    ).toContain('SAME_DAY_CLOSED');
   });
   it('enforces the exact same-day cutoff and an explicit same-day closure', () => {
     const start = {

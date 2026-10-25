@@ -1169,10 +1169,13 @@ describe('LocalPmsProvider', () => {
     const {
       checkoutUrl: _checkoutUrl,
       cancellationToken: _cancellationToken,
+      checkoutOrderId: _checkoutOrderId,
       ...createdBooking
     } = created.value;
     void _checkoutUrl;
     void _cancellationToken;
+    // The checkout order id is only returned when a booking is created, like the URL and token.
+    void _checkoutOrderId;
     await expect(provider.getBooking(context, created.value.externalBookingId!)).resolves.toEqual(
       createdBooking,
     );
@@ -1436,7 +1439,16 @@ describe('LocalPmsProvider', () => {
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
         AND reference_id = ${failedRefundBooking.value.id}
     `;
-    expect(failedRefundReview).toEqual([
+    // A refund that cannot be confirmed also records a payment/booking mismatch item that
+    // blocks automatic retries (payment-refund.service.ts), next to the unknown-result item.
+    expect(failedRefundReview).toHaveLength(2);
+    expect(failedRefundReview).toContainEqual(
+      expect.objectContaining({
+        category: 'PAYMENT_BOOKING_MISMATCH',
+        referenceId: failedRefundBooking.value.id,
+      }),
+    );
+    expect(failedRefundReview).toContainEqual(
       expect.objectContaining({
         category: 'UNKNOWN_RESULT',
         referenceType: 'booking',
@@ -1449,7 +1461,7 @@ describe('LocalPmsProvider', () => {
           retryable: true,
         }),
       }),
-    ]);
+    );
     await settleMail();
     expect(cancelledStaffEmails).toContainEqual(
       expect.objectContaining({
@@ -1585,7 +1597,11 @@ describe('LocalPmsProvider', () => {
         action: 'booking.created',
         targetId: created.value.id,
         actorUserId: null,
-        details: { guestId: created.value.guestId },
+        // Audit evidence (ADR-0037) adds an `_audit` block with the outcome and source.
+        details: {
+          guestId: created.value.guestId,
+          _audit: expect.objectContaining({ result: 'completed', source: 'GUEST' }),
+        },
       },
       expect.objectContaining({
         action: 'payment.refunded',
@@ -2537,13 +2553,28 @@ describe('LocalPmsProvider', () => {
       ok: true,
       value: { amount: { amount: '50.00', currency: 'EUR' }, status: 'succeeded' },
     });
-    const cappedRefund = await request(app!.getHttpServer())
+    // A request above what remains is refused (no silent capping); staff re-enter the exact amount.
+    const oversizedRefund = await request(app!.getHttpServer())
       .post(`${propertyUrl}/payments/refunds`)
       .set('Cookie', cookie)
       .set('Idempotency-Key', randomUUID())
       .send({
         bookingId: firstBooking.value.id,
         amount: { amount: '100.00', currency: 'EUR' },
+        note: 'Close remaining balance',
+      })
+      .expect(200);
+    expect(oversizedRefund.body).toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_REFUND_AMOUNT' },
+    });
+    const cappedRefund = await request(app!.getHttpServer())
+      .post(`${propertyUrl}/payments/refunds`)
+      .set('Cookie', cookie)
+      .set('Idempotency-Key', randomUUID())
+      .send({
+        bookingId: firstBooking.value.id,
+        amount: { amount: '85.00', currency: 'EUR' },
         note: 'Close remaining balance',
       })
       .expect(200);

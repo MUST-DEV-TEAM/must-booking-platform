@@ -171,6 +171,7 @@ describe('ClockBookingService.attachRealReservation Task 14 failure handling', (
         '2027-07-12',
         2,
         1,
+        undefined,
       );
       expect(internals.fetch).not.toHaveBeenCalled();
       if (code === 'clock_rate_unavailable') {

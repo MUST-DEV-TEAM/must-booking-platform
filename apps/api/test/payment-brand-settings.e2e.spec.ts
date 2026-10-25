@@ -219,7 +219,9 @@ it('defaults, validates and atomically saves the new fields with payment methods
     cta: { label: 'View booking', url: 'https://hotel.test/booking' },
   });
   expect(html).toContain('alt="Brand hotel"');
-  expect(html).toContain('background:#123ABC');
+  // The redesigned layout applies the brand colour to the top border and the call-to-action button.
+  expect(html).toContain('border-top:4px solid #123ABC');
+  expect(html).toContain('background-color:#123ABC');
   expect(html).toContain('&lt;b&gt;Plain footer&lt;/b&gt;');
   expect(html).toContain('https://hotel.test/terms');
 });

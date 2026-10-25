@@ -930,7 +930,16 @@ describe('Multi-room booking orders', () => {
       WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
         AND reference_id = ${failedRefundOrder.value.bookings[0]!.id}
     `;
-    expect(failedRefundManualReviews).toEqual([
+    // A refund that cannot be confirmed now also records a payment/booking mismatch item that
+    // blocks automatic retries (payment-refund.service.ts), next to the unknown-result item.
+    expect(failedRefundManualReviews).toHaveLength(2);
+    expect(failedRefundManualReviews).toContainEqual(
+      expect.objectContaining({
+        category: 'PAYMENT_BOOKING_MISMATCH',
+        referenceId: failedRefundOrder.value.bookings[0]!.id,
+      }),
+    );
+    expect(failedRefundManualReviews).toContainEqual(
       expect.objectContaining({
         category: 'UNKNOWN_RESULT',
         referenceId: failedRefundOrder.value.bookings[0]!.id,
@@ -944,7 +953,7 @@ describe('Multi-room booking orders', () => {
           amount: { amount: '420.00', currency: 'EUR' },
         }),
       }),
-    ]);
+    );
   });
 
   it('checks live Clock availability for every room before online checkout', async () => {

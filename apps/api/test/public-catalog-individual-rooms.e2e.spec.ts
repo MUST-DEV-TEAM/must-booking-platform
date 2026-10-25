@@ -247,6 +247,16 @@ describe('public catalog individual rooms', () => {
       .set('Cookie', cookie)
       .send({ startsOn: '2035-09-10', endsOn: '2035-09-12', isAvailable: false })
       .expect(204);
+    // A dated catalog only lists room types a guest can price, so the type needs a rate plan.
+    const individualRatePlanId = randomUUID();
+    await admin.$executeRaw`
+      INSERT INTO rate_plans (id, tenant_id, property_id, name, currency, is_active)
+      VALUES (${individualRatePlanId}::uuid, ${tenantId}::uuid, ${individualPropertyId}::uuid, 'Standard Rate', 'EUR', true)
+    `;
+    await admin.$executeRaw`
+      INSERT INTO rate_rules (tenant_id, property_id, room_type_id, rate_plan_id, amount)
+      VALUES (${tenantId}::uuid, ${individualPropertyId}::uuid, ${individualRoomType.body.id}::uuid, ${individualRatePlanId}::uuid, 100)
+    `;
     await request(app.getHttpServer()).get(`${individualUrl}/public/catalog`).expect(400);
     const individualCatalog = await request(app.getHttpServer())
       .get(`${individualUrl}/public/catalog`)
@@ -306,6 +316,15 @@ describe('public catalog individual rooms', () => {
       .set('Cookie', cookie)
       .send({ name: 'Mixed Room' })
       .expect(201);
+    const mixedRatePlanId = randomUUID();
+    await admin.$executeRaw`
+      INSERT INTO rate_plans (id, tenant_id, property_id, name, currency, is_active)
+      VALUES (${mixedRatePlanId}::uuid, ${tenantId}::uuid, ${mixedPropertyId}::uuid, 'Standard Rate', 'EUR', true)
+    `;
+    await admin.$executeRaw`
+      INSERT INTO rate_rules (tenant_id, property_id, room_type_id, rate_plan_id, amount)
+      VALUES (${tenantId}::uuid, ${mixedPropertyId}::uuid, ${mixedRoomType.body.id}::uuid, ${mixedRatePlanId}::uuid, 100)
+    `;
     await request(app.getHttpServer())
       .get(`${mixedUrl}/public/catalog`)
       .query({ startsOn: '2035-09-10', endsOn: '2035-09-12' })
