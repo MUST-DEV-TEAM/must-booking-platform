@@ -162,6 +162,9 @@ export type ClockRateSummary = {
 const CACHE_TTL_MS = 1_200_000;
 // Display prices are informational only, so keep them short-lived while
 // avoiding one provider request per accommodation card on every page load.
+// The whole rate catalogue changes rarely; a few minutes is plenty and a wrong rate id cannot be booked
+// because the quote and the booking re-read prices from Clock.
+const RATE_CATALOGUE_CACHE_TTL_MS = 10 * 60 * 1000;
 const DISPLAY_PRICE_CACHE_TTL_MS = 300_000;
 // Search-time checks are advisory, so a short cache prevents repeated date
 // changes and parallel tabs from hammering Clock. The pre-payment guard keeps
@@ -185,6 +188,8 @@ export class ClockAvailabilityService {
   private readonly logger = new Logger(ClockAvailabilityService.name);
   private readonly availabilityCache = new Map<string, CacheEntry<AvailabilityResult>>();
   private readonly ratesCache = new Map<string, CacheEntry<RoomTypeRates>>();
+  private readonly catalogueCache = new Map<string, CacheEntry<ClockRateRow[]>>();
+  private readonly pendingCatalogue = new Map<string, Promise<ClockOutcome<ClockRateRow[]>>>();
   private readonly displayPriceCache = new Map<string, CacheEntry<Money>>();
   private readonly bookingAvailabilityCache = new Map<string, CacheEntry<boolean>>();
 
@@ -1045,6 +1050,36 @@ export class ClockAvailabilityService {
    * "1 Rate belongs to 1 Room Type". Using the rate-plan id directly (as
    * this method used to) silently matches nothing and Clock reports it as
    * "not available" rather than "unknown rate id". */
+  /**
+   * Clock's /rates/ returns the whole catalogue (every room type), so one read serves all room types.
+   * It is kept for a few minutes and shared by concurrent callers; without this, a cold page for a
+   * hotel with 13 room types read the same catalogue 13 times.
+   */
+  private rateCatalogue(
+    credentials: ClockConnectionCredentials,
+  ): Promise<ClockOutcome<ClockRateRow[]>> {
+    const key = credentials.apiUser;
+    const cached = this.catalogueCache.get(key);
+    if (cached && cached.expiresAt > Date.now())
+      return Promise.resolve({ ok: true, value: cached.value });
+    const pending = this.pendingCatalogue.get(key);
+    if (pending) return pending;
+    const request = this.fetch<ClockRateRow[]>(credentials, undefined, '/rates/').then((result) => {
+      if (result.ok)
+        this.catalogueCache.set(key, {
+          value: result.value,
+          expiresAt: Date.now() + RATE_CATALOGUE_CACHE_TTL_MS,
+        });
+      return result;
+    });
+    this.pendingCatalogue.set(key, request);
+    const clear = () => {
+      if (this.pendingCatalogue.get(key) === request) this.pendingCatalogue.delete(key);
+    };
+    request.then(clear, clear);
+    return request;
+  }
+
   private async ratesForRoomType(
     credentials: ClockConnectionCredentials,
     externalRoomTypeId: string,
@@ -1054,9 +1089,7 @@ export class ClockAvailabilityService {
     const cached = this.ratesCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) return { ok: true, value: cached.value };
 
-    const response = await (loadRates
-      ? loadRates()
-      : this.fetch<ClockRateRow[]>(credentials, undefined, '/rates/'));
+    const response = await (loadRates ? loadRates() : this.rateCatalogue(credentials));
     if (!response.ok) return response;
     const forRoomType = response.value.filter(
       (rate) =>
