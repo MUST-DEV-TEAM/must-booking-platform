@@ -16,7 +16,7 @@ import {
 } from './clock-http-client';
 import { ClockRateLimiterService } from './clock-rate-limiter';
 
-type ClockRoomType = { id: number | string; name: string };
+type ClockRoomType = { id: number | string; name: string; operational_until?: string | null };
 type ClockRoom = { id: number | string; name: string; room_type_id: number | string };
 type EntityType = 'ROOM_TYPE' | 'ROOM';
 type SyncStatus = 'PROPOSED' | 'CONFIRMED' | 'REJECTED';
@@ -54,10 +54,23 @@ export class ClockCatalogSyncService {
     const parsed = parseClockCredentials(connection.credentials);
     if (!parsed.ok) throw new BadRequestException(parsed.message);
 
-    const [roomTypes, rooms] = await Promise.all([
+    const [allRoomTypes, allRooms] = await Promise.all([
       this.fetch<ClockRoomType[]>(parsed.value, '/room_types'),
       this.fetch<ClockRoom[]>(parsed.value, '/rooms'),
     ]);
+    // Clock keeps returning retired room types (operational_until in the
+    // past, e.g. Empire's "Standard Double room" retired 2024-04-23). They
+    // have no rooms and must not be proposed as sellable inventory.
+    const today = new Date().toISOString().slice(0, 10);
+    const roomTypes = allRoomTypes.filter(
+      (roomType) => !roomType.operational_until || roomType.operational_until >= today,
+    );
+    const retiredIds = new Set(
+      allRoomTypes
+        .filter((roomType) => !roomTypes.includes(roomType))
+        .map((roomType) => String(roomType.id)),
+    );
+    const rooms = allRooms.filter((room) => !retiredIds.has(String(room.room_type_id)));
 
     let proposed = 0;
     let updated = 0;
