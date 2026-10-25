@@ -302,6 +302,9 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                             $display_price_label = $display_price_available
                                 ? \must_hotel_booking\format_frontend_money((float) ($display_price['total']['amount'] ?? 0), $display_price_currency) . ' ' . \__('total', 'must-hotel-booking')
                                 : \__('Price unavailable', 'must-hotel-booking');
+                            $display_price_html = $display_price_available
+                                ? \MustHotelBooking\Frontend\format_frontend_money_html((float) ($display_price['total']['amount'] ?? 0), $display_price_currency) . ' ' . \esc_html__('total', 'must-hotel-booking')
+                                : \esc_html($display_price_label);
                             $display_nights = 0;
                             if ($checkin !== '' && $checkout !== '') {
                                 try {
@@ -396,6 +399,42 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                                                         );
                                                         ?>
                                                     </p>
+                                                <?php endif; ?>
+
+                                                <?php if ($display_price_available) : ?>
+                                                    <p class="must-booking-room-from-price">
+                                                        <span><?php echo \esc_html__('From', 'must-hotel-booking'); ?></span>
+                                                        <strong><?php echo $display_price_html; ?></strong>
+                                                        <?php if ($display_nights > 0) : ?>
+                                                            <small>
+                                                                <?php
+                                                                echo \esc_html(
+                                                                    \sprintf(
+                                                                        /* translators: %d: number of nights. */
+                                                                        \_n('%d night', '%d nights', $display_nights, 'must-hotel-booking'),
+                                                                        $display_nights
+                                                                    )
+                                                                );
+                                                                ?>
+                                                            </small>
+                                                        <?php endif; ?>
+                                                    </p>
+                                                <?php endif; ?>
+
+                                                <?php
+                                                $room_facts = \array_values(\array_filter([
+                                                    $max_guests > 0 ? \sprintf(\_n('Up to %d guest', 'Up to %d guests', $max_guests, 'must-hotel-booking'), $max_guests) : '',
+                                                    $beds,
+                                                    $room_size,
+                                                    $view_type,
+                                                ], static fn ($fact): bool => \trim((string) $fact) !== ''));
+                                                ?>
+                                                <?php if ($room_facts !== []) : ?>
+                                                    <ul class="must-booking-room-facts">
+                                                        <?php foreach ($room_facts as $room_fact) : ?>
+                                                            <li><?php echo \esc_html((string) $room_fact); ?></li>
+                                                        <?php endforeach; ?>
+                                                    </ul>
                                                 <?php endif; ?>
 
                                                 <?php if ($room_description !== '') : ?>
@@ -557,7 +596,7 @@ $continue_label = \function_exists('\must_hotel_booking\get_accommodation_contin
                                                 <?php endif; ?>
 
                                                 <section class="must-booking-room-popup-section">
-                                                    <h3><?php echo \esc_html($display_price_label); ?></h3>
+                                                    <h3><?php echo $display_price_html; ?></h3>
                                                     <?php if ($display_price_available && $display_nights > 0) : ?>
                                                         <p>
                                                             <?php

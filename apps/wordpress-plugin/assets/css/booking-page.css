@@ -6120,3 +6120,86 @@ div.must-confirmation-picker:nth-child(1) > div:nth-child(3) > div:nth-child(1) 
     outline-offset: 0;
     box-shadow: var(--must-focus-ring-primary) !important;
 }
+
+/* Rate choice at the guest-information step (Clock hotels with more than one rate). */
+.must-hotel-booking-page-checkout .must-checkout-rates {
+    margin: 0 0 40px;
+    padding: 0;
+    border: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-rates legend {
+    margin-bottom: 16px;
+    padding: 0;
+    font-family: 'PP Neue Montreal', sans-serif;
+    font-size: 24px;
+    color: #141414;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-rate {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 24px;
+    border: 1px solid #d8d4c8;
+    background: #ffffff;
+    color: #141414;
+    font-family: 'PP Neue Montreal', sans-serif;
+    cursor: pointer;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-rate.is-selected {
+    border-color: #141414;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-rate-name {
+    flex: 1;
+    font-size: 18px;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-rate-name small {
+    display: block;
+    margin-top: 2px;
+    font-size: 14px;
+    opacity: 0.65;
+}
+
+.must-hotel-booking-page-checkout .must-checkout-rate-price {
+    font-size: 20px;
+}
+
+/* Room card: lowest price and key facts, so a guest does not have to open the details. */
+.must-booking-room-from-price {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 10px;
+    margin: 12px 0 0;
+    color: inherit;
+    font-family: inherit;
+}
+
+.must-booking-room-from-price strong {
+    font-size: 24px;
+    font-weight: 500;
+}
+
+.must-booking-room-from-price small {
+    font-size: 14px;
+    opacity: 0.65;
+}
+
+.must-booking-room-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    margin: 12px 0 0;
+    padding: 0;
+    list-style: none;
+    font-family: inherit;
+    font-size: 15px;
+    opacity: 0.8;
+}

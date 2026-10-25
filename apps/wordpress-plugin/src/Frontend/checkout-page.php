@@ -4,18 +4,85 @@ namespace MustHotelBooking\Frontend;
 use MustHotelBooking\Core\ManagedPages;
 use MustHotelBooking\Core\MustApiClient;
 
+/**
+ * The rates a Clock-connected room offers for the selected stay (for example Bed & breakfast or a
+ * seasonal rate). Empty for any other hotel, or when the room has only one rate.
+ *
+ * @param array<string, mixed> $selection
+ * @return array<int, array<string, mixed>>
+ */
+function get_selection_rate_offers(array $selection): array
+{
+    if (empty($selection['roomTypeId'])) return [];
+    $response = MustApiClient::get('/public/rate-offers', [
+        'roomTypeId' => (string) $selection['roomTypeId'],
+        'startsOn' => (string) ($selection['checkin'] ?? ''),
+        'endsOn' => (string) ($selection['checkout'] ?? ''),
+        'adults' => (int) ($selection['adults'] ?? $selection['guests'] ?? 1),
+        'children' => (int) ($selection['children'] ?? 0),
+    ]);
+    $offers = \is_array($response['body'] ?? null) ? ($response['body']['offers'] ?? []) : [];
+    if (!$response['ok'] || !\is_array($offers) || \count($offers) < 2) return [];
+    return \array_values($offers);
+}
+
+/**
+ * Price the selected stay again under the rate the guest chose and keep that rate and its signed
+ * quote in the selection. Returns the updated selection, or null when the rate cannot be priced.
+ *
+ * @param array<string, mixed> $selection
+ * @return array<string, mixed>|null
+ */
+function apply_selection_rate_choice(array $selection, string $rateId): ?array
+{
+    foreach (get_selection_rate_offers($selection) as $offer) {
+        if ((string) ($offer['rateId'] ?? '') !== $rateId) continue;
+        $adults = (int) ($selection['adults'] ?? $selection['guests'] ?? 1);
+        $children = (int) ($selection['children'] ?? 0);
+        $quoteInput = [
+            'roomTypeId' => $selection['roomTypeId'], 'ratePlanId' => $selection['ratePlanId'] ?? '',
+            'startsOn' => $selection['checkin'], 'endsOn' => $selection['checkout'],
+            'adults' => $adults, 'children' => $children, 'guestCount' => $adults + $children,
+            'clockRateId' => $rateId,
+        ];
+        if (!empty($selection['roomId'])) $quoteInput['roomId'] = $selection['roomId'];
+        $quote = MustApiClient::post('/quotes', $quoteInput);
+        if (!$quote['ok'] || !\is_array($quote['body'])) return null;
+        $selection['quote'] = $quote['body'];
+        $selection['clockRateId'] = $rateId;
+        $selection['ratePlanName'] = (string) ($offer['label'] ?? $selection['ratePlanName'] ?? '');
+        return $selection;
+    }
+    return null;
+}
+
 /** Handle the guest-information form submission before any output. Stores contact details and advances to the Review & Payment step. */
 function maybe_process_checkout_submission(): string
 {
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') return '';
     $action = isset($_POST['must_checkout_action']) ? \sanitize_key((string) $_POST['must_checkout_action']) : '';
-    if ($action !== 'continue_to_confirmation') return '';
+    if ($action !== 'continue_to_confirmation' && $action !== 'choose_rate') return '';
     if (!isset($_POST['must_checkout_nonce']) || !\wp_verify_nonce((string) \wp_unslash($_POST['must_checkout_nonce']), 'must_checkout_complete')) {
         return \__('Your request could not be verified. Please try again.', 'must-hotel-booking');
     }
     $selection = get_current_booking_selection();
     if ($selection === null) {
         \wp_safe_redirect(get_booking_accommodation_page_url());
+        exit;
+    }
+
+    // A guest who picked another rate gets the stay priced again under it before anything else.
+    $postedRateId = isset($_POST['clock_rate_id']) ? \sanitize_text_field((string) \wp_unslash($_POST['clock_rate_id'])) : '';
+    if ($postedRateId !== '' && $postedRateId !== (string) ($selection['clockRateId'] ?? '')) {
+        $repriced = apply_selection_rate_choice($selection, $postedRateId);
+        if ($repriced === null) {
+            return \__('That rate is no longer available for these dates. Please choose another.', 'must-hotel-booking');
+        }
+        $selection = $repriced;
+        set_current_booking_selection($selection);
+    }
+    if ($action === 'choose_rate') {
+        \wp_safe_redirect(get_checkout_page_url());
         exit;
     }
 
@@ -92,6 +159,7 @@ function get_checkout_page_view_data(): array
         $summary = ['total_price' => $total, 'nights' => $nights, 'fees_total' => 0.0, 'discount_total' => 0.0, 'taxes_total' => 0.0, 'room_subtotal' => $total];
     }
 
+    $rateOffers = $isValid ? get_selection_rate_offers($selection) : [];
     $guestInfo = $isValid && \is_array($selection['guestInfo'] ?? null) ? $selection['guestInfo'] : [];
     $guestForm = [
         'first_name' => (string) ($guestInfo['firstName'] ?? ''), 'last_name' => (string) ($guestInfo['lastName'] ?? ''),
@@ -109,6 +177,8 @@ function get_checkout_page_view_data(): array
         'guests' => $isValid ? $guestCount : 1,
         'adults' => $isValid ? $adults : 1, 'children' => $isValid ? $children : 0,
         'room_count' => 1,
+        'rate_offers' => $rateOffers,
+        'selected_rate_id' => $rateOffers === [] ? '' : (string) ($selection['clockRateId'] ?? $rateOffers[0]['rateId'] ?? ''),
         'country_options' => get_checkout_country_options(), 'phone_country_code_options' => get_checkout_phone_code_options(),
     ];
 }
