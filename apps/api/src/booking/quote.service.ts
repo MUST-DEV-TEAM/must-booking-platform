@@ -106,10 +106,19 @@ export class QuoteService {
     return { ...payload, quoteToken: this.sign(payload) };
   }
 
-  async price(tenantId: string, propertyId: string, input: QuoteInput): Promise<Money> {
+  /**
+   * `skipRules` exists only for the local development demo seed, which prices stays in the past
+   * to build booking history. No request path passes it.
+   */
+  async price(
+    tenantId: string,
+    propertyId: string,
+    input: QuoteInput,
+    options: { skipRules?: boolean } = {},
+  ): Promise<Money> {
     const normalizedInput = this.normalizeOccupancy(input);
     this.validStayInput(normalizedInput);
-    await this.enforceBookingRules(tenantId, propertyId, normalizedInput);
+    if (!options.skipRules) await this.enforceBookingRules(tenantId, propertyId, normalizedInput);
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
     if (connection?.provider === 'CLOCK_PMS') {
       const quote = await this.clockAvailability.getQuote(tenantId, propertyId, {
@@ -123,7 +132,9 @@ export class QuoteService {
       if (!quote.ok) throw new BadRequestException(quote.error.message);
       return quote.value;
     }
-    return (await this.priceWithNightlyRates(tenantId, propertyId, normalizedInput)).total;
+    return (
+      await this.priceWithNightlyRates(tenantId, propertyId, normalizedInput, 'staff', options)
+    ).total;
   }
 
   async priceWithNightlyRates(
@@ -131,10 +142,11 @@ export class QuoteService {
     propertyId: string,
     input: QuoteInput,
     pricingChannel: 'website' | 'staff' = 'staff',
+    options: { skipRules?: boolean } = {},
   ): Promise<PricedQuote> {
     const normalizedInput = this.normalizeOccupancy(input);
     this.validStayInput(normalizedInput);
-    await this.enforceBookingRules(tenantId, propertyId, normalizedInput);
+    if (!options.skipRules) await this.enforceBookingRules(tenantId, propertyId, normalizedInput);
 
     // Clock-connected properties are always quoted live against Clock's own
     // /products endpoint (owner's call — no local rate_plan mirror). Rate is

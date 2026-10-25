@@ -127,12 +127,18 @@ export class LocalDemoSeedService {
       let booking = await this.bookings.findBookingByExternalReference(context, reference);
       if (!booking) {
         const roomType = spec.family ? family : standard;
-        const total = await this.quotes.price(tenantId, propertyId, {
-          roomTypeId: roomType.id,
-          ratePlanId: ratePlan.id,
-          startsOn: dateFromToday(spec.startOffset),
-          endsOn: dateFromToday(spec.endOffset),
-        });
+        const total = await this.quotes.price(
+          tenantId,
+          propertyId,
+          {
+            roomTypeId: roomType.id,
+            ratePlanId: ratePlan.id,
+            startsOn: dateFromToday(spec.startOffset),
+            endsOn: dateFromToday(spec.endOffset),
+          },
+          // The demo includes past stays so reports have history; the booking rules refuse those.
+          { skipRules: true },
+        );
         const result = await this.bookings.createBooking(context, {
           roomTypeId: roomType.id,
           ratePlanId: ratePlan.id,
@@ -151,6 +157,7 @@ export class LocalDemoSeedService {
           payAtHotel: true,
           staffActorId: actorUserId,
           skipQuoteValidation: true,
+          allowPastStay: true,
         });
         if (!result.ok) throw new BadRequestException(result.error.message);
         booking = result.value;

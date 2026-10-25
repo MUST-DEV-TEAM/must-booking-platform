@@ -52,6 +52,8 @@ export type LocalCreateBookingCommand = CreateBookingCommand & {
   quoteSessionId?: string;
   staffActorId?: string;
   skipQuoteValidation?: boolean;
+  /** Only the local development demo seed sets this, to create booking history in the past. */
+  allowPastStay?: boolean;
   returnUrl?: string;
 };
 
@@ -323,13 +325,14 @@ export class LocalPmsProvider implements PmsProvider {
                   'RATE_PLAN_REQUIRED',
                   'A rate plan is required for this room type.',
                 );
-              await enforcePropertyBookingLimits(tx, context, {
-                startsOn: command.startsOn,
-                endsOn: command.endsOn,
-                adults: occupancy.adults,
-                children: occupancy.children,
-                roomCount: 1,
-              });
+              if (!command.allowPastStay)
+                await enforcePropertyBookingLimits(tx, context, {
+                  startsOn: command.startsOn,
+                  endsOn: command.endsOn,
+                  adults: occupancy.adults,
+                  children: occupancy.children,
+                  roomCount: 1,
+                });
               const catalogError = await this.validateCatalog(
                 tx,
                 context,
