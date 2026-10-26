@@ -52,8 +52,24 @@ type Job = {
 const monthOf = (date: Date) => date.toISOString().slice(0, 7);
 const enabled = () => process.env.CLOCK_BACKGROUND_SYNC_ENABLED === 'true';
 /** Durable local projections only. Provider commands and financial effects are never executed here. */
-const errorText = (error: unknown) =>
-  (error instanceof Error ? error.message : String(error)).replace(/\s+/g, ' ').slice(0, 300);
+/**
+ * What may be logged about a failure: the kind of error, its code and the rule that refused a row. Never the
+ * message itself, because a database message can quote the failing row, which holds guest details.
+ */
+const errorText = (error: unknown) => {
+  if (!(error instanceof Error)) return 'unknown error';
+  const code = (error as { code?: unknown }).code;
+  const dbCode = (error as { meta?: { code?: unknown } }).meta?.code;
+  const constraint = /constraint "([A-Za-z0-9_]{1,80})"/.exec(error.message)?.[1];
+  return [
+    error.name,
+    typeof code === 'string' ? `code ${code}` : null,
+    typeof dbCode === 'string' ? `database code ${dbCode}` : null,
+    constraint ? `rule ${constraint}` : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+};
 /** The database refused the row by one of its rules (check constraint 23514), so retrying cannot help. */
 const isUnsavableBooking = (error: unknown) =>
   error instanceof Error && /violates check constraint|\b23514\b/.test(error.message);
