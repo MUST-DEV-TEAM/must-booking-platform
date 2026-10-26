@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { Checkbox } from '../../components/ui/checkbox';
 import { CopyButton } from '../../components/ui/copy-button';
 
 type Status = 'allowed' | 'missing' | 'error' | 'untested' | 'pending';
@@ -19,7 +20,10 @@ type Entry = {
   section: string;
   group: string;
   usedFor?: string;
+  description: string;
+  money: boolean;
   probeable: boolean;
+  confirmable: boolean;
   untestedReason?: string;
   proof?: 'use';
   status: Status;
@@ -38,7 +42,7 @@ const statusBadge = {
   allowed: { variant: 'success', label: 'Allowed' },
   missing: { variant: 'danger', label: 'Missing' },
   error: { variant: 'warning', label: 'Check failed' },
-  untested: { variant: 'muted', label: 'Not tested' },
+  untested: { variant: 'muted', label: 'Cannot be checked' },
   pending: { variant: 'secondary', label: 'Not checked yet' },
 } as const;
 
@@ -48,7 +52,7 @@ const FILTERS = [
   { key: 'unused', label: 'Not used by MUST' },
   { key: 'missing', label: 'Missing' },
   { key: 'allowed', label: 'Allowed' },
-  { key: 'untested', label: 'Not tested' },
+  { key: 'untested', label: 'Cannot be checked' },
 ] as const;
 type Filter = (typeof FILTERS)[number]['key'];
 
@@ -100,6 +104,7 @@ export function ClockPermissionsPanel({
     total: number;
   } | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  const [includeChanges, setIncludeChanges] = useState(false);
 
   // Only a Clock-connected hotel has Clock rights to show.
   const connection = useQuery({
@@ -126,7 +131,9 @@ export function ClockPermissionsPanel({
   });
 
   const runCheck = async (report: ClockPermissionReport) => {
-    const ids = report.entries.filter((entry) => entry.probeable).map((entry) => entry.id);
+    const ids = report.entries
+      .filter((entry) => entry.probeable || (includeChanges && entry.confirmable))
+      .map((entry) => entry.id);
     setFailure(null);
     for (let index = 0; index < ids.length; index += BATCH) {
       const batch = ids.slice(index, index + BATCH);
@@ -135,7 +142,7 @@ export function ClockPermissionsPanel({
         method: 'POST',
         credentials: 'include',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ids: batch }),
+        body: JSON.stringify({ ids: batch, includeChanges }),
       });
       const body = (await response.json().catch(() => null)) as
         (ClockPermissionReport & { message?: unknown }) | null;
@@ -211,6 +218,22 @@ export function ClockPermissionsPanel({
             </Button>
           ))}
         </div>
+        <div className="flex items-start gap-2 rounded-md border border-border p-3">
+          <Checkbox
+            id="clock-include-changes"
+            checked={includeChanges}
+            onCheckedChange={(value) => setIncludeChanges(value === true)}
+            className="mt-0.5"
+          />
+          <label htmlFor="clock-include-changes" className="text-sm">
+            <span className="font-semibold">Also check the rights to change data.</span>{' '}
+            <span className="text-muted-foreground">
+              Each test is aimed at a record that does not exist, so Clock only checks whether we
+              are allowed and answers “not found”. Nothing is created, changed or deleted. Creating
+              a brand-new record cannot be checked this way.
+            </span>
+          </label>
+        </div>
         {supportText ? (
           <div className="flex items-center justify-between gap-2 rounded-md border border-border p-3">
             <p className="m-0 text-sm">
@@ -242,8 +265,10 @@ export function ClockPermissionsPanel({
                         <div className="min-w-0">
                           <p className="m-0 text-sm font-semibold">
                             {entry.name}{' '}
-                            {entry.usedFor ? <Badge variant="info">Used by MUST</Badge> : null}
+                            {entry.usedFor ? <Badge variant="info">Used by MUST</Badge> : null}{' '}
+                            {entry.money ? <Badge variant="warning">Money</Badge> : null}
                           </p>
+                          <p className="m-0 text-sm">{entry.description}</p>
                           <p className="m-0 break-all text-xs text-muted-foreground">
                             {entry.method} {entry.api}
                             {entry.path}

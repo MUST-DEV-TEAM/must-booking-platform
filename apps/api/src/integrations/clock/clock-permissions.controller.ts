@@ -30,10 +30,15 @@ export class ClockPermissionsController {
   @Roles(Role.TenantOwner, Role.TenantAdmin)
   @RequiresCapability('settings.manage')
   @RequiresVerifiedEmail()
-  check(@Req() request: TenantRequest, @Body() body: { ids?: unknown }) {
+  check(@Req() request: TenantRequest, @Body() body: { ids?: unknown; includeChanges?: unknown }) {
     const ids = Array.isArray(body?.ids)
       ? body.ids.filter((id): id is string => typeof id === 'string')
       : [];
-    return this.permissions.check(request.tenantContext, request.tenantContext.userId ?? null, ids);
+    return this.permissions.check(
+      request.tenantContext,
+      request.tenantContext.userId ?? null,
+      ids,
+      body?.includeChanges === true,
+    );
   }
 }

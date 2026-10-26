@@ -3,6 +3,8 @@ import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
 import { IntegrationConnectionsService } from '../integration-connections.service';
 import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
 import { CLOCK_API_CATALOG, type ClockCatalogEntry } from './clock-api-catalog';
+import { describeClockRequest, touchesMoney } from './clock-api-descriptions';
+import { CLOCK_API_SAFETY } from './clock-api-safety';
 import { parseClockCredentials } from './clock-credentials';
 import { extractMissingRight } from './clock-error-classification';
 import {
@@ -32,8 +34,17 @@ export interface ClockPermissionEntry {
   group: string;
   /** What MUST uses it for, when it does. */
   usedFor?: string;
+  /** One plain sentence about what the request lets MUST do. */
+  description: string;
+  /** Moves money or fiscal data. */
+  money: boolean;
   /** Whether the check can read it safely. */
   probeable: boolean;
+  /**
+   * A request that changes data and was not observed to be harmless in the sandbox. It is sent only
+   * when the owner chooses to include change rights, and only aimed at a record that cannot exist.
+   */
+  confirmable: boolean;
   untestedReason?: string;
   /** 'use' when the right is proven by what this connection has already done, not by a test. */
   proof?: 'use';
@@ -81,13 +92,6 @@ const USED_BY_MUST: Record<string, string> = {
 };
 
 /** Lists that would return far more than a status check needs. */
-/**
- * The only requests that change data which the check may send, and only as an update aimed at a record
- * that cannot exist. Creating, deleting, payments, charges, folios and anything fiscal are never sent.
- */
-const WRITE_PROBE_ALLOWLIST =
-  /^PUT pms_api\/(bookings|guests|rooms|room_types|events|blocks|meeting_room_bookings|door_keys|activities)\/:id$/;
-
 const LARGE_LISTS = new Set([
   'GET base_api/folios',
   'GET base_api/2020-08-05/charge_logs',
@@ -163,10 +167,11 @@ export class ClockPermissionsService {
     scope: { tenantId: string; propertyId: string },
     userId: string | null,
     ids: string[],
+    includeChanges = false,
   ): Promise<ClockPermissionReport> {
     const wanted = new Set(ids);
     const entries = decorate(CLOCK_API_CATALOG).filter(
-      (entry) => wanted.has(entry.id) && entry.probeable,
+      (entry) => wanted.has(entry.id) && (entry.probeable || (entry.confirmable && includeChanges)),
     );
     if (entries.length === 0) throw new BadRequestException('Nothing to check.');
     if (entries.length > MAX_PER_CHECK)
@@ -241,6 +246,7 @@ export class ClockPermissionsService {
           // A request that changes data is aimed at a record that cannot exist (id 0) with an empty
           // body, so Clock answers after checking the right and never changes anything.
           ...(entry.method === 'GET' ? {} : { body: {} }),
+          ...(entry.method === 'GET' && LARGE_LISTS.has(entry.id) ? { query: { id: '0' } } : {}),
           timeoutMs: 15_000,
         });
         const status = response.status;
@@ -297,7 +303,7 @@ function build(
   const byId = new Map(results.filter((result) => result.id).map((result) => [result.id, result]));
   const entries = decorate(CLOCK_API_CATALOG).map((entry): ClockPermissionEntry => {
     const stored = byId.get(entry.id);
-    if (!entry.probeable) {
+    if (!entry.probeable && !(entry.confirmable && stored)) {
       const proof = evidence[entry.id];
       return proof
         ? { ...entry, status: 'allowed', proof: 'use', message: proof }
@@ -324,16 +330,26 @@ function decorate(catalog: ClockCatalogEntry[]): ClockPermissionEntry[] {
   return catalog.map((entry) => {
     const id = `${entry.method} ${entry.api}${entry.path}`;
     const readable = entry.api === 'pms_api' || entry.api === 'base_api';
-    // Reads are tested directly. Only reviewed updates are aimed at a record that cannot exist.
+    // A read is tested directly. Anything else (and the very large lists) is sent only when the
+    // sandbox calibration showed that Clock rejects it for a record that cannot exist.
+    const verdict = CLOCK_API_SAFETY[id]?.verdict;
+    const isRead = entry.method === 'GET' && !LARGE_LISTS.has(id);
+    const aimsAtRecord = entry.path.includes(':id');
+    const confirmable =
+      readable && !isRead && verdict === 'unverified' && (aimsAtRecord || entry.method === 'GET');
     const untestedReason = !readable
-      ? 'A different Clock service that MUST does not use.'
-      : entry.method !== 'GET' && !WRITE_PROBE_ALLOWLIST.test(id)
-        ? entry.method === 'POST' && !entry.path.includes(':id')
-          ? 'Creating a record cannot be tested without creating one.'
-          : 'Never sent by the check: it would create, change or delete data, or touch payments.'
-        : LARGE_LISTS.has(id)
-          ? 'Returns a very large list, so it is not read.'
-          : undefined;
+      ? 'Belongs to another Clock service that is not part of this connection.'
+      : isRead || verdict === 'safe'
+        ? undefined
+        : confirmable
+          ? entry.method === 'GET'
+            ? 'A very large list: checked only if you include extra tests, asking for a record that cannot exist.'
+            : 'Checked only if you include change rights: the test is aimed at a record that cannot exist.'
+          : verdict === 'unverified'
+            ? 'Clock gives no way to check creating a record without creating one.'
+            : verdict === 'unsafe'
+              ? 'Clock gives no way to check this without actually doing it.'
+              : 'Not verified yet.';
     return {
       id,
       api: entry.api,
@@ -343,7 +359,10 @@ function decorate(catalog: ClockCatalogEntry[]): ClockPermissionEntry[] {
       section: entry.section,
       group: groupOf(entry),
       ...(USED_BY_MUST[id] ? { usedFor: USED_BY_MUST[id] } : {}),
+      description: describeClockRequest(entry),
+      money: touchesMoney(entry),
       probeable: !untestedReason,
+      confirmable,
       ...(untestedReason ? { untestedReason } : {}),
       expectedRight: expectedRight(entry),
       status: 'pending',

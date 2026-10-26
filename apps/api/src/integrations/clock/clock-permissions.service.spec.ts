@@ -73,7 +73,9 @@ describe('ClockPermissionsService', () => {
     });
     const create = report.entries.find((entry) => entry.id === 'POST pms_api/bookings/');
     expect(create).toMatchObject({ probeable: false, status: 'untested' });
-    expect(create?.untestedReason).toContain('without creating one');
+    expect(create?.untestedReason).toContain('without actually doing it');
+    expect(create?.description).toBe('Create a new reservation.');
+    expect(report.entries.every((entry) => entry.description.length > 5)).toBe(true);
   });
 
   it('marks a request allowed or missing and names the missing right', async () => {
@@ -143,23 +145,36 @@ describe('ClockPermissionsService', () => {
     );
   });
 
-  it('only tests reviewed updates, never payments, deletes or large lists, and treats a success as a failure', async () => {
-    const { service, client } = make(() => ({ status: 200, body: { id: 1 } }));
+  it('sends a change test only when it was proven harmless or the owner includes change rights, and never a create', async () => {
+    const { service, client } = make(() => ({ status: 404, body: { error: 'not found' } }));
 
-    for (const id of [
-      'POST base_api/folios/:id/credit_items',
-      'DELETE base_api/folios/:id',
-      'POST base_api/folios/:id/close',
-      'GET base_api/folios',
-    ])
-      await expect(service.check(scope, null, [id])).rejects.toThrow('Nothing to check');
+    // Never: creating without a record to aim at, and requests the sandbox showed to be unsafe.
+    for (const id of ['POST pms_api/rooms', 'POST base_api/webhook_subscription'])
+      await expect(service.check(scope, null, [id], true)).rejects.toThrow('Nothing to check');
+    // Not proven harmless yet, so only when the owner chooses to include change rights.
+    await expect(service.check(scope, null, ['DELETE base_api/folios/:id'])).rejects.toThrow(
+      'Nothing to check',
+    );
     expect(client.request).not.toHaveBeenCalled();
 
+    const included = await service.check(scope, null, ['DELETE base_api/folios/:id'], true);
+    expect(client.request.mock.calls[0]?.[1]).toMatchObject({
+      method: 'DELETE',
+      path: '/folios/0',
+    });
+    expect(
+      included.entries.find((entry) => entry.id === 'DELETE base_api/folios/:id')?.status,
+    ).toBe('allowed');
+  });
+
+  it('treats a success on a change test as a failure, sends it once and never repeats it', async () => {
+    const { service, client } = make(() => ({ status: 200, body: { id: 1 } }));
+
     const report = await service.check(scope, null, ['PUT pms_api/bookings/:id']);
+
     const result = report.entries.find((entry) => entry.id === 'PUT pms_api/bookings/:id');
     expect(result?.status).toBe('error');
     expect(result?.message).toContain('UNEXPECTED SUCCESS');
-    // A write test is sent once, never repeated.
     expect(client.request).toHaveBeenCalledTimes(1);
   });
 
