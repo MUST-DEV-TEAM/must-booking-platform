@@ -81,6 +81,13 @@ const USED_BY_MUST: Record<string, string> = {
 };
 
 /** Lists that would return far more than a status check needs. */
+/**
+ * The only requests that change data which the check may send, and only as an update aimed at a record
+ * that cannot exist. Creating, deleting, payments, charges, folios and anything fiscal are never sent.
+ */
+const WRITE_PROBE_ALLOWLIST =
+  /^PUT pms_api\/(bookings|guests|rooms|room_types|events|blocks|meeting_room_bookings|door_keys|activities)\/:id$/;
+
 const LARGE_LISTS = new Set([
   'GET base_api/folios',
   'GET base_api/2020-08-05/charge_logs',
@@ -215,7 +222,9 @@ export class ClockPermissionsService {
     const path = entry.path.replace(/:id/g, '0').replace(/:date/g, '2030-01-01');
     let lastMessage = '';
     // A busy or briefly unavailable Clock is retried before giving up, so a result is a real answer.
-    for (let attempt = 0; attempt < 3; attempt++) {
+    // A request that changes data is sent once and never repeated.
+    const attempts = entry.method === 'GET' ? 3 : 1;
+    for (let attempt = 0; attempt < attempts; attempt++) {
       if (attempt > 0) await sleep(600 * attempt);
       for (let wait = 0; ; wait++) {
         const limit = await this.rateLimiter.consume(credentials.apiUser);
@@ -232,7 +241,6 @@ export class ClockPermissionsService {
           // A request that changes data is aimed at a record that cannot exist (id 0) with an empty
           // body, so Clock answers after checking the right and never changes anything.
           ...(entry.method === 'GET' ? {} : { body: {} }),
-          ...(entry.method === 'GET' && LARGE_LISTS.has(entry.id) ? { query: { id: '0' } } : {}),
           timeoutMs: 15_000,
         });
         const status = response.status;
@@ -254,8 +262,17 @@ export class ClockPermissionsService {
             message: 'Clock rejected the credentials.',
             checkedAt,
           };
-        if (status >= 200 && status < 300 && entry.method !== 'GET')
-          this.logger.warn(`Clock accepted a test request that should not succeed: ${entry.id}`);
+        if (status >= 200 && status < 300 && entry.method !== 'GET') {
+          // The test record cannot exist, so a success means the request did something unexpected.
+          this.logger.error(`Clock accepted a test request that should not succeed: ${entry.id}`);
+          return {
+            id: entry.id,
+            status: 'error',
+            message:
+              'UNEXPECTED SUCCESS: Clock accepted a test request. Do not run write tests again; tell MUST support.',
+            checkedAt,
+          };
+        }
         if (
           (status >= 200 && status < 300) ||
           [400, 404, 405, 422].includes(status) ||
@@ -307,14 +324,16 @@ function decorate(catalog: ClockCatalogEntry[]): ClockPermissionEntry[] {
   return catalog.map((entry) => {
     const id = `${entry.method} ${entry.api}${entry.path}`;
     const readable = entry.api === 'pms_api' || entry.api === 'base_api';
-    // A request that changes data can only be tested by aiming it at a record that cannot exist.
+    // Reads are tested directly. Only reviewed updates are aimed at a record that cannot exist.
     const untestedReason = !readable
       ? 'A different Clock service that MUST does not use.'
-      : entry.method !== 'GET' && !entry.path.includes(':id')
-        ? entry.method === 'POST'
+      : entry.method !== 'GET' && !WRITE_PROBE_ALLOWLIST.test(id)
+        ? entry.method === 'POST' && !entry.path.includes(':id')
           ? 'Creating a record cannot be tested without creating one.'
-          : 'Cannot be tested without changing a record.'
-        : undefined;
+          : 'Never sent by the check: it would create, change or delete data, or touch payments.'
+        : LARGE_LISTS.has(id)
+          ? 'Returns a very large list, so it is not read.'
+          : undefined;
     return {
       id,
       api: entry.api,

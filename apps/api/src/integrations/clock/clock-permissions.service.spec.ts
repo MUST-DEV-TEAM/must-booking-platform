@@ -143,6 +143,26 @@ describe('ClockPermissionsService', () => {
     );
   });
 
+  it('only tests reviewed updates, never payments, deletes or large lists, and treats a success as a failure', async () => {
+    const { service, client } = make(() => ({ status: 200, body: { id: 1 } }));
+
+    for (const id of [
+      'POST base_api/folios/:id/credit_items',
+      'DELETE base_api/folios/:id',
+      'POST base_api/folios/:id/close',
+      'GET base_api/folios',
+    ])
+      await expect(service.check(scope, null, [id])).rejects.toThrow('Nothing to check');
+    expect(client.request).not.toHaveBeenCalled();
+
+    const report = await service.check(scope, null, ['PUT pms_api/bookings/:id']);
+    const result = report.entries.find((entry) => entry.id === 'PUT pms_api/bookings/:id');
+    expect(result?.status).toBe('error');
+    expect(result?.message).toContain('UNEXPECTED SUCCESS');
+    // A write test is sent once, never repeated.
+    expect(client.request).toHaveBeenCalledTimes(1);
+  });
+
   it('shows a right as allowed when this connection has already used it', async () => {
     const { service } = make(() => ({ status: 200, body: [] }), { created: 3, events: 1 });
 
