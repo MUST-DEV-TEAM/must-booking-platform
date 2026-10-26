@@ -196,6 +196,7 @@ function financial(
         payAtHotel: b.paymentMethod === 'PAY_AT_HOTEL',
         // A stay that has not started yet is not owed yet: it is expected on arrival (pay at the hotel).
         started: b.startsOn <= f.context.today,
+        noGuest: !b.guestName,
       };
     });
     const dueNow = balances.filter((b) => b.started);
@@ -217,6 +218,10 @@ function financial(
       refundToCollectionRatio: moneyPercent(c?.refunded ?? '0.00', c?.collected ?? '0.00'),
       outstanding: sum(dueNow.map((b) => b.amount)),
       expectedOnArrival: sum(balances.filter((b) => !b.started).map((b) => b.amount)),
+      // Stays with no guest name are often room blocks or test entries made in Clock; shown so they cannot mislead.
+      expectedWithoutGuest: sum(
+        balances.filter((b) => !b.started && b.noGuest).map((b) => b.amount),
+      ),
       ageing: Object.fromEntries(
         ['0-7', '8-30', '31+'].map((bucket) => [
           bucket,
