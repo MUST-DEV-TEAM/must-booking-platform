@@ -29,6 +29,19 @@ import {
 import { Switch } from '../../components/ui/switch';
 import { inventoryRequest } from './inventory-api';
 
+export type PromoStatus = 'ACTIVE' | 'SCHEDULED' | 'EXPIRED' | 'USED_UP' | 'OFF';
+
+const statusBadge: Record<
+  PromoStatus,
+  { label: string; variant: 'success' | 'info' | 'muted' | 'warning' | 'secondary' }
+> = {
+  ACTIVE: { label: 'Active', variant: 'success' },
+  SCHEDULED: { label: 'Not open yet', variant: 'info' },
+  EXPIRED: { label: 'Expired', variant: 'muted' },
+  USED_UP: { label: 'Used up', variant: 'warning' },
+  OFF: { label: 'Off', variant: 'secondary' },
+};
+
 export type PromoCode = {
   id: string;
   code: string;
@@ -45,6 +58,7 @@ export type PromoCode = {
   maxRedemptions: number | null;
   redemptions: number;
   active: boolean;
+  status?: PromoStatus;
 };
 type Listing = { codes: PromoCode[]; clockCodes: string[] };
 type RoomType = { id: string; name: string };
@@ -226,8 +240,12 @@ export function PromoCodesPanel({
                   <div className="min-w-0">
                     <p className="m-0 text-sm font-semibold">
                       {code.code}{' '}
-                      <Badge variant={code.active ? 'success' : 'muted'}>
-                        {code.active ? 'On' : 'Off'}
+                      <Badge
+                        variant={
+                          statusBadge[code.status ?? (code.active ? 'ACTIVE' : 'OFF')].variant
+                        }
+                      >
+                        {statusBadge[code.status ?? (code.active ? 'ACTIVE' : 'OFF')].label}
                       </Badge>
                     </p>
                     <p className="m-0 text-sm text-muted-foreground">{promoSummary(code, types)}</p>

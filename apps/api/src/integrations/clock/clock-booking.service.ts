@@ -161,7 +161,7 @@ export function promoNote(
     promo.promoOriginal
       ? `Original price ${promo.promoOriginal}${unit}; the guest pays ${promo.paidTotal}${unit} through MUST.`
       : `The guest pays ${promo.paidTotal}${unit} through MUST.`,
-    'The rate in Clock is the price before the code.',
+    'Clock shows the rate before the code; the discount is posted on the bill as a credit "Promo code (MUST)".',
   ].join(' ');
 }
 
@@ -805,6 +805,16 @@ export class ClockBookingService {
       targetId: bookingId,
       details: { externalBookingId: String(response.value.id) },
     });
+    if (guest.promoCode && guest.promoDiscount && Number(guest.promoDiscount) > 0)
+      await this.postPromoDiscount(
+        tx,
+        context,
+        connection.value,
+        bookingId,
+        String(response.value.id),
+        { amount: guest.promoDiscount, currency: row.currency ?? 'EUR' },
+        guest.promoCode,
+      );
     const updated = await this.bookingById(tx, context, bookingId);
     if (updated && this.toBooking(updated)) return { ok: true, value: this.toBooking(updated)! };
     await this.recordPostCommitFailure(tx, context, bookingId, {
@@ -1309,6 +1319,77 @@ export class ClockBookingService {
     });
   }
 
+  /**
+   * A MUST promo cannot lower the price inside Clock, so the discount is posted on the reservation's
+   * main bill as a labelled credit. The bill then shows what the guest really owes (or has paid)
+   * instead of a balance that is too high by the discount. The reference makes it safe to repeat. A
+   * failure does not undo the reservation; it asks a person to post the credit by hand.
+   */
+  private async postPromoDiscount(
+    tx: TenantTransaction,
+    context: PmsProviderContext,
+    credentials: ClockConnectionCredentials,
+    bookingId: string,
+    externalBookingId: string,
+    discount: { amount: string; currency: string },
+    code: string,
+  ): Promise<void> {
+    const folio = await this.withRetry(() =>
+      this.fetch<{ id?: unknown }>(credentials, {
+        method: 'GET',
+        path: `/bookings/${externalBookingId}/folios/default`,
+      }),
+    );
+    const folioId = folio.ok && typeof folio.value?.id === 'number' ? folio.value.id : null;
+    const posted =
+      folioId === null
+        ? null
+        : await this.withRetry(() =>
+            this.postCreditItem(
+              credentials,
+              folioId,
+              discount,
+              'MUST promo discount',
+              `promo:${bookingId}`,
+              'payment',
+              'cash',
+              `Promo code ${code} (MUST)`,
+            ),
+          );
+    if (posted?.ok) {
+      await this.audit.recordInTransaction(tx, {
+        tenantId: context.tenantId,
+        propertyId: context.propertyId,
+        actorUserId: null,
+        action: 'booking.clock_promo_discount_posted',
+        targetType: 'booking',
+        targetId: bookingId,
+        details: { externalBookingId, folioId, code, discount },
+      });
+      return;
+    }
+    const message = !folio.ok
+      ? folio.error.message
+      : posted
+        ? posted.error.message
+        : 'The reservation has no default bill.';
+    await this.manualReview.recordInTransaction(tx, {
+      tenantId: context.tenantId,
+      propertyId: context.propertyId,
+      category: 'PAYMENT_BOOKING_MISMATCH',
+      referenceType: 'booking',
+      referenceId: bookingId,
+      message: `The promo discount could not be posted on the Clock bill: ${message}`,
+      context: { externalBookingId, code, discount },
+    });
+    await this.notifications.recordInTransaction(tx, {
+      tenantId: context.tenantId,
+      propertyId: context.propertyId,
+      type: 'BOOKING_NEEDS_ATTENTION',
+      payload: { bookingId, reason: 'clock_promo_discount_failed' },
+    });
+  }
+
   /** Posts the credit item, or reconciles against an existing one by our own
    * `reference` if the POST itself failed ambiguously (timeout/network/5xx) —
    * the credit_item endpoint has no idempotency key of its own. */
@@ -1320,6 +1401,7 @@ export class ClockBookingService {
     reference: string,
     kind: 'payment' | 'refund' = 'payment',
     paymentType: 'cash' | 'card' | 'bank' | 'on-line' = 'on-line',
+    text?: string,
   ): Promise<ClockOutcome<ClockCreditItemResource>> {
     const existing = await this.creditItemByReference(credentials, folioId, reference);
     if (existing.ok && existing.value) return { ok: true, value: existing.value };
@@ -1332,7 +1414,7 @@ export class ClockBookingService {
         credit_item: {
           payment_type: paymentType,
           payment_sub_type: paymentSubType,
-          text: `Website booking ${kind} via ${paymentSubType}`,
+          text: text ?? `Website booking ${kind} via ${paymentSubType}`,
           value: amount.amount,
           currency: amount.currency.toUpperCase(),
           reference,

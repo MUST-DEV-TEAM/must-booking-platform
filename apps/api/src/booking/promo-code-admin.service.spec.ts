@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parsePromoCodeInput } from './promo-code-admin.service';
+import { parsePromoCodeInput, promoStatus } from './promo-code-admin.service';
 
 const good = { code: 'summer10', kind: 'PERCENT', value: 10 };
 
@@ -43,5 +43,33 @@ describe('parsePromoCodeInput', () => {
     ['a minimum of zero nights', { ...good, minNights: 0 }],
   ])('refuses %s', (_name, body) => {
     expect(() => parsePromoCodeInput(body, 'EUR')).toThrow();
+  });
+});
+
+describe('promoStatus', () => {
+  const code = {
+    active: true,
+    maxRedemptions: null as number | null,
+    redemptions: 0,
+    bookFrom: null as string | null,
+    bookUntil: null as string | null,
+    stayUntil: null as string | null,
+  };
+  const today = '2027-03-01';
+
+  it.each([
+    ['a plain code is active', {}, 'ACTIVE'],
+    [
+      'a switched-off code is off, whatever else is true',
+      { active: false, maxRedemptions: 1, redemptions: 1 },
+      'OFF',
+    ],
+    ['a code with all its uses taken is used up', { maxRedemptions: 5, redemptions: 5 }, 'USED_UP'],
+    ['a code past its last booking day is expired', { bookUntil: '2027-02-28' }, 'EXPIRED'],
+    ['a code whose stay window is over is expired', { stayUntil: '2027-02-01' }, 'EXPIRED'],
+    ['a code that opens later is not open yet', { bookFrom: '2027-04-01' }, 'SCHEDULED'],
+    ['a code with uses left is active', { maxRedemptions: 5, redemptions: 4 }, 'ACTIVE'],
+  ])('%s', (_name, extra, expected) => {
+    expect(promoStatus({ ...code, ...extra }, today)).toBe(expected);
   });
 });

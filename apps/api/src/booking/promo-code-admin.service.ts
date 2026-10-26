@@ -11,6 +11,8 @@ import { PropertyCurrencyService } from '../tenancy/property-currency.service';
 import { TenantDatabaseService } from '../tenancy/tenant-database.service';
 import { normalizePromoCode } from './promo-code.service';
 
+export type PromoStatus = 'ACTIVE' | 'SCHEDULED' | 'EXPIRED' | 'USED_UP' | 'OFF';
+
 export type PromoCodeView = {
   id: string;
   code: string;
@@ -27,6 +29,7 @@ export type PromoCodeView = {
   maxRedemptions: number | null;
   redemptions: number;
   active: boolean;
+  status: PromoStatus;
 };
 
 export type PromoCodeInput = {
@@ -44,6 +47,25 @@ export type PromoCodeInput = {
   maxRedemptions: number | null;
   active: boolean;
 };
+
+/**
+ * Where a code stands today: switched off, used up, past its last booking or stay day, not open for
+ * booking yet, or active. A code that can no longer be used stops showing as on.
+ */
+export function promoStatus(
+  code: Pick<
+    PromoCodeView,
+    'active' | 'maxRedemptions' | 'redemptions' | 'bookFrom' | 'bookUntil' | 'stayUntil'
+  >,
+  today = new Date().toISOString().slice(0, 10),
+): PromoStatus {
+  if (!code.active) return 'OFF';
+  if (code.maxRedemptions !== null && code.redemptions >= code.maxRedemptions) return 'USED_UP';
+  if ((code.bookUntil && code.bookUntil < today) || (code.stayUntil && code.stayUntil < today))
+    return 'EXPIRED';
+  if (code.bookFrom && code.bookFrom > today) return 'SCHEDULED';
+  return 'ACTIVE';
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -119,7 +141,7 @@ export class PromoCodeAdminService {
     const codes = await this.db.withTenantTransaction(
       { tenantId, propertyId },
       (tx) =>
-        tx.$queryRaw<PromoCodeView[]>`
+        tx.$queryRaw<Array<Omit<PromoCodeView, 'status'>>>`
         SELECT id, code, kind, value::text AS value, currency, description,
                book_from::text AS "bookFrom", book_until::text AS "bookUntil",
                stay_from::text AS "stayFrom", stay_until::text AS "stayUntil",
@@ -133,7 +155,10 @@ export class PromoCodeAdminService {
     const clockCodes = await this.clock
       .clockBonusCodes(tenantId, propertyId)
       .catch((): string[] => []);
-    return { codes, clockCodes };
+    return {
+      codes: codes.map((code) => ({ ...code, status: promoStatus(code) })),
+      clockCodes,
+    };
   }
 
   async create(tenantId: string, propertyId: string, body: unknown) {
