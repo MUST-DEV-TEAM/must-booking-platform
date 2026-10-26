@@ -12,7 +12,7 @@ import { ExchangeRatesService } from './exchange-rates.service';
 import { PublicRateLimitGuard } from './public-rate-limit.guard';
 import { PUBLIC_READ_RATE_LIMIT, PublicRateLimit } from './public-rate-limit.decorator';
 import { PublicTenantScoped } from './tenant-context.decorator';
-import { TenantDatabaseService } from './tenant-database.service';
+import { PropertyCurrencyService } from './property-currency.service';
 
 type TenantPropertyRequest = { tenantContext: { tenantId: string; propertyId: string } };
 
@@ -20,7 +20,7 @@ type TenantPropertyRequest = { tenantContext: { tenantId: string; propertyId: st
 export class PublicExchangeRatesController {
   constructor(
     @Inject(ExchangeRatesService) private readonly rates: ExchangeRatesService,
-    @Inject(TenantDatabaseService) private readonly db: TenantDatabaseService,
+    @Inject(PropertyCurrencyService) private readonly currencies: PropertyCurrencyService,
   ) {}
 
   /**
@@ -42,16 +42,10 @@ export class PublicExchangeRatesController {
       throw new BadRequestException(
         'currencies must be a comma-separated list of 1 to 30 currency codes.',
       );
-    const rows = await this.db.withTenantTransaction(
-      request.tenantContext,
-      (tx) =>
-        tx.$queryRaw<Array<{ currency: string | null }>>`
-        SELECT default_currency AS currency FROM properties
-        WHERE tenant_id = ${request.tenantContext.tenantId}::uuid
-          AND id = ${request.tenantContext.propertyId}::uuid
-      `,
+    const { currency: base } = await this.currencies.resolve(
+      request.tenantContext.tenantId,
+      request.tenantContext.propertyId,
     );
-    const base = rows[0]?.currency ?? 'EUR';
     const result = await this.rates.ratesFor(base, currencies);
     return result
       ? { ...result, approximate: true }

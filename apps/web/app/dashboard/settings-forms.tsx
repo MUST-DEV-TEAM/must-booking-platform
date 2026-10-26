@@ -9,6 +9,7 @@ import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { FormField } from '../../components/ui/form-field';
 import { FormSection } from '../../components/ui/form-section';
 import { Input, Textarea } from '../../components/ui/input';
+import { HotelCurrencyNote } from './hotel-currency-note';
 import { SaveBar } from '../../components/ui/save-bar';
 import {
   Select,
@@ -115,6 +116,7 @@ export function GeneralSettings({ property, saving, onSave, canWrite = false }: 
         </FormField>
       </FormSection>
       {rich.fields}
+      <HotelCurrencyNote propertyId={property.id} refreshKey={property.defaultCurrency ?? ''} />
       <SaveBar
         dirty={canWrite && dirty}
         saving={saving}

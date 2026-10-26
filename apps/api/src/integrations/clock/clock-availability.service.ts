@@ -901,6 +901,26 @@ export class ClockAvailabilityService {
    * to the booking engine). Ordered by the staff's rate ranking first, then price. An empty list
    * means nothing is bookable for those dates; the caller decides how to say so.
    */
+  /**
+   * The currency the hotel sells in at Clock: the most common currency among the rates it publishes for
+   * online booking. Null when the hotel is not on Clock or Clock cannot be read.
+   */
+  async publishedRateCurrency(tenantId: string, propertyId: string): Promise<string | null> {
+    const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
+    if (!connection || connection.provider !== 'CLOCK_PMS') return null;
+    const parsed = parseClockCredentials(connection.credentials);
+    if (!parsed.ok) return null;
+    const catalogue = await this.rateCatalogue(parsed.value, false);
+    if (!catalogue.ok) return null;
+    const counts = new Map<string, number>();
+    for (const rate of catalogue.value) {
+      const currency = typeof rate.currency === 'string' ? rate.currency.toUpperCase() : '';
+      if (rate.wbe && /^[A-Z]{3}$/.test(currency))
+        counts.set(currency, (counts.get(currency) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  }
+
   async listOffersForStay(
     tenantId: string,
     propertyId: string,

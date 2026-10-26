@@ -284,16 +284,23 @@ export class ClockCatalogSyncService {
       // carrier) even though staff never picks one — auto-create a
       // shadow rate plan for this room type, never surfaced in the
       // Rate Plan UI (filtered out by clockShadowRoomTypeId elsewhere).
-      // Currency defaults to EUR — a real gap for non-EUR properties,
-      // revisit if/when this needs to be configurable.
+      // The plan takes the hotel's own currency setting; euro only when none is set. Prices of a Clock
+      // hotel always come from Clock in the currency of the rate that is booked.
+      const currencyRows = await tx.$queryRawUnsafe<Array<{ currency: string | null }>>(
+        `SELECT default_currency AS currency FROM properties WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+        tenantId,
+        propertyId,
+      );
+      const planCurrency = currencyRows[0]?.currency?.toUpperCase() || 'EUR';
       try {
         await tx.$executeRawUnsafe(
           `INSERT INTO rate_plans (id, tenant_id, property_id, name, currency, is_active, clock_shadow_room_type_id)
-           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, 'EUR', true, $5::uuid)`,
+           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, true, $6::uuid)`,
           randomUUID(),
           tenantId,
           propertyId,
           `Clock: ${mapping.externalName}`,
+          planCurrency,
           localId,
         );
       } catch (error: unknown) {

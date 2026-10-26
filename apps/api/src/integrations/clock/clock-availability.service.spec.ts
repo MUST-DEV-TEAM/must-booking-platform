@@ -1884,6 +1884,32 @@ describe('ClockAvailabilityService rate catalogue', () => {
   });
 });
 
+describe('ClockAvailabilityService.publishedRateCurrency', () => {
+  it('returns the most common currency of the rates published for online booking', async () => {
+    const request = vi.fn().mockResolvedValue({
+      status: 200,
+      body: [
+        { id: 1, bookable_id: 1, bookable_type: 'Pms::RoomType', wbe: true, currency: 'EUR' },
+        { id: 2, bookable_id: 1, bookable_type: 'Pms::RoomType', wbe: true, currency: 'EUR' },
+        { id: 3, bookable_id: 1, bookable_type: 'Pms::RoomType', wbe: true, currency: 'ALL' },
+        // Not published online, so it does not count.
+        { id: 4, bookable_id: 1, bookable_type: 'Pms::RoomType', wbe: false, currency: 'ALL' },
+        { id: 5, bookable_id: 1, bookable_type: 'Pms::RoomType', wbe: false, currency: 'ALL' },
+      ],
+    });
+    const { service } = makeService({ client: { request } });
+
+    await expect(service.publishedRateCurrency('t1', 'p1')).resolves.toBe('EUR');
+  });
+
+  it('is null when Clock cannot be read', async () => {
+    const request = vi.fn().mockResolvedValue({ status: 503, body: 'down' });
+    const { service } = makeService({ client: { request } });
+
+    await expect(service.publishedRateCurrency('t1', 'p1')).resolves.toBeNull();
+  });
+});
+
 describe('ClockAvailabilityService chosen rate', () => {
   const stay = {
     tenantId: 't1',
