@@ -2,67 +2,91 @@ import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
 
 import { IntegrationConnectionsService } from '../integration-connections.service';
 import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
+import { CLOCK_API_CATALOG, type ClockCatalogEntry } from './clock-api-catalog';
 import { parseClockCredentials } from './clock-credentials';
 import { extractMissingRight } from './clock-error-classification';
 import {
   ClockHttpClient,
   ClockHttpError,
-  type ClockApiFamily,
   type ClockConnectionCredentials,
 } from './clock-http-client';
 import { ClockRateLimiterService } from './clock-rate-limiter';
 
-export type ClockPermissionStatus = 'allowed' | 'missing' | 'unknown';
+/**
+ * allowed   Clock accepted the request (or only complained about its content): the right is there.
+ * missing   Clock answered "The User doesn't have <right>".
+ * error     Clock could not be reached or rejected the credentials, so nothing is known yet.
+ * untested  Not read on purpose (it would change data, or is a very large list).
+ * pending   Not checked yet.
+ */
+export type ClockPermissionStatus = 'allowed' | 'missing' | 'error' | 'untested' | 'pending';
 
-export interface ClockPermissionResult {
-  endpoint: string;
-  label: string;
-  usedFor: string;
+export interface ClockPermissionEntry {
+  id: string;
+  api: string;
+  method: string;
+  path: string;
+  /** What Clock's documentation calls the request. */
+  name: string;
+  section: string;
+  group: string;
+  /** What MUST uses it for, when it does. */
+  usedFor?: string;
+  /** Whether the check can read it safely. */
+  probeable: boolean;
+  untestedReason?: string;
   status: ClockPermissionStatus;
-  /** The Clock right the API user lacks, when Clock names it. */
+  /** The right Clock named in its refusal. */
   right?: string;
+  /** The right by Clock's usual naming pattern; a guess, used only to help when asking Clock. */
+  expectedRight?: string;
   message?: string;
+  checkedAt?: string;
 }
 
 export interface ClockPermissionReport {
   checkedAt: string | null;
-  results: ClockPermissionResult[];
+  entries: ClockPermissionEntry[];
   missingRights: string[];
 }
 
-/** Read-only requests only: nothing here creates, changes or cancels anything in Clock. */
-const PROBES: Array<{ api: ClockApiFamily; path: string; label: string; usedFor: string }> = [
-  { api: 'pms_api', path: '/room_types', label: 'Room types', usedFor: 'Importing room types' },
-  { api: 'pms_api', path: '/rooms', label: 'Rooms', usedFor: 'Importing rooms' },
-  { api: 'pms_api', path: '/rates/', label: 'Rates', usedFor: 'Prices and the rate choice' },
-  {
-    api: 'pms_api',
-    path: '/rates_availability',
-    label: 'Availability',
-    usedFor: 'Availability calendar and search',
-  },
-  { api: 'pms_api', path: '/products', label: 'Live prices', usedFor: 'Prices for a stay' },
-  {
-    api: 'pms_api',
-    path: '/rate_plans/',
-    label: 'Rate plans',
-    usedFor: 'Real rate plans instead of hidden ones (planned)',
-  },
-  {
-    api: 'pms_api',
-    path: '/rate_packages/',
-    label: 'Rate packages',
-    usedFor: 'Package rates (planned)',
-  },
-  { api: 'pms_api', path: '/bookings/', label: 'Reservations', usedFor: 'Reservations and sync' },
-  { api: 'pms_api', path: '/guests/search', label: 'Guests', usedFor: 'Matching guests' },
-  {
-    api: 'base_api',
-    path: '/webhook_subscription',
-    label: 'Webhook subscription',
-    usedFor: 'Live updates from Clock',
-  },
-];
+type StoredResult = {
+  id: string;
+  status: 'allowed' | 'missing' | 'error';
+  right?: string;
+  message?: string;
+  checkedAt: string;
+};
+
+const USED_BY_MUST: Record<string, string> = {
+  'GET pms_api/room_types/': 'Importing room types',
+  'GET pms_api/rooms/': 'Importing rooms',
+  'GET pms_api/rates/': 'Prices and the rate choice',
+  'GET pms_api/rates_availability/': 'Availability calendar and search',
+  'GET pms_api/products': 'Prices for a stay',
+  'GET pms_api/guests/search': 'Matching guests',
+  'GET pms_api/bookings/': 'Reservations and sync',
+  'GET pms_api/bookings/:id': 'Reading one reservation',
+  'POST pms_api/bookings/': 'Creating reservations',
+  'PUT pms_api/bookings/:id': 'Cancelling and changing reservations',
+  'GET pms_api/rate_plans/': 'Real rate plans instead of hidden ones (planned)',
+  'GET pms_api/rate_plans/:id': 'Real rate plans instead of hidden ones (planned)',
+  'GET pms_api/rate_packages/': 'Package rates (planned)',
+  'GET base_api/webhook_subscription': 'Live updates from Clock',
+  'POST base_api/webhook_subscription': 'Live updates from Clock',
+  'GET base_api/folios': 'Payments and folios',
+  'POST base_api/folios/:id/credit_items': 'Recording payments',
+};
+
+/** Lists that would return far more than a status check needs. */
+const LARGE_LISTS = new Set([
+  'GET base_api/folios',
+  'GET base_api/2020-08-05/charge_logs',
+  'GET base_api/2021-03-31/credit_item_logs',
+  'GET base_api/folio_ledger',
+]);
+
+const MAX_PER_CHECK = 12;
 
 @Injectable()
 export class ClockPermissionsService {
@@ -76,25 +100,37 @@ export class ClockPermissionsService {
     @Inject(ClockRateLimiterService) private readonly rateLimiter: ClockRateLimiterService,
   ) {}
 
-  /** The result of the last check, or an empty report when none has been run. */
-  async latest(scope: { tenantId: string; propertyId: string }): Promise<ClockPermissionReport> {
+  /** Every known Clock request with what the last check found for it. */
+  async report(scope: { tenantId: string; propertyId: string }): Promise<ClockPermissionReport> {
     const rows = await this.db.withTenantTransaction(
       scope,
       (tx) =>
-        tx.$queryRaw<Array<{ checkedAt: Date; results: ClockPermissionResult[] }>>`
+        tx.$queryRaw<Array<{ checkedAt: Date; results: StoredResult[] }>>`
           SELECT checked_at AS "checkedAt", results FROM clock_permission_checks
           WHERE tenant_id = ${scope.tenantId}::uuid AND property_id = ${scope.propertyId}::uuid
         `,
     );
     const row = rows[0];
-    return row ? report(row.results, row.checkedAt.toISOString()) : report([], null);
+    return build(row?.results ?? [], row?.checkedAt.toISOString() ?? null);
   }
 
-  /** Tests each endpoint the integration uses with a harmless read and stores what Clock said. */
+  /**
+   * Tests the given requests (at most 12 at a time) with harmless reads and stores what Clock said.
+   * Anything that would change data is never sent.
+   */
   async check(
     scope: { tenantId: string; propertyId: string },
     userId: string | null,
+    ids: string[],
   ): Promise<ClockPermissionReport> {
+    const wanted = new Set(ids);
+    const entries = decorate(CLOCK_API_CATALOG).filter(
+      (entry) => wanted.has(entry.id) && entry.probeable,
+    );
+    if (entries.length === 0) throw new BadRequestException('Nothing to check.');
+    if (entries.length > MAX_PER_CHECK)
+      throw new BadRequestException(`Check at most ${MAX_PER_CHECK} requests at a time.`);
+
     const connection = await this.connections.activePmsConnectionCredentials(
       scope.tenantId,
       scope.propertyId,
@@ -104,87 +140,241 @@ export class ClockPermissionsService {
     const parsed = parseClockCredentials(connection.credentials);
     if (!parsed.ok) throw new BadRequestException(parsed.message);
 
-    const results: ClockPermissionResult[] = [];
-    for (const probe of PROBES) results.push(await this.probe(parsed.value, probe));
+    const fresh: StoredResult[] = [];
+    for (const entry of entries) fresh.push(await this.probe(parsed.value, entry));
 
     const checkedAt = new Date();
-    await this.db.withTenantTransaction(
-      scope,
-      (tx) => tx.$executeRaw`
+    const merged = await this.db.withTenantTransaction(scope, async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ results: StoredResult[] }>>`
+        SELECT results FROM clock_permission_checks
+        WHERE tenant_id = ${scope.tenantId}::uuid AND property_id = ${scope.propertyId}::uuid
+        FOR UPDATE
+      `;
+      const byId = new Map<string, StoredResult>();
+      for (const result of rows[0]?.results ?? []) if (result.id) byId.set(result.id, result);
+      for (const result of fresh) byId.set(result.id, result);
+      const all = Array.from(byId.values());
+      await tx.$executeRaw`
         INSERT INTO clock_permission_checks (tenant_id, property_id, checked_at, checked_by, results)
         VALUES (${scope.tenantId}::uuid, ${scope.propertyId}::uuid, ${checkedAt}, ${userId}::uuid,
-                ${JSON.stringify(results)}::jsonb)
+                ${JSON.stringify(all)}::jsonb)
         ON CONFLICT (tenant_id, property_id) DO UPDATE
         SET checked_at = EXCLUDED.checked_at, checked_by = EXCLUDED.checked_by, results = EXCLUDED.results
-      `,
-    );
-    const summary = report(results, checkedAt.toISOString());
-    if (summary.missingRights.length > 0)
+      `;
+      return all;
+    });
+    const missing = fresh.filter((result) => result.status === 'missing');
+    if (missing.length > 0)
       this.logger.warn(
-        `Clock rights missing for property ${scope.propertyId}: ${summary.missingRights.join(', ')}`,
+        `Clock rights missing for property ${scope.propertyId}: ${missing
+          .map((result) => result.right ?? result.id)
+          .join(', ')}`,
       );
-    return summary;
+    return build(merged, checkedAt.toISOString());
   }
 
   private async probe(
     credentials: ClockConnectionCredentials,
-    probe: (typeof PROBES)[number],
-  ): Promise<ClockPermissionResult> {
-    const base = {
-      endpoint: `${probe.api}${probe.path}`,
-      label: probe.label,
-      usedFor: probe.usedFor,
-    };
-    for (let attempt = 0; ; attempt++) {
-      const limit = await this.rateLimiter.consume(credentials.apiUser);
-      if (limit.allowed) break;
-      if (attempt >= 7)
-        return { ...base, status: 'unknown', message: 'Clock was busy; check again in a moment.' };
-      await new Promise((resolve) =>
-        setTimeout(resolve, Math.min(1000, Math.max(100, limit.retryAfterSeconds * 1000))),
-      );
-    }
-    try {
-      const response = await this.client.request(credentials, {
-        api: probe.api,
-        method: 'GET',
-        path: probe.path,
-        timeoutMs: 15_000,
-      });
-      const status = response.status;
-      // A request Clock rejects for its content (400, 404, 405, 422) still proves the right is there.
-      if ((status >= 200 && status < 300) || [400, 404, 405, 422].includes(status))
-        return { ...base, status: 'allowed' };
-      const message = errorText(response.body);
-      // Clock complaining that a required parameter is missing also shows the right is granted.
-      if (status !== 403 && /param is missing|contract/i.test(message))
-        return { ...base, status: 'allowed' };
-      if (status === 403) {
-        const right = extractMissingRight(message);
-        return { ...base, status: 'missing', ...(right ? { right } : {}), message };
+    entry: ClockPermissionEntry,
+  ): Promise<StoredResult> {
+    const checkedAt = new Date().toISOString();
+    const path = entry.path.replace(/:id/g, '0').replace(/:date/g, '2030-01-01');
+    let lastMessage = '';
+    // A busy or briefly unavailable Clock is retried before giving up, so a result is a real answer.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await sleep(600 * attempt);
+      for (let wait = 0; ; wait++) {
+        const limit = await this.rateLimiter.consume(credentials.apiUser);
+        if (limit.allowed) break;
+        if (wait >= 7)
+          return { id: entry.id, status: 'error', message: 'Clock was busy.', checkedAt };
+        await sleep(Math.min(1000, Math.max(100, limit.retryAfterSeconds * 1000)));
       }
-      return { ...base, status: 'unknown', message: message || `Clock answered ${status}.` };
-    } catch (error) {
-      if (error instanceof ClockHttpError)
-        return { ...base, status: 'unknown', message: error.message };
-      throw error;
+      try {
+        const response = await this.client.request(credentials, {
+          api: entry.api as 'pms_api' | 'base_api',
+          method: 'GET',
+          path,
+          timeoutMs: 15_000,
+        });
+        const status = response.status;
+        const message = errorText(response.body);
+        if (status === 403) {
+          const right = extractMissingRight(message);
+          return {
+            id: entry.id,
+            status: 'missing',
+            ...(right ? { right } : {}),
+            message,
+            checkedAt,
+          };
+        }
+        if (status === 401)
+          return {
+            id: entry.id,
+            status: 'error',
+            message: 'Clock rejected the credentials.',
+            checkedAt,
+          };
+        if (
+          (status >= 200 && status < 300) ||
+          [400, 404, 405, 422].includes(status) ||
+          /param is missing|contract/i.test(message)
+        )
+          return { id: entry.id, status: 'allowed', checkedAt };
+        lastMessage = message || `Clock answered ${status}.`;
+      } catch (error) {
+        if (!(error instanceof ClockHttpError)) throw error;
+        lastMessage = error.message;
+      }
     }
+    return { id: entry.id, status: 'error', message: lastMessage, checkedAt };
   }
+}
+
+function build(results: StoredResult[], checkedAt: string | null): ClockPermissionReport {
+  const byId = new Map(results.filter((result) => result.id).map((result) => [result.id, result]));
+  const entries = decorate(CLOCK_API_CATALOG).map((entry): ClockPermissionEntry => {
+    const stored = byId.get(entry.id);
+    if (!entry.probeable) return { ...entry, status: 'untested' };
+    if (!stored) return { ...entry, status: 'pending' };
+    return {
+      ...entry,
+      status: stored.status,
+      ...(stored.right ? { right: stored.right } : {}),
+      ...(stored.message ? { message: stored.message } : {}),
+      checkedAt: stored.checkedAt,
+    };
+  });
+  const missingRights = Array.from(
+    new Set(
+      entries.flatMap((entry) => (entry.status === 'missing' && entry.right ? [entry.right] : [])),
+    ),
+  );
+  return { checkedAt, entries, missingRights };
+}
+
+function decorate(catalog: ClockCatalogEntry[]): ClockPermissionEntry[] {
+  return catalog.map((entry) => {
+    const id = `${entry.method} ${entry.api}${entry.path}`;
+    const readable = entry.api === 'pms_api' || entry.api === 'base_api';
+    const untestedReason =
+      entry.method !== 'GET'
+        ? 'Changes data in Clock, so it is never tested.'
+        : !readable
+          ? 'A different Clock service that MUST does not use.'
+          : LARGE_LISTS.has(id)
+            ? 'Returns a very large list, so it is not read.'
+            : undefined;
+    return {
+      id,
+      api: entry.api,
+      method: entry.method,
+      path: entry.path,
+      name: entry.name,
+      section: entry.section,
+      group: groupOf(entry),
+      ...(USED_BY_MUST[id] ? { usedFor: USED_BY_MUST[id] } : {}),
+      probeable: !untestedReason,
+      ...(untestedReason ? { untestedReason } : {}),
+      expectedRight: expectedRight(entry),
+      status: 'pending',
+    };
+  });
+}
+
+/** Clock names rights `<api>_<resource>_<action>`, for example pms_api_rate_plans_index. */
+function expectedRight(entry: ClockCatalogEntry): string | undefined {
+  const segments = entry.path.split('/').filter(Boolean);
+  const resourceSegments = segments.filter((segment) => !segment.startsWith(':'));
+  const resource = resourceSegments[resourceSegments.length - 1];
+  if (!resource || !readableApi(entry.api)) return undefined;
+  const single = segments[segments.length - 1]?.startsWith(':') ?? false;
+  const action =
+    entry.method === 'GET'
+      ? single
+        ? 'show'
+        : 'index'
+      : entry.method === 'POST'
+        ? 'create'
+        : entry.method === 'DELETE'
+          ? 'destroy'
+          : 'update';
+  return `${entry.api}_${resource.replace(/[^a-z0-9_]/gi, '_')}_${action}`;
+}
+
+function readableApi(api: string): boolean {
+  return api === 'pms_api' || api === 'base_api';
+}
+
+function groupOf(entry: ClockCatalogEntry): string {
+  const first = entry.path.split('/').filter(Boolean)[0] ?? '';
+  if (entry.api === 'pos_api') return 'Point of sale';
+  if (entry.api === 'adyen_psp') return 'Payments';
+  if (first === 'bookings' || first === 'booking_offers') return 'Reservations';
+  if (
+    [
+      'rates',
+      'rate_plans',
+      'rate_packages',
+      'rates_availability',
+      'products',
+      'price_boundaries',
+      'meals',
+      'wbe_config',
+      'exchange_rates',
+    ].includes(first)
+  )
+    return 'Rates and prices';
+  if (['rooms', 'room_types', 'room_statuses', 'door_keys'].includes(first)) return 'Rooms';
+  if (first === 'guests') return 'Guests';
+  if (
+    [
+      'events',
+      'meeting_rooms',
+      'meeting_room_bookings',
+      'meeting_room_availability',
+      'caterings',
+      'blocks',
+      'block_pickups',
+      'block_prices',
+      'activities',
+    ].includes(first)
+  )
+    return 'Events and groups';
+  if (
+    [
+      'folios',
+      'charge_templates',
+      'charge_template_availabilities',
+      'credit_cards',
+      'credit_card_transactions',
+      'custom_payment_purchases',
+      'payment_terminals',
+      'payment_sub_types',
+      'revenue_categories',
+      'fiscalization',
+      'folio_ledger',
+      'elavon_token',
+      'adyen_v2',
+      'closures',
+      'document_types',
+    ].includes(first) ||
+    first.endsWith('charge_logs') ||
+    first.endsWith('credit_item_logs')
+  )
+    return 'Folios and payments';
+  if (first === 'webhook_subscription') return 'Live updates';
+  if (['users', 'companies'].includes(first)) return 'Users and companies';
+  return 'Other';
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function errorText(body: unknown): string {
   if (body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string')
     return (body as { error: string }).error;
   return typeof body === 'string' ? body.slice(0, 300) : '';
-}
-
-function report(results: ClockPermissionResult[], checkedAt: string | null): ClockPermissionReport {
-  const missingRights = Array.from(
-    new Set(
-      results.flatMap((result) =>
-        result.status === 'missing' && result.right ? [result.right] : [],
-      ),
-    ),
-  );
-  return { checkedAt, results, missingRights };
 }

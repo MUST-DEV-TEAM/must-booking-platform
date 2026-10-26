@@ -21,27 +21,51 @@ const settle = async () => {
   for (let i = 0; i < 6; i++) await new Promise((resolve) => setTimeout(resolve, 15));
 };
 
-const checked: ClockPermissionReport = {
+const entry = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
+  id,
+  api: 'pms_api',
+  method: 'GET',
+  path: `/${name.toLowerCase()}/`,
+  name,
+  section: 'Docs',
+  group: 'Rates and prices',
+  probeable: true,
+  status: 'pending',
+  ...extra,
+});
+
+const before = {
+  checkedAt: null,
+  missingRights: [],
+  entries: [
+    entry('GET pms_api/rates/', 'Rates', { usedFor: 'Prices and the rate choice' }),
+    entry('GET pms_api/rate_packages/', 'Packages'),
+    entry('POST pms_api/bookings/', 'Create booking', {
+      method: 'POST',
+      probeable: false,
+      status: 'untested',
+      untestedReason: 'Changes data in Clock, so it is never tested.',
+      expectedRight: 'pms_api_bookings_create',
+    }),
+  ],
+} as unknown as ClockPermissionReport;
+
+const after = {
   checkedAt: '2026-10-26T10:00:00.000Z',
   missingRights: ['pms_api_rate_packages_index'],
-  results: [
-    { endpoint: 'pms_api/rates/', label: 'Rates', usedFor: 'Prices', status: 'allowed' },
-    {
-      endpoint: 'pms_api/rate_packages/',
-      label: 'Rate packages',
-      usedFor: 'Package rates',
-      status: 'missing',
-      right: 'pms_api_rate_packages_index',
-    },
+  entries: [
+    { ...before.entries[0], status: 'allowed' },
+    { ...before.entries[1], status: 'missing', right: 'pms_api_rate_packages_index' },
+    before.entries[2],
   ],
-};
+} as unknown as ClockPermissionReport;
 
-function mockApi(provider: string, latest: () => Response) {
+function mockApi(provider: string, latest: () => Response, check?: () => Promise<Response>) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith('/pms-connection-status')) return Response.json({ provider });
     if (url.endsWith('/clock-permissions/check') && init?.method === 'POST')
-      return Response.json(checked);
+      return check ? check() : Response.json(after);
     if (url.endsWith('/clock-permissions')) return latest();
     return new Response('not found', { status: 404 });
   });
@@ -65,37 +89,61 @@ async function mount() {
   await act(settle);
 }
 
+const checkButton = () =>
+  Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('Check'));
+
 describe('ClockPermissionsPanel', () => {
-  it('shows each right, names the missing one and offers a message for Clock support', async () => {
-    mockApi('CLOCK_PMS', () => Response.json(checked));
+  it('lists every request, including the ones that are never tested, and why', async () => {
+    mockApi('CLOCK_PMS', () => Response.json(before));
     await mount();
 
     expect(document.body.textContent).toContain('Clock permissions');
-    expect(document.body.textContent).toContain('Rate packages');
+    expect(document.body.textContent).toContain('Rates');
+    expect(document.body.textContent).toContain('Used by MUST');
+    expect(document.body.textContent).toContain('Changes data in Clock, so it is never tested.');
+    expect(document.body.textContent).toContain('Usual right name: pms_api_bookings_create');
+    expect(document.body.textContent).toContain('2 not checked yet');
+  });
+
+  it('shows each request as checking while it runs, then its real result', async () => {
+    let release: (response: Response) => void = () => undefined;
+    mockApi(
+      'CLOCK_PMS',
+      () => Response.json(before),
+      () => new Promise<Response>((resolve) => (release = resolve)),
+    );
+    await mount();
+
+    await act(async () => {
+      checkButton()?.click();
+      await settle();
+    });
+    expect(document.body.textContent).toContain('Checking…');
+    expect(document.body.textContent).toContain('Checking 0 of 2');
+
+    await act(async () => {
+      release(Response.json(after));
+      await settle();
+    });
+    expect(document.body.textContent).not.toContain('Checking…');
     expect(document.body.textContent).toContain('Missing right: pms_api_rate_packages_index');
+    expect(document.body.textContent).toContain('1 allowed');
+    expect(document.body.textContent).toContain('1 missing');
     expect(
       document.querySelector('button[aria-label="Copy message for Clock support"]'),
     ).not.toBeNull();
   });
 
-  it('runs a check on request and shows the new result', async () => {
-    mockApi('CLOCK_PMS', () => Response.json({ checkedAt: null, results: [], missingRights: [] }));
+  it('never leaves a request in a vague state after a successful check', async () => {
+    mockApi('CLOCK_PMS', () => Response.json(after));
     await mount();
-    expect(document.body.textContent).toContain('Not checked yet');
 
-    const button = Array.from(document.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Check now'),
-    );
-    await act(async () => {
-      button?.click();
-      await settle();
-    });
-
-    expect(document.body.textContent).toContain('Missing right: pms_api_rate_packages_index');
+    expect(document.body.textContent).not.toContain('Not confirmed');
+    expect(document.body.textContent).not.toContain('Not checked yet');
   });
 
   it('is not shown for a hotel without Clock', async () => {
-    const fetchMock = mockApi('LOCAL', () => Response.json(checked));
+    const fetchMock = mockApi('LOCAL', () => Response.json(before));
     await mount();
 
     expect(fetchMock).toHaveBeenCalled();
@@ -112,7 +160,7 @@ describe('ClockPermissionsPanel', () => {
 
 describe('clockSupportText', () => {
   it('lists every missing right and is empty when nothing is missing', () => {
-    expect(clockSupportText(checked)).toContain('- pms_api_rate_packages_index');
-    expect(clockSupportText({ ...checked, missingRights: [] })).toBe('');
+    expect(clockSupportText(after)).toContain('- pms_api_rate_packages_index');
+    expect(clockSupportText({ ...after, missingRights: [] })).toBe('');
   });
 });

@@ -1,4 +1,4 @@
-import { Controller, Get, HttpCode, Inject, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Post, Req } from '@nestjs/common';
 
 import { RequiresVerifiedEmail } from '../../auth/requires-verified-email.decorator';
 import { RequiresCapability } from '../../tenancy/capabilities.decorator';
@@ -14,23 +14,26 @@ export class ClockPermissionsController {
     @Inject(ClockPermissionsService) private readonly permissions: ClockPermissionsService,
   ) {}
 
-  /** What the last check found, for the dashboard's Clock permissions panel. */
+  /** Every known Clock request with what the last check found, for the Clock permissions panel. */
   @Get()
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin)
   @RequiresCapability('settings.manage')
-  latest(@Req() request: TenantRequest) {
-    return this.permissions.latest(request.tenantContext);
+  report(@Req() request: TenantRequest) {
+    return this.permissions.report(request.tenantContext);
   }
 
-  /** Re-tests every endpoint with harmless reads (nothing is created or changed in Clock). */
+  /** Re-tests the given requests (up to 12) with harmless reads; nothing is created or changed in Clock. */
   @Post('check')
   @HttpCode(200)
   @TenantScoped({ propertyParam: 'propertyId' })
   @Roles(Role.TenantOwner, Role.TenantAdmin)
   @RequiresCapability('settings.manage')
   @RequiresVerifiedEmail()
-  check(@Req() request: TenantRequest) {
-    return this.permissions.check(request.tenantContext, request.tenantContext.userId ?? null);
+  check(@Req() request: TenantRequest, @Body() body: { ids?: unknown }) {
+    const ids = Array.isArray(body?.ids)
+      ? body.ids.filter((id): id is string => typeof id === 'string')
+      : [];
+    return this.permissions.check(request.tenantContext, request.tenantContext.userId ?? null, ids);
   }
 }
