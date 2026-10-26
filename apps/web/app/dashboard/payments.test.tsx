@@ -201,6 +201,69 @@ describe('Payments', () => {
     await unmount();
   });
 
+  it('asks an owner, admin or manager to confirm a refund after the 24-hour window, then sends it as a late refund', async () => {
+    let refunds = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        if (url.endsWith('/payments/refunds')) {
+          refunds += 1;
+          const late = JSON.parse(String(init?.body)).lateRefund === true;
+          return Promise.resolve(
+            new Response(
+              JSON.stringify(
+                late
+                  ? { ok: true, value: { status: 'REFUNDED' } }
+                  : {
+                      ok: false,
+                      error: {
+                        code: 'REFUND_WINDOW_CLOSED',
+                        message: 'Confirm that you want to refund it anyway.',
+                        lateAllowed: true,
+                      },
+                    },
+              ),
+            ),
+          );
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify(
+              url.endsWith('/capabilities/mine')
+                ? ['payments.refund', 'payments.refund_late']
+                : url.endsWith('/bookings')
+                  ? [{ ...booking, paidAmount: '100.00' }]
+                  : { ok: true },
+            ),
+          ),
+        );
+      }),
+    );
+    const { unmount } = await renderPayments(
+      [{ ...booking, paidAmount: '100.00' }],
+      ['payments.refund', 'payments.refund_late'],
+    );
+    await openRefund(rows()[0]!);
+    await act(async () =>
+      document.querySelector<HTMLElement>('[aria-label="Refund reason"]')!.click(),
+    );
+    await act(async () => byText('guest request')!.click());
+    await act(async () => {
+      byText('Record refund', dialog()!)!.click();
+    });
+    await act(settle);
+    // The first try is turned back with an offer to go on; nothing was refunded yet.
+    expect(dialog()!.textContent).toContain('Refund anyway');
+    expect(byText('Record refund', dialog()!)?.hasAttribute('disabled')).toBe(true);
+    await act(async () => dialog()!.querySelector<HTMLElement>('[role="checkbox"]')!.click());
+    await act(async () => {
+      byText('Record refund', dialog()!)!.click();
+    });
+    await act(settle);
+    expect(refunds).toBe(2);
+    await unmount();
+  });
+
   it('reuses the same key when retrying a percentage refund after an uncertain response', async () => {
     let attempts = 0;
     vi.stubGlobal(
