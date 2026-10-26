@@ -15,10 +15,7 @@ import {
   roomTypeImagePresentation,
   type RoomTypeImageProjectionRow,
 } from './room-type-image-projection';
-import {
-  STORAGE_PROVIDER,
-  type StorageProvider,
-} from '../storage/storage.provider';
+import { STORAGE_PROVIDER, type StorageProvider } from '../storage/storage.provider';
 import { resolveEffectiveHouseRules } from './effective-house-rules';
 
 type RoomType = {

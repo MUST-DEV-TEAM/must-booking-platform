@@ -73,15 +73,23 @@ for (const entry of CLOCK_API_CATALOG) {
     message = String(error.message);
   }
   // 403 only shows the sandbox lacks the right, so how Clock behaves when it IS granted stays unknown.
-  const rejected = [400, 404, 405, 422].includes(status) || /param is missing|contract/i.test(String(message));
+  const rejected =
+    [400, 404, 405, 422].includes(status) || /param is missing|contract/i.test(String(message));
   const emptyList = entry.method === 'GET' && status >= 200 && status < 300 && bytes < 2000;
   const verdict = status === 403 ? 'unverified' : rejected || emptyList ? 'safe' : 'unsafe';
   verdicts[id] = { verdict, seen: status };
-  rows.push([id, status || 'error', verdict + (verdict === 'unsafe' ? ` ${String(message).slice(0, 60)}` : '')]);
+  rows.push([
+    id,
+    status || 'error',
+    verdict + (verdict === 'unsafe' ? ` ${String(message).slice(0, 60)}` : ''),
+  ]);
   await sleep(350);
 }
 for (const row of rows) console.log(String(row[1]).padEnd(7), row[2].padEnd(10), row[0]);
-const counts = Object.values(verdicts).reduce((n, v) => ((n[v.verdict] = (n[v.verdict] ?? 0) + 1), n), {});
+const counts = Object.values(verdicts).reduce(
+  (n, v) => ((n[v.verdict] = (n[v.verdict] ?? 0) + 1), n),
+  {},
+);
 console.log(counts);
 
 if (process.argv.includes('--write')) {
@@ -93,6 +101,9 @@ if (process.argv.includes('--write')) {
 // Only requests marked safe are ever sent to a hotel's real Clock account.
 export const CLOCK_API_SAFETY: Record<string, { verdict: 'safe' | 'unverified' | 'unsafe'; seen: number }> = ${JSON.stringify(verdicts, null, 2)};
 `;
-  writeFileSync(fileURLToPath(new URL('../src/integrations/clock/clock-api-safety.ts', import.meta.url)), body);
+  writeFileSync(
+    fileURLToPath(new URL('../src/integrations/clock/clock-api-safety.ts', import.meta.url)),
+    body,
+  );
   console.log('Wrote clock-api-safety.ts');
 }

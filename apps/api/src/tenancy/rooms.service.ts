@@ -10,10 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { AuditLogService } from './audit-log.service';
 import { roomImagePresentation, type RoomImageProjectionRow } from './room-image-projection';
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
-import {
-  STORAGE_PROVIDER,
-  type StorageProvider,
-} from '../storage/storage.provider';
+import { STORAGE_PROVIDER, type StorageProvider } from '../storage/storage.provider';
 import { resolveEffectiveHouseRules } from './effective-house-rules';
 
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
