@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { ClockBookingService } from './clock-booking.service';
+import { ClockBookingService, promoMarketingSource } from './clock-booking.service';
 
 const credentials = { host: 'h', accountId: '1', subscriptionId: '2', apiUser: 'u', apiKey: 'k' };
 const context = { tenantId: 't1', propertyId: 'p1' };
@@ -85,5 +85,11 @@ describe('posting a MUST promo discount on the Clock bill', () => {
 
     expect(service.postCreditItem).not.toHaveBeenCalled();
     expect(manualReview.recordInTransaction).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('promo tag on the Clock reservation', () => {
+  it('names the code in the marketing source so the hotel can report on it', () => {
+    expect(promoMarketingSource('WELCOME10')).toBe('MUST promo WELCOME10');
   });
 });

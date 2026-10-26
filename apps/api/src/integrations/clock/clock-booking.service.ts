@@ -145,6 +145,11 @@ export function isClockCreditItemResource(value: unknown): value is ClockCreditI
 const RATE_LIMIT_RETRIES = 3;
 const RATE_LIMIT_BACKOFF_MS = 400;
 
+/** The reservation's marketing source, so the hotel can report how many bookings used a code. */
+export function promoMarketingSource(code: string): string {
+  return `MUST promo ${code}`;
+}
+
 /** What front desk reads on the Clock reservation when the guest used a MUST promo code. */
 export function promoNote(
   promo: {
@@ -702,7 +707,12 @@ export class ClockBookingService {
       ...(row.childrenAges ? { children_ages: row.childrenAges } : {}),
       client_request: guest.specialRequests?.trim() || null,
       // A MUST promo cannot lower the price inside Clock, so front desk is told on the reservation.
-      ...(guest.promoCode ? { note: promoNote(guest, row.currency) } : {}),
+      ...(guest.promoCode
+        ? {
+            note: promoNote(guest, row.currency),
+            marketing_source: promoMarketingSource(guest.promoCode),
+          }
+        : {}),
     };
     const body = existingClockGuest.value
       ? { main_booking_guest: existingClockGuest.value, booking }
