@@ -52,6 +52,12 @@ type Job = {
 const monthOf = (date: Date) => date.toISOString().slice(0, 7);
 const enabled = () => process.env.CLOCK_BACKGROUND_SYNC_ENABLED === 'true';
 /** Durable local projections only. Provider commands and financial effects are never executed here. */
+const errorText = (error: unknown) =>
+  (error instanceof Error ? error.message : String(error)).replace(/\s+/g, ' ').slice(0, 300);
+/** The database refused the row by one of its rules (check constraint 23514), so retrying cannot help. */
+const isUnsavableBooking = (error: unknown) =>
+  error instanceof Error && /violates check constraint|\b23514\b/.test(error.message);
+
 @Injectable()
 export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy {
   private timer?: ReturnType<typeof setInterval>;
@@ -223,6 +229,9 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
                 error instanceof ClockBookingReadError
                   ? error.classified.category
                   : 'configuration';
+              this.logger.warn(
+                `Clock sync job ${job.resource} failed (${category}, ${retry ? 'will retry' : 'stopped'}): ${errorText(error)}`,
+              );
               await this.db.withTenantTransaction(
                 scope,
                 (tx) =>
@@ -246,7 +255,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     return this.db.withTenantTransaction(scope, async (tx) => {
       const rows = await tx.$queryRaw<
         Job[]
-      >`UPDATE clock_sync_jobs j SET status='RUNNING',requested_at=NULL,lease_token=${token}::uuid,lease_until=now()+interval '5 minutes',updated_at=now() WHERE j.id=(SELECT id FROM clock_sync_jobs WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND connection_id=${scope.connectionId}::uuid AND status<>'FAILED' AND (resource LIKE 'financial:%')=${bills} AND next_run_at<=now() AND (lease_until IS NULL OR lease_until<now()) ORDER BY (requested_at IS NOT NULL) DESC,requested_at NULLS LAST,next_run_at,CASE resource WHEN 'catalog' THEN 0 WHEN 'rooms' THEN 1 WHEN 'rates' THEN 2 ELSE 3 END,id FOR UPDATE SKIP LOCKED LIMIT 1) AND j.tenant_id=${scope.tenantId}::uuid AND j.property_id=${scope.propertyId}::uuid RETURNING j.id,j.resource,j.progress,j.snapshot,j.processed,j.lease_token AS "leaseToken"`;
+      >`UPDATE clock_sync_jobs j SET status='RUNNING',requested_at=NULL,lease_token=${token}::uuid,lease_until=now()+interval '5 minutes',updated_at=now() WHERE j.id=(SELECT id FROM clock_sync_jobs WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND connection_id=${scope.connectionId}::uuid AND (status<>'FAILED' OR updated_at<now()-interval '30 minutes') AND (resource LIKE 'financial:%')=${bills} AND next_run_at<=now() AND (lease_until IS NULL OR lease_until<now()) ORDER BY (requested_at IS NOT NULL) DESC,requested_at NULLS LAST,next_run_at,CASE resource WHEN 'catalog' THEN 0 WHEN 'rooms' THEN 1 WHEN 'rates' THEN 2 ELSE 3 END,id FOR UPDATE SKIP LOCKED LIMIT 1) AND j.tenant_id=${scope.tenantId}::uuid AND j.property_id=${scope.propertyId}::uuid RETURNING j.id,j.resource,j.progress,j.snapshot,j.processed,j.lease_token AS "leaseToken"`;
       return rows[0] ?? null;
     });
   }
@@ -421,18 +430,21 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
       const batch = ids.slice(index, end).map(String);
       for (let from = 0; from < batch.length; from += 4) {
         const results = await Promise.all(
-          batch
-            .slice(from, from + 4)
-            .map((id) =>
-              this.hydration.hydrateBooking(
-                scope.tenantId,
-                scope.propertyId,
-                scope.connectionId,
-                id,
-                undefined,
-                { notify: false },
-              ),
-            ),
+          batch.slice(from, from + 4).map((id) =>
+            this.hydration
+              .hydrateBooking(scope.tenantId, scope.propertyId, scope.connectionId, id, undefined, {
+                notify: false,
+              })
+              .catch((error: unknown) => {
+                // A reservation the database refuses by rule (for example a credit-style entry with a
+                // negative total) is listed and skipped. Anything else still stops the step and retries it.
+                if (isUnsavableBooking(error)) {
+                  this.logger.warn(`Clock reservation ${id} was skipped: ${errorText(error)}`);
+                  return { outcome: 'unknown_status' as const };
+                }
+                throw error;
+              }),
+          ),
         );
         results.forEach((result, offset) => {
           if (
