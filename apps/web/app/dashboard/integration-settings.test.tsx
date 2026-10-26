@@ -163,4 +163,49 @@ describe('integration settings', () => {
     expect(document.body.textContent).toContain('Enabled for this hotel');
     await v.close();
   });
+  it('opens the synchronization progress in a popup from the Clock card', async () => {
+    const v = await mount(true);
+    expect(document.body.textContent).not.toContain('Clock synchronization');
+    await act(async () =>
+      [...document.querySelectorAll('button')]
+        .find((b) => b.textContent === 'Synchronization')!
+        .click(),
+    );
+    await act(wait);
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      'Clock synchronization',
+    );
+    await v.close();
+  });
+  it('has no Synchronization button on the PokPay card', async () => {
+    const v = await mount(true, 'POKPAY');
+    expect(
+      [...document.querySelectorAll('button')].some((b) => b.textContent === 'Synchronization'),
+    ).toBe(false);
+    await v.close();
+  });
+  it('tests the saved connection from inside the credentials popup, not from the card', async () => {
+    const v = await mount(true);
+    expect([...document.querySelectorAll('button')].some((b) => b.textContent === 'Test')).toBe(
+      false,
+    );
+    await act(async () =>
+      [...document.querySelectorAll('button')]
+        .find((b) => b.textContent === 'Credentials')!
+        .click(),
+    );
+    await act(wait);
+    await act(async () =>
+      [...document.querySelectorAll('button')]
+        .find((b) => b.textContent === 'Test connection')!
+        .click(),
+    );
+    await act(wait);
+    expect(
+      v.calls.some(
+        (c) => c.path.endsWith('/integration-connections/c/test') && c.init?.method === 'POST',
+      ),
+    ).toBe(true);
+    await v.close();
+  });
 });

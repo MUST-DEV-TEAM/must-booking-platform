@@ -45,6 +45,7 @@ export function IntegrationSettings({
     Record<string, { id?: string; credentials: Record<string, string>; name: string }>
   >({});
   const [category, setCategory] = useState('All');
+  const [syncOpen, setSyncOpen] = useState(false);
   const query = useQuery({
     queryKey: ['dashboard', 'integration-settings', tenantId, propertyId],
     queryFn: async () => {
@@ -252,20 +253,14 @@ export function IntegrationSettings({
                   ) : null}
                   {canWrite && item.available ? (
                     connection ? (
-                      <div className="grid grid-cols-3 gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={action.isPending}
-                          onClick={() =>
-                            action.mutate({
-                              path: `/integration-connections/${connection.id}/test`,
-                              method: 'POST',
-                            })
-                          }
-                        >
-                          Test
-                        </Button>
+                      <div
+                        className={`grid gap-2 ${item.provider === 'CLOCK_PMS' ? 'grid-cols-3' : 'grid-cols-2'}`}
+                      >
+                        {item.provider === 'CLOCK_PMS' ? (
+                          <Button size="sm" variant="outline" onClick={() => setSyncOpen(true)}>
+                            Synchronization
+                          </Button>
+                        ) : null}
                         <Button
                           size="sm"
                           variant="outline"
@@ -327,7 +322,17 @@ export function IntegrationSettings({
           },
         )}
       </div>
-      <ClockSyncStatus tenantId={tenantId} propertyId={propertyId} details />
+      <ClockSyncStatus tenantId={tenantId} propertyId={propertyId} />
+      <Dialog open={syncOpen} onOpenChange={setSyncOpen}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+          <DialogTitle>Clock synchronization</DialogTitle>
+          <DialogDescription>
+            What is being brought in from Clock PMS+, how much there is, how much is left and about
+            how long it will take. You can keep working meanwhile.
+          </DialogDescription>
+          <ClockSyncStatus tenantId={tenantId} propertyId={propertyId} details />
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={!!edit}
         onOpenChange={(open) => {
@@ -451,6 +456,31 @@ export function IntegrationSettings({
                   })
               : null}
             {save.error ? <p role="alert">{save.error.message}</p> : null}
+            {edit?.id ? (
+              <div className="space-y-1 rounded-lg border px-3 py-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-semibold">Test the saved connection</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={action.isPending || save.isPending}
+                    onClick={() =>
+                      action.mutate({
+                        path: `/integration-connections/${edit.id}/test`,
+                        method: 'POST',
+                      })
+                    }
+                  >
+                    {action.isPending ? 'Testing...' : 'Test connection'}
+                  </Button>
+                </div>
+                <p className="m-0 text-xs text-muted-foreground" role="status">
+                  {query.data?.connections.find((c) => c.id === edit.id)?.lastTestResult ||
+                    'Checks the credentials that are saved now, without changing anything.'}
+                </p>
+              </div>
+            ) : null}
             <Button type="submit" disabled={save.isPending}>
               {save.isPending ? 'Verifying...' : 'Verify and save'}
             </Button>

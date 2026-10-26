@@ -203,30 +203,34 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
         await this.ensure(scope);
         // Two lanes: the import and refresh of lists, and the bills. Bills used to be served first
         // and, being many and always due, starved the reservation import.
-        for (const lane of ['lists', 'bills'] as const) {
-          const job = await this.claim(scope, lane);
-          if (!job) continue;
-          try {
-            await withClockBackgroundWork(() => this.run(scope, job));
-          } catch (error) {
-            const retry =
-              error instanceof ClockFinancialCurrencyError
-                ? true
-                : error instanceof ClockBookingReadError
-                  ? error.classified.retryable
-                  : error instanceof Error &&
-                    /Clock read did not finish|Clock did not finish reading this guest batch|Booking changed during the financial check|Clock bills changed during the financial check/.test(
-                      error.message,
-                    );
-            const category =
-              error instanceof ClockBookingReadError ? error.classified.category : 'configuration';
-            await this.db.withTenantTransaction(
-              scope,
-              (tx) =>
-                tx.$executeRaw`UPDATE clock_sync_jobs SET status=${retry ? 'RETRY' : 'FAILED'},last_error=${error instanceof ClockFinancialCurrencyError ? error.message : retry ? 'Clock is temporarily unavailable. Synchronization will retry automatically.' : 'Synchronization needs connection or room-mapping review (' + category + ').'},next_run_at=now()+interval '1 minute',lease_token=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`,
-            );
-          }
-        }
+        await Promise.all(
+          (['lists', 'bills'] as const).map(async (lane) => {
+            const job = await this.claim(scope, lane);
+            if (!job) return;
+            try {
+              await withClockBackgroundWork(() => this.run(scope, job));
+            } catch (error) {
+              const retry =
+                error instanceof ClockFinancialCurrencyError
+                  ? true
+                  : error instanceof ClockBookingReadError
+                    ? error.classified.retryable
+                    : error instanceof Error &&
+                      /Clock read did not finish|Clock did not finish reading this guest batch|Booking changed during the financial check|Clock bills changed during the financial check/.test(
+                        error.message,
+                      );
+              const category =
+                error instanceof ClockBookingReadError
+                  ? error.classified.category
+                  : 'configuration';
+              await this.db.withTenantTransaction(
+                scope,
+                (tx) =>
+                  tx.$executeRaw`UPDATE clock_sync_jobs SET status=${retry ? 'RETRY' : 'FAILED'},last_error=${error instanceof ClockFinancialCurrencyError ? error.message : retry ? 'Clock is temporarily unavailable. Synchronization will retry automatically.' : 'Synchronization needs connection or room-mapping review (' + category + ').'},next_run_at=now()+interval '1 minute',lease_token=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`,
+              );
+            }
+          }),
+        );
       }
     } catch {
       this.logger.warn(
@@ -358,6 +362,9 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
         complete,
         complete ? { roomTypes: collected, occupancy: { adults: 1, children: 0 } } : undefined,
         collected.length,
+        // A month finished: look again in half an hour. Clock asks for no more than one read of
+        // availability every 15 minutes; the rest of the allowance goes to the import.
+        complete ? 1800 : 1,
       );
       return;
     }
@@ -408,24 +415,39 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
       let index = Number(job.progress.index ?? 0);
       let skipped = Number(job.progress.skipped ?? 0);
       const skippedIds = Array.isArray(job.progress.skippedIds) ? [...job.progress.skippedIds] : [];
-      const end = Math.min(index + 5, ids.length);
-      for (; index < end; index++) {
-        const result = await this.hydration.hydrateBooking(
-          scope.tenantId,
-          scope.propertyId,
-          scope.connectionId,
-          String(ids[index]),
-          undefined,
-          { notify: false },
+      // Twenty reservations per step, four at a time. Clock's request allowance is the real limit (the rate
+      // limiter queues the calls), so this keeps the allowance busy instead of waiting on one call at a time.
+      const end = Math.min(index + 20, ids.length);
+      const batch = ids.slice(index, end).map(String);
+      for (let from = 0; from < batch.length; from += 4) {
+        const results = await Promise.all(
+          batch
+            .slice(from, from + 4)
+            .map((id) =>
+              this.hydration.hydrateBooking(
+                scope.tenantId,
+                scope.propertyId,
+                scope.connectionId,
+                id,
+                undefined,
+                { notify: false },
+              ),
+            ),
         );
-        if (result.outcome === 'missing_room_type_mapping' || result.outcome === 'unknown_status') {
-          // Old reservations can belong to room types or statuses MUST has no mapping for. They are counted
-          // and listed instead of stopping the import of the other thousands.
-          skipped += 1;
-          if (skippedIds.length < 20) skippedIds.push(String(ids[index]));
-        } else if (!['created', 'updated'].includes(result.outcome))
-          throw new BadRequestException('Clock booking mapping or status needs review.');
+        results.forEach((result, offset) => {
+          if (
+            result.outcome === 'missing_room_type_mapping' ||
+            result.outcome === 'unknown_status'
+          ) {
+            // Old reservations can belong to room types or statuses MUST has no mapping for. They are counted
+            // and listed instead of stopping the import of the other thousands.
+            skipped += 1;
+            if (skippedIds.length < 20) skippedIds.push(batch[from + offset]!);
+          } else if (!['created', 'updated'].includes(result.outcome))
+            throw new BadRequestException('Clock booking mapping or status needs review.');
+        });
       }
+      index = end;
       const complete = index >= ids.length;
       await this.save(
         scope,

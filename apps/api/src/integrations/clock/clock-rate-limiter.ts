@@ -11,6 +11,16 @@ import { createClient, type RedisClientType } from 'redis';
 export const CLOCK_RATE_LIMIT_PER_SECOND = 4;
 const WINDOW_SECONDS = 1;
 
+/**
+ * How many of the allowed requests per second background work (the import and refresh of data) may use.
+ * The rest stays free for guests and staff. Overnight, when the hotel is quiet (23:00 to 05:00 in Albania,
+ * 22:00 to 04:00 UTC), it may use one more; Clock's own limit is 5, ours 4.
+ */
+export function clockBackgroundBudget(now = new Date()): number {
+  const hour = now.getUTCHours();
+  return hour >= 22 || hour < 4 ? 3 : 2;
+}
+
 export interface ClockRateLimitResult {
   allowed: boolean;
   retryAfterSeconds: number;
@@ -48,7 +58,7 @@ export class ClockRateLimiterService implements OnModuleDestroy {
           String(WINDOW_SECONDS),
           String(CLOCK_RATE_LIMIT_PER_SECOND),
           isClockBackgroundWork() ? '1' : '0',
-          '2',
+          String(clockBackgroundBudget()),
         ],
       },
     ) as Promise<[number, number]>;
