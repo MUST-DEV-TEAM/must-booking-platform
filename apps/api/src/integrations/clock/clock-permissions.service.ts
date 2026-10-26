@@ -58,6 +58,8 @@ export interface ClockPermissionEntry {
 }
 
 export interface ClockPermissionReport {
+  /** True for Clock's own sandbox account, where every request is tested directly. */
+  sandbox: boolean;
   checkedAt: string | null;
   entries: ClockPermissionEntry[];
   missingRights: string[];
@@ -65,6 +67,8 @@ export interface ClockPermissionReport {
 
 type StoredResult = {
   id: string;
+  /** 'use' when the right is shown to exist by something this connection already did. */
+  proof?: 'use';
   status: 'allowed' | 'missing' | 'error';
   right?: string;
   message?: string;
@@ -101,6 +105,21 @@ const LARGE_LISTS = new Set([
 
 const MAX_PER_CHECK = 12;
 
+/** Clock's own demo account: nothing in it matters, so every request may be tried directly. */
+export function isClockSandbox(credentials: {
+  accountId: string;
+  subscriptionId: string;
+}): boolean {
+  return credentials.accountId === '172528' && credentials.subscriptionId === '16307';
+}
+
+/** Even in the sandbox these would break shared test setup, so they are proven by use instead. */
+const SANDBOX_NEVER = new Set([
+  'POST base_api/webhook_subscription',
+  'DELETE base_api/webhook_subscription',
+  'POST pms_api/bookings/',
+]);
+
 @Injectable()
 export class ClockPermissionsService {
   private readonly logger = new Logger(ClockPermissionsService.name);
@@ -124,10 +143,18 @@ export class ClockPermissionsService {
         `,
     );
     const row = rows[0];
+    const connection = await this.connections.activePmsConnectionCredentials(
+      scope.tenantId,
+      scope.propertyId,
+    );
+    const parsed =
+      connection?.provider === 'CLOCK_PMS' ? parseClockCredentials(connection.credentials) : null;
+    const sandbox = parsed?.ok === true && isClockSandbox(parsed.value);
     return build(
       row?.results ?? [],
       row?.checkedAt.toISOString() ?? null,
       await this.evidence(scope),
+      sandbox,
     );
   }
 
@@ -169,14 +196,6 @@ export class ClockPermissionsService {
     ids: string[],
     includeChanges = false,
   ): Promise<ClockPermissionReport> {
-    const wanted = new Set(ids);
-    const entries = decorate(CLOCK_API_CATALOG).filter(
-      (entry) => wanted.has(entry.id) && (entry.probeable || (entry.confirmable && includeChanges)),
-    );
-    if (entries.length === 0) throw new BadRequestException('Nothing to check.');
-    if (entries.length > MAX_PER_CHECK)
-      throw new BadRequestException(`Check at most ${MAX_PER_CHECK} requests at a time.`);
-
     const connection = await this.connections.activePmsConnectionCredentials(
       scope.tenantId,
       scope.propertyId,
@@ -185,9 +204,37 @@ export class ClockPermissionsService {
       throw new BadRequestException('This property has no active Clock PMS connection.');
     const parsed = parseClockCredentials(connection.credentials);
     if (!parsed.ok) throw new BadRequestException(parsed.message);
+    const sandbox = isClockSandbox(parsed.value);
+
+    const wanted = new Set(ids);
+    const entries = decorate(CLOCK_API_CATALOG, sandbox).filter(
+      (entry) => wanted.has(entry.id) && (entry.probeable || (entry.confirmable && includeChanges)),
+    );
+    if (entries.length === 0) throw new BadRequestException('Nothing to check.');
+    if (entries.length > MAX_PER_CHECK)
+      throw new BadRequestException(`Check at most ${MAX_PER_CHECK} requests at a time.`);
 
     const fresh: StoredResult[] = [];
-    for (const entry of entries) fresh.push(await this.probe(parsed.value, entry));
+    for (const entry of entries) {
+      const { result, body } = await this.probe(parsed.value, entry, sandbox);
+      fresh.push(result);
+      // A live-updates subscription that exists was created through this connection: that proves the right.
+      if (
+        entry.id === 'GET base_api/webhook_subscription' &&
+        result.status === 'allowed' &&
+        body &&
+        typeof body === 'object' &&
+        'subscription_arn' in body
+      )
+        fresh.push({
+          id: 'POST base_api/webhook_subscription',
+          proof: 'use',
+          status: 'allowed',
+          message:
+            'Proven by use: a live-updates subscription created through this connection exists in Clock.',
+          checkedAt: result.checkedAt,
+        });
+    }
 
     const checkedAt = new Date();
     const merged = await this.db.withTenantTransaction(scope, async (tx) => {
@@ -216,14 +263,19 @@ export class ClockPermissionsService {
           .map((result) => result.right ?? result.id)
           .join(', ')}`,
       );
-    return build(merged, checkedAt.toISOString(), await this.evidence(scope));
+    return build(merged, checkedAt.toISOString(), await this.evidence(scope), sandbox);
   }
 
   private async probe(
     credentials: ClockConnectionCredentials,
     entry: ClockPermissionEntry,
-  ): Promise<StoredResult> {
+    sandbox: boolean,
+  ): Promise<{ result: StoredResult; body?: unknown }> {
     const checkedAt = new Date().toISOString();
+    const done = (result: Omit<StoredResult, 'id' | 'checkedAt'>, body?: unknown) => ({
+      result: { id: entry.id, checkedAt, ...result } as StoredResult,
+      body,
+    });
     const path = entry.path.replace(/:id/g, '0').replace(/:date/g, '2030-01-01');
     let lastMessage = '';
     // A busy or briefly unavailable Clock is retried before giving up, so a result is a real answer.
@@ -234,8 +286,7 @@ export class ClockPermissionsService {
       for (let wait = 0; ; wait++) {
         const limit = await this.rateLimiter.consume(credentials.apiUser);
         if (limit.allowed) break;
-        if (wait >= 7)
-          return { id: entry.id, status: 'error', message: 'Clock was busy.', checkedAt };
+        if (wait >= 7) return done({ status: 'error', message: 'Clock was busy.' });
         await sleep(Math.min(1000, Math.max(100, limit.retryAfterSeconds * 1000)));
       }
       try {
@@ -253,45 +304,41 @@ export class ClockPermissionsService {
         const message = errorText(response.body);
         if (status === 403) {
           const right = extractMissingRight(message);
-          return {
-            id: entry.id,
-            status: 'missing',
-            ...(right ? { right } : {}),
-            message,
-            checkedAt,
-          };
+          return done({ status: 'missing', ...(right ? { right } : {}), message });
         }
         if (status === 401)
-          return {
-            id: entry.id,
-            status: 'error',
-            message: 'Clock rejected the credentials.',
-            checkedAt,
-          };
+          return done({ status: 'error', message: 'Clock rejected the credentials.' });
         if (status >= 200 && status < 300 && entry.method !== 'GET') {
+          if (sandbox) {
+            // Clock's demo account: the request worked, so the right exists; a test record may remain.
+            this.logger.warn(`Clock sandbox accepted a test request: ${entry.id}`);
+            return done({
+              status: 'allowed',
+              message:
+                'Clock accepted the test request. This is the sandbox, so a test record may exist.',
+            });
+          }
           // The test record cannot exist, so a success means the request did something unexpected.
           this.logger.error(`Clock accepted a test request that should not succeed: ${entry.id}`);
-          return {
-            id: entry.id,
+          return done({
             status: 'error',
             message:
               'UNEXPECTED SUCCESS: Clock accepted a test request. Do not run write tests again; tell MUST support.',
-            checkedAt,
-          };
+          });
         }
         if (
           (status >= 200 && status < 300) ||
           [400, 404, 405, 422].includes(status) ||
           /param is missing|contract/i.test(message)
         )
-          return { id: entry.id, status: 'allowed', checkedAt };
+          return done({ status: 'allowed' }, response.body);
         lastMessage = message || `Clock answered ${status}.`;
       } catch (error) {
         if (!(error instanceof ClockHttpError)) throw error;
         lastMessage = error.message;
       }
     }
-    return { id: entry.id, status: 'error', message: lastMessage, checkedAt };
+    return done({ status: 'error', message: lastMessage });
   }
 }
 
@@ -299,10 +346,13 @@ function build(
   results: StoredResult[],
   checkedAt: string | null,
   evidence: Record<string, string> = {},
+  sandbox = false,
 ): ClockPermissionReport {
   const byId = new Map(results.filter((result) => result.id).map((result) => [result.id, result]));
-  const entries = decorate(CLOCK_API_CATALOG).map((entry): ClockPermissionEntry => {
+  const entries = decorate(CLOCK_API_CATALOG, sandbox).map((entry): ClockPermissionEntry => {
     const stored = byId.get(entry.id);
+    if (stored?.proof === 'use')
+      return { ...entry, status: 'allowed', proof: 'use', message: stored.message };
     if (!entry.probeable && !(entry.confirmable && stored)) {
       const proof = evidence[entry.id];
       return proof
@@ -323,10 +373,10 @@ function build(
       entries.flatMap((entry) => (entry.status === 'missing' && entry.right ? [entry.right] : [])),
     ),
   );
-  return { checkedAt, entries, missingRights };
+  return { sandbox, checkedAt, entries, missingRights };
 }
 
-function decorate(catalog: ClockCatalogEntry[]): ClockPermissionEntry[] {
+function decorate(catalog: ClockCatalogEntry[], sandbox = false): ClockPermissionEntry[] {
   return catalog.map((entry) => {
     const id = `${entry.method} ${entry.api}${entry.path}`;
     const readable = entry.api === 'pms_api' || entry.api === 'base_api';
@@ -335,11 +385,17 @@ function decorate(catalog: ClockCatalogEntry[]): ClockPermissionEntry[] {
     const verdict = CLOCK_API_SAFETY[id]?.verdict;
     const isRead = entry.method === 'GET' && !LARGE_LISTS.has(id);
     const aimsAtRecord = entry.path.includes(':id');
+    // In Clock's demo account everything is tested directly, except what would break the shared setup.
+    const direct = sandbox && readable && !SANDBOX_NEVER.has(id);
     const confirmable =
-      readable && !isRead && verdict === 'unverified' && (aimsAtRecord || entry.method === 'GET');
+      !direct &&
+      readable &&
+      !isRead &&
+      verdict === 'unverified' &&
+      (aimsAtRecord || entry.method === 'GET');
     const untestedReason = !readable
       ? 'Belongs to another Clock service that is not part of this connection.'
-      : isRead || verdict === 'safe'
+      : isRead || direct || verdict === 'safe'
         ? undefined
         : confirmable
           ? entry.method === 'GET'

@@ -12,8 +12,9 @@ const credentials = {
 };
 
 function make(
-  respond: (path: string) => { status: number; body: unknown },
+  respond: (path: string, method?: string) => { status: number; body: unknown },
   evidence: { created: number; events: number } = { created: 0, events: 0 },
+  connectionCredentials: typeof credentials = credentials,
 ) {
   let stored: unknown[] = [];
   const db = {
@@ -35,13 +36,15 @@ function make(
     ),
   };
   const connections = {
-    activePmsConnectionCredentials: vi
-      .fn()
-      .mockResolvedValue({ connectionId: 'c1', provider: 'CLOCK_PMS', credentials }),
+    activePmsConnectionCredentials: vi.fn().mockResolvedValue({
+      connectionId: 'c1',
+      provider: 'CLOCK_PMS',
+      credentials: connectionCredentials,
+    }),
   };
   const client = {
     request: vi.fn(async (_credentials: unknown, options: { path: string; method: string }) =>
-      respond(options.path),
+      respond(options.path, options.method),
     ),
   };
   const rateLimiter = {
@@ -176,6 +179,55 @@ describe('ClockPermissionsService', () => {
     expect(result?.status).toBe('error');
     expect(result?.message).toContain('UNEXPECTED SUCCESS');
     expect(client.request).toHaveBeenCalledTimes(1);
+  });
+
+  it('in the Clock sandbox tests creating requests directly and proves the webhook right from the subscription', async () => {
+    const sandboxCredentials = { ...credentials, accountId: '172528', subscriptionId: '16307' };
+    const { service, client } = make(
+      (path, method) =>
+        path === '/webhook_subscription' && method === 'GET'
+          ? { status: 200, body: { subscription_arn: 'arn:aws:sns:x', endpoint: 'https://x' } }
+          : path === '/rooms'
+            ? { status: 403, body: { error: "The User doesn't have pms_api_rooms_create right" } }
+            : { status: 422, body: { error: 'invalid' } },
+      { created: 0, events: 0 },
+      sandboxCredentials,
+    );
+
+    const report = await service.check(scope, null, [
+      'POST pms_api/rooms',
+      'POST pms_api/guests',
+      'GET base_api/webhook_subscription',
+    ]);
+
+    const byId = (id: string) => report.entries.find((entry) => entry.id === id);
+    expect(report.sandbox).toBe(true);
+    expect(byId('POST pms_api/rooms')).toMatchObject({
+      status: 'missing',
+      right: 'pms_api_rooms_create',
+    });
+    expect(byId('POST pms_api/guests')?.status).toBe('allowed');
+    expect(byId('POST base_api/webhook_subscription')).toMatchObject({
+      status: 'allowed',
+      proof: 'use',
+    });
+    // Even in the sandbox the shared webhook is never touched.
+    expect(
+      client.request.mock.calls.some(
+        ([, options]) =>
+          (options as { path: string; method: string }).path === '/webhook_subscription' &&
+          (options as { method: string }).method !== 'GET',
+      ),
+    ).toBe(false);
+  });
+
+  it('never sends a creating request to a real hotel account, even if asked', async () => {
+    const { service, client } = make(() => ({ status: 422, body: { error: 'invalid' } }));
+
+    await expect(service.check(scope, null, ['POST pms_api/rooms'], true)).rejects.toThrow(
+      'Nothing to check',
+    );
+    expect(client.request).not.toHaveBeenCalled();
   });
 
   it('shows a right as allowed when this connection has already used it', async () => {

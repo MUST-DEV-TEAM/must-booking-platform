@@ -33,6 +33,7 @@ type Entry = {
   checkedAt?: string;
 };
 export type ClockPermissionReport = {
+  sandbox?: boolean;
   checkedAt: string | null;
   entries: Entry[];
   missingRights: string[];
@@ -218,22 +219,30 @@ export function ClockPermissionsPanel({
             </Button>
           ))}
         </div>
-        <div className="flex items-start gap-2 rounded-md border border-border p-3">
-          <Checkbox
-            id="clock-include-changes"
-            checked={includeChanges}
-            onCheckedChange={(value) => setIncludeChanges(value === true)}
-            className="mt-0.5"
-          />
-          <label htmlFor="clock-include-changes" className="text-sm">
-            <span className="font-semibold">Also check the rights to change data.</span>{' '}
-            <span className="text-muted-foreground">
-              Each test is aimed at a record that does not exist, so Clock only checks whether we
-              are allowed and answers “not found”. Nothing is created, changed or deleted. Creating
-              a brand-new record cannot be checked this way.
-            </span>
-          </label>
-        </div>
+        {report?.sandbox ? (
+          <p className="m-0 rounded-md border border-border p-3 text-sm text-muted-foreground">
+            This is Clock’s sandbox (demo) account, so every request is tested directly, including
+            ones that create or change data. A test record may be left behind. On a real hotel
+            account only harmless tests are sent.
+          </p>
+        ) : (
+          <div className="flex items-start gap-2 rounded-md border border-border p-3">
+            <Checkbox
+              id="clock-include-changes"
+              checked={includeChanges}
+              onCheckedChange={(value) => setIncludeChanges(value === true)}
+              className="mt-0.5"
+            />
+            <label htmlFor="clock-include-changes" className="text-sm">
+              <span className="font-semibold">Also check the rights to change data.</span>{' '}
+              <span className="text-muted-foreground">
+                Each test is aimed at a record that does not exist, so Clock only checks whether we
+                are allowed and answers “not found”. Nothing is created, changed or deleted.
+                Creating a brand-new record cannot be checked this way.
+              </span>
+            </label>
+          </div>
+        )}
         {supportText ? (
           <div className="flex items-center justify-between gap-2 rounded-md border border-border p-3">
             <p className="m-0 text-sm">
