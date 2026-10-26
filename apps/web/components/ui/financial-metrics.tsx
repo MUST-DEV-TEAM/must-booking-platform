@@ -32,7 +32,11 @@ export function FinancialMetrics({
                 key === 'outstanding'
                   ? 'Still owed by stays that have started. Where Clock holds the bill, Clock’s balance is used.'
                   : key === 'expectedOnArrival'
-                    ? 'Balance of stays that have not started yet, normally paid at the hotel on arrival.'
+                    ? `Balance of stays that have not started yet, normally paid at the hotel on arrival.${
+                        Number(row.expectedWithoutGuest ?? 0) > 0
+                          ? ` ${reportValue(row.expectedWithoutGuest, 'money', row.currency)} of it is for stays with no guest name, often room blocks or tests made in Clock.`
+                          : ''
+                      }`
                     : 'Successful ledger postings in the selected period.'
               }
               onClick={
