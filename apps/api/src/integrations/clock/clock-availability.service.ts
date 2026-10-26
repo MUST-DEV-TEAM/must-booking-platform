@@ -998,12 +998,11 @@ export class ClockAvailabilityService {
     );
     if (!response.ok) return failure(response.error);
 
-    const rankOrder = await this.rateRankings.rankOrder(tenantId, propertyId, query.roomTypeId);
     const roomType = response.value.find((item) => String(item.id) === externalRoomTypeId);
     const offers = roomType ? collectValidOffers(roomType.rates) : [];
     return {
       ok: true,
-      value: orderOffers(offers, rankOrder).map(({ rateId, offer }) => {
+      value: orderOffers(offers).map(({ rateId, offer }) => {
         const info = rates.value.info[rateId];
         return {
           rateId,
@@ -1737,12 +1736,10 @@ function collectValidOffers(
 
 /**
  * The offers of a stay, cheapest first, then by rate id so the order is stable. Nobody ranks rates by hand any
- * more: a guest or staff member sees every bookable rate and chooses. (`_rankOrder` is kept only so the older
- * callers still compile; the stored order is ignored.)
+ * more: a guest or staff member sees every bookable rate and chooses.
  */
 function orderOffers(
   offers: Array<{ rateId: string; offer: ClockProductOffer }>,
-  _rankOrder?: string[],
 ): Array<{ rateId: string; offer: ClockProductOffer }> {
   return [...offers].sort(
     (a, b) =>
