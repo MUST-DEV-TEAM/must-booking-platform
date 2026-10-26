@@ -21,6 +21,7 @@ type Entry = {
   usedFor?: string;
   probeable: boolean;
   untestedReason?: string;
+  proof?: 'use';
   status: Status;
   right?: string;
   expectedRight?: string;
@@ -44,6 +45,7 @@ const statusBadge = {
 const FILTERS = [
   { key: 'all', label: 'All' },
   { key: 'used', label: 'Used by MUST' },
+  { key: 'unused', label: 'Not used by MUST' },
   { key: 'missing', label: 'Missing' },
   { key: 'allowed', label: 'Allowed' },
   { key: 'untested', label: 'Not tested' },
@@ -76,6 +78,7 @@ export function clockSupportText(report: ClockPermissionReport): string {
 function matches(entry: Entry, filter: Filter): boolean {
   if (filter === 'all') return true;
   if (filter === 'used') return Boolean(entry.usedFor);
+  if (filter === 'unused') return !entry.usedFor;
   return entry.status === filter;
 }
 
@@ -175,9 +178,11 @@ export function ClockPermissionsPanel({
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <p className="m-0 text-sm text-muted-foreground">
-          Every Clock request we know of, and whether this connection is allowed to use it. The
-          check only reads from Clock; anything that would create or change data is listed but never
-          tested.
+          Every Clock request we know of, and whether this connection is allowed to use it. Reads
+          are tested directly. A request that changes data is aimed at a record that cannot exist,
+          so Clock checks the right and rejects it without changing anything. A right to create a
+          new record cannot be tested that way; it is shown as allowed when this connection has
+          already used it.
         </p>
         {failure || latest.error ? (
           <p role="alert" className="m-0 text-sm text-destructive">
@@ -250,6 +255,9 @@ export function ClockPermissionsPanel({
                             <p className="m-0 text-xs text-destructive">
                               Missing right: {entry.right ?? entry.message ?? 'not named by Clock'}
                             </p>
+                          ) : null}
+                          {entry.status === 'allowed' && entry.proof === 'use' ? (
+                            <p className="m-0 text-xs text-muted-foreground">{entry.message}</p>
                           ) : null}
                           {entry.status === 'error' ? (
                             <p className="m-0 text-xs text-muted-foreground">

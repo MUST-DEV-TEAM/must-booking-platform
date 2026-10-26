@@ -35,6 +35,8 @@ export interface ClockPermissionEntry {
   /** Whether the check can read it safely. */
   probeable: boolean;
   untestedReason?: string;
+  /** 'use' when the right is proven by what this connection has already done, not by a test. */
+  proof?: 'use';
   status: ClockPermissionStatus;
   /** The right Clock named in its refusal. */
   right?: string;
@@ -111,7 +113,39 @@ export class ClockPermissionsService {
         `,
     );
     const row = rows[0];
-    return build(row?.results ?? [], row?.checkedAt.toISOString() ?? null);
+    return build(
+      row?.results ?? [],
+      row?.checkedAt.toISOString() ?? null,
+      await this.evidence(scope),
+    );
+  }
+
+  /** What this connection has already done in Clock, which proves rights that cannot be tested safely. */
+  private async evidence(scope: {
+    tenantId: string;
+    propertyId: string;
+  }): Promise<Record<string, string>> {
+    const rows = await this.db.withTenantTransaction(
+      scope,
+      (tx) =>
+        tx.$queryRaw<Array<{ created: number; events: number }>>`
+          SELECT
+            (SELECT COUNT(*) FROM bookings WHERE tenant_id = ${scope.tenantId}::uuid
+              AND property_id = ${scope.propertyId}::uuid AND external_booking_id IS NOT NULL)::int AS created,
+            (SELECT COUNT(*) FROM provider_events WHERE tenant_id = ${scope.tenantId}::uuid
+              AND property_id = ${scope.propertyId}::uuid)::int AS events
+        `,
+    );
+    const { created = 0, events = 0 } = rows[0] ?? {};
+    const proof: Record<string, string> = {};
+    if (created > 0)
+      proof['POST pms_api/bookings/'] =
+        `Proven by use: ${created} reservation${created === 1 ? ' was' : 's were'} created in Clock through this connection.`;
+    if (events > 0) {
+      const text = `Proven by use: ${events} update${events === 1 ? ' was' : 's were'} received from Clock.`;
+      proof['POST base_api/webhook_subscription'] = text;
+    }
+    return proof;
   }
 
   /**
@@ -170,7 +204,7 @@ export class ClockPermissionsService {
           .map((result) => result.right ?? result.id)
           .join(', ')}`,
       );
-    return build(merged, checkedAt.toISOString());
+    return build(merged, checkedAt.toISOString(), await this.evidence(scope));
   }
 
   private async probe(
@@ -193,8 +227,12 @@ export class ClockPermissionsService {
       try {
         const response = await this.client.request(credentials, {
           api: entry.api as 'pms_api' | 'base_api',
-          method: 'GET',
+          method: entry.method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
           path,
+          // A request that changes data is aimed at a record that cannot exist (id 0) with an empty
+          // body, so Clock answers after checking the right and never changes anything.
+          ...(entry.method === 'GET' ? {} : { body: {} }),
+          ...(entry.method === 'GET' && LARGE_LISTS.has(entry.id) ? { query: { id: '0' } } : {}),
           timeoutMs: 15_000,
         });
         const status = response.status;
@@ -216,6 +254,8 @@ export class ClockPermissionsService {
             message: 'Clock rejected the credentials.',
             checkedAt,
           };
+        if (status >= 200 && status < 300 && entry.method !== 'GET')
+          this.logger.warn(`Clock accepted a test request that should not succeed: ${entry.id}`);
         if (
           (status >= 200 && status < 300) ||
           [400, 404, 405, 422].includes(status) ||
@@ -232,11 +272,20 @@ export class ClockPermissionsService {
   }
 }
 
-function build(results: StoredResult[], checkedAt: string | null): ClockPermissionReport {
+function build(
+  results: StoredResult[],
+  checkedAt: string | null,
+  evidence: Record<string, string> = {},
+): ClockPermissionReport {
   const byId = new Map(results.filter((result) => result.id).map((result) => [result.id, result]));
   const entries = decorate(CLOCK_API_CATALOG).map((entry): ClockPermissionEntry => {
     const stored = byId.get(entry.id);
-    if (!entry.probeable) return { ...entry, status: 'untested' };
+    if (!entry.probeable) {
+      const proof = evidence[entry.id];
+      return proof
+        ? { ...entry, status: 'allowed', proof: 'use', message: proof }
+        : { ...entry, status: 'untested' };
+    }
     if (!stored) return { ...entry, status: 'pending' };
     return {
       ...entry,
@@ -258,19 +307,19 @@ function decorate(catalog: ClockCatalogEntry[]): ClockPermissionEntry[] {
   return catalog.map((entry) => {
     const id = `${entry.method} ${entry.api}${entry.path}`;
     const readable = entry.api === 'pms_api' || entry.api === 'base_api';
-    const untestedReason =
-      entry.method !== 'GET'
-        ? 'Changes data in Clock, so it is never tested.'
-        : !readable
-          ? 'A different Clock service that MUST does not use.'
-          : LARGE_LISTS.has(id)
-            ? 'Returns a very large list, so it is not read.'
-            : undefined;
+    // A request that changes data can only be tested by aiming it at a record that cannot exist.
+    const untestedReason = !readable
+      ? 'A different Clock service that MUST does not use.'
+      : entry.method !== 'GET' && !entry.path.includes(':id')
+        ? entry.method === 'POST'
+          ? 'Creating a record cannot be tested without creating one.'
+          : 'Cannot be tested without changing a record.'
+        : undefined;
     return {
       id,
       api: entry.api,
       method: entry.method,
-      path: entry.path,
+      path: readable ? entry.path : entry.path.replace(`/${entry.api}`, ''),
       name: entry.name,
       section: entry.section,
       group: groupOf(entry),

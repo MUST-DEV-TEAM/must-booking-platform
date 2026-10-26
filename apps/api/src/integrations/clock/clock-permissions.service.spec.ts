@@ -11,15 +11,20 @@ const credentials = {
   apiKey: 'key',
 };
 
-function make(respond: (path: string) => { status: number; body: unknown }) {
+function make(
+  respond: (path: string) => { status: number; body: unknown },
+  evidence: { created: number; events: number } = { created: 0, events: 0 },
+) {
   let stored: unknown[] = [];
   const db = {
     withTenantTransaction: vi.fn(async (_scope: unknown, work: (tx: unknown) => unknown) =>
       work({
-        $queryRaw: vi.fn(async () =>
-          stored.length > 0
-            ? [{ checkedAt: new Date('2026-10-26T10:00:00Z'), results: stored }]
-            : [],
+        $queryRaw: vi.fn(async (strings: TemplateStringsArray) =>
+          strings.join('').includes('external_booking_id')
+            ? [evidence]
+            : stored.length > 0
+              ? [{ checkedAt: new Date('2026-10-26T10:00:00Z'), results: stored }]
+              : [],
         ),
         $executeRaw: vi.fn(async (_strings: unknown, ...values: unknown[]) => {
           const json = values.find((value) => typeof value === 'string' && value.startsWith('['));
@@ -68,7 +73,7 @@ describe('ClockPermissionsService', () => {
     });
     const create = report.entries.find((entry) => entry.id === 'POST pms_api/bookings/');
     expect(create).toMatchObject({ probeable: false, status: 'untested' });
-    expect(create?.untestedReason).toContain('never tested');
+    expect(create?.untestedReason).toContain('without creating one');
   });
 
   it('marks a request allowed or missing and names the missing right', async () => {
@@ -118,18 +123,38 @@ describe('ClockPermissionsService', () => {
     );
   });
 
-  it('only ever reads from Clock and refuses to test a request that changes data', async () => {
-    const { service, client } = make(() => ({ status: 200, body: [] }));
+  it('never sends a request that could create a record, and aims a write test at an id that cannot exist', async () => {
+    const { service, client } = make(() => ({ status: 404, body: { error: 'not found' } }));
 
     await expect(service.check(scope, null, ['POST pms_api/bookings/'])).rejects.toThrow(
       'Nothing to check',
     );
-    await service.check(scope, null, ['GET pms_api/rates/', 'GET pms_api/rooms/']);
+    const report = await service.check(scope, null, ['PUT pms_api/bookings/:id']);
 
-    const methods = client.request.mock.calls.map(
-      ([, options]) => (options as { method: string }).method,
+    expect(client.request).toHaveBeenCalledTimes(1);
+    expect(client.request.mock.calls[0]?.[1]).toMatchObject({
+      method: 'PUT',
+      path: '/bookings/0',
+      body: {},
+    });
+    // Clock looking for the record shows the right to change it is granted.
+    expect(report.entries.find((entry) => entry.id === 'PUT pms_api/bookings/:id')?.status).toBe(
+      'allowed',
     );
-    expect(new Set(methods)).toEqual(new Set(['GET']));
+  });
+
+  it('shows a right as allowed when this connection has already used it', async () => {
+    const { service } = make(() => ({ status: 200, body: [] }), { created: 3, events: 1 });
+
+    const report = await service.report(scope);
+
+    const create = report.entries.find((entry) => entry.id === 'POST pms_api/bookings/');
+    expect(create).toMatchObject({ status: 'allowed', proof: 'use' });
+    expect(create?.message).toContain('3 reservations were created');
+    const none = await make(() => ({ status: 200, body: [] })).service.report(scope);
+    expect(none.entries.find((entry) => entry.id === 'POST pms_api/bookings/')?.status).toBe(
+      'untested',
+    );
   });
 
   it('tries again when Clock is briefly unavailable and reports an error only if it stays down', async () => {
