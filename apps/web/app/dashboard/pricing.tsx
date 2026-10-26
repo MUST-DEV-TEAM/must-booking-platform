@@ -30,6 +30,7 @@ import { PricingBaseEditor } from './pricing-base-editor';
 import { PricingPreviewPanel } from './pricing-preview';
 import { ClockAvailabilityPanel } from './clock-availability-panel';
 import { ClockPricingPriority } from './pricing-clock-priority';
+import { PromoCodesPanel } from './promo-codes-panel';
 import {
   priceDay,
   type PricingWorkspace,
@@ -401,6 +402,7 @@ export function PricingSection({
                 label: 'Taxes & fees',
                 count: data.readOnly ? undefined : data.charges.length,
               },
+              { id: 'promo', label: 'Promo codes' },
               {
                 id: 'issues',
                 label: 'Issues',
@@ -640,6 +642,9 @@ export function PricingSection({
                 />
               </>
             )
+          ) : null}
+          {tab === 'promo' ? (
+            <PromoCodesPanel tenantId={tenantId} propertyId={propertyId} canEdit={emailVerified} />
           ) : null}
           {tab === 'issues' ? (
             data.readOnly ? (

@@ -45,6 +45,27 @@ export class StaffBookingController {
     return this.availability.search(req.tenantContext, body ?? {});
   }
 
+  /** What a promo code does to the price of the chosen stay, before the reservation is created. */
+  @Post('promo-check')
+  @HttpCode(200)
+  @TenantScoped({ propertyParam: 'propertyId' })
+  @Roles(Role.TenantOwner, Role.TenantAdmin, Role.PropertyStaff)
+  @RequiresCapability('bookings.create')
+  async promoCheck(
+    @Req() req: { tenantContext: { tenantId: string; propertyId: string } },
+    @Body() body: unknown,
+  ) {
+    const input = this.input(body);
+    if (!input.promoCode) throw new BadRequestException('Enter a promo code.');
+    const priced = await this.quotes.priceWithNightlyRates(
+      req.tenantContext.tenantId,
+      req.tenantContext.propertyId,
+      input,
+      'staff',
+    );
+    return { total: priced.total, promo: priced.promo ?? null };
+  }
+
   @Post('rate-offers')
   @HttpCode(200)
   @TenantScoped({ propertyParam: 'propertyId' })

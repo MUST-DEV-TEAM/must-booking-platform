@@ -117,6 +117,12 @@ export type BookingDetail = BookingSearchItem & {
   estimatedArrivalTime: string | null;
   externalBookingId: string | null;
   nightlyRates: Array<{ date: string; amount: string }> | null;
+  /** The promo code used for this stay, with what it took off and the price before it. */
+  promo: {
+    code: string;
+    discount: { amount: string; currency: string };
+    originalTotal: { amount: string; currency: string };
+  } | null;
   cancellation: {
     isFree: boolean | null;
     freeUntilHours: number | null;
@@ -217,6 +223,7 @@ const BOOKING_BASE_SQL = `
           ${BOOKING_CONTACT_SQL.email} AS guest_email, ${BOOKING_CONTACT_SQL.phone} AS guest_phone,
           COALESCE(pt.paid, 0) AS paid, COALESCE(pt.refunded, 0) AS refunded,
           b.version, b.updated_at, b.external_booking_id, b.nightly_rates, b.estimated_arrival_time, rt.max_occupancy,
+          b.promo_code, b.promo_discount_amount, b.original_total_amount,
           (b.external_booking_id IS NOT NULL OR EXISTS(SELECT 1 FROM property_integration_connections pc JOIN integration_connections ic ON ic.tenant_id=pc.tenant_id AND ic.id=pc.connection_id WHERE pc.tenant_id=b.tenant_id AND pc.property_id=b.property_id AND pc.enabled AND pc.kind='PMS' AND ic.provider='CLOCK_PMS')) AS details_managed_in_clock,
           b.cancellation_is_free, b.cancellation_free_until_hours, b.cancellation_cutoff_at,
           b.order_room_number, g.street_address AS guest_street_address,
@@ -383,6 +390,19 @@ export class BookingProjectionService {
         maxOccupancy: Number(row.max_occupancy),
         estimatedArrivalTime: text(row.estimated_arrival_time),
         nightlyRates: (row.nightly_rates as BookingDetail['nightlyRates']) ?? null,
+        promo: row.promo_code
+          ? {
+              code: String(row.promo_code),
+              discount: {
+                amount: String(row.promo_discount_amount ?? '0.00'),
+                currency: String(row.currency),
+              },
+              originalTotal: {
+                amount: String(row.original_total_amount ?? row.total_amount),
+                currency: String(row.currency),
+              },
+            }
+          : null,
         cancellation: {
           isFree: (row.cancellation_is_free as boolean | null) ?? null,
           freeUntilHours:

@@ -103,6 +103,11 @@ type Detail = {
   updatedAt: string;
   externalBookingId: string | null;
   nightlyRates: Array<{ date: string; amount: string }> | null;
+  promo?: {
+    code: string;
+    discount: { amount: string; currency: string };
+    originalTotal: { amount: string; currency: string };
+  } | null;
   cancellation: { isFree: boolean | null; freeUntilHours: number | null; cutoffAt: string | null };
   guestAddress: {
     street: string | null;
@@ -715,6 +720,34 @@ export function ReservationDetail({
               </ActionBar>
             </CardContent>
           </Card>
+
+          {booking.promo ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Promo code</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <DetailList
+                  items={[
+                    { label: 'Code', value: booking.promo.code },
+                    {
+                      label: 'Price before the code',
+                      value: money(booking.promo.originalTotal.amount, currency),
+                    },
+                    {
+                      label: 'Discount',
+                      value: `-${money(booking.promo.discount.amount, currency)}`,
+                    },
+                    { label: 'Guest pays', value: money(booking.total.amount, currency) },
+                  ]}
+                />
+                <p className="m-0 mt-3 text-xs text-muted-foreground">
+                  Clock keeps the price before the code and shows this explanation in the
+                  reservation note.
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
 
           {booking.nightlyRates && booking.nightlyRates.length > 0 ? (
             <Card>

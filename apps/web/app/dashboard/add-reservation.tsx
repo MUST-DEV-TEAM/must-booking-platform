@@ -70,6 +70,7 @@ type Room = { id: string; name: string; roomTypeId: string; roomTypeName: string
 type RatePlan = { id: string; name: string; currency: string };
 type Money = { amount: string; currency: string };
 type Offer = { ok: true; total: Money } | { ok: false; reason: string; transient?: boolean };
+type AppliedPromo = { code: string; discount: Money; originalTotal: Money; source: string };
 type RateOffer = { rateId: string; name: string; label: string; mealNames: string[]; total: Money };
 type Guest = {
   firstName: string;
@@ -202,6 +203,13 @@ export function AddReservation({
   const [childrenAges, setChildrenAges] = useState<string[]>([]);
   const [ratePlanId, setRatePlanId] = useState('');
   const [clockRateId, setClockRateId] = useState('');
+  const [promoInput, setPromoInput] = useState('');
+  const [promoState, setPromoState] = useState<
+    | { status: 'idle' }
+    | { status: 'checking' }
+    | { status: 'applied'; code: string; promo: AppliedPromo; total: Money; forKey: string }
+    | { status: 'refused'; message: string }
+  >({ status: 'idle' });
   const [roomTypeId, setRoomTypeId] = useState(() => prefill?.get('roomTypeId') ?? '');
   const [roomId, setRoomId] = useState(() => prefill?.get('roomId') ?? '');
   const [chooseBy, setChooseBy] = useState<'type' | 'room'>(
@@ -402,7 +410,14 @@ export function AddReservation({
     ? (rateOptions.find((option) => option.rateId === clockRateId) ?? rateOptions[0]!)
     : null;
   const baseTotal = searchKey === currentKey && selectedOffer?.ok ? selectedOffer.total : null;
-  const total = baseTotal && chosenRate ? chosenRate.total : baseTotal;
+  const rateTotal = baseTotal && chosenRate ? chosenRate.total : baseTotal;
+  // A code that was checked for exactly this stay replaces the price; any change to the stay clears it.
+  const stayKey = [startsOn, endsOn, adults, children, roomTypeId, chosenRate?.rateId ?? ''].join(
+    '|',
+  );
+  const appliedPromo =
+    promoState.status === 'applied' && promoState.forKey === stayKey ? promoState : null;
+  const total = appliedPromo ? appliedPromo.total : rateTotal;
   const roomOptions = rooms.filter((room) => room.roomTypeId === roomTypeId);
   const selectedRoom = rooms.find((room) => room.id === roomId) ?? null;
 
@@ -428,6 +443,36 @@ export function AddReservation({
   const shown = (field: keyof typeof guestErrors) =>
     touched || left.has(field) ? guestErrors[field] : null;
 
+  const checkPromo = async () => {
+    setPromoState({ status: 'checking' });
+    try {
+      const result = (await post(`${base}/staff-bookings/promo-check`, {
+        roomTypeId,
+        roomId: showRoomPick && roomId ? roomId : undefined,
+        clockRateId: chosenRate?.rateId,
+        promoCode: promoInput,
+        startsOn,
+        endsOn,
+        adults,
+        children,
+        childrenAges: childrenAges.map(Number),
+      })) as { total: Money; promo: AppliedPromo | null };
+      if (!result.promo) throw new Error('This code is not valid for this stay.');
+      setPromoState({
+        status: 'applied',
+        code: result.promo.code,
+        promo: result.promo,
+        total: result.total,
+        forKey: stayKey,
+      });
+    } catch (error) {
+      setPromoState({
+        status: 'refused',
+        message: errorMessage(error),
+      });
+    }
+  };
+
   const create = useMutation({
     mutationFn: async (): Promise<Created> => {
       const payload = {
@@ -435,6 +480,7 @@ export function AddReservation({
         roomId: showRoomPick && roomId ? roomId : undefined,
         ratePlanId: isClock ? undefined : ratePlanId,
         clockRateId: chosenRate?.rateId,
+        promoCode: appliedPromo?.code,
         startsOn,
         endsOn,
         adults,
@@ -640,6 +686,15 @@ export function AddReservation({
             },
             { label: 'Room type', value: selectedType?.name },
             ...(chosenRate ? [{ label: 'Rate', value: chosenRate.label }] : []),
+            ...(appliedPromo
+              ? [
+                  { label: 'Promo code', value: appliedPromo.code },
+                  {
+                    label: 'Discount',
+                    value: `-${money(appliedPromo.promo.discount)}`,
+                  },
+                ]
+              : []),
             {
               label: 'Room',
               value: selectedRoom?.name ?? (selectedType && showRoomPick ? 'Auto-assign' : null),
@@ -1057,6 +1112,54 @@ export function AddReservation({
                   </CardContent>
                 </Card>
               ) : null}
+              {selectedType && total ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Promo code</CardTitle>
+                    <p className="m-0 text-xs text-muted-foreground">
+                      Optional. The discount is worked out by the server and kept on the
+                      reservation.
+                    </p>
+                  </CardHeader>
+                  <CardContent className="flex flex-col gap-3">
+                    <div className="flex gap-2">
+                      <Input
+                        aria-label="Promo code"
+                        value={promoInput}
+                        placeholder="SUMMER10"
+                        onChange={(event) => {
+                          setPromoInput(event.target.value.toUpperCase());
+                          if (promoState.status !== 'checking') setPromoState({ status: 'idle' });
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        disabled={!promoInput.trim() || promoState.status === 'checking'}
+                        onClick={() => void checkPromo()}
+                      >
+                        {promoState.status === 'checking' ? 'Checking…' : 'Apply'}
+                      </Button>
+                    </div>
+                    {appliedPromo ? (
+                      <p className="m-0 text-sm">
+                        <strong>{appliedPromo.code}</strong> takes{' '}
+                        {money(appliedPromo.promo.discount)} off (was{' '}
+                        <s>{money(appliedPromo.promo.originalTotal)}</s>, now{' '}
+                        <strong>{money(appliedPromo.total)}</strong>).
+                      </p>
+                    ) : promoState.status === 'applied' ? (
+                      <p className="m-0 text-sm text-muted-foreground">
+                        The stay changed. Apply the code again.
+                      </p>
+                    ) : null}
+                    {promoState.status === 'refused' ? (
+                      <p role="alert" className="m-0 text-sm text-destructive">
+                        {promoState.message}
+                      </p>
+                    ) : null}
+                  </CardContent>
+                </Card>
+              ) : null}
             </>
           ) : null}
 
@@ -1431,6 +1534,15 @@ export function AddReservation({
                         },
                         { label: 'Room type', value: selectedType?.name },
                         ...(chosenRate ? [{ label: 'Rate', value: chosenRate.label }] : []),
+                        ...(appliedPromo
+                          ? [
+                              { label: 'Promo code', value: appliedPromo.code },
+                              {
+                                label: 'Discount',
+                                value: `-${money(appliedPromo.promo.discount)}`,
+                              },
+                            ]
+                          : []),
                         {
                           label: 'Room',
                           value: selectedRoom?.name ?? (showRoomPick ? 'Auto-assign' : null),
