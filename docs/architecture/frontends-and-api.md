@@ -53,6 +53,14 @@ Do not claim "WordPress stores no local tables" or certify the plugin's declared
 
 ## API route map
 
+Local photo storage (ADR-0011 amendment, 2026-10-21) preserves the upload response
+`{ id, uploadUrl, publicUrl }` and raw-file PUT flow. With `STORAGE_DRIVER=local`,
+`uploadUrl` is a same-origin `/api/tenants/:tenantId/properties/:propertyId/photo-uploads?key=…`
+URL; the API route itself omits the web `/api` prefix. PUT requires the staff session,
+verified owner/admin, `photos.manage`, tenant/property access and an existing key reservation.
+It returns 204 after validation and WebP optimization. The default R2 flow is unchanged.
+Local confirmation checks disk directly. See [deployment configuration](../../infrastructure/containers/README.md#interim-local-photo-storage).
+
 Routes below are relative to the Nest API. Browser requests through Next normally prefix them with `/api`. Inspect each controller for current verbs, input parsing and guards; no complete generated OpenAPI specification is present.
 
 | Surface | Routes / owner |
@@ -66,6 +74,7 @@ Routes below are relative to the Nest API. Browser requests through Next normall
 | Staff booking/payment actions | `staff-booking.controller.ts`, `manual-payment.controller.ts`, `payment-refund.controller.ts` |
 | Staff payment ledger (read-only) | `GET /tenants/:tenantId/properties/:propertyId/payments/bookings/:bookingId`, `payment-ledger.controller.ts`; needs the `payments.refund` capability |
 | Gateway callbacks | `stripe-webhook.controller.ts`, `pokpay-webhook.controller.ts`; provider-specific verification |
+| PokPay environment | A PokPay connection's `environment` credential (`staging` default, or `production`) picks the API host (`api-staging.pokpay.io` / `api.pokpay.io`); the webhook URL is derived as `WEB_APP_URL/api/webhooks/pokpay` unless an older connection stores `webhookUrl`; any other host is rejected (`pokpay-environments.ts`) |
 | Clock SNS | `/clock-webhooks/:webhookPublicId`; no staff session; pinned topic and signature checks |
 | Pairing | `/wordpress-pairing/redeem`; staff code-generation controller is tenant/property scoped |
 | Platform oversight | `/platform/*`, platform-admin role; targeted operations rather than tenant impersonation |
@@ -74,7 +83,7 @@ Shared contracts are handwritten. Many web response types are local to their com
 
 Physical rooms can have their own ordered photos in `room_images`. The property-wide room routes are `GET /tenants/:tenantId/properties/:propertyId/rooms/:roomId/images`, `POST` on that collection for a presigned upload, `POST /from-url`, `POST /from-library`, `PUT /order`, `PUT /primary`, and `DELETE /:imageId`. Mutations require a verified user with `photos.manage`; tenant, property and room scope are enforced. A room's public/read presentation uses its own images when any exist and otherwise projects its room type's images. In public catalog `rooms[]` entries, `images[]` is the ordered effective gallery and `photoSource` is `room`, `room_type` or `none`; clients should render this projected list directly.
 
-Room-type photos are managed in the tenant dashboard with a dedicated main-image selector and a separate ordered gallery manager. The selector can choose an existing gallery photo or upload one main photo; uploading a main photo also adds it to the gallery. `GET /tenants/:tenantId/properties/:propertyId/room-types/:roomTypeId/images` returns gallery order and an `isPrimary` flag; the first photo is selected as primary when a gallery is first created. Staff can request a presigned upload at the collection route, add an existing public URL at `/images/from-url`, persist a full-gallery order with `PUT /images/order`, select the cover with `PUT /images/primary` and `{ "imageId": "…" }`, or remove one item with `DELETE /images/:imageId`. Removing the primary promotes the first remaining gallery item. A room type holds at most 21 photos (one main plus 20 more), and the dashboard refuses uploads narrower than 1200 px. Photo and photo-library mutations require a verified user holding the `photos.manage` capability; tenant owners and admins have every capability, and staff get it through a property role template or a per-person grant. The API mirrors the selected primary and remaining gallery URLs back to `main_image_url` and `gallery_image_urls` for the existing public catalog and WordPress guest client.
+Room-type photos are managed in the tenant dashboard with a dedicated main-image selector and a separate ordered gallery manager. The selector can choose an existing gallery photo or upload one main photo; uploading a main photo also adds it to the gallery. `GET /tenants/:tenantId/properties/:propertyId/room-types/:roomTypeId/images` returns gallery order and an `isPrimary` flag; the first photo is selected as primary when a gallery is first created. Staff can request a presigned upload at the collection route, add an existing public URL at `/images/from-url`, persist a full-gallery order with `PUT /images/order`, select the cover with `PUT /images/primary` and `{ "imageId": "…" }`, or remove one item with `DELETE /images/:imageId`. Removing the primary promotes the first remaining gallery item. A room type holds at most 21 photos (one main plus 20 more),. The dashboard checks only file type and size (10 MB); there is no minimum width or height. Photo and photo-library mutations require a verified user holding the `photos.manage` capability; tenant owners and admins have every capability, and staff get it through a property role template or a per-person grant. The API mirrors the selected primary and remaining gallery URLs back to `main_image_url` and `gallery_image_urls` for the existing public catalog and WordPress guest client.
 
 ### Accommodation category dashboard contract (2026-10-18)
 

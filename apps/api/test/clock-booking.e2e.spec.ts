@@ -10,6 +10,8 @@ import { ClockBookingService } from '../src/integrations/clock/clock-booking.ser
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { STAY_STARTS_ON, STAY_ENDS_ON } from './helpers/future-stay';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
+import { paceClockRequests } from './helpers/clock-pacing';
+import { retryOnClockRateLimit } from './helpers/clock-retry';
 
 // Milestone 11 Task 10's real-sandbox gate. Booking CRUD isn't reachable
 // through an HTTP endpoint yet (same reason as Task 8's getAvailability —
@@ -61,6 +63,7 @@ describe.skipIf(!hasSandboxCredentials)('Clock booking CRUD (real sandbox)', () 
   };
 
   beforeAll(async () => {
+    paceClockRequests();
     process.env.APP_PORT = '3000';
     process.env.DATABASE_URL =
       'postgresql://must_booking_app:must_booking_app_dev@localhost:5432/must_booking';
@@ -188,7 +191,7 @@ describe.skipIf(!hasSandboxCredentials)('Clock booking CRUD (real sandbox)', () 
     };
 
     const first = await bookingService.createBooking(context, command);
-    expect(first.ok).toBe(true);
+    expect(first.ok, JSON.stringify(first)).toBe(true);
     if (first.ok) expect(first.value.externalBookingId).toMatch(/^\d+$/);
 
     const bookingRow = await admin.$queryRaw<
@@ -225,13 +228,15 @@ describe.skipIf(!hasSandboxCredentials)('Clock booking CRUD (real sandbox)', () 
     // Real cancellation against a real, Clock-confirmed booking — the
     // lock_version re-fetch + PUT status=canceled path, never exercised for
     // real before 2026-08-05 since no booking had ever reached CONFIRMED.
-    const cancelResult = await bookingService.cancelBooking(context, {
-      idempotencyKey: `clock-booking-e2e-cancel-${randomUUID()}`,
-      bookingId: bookingRow[0]!.id,
-      expectedVersion: 1,
-      reason: 'E2E test cleanup.',
-    });
-    expect(cancelResult.ok).toBe(true);
+    const cancelResult = await retryOnClockRateLimit(() =>
+      bookingService.cancelBooking(context, {
+        idempotencyKey: `clock-booking-e2e-cancel-${randomUUID()}`,
+        bookingId: bookingRow[0]!.id,
+        expectedVersion: 1,
+        reason: 'E2E test cleanup.',
+      }),
+    );
+    expect(cancelResult.ok, JSON.stringify(cancelResult)).toBe(true);
     const cancelledRow = await admin.$queryRaw<Array<{ status: string }>>`
       SELECT status FROM bookings WHERE id = ${bookingRow[0]!.id}::uuid
     `;

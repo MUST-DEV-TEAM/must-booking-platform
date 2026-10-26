@@ -141,3 +141,89 @@ jobs:
           name: playwright-report
           path: output/playwright
           retention-days: 14
+
+  clock-staging:
+    name: Clock staging tests
+    runs-on: ubuntu-latest
+    # Real bookings in the Clock demo account (subscription 16307, Must Hotel), never Empire.
+    # One run at a time so two PRs don't race for the same demo rooms.
+    concurrency:
+      group: clock-staging
+      cancel-in-progress: false
+    env:
+      CLOCK_SANDBOX_API_USER: ${{ secrets.CLOCK_SANDBOX_API_USER }}
+      CLOCK_SANDBOX_API_KEY: ${{ secrets.CLOCK_SANDBOX_API_KEY }}
+      CLOCK_SANDBOX_PMS_API_URL: ${{ secrets.CLOCK_SANDBOX_PMS_API_URL }}
+      CLOCK_SANDBOX_BASE_API_URL: ${{ secrets.CLOCK_SANDBOX_BASE_API_URL }}
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: must_booking
+          POSTGRES_USER: must_booking
+          POSTGRES_PASSWORD: must_booking_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U must_booking -d must_booking"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Check for the Clock staging keys
+        id: keys
+        run: |
+          if [ -n "$CLOCK_SANDBOX_API_USER" ] && [ -n "$CLOCK_SANDBOX_API_KEY" ] && [ -n "$CLOCK_SANDBOX_PMS_API_URL" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Clock staging keys are not set in GitHub secrets, so the real Clock tests were skipped."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out repository
+        if: steps.keys.outputs.ready == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        if: steps.keys.outputs.ready == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.4
+
+      - name: Set up Node.js
+        if: steps.keys.outputs.ready == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.keys.outputs.ready == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace
+        if: steps.keys.outputs.ready == 'true'
+        run: pnpm -w build
+
+      - name: Apply database migrations
+        if: steps.keys.outputs.ready == 'true'
+        run: pnpm --filter api prisma migrate deploy
+
+      - name: Run real Clock staging tests
+        if: steps.keys.outputs.ready == 'true'
+        run: >-
+          pnpm --filter api exec vitest run
+          src/integrations/clock/clock-pms.provider.sandbox.spec.ts
+          test/clock-catalog-sync.e2e.spec.ts
+          test/clock-availability.e2e.spec.ts
+          test/clock-booking.e2e.spec.ts
+          test/clock-payment-gated-booking.e2e.spec.ts

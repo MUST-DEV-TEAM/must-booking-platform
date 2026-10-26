@@ -1,7 +1,13 @@
-import { pokpayBaseUrl, validPokpayWebhook } from './pokpay-environment';
+import { validPokpayWebhook } from './pokpay-environment';
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
 import { ConnectionTestRegistry, type ConnectionTester } from '../integrations/connection-tester';
+import {
+  POKPAY_BASE_URL_MESSAGE,
+  isAllowedPokpayBaseUrl,
+  resolvePokpayBaseUrl,
+  resolvePokpayWebhookUrl,
+} from './pokpay-environments';
 
 /** Registers itself with ConnectionTestRegistry on boot so the tenant-facing
  * "Test connection" button actually authenticates against real PokPay for
@@ -21,15 +27,11 @@ export class PokpayConnectionTester implements ConnectionTester, OnModuleInit {
     const keyId = credentials.keyId?.trim();
     const keySecret = credentials.keySecret?.trim();
     const merchantId = credentials.merchantId?.trim();
-    const webhookUrl = credentials.webhookUrl?.trim();
-    const baseUrl = (credentials.baseUrl?.trim() || 'https://api-staging.pokpay.io').replace(
-      /\/$/,
-      '',
-    );
+    const webhookUrl = resolvePokpayWebhookUrl(credentials.webhookUrl);
+    const baseUrl = resolvePokpayBaseUrl(credentials);
     if (!keyId || !keySecret || !merchantId || !webhookUrl)
       return { ok: false, message: 'keyId, keySecret, merchantId, and webhookUrl are required.' };
-    if (!pokpayBaseUrl(baseUrl))
-      return { ok: false, message: 'Choose a supported PokPay environment.' };
+    if (!isAllowedPokpayBaseUrl(baseUrl)) return { ok: false, message: POKPAY_BASE_URL_MESSAGE };
     if (!validPokpayWebhook(webhookUrl, baseUrl))
       return { ok: false, message: 'Use a valid webhook URL; production requires public HTTPS.' };
 

@@ -4,7 +4,7 @@ Tags: hotel, booking, reservation, accommodation
 Requires at least: 5.0
 Tested up to: 6.0
 Requires PHP: 7.4
-Stable tag: 0.4.108
+Stable tag: 0.4.112
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,18 @@ Main features include:
 5. When updating, upload the new release ZIP or use the configured updater, then review **Diagnostics & Maintenance** after the update completes.
 
 == Changelog ==
+
+= 0.4.112 =
+* Currency switcher redesigned: a quiet header control with a custom dropdown, keyboard support and phone-friendly sizing.
+
+= 0.4.111 =
+* Checkout: the rate choice now sits between the coupon field and the room summary; currency switcher dropdown readable on dark headers.
+
+= 0.4.110 =
+* Room cards show the lowest price and key room facts; checkout lets guests choose between a room's rates (when the hotel offers several); Elementor Currency Switcher widget with approximate converted prices (display only). The currency converter reads a free daily euro rate feed until the platform API serves rates; rate choice needs the matching platform API release.
+
+= 0.4.109 =
+* Checkout stay summary shows only the number of nights ("1 Night", "2 Nights"), not a days count.
 
 = 0.4.108 =
 * Booking calendar: closed (stop-sale) dates get their own colour and legend entry, separate from fully booked; guests can check out on the first closed day; Clock arrival/departure closures and per-date minimum stay are honoured; multi-room searches only show dates with enough free rooms.

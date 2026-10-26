@@ -349,6 +349,36 @@ describe('RoomTypesService property image library', () => {
     expect(storage.deleteObject).not.toHaveBeenCalled();
   });
 
+  it('uses the local optimized extension before reserving the public key', async () => {
+    const { roomTypes, storage, executeRaw } = libraryService([]);
+    Object.assign(storage, { uploadExtension: 'webp' });
+    const result = await roomTypes.createLibraryUpload(tenantId, propertyId, actorUserId, {
+      contentType: 'image/jpeg',
+      contentLength: 500,
+    });
+    expect(storage.createPresignedUpload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: expect.stringMatching(
+          new RegExp(`^library/${tenantId}/${propertyId}/[a-f0-9-]+\\.webp$`),
+        ),
+        contentType: 'image/jpeg',
+      }),
+    );
+    expect(result.publicUrl).toMatch(/\.webp$/);
+    expect(executeRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it('confirms a local upload from disk without making a public HTTP request', async () => {
+    const { roomTypes, storage, executeRaw } = libraryService([
+      [{ objectKey: 'local/photo.webp', confirmedAt: null }],
+    ]);
+    const objectExists = vi.fn().mockResolvedValue(true);
+    Object.assign(storage, { objectExists });
+    await roomTypes.confirmLibraryUpload(tenantId, propertyId, libraryId);
+    expect(objectExists).toHaveBeenCalledWith('local/photo.webp');
+    expect(executeRaw).toHaveBeenCalledTimes(1);
+  });
+
   it('deletes an unused library photo and its stored object', async () => {
     const { roomTypes, storage, executeRaw } = libraryService([
       [{ objectKey: 'library/a.jpg' }],

@@ -245,7 +245,7 @@ describe.skipIf(!hasSandboxCredentials)('Clock getAvailability (real sandbox)', 
     // Whole-month calendar via a single real /rates_availability call
     // (previously only ever exercised with a 2-3 night range) — proves
     // Clock actually returns per-day data across a full month in one
-    // request, and that the known-available 2026-08-16 shows up correctly
+    // request, and that the known-available arrival night shows up correctly
     // inside that larger result set.
     const calendar = await availability.getAvailabilityCalendar(tenantId, propertyId, {
       roomTypeId: localRoomType[0].id,

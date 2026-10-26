@@ -85,25 +85,112 @@
             existing.parentNode.removeChild(existing);
         }
         switchers.forEach(function (switcher) {
-            var select = switcher.querySelector('select');
-            if (select && select.value !== current) {
-                select.value = current;
+            var label = switcher.querySelector('.must-currency-current');
+            if (label) {
+                label.textContent = current;
             }
+            Array.prototype.forEach.call(switcher.querySelectorAll('.must-currency-option'), function (option) {
+                option.setAttribute('aria-selected', option.getAttribute('data-value') === current ? 'true' : 'false');
+            });
         });
     }
 
+    function setOpen(switcher, open) {
+        var trigger = switcher.querySelector('.must-currency-trigger');
+        switcher.classList.toggle('is-open', open);
+        if (trigger) {
+            trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+        }
+        var active = switcher.querySelector('.must-currency-option.is-active');
+        if (active) {
+            active.classList.remove('is-active');
+        }
+        // Keep the panel inside the screen on very narrow phones.
+        var menu = switcher.querySelector('.must-currency-menu');
+        if (menu) {
+            menu.style.right = '';
+            if (open) {
+                var left = menu.getBoundingClientRect().left;
+                if (left < 8) {
+                    menu.style.right = (left - 8) + 'px';
+                }
+            }
+        }
+    }
+
+    function choose(value) {
+        current = value;
+        write(current);
+        render();
+    }
+
     switchers.forEach(function (switcher) {
-        var select = switcher.querySelector('select');
-        if (!select) {
+        var trigger = switcher.querySelector('.must-currency-trigger');
+        var menu = switcher.querySelector('.must-currency-menu');
+        if (!trigger || !menu) {
             return;
         }
-        select.value = current;
-        select.addEventListener('change', function () {
-            current = select.value;
-            write(current);
-            render();
+        var options = Array.prototype.slice.call(menu.querySelectorAll('.must-currency-option'));
+
+        trigger.addEventListener('click', function () {
+            setOpen(switcher, !switcher.classList.contains('is-open'));
+        });
+
+        options.forEach(function (option) {
+            option.addEventListener('click', function () {
+                choose(option.getAttribute('data-value'));
+                setOpen(switcher, false);
+                trigger.focus();
+            });
+        });
+
+        switcher.addEventListener('keydown', function (event) {
+            var open = switcher.classList.contains('is-open');
+            if (event.key === 'Escape' && open) {
+                setOpen(switcher, false);
+                trigger.focus();
+                return;
+            }
+            if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Enter' && event.key !== ' ') {
+                return;
+            }
+            if (!open) {
+                if (event.target === trigger && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+                    event.preventDefault();
+                    setOpen(switcher, true);
+                }
+                return;
+            }
+            var index = options.findIndex(function (option) { return option.classList.contains('is-active'); });
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                var next = event.key === 'ArrowDown' ? index + 1 : index - 1;
+                if (index === -1) {
+                    next = event.key === 'ArrowDown' ? 0 : options.length - 1;
+                }
+                next = (next + options.length) % options.length;
+                options.forEach(function (option) { option.classList.remove('is-active'); });
+                options[next].classList.add('is-active');
+                options[next].scrollIntoView({ block: 'nearest' });
+            } else if (index !== -1 && event.target !== trigger) {
+                event.preventDefault();
+                options[index].click();
+            } else if (index !== -1) {
+                event.preventDefault();
+                options[index].click();
+            }
         });
     });
+
+    document.addEventListener('click', function (event) {
+        switchers.forEach(function (switcher) {
+            if (!switcher.contains(event.target)) {
+                setOpen(switcher, false);
+            }
+        });
+    });
+
+    render();
 
     var url = window.mustCurrencyConfig.ajaxUrl +
         '?action=must_hotel_booking_exchange_rates&currencies=' + encodeURIComponent(currencies.join(','));

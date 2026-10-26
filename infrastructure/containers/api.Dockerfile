@@ -31,6 +31,7 @@ RUN export NODE_OPTIONS=--max-old-space-size=3072 \
  && pnpm --filter api build
 
 ENV NODE_ENV=production
+RUN mkdir -p /var/lib/must-booking/photos && chown node:node /var/lib/must-booking/photos
 USER node
 EXPOSE 3000
 CMD ["node", "apps/api/dist/main.js"]

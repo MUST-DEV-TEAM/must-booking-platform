@@ -1,4 +1,4 @@
-import { pokpayBaseUrl, validPokpayWebhook } from './pokpay-environment';
+import { validPokpayWebhook } from './pokpay-environment';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   type CheckoutSession,
@@ -12,6 +12,13 @@ import {
 } from '@must/domain-contracts';
 
 import { IntegrationConnectionsService } from '../integrations/integration-connections.service';
+import {
+  POKPAY_BASE_URL_MESSAGE,
+  isAllowedPokpayBaseUrl,
+  normalizePokpayBaseUrl,
+  resolvePokpayBaseUrl,
+  resolvePokpayWebhookUrl,
+} from './pokpay-environments';
 
 type PokPayOrder = {
   id?: string;
@@ -231,15 +238,12 @@ export class PokPayPaymentProvider implements PaymentProvider {
     const keyId = credentials?.keyId?.trim();
     const keySecret = credentials?.keySecret?.trim();
     const merchantId = credentials?.merchantId?.trim();
-    const webhookUrl = credentials?.webhookUrl?.trim();
-    const baseUrl = (credentials?.baseUrl?.trim() || 'https://api-staging.pokpay.io').replace(
-      /\/$/,
-      '',
-    );
+    const webhookUrl = resolvePokpayWebhookUrl(credentials?.webhookUrl);
+    const baseUrl = resolvePokpayBaseUrl(credentials ?? {});
     if (!keyId || !keySecret || !merchantId || !webhookUrl)
       return this.failure('POKPAY_NOT_CONFIGURED', 'PokPay is not configured for this property.');
-    if (!pokpayBaseUrl(baseUrl))
-      return this.failure('POKPAY_INVALID_ENVIRONMENT', 'Choose a supported PokPay environment.');
+    if (!isAllowedPokpayBaseUrl(baseUrl))
+      return this.failure('POKPAY_BASE_URL_NOT_ALLOWED', POKPAY_BASE_URL_MESSAGE);
     if (!validPokpayWebhook(webhookUrl, baseUrl))
       return this.failure(
         'POKPAY_WEBHOOK_URL_INVALID',
@@ -252,13 +256,11 @@ export class PokPayPaymentProvider implements PaymentProvider {
     const keyId = process.env.POKPAY_KEY_ID?.trim();
     const keySecret = process.env.POKPAY_KEY_SECRET?.trim();
     const merchantId = process.env.POKPAY_MERCHANT_ID?.trim();
-    const baseUrl = (
-      process.env.POKPAY_API_BASE_URL?.trim() || 'https://api-staging.pokpay.io'
-    ).replace(/\/$/, '');
+    const baseUrl = normalizePokpayBaseUrl(process.env.POKPAY_API_BASE_URL);
     if (!keyId || !keySecret || !merchantId)
       return this.failure('POKPAY_NOT_CONFIGURED', 'PokPay is not configured for health checks.');
-    if (!pokpayBaseUrl(baseUrl))
-      return this.failure('POKPAY_INVALID_ENVIRONMENT', 'Choose a supported PokPay environment.');
+    if (!isAllowedPokpayBaseUrl(baseUrl))
+      return this.failure('POKPAY_BASE_URL_NOT_ALLOWED', POKPAY_BASE_URL_MESSAGE);
     return {
       ok: true,
       value: { baseUrl, keyId, keySecret, merchantId, webhookUrl: '' },

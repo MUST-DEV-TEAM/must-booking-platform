@@ -14,6 +14,8 @@ import { ClockBookingService } from '../src/integrations/clock/clock-booking.ser
 import { cleanupTenant } from './helpers/cleanup-tenant';
 import { STAY_STARTS_ON, STAY_ENDS_ON } from './helpers/future-stay';
 import { clearSignupRateLimits } from './helpers/clear-signup-rate-limits';
+import { paceClockRequests } from './helpers/clock-pacing';
+import { retryOnClockRateLimit } from './helpers/clock-retry';
 
 const sandboxCredentials = () => {
   const url = new URL(process.env.CLOCK_SANDBOX_PMS_API_URL!);
@@ -75,6 +77,7 @@ describe.skipIf(!hasSandboxCredentials)(
     };
 
     beforeAll(async () => {
+      paceClockRequests();
       process.env.APP_PORT = '3000';
       process.env.DATABASE_URL =
         'postgresql://must_booking_app:must_booking_app_dev@localhost:5432/must_booking';
@@ -240,9 +243,9 @@ describe.skipIf(!hasSandboxCredentials)(
       const bookingId = created.body.value.id as string;
 
       const row = await admin.$queryRaw<
-        Array<{ status: string; externalBookingId: string | null }>
+        Array<{ status: string; externalBookingId: string | null; version: number }>
       >`
-      SELECT status, external_booking_id AS "externalBookingId" FROM bookings WHERE id = ${bookingId}::uuid
+      SELECT status, external_booking_id AS "externalBookingId", version FROM bookings WHERE id = ${bookingId}::uuid
     `;
       expect(row[0]?.status).toBe('CONFIRMED');
       expect(row[0]?.externalBookingId).toMatch(/^\d+$/);
@@ -259,22 +262,26 @@ describe.skipIf(!hasSandboxCredentials)(
       UPDATE properties SET free_cancellation_days_before_arrival = 0 WHERE id = ${propertyId}::uuid
     `;
       const bookings = app!.get(LocalPmsProvider);
-      const cancelResult = await bookings.cancelBooking(
-        { tenantId, propertyId },
-        {
-          idempotencyKey: `pay-at-hotel-cancel-${randomUUID()}`,
-          bookingId,
-          // Staff-created bookings carry no guest session (staff-booking.controller
-          // never passes quoteSessionId). CancelBookingCommand's type is
-          // `string | undefined` (production callers always have a real
-          // session id), but the comparison against the row is a strict
-          // `!==`, so this test must pass the literal null to match.
-          guestSessionId: null as unknown as string,
-          expectedVersion: 1,
-          reason: 'Task 4 e2e cleanup.',
-        },
+      const cancelResult = await retryOnClockRateLimit(() =>
+        bookings.cancelBooking(
+          { tenantId, propertyId },
+          {
+            idempotencyKey: `pay-at-hotel-cancel-${randomUUID()}`,
+            bookingId,
+            // Staff-created bookings carry no guest session (staff-booking.controller
+            // never passes quoteSessionId). CancelBookingCommand's type is
+            // `string | undefined` (production callers always have a real
+            // session id), but the comparison against the row is a strict
+            // `!==`, so this test must pass the literal null to match.
+            guestSessionId: null as unknown as string,
+            // Read the real version: a background Clock job can bump it after
+            // creation, and a hard-coded 1 then leaves the real reservation uncancelled.
+            expectedVersion: row[0]!.version,
+            reason: 'Task 4 e2e cleanup.',
+          },
+        ),
       );
-      expect(cancelResult.ok).toBe(true);
+      expect(cancelResult.ok, JSON.stringify(cancelResult)).toBe(true);
       const cancelled = await admin.$queryRaw<Array<{ status: string }>>`
       SELECT status FROM bookings WHERE id = ${bookingId}::uuid
     `;
@@ -495,7 +502,12 @@ describe.skipIf(!hasSandboxCredentials)(
         { api: 'pms_api', method: 'GET', path: `/bookings/${externalBookingId}` },
       );
       expect(clockBooking.status).toBe(200);
-      expect((clockBooking.body as { balance: { cents: number } }).balance.cents).toBe(0);
+      // The stay's nights are relative to today, so Clock's own price for them
+      // varies; the 500.00 deposit nets the balance to 0 or leaves a credit
+      // when Clock charges less. An un-netted payment would leave it positive.
+      expect(
+        (clockBooking.body as { balance: { cents: number } }).balance.cents,
+      ).toBeLessThanOrEqual(0);
 
       // GET .../folios/ returns bare numeric folio IDs, not objects
       // (confirmed for real) — each folio's own fields need GET /folios/{id}.

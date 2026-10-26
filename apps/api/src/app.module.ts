@@ -4,8 +4,6 @@ import { BookingRoomMoveController } from './booking/booking-room-move.controlle
 import { requestLogPath } from './observability/request-log-path';
 import { GuestBookingManageController } from './booking/guest-booking-manage.controller';
 import { ClockFinancialService } from './integrations/clock/clock-financial.service';
-import { ServerStorageProvider } from './storage/server-storage.provider';
-import { ServerMediaController } from './storage/server-media.controller';
 import {
   ClockBackgroundSyncService,
   ClockBackgroundSyncController,
@@ -160,6 +158,8 @@ import { EmailTemplatesController } from './tenancy/email-templates.controller';
 import { EmailTemplatesService } from './tenancy/email-templates.service';
 import { STORAGE_PROVIDER } from './storage/storage.provider';
 import { R2StorageProvider } from './storage/r2-storage.provider';
+import { LocalStorageProvider } from './storage/local-storage.provider';
+import { PhotoUploadsController } from './storage/photo-uploads.controller';
 import { RoomTypesController } from './tenancy/room-types.controller';
 import { AccommodationImportController } from './tenancy/accommodation-import.controller';
 import { PropertyImageLibraryController } from './tenancy/property-image-library.controller';
@@ -293,7 +293,6 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     }),
   ],
   controllers: [
-    ServerMediaController,
     ClockImportController,
     ClockGuestImportController,
     ClockBackgroundSyncController,
@@ -334,6 +333,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PricingController,
     AccommodationsAuditController,
     PropertyImageLibraryController,
+    PhotoUploadsController,
     RoomsController,
     PropertyRoomsController,
     RatePlansController,
@@ -519,12 +519,16 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     ManualReviewService,
     { provide: PAYMENT_PROVIDER, useExisting: StripePaymentProvider },
     R2StorageProvider,
-    ServerStorageProvider,
+    LocalStorageProvider,
     {
       provide: STORAGE_PROVIDER,
-      useFactory: (local: ServerStorageProvider, r2: R2StorageProvider) =>
-        process.env.STORAGE_BACKEND === 'server' ? local : r2,
-      inject: [ServerStorageProvider, R2StorageProvider],
+      inject: [R2StorageProvider, LocalStorageProvider],
+      useFactory: (r2: R2StorageProvider, local: LocalStorageProvider) => {
+        const driver = process.env.STORAGE_DRIVER ?? 'r2';
+        if (driver === 'local') return local;
+        if (driver === 'r2') return r2;
+        throw new Error('STORAGE_DRIVER must be local or r2.');
+      },
     },
     EmailMessageArchiveService,
     EmailTransportJournal,

@@ -29,6 +29,7 @@ describe('PokPayPaymentProvider', () => {
     delete process.env.POKPAY_MERCHANT_ID;
     delete process.env.POKPAY_WEBHOOK_URL;
     delete process.env.POKPAY_API_BASE_URL;
+    delete process.env.WEB_APP_URL;
   });
 
   it.each(['https://api-staging.pokpay.io', 'https://api.pokpay.io'])(
@@ -117,6 +118,102 @@ describe('PokPayPaymentProvider', () => {
       'https://api-staging.pokpay.io/auth/sdk/login',
       expect.objectContaining({ method: 'POST' }),
     );
+  });
+
+  it('sends orders to the production host when the connection sets the production base URL', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json({ data: { accessToken: 'token' } }))
+      .mockResolvedValueOnce(
+        json({
+          data: {
+            sdkOrder: { id: 'order-1', _self: { confirmUrl: 'https://pay.pokpay.test/order-1' } },
+          },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = makeProvider({
+      keyId: 'key-id',
+      keySecret: 'key-secret',
+      merchantId: 'merchant-id',
+      webhookUrl: 'https://api.example.test/webhooks/pokpay',
+      baseUrl: 'https://api.pokpay.io/',
+    });
+
+    await expect(
+      provider.createCheckoutSession(context, {
+        idempotencyKey: 'create-1',
+        bookingId: 'booking-1',
+        amount: { amount: '12.50', currency: 'EUR' },
+        successUrl: 'https://guest.example.test/success',
+        cancelUrl: 'https://guest.example.test/cancel',
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.pokpay.io/auth/sdk/login',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.pokpay.io/merchants/merchant-id/sdk-orders',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('uses production and a derived webhook URL when the connection only picks the environment', async () => {
+    process.env.WEB_APP_URL = 'https://booking.example.test';
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json({ data: { accessToken: 'token' } }))
+      .mockResolvedValueOnce(
+        json({
+          data: {
+            sdkOrder: { id: 'order-1', _self: { confirmUrl: 'https://pay.pokpay.test/order-1' } },
+          },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = makeProvider({
+      keyId: 'key-id',
+      keySecret: 'key-secret',
+      merchantId: 'merchant-id',
+      environment: 'production',
+    });
+
+    await provider.createCheckoutSession(context, {
+      idempotencyKey: 'create-1',
+      bookingId: 'booking-1',
+      amount: { amount: '12.50', currency: 'EUR' },
+      successUrl: 'https://guest.example.test/success',
+      cancelUrl: 'https://guest.example.test/cancel',
+    });
+    const orderCall = fetchMock.mock.calls[1]!;
+    expect(orderCall[0]).toBe('https://api.pokpay.io/merchants/merchant-id/sdk-orders');
+    expect(JSON.parse(orderCall[1].body as string)).toMatchObject({
+      webhookUrl: 'https://booking.example.test/api/webhooks/pokpay',
+    });
+  });
+
+  it('rejects a base URL that is neither PokPay staging nor production, without calling out', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = makeProvider({
+      keyId: 'key-id',
+      keySecret: 'key-secret',
+      merchantId: 'merchant-id',
+      webhookUrl: 'https://api.example.test/webhooks/pokpay',
+      baseUrl: 'https://api.pokpay.io.evil.example',
+    });
+
+    await expect(
+      provider.createCheckoutSession(context, {
+        idempotencyKey: 'create-1',
+        bookingId: 'booking-1',
+        amount: { amount: '12.50', currency: 'EUR' },
+        successUrl: 'https://guest.example.test/success',
+        cancelUrl: 'https://guest.example.test/cancel',
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'POKPAY_BASE_URL_NOT_ALLOWED' } });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

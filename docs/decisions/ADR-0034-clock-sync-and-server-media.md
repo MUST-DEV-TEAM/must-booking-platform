@@ -2,6 +2,8 @@
 
 Status: Accepted owner direction (2026-10-22); local implementation evidence recorded in Milestone 24. Production enablement and restore verification remain separate.
 
+Amendment (2026-10-26): the server-media half was replaced by ADR-0011's local-disk provider (`STORAGE_DRIVER=local`), which is already live with real photos. The `ServerStorageProvider` and `/api/media` routes were removed during the merge of live into the redesign. The Clock synchronization half is unchanged.
+
 ## Context
 
 The owner approved the 15-point corrective plan on 2026-10-22. Daily Calendar, Inventory, Guests and Rates screens must use synchronized data, not require manual imports/Load buttons. Hotel images must use persistent server storage instead of Cloudflare R2. This supersedes ADR-0011's provider choice; tenant isolation, upload validation and access control remain required.

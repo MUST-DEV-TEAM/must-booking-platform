@@ -23,6 +23,33 @@ Cloudflare R2, with a public-read bucket and presigned-upload-only access model.
 
 Accepted by the owner on 2026-07-28.
 
+### Amendment — 2026-10-21: interim local disk
+
+Owner decision: defer R2 and use local disk on `booking.must.al`. Keep the R2 provider.
+`STORAGE_DRIVER=local|r2` selects the provider; omission defaults to `r2` for compatibility.
+Local storage requires `LOCAL_STORAGE_DIR` and `LOCAL_STORAGE_PUBLIC_BASE_URL`.
+The existing authorize/PUT/confirm contract remains: local authorization returns a same-origin
+authenticated API PUT URL instead of a presigned R2 URL. Upload authorization and the local PUT
+require a verified tenant owner/admin, `photos.manage`, tenant/property access and a reserved key.
+
+Local uploads accept only JPEG, PNG and WebP, at most 10 MiB of actual bytes. Signature checks
+and full decoding reject spoofed or corrupt files. Images are auto-oriented, metadata stripped,
+resized without enlargement to a maximum 2000-pixel long edge, and encoded as WebP (quality 80).
+Decoding is limited to 40 megapixels and one active conversion per API process; concurrent
+conversions receive 409 and can be retried. New local keys end in `.webp`.
+The `room-types/{tenantId}/{propertyId}/{roomTypeId}/{uuid}.{ext}` layout is retained, as is
+main's existing `library/{tenantId}/{propertyId}/{uuid}.{ext}` layout for property-library uploads.
+Keys are validated and files cannot be overwritten. The library owns shared files: removing a
+room attachment retains the library file; deleting an unused library photo removes the disk file.
+
+Photos live in a named Docker volume, served publicly at `/photos/` by a read-only nginx
+service with a one-year immutable cache. This is single-host storage; back up the volume
+alongside the database. See [deployment steps](../../infrastructure/containers/README.md#interim-local-photo-storage).
+Migration back to R2 is copy files with identical keys, then switch the driver and public base.
+Keep the public `/photos/` origin stable (proxy it to the new storage) to preserve URLs already
+materialized in room records and caches. R2's existing direct-upload path is unchanged and does
+not gain the local decoder/optimizer; equivalent byte validation there remains future work.
+
 ## Consequences
 
 - A `StorageProvider` interface is added (in `packages/domain-contracts`, mirroring the existing `MailProvider`/`PmsProvider`/`BillingProvider` pattern), with an R2 implementation behind it in `apps/api`'s infrastructure layer — domain/application code never calls the R2 SDK or HTTP API directly.

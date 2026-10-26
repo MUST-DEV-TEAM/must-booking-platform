@@ -12,7 +12,6 @@ import { roomImagePresentation, type RoomImageProjectionRow } from './room-image
 import { TenantDatabaseService, type TenantTransaction } from './tenant-database.service';
 import {
   STORAGE_PROVIDER,
-  uploadObjectKey,
   type StorageProvider,
 } from '../storage/storage.provider';
 import { resolveEffectiveHouseRules } from './effective-house-rules';
@@ -259,10 +258,7 @@ export class RoomsService {
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid AND room_id = ${roomId}::uuid
       `;
       const extension = input.contentType.split('/')[1];
-      const objectKey = uploadObjectKey(
-        this.storage,
-        `rooms/${tenantId}/${propertyId}/${roomId}/${randomUUID()}.${extension}`,
-      );
+      const objectKey = `rooms/${tenantId}/${propertyId}/${roomId}/${randomUUID()}.${extension}`;
       const { uploadUrl } = await this.storage.createPresignedUpload({
         key: objectKey,
         contentType: input.contentType,

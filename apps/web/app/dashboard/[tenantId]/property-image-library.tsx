@@ -78,33 +78,9 @@ export function validateImageFile(file: File): string | null {
   return null;
 }
 
-/** Narrower photos look blurry on large screens and in channel listings. */
-export const minImageWidth = 1200;
-
-async function imageWidth(file: File): Promise<number | null> {
-  // Browsers without createImageBitmap (and test DOMs) skip the width check;
-  // the type and size checks above still apply.
-  if (typeof createImageBitmap !== 'function') return null;
-  try {
-    const bitmap = await createImageBitmap(file);
-    const width = bitmap.width;
-    bitmap.close();
-    return width;
-  } catch {
-    return null;
-  }
-}
-
-/** Type, size and minimum-width checks for files about to be uploaded; the first problem wins. */
+/** Type and size checks for files about to be uploaded; the first problem wins. Any width or height is fine. */
 export async function checkImageFiles(files: File[]): Promise<string | null> {
-  const problem = files.map(validateImageFile).find(Boolean);
-  if (problem) return problem;
-  for (const file of files) {
-    const width = await imageWidth(file);
-    if (width !== null && width < minImageWidth)
-      return `${file.name} is ${width} px wide. Use a photo at least ${minImageWidth} px wide.`;
-  }
-  return null;
+  return files.map(validateImageFile).find(Boolean) ?? null;
 }
 
 /**
