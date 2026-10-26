@@ -1,6 +1,6 @@
 import { withClockBackgroundWork } from './clock-request-context';
 import { randomUUID } from 'node:crypto';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
 import { CLOCK_RATE_LIMIT_PER_SECOND, ClockRateLimiterService } from './clock-rate-limiter';
 
@@ -12,6 +12,7 @@ describe('ClockRateLimiterService', () => {
   afterAll(async () => {
     await limiter.onModuleDestroy();
   });
+  afterEach(() => vi.useRealTimers());
 
   it(`allows up to ${CLOCK_RATE_LIMIT_PER_SECOND} requests per second per API user`, async () => {
     const apiUser = `test-user-${randomUUID()}`;
@@ -52,7 +53,10 @@ describe('ClockRateLimiterService', () => {
 
     expect((await limiter.consume(apiUser)).allowed).toBe(true);
   });
-  it('reserves two slots for foreground work even after rejected background attempts', async () => {
+  it('reserves two slots for foreground work by day, even after rejected background attempts', async () => {
+    // By day background work may use two; the overnight budget is tested below.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-26T12:00:00Z'));
     const apiUser = `priority-${randomUUID()}`;
     await withClockBackgroundWork(async () => {
       expect((await limiter.consume(apiUser)).allowed).toBe(true);
@@ -60,6 +64,17 @@ describe('ClockRateLimiterService', () => {
       for (let i = 0; i < 5; i++) expect((await limiter.consume(apiUser)).allowed).toBe(false);
     });
     expect((await limiter.consume(apiUser)).allowed).toBe(true);
+    expect((await limiter.consume(apiUser)).allowed).toBe(true);
+    expect((await limiter.consume(apiUser)).allowed).toBe(false);
+  });
+  it('lets background work use a third request overnight and keeps one for foreground work', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-26T01:00:00Z'));
+    const apiUser = `night-${randomUUID()}`;
+    await withClockBackgroundWork(async () => {
+      for (let i = 0; i < 3; i++) expect((await limiter.consume(apiUser)).allowed).toBe(true);
+      expect((await limiter.consume(apiUser)).allowed).toBe(false);
+    });
     expect((await limiter.consume(apiUser)).allowed).toBe(true);
     expect((await limiter.consume(apiUser)).allowed).toBe(false);
   });

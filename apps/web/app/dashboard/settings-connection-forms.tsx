@@ -90,71 +90,87 @@ export function BrandingSettings({
       ? null
       : 'Enter a phone number with 6 to 15 digits, optionally starting with +.',
   };
+  const labels = {
+    supportEmail: 'Support email',
+    phone: 'Hotel phone',
+    brandColour: 'Brand colour',
+    emailFooterText: 'Email footer text',
+    termsUrl: 'Terms and conditions link',
+  } as const;
+  const field = (key: keyof typeof labels, hint?: string) => (
+    <FormField
+      key={key}
+      htmlFor={`branding-${key}`}
+      label={labels[key]}
+      hint={hint}
+      error={dirty ? errors[key] : null}
+    >
+      {key === 'brandColour' ? (
+        <ColourField
+          id="branding-brandColour"
+          value={draft.brandColour}
+          disabled={!canWrite}
+          invalid={!!errors.brandColour}
+          onChange={(brandColour) => setDraft({ ...draft, brandColour })}
+        />
+      ) : (
+        <Input
+          id={`branding-${key}`}
+          disabled={!canWrite}
+          value={draft[key]}
+          onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
+        />
+      )}
+    </FormField>
+  );
   return (
     <div className="flex flex-col gap-4">
-      <FormSection
-        title="Email branding"
-        description="Booking emails use these hotel details. Leave optional fields empty to omit them."
-      >
-        <HotelLogoPicker
-          tenantId={tenantId}
-          propertyId={property.id}
-          value={draft.logoUrl}
-          onChange={(logoUrl) => setDraft({ ...draft, logoUrl })}
-          canManage={canWrite && canManagePhotos}
-        />
-        {(['supportEmail', 'phone', 'brandColour', 'emailFooterText', 'termsUrl'] as const).map(
-          (key) => (
-            <FormField
-              key={key}
-              htmlFor={`branding-${key}`}
-              label={
-                {
-                  supportEmail: 'Support email',
-                  phone: 'Hotel phone',
-                  brandColour: 'Brand colour',
-                  emailFooterText: 'Email footer text',
-                  termsUrl: 'Terms and conditions link',
-                }[key]
-              }
-              hint={
-                key === 'emailFooterText'
-                  ? `${draft[key].length}/300 characters`
-                  : key === 'termsUrl'
-                    ? `${draft[key].length} characters`
-                    : undefined
-              }
-              error={dirty ? errors[key] : null}
-            >
-              {key === 'brandColour' ? (
-                <ColourField
-                  id="branding-brandColour"
-                  value={draft.brandColour}
-                  disabled={!canWrite}
-                  invalid={!!errors.brandColour}
-                  onChange={(brandColour) => setDraft({ ...draft, brandColour })}
-                />
-              ) : (
-                <Input
-                  id={`branding-${key}`}
-                  disabled={!canWrite}
-                  value={draft[key]}
-                  onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
-                />
-              )}
-            </FormField>
-          ),
-        )}
-      </FormSection>
-      <EmailBrandingPreview
-        name={property.name}
-        logoUrl={webUrl(draft.logoUrl.trim()) ? draft.logoUrl.trim() : null}
-        email={draft.supportEmail}
-        phone={draft.phone}
-        colour={draft.brandColour}
-        footer={draft.emailFooterText}
-        termsUrl={draft.termsUrl}
-      />
+      <p className="m-0 text-sm text-muted-foreground">
+        These details style this system and the emails it sends. They are not shown on your public
+        website.
+      </p>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:items-start">
+        <div className="flex flex-col gap-4">
+          <FormSection
+            title="Logo and colour"
+            description="Shown in the sidebar and at the top of booking emails."
+          >
+            <HotelLogoPicker
+              tenantId={tenantId}
+              propertyId={property.id}
+              value={draft.logoUrl}
+              onChange={(logoUrl) => setDraft({ ...draft, logoUrl })}
+              canManage={canWrite && canManagePhotos}
+            />
+            {field('brandColour', 'Used for buttons and headings in emails, for example #224858.')}
+          </FormSection>
+          <FormSection
+            title="Contact details"
+            description="Guests see these in booking emails. Leave a field empty to leave it out."
+          >
+            {field('supportEmail')}
+            {field('phone')}
+            {field('termsUrl', `${draft.termsUrl.length} characters`)}
+          </FormSection>
+          <FormSection
+            title="Email footer"
+            description="A short line at the bottom of every email, such as the hotel address."
+          >
+            {field('emailFooterText', `${draft.emailFooterText.length}/300 characters`)}
+          </FormSection>
+        </div>
+        <div className="lg:sticky lg:top-4">
+          <EmailBrandingPreview
+            name={property.name}
+            logoUrl={webUrl(draft.logoUrl.trim()) ? draft.logoUrl.trim() : null}
+            email={draft.supportEmail}
+            phone={draft.phone}
+            colour={draft.brandColour}
+            footer={draft.emailFooterText}
+            termsUrl={draft.termsUrl}
+          />
+        </div>
+      </div>
       {canWrite ? (
         <SaveBar
           dirty={dirty}

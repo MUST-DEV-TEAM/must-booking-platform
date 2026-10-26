@@ -545,7 +545,12 @@ $render_checkout_price_breakdown_rows = static function (array $pricing, string 
                             );
                             ?>
                         </h2>
-                        <strong><?php echo \MustHotelBooking\Frontend\format_frontend_money_html($total_price, $summary_currency); ?></strong>
+                        <strong>
+                            <?php if ($discount_total > 0.0) : ?>
+                                <del class="must-checkout-original-total" style="font-weight:400;opacity:.6;margin-right:.4em;"><?php echo \MustHotelBooking\Frontend\format_frontend_money_html($total_price + $discount_total, $summary_currency); ?></del>
+                            <?php endif; ?>
+                            <?php echo \MustHotelBooking\Frontend\format_frontend_money_html($total_price, $summary_currency); ?>
+                        </strong>
                     </div>
                 </section>
 

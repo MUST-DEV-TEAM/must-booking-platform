@@ -163,7 +163,7 @@ describe('DashboardSettings', () => {
 
   it.each([
     ['payments', 'Payment methods', 'Email branding'],
-    ['branding', 'Email branding', 'Payment methods'],
+    ['branding', 'Logo and colour', 'Payment methods'],
   ] as const)(
     'renders the %s Settings sub-view',
     async (settingsArea, visiblePanel, hiddenPanel) => {

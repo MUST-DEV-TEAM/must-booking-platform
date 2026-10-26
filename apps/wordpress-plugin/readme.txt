@@ -4,7 +4,7 @@ Tags: hotel, booking, reservation, accommodation
 Requires at least: 5.0
 Tested up to: 6.0
 Requires PHP: 7.4
-Stable tag: 0.4.112
+Stable tag: 0.4.113
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -31,6 +31,9 @@ Main features include:
 5. When updating, upload the new release ZIP or use the configured updater, then review **Diagnostics & Maintenance** after the update completes.
 
 == Changelog ==
+
+= 0.4.113 =
+* Checkout: the coupon field now works. A valid hotel coupon shows the original price crossed out, the discount and the new total, keeps what the guest typed, and survives a change of rate.
 
 = 0.4.112 =
 * Currency switcher redesigned: a quiet header control with a custom dropdown, keyboard support and phone-friendly sizing.
