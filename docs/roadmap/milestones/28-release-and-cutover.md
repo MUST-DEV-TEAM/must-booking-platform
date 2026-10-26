@@ -29,6 +29,18 @@ Move the redesigned dashboard (including the platform admin console and the emai
 | 10 | **Deploy, verify, rollback plan** | Fresh backup, deploy outside busy hours, verify with the live booking check and a real read-only walk through Empire, and keep the previous release for rollback. | Planned |
 | 11 | **Tidy** | Remove temporary working folders and test containers left on the owner's laptop; update the roadmap page when this closes. | Planned |
 
+## Gate evidence, 2026-10-26 (steps 1 and 3 of the gate)
+
+**Step 1, live merged into the redesign (commit `cf284d3` and fixes).** Conflicts were in photo storage (kept live's `STORAGE_DRIVER=local`; the redesign's `ServerStorageProvider`/`/api/media` was removed, ADR-0034 amended), PokPay environment helpers (both kept: live's host allow-list plus the redesign's production-webhook check), the Clock catalogue cache (redesign's fuller version), the currency switcher (live's dropdown) and the Clock test date helpers (redesign's). Full isolated run on the merged code: install, build, lint, format and migrate pass; web 725/725; browser 8/8; API all pass except `report-workspace` "collects one 365-day snapshot", which fails only while it is before 02:00 in Pacific/Auckland (the capture refuses earlier hours); rerun after 13:00 UTC pending. Three hand-built test modules were updated (promo codes, platform support, organization lifecycle).
+
+**Step 3, rehearsal on a scrubbed copy of Empire's data (local, not on the live host).** The live host has about 1 GB RAM (about 0.4 GB free) and one CPU, so a second copy there was ruled out. A read-only `pg_dump` (22 MB) was restored into a throwaway Postgres, every guest name, email, phone, address, free-text field, log payload and staff address was replaced, and the Clock/PokPay credentials were blanked, so the copy cannot reach Clock, PokPay or mail. All 173 migrations (the redesign's 12 new ones included) applied on it with row counts unchanged (676 bookings, 204 guests, 38 payments, 150 rooms). Owner and staff were logged in through the redesign web: 24 and 22 dashboard screens loaded with no page errors. Findings:
+
+- The Clock-dependent calendar and inventory show "Synchronizing / Updating" because the connection is blanked. The same will happen on cutover until the first Clock sync of the scoped snapshots finishes: plan a sync warm-up and check before announcing.
+- `GET .../pms-connection-status` answers 500 when stored credentials cannot be decrypted ("Invalid authentication tag length"). Caused by the scrub, but a robustness gap: it should report "reconnect needed".
+- Payments "Outstanding" is EUR 4,197,807.84 because Empire's own Clock data holds large bookings created 2026-10-25 (for example CLOCK-15926 at 148,292.10). Data, not code; ask the hotel.
+- The staff user gets 403 on `support-sessions` (expected for staff).
+- Not covered: anything that needs the real Clock login, including the permissions panel on Empire (gate step 2).
+
 ## Done when
 
 Everything above is Done or explicitly deferred with a reason, the owner has signed off, and the live site runs the new build with Empire verified.
