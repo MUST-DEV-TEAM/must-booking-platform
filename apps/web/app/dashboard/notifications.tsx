@@ -502,7 +502,11 @@ export function NotificationsInbox({
               {href ? (
                 <Button asChild>
                   <a href={href}>
-                    {row.type === 'STAFF_SEAT_CAP_REACHED' ? 'Open staff' : 'Open reservation'}
+                    {row.type === 'STAFF_SEAT_CAP_REACHED'
+                      ? 'Open staff'
+                      : row.type === 'CLOCK_RIGHT_MISSING'
+                        ? 'Open System health'
+                        : 'Open reservation'}
                   </a>
                 </Button>
               ) : null}

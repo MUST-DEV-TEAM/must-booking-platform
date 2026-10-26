@@ -142,6 +142,45 @@ describe('ClockPermissionsPanel', () => {
     expect(document.body.textContent).not.toContain('Not checked yet');
   });
 
+  it('says in plain words which MUST features work and which are blocked', async () => {
+    mockApi('CLOCK_PMS', () =>
+      Response.json({
+        ...after,
+        features: [
+          {
+            key: 'prices',
+            label: 'Rates, availability and live prices',
+            required: true,
+            planned: false,
+            status: 'ready',
+            message: 'Works: every right it needs is confirmed.',
+            missingRights: [],
+          },
+          {
+            key: 'rate-packages',
+            label: 'Rate packages',
+            required: false,
+            planned: true,
+            status: 'blocked',
+            message:
+              'Package rates cannot be read. Ask Clock to enable: pms_api_rate_packages_index.',
+            missingRights: ['pms_api_rate_packages_index'],
+          },
+        ],
+      }),
+    );
+    await mount();
+
+    expect(document.body.textContent).toContain('What works with these permissions');
+    expect(document.body.textContent).toContain('Rates, availability and live prices');
+    expect(document.body.textContent).toContain('Works');
+    expect(document.body.textContent).toContain('Blocked');
+    expect(document.body.textContent).toContain('Planned');
+    expect(document.body.textContent).toContain(
+      'Ask Clock to enable: pms_api_rate_packages_index.',
+    );
+  });
+
   it('is not shown for a hotel without Clock', async () => {
     const fetchMock = mockApi('LOCAL', () => Response.json(before));
     await mount();

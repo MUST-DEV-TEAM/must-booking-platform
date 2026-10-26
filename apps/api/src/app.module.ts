@@ -232,6 +232,7 @@ import { ClockCatalogSyncService } from './integrations/clock/clock-catalog-sync
 import { ClockCatalogSyncController } from './integrations/clock/clock-catalog-sync.controller';
 import { ClockPermissionsController } from './integrations/clock/clock-permissions.controller';
 import { ClockPermissionsService } from './integrations/clock/clock-permissions.service';
+import { ClockPermissionsMonitorService } from './integrations/clock/clock-permissions-monitor.service';
 import { ClockAvailabilityService } from './integrations/clock/clock-availability.service';
 import { ClockPrePaymentAvailability } from './integrations/clock/clock-pre-payment-availability';
 import { PrePaymentAvailabilityRegistry } from './booking/pre-payment-availability';
@@ -482,6 +483,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PmsProviderRegistry,
     ClockCatalogSyncService,
     ClockPermissionsService,
+    ClockPermissionsMonitorService,
     ClockAvailabilityService,
     ClockPrePaymentAvailability,
     PrePaymentAvailabilityRegistry,

@@ -100,7 +100,9 @@ export class NotificationInboxService {
             ? `/dashboard/${c.tenantId}?propertyId=${c.propertyId}&section=reservations&reservation=${row.bookingId}`
             : row.type === 'STAFF_SEAT_CAP_REACHED' && canStaff
               ? `/dashboard/${c.tenantId}?propertyId=${c.propertyId}&section=staff`
-              : null;
+              : row.type === 'CLOCK_RIGHT_MISSING' && caps.includes('settings.manage')
+                ? `/dashboard/${c.tenantId}?propertyId=${c.propertyId}&section=overview&tab=system-health`
+                : null;
     return {
       id: row.id,
       type: row.type,
@@ -129,11 +131,13 @@ export class NotificationInboxService {
             : !href
               ? 'Related email is unavailable'
               : null
-          : !canBooking && row.type !== 'STAFF_SEAT_CAP_REACHED'
-            ? 'bookings.view'
-            : !row.bookingId && row.type !== 'STAFF_SEAT_CAP_REACHED'
-              ? 'Related reservation is unavailable'
-              : null,
+          : row.type === 'CLOCK_RIGHT_MISSING'
+            ? null
+            : !canBooking && row.type !== 'STAFF_SEAT_CAP_REACHED'
+              ? 'bookings.view'
+              : !row.bookingId && row.type !== 'STAFF_SEAT_CAP_REACHED'
+                ? 'Related reservation is unavailable'
+                : null,
     };
   }
   /** Open, resolved (by a person or automatically by the underlying record), or null for information. */

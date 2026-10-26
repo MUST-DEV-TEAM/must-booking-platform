@@ -32,7 +32,17 @@ type Entry = {
   message?: string;
   checkedAt?: string;
 };
+type Feature = {
+  key: string;
+  label: string;
+  required: boolean;
+  planned: boolean;
+  status: 'ready' | 'blocked' | 'unknown';
+  message: string;
+  missingRights: string[];
+};
 export type ClockPermissionReport = {
+  features?: Feature[];
   sandbox?: boolean;
   checkedAt: string | null;
   entries: Entry[];
@@ -45,6 +55,12 @@ const statusBadge = {
   error: { variant: 'warning', label: 'Check failed' },
   untested: { variant: 'muted', label: 'Cannot be checked' },
   pending: { variant: 'secondary', label: 'Not checked yet' },
+} as const;
+
+const featureBadge = {
+  ready: { variant: 'success', label: 'Works' },
+  blocked: { variant: 'danger', label: 'Blocked' },
+  unknown: { variant: 'secondary', label: 'Not confirmed' },
 } as const;
 
 const FILTERS = [
@@ -196,6 +212,31 @@ export function ClockPermissionsPanel({
           <p role="alert" className="m-0 text-sm text-destructive">
             {failure ?? latest.error?.message}
           </p>
+        ) : null}
+        {report?.features && report.features.length > 0 ? (
+          <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+            <p className="m-0 text-sm font-semibold">What works with these permissions</p>
+            <ul className="m-0 flex list-none flex-col gap-2 p-0">
+              {report.features.map((feature) => {
+                const badge = featureBadge[feature.status];
+                return (
+                  <li key={feature.key} className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="m-0 text-sm font-semibold">
+                        {feature.label}{' '}
+                        {feature.planned ? <Badge variant="muted">Planned</Badge> : null}
+                        {!feature.required && !feature.planned ? (
+                          <Badge variant="muted">Optional</Badge>
+                        ) : null}
+                      </p>
+                      <p className="m-0 text-xs text-muted-foreground">{feature.message}</p>
+                    </div>
+                    <Badge variant={badge.variant}>{badge.label}</Badge>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         ) : null}
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="success">{counts.allowed} allowed</Badge>

@@ -5,6 +5,7 @@ import { TenantDatabaseService } from '../../tenancy/tenant-database.service';
 import { CLOCK_API_CATALOG, type ClockCatalogEntry } from './clock-api-catalog';
 import { describeClockRequest, touchesMoney } from './clock-api-descriptions';
 import { CLOCK_API_SAFETY } from './clock-api-safety';
+import { CLOCK_FEATURES } from './clock-feature-rights';
 import { parseClockCredentials } from './clock-credentials';
 import { extractMissingRight } from './clock-error-classification';
 import {
@@ -57,7 +58,22 @@ export interface ClockPermissionEntry {
   checkedAt?: string;
 }
 
+export type ClockFeatureStatus = 'ready' | 'blocked' | 'unknown';
+
+export interface ClockFeatureReport {
+  key: string;
+  label: string;
+  required: boolean;
+  planned: boolean;
+  status: ClockFeatureStatus;
+  /** Plain words for the hotel: what works, or what is lost and which rights to ask Clock for. */
+  message: string;
+  missingRights: string[];
+}
+
 export interface ClockPermissionReport {
+  /** What each MUST feature needs from Clock and whether it is covered. */
+  features: ClockFeatureReport[];
   /** True for Clock's own sandbox account, where every request is tested directly. */
   sandbox: boolean;
   checkedAt: string | null;
@@ -373,7 +389,35 @@ function build(
       entries.flatMap((entry) => (entry.status === 'missing' && entry.right ? [entry.right] : [])),
     ),
   );
-  return { sandbox, checkedAt, entries, missingRights };
+  return { sandbox, features: featureReports(entries), checkedAt, entries, missingRights };
+}
+
+/** Turns the per-request results into one line per MUST feature. */
+export function featureReports(entries: ClockPermissionEntry[]): ClockFeatureReport[] {
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  return CLOCK_FEATURES.map((feature) => {
+    const needed = feature.needs.map((id) => byId.get(id)).filter((entry) => entry !== undefined);
+    const missing = needed.filter((entry) => entry.status === 'missing');
+    const rights = Array.from(
+      new Set(missing.map((entry) => entry.right ?? entry.expectedRight ?? entry.name)),
+    );
+    const known = needed.every((entry) => entry.status === 'allowed');
+    const status: ClockFeatureStatus = missing.length > 0 ? 'blocked' : known ? 'ready' : 'unknown';
+    return {
+      key: feature.key,
+      label: feature.label,
+      required: feature.required,
+      planned: feature.planned ?? false,
+      status,
+      missingRights: rights,
+      message:
+        status === 'ready'
+          ? 'Works: every right it needs is confirmed.'
+          : status === 'blocked'
+            ? `${feature.impact} Ask Clock to enable: ${rights.join(', ')}.`
+            : 'Not confirmed yet. Run the check.',
+    };
+  });
 }
 
 function decorate(catalog: ClockCatalogEntry[], sandbox = false): ClockPermissionEntry[] {

@@ -43,6 +43,14 @@ export const NOTIFICATION_REGISTRY = {
     priority: 'Medium',
     capability: 'payments.view',
   },
+  CLOCK_RIGHT_MISSING: {
+    title: 'A Clock permission is missing',
+    description:
+      'Clock is not allowing something MUST needs. Open System health to see which right to ask Clock for.',
+    category: 'Providers',
+    priority: 'High',
+    capability: 'settings.manage',
+  },
   STAFF_SEAT_CAP_REACHED: {
     title: 'Staff seat cap reached',
     description: 'The staff limit of the plan was reached.',

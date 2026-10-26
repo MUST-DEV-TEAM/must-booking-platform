@@ -20,7 +20,7 @@ describe('registered in-app alert routing', () => {
   });
   it('owner/admin breadth includes only registered real producers', () => {
     expect(registeredNotificationTypes([], true)).toEqual(Object.keys(NOTIFICATION_REGISTRY));
-    expect(registeredNotificationTypes([], true)).toHaveLength(6);
+    expect(registeredNotificationTypes([], true)).toHaveLength(7);
   });
   it('keeps all design categories/priorities without fabricating producers', () => {
     expect(NOTIFICATION_CATEGORIES).toHaveLength(5);
