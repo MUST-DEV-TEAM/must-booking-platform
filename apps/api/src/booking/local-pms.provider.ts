@@ -360,13 +360,14 @@ export class LocalPmsProvider implements PmsProvider {
               const externalReference =
                 command.externalReference ?? (await this.generatedExternalReference(tx, context));
 
-              // The promo signed into the quote (guest) or applied to the staff price. A use of the
-              // code is counted here, so two bookings cannot both take its last use.
+              // The promo signed into the quote (guest) or applied to the staff price. Whether one more use is
+              // left is checked under a lock; the booking itself is what counts as a use, and a booking
+              // that fails validation or availability stops counting by itself.
               const promo =
                 command.promo ??
                 (command.promoCode ? this.quotes.promoOf(command.quoteToken) : null);
               if (promo?.source === 'own') {
-                const redeemed = await this.promos?.redeem(tx, context, promo.code);
+                const redeemed = await this.promos?.reserveUse(tx, context, promo.code);
                 if (!redeemed)
                   return this.failure(
                     'PROMO_UNAVAILABLE',

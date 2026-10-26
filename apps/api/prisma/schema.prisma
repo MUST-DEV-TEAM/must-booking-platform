@@ -1995,7 +1995,6 @@ model PromoCode {
   minNights      Int?      @map("min_nights")
   roomTypeIds    String[]  @map("room_type_ids") @db.Uuid
   maxRedemptions Int?      @map("max_redemptions")
-  redemptions    Int       @default(0)
   active         Boolean   @default(true)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)

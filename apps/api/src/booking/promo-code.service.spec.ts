@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   PROMO_NOT_VALID,
@@ -77,6 +77,30 @@ describe('promo code rules', () => {
 
   it('rounds a percentage to the cent', () => {
     expect(discountMinor({ kind: 'PERCENT', value: '12.50' } as never, 3333n)).toBe(417n);
+  });
+});
+
+describe('reserveUse', () => {
+  const scope = { tenantId: 't', propertyId: 'p' };
+  const txWith = (ok: boolean | undefined) => ({
+    $executeRaw: vi.fn(async () => 1),
+    $queryRaw: vi.fn(async () => (ok === undefined ? [] : [{ ok }])),
+  });
+
+  it('takes a lock for the code, then says whether a use is left', async () => {
+    const tx = txWith(true);
+
+    await expect(service.reserveUse(tx as never, scope, 'SUMMER10')).resolves.toBe(true);
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses when the limit is used up, the code is off, or it does not exist', async () => {
+    await expect(service.reserveUse(txWith(false) as never, scope, 'SUMMER10')).resolves.toBe(
+      false,
+    );
+    await expect(service.reserveUse(txWith(undefined) as never, scope, 'NOPE')).resolves.toBe(
+      false,
+    );
   });
 });
 

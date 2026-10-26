@@ -112,8 +112,8 @@ export class PromoCodeService {
         SELECT id, code, kind, value::text AS value, currency, book_from AS "bookFrom",
                book_until AS "bookUntil", stay_from AS "stayFrom", stay_until AS "stayUntil",
                min_nights AS "minNights", room_type_ids::text[] AS "roomTypeIds",
-               max_redemptions AS "maxRedemptions", redemptions, active
-        FROM promo_codes
+               max_redemptions AS "maxRedemptions", (SELECT COUNT(*)::int FROM bookings b WHERE b.tenant_id = p.tenant_id AND b.property_id = p.property_id AND b.promo_code = p.code AND b.status::text NOT IN ('AVAILABILITY_FAILED', 'PAYMENT_FAILED', 'PMS_REJECTED', 'CANCELLED', 'EXPIRED')) AS redemptions, active
+        FROM promo_codes p
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
           AND code = ${input.code}
       `,
@@ -163,21 +163,24 @@ export class PromoCodeService {
   }
 
   /**
-   * Counts a use of the code while the booking is being created. Refuses when the limit was reached
-   * between the quote and the booking, so two guests cannot both take the last use.
+   * Whether one more booking may use the code. A use is a booking that carries the code and has not
+   * failed, been rejected, expired or been cancelled, so a use comes back by itself when a booking
+   * falls through. The check runs under a lock per code, so two bookings cannot both take the last use.
    */
-  async redeem(
+  async reserveUse(
     tx: TenantTransaction,
     scope: { tenantId: string; propertyId: string },
     code: string,
   ): Promise<boolean> {
-    const rows = await tx.$queryRaw<Array<{ id: string }>>`
-      UPDATE promo_codes SET redemptions = redemptions + 1, updated_at = now()
-      WHERE tenant_id = ${scope.tenantId}::uuid AND property_id = ${scope.propertyId}::uuid
-        AND code = ${code} AND active
-        AND (max_redemptions IS NULL OR redemptions < max_redemptions)
-      RETURNING id
+    await tx.$executeRaw`
+      SELECT pg_advisory_xact_lock(hashtextextended(${`promo:${scope.tenantId}:${scope.propertyId}:${code}`}, 0))
     `;
-    return rows.length === 1;
+    const rows = await tx.$queryRaw<Array<{ ok: boolean }>>`
+      SELECT (p.active AND (p.max_redemptions IS NULL OR (SELECT COUNT(*)::int FROM bookings b WHERE b.tenant_id = p.tenant_id AND b.property_id = p.property_id AND b.promo_code = p.code AND b.status::text NOT IN ('AVAILABILITY_FAILED', 'PAYMENT_FAILED', 'PMS_REJECTED', 'CANCELLED', 'EXPIRED')) < p.max_redemptions)) AS ok
+      FROM promo_codes p
+      WHERE p.tenant_id = ${scope.tenantId}::uuid AND p.property_id = ${scope.propertyId}::uuid
+        AND p.code = ${code}
+    `;
+    return rows[0]?.ok === true;
   }
 }

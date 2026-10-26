@@ -124,8 +124,8 @@ export class PromoCodeAdminService {
                book_from::text AS "bookFrom", book_until::text AS "bookUntil",
                stay_from::text AS "stayFrom", stay_until::text AS "stayUntil",
                min_nights AS "minNights", COALESCE(room_type_ids::text[], '{}') AS "roomTypeIds",
-               max_redemptions AS "maxRedemptions", redemptions, active
-        FROM promo_codes
+               max_redemptions AS "maxRedemptions", (SELECT COUNT(*)::int FROM bookings b WHERE b.tenant_id = p.tenant_id AND b.property_id = p.property_id AND b.promo_code = p.code AND b.status::text NOT IN ('AVAILABILITY_FAILED', 'PAYMENT_FAILED', 'PMS_REJECTED', 'CANCELLED', 'EXPIRED')) AS redemptions, active
+        FROM promo_codes p
         WHERE tenant_id = ${tenantId}::uuid AND property_id = ${propertyId}::uuid
         ORDER BY active DESC, code
       `,
