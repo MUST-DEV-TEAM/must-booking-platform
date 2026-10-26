@@ -274,6 +274,7 @@ describe.skipIf(!hasSandboxCredentials)(
             // session id), but the comparison against the row is a strict
             // `!==`, so this test must pass the literal null to match.
             guestSessionId: null as unknown as string,
+            staffActorId: userId,
             // Read the real version: a background Clock job can bump it after
             // creation, and a hard-coded 1 then leaves the real reservation uncancelled.
             expectedVersion: row[0]!.version,
@@ -345,6 +346,7 @@ describe.skipIf(!hasSandboxCredentials)(
           idempotencyKey: `no-rate-plan-cancel-${randomUUID()}`,
           bookingId,
           guestSessionId: null as unknown as string,
+          staffActorId: userId,
           expectedVersion: 1,
           reason: 'Task cleanup.',
         },
@@ -376,8 +378,10 @@ describe.skipIf(!hasSandboxCredentials)(
         .expect(201);
       expect(created.body.ok).toBe(true);
       const bookingId = created.body.value.id as string;
-      const row = await admin.$queryRaw<Array<{ externalBookingId: string | null }>>`
-      SELECT external_booking_id AS "externalBookingId" FROM bookings WHERE id = ${bookingId}::uuid
+      const row = await admin.$queryRaw<
+        Array<{ externalBookingId: string | null; guestSessionId: string | null }>
+      >`
+      SELECT external_booking_id AS "externalBookingId", guest_session_id AS "guestSessionId" FROM bookings WHERE id = ${bookingId}::uuid
     `;
       expect(row[0]?.externalBookingId).toMatch(/^\d+$/);
 
@@ -391,11 +395,9 @@ describe.skipIf(!hasSandboxCredentials)(
         {
           idempotencyKey: `window-guard-cancel-${randomUUID()}`,
           bookingId,
-          // CancelBookingCommand's type is `string | undefined` (production
-          // callers always have a real session id), but staff-created bookings
-          // store a null guest_session_id — the comparison in cancelBooking is
-          // a strict `!==`, so this test must pass the literal null to match.
-          guestSessionId: null as unknown as string,
+          // A guest's own cancellation: it carries the booking's session and no staff
+          // member, so the self-service window applies (staff may cancel at any time).
+          guestSessionId: row[0]!.guestSessionId as string,
           expectedVersion: 1,
           reason: null,
         },
@@ -576,6 +578,7 @@ describe.skipIf(!hasSandboxCredentials)(
         idempotencyKey: `payment-gated-cancel-${randomUUID()}`,
         bookingId,
         guestSessionId: null as unknown as string,
+        staffActorId: userId,
         expectedVersion: 1,
         reason: 'Task 4 e2e cleanup.',
       });
