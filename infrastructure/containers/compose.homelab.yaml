@@ -74,6 +74,10 @@ services:
       LOCAL_STORAGE_PUBLIC_BASE_URL: ${LOCAL_STORAGE_PUBLIC_BASE_URL:-}
       PLATFORM_ALERT_EMAIL: ${PLATFORM_ALERT_EMAIL:-}
       PLATFORM_TIMEZONE: ${PLATFORM_TIMEZONE:-Europe/Tirane}
+      # The dashboard reads Clock data (calendar, inventory, guests) from stored copies that this sync fills.
+      # Off unless set to true; restrict it to the hotels that should sync with a comma-separated property id list.
+      CLOCK_BACKGROUND_SYNC_ENABLED: ${CLOCK_BACKGROUND_SYNC_ENABLED:-false}
+      CLOCK_SYNC_ALLOWED_PROPERTY_IDS: ${CLOCK_SYNC_ALLOWED_PROPERTY_IDS:-}
       QUOTE_SIGNING_SECRET: ${QUOTE_SIGNING_SECRET}
       INTEGRATION_CREDENTIALS_KEY: ${INTEGRATION_CREDENTIALS_KEY}
       # Public address of the production `must-api` Sentry project; .env can override it.

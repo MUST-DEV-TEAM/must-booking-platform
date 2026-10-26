@@ -16,6 +16,9 @@ COPY packages/shared-types/package.json packages/shared-types/package.json
 RUN pnpm install --frozen-lockfile
 
 COPY packages/ui packages/ui
+# apps/web imports @must/domain-contracts (which needs @must/shared-types), both built below.
+COPY packages/shared-types packages/shared-types
+COPY packages/domain-contracts packages/domain-contracts
 COPY apps/web apps/web
 
 # next.config.ts's rewrites() reads API_URL when `next build` computes the routing
@@ -38,6 +41,8 @@ ENV SENTRY_AUTH_TOKEN=$SENTRY_AUTH_TOKEN
 # V8 sizes its default heap from physical memory and ignores swap, so this step
 # OOMs (exit 134) on a small host. Cap it explicitly rather than inherit that.
 RUN export NODE_OPTIONS=--max-old-space-size=3072 \
+ && pnpm --filter @must/shared-types build \
+ && pnpm --filter @must/domain-contracts build \
  && pnpm --filter @must/ui build \
  && pnpm --filter web build
 
