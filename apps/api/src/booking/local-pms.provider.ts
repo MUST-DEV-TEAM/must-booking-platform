@@ -43,6 +43,8 @@ import { ClockBookingService } from '../integrations/clock/clock-booking.service
 import { PrePaymentAvailabilityRegistry } from './pre-payment-availability';
 import { generateBookingReference } from './booking-reference';
 import { resolveGuestWithPhoneSignal } from './guest-matching';
+import { PromoCodeService } from './promo-code.service';
+import type { PromoApplied } from './quote.service';
 
 export const PMS_PROVIDER = Symbol('PMS_PROVIDER');
 
@@ -54,6 +56,10 @@ export type LocalCreateBookingCommand = CreateBookingCommand & {
   skipQuoteValidation?: boolean;
   /** Clock hotels: the published Clock rate chosen for the stay; it is part of the signed quote. */
   clockRateId?: string;
+  /** The promo code entered for this stay; it is part of the signed quote. */
+  promoCode?: string;
+  /** Staff bookings: the promo that was applied when the price was worked out. */
+  promo?: PromoApplied;
   /** Only the local development demo seed sets this, to create booking history in the past. */
   allowPastStay?: boolean;
   returnUrl?: string;
@@ -161,6 +167,7 @@ export class LocalPmsProvider implements PmsProvider {
     @Inject(ClockBookingService) private readonly clockBooking: ClockBookingService,
     @Inject(PrePaymentAvailabilityRegistry)
     private readonly prePaymentAvailability: PrePaymentAvailabilityRegistry,
+    @Inject(PromoCodeService) private readonly promos?: PromoCodeService,
   ) {}
 
   /** Milestone 11.5 Task 4/2: whether this property should get a real Clock
@@ -353,11 +360,26 @@ export class LocalPmsProvider implements PmsProvider {
               const externalReference =
                 command.externalReference ?? (await this.generatedExternalReference(tx, context));
 
+              // The promo signed into the quote (guest) or applied to the staff price. A use of the
+              // code is counted here, so two bookings cannot both take its last use.
+              const promo =
+                command.promo ??
+                (command.promoCode ? this.quotes.promoOf(command.quoteToken) : null);
+              if (promo?.source === 'own') {
+                const redeemed = await this.promos?.redeem(tx, context, promo.code);
+                if (!redeemed)
+                  return this.failure(
+                    'PROMO_UNAVAILABLE',
+                    'This code has just been used up. Please request a new quote.',
+                  );
+              }
+
               const inserted = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO bookings (
           tenant_id, property_id, room_type_id, room_id, guest_id, external_reference,
           guest_session_id, special_requests, status, payment_method, starts_on, ends_on, rate_plan_id, total_amount,
-          adults, children, children_ages, guest_count, source, clock_rate_id
+          adults, children, children_ages, guest_count, source, clock_rate_id,
+          promo_code, promo_discount_amount, original_total_amount
         ) VALUES (
           ${context.tenantId}::uuid, ${context.propertyId}::uuid, ${command.roomTypeId}::uuid,
           ${command.roomId ?? null}::uuid, ${guestId}::uuid, ${externalReference},
@@ -367,7 +389,8 @@ export class LocalPmsProvider implements PmsProvider {
           ${paymentMethod.value}::"BookingPaymentMethod",
           ${command.startsOn}::date, ${command.endsOn}::date, ${ratePlanId}::uuid,
           ${command.total.amount}::numeric, ${occupancy.adults}, ${occupancy.children}, ${command.childrenAges === undefined ? null : JSON.stringify(command.childrenAges)}::jsonb,
-          ${occupancy.guestCount}, ${command.staffActorId ? 'DIRECT' : 'WEBSITE'}, ${command.clockRateId ?? null}
+          ${occupancy.guestCount}, ${command.staffActorId ? 'DIRECT' : 'WEBSITE'}, ${command.clockRateId ?? null},
+          ${promo?.code ?? null}, ${promo?.discount.amount ?? null}::numeric, ${promo?.originalTotal.amount ?? null}::numeric
         )
         RETURNING id
       `;
@@ -416,6 +439,7 @@ export class LocalPmsProvider implements PmsProvider {
                     roomId: command.roomId,
                     ratePlanId: command.ratePlanId,
                     clockRateId: command.clockRateId,
+                    promoCode: command.promoCode,
                     startsOn: command.startsOn,
                     endsOn: command.endsOn,
                     adults: occupancy.adults,
@@ -1771,6 +1795,7 @@ export class LocalPmsProvider implements PmsProvider {
         ratePlanId: command.ratePlanId,
         // The room must cost the same under the rate the guest chose, not the default rate.
         clockRateId: command.clockRateId,
+        promoCode: command.promoCode,
         startsOn: command.startsOn,
         endsOn: command.endsOn,
         adults: occupancy.adults,

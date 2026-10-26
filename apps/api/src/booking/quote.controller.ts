@@ -1,4 +1,5 @@
 import { Body, Controller, Inject, Post, Req, UseGuards } from '@nestjs/common';
+import { normalizePromoCode } from './promo-code.service';
 
 import { PublicTenantScoped } from '../tenancy/tenant-context.decorator';
 import { PublicRateLimitGuard } from '../tenancy/public-rate-limit.guard';
@@ -84,6 +85,7 @@ export class QuoteController {
       ratePlanId: typeof value.ratePlanId === 'string' ? value.ratePlanId : '',
       clockRateId:
         typeof value.clockRateId === 'string' && value.clockRateId ? value.clockRateId : undefined,
+      promoCode: normalizePromoCode(value.promoCode) ?? undefined,
       startsOn: typeof value.startsOn === 'string' ? value.startsOn : '',
       endsOn: typeof value.endsOn === 'string' ? value.endsOn : '',
       adults: typeof value.adults === 'number' ? value.adults : undefined,

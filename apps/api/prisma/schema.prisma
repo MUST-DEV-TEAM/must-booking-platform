@@ -935,6 +935,9 @@ model Booking {
   paymentProviderSessions    PaymentProviderSession[]
   childrenAges               Json?                    @map("children_ages")
   clockRateId                String?                  @map("clock_rate_id")
+  promoCode                  String?                  @map("promo_code")
+  promoDiscountAmount        Decimal?                 @map("promo_discount_amount") @db.Decimal(12, 2)
+  originalTotalAmount        Decimal?                 @map("original_total_amount") @db.Decimal(12, 2)
 
   @@unique([tenantId, propertyId, id])
   @@unique([tenantId, propertyId, externalReference])
@@ -1973,4 +1976,30 @@ model ExchangeRate {
 
   @@id([baseCurrency, quoteCurrency])
   @@map("exchange_rates")
+}
+
+/// The hotel's own promo codes (a Clock bonus code is not stored here; Clock owns those).
+model PromoCode {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  propertyId     String    @map("property_id") @db.Uuid
+  code           String
+  kind           String
+  value          Decimal   @db.Decimal(12, 2)
+  currency       String?   @db.VarChar(3)
+  description    String?
+  bookFrom       DateTime? @map("book_from") @db.Date
+  bookUntil      DateTime? @map("book_until") @db.Date
+  stayFrom       DateTime? @map("stay_from") @db.Date
+  stayUntil      DateTime? @map("stay_until") @db.Date
+  minNights      Int?      @map("min_nights")
+  roomTypeIds    String[]  @map("room_type_ids") @db.Uuid
+  maxRedemptions Int?      @map("max_redemptions")
+  redemptions    Int       @default(0)
+  active         Boolean   @default(true)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, propertyId, code])
+  @@map("promo_codes")
 }

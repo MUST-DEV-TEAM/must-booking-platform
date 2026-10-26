@@ -181,6 +181,9 @@ import { PublicAvailabilityController } from './tenancy/public-availability.cont
 import { PublicExchangeRatesController } from './tenancy/public-exchange-rates.controller';
 import { PropertyCurrencyController } from './tenancy/property-currency.controller';
 import { PropertyCurrencyService } from './tenancy/property-currency.service';
+import { PromoCodeService } from './booking/promo-code.service';
+import { PromoCodeAdminService } from './booking/promo-code-admin.service';
+import { PromoCodesController } from './booking/promo-codes.controller';
 import { ExchangeRatesService } from './tenancy/exchange-rates.service';
 import { PublicCatalogController } from './tenancy/public-catalog.controller';
 import { PublicCatalogService } from './tenancy/public-catalog.service';
@@ -340,6 +343,7 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     PublicAvailabilityController,
     PublicExchangeRatesController,
     PropertyCurrencyController,
+    PromoCodesController,
     PublicCatalogController,
     WordpressPairingController,
     WordpressPairingRedeemController,
@@ -376,6 +380,8 @@ import { ClockWebhookController } from './integrations/clock/clock-webhook.contr
     TenantDatabaseService,
     ExchangeRatesService,
     PropertyCurrencyService,
+    PromoCodeService,
+    PromoCodeAdminService,
     PlatformSessionService,
     PlatformAuditService,
     PlatformIdempotencyService,

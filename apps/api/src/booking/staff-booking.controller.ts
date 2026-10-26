@@ -1,4 +1,5 @@
 import { StaffAvailabilityService } from './staff-availability.service';
+import { normalizePromoCode } from './promo-code.service';
 import { BookingRequestsService, type CancellationInput } from './booking-requests.service';
 import { countryCode } from '@must/domain-contracts';
 import {
@@ -84,16 +85,28 @@ export class StaffBookingController {
     const input = this.input(body);
     this.validateGuest(input.guest);
     const key = this.idempotencyKey(idempotencyKey);
-    const total = await this.quotes.price(
-      request.tenantContext.tenantId,
-      request.tenantContext.propertyId,
-      input,
-    );
+    // With a promo code the price comes from the full pricing path, which also says what was taken off.
+    const priced = input.promoCode
+      ? await this.quotes.priceWithNightlyRates(
+          request.tenantContext.tenantId,
+          request.tenantContext.propertyId,
+          input,
+          'staff',
+        )
+      : null;
+    const total =
+      priced?.total ??
+      (await this.quotes.price(
+        request.tenantContext.tenantId,
+        request.tenantContext.propertyId,
+        input,
+      ));
     const result = await this.provider.createBooking(request.tenantContext, {
       ...input,
       idempotencyKey: key,
       externalReference: this.externalReference(body),
       total,
+      ...(priced?.promo ? { promo: priced.promo } : {}),
       staffActorId: request.tenantContext.userId,
       skipQuoteValidation: true,
     });
@@ -132,6 +145,7 @@ export class StaffBookingController {
       ratePlanId: typeof value.ratePlanId === 'string' ? value.ratePlanId : '',
       clockRateId:
         typeof value.clockRateId === 'string' && value.clockRateId ? value.clockRateId : undefined,
+      promoCode: normalizePromoCode(value.promoCode) ?? undefined,
       startsOn: typeof value.startsOn === 'string' ? value.startsOn : '',
       endsOn: typeof value.endsOn === 'string' ? value.endsOn : '',
       adults: typeof value.adults === 'number' ? value.adults : undefined,

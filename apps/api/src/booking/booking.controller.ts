@@ -1,4 +1,5 @@
 import { countryCode } from '@must/domain-contracts';
+import { normalizePromoCode } from './promo-code.service';
 import {
   BadRequestException,
   Body,
@@ -297,6 +298,7 @@ export class BookingController {
       quoteToken: typeof value.quoteToken === 'string' ? value.quoteToken : '',
       clockRateId:
         typeof value.clockRateId === 'string' && value.clockRateId ? value.clockRateId : undefined,
+      promoCode: normalizePromoCode(value.promoCode) ?? undefined,
       returnUrl: typeof value.returnUrl === 'string' ? value.returnUrl : undefined,
     };
   }

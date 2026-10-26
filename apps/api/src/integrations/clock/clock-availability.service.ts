@@ -921,6 +921,31 @@ export class ClockAvailabilityService {
     return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
   }
 
+  /** The bonus codes the hotel has set up on its rates in Clock (upper-case). Empty when not on Clock. */
+  async clockBonusCodes(tenantId: string, propertyId: string): Promise<string[]> {
+    const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
+    if (!connection || connection.provider !== 'CLOCK_PMS') return [];
+    const parsed = parseClockCredentials(connection.credentials);
+    if (!parsed.ok) return [];
+    const catalogue = await this.rateCatalogue(parsed.value, false);
+    if (!catalogue.ok) return [];
+    const codes = new Set<string>();
+    for (const rate of catalogue.value) {
+      const list = (rate as { bonus_codes?: unknown }).bonus_codes;
+      if (!Array.isArray(list)) continue;
+      for (const entry of list) {
+        const code =
+          typeof entry === 'string'
+            ? entry
+            : typeof (entry as { code?: unknown })?.code === 'string'
+              ? (entry as { code: string }).code
+              : '';
+        if (code.trim()) codes.add(code.trim().toUpperCase());
+      }
+    }
+    return [...codes].sort();
+  }
+
   async listOffersForStay(
     tenantId: string,
     propertyId: string,

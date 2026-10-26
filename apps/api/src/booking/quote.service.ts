@@ -12,6 +12,13 @@ import {
   type ClockStayQuoteQuery,
 } from '../integrations/clock/clock-availability.service';
 import { resolveBookingOccupancy, validBookingOccupancy } from './booking-occupancy';
+import {
+  PromoCodeService,
+  discountNights,
+  normalizePromoCode,
+  toMinor,
+  type PromoSummary,
+} from './promo-code.service';
 import { evaluateBookingRules, sameDayBookingViolation, rangeViolation } from './booking-rules';
 export { propertyClock, isSameDayBookingClosed } from './booking-rules';
 
@@ -34,7 +41,15 @@ export type QuoteInput = {
    * Omitted means the cheapest or staff-ranked rate, as before.
    */
   clockRateId?: string;
+  /**
+   * A promo code the guest or staff member entered. Signed into the quote token, so a booking
+   * cannot swap or add a code afterwards.
+   */
+  promoCode?: string;
 };
+
+/** A promo applied to a quote: the discount, the original price and whose code it was. */
+export type PromoApplied = PromoSummary & { source: 'own' | 'clock' };
 
 type QuotePayload = QuoteInput & {
   version: 1;
@@ -42,11 +57,12 @@ type QuotePayload = QuoteInput & {
   propertyId: string;
   total: { amount: string; currency: string };
   nightlyRates: NightlyRate[];
+  promo?: PromoApplied;
   expiresAt: string;
   sessionBinding: string;
 };
 
-export type PricedQuote = { total: Money; nightlyRates: NightlyRate[] };
+export type PricedQuote = { total: Money; nightlyRates: NightlyRate[]; promo?: PromoApplied };
 
 export type DisplayPriceItem = {
   key: string;
@@ -76,6 +92,7 @@ export class QuoteService {
     @Inject(IntegrationConnectionsService)
     private readonly connections: IntegrationConnectionsService,
     @Inject(ClockAvailabilityService) private readonly clockAvailability: ClockAvailabilityService,
+    @Inject(PromoCodeService) private readonly promos: PromoCodeService,
   ) {}
 
   async create(
@@ -89,7 +106,8 @@ export class QuoteService {
     if (!Number.isInteger(ttlSeconds) || ttlSeconds < 1)
       throw new BadRequestException('Quote expiry must be a positive number of seconds.');
 
-    const normalizedInput = this.normalizeOccupancy(input);
+    const promoCode = normalizePromoCode(input.promoCode) ?? undefined;
+    const normalizedInput = { ...this.normalizeOccupancy(input), promoCode };
     // Public quotes also preflight the property-local cutoff; shared validation covers staff too.
     await this.enforceGuestSameDayRule(tenantId, propertyId, normalizedInput.startsOn);
     const quote = await this.priceWithNightlyRates(
@@ -106,6 +124,7 @@ export class QuoteService {
       ...normalizedInput,
       total: quote.total,
       nightlyRates: quote.nightlyRates,
+      ...(quote.promo ? { promo: quote.promo } : {}),
       expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
       sessionBinding: this.sessionBinding(sessionId),
     };
@@ -123,6 +142,10 @@ export class QuoteService {
     options: { skipRules?: boolean } = {},
   ): Promise<Money> {
     const normalizedInput = this.normalizeOccupancy(input);
+    if (normalizedInput.promoCode)
+      return (
+        await this.priceWithNightlyRates(tenantId, propertyId, normalizedInput, 'staff', options)
+      ).total;
     this.validStayInput(normalizedInput);
     if (!options.skipRules) await this.enforceBookingRules(tenantId, propertyId, normalizedInput);
     const connection = await this.connections.activePmsConnectionCredentials(tenantId, propertyId);
@@ -144,7 +167,48 @@ export class QuoteService {
     ).total;
   }
 
+  /** The price of a stay with the promo code applied, when one was entered. */
   async priceWithNightlyRates(
+    tenantId: string,
+    propertyId: string,
+    input: QuoteInput,
+    pricingChannel: 'website' | 'staff' = 'staff',
+    options: { skipRules?: boolean } = {},
+  ): Promise<PricedQuote> {
+    const base = await this.priceBase(tenantId, propertyId, input, pricingChannel, options);
+    const code = normalizePromoCode(input.promoCode);
+    if (!code) return base;
+    return this.applyPromo(tenantId, propertyId, code, input, base);
+  }
+
+  /** The hotel's own code takes its discount off the price, spread over the nights. */
+  private async applyPromo(
+    tenantId: string,
+    propertyId: string,
+    code: string,
+    input: QuoteInput,
+    base: PricedQuote,
+  ): Promise<PricedQuote> {
+    const result = await this.promos.evaluate(tenantId, propertyId, {
+      code,
+      roomTypeId: input.roomTypeId,
+      startsOn: input.startsOn,
+      endsOn: input.endsOn,
+      total: base.total,
+    });
+    if (!result.applies) throw new BadRequestException(result.reason);
+    return {
+      total: result.total,
+      nightlyRates: discountNights(
+        base.nightlyRates,
+        toMinor(base.total.amount),
+        toMinor(result.promo.discount.amount),
+      ),
+      promo: { ...result.promo, source: 'own' },
+    };
+  }
+
+  private async priceBase(
     tenantId: string,
     propertyId: string,
     input: QuoteInput,
@@ -309,6 +373,12 @@ export class QuoteService {
     return prices;
   }
 
+  /** Read only after validate() succeeds: the promo that was signed into the quote, if any. */
+  promoOf(token: string | undefined): PromoApplied | null {
+    const payload = token ? this.read(token) : null;
+    return payload?.promo ?? null;
+  }
+
   /** Read only after validate() succeeds; the quote token is the source of truth for booking snapshots. */
   nightlyRates(token: string | undefined): NightlyRate[] | null {
     const payload = token ? this.read(token) : null;
@@ -385,6 +455,7 @@ export class QuoteService {
       payload.roomId !== expected.roomId ||
       payload.ratePlanId !== expected.ratePlanId ||
       payload.clockRateId !== expected.clockRateId ||
+      payload.promoCode !== expected.promoCode ||
       payload.startsOn !== expected.startsOn ||
       payload.endsOn !== expected.endsOn ||
       quotedOccupancy.adults !== expectedOccupancy.adults ||
@@ -425,6 +496,7 @@ export class QuoteService {
         (value.roomId !== undefined && typeof value.roomId !== 'string') ||
         typeof value.ratePlanId !== 'string' ||
         (value.clockRateId !== undefined && typeof value.clockRateId !== 'string') ||
+        (value.promoCode !== undefined && typeof value.promoCode !== 'string') ||
         typeof value.startsOn !== 'string' ||
         typeof value.endsOn !== 'string' ||
         (value.adults !== undefined && (!Number.isInteger(value.adults) || value.adults < 1)) ||

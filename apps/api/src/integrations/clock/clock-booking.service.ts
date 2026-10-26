@@ -145,6 +145,26 @@ export function isClockCreditItemResource(value: unknown): value is ClockCreditI
 const RATE_LIMIT_RETRIES = 3;
 const RATE_LIMIT_BACKOFF_MS = 400;
 
+/** What front desk reads on the Clock reservation when the guest used a MUST promo code. */
+export function promoNote(
+  promo: {
+    promoCode: string | null;
+    promoDiscount: string | null;
+    promoOriginal: string | null;
+    paidTotal: string;
+  },
+  currency: string | null | undefined,
+): string {
+  const unit = currency ? ` ${currency}` : '';
+  return [
+    `MUST promo code ${promo.promoCode}${promo.promoDiscount ? `: ${promo.promoDiscount}${unit} off` : ''}.`,
+    promo.promoOriginal
+      ? `Original price ${promo.promoOriginal}${unit}; the guest pays ${promo.paidTotal}${unit} through MUST.`
+      : `The guest pays ${promo.paidTotal}${unit} through MUST.`,
+    'The rate in Clock is the price before the code.',
+  ].join(' ');
+}
+
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -553,12 +573,18 @@ export class ClockBookingService {
         firstName: string | null;
         lastName: string | null;
         specialRequests: string | null;
+        promoCode: string | null;
+        promoDiscount: string | null;
+        promoOriginal: string | null;
+        paidTotal: string;
       }>
     >`
       SELECT g.email,
         COALESCE(${row.roomGuestFirstName}, g.first_name) AS "firstName",
         COALESCE(${row.roomGuestLastName}, g.last_name) AS "lastName",
-        b.special_requests AS "specialRequests"
+        b.special_requests AS "specialRequests",
+        b.promo_code AS "promoCode", b.promo_discount_amount::text AS "promoDiscount",
+        b.original_total_amount::text AS "promoOriginal", b.total_amount::text AS "paidTotal"
       FROM guests g
       JOIN bookings b ON b.id = ${bookingId}::uuid
       WHERE g.id = ${row.guestId}::uuid AND g.tenant_id = ${context.tenantId}::uuid
@@ -675,6 +701,8 @@ export class ClockBookingService {
       children: row.children,
       ...(row.childrenAges ? { children_ages: row.childrenAges } : {}),
       client_request: guest.specialRequests?.trim() || null,
+      // A MUST promo cannot lower the price inside Clock, so front desk is told on the reservation.
+      ...(guest.promoCode ? { note: promoNote(guest, row.currency) } : {}),
     };
     const body = existingClockGuest.value
       ? { main_booking_guest: existingClockGuest.value, booking }
