@@ -39,7 +39,23 @@ export interface SyncGroup {
   lastError: string | null;
   /** Items left out on purpose, with the reason in the hint of the screen. */
   skipped: number;
+  /** What is held right now, in one sentence, for example "13 room types, 150 rooms and 26 rates". */
+  detail: string | null;
 }
+
+/** What the database holds for this hotel, so each part can say exactly what it contains. */
+export interface SyncCounts {
+  guestProfiles?: number;
+  roomTypes?: number;
+  rooms?: number;
+  rates?: number;
+  bookingsByStatus?: Record<string, number>;
+  /** Earliest stay date of an imported reservation (YYYY-MM-DD). */
+  earliestStay?: string | null;
+}
+
+const plural = (n: number, one: string, many = one + 's') =>
+  `${n.toLocaleString('en-GB')} ${n === 1 ? one : many}`;
 
 export interface SyncSummary {
   groups: SyncGroup[];
@@ -83,6 +99,7 @@ function listGroup(
   job: SyncJobRow | undefined,
   now: Date,
   held = 0,
+  detail: string | null = null,
 ): SyncGroup {
   if (!job)
     return {
@@ -98,6 +115,7 @@ function listGroup(
       lastSyncedAt: null,
       lastError: null,
       skipped: 0,
+      detail,
     };
   // After the first full pass the job only picks up changes, so the figure to show is that full pass.
   if (job.initialComplete) {
@@ -115,6 +133,7 @@ function listGroup(
       lastSyncedAt: iso(job.lastSyncedAt),
       lastError: job.lastError,
       skipped: job.skipped ?? 0,
+      detail,
     };
   }
   const total = job.total ?? job.progressTotal;
@@ -134,6 +153,7 @@ function listGroup(
     lastSyncedAt: iso(job.lastSyncedAt),
     lastError: job.lastError,
     skipped: job.skipped ?? 0,
+    detail,
   };
 }
 
@@ -141,7 +161,7 @@ function listGroup(
 export function buildSyncSummary(
   jobs: SyncJobRow[],
   now = new Date(),
-  counts: { guestProfiles?: number } = {},
+  counts: SyncCounts = {},
 ): SyncSummary {
   const by = (resource: string) => jobs.find((j) => j.resource === resource);
   const setup = ['catalog', 'rooms', 'rates']
@@ -171,6 +191,36 @@ export function buildSyncSummary(
     now,
   );
 
+  const status = counts.bookingsByStatus ?? {};
+  const held = Object.values(status).reduce((sum, n) => sum + n, 0);
+  const reservationDetail = held
+    ? `${plural(held, 'reservation')} held: ${plural(status.CONFIRMED ?? 0, 'confirmed', 'confirmed')}, ${plural(
+        status.CANCELLED ?? 0,
+        'cancelled',
+        'cancelled',
+      )}${counts.earliestStay ? `; the earliest stay is ${counts.earliestStay}` : ''}.`
+    : null;
+  const catalogDetail =
+    counts.roomTypes !== undefined
+      ? `${plural(counts.roomTypes, 'room type')}, ${plural(counts.rooms ?? 0, 'room')} and ${plural(
+          counts.rates ?? 0,
+          'rate',
+        )}.`
+      : null;
+  const availabilityDetail = availability.length
+    ? `${plural(availability.length, 'month')} of free rooms for ${plural(
+        counts.roomTypes ?? 0,
+        'room type',
+      )}.`
+    : null;
+  const guestDetail =
+    counts.guestProfiles !== undefined
+      ? `${plural(counts.guestProfiles, 'guest profile')} held.`
+      : null;
+  const moneyDetail = money.length
+    ? `${plural(moneyDone, 'bill')} checked of ${money.length.toLocaleString('en-GB')} current and recent reservations.`
+    : null;
+
   const groups: SyncGroup[] = [
     {
       key: 'catalog',
@@ -185,6 +235,7 @@ export function buildSyncSummary(
       lastSyncedAt: iso(latest(setup.map((j) => j.lastSyncedAt))),
       lastError: setup.find((j) => j.lastError)?.lastError ?? null,
       skipped: 0,
+      detail: catalogDetail,
     },
     {
       key: 'availability',
@@ -202,6 +253,7 @@ export function buildSyncSummary(
       lastSyncedAt: iso(latest(availability.map((j) => j.lastSyncedAt))),
       lastError: availability.find((j) => j.lastError)?.lastError ?? null,
       skipped: 0,
+      detail: availabilityDetail,
     },
     listGroup(
       'bookings',
@@ -209,6 +261,8 @@ export function buildSyncSummary(
       'Every reservation in Clock since the account began: past, current and future.',
       by('bookings'),
       now,
+      0,
+      reservationDetail,
     ),
     listGroup(
       'guests',
@@ -217,6 +271,7 @@ export function buildSyncSummary(
       by('guests'),
       now,
       counts.guestProfiles ?? 0,
+      guestDetail,
     ),
     {
       key: 'money',
@@ -231,6 +286,7 @@ export function buildSyncSummary(
       lastSyncedAt: iso(latest(money.map((j) => j.lastSyncedAt))),
       lastError: money.find((j) => j.lastError)?.lastError ?? null,
       skipped: 0,
+      detail: moneyDetail,
     },
   ];
 

@@ -19,6 +19,7 @@ export type SyncGroup = {
   lastSyncedAt: string | null;
   lastError: string | null;
   skipped: number;
+  detail: string | null;
 };
 
 export type SyncSummary = {
@@ -85,6 +86,7 @@ function GroupRow({ group }: { group: SyncGroup }) {
           ? ` · ${formatDuration(group.etaSeconds)} left`
           : ''}
       </p>
+      {group.detail ? <p className="m-0 text-xs font-medium">{group.detail}</p> : null}
       <p className="m-0 text-xs text-muted-foreground">{group.hint}</p>
       {group.skipped > 0 ? (
         <p className="m-0 text-xs text-warning">

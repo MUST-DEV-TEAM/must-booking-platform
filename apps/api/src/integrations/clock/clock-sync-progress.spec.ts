@@ -177,4 +177,33 @@ describe('buildSyncSummary', () => {
     expect(guests.done).toBe(13750);
     expect(guests.state).toBe('done');
   });
+
+  it('says in one sentence what each part holds', () => {
+    const summary = buildSyncSummary(
+      [
+        job({ resource: 'catalog', status: 'SYNCED', lastSyncedAt: '2026-10-26T15:00:00Z' }),
+        job({ resource: 'availability:2026-10' }),
+        job({ resource: 'availability:2026-11' }),
+        job({ resource: 'bookings', processed: 10, total: 100, startedAt: '2026-10-26T15:00:00Z' }),
+        job({ resource: 'financial:a', status: 'SYNCED', lastSyncedAt: '2026-10-26T15:00:00Z' }),
+      ],
+      now,
+      {
+        guestProfiles: 13750,
+        roomTypes: 13,
+        rooms: 150,
+        rates: 26,
+        bookingsByStatus: { CONFIRMED: 302, CANCELLED: 100 },
+        earliestStay: '2024-05-01',
+      },
+    );
+    const detail = (key: string) => summary.groups.find((g) => g.key === key)!.detail;
+    expect(detail('catalog')).toBe('13 room types, 150 rooms and 26 rates.');
+    expect(detail('availability')).toBe('2 months of free rooms for 13 room types.');
+    expect(detail('bookings')).toBe(
+      '402 reservations held: 302 confirmed, 100 cancelled; the earliest stay is 2024-05-01.',
+    );
+    expect(detail('guests')).toBe('13,750 guest profiles held.');
+    expect(detail('money')).toBe('1 bill checked of 1 current and recent reservations.');
+  });
 });
