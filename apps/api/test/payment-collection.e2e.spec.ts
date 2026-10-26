@@ -828,15 +828,19 @@ describe('collecting a confirmed booking balance', () => {
       {} as never,
     );
     const claim = worker as unknown as {
-      claim: (scope: typeof c) => Promise<{ resource: string; id: string }>;
+      claim: (
+        scope: typeof c,
+        lane: 'lists' | 'bills',
+      ) => Promise<{ resource: string; id: string }>;
     };
-    const first = await claim.claim(c);
+    // The bill a staff member asked for is the first thing the bills lane takes.
+    const first = await claim.claim(c, 'bills');
     expect(first.resource).toBe('financial:' + id);
     const consumed = await admin.$queryRaw<
       Array<{ requested: boolean }>
     >`SELECT requested_at IS NOT NULL AS requested FROM clock_sync_jobs WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND id=${first.id}::uuid`;
     expect(consumed[0].requested).toBe(false);
-    const next = await claim.claim(c);
+    const next = await claim.claim(c, 'lists');
     expect(next.resource).toBe('rooms');
   });
   it('collects only a verified Clock balance and refuses a credit or changed local ledger', async () => {
