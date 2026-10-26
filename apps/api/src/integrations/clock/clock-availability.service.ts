@@ -195,7 +195,11 @@ export function rateOfferLabel(mealNames: string[], fallbackName: string): strin
  * needs a ranking). Never persisted; MUST only stores the rank order. */
 export type ClockRateSummary = {
   externalRateId: string;
+  /** Clock's own name for the rate, for example "BB". */
   name: string;
+  /** What a guest reads: "Bed & breakfast", "Half board", "Room only". */
+  label: string;
+  mealNames: string[];
   maxAdults: number | null;
   maxChildren: number | null;
 };
@@ -1491,6 +1495,7 @@ export class ClockAvailabilityService {
         bookable_type: string;
         wbe: boolean;
         name?: string;
+        meals?: Array<{ name?: string }>;
         rate_restriction?: { max_adults?: number | null; max_children?: number | null };
       }>
     >(parsed.value, undefined, '/rates/');
@@ -1503,12 +1508,18 @@ export class ClockAvailabilityService {
           String(rate.bookable_id) === externalRoomTypeId &&
           rate.wbe,
       )
-      .map((rate) => ({
-        externalRateId: String(rate.id),
-        name: rate.name?.trim() || `Rate ${rate.id}`,
-        maxAdults: rate.rate_restriction?.max_adults ?? null,
-        maxChildren: rate.rate_restriction?.max_children ?? null,
-      }));
+      .map((rate) => {
+        const rateName = rate.name?.trim() || `Rate ${rate.id}`;
+        const mealNames = (rate.meals ?? []).map((meal) => String(meal.name ?? '')).filter(Boolean);
+        return {
+          externalRateId: String(rate.id),
+          name: rateName,
+          label: rateOfferLabel(mealNames, rateName),
+          mealNames,
+          maxAdults: rate.rate_restriction?.max_adults ?? null,
+          maxChildren: rate.rate_restriction?.max_children ?? null,
+        };
+      });
     return { ok: true, value: rates };
   }
 
@@ -1553,6 +1564,7 @@ export class ClockAvailabilityService {
         bookable_type: string;
         wbe: boolean;
         name?: string;
+        meals?: Array<{ name?: string }>;
         rate_restriction?: { max_adults?: number | null; max_children?: number | null };
       }>
     >(parsed.value, undefined, '/rates/');
@@ -1562,9 +1574,13 @@ export class ClockAvailabilityService {
     for (const rate of response.value) {
       if (rate.bookable_type !== 'Pms::RoomType' || !rate.wbe) continue;
       const externalRoomTypeId = String(rate.bookable_id);
+      const rateName = rate.name?.trim() || `Rate ${rate.id}`;
+      const mealNames = (rate.meals ?? []).map((meal) => String(meal.name ?? '')).filter(Boolean);
       const summary: ClockRateSummary = {
         externalRateId: String(rate.id),
-        name: rate.name?.trim() || `Rate ${rate.id}`,
+        name: rateName,
+        label: rateOfferLabel(mealNames, rateName),
+        mealNames,
         maxAdults: rate.rate_restriction?.max_adults ?? null,
         maxChildren: rate.rate_restriction?.max_children ?? null,
       };
@@ -1719,18 +1735,17 @@ function collectValidOffers(
   return valid;
 }
 
-/** Staff-ranked rates first (in rank order), then the rest by price, then by rate id. */
+/**
+ * The offers of a stay, cheapest first, then by rate id so the order is stable. Nobody ranks rates by hand any
+ * more: a guest or staff member sees every bookable rate and chooses. (`_rankOrder` is kept only so the older
+ * callers still compile; the stored order is ignored.)
+ */
 function orderOffers(
   offers: Array<{ rateId: string; offer: ClockProductOffer }>,
-  rankOrder?: string[],
+  _rankOrder?: string[],
 ): Array<{ rateId: string; offer: ClockProductOffer }> {
-  const rankOf = (rateId: string) => {
-    const index = rankOrder?.indexOf(rateId) ?? -1;
-    return index < 0 ? Number.MAX_SAFE_INTEGER : index;
-  };
   return [...offers].sort(
     (a, b) =>
-      rankOf(a.rateId) - rankOf(b.rateId) ||
       a.offer.price.cents - b.offer.price.cents ||
       a.rateId.localeCompare(b.rateId, undefined, { numeric: true }),
   );

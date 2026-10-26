@@ -210,7 +210,7 @@ describe('Rates workspace', () => {
     expect(c.textContent).toContain('Verify your email');
     expect(c.textContent).not.toContain('Create rate plan');
   });
-  it('shows provider unknowns, hides all local editors and preserves the MUST priority action', async () => {
+  it('shows provider unknowns, hides all local editors and offers no rate priority', async () => {
     const f = fixture(true);
     const c = await mount();
     expect(c.textContent).toContain('Managed in Clock');
@@ -218,13 +218,14 @@ describe('Rates workspace', () => {
     expect(f.mock.calls.some(([u]) => u.endsWith('/clock-rate-ranking'))).toBe(false);
     expect(c.textContent).toContain('Room only');
     expect(c.textContent).not.toContain('Load Clock rate list');
-    const up = Array.from(c.querySelectorAll('button')).filter((b) => b.textContent === 'Move up');
-    await act(async () => up[1]!.click());
-    await click('Save rate priority');
-    const call = f.mock.calls.find(([, i]) => i?.method === 'PUT');
-    expect(JSON.parse(call![1]!.body as string)).toEqual({ externalRateIds: ['b', 'a'] });
+    // Rates are listed read-only: nothing to move up or down, nothing to save.
+    expect(Array.from(c.querySelectorAll('button')).some((b) => b.textContent === 'Move up')).toBe(
+      false,
+    );
+    expect(c.textContent).not.toContain('Save rate priority');
+    expect(f.mock.calls.some(([, i]) => i?.method === 'PUT')).toBe(false);
     await click('Rate plans');
-    expect(c.textContent).toContain('Clock rates by room type');
+    expect(c.textContent).toContain('Rates by room type');
     expect(c.textContent).not.toContain('Create rate plan');
     await click('Base prices');
     expect(c.textContent).toContain('Reference price');

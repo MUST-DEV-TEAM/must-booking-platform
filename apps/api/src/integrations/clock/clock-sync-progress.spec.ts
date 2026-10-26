@@ -158,4 +158,23 @@ describe('buildSyncSummary', () => {
     );
     expect(summary.overall).toMatchObject({ state: 'done', percent: 100, etaSeconds: null });
   });
+
+  it('shows the guest profiles really held, not the size of the last small catch-up pass', () => {
+    const guests = buildSyncSummary(
+      [
+        job({
+          resource: 'guests',
+          status: 'SYNCED',
+          initialComplete: true,
+          snapshotTotal: 0,
+          lastSyncedAt: '2026-10-26T15:59:00Z',
+        }),
+      ],
+      now,
+      { guestProfiles: 13750 },
+    ).groups.find((g) => g.key === 'guests')!;
+    expect(guests.total).toBe(13750);
+    expect(guests.done).toBe(13750);
+    expect(guests.state).toBe('done');
+  });
 });

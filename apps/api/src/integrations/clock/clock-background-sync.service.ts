@@ -153,11 +153,19 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
           COALESCE((progress->>'skipped')::int,(snapshot->>'skipped')::int,0) AS skipped
           FROM clock_sync_jobs WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${scope.connectionId}::uuid ORDER BY resource`,
     );
+    // The profiles really held, so the figure survives the small catch-up passes that follow the first import.
+    const profiles = await this.db.withTenantTransaction(
+      scope,
+      (tx) =>
+        tx.$queryRaw<
+          Array<{ count: number }>
+        >`SELECT count(*)::int AS count FROM clock_guest_profiles WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${scope.connectionId}::uuid`,
+    );
     return {
       source: 'CLOCK_PMS',
       enabled: enabled() && this.allowed(propertyId),
       jobs,
-      ...buildSyncSummary(jobs),
+      ...buildSyncSummary(jobs, new Date(), { guestProfiles: profiles[0]?.count ?? 0 }),
     };
   }
   async read(tenantId: string, propertyId: string, resource: string) {
@@ -190,16 +198,6 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
         >`SELECT snapshot AS data,status,last_success_at AS "lastSyncedAt",last_error AS "lastError" FROM clock_sync_jobs WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${scope.connectionId}::uuid AND resource=${resource}`,
     );
     const result = rows[0] ?? { data: null, status: 'READY', lastSyncedAt: null, lastError: null };
-    if (resource === 'rates' && result.data?.roomTypes) {
-      for (const [id, rates] of Object.entries(result.data.roomTypes)) {
-        const ranks = await this.rankings.getRanking(tenantId, propertyId, id);
-        const byId = new Map(ranks.map((r) => [r.externalRateId, r.rank]));
-        result.data.roomTypes[id] = rates.map((r) => ({
-          ...r,
-          rank: byId.get(r.externalRateId) ?? null,
-        }));
-      }
-    }
     return result;
   }
   async requestRefresh(tenantId: string, propertyId: string) {

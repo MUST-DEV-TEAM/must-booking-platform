@@ -82,6 +82,7 @@ function listGroup(
   hint: string,
   job: SyncJobRow | undefined,
   now: Date,
+  held = 0,
 ): SyncGroup {
   if (!job)
     return {
@@ -100,7 +101,7 @@ function listGroup(
     };
   // After the first full pass the job only picks up changes, so the figure to show is that full pass.
   if (job.initialComplete) {
-    const total = job.snapshotTotal ?? job.total ?? job.processed;
+    const total = Math.max(job.snapshotTotal ?? job.total ?? job.processed, held);
     return {
       key,
       label,
@@ -137,7 +138,11 @@ function listGroup(
 }
 
 /** Turns the raw job rows into the parts a hotel owner understands: what is coming in, how much, how fast. */
-export function buildSyncSummary(jobs: SyncJobRow[], now = new Date()): SyncSummary {
+export function buildSyncSummary(
+  jobs: SyncJobRow[],
+  now = new Date(),
+  counts: { guestProfiles?: number } = {},
+): SyncSummary {
   const by = (resource: string) => jobs.find((j) => j.resource === resource);
   const setup = ['catalog', 'rooms', 'rates']
     .map(by)
@@ -205,7 +210,14 @@ export function buildSyncSummary(jobs: SyncJobRow[], now = new Date()): SyncSumm
       by('bookings'),
       now,
     ),
-    listGroup('guests', 'Guest profiles', 'Every guest profile in Clock.', by('guests'), now),
+    listGroup(
+      'guests',
+      'Guest profiles',
+      'Every guest profile in Clock.',
+      by('guests'),
+      now,
+      counts.guestProfiles ?? 0,
+    ),
     {
       key: 'money',
       label: 'Bills and payments',

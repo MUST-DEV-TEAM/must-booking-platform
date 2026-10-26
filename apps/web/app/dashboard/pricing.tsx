@@ -29,7 +29,7 @@ import { PricingEditor } from './pricing-editor';
 import { PricingBaseEditor } from './pricing-base-editor';
 import { PricingPreviewPanel } from './pricing-preview';
 import { ClockAvailabilityPanel } from './clock-availability-panel';
-import { ClockPricingPriority } from './pricing-clock-priority';
+import { ClockRatesOverview } from './clock-rates-overview';
 import { PromoCodesPanel } from './promo-codes-panel';
 import {
   priceDay,
@@ -461,13 +461,7 @@ export function PricingSection({
                 </Alert>
               ) : null}
               <PricingPreviewPanel base={base} data={data} />
-              {data.readOnly ? (
-                <ClockPricingPriority
-                  root={root}
-                  types={data.roomTypes}
-                  canWrite={emailVerified && !!caps.data?.includes('settings.manage')}
-                />
-              ) : null}
+              {data.readOnly ? <ClockRatesOverview root={root} types={data.roomTypes} /> : null}
             </>
           ) : null}
           {tab === 'base' ? (
@@ -588,11 +582,7 @@ export function PricingSection({
           {kind ? (
             data.readOnly ? (
               kind === 'plans' ? (
-                <ClockPricingPriority
-                  root={root}
-                  types={data.roomTypes}
-                  canWrite={emailVerified && !!caps.data?.includes('settings.manage')}
-                />
+                <ClockRatesOverview root={root} types={data.roomTypes} />
               ) : kind === 'rules' ? (
                 <ClockAvailabilityPanel tenantId={tenantId} propertyId={propertyId} />
               ) : (
