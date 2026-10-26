@@ -141,6 +141,10 @@ export function isClockCreditItemResource(value: unknown): value is ClockCreditI
   );
 }
 
+// Up to three more tries after a rate limit, waiting about 0.4s, 0.8s and 1.6s.
+const RATE_LIMIT_RETRIES = 3;
+const RATE_LIMIT_BACKOFF_MS = 400;
+
 function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -2377,7 +2381,30 @@ export class ClockBookingService {
       );
   }
 
+  /**
+   * Every Clock request here goes through the rate limiter, and Clock itself answers 429 when it is
+   * flooded. Both mean the request was NOT processed, so retrying is safe even for a booking
+   * creation or a cancellation: wait a little longer each time and try again before giving up.
+   */
   private async fetch<T>(
+    credentials: ClockConnectionCredentials,
+    options: {
+      method: 'GET' | 'POST' | 'PUT';
+      path: string;
+      body?: unknown;
+      query?: Record<string, string>;
+      api?: 'pms_api' | 'base_api';
+    },
+  ): Promise<ClockOutcome<T>> {
+    for (let retry = 0; ; retry++) {
+      const result = await this.fetchOnce<T>(credentials, options);
+      if (result.ok || result.error.category !== 'rate_limited' || retry >= RATE_LIMIT_RETRIES)
+        return result;
+      await sleep(RATE_LIMIT_BACKOFF_MS * 2 ** retry + Math.floor(Math.random() * 200));
+    }
+  }
+
+  private async fetchOnce<T>(
     credentials: ClockConnectionCredentials,
     options: {
       method: 'GET' | 'POST' | 'PUT';
