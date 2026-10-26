@@ -1,7 +1,7 @@
 ﻿'use client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { usePmsSource } from './use-pms-source';
-import { Button } from '../../components/ui/button';
+import { ClockSyncProgress, type SyncSummary } from './clock-sync-progress';
 export type ClockDay = {
   date: string;
   status: string;
@@ -55,6 +55,54 @@ export function availableOn(
   }
   return total;
 }
+export type SyncStatusData = Partial<SyncSummary> & {
+  enabled: boolean;
+  jobs: Array<{
+    resource: string;
+    status: string;
+    processed: number;
+    total: number | null;
+    lastSyncedAt: string | null;
+    lastError: string | null;
+  }>;
+};
+
+/** The synchronization status of a Clock hotel, shared by every screen that shows it. */
+export function useClockSyncStatus(tenantId: string, propertyId: string, enabled: boolean) {
+  const base = `/api/tenants/${tenantId}/properties/${propertyId}/clock-sync`;
+  return useQuery({
+    queryKey: ['dashboard', 'clock-sync-status', tenantId, propertyId],
+    enabled,
+    queryFn: async () => {
+      const r = await fetch(base + '/status', { credentials: 'include' });
+      if (!r.ok) throw Error('Clock synchronization status could not be read.');
+      return (await r.json()) as SyncStatusData;
+    },
+    refetchInterval: 10000,
+  });
+}
+
+/** Asks for a fresh read from Clock now, ahead of the regular background schedule. */
+export function useClockSyncNow(tenantId: string, propertyId: string) {
+  const client = useQueryClient();
+  const base = `/api/tenants/${tenantId}/properties/${propertyId}/clock-sync`;
+  return useMutation({
+    mutationFn: async () => {
+      const r = await fetch(base + '/refresh', { method: 'POST', credentials: 'include' });
+      if (!r.ok) throw Error('Synchronization could not be queued.');
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: ['dashboard'] }),
+  });
+}
+
+/** When Clock data was last brought in: the newest finish among the parts of the synchronization. */
+export function lastSyncedAt(data: SyncStatusData | undefined): string | null {
+  const times = (data?.groups ?? [])
+    .flatMap((g) => (g.lastSyncedAt ? [g.lastSyncedAt] : []))
+    .sort();
+  return times.at(-1) ?? null;
+}
+
 export function ClockSyncStatus({
   tenantId,
   propertyId,
@@ -66,36 +114,9 @@ export function ClockSyncStatus({
   details?: boolean;
   inventoryOnly?: boolean;
 }) {
-  const source = usePmsSource(tenantId, propertyId),
-    client = useQueryClient();
-  const base = `/api/tenants/${tenantId}/properties/${propertyId}/clock-sync`;
-  const status = useQuery({
-    queryKey: ['dashboard', 'clock-sync-status', tenantId, propertyId],
-    enabled: source.data === 'CLOCK_PMS',
-    queryFn: async () => {
-      const r = await fetch(base + '/status', { credentials: 'include' });
-      if (!r.ok) throw Error('Clock synchronization status could not be read.');
-      return (await r.json()) as {
-        enabled: boolean;
-        jobs: Array<{
-          resource: string;
-          status: string;
-          processed: number;
-          total: number | null;
-          lastSyncedAt: string | null;
-          lastError: string | null;
-        }>;
-      };
-    },
-    refetchInterval: 10000,
-  });
-  const recover = useMutation({
-    mutationFn: async () => {
-      const r = await fetch(base + '/refresh', { method: 'POST', credentials: 'include' });
-      if (!r.ok) throw Error('Synchronization could not be queued.');
-    },
-    onSuccess: () => client.invalidateQueries({ queryKey: ['dashboard'] }),
-  });
+  const source = usePmsSource(tenantId, propertyId);
+  const status = useClockSyncStatus(tenantId, propertyId, source.data === 'CLOCK_PMS');
+  const recover = useClockSyncNow(tenantId, propertyId);
   if (source.data !== 'CLOCK_PMS') return null;
   const jobs = (status.data?.jobs ?? []).filter(
     (job) =>
@@ -126,48 +147,14 @@ export function ClockSyncStatus({
         {latest ? ` · Last update ${new Date(latest).toLocaleString()}` : ''}
       </p>
       {status.error ? <p>{status.error.message}</p> : null}
-      {details ? (
-        <details>
-          <summary>Synchronization progress and recovery</summary>
-          <p>
-            Rooms, rates, availability, guest profiles and booking history update in the background.
-            Existing data stays visible during updates.
-          </p>
-          <ul>
-            {jobs
-              .filter((job) => !job.resource.startsWith('financial:'))
-              .map((job) => (
-                <li key={job.resource}>
-                  {job.resource}: {job.status.toLowerCase()}
-                  {job.processed
-                    ? ` · ${job.processed}${job.total == null ? '' : ` of ${job.total}`} processed`
-                    : ''}
-                  {job.lastError ? ` · ${job.lastError}` : ''}
-                </li>
-              ))}
-          </ul>
-          {jobs.some((job) => job.resource.startsWith('financial:')) ? (
-            <p>
-              Booking balances:{' '}
-              {
-                jobs.filter(
-                  (job) => job.resource.startsWith('financial:') && job.status === 'SYNCED',
-                ).length
-              }{' '}
-              checked,{' '}
-              {
-                jobs.filter(
-                  (job) => job.resource.startsWith('financial:') && job.status === 'FAILED',
-                ).length
-              }{' '}
-              need attention. Details appear in each booking's Payments page.
-            </p>
-          ) : null}
-          <Button variant="outline" disabled={recover.isPending} onClick={() => recover.mutate()}>
-            Resume synchronization after fixing the connection
-          </Button>
-          {recover.error ? <p role="alert">{recover.error.message}</p> : null}
-        </details>
+      {details && status.data?.groups && status.data.overall ? (
+        <ClockSyncProgress
+          summary={{ groups: status.data.groups, overall: status.data.overall }}
+          enabled={status.data.enabled}
+          syncing={recover.isPending}
+          syncError={recover.error?.message ?? null}
+          onSyncNow={() => recover.mutate()}
+        />
       ) : null}
     </div>
   );

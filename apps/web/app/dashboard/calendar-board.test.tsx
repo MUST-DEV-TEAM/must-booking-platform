@@ -79,7 +79,7 @@ describe('CalendarBoard permissions', () => {
           });
         expect(container.textContent).toContain('Rooms in Clock');
         expect(container.textContent).toContain('1 rooms in Clock');
-        expect(container.textContent).toContain('Stored bookings');
+        expect(container.textContent).toContain('From Clock');
         expect(container.textContent).not.toContain('Rooms free');
         expect(container.textContent).not.toContain('0%');
       }

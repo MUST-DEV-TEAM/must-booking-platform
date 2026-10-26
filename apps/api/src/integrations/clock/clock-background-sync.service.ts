@@ -1,4 +1,5 @@
 import { withClockBackgroundWork } from './clock-request-context';
+import { buildSyncSummary, type SyncJobRow } from './clock-sync-progress';
 import { ClockFinancialService, ClockFinancialCurrencyError } from './clock-financial.service';
 import { Param } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
@@ -39,7 +40,12 @@ type Job = {
   id: string;
   resource: string;
   progress: Record<string, unknown>;
-  snapshot: { highWater?: string; schemaVersion?: number; initialTotal?: number } | null;
+  snapshot: {
+    highWater?: string;
+    schemaVersion?: number;
+    initialTotal?: number;
+    skipped?: number;
+  } | null;
   processed: number;
   leaseToken: string;
 };
@@ -114,9 +120,23 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     const jobs = await this.db.withTenantTransaction(
       scope,
       (tx) =>
-        tx.$queryRaw`SELECT resource,status,processed,last_success_at AS "lastSyncedAt",last_error AS "lastError",updated_at AS "updatedAt",CASE WHEN progress->'ids' IS NOT NULL THEN jsonb_array_length(progress->'ids') ELSE NULL END AS total FROM clock_sync_jobs WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${scope.connectionId}::uuid ORDER BY resource`,
+        tx.$queryRaw<
+          SyncJobRow[]
+        >`SELECT resource,status,processed,last_success_at AS "lastSyncedAt",last_error AS "lastError",updated_at AS "updatedAt",created_at AS "createdAt",
+          CASE WHEN progress->'ids' IS NOT NULL THEN jsonb_array_length(progress->'ids') ELSE NULL END AS total,
+          progress->>'startedAt' AS "startedAt",
+          (progress->>'total')::int AS "progressTotal",
+          COALESCE((snapshot->>'initialComplete')::boolean,false) AS "initialComplete",
+          COALESCE((snapshot->>'initialTotal')::int,(snapshot->>'total')::int) AS "snapshotTotal",
+          COALESCE((progress->>'skipped')::int,(snapshot->>'skipped')::int,0) AS skipped
+          FROM clock_sync_jobs WHERE tenant_id=${tenantId}::uuid AND property_id=${propertyId}::uuid AND connection_id=${scope.connectionId}::uuid ORDER BY resource`,
     );
-    return { source: 'CLOCK_PMS', enabled: enabled() && this.allowed(propertyId), jobs };
+    return {
+      source: 'CLOCK_PMS',
+      enabled: enabled() && this.allowed(propertyId),
+      jobs,
+      ...buildSyncSummary(jobs),
+    };
   }
   async read(tenantId: string, propertyId: string, resource: string) {
     const scope = await this.scope(tenantId, propertyId);
@@ -181,27 +201,31 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
       for (const scope of properties) {
         if (!this.allowed(scope.propertyId)) continue;
         await this.ensure(scope);
-        const job = await this.claim(scope);
-        if (!job) continue;
-        try {
-          await withClockBackgroundWork(() => this.run(scope, job));
-        } catch (error) {
-          const retry =
-            error instanceof ClockFinancialCurrencyError
-              ? true
-              : error instanceof ClockBookingReadError
-                ? error.classified.retryable
-                : error instanceof Error &&
-                  /Clock read did not finish|Clock did not finish reading this guest batch|Booking changed during the financial check|Clock bills changed during the financial check/.test(
-                    error.message,
-                  );
-          const category =
-            error instanceof ClockBookingReadError ? error.classified.category : 'configuration';
-          await this.db.withTenantTransaction(
-            scope,
-            (tx) =>
-              tx.$executeRaw`UPDATE clock_sync_jobs SET status=${retry ? 'RETRY' : 'FAILED'},last_error=${error instanceof ClockFinancialCurrencyError ? error.message : retry ? 'Clock is temporarily unavailable. Synchronization will retry automatically.' : 'Synchronization needs connection or room-mapping review (' + category + ').'},next_run_at=now()+interval '1 minute',lease_token=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`,
-          );
+        // Two lanes: the import and refresh of lists, and the bills. Bills used to be served first
+        // and, being many and always due, starved the reservation import.
+        for (const lane of ['lists', 'bills'] as const) {
+          const job = await this.claim(scope, lane);
+          if (!job) continue;
+          try {
+            await withClockBackgroundWork(() => this.run(scope, job));
+          } catch (error) {
+            const retry =
+              error instanceof ClockFinancialCurrencyError
+                ? true
+                : error instanceof ClockBookingReadError
+                  ? error.classified.retryable
+                  : error instanceof Error &&
+                    /Clock read did not finish|Clock did not finish reading this guest batch|Booking changed during the financial check|Clock bills changed during the financial check/.test(
+                      error.message,
+                    );
+            const category =
+              error instanceof ClockBookingReadError ? error.classified.category : 'configuration';
+            await this.db.withTenantTransaction(
+              scope,
+              (tx) =>
+                tx.$executeRaw`UPDATE clock_sync_jobs SET status=${retry ? 'RETRY' : 'FAILED'},last_error=${error instanceof ClockFinancialCurrencyError ? error.message : retry ? 'Clock is temporarily unavailable. Synchronization will retry automatically.' : 'Synchronization needs connection or room-mapping review (' + category + ').'},next_run_at=now()+interval '1 minute',lease_token=NULL,lease_until=NULL,updated_at=now() WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${job.id}::uuid AND lease_token=${job.leaseToken}::uuid`,
+            );
+          }
         }
       }
     } catch {
@@ -212,14 +236,34 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
       this.busy = false;
     }
   }
-  private async claim(scope: Scope): Promise<Job | null> {
+  private async claim(scope: Scope, lane: 'lists' | 'bills'): Promise<Job | null> {
     const token = randomUUID();
+    const bills = lane === 'bills';
     return this.db.withTenantTransaction(scope, async (tx) => {
       const rows = await tx.$queryRaw<
         Job[]
-      >`UPDATE clock_sync_jobs j SET status='RUNNING',requested_at=NULL,lease_token=${token}::uuid,lease_until=now()+interval '5 minutes',updated_at=now() WHERE j.id=(SELECT id FROM clock_sync_jobs WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND connection_id=${scope.connectionId}::uuid AND status<>'FAILED' AND next_run_at<=now() AND (lease_until IS NULL OR lease_until<now()) ORDER BY (requested_at IS NOT NULL) DESC,requested_at NULLS LAST,next_run_at,CASE resource WHEN 'catalog' THEN 0 WHEN 'rooms' THEN 1 WHEN 'rates' THEN 2 ELSE 3 END,id FOR UPDATE SKIP LOCKED LIMIT 1) AND j.tenant_id=${scope.tenantId}::uuid AND j.property_id=${scope.propertyId}::uuid RETURNING j.id,j.resource,j.progress,j.snapshot,j.processed,j.lease_token AS "leaseToken"`;
+      >`UPDATE clock_sync_jobs j SET status='RUNNING',requested_at=NULL,lease_token=${token}::uuid,lease_until=now()+interval '5 minutes',updated_at=now() WHERE j.id=(SELECT id FROM clock_sync_jobs WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND connection_id=${scope.connectionId}::uuid AND status<>'FAILED' AND (resource LIKE 'financial:%')=${bills} AND next_run_at<=now() AND (lease_until IS NULL OR lease_until<now()) ORDER BY (requested_at IS NOT NULL) DESC,requested_at NULLS LAST,next_run_at,CASE resource WHEN 'catalog' THEN 0 WHEN 'rooms' THEN 1 WHEN 'rates' THEN 2 ELSE 3 END,id FOR UPDATE SKIP LOCKED LIMIT 1) AND j.tenant_id=${scope.tenantId}::uuid AND j.property_id=${scope.propertyId}::uuid RETURNING j.id,j.resource,j.progress,j.snapshot,j.processed,j.lease_token AS "leaseToken"`;
       return rows[0] ?? null;
     });
+  }
+  /**
+   * How long to leave a reservation's bill alone. Bills of guests arriving or staying are checked often;
+   * far-off and finished stays rarely, so a large hotel does not spend Clock's request allowance on them.
+   */
+  private async billDelay(scope: Scope, bookingId: string): Promise<number> {
+    const rows = await this.db.withTenantTransaction(
+      scope,
+      (tx) =>
+        tx.$queryRaw<
+          Array<{ startsIn: number; endedAgo: number }>
+        >`SELECT (starts_on - current_date)::int AS "startsIn", (current_date - ends_on)::int AS "endedAgo" FROM bookings WHERE tenant_id=${scope.tenantId}::uuid AND property_id=${scope.propertyId}::uuid AND id=${bookingId}::uuid`,
+    );
+    const row = rows[0];
+    if (!row) return 43200;
+    if (row.endedAgo > 1) return 86400;
+    if (row.startsIn <= 1) return 600;
+    if (row.startsIn <= 30) return 7200;
+    return 43200;
   }
   private async save(
     scope: Scope,
@@ -246,8 +290,9 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     const credentials = parseClockCredentials(connection.credentials);
     if (!credentials.ok) throw new BadRequestException('Clock credentials need review.');
     if (job.resource.startsWith('financial:')) {
-      await this.financial.refresh(scope, job.resource.slice(10));
-      await this.save(scope, job, {}, true, undefined, 1, 300);
+      const bookingId = job.resource.slice(10);
+      await this.financial.refresh(scope, bookingId);
+      await this.save(scope, job, {}, true, undefined, 1, await this.billDelay(scope, bookingId));
       return;
     }
     if (job.resource === 'catalog') {
@@ -325,6 +370,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
               : '1970-01-01',
             updatedUntil: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
             cursor: '0',
+            startedAt: new Date().toISOString(),
           };
       const result = await this.guests.batch({ ...scope, userId: null }, progress);
       const count = Object.keys(job.progress).length
@@ -333,7 +379,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
       await this.save(
         scope,
         job,
-        result.completed ? {} : { ...progress, cursor: result.cursor },
+        result.completed ? {} : { ...progress, cursor: result.cursor, total: result.total },
         result.completed,
         result.completed
           ? { highWater: progress.updatedUntil, total: result.total, initialComplete: true }
@@ -346,6 +392,10 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
     if (job.resource === 'bookings') {
       const until =
         typeof job.progress.until === 'string' ? job.progress.until : new Date().toISOString();
+      const startedAt =
+        typeof job.progress.startedAt === 'string'
+          ? job.progress.startedAt
+          : new Date().toISOString();
       const ids = Array.isArray(job.progress.ids)
         ? job.progress.ids
         : await this.reader.updatedBookingIds(
@@ -356,6 +406,8 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
             until,
           );
       let index = Number(job.progress.index ?? 0);
+      let skipped = Number(job.progress.skipped ?? 0);
+      const skippedIds = Array.isArray(job.progress.skippedIds) ? [...job.progress.skippedIds] : [];
       const end = Math.min(index + 5, ids.length);
       for (; index < end; index++) {
         const result = await this.hydration.hydrateBooking(
@@ -366,14 +418,19 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
           undefined,
           { notify: false },
         );
-        if (!['created', 'updated'].includes(result.outcome))
+        if (result.outcome === 'missing_room_type_mapping' || result.outcome === 'unknown_status') {
+          // Old reservations can belong to room types or statuses MUST has no mapping for. They are counted
+          // and listed instead of stopping the import of the other thousands.
+          skipped += 1;
+          if (skippedIds.length < 20) skippedIds.push(String(ids[index]));
+        } else if (!['created', 'updated'].includes(result.outcome))
           throw new BadRequestException('Clock booking mapping or status needs review.');
       }
       const complete = index >= ids.length;
       await this.save(
         scope,
         job,
-        complete ? {} : { until, ids, index },
+        complete ? {} : { until, ids, index, startedAt, skipped, skippedIds },
         complete,
         complete
           ? {
@@ -382,6 +439,7 @@ export class ClockBackgroundSyncService implements OnModuleInit, OnModuleDestroy
               initialComplete: true,
               schemaVersion: 2,
               initialTotal: job.snapshot?.initialTotal ?? ids.length,
+              skipped: Number(job.snapshot?.skipped ?? 0) + skipped,
             }
           : undefined,
         index,

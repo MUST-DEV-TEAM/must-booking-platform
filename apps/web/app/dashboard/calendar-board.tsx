@@ -1,6 +1,14 @@
 'use client';
 import { useClockRoomCounts } from './clock-room-counts';
-import { ClockSyncStatus, useClockSnapshot, availableOn, type ClockMonth } from './clock-sync';
+import {
+  ClockSyncStatus,
+  lastSyncedAt,
+  useClockSnapshot,
+  useClockSyncNow,
+  useClockSyncStatus,
+  availableOn,
+  type ClockMonth,
+} from './clock-sync';
 
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronLeft, ChevronRight, CirclePlus, Lock, RefreshCw } from 'lucide-react';
@@ -100,6 +108,17 @@ function loadRemembered(): Partial<Remembered> {
  * column width, never the width of the chart. Read-only for now: click a bar to open the
  * reservation, click an empty day to start a reservation for it.
  */
+/** "just now", "5 min ago", "3 h ago", "2 d ago": how old a figure is, without a clock to read. */
+function agoLabel(iso: string): string {
+  const seconds = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (seconds < 60) return 'just now';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return `${Math.round(hours / 24)} d ago`;
+}
+
 export function CalendarBoard({
   tenantId,
   propertyId,
@@ -119,6 +138,9 @@ export function CalendarBoard({
 }) {
   const source = usePmsSource(tenantId, propertyId);
   const stockKnown = source.data === 'LOCAL';
+  const clockSync = useClockSyncStatus(tenantId, propertyId, source.data === 'CLOCK_PMS');
+  const syncNow = useClockSyncNow(tenantId, propertyId);
+  const syncedAt = lastSyncedAt(clockSync.data);
   const clockCounts = useClockRoomCounts(tenantId, propertyId, source.data === 'CLOCK_PMS');
   const base = `/api/tenants/${tenantId}/properties/${propertyId}`;
   const [start, setStart] = useState(() => addDays(todayIso(), -1));
@@ -587,9 +609,21 @@ export function CalendarBoard({
               variant={board.isFetching || !stockKnown ? 'muted' : 'success'}
               className="rounded-full px-2 py-0 text-[11px]"
             >
-              {board.isFetching ? 'Updating…' : stockKnown ? 'Live' : 'Stored bookings'}
+              {board.isFetching || syncNow.isPending
+                ? 'Updating…'
+                : stockKnown
+                  ? 'Live'
+                  : syncedAt
+                    ? `From Clock · updated ${agoLabel(syncedAt)}`
+                    : 'From Clock · syncing'}
             </Badge>
-            <IconButton label="Refresh" onClick={() => void board.refetch()}>
+            <IconButton
+              label={stockKnown ? 'Refresh' : 'Refresh and ask Clock for the latest'}
+              onClick={() => {
+                if (!stockKnown) syncNow.mutate();
+                void board.refetch();
+              }}
+            >
               <RefreshCw aria-hidden="true" />
             </IconButton>
             {canCreateBooking ? (
