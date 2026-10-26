@@ -15,6 +15,7 @@ import { CapabilitiesGuard } from '../src/tenancy/capabilities.guard';
 import { AuditLogService } from '../src/tenancy/audit-log.service';
 import { QuoteController } from '../src/booking/quote.controller';
 import { QuoteService } from '../src/booking/quote.service';
+import { PromoCodeService } from '../src/booking/promo-code.service';
 import { StaffAvailabilityService } from '../src/booking/staff-availability.service';
 import { StaffBookingController } from '../src/booking/staff-booking.controller';
 import { BookingController } from '../src/booking/booking.controller';
@@ -171,6 +172,7 @@ beforeAll(async () => {
     CapabilitiesService,
     AuditLogService,
     QuoteService,
+    PromoCodeService,
     LocalPmsProvider,
     MultiRoomBookingService,
   ];
