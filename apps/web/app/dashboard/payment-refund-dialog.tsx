@@ -44,6 +44,10 @@ export function RefundDialog({
   const [choice, setChoice] = useState<RefundChoiceValue>({ ...noRefund, mode: 'full' });
 
   const [reasonCode, setReasonCode] = useState<RefundReason | ''>('');
+  // After the 24-hour window the server says whether this person may go on, and the refund is then made
+  // only after they confirm it on purpose.
+  const [lateAllowed, setLateAllowed] = useState(false);
+  const [lateConfirmed, setLateConfirmed] = useState(false);
   const refund = async (note: string) => {
     const body = refundRequestBody(choice, booking);
     if (!reasonCode) throw new Error('Choose a refund reason.');
@@ -52,6 +56,7 @@ export function RefundDialog({
       bookingId: booking.id,
       ...body,
       reasonCode,
+      ...(lateConfirmed ? { lateRefund: true } : {}),
       ...(note.trim() ? { note: note.trim().slice(0, 500) } : {}),
     });
     if (attempt.current?.body !== payload)
@@ -65,9 +70,11 @@ export function RefundDialog({
     const result = (await response.json().catch(() => null)) as {
       ok?: boolean;
       value?: { status?: string };
-      error?: { message?: string };
+      error?: { message?: string; code?: string; lateAllowed?: boolean };
       message?: string;
     } | null;
+    if (result?.error?.code === 'REFUND_WINDOW_CLOSED' && result.error.lateAllowed === true)
+      setLateAllowed(true);
     if (!response.ok || result?.ok === false)
       throw new Error(result?.error?.message ?? result?.message ?? 'The refund could not be made.');
     await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
@@ -106,11 +113,20 @@ export function RefundDialog({
       description={[booking.externalReference, guestName(booking)].filter(Boolean).join(' · ')}
       confirmLabel="Record refund"
       reasonLabel="Staff note (optional)"
-      confirmDisabled={!reasonCode || !!refundChoiceError(choice, booking)}
+      confirmDisabled={
+        !reasonCode || !!refundChoiceError(choice, booking) || (lateAllowed && !lateConfirmed)
+      }
       onConfirm={refund}
     >
       {canCancel && booking.status === 'CONFIRMED' && scope ? (
         <SettingToggle label="Also cancel booking" checked={cancelAlso} onChange={setCancelAlso} />
+      ) : null}
+      {lateAllowed ? (
+        <SettingToggle
+          label="Refund anyway: this was cancelled more than 24 hours ago"
+          checked={lateConfirmed}
+          onChange={setLateConfirmed}
+        />
       ) : null}
       <FormField label="Refund reason">
         <Combobox

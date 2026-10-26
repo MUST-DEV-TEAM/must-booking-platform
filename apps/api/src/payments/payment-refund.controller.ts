@@ -15,11 +15,15 @@ import { RequiresVerifiedEmail } from '../auth/requires-verified-email.decorator
 import { RequiresCapability } from '../tenancy/capabilities.decorator';
 import { Role, Roles } from '../tenancy/roles.decorator';
 import { TenantScoped } from '../tenancy/tenant-context.decorator';
+import { CapabilitiesService } from '../tenancy/capabilities.service';
 import { PaymentRefundService } from './payment-refund.service';
 
 @Controller('tenants/:tenantId/properties/:propertyId/payments')
 export class PaymentRefundController {
-  constructor(@Inject(PaymentRefundService) private readonly refunds: PaymentRefundService) {}
+  constructor(
+    @Inject(PaymentRefundService) private readonly refunds: PaymentRefundService,
+    @Inject(CapabilitiesService) private readonly capabilities: CapabilitiesService,
+  ) {}
 
   @Post('refunds')
   @HttpCode(200)
@@ -34,22 +38,43 @@ export class PaymentRefundController {
   ) {
     const value = (body ?? {}) as Record<string, unknown>;
     const bookingId = typeof value.bookingId === 'string' ? value.bookingId : '';
-    if (bookingId && (await this.refunds.refundWindowClosed(request.tenantContext, bookingId)))
-      return {
-        ok: false,
-        error: {
-          code: 'REFUND_WINDOW_CLOSED',
-          message:
-            'This reservation was cancelled more than 24 hours ago, so it can no longer be refunded here.',
-          retryable: false,
-        },
-      };
+    // A cancelled reservation is refundable from Payments for 24 hours. After that only people with the
+    // "Refund after 24 hours" permission (owners, admins and managers) may do it, and only on purpose.
+    const late =
+      bookingId !== '' && (await this.refunds.refundWindowClosed(request.tenantContext, bookingId));
+    if (late) {
+      const allowed = (await this.capabilities.effective(request.tenantContext)).includes(
+        'payments.refund_late',
+      );
+      if (!allowed)
+        return {
+          ok: false,
+          error: {
+            code: 'REFUND_WINDOW_CLOSED',
+            message:
+              'This reservation was cancelled more than 24 hours ago. Only an owner, admin or manager can refund it now.',
+            retryable: false,
+            lateAllowed: false,
+          },
+        };
+      if (value.lateRefund !== true)
+        return {
+          ok: false,
+          error: {
+            code: 'REFUND_WINDOW_CLOSED',
+            message:
+              'This reservation was cancelled more than 24 hours ago. Confirm that you want to refund it anyway.',
+            retryable: false,
+            lateAllowed: true,
+          },
+        };
+    }
     const result = await this.refunds.manualRefund(request.tenantContext, {
       bookingId: typeof value.bookingId === 'string' ? value.bookingId : '',
       idempotencyKey: this.idempotencyKey(idempotencyKey),
       amount: this.money(value.amount),
       percentage: this.percentage(value.percentage),
-      note: this.note(value.note),
+      note: this.lateNote(this.note(value.note), late),
       ...(value.reasonCode === undefined ? {} : { reasonCode: this.reason(value.reasonCode) }),
       actorUserId: request.tenantContext.userId,
     });
@@ -86,6 +111,13 @@ export class PaymentRefundController {
     if (typeof value !== 'string' || !REFUND_REASONS.includes(value as RefundReason))
       throw new BadRequestException('Choose a valid refund reason.');
     return value as RefundReason;
+  }
+
+  /** A refund after the window says so in its note, so the record shows it was a deliberate exception. */
+  private lateNote(note: string | undefined, late: boolean): string | undefined {
+    if (!late) return note;
+    const prefix = 'Refund after the 24-hour window.';
+    return note ? `${prefix} ${note}`.slice(0, 500) : prefix;
   }
 
   private note(value: unknown): string | undefined {
