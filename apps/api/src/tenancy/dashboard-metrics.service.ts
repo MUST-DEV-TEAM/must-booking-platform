@@ -7,7 +7,7 @@ import { projectReport, type ReportFinancial } from './report-projection';
 import { parseReportQuery, reportObject, reportInvalid } from './report-query';
 import {
   cashMetrics,
-  outstanding,
+  bookingOutstanding,
   reportMinor,
   reservationMetrics,
   shiftDay,
@@ -61,7 +61,7 @@ export class DashboardMetricsService {
               )[0]?.netCollected ?? '0.00';
             desk.set(
               b.currency,
-              (desk.get(b.currency) ?? 0n) + reportMinor(outstanding(b.totalAmount, cash)),
+              (desk.get(b.currency) ?? 0n) + reportMinor(bookingOutstanding(b, cash)),
             );
           }
         const clock = await tx.$queryRaw<

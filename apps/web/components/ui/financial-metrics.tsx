@@ -21,23 +21,27 @@ export function FinancialMetrics({
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {rows.flatMap((row) =>
-        ['collected', 'refunded', 'netCollected', 'outstanding'].map((key) => (
-          <StatTile
-            key={`${row.currency}:${key}`}
-            label={`${reportLabel(key)} - ${row.currency}`}
-            value={reportValue(row[key], 'money', row.currency)}
-            note={
-              key === 'outstanding'
-                ? 'Confirmed bookings created in the period; all matching-currency cash.'
-                : 'Successful ledger postings in the selected period.'
-            }
-            onClick={
-              onSelect && (!interactiveKeys || interactiveKeys.includes(key))
-                ? () => onSelect(key, row.currency)
-                : undefined
-            }
-          />
-        )),
+        ['collected', 'refunded', 'netCollected', 'outstanding', 'expectedOnArrival']
+          .filter((key) => key in row)
+          .map((key) => (
+            <StatTile
+              key={`${row.currency}:${key}`}
+              label={`${reportLabel(key)} - ${row.currency}`}
+              value={reportValue(row[key], 'money', row.currency)}
+              note={
+                key === 'outstanding'
+                  ? 'Still owed by stays that have started. Where Clock holds the bill, Clock’s balance is used.'
+                  : key === 'expectedOnArrival'
+                    ? 'Balance of stays that have not started yet, normally paid at the hotel on arrival.'
+                    : 'Successful ledger postings in the selected period.'
+              }
+              onClick={
+                onSelect && (!interactiveKeys || interactiveKeys.includes(key))
+                  ? () => onSelect(key, row.currency)
+                  : undefined
+              }
+            />
+          )),
       )}
     </div>
   );

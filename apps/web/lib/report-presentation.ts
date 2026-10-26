@@ -3,6 +3,7 @@ export const reportLabel = (key: string) =>
   ({
     roomRevenue: 'Booked room revenue',
     netCollected: 'Net collected',
+    expectedOnArrival: 'Expected on arrival',
     financial: 'Revenue and cash by currency',
     averageLengthOfStay: 'Average stay (nights)',
     averageLeadDays: 'Average lead time (days)',

@@ -55,8 +55,9 @@ export function PaymentReportSummary({
         <CardTitle>Payment report totals</CardTitle>
         <CardDescription>
           These totals use the selected period. The booking list below keeps its own filters.
-          Collected and refunded use ledger posting dates; outstanding uses confirmed bookings
-          created in this period.
+          Collected and refunded use ledger posting dates. Outstanding is what stays that have
+          started still owe, from confirmed bookings created in this period; where Clock holds the
+          bill, Clock's own balance is used, so a payment taken at the hotel desk counts as settled.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">

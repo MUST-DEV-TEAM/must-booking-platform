@@ -49,6 +49,10 @@ export type ReportBooking = {
   cancellationCutoffAt: string | null;
   paymentStarted: boolean;
   firstGuestBookingAt: string | null;
+  /** The hotel's bill for this reservation lives in Clock, so Clock (not MUST's own ledger) says what is owed. */
+  clockBasis?: boolean;
+  /** What Clock last said is still due (negative is a guest credit); null when the bill has not been read yet. */
+  clockBalance?: { amount: string; currency: string } | null;
 };
 export type ReportPayment = {
   reasonCode?: string | null;
@@ -138,7 +142,11 @@ export async function reportFacts(
       cancelled."cancelledAt",
       b.cancellation_is_free AS "cancellationIsFree",b.cancellation_cutoff_at::text AS "cancellationCutoffAt",
       (started.booking_id IS NOT NULL) AS "paymentStarted",
-      history."firstGuestBookingAt"
+      history."firstGuestBookingAt",
+      (b.external_booking_id IS NOT NULL AND b.external_reference LIKE 'CLOCK-%') AS "clockBasis",
+      (SELECT j.snapshot->'balance' FROM clock_sync_jobs j
+         JOIN property_integration_connections pc ON pc.tenant_id=j.tenant_id AND pc.property_id=j.property_id AND pc.connection_id=j.connection_id AND pc.enabled AND pc.kind='PMS'
+        WHERE j.tenant_id=b.tenant_id AND j.property_id=b.property_id AND j.resource='financial:'||b.id::text LIMIT 1) AS "clockBalance"
     FROM bookings b
     JOIN room_types rt ON rt.tenant_id=${tenantId}::uuid AND rt.property_id=${propertyId}::uuid AND rt.id=b.room_type_id
     JOIN rate_plans rp ON rp.tenant_id=${tenantId}::uuid AND rp.property_id=${propertyId}::uuid AND rp.id=b.rate_plan_id
