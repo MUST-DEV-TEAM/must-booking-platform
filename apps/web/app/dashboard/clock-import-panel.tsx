@@ -3,8 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePmsSource } from './use-pms-source';
 import { Button } from '../../components/ui/button';
-import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { DateField } from '../../components/ui/date-field';
 type Progress = {
   startsOn: string;
   endsOn: string;
@@ -120,22 +120,22 @@ export function ClockImportPanel({
         <div className="flex flex-wrap gap-3">
           <label>
             From
-            <Input
+            <DateField
               aria-label="Import from"
-              type="date"
+
               value={from}
               disabled={busy || !!progress}
-              onChange={(e) => setFrom(e.target.value)}
+              onChange={(date) => setFrom(date)}
             />
           </label>
           <label>
             Until (checkout boundary)
-            <Input
+            <DateField
               aria-label="Import until"
-              type="date"
+
               value={to}
               disabled={busy || !!progress}
-              onChange={(e) => setTo(e.target.value)}
+              onChange={(date) => setTo(date)}
             />
           </label>
         </div>

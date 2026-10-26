@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { pickDate } from '../../components/ui/date-field-test-utils';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, it, expect, vi } from 'vitest';
@@ -29,11 +30,7 @@ async function rendered(text: string) {
 }
 async function input(label: string, value: string) {
   const el = [...document.querySelectorAll('label')].find((l) => l.textContent === label)!;
-  const control = document.getElementById(el.htmlFor) as HTMLInputElement;
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(control, value);
-    control.dispatchEvent(new Event('input', { bubbles: true }));
-  });
+  await pickDate(document.getElementById(el.htmlFor), value);
 }
 const summary = {
   query: { from: '2026-10-01', to: '2026-10-19' },

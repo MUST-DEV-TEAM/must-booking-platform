@@ -24,6 +24,7 @@ import {
 } from '../../components/ui/table';
 import { inventoryRequest } from './inventory-api';
 import { priceDay, type PricingWorkspace, type PricingPreview } from './pricing-types';
+import { DateField } from '../../components/ui/date-field';
 type RateOffer = {
   rateId: string;
   name: string;
@@ -151,24 +152,26 @@ export function PricingPreviewPanel({
             </FormField>
           ) : null}
           <FormField label="Arrival" htmlFor="price-start">
-            <Input
+            <DateField
               id="price-start"
-              type="date"
+              aria-label="Arrival"
+
               value={start}
-              onChange={(e) => {
+              onChange={(date) => {
                 dirty();
-                setStart(e.target.value);
+                setStart(date);
               }}
             />
           </FormField>
           <FormField label="Departure (exclusive)" htmlFor="price-end">
-            <Input
+            <DateField
               id="price-end"
-              type="date"
+              aria-label="Departure (exclusive)"
+
               value={end}
-              onChange={(e) => {
+              onChange={(date) => {
                 dirty();
-                setEnd(e.target.value);
+                setEnd(date);
               }}
             />
           </FormField>

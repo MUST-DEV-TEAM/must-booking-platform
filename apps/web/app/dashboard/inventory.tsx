@@ -19,7 +19,6 @@ import { Badge } from '../../components/ui/badge';
 import { Alert, AlertTitle, AlertDescription } from '../../components/ui/alert';
 import { Combobox } from '../../components/ui/combobox';
 import { FormField } from '../../components/ui/form-field';
-import { Input } from '../../components/ui/input';
 import { RowList } from '../../components/ui/row-list';
 import { ConfirmDialog } from '../../components/ui/confirm-dialog';
 import { EmptyPanel, ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
@@ -42,6 +41,7 @@ import { InventoryStock } from './inventory-stock';
 import { InventoryEditor } from './inventory-editor';
 import { InventoryPreview } from './inventory-preview';
 import { InventorySheet, type InventoryAction } from './inventory-sheet';
+import { DateField } from '../../components/ui/date-field';
 const activeStates = ['Active', 'Scheduled'];
 export function inventoryActions(
   r: InventoryRecord,
@@ -653,19 +653,21 @@ export function InventorySection({
               </div>
               <div className="flex flex-wrap items-end gap-3">
                 <FormField label="Period from" htmlFor="inventory-filter-from">
-                  <Input
+                  <DateField
                     id="inventory-filter-from"
-                    type="date"
+              aria-label="Period from"
+
                     value={dateFrom}
-                    onChange={(e) => setDateFrom(e.target.value)}
+                    onChange={(date) => setDateFrom(date)}
                   />
                 </FormField>
                 <FormField label="Period through" htmlFor="inventory-filter-through">
-                  <Input
+                  <DateField
                     id="inventory-filter-through"
-                    type="date"
+              aria-label="Period through"
+
                     value={dateTo}
-                    onChange={(e) => setDateTo(e.target.value)}
+                    onChange={(date) => setDateTo(date)}
                   />
                 </FormField>
                 <Button variant="ghost" onClick={() => chooseTab(tab)}>

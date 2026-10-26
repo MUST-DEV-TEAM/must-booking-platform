@@ -40,6 +40,7 @@ import {
   type EmailPage,
   type EmailMessage,
 } from '../../lib/email-workspace';
+import { DateField } from '../../components/ui/date-field';
 
 const tabs = [
   { id: 'overview', label: 'Overview' },
@@ -314,26 +315,26 @@ function EmailsWorkspaceContent({
                   />
                 </FormField>
                 <FormField label="From date">
-                  <Input
+                  <DateField
                     aria-label="Delivery from date"
-                    type="date"
+
                     value={deliveryFrom}
-                    onChange={(e) =>
+                    onChange={(date) =>
                       updateDelivery(() => {
-                        setDeliveryFrom(e.target.value);
+                        setDeliveryFrom(date);
                         setDeliveryHours(undefined);
                       })
                     }
                   />
                 </FormField>
                 <FormField label="Through date">
-                  <Input
+                  <DateField
                     aria-label="Delivery through date"
-                    type="date"
+
                     value={deliveryTo}
-                    onChange={(e) =>
+                    onChange={(date) =>
                       updateDelivery(() => {
-                        setDeliveryTo(e.target.value);
+                        setDeliveryTo(date);
                         setDeliveryHours(undefined);
                       })
                     }

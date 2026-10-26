@@ -206,7 +206,7 @@ export function CalendarMonths({
       {yearNavigation ? (
         <div className="mb-2 grid grid-cols-2 gap-2">
           <select
-            aria-label="Birthday month"
+            aria-label="Month"
             className="h-9 rounded-md border px-2"
             value={visibleMonth.getMonth()}
             onChange={(e) =>
@@ -222,7 +222,7 @@ export function CalendarMonths({
             ))}
           </select>
           <select
-            aria-label="Birthday year"
+            aria-label="Year"
             className="h-9 rounded-md border px-2"
             value={visibleMonth.getFullYear()}
             onChange={(e) =>
@@ -276,6 +276,7 @@ export function CalendarMonths({
 }
 
 export function CalendarPicker({
+  id,
   label,
   mode,
   value,
@@ -294,6 +295,7 @@ export function CalendarPicker({
   dateReason,
   onVisibleWindowChange,
 }: {
+  id?: string;
   label: string;
   mode: 'single' | 'range';
   value: CalendarSelection;
@@ -354,6 +356,7 @@ export function CalendarPicker({
           </IconButton>
         ) : (
           <Button
+            id={id}
             variant="outline"
             disabled={disabled}
             aria-label={label}

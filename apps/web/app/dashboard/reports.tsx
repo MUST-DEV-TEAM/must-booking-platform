@@ -17,7 +17,6 @@ import {
 } from '../../components/ui/card';
 import { Alert, AlertTitle, AlertDescription } from '../../components/ui/alert';
 import { FormField } from '../../components/ui/form-field';
-import { Input } from '../../components/ui/input';
 import { Combobox } from '../../components/ui/combobox';
 import { EmptyPanel, ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import { ReportTable } from '../../components/ui/report-table';
@@ -47,6 +46,7 @@ import {
   reportPreset,
 } from '../../lib/report-presentation';
 import { createReportWriter } from '../../lib/report-writer';
+import { DateField } from '../../components/ui/date-field';
 const tiles: Record<ReportKind, string[]> = {
   overview: ['bookings', 'cancelled', 'occupancy', 'soldNights', 'arrivals', 'departures'],
   reservations: [
@@ -468,21 +468,21 @@ function ReportsWorkspace({ tenantId, propertyId }: { tenantId: string; property
           >
             <FilterGrid>
               <FormField label="From" htmlFor="report-from">
-                <Input
+                <DateField
                   id="report-from"
                   aria-label="Report start date"
-                  type="date"
+
                   value={from}
-                  onChange={(e) => setFrom(e.target.value)}
+                  onChange={(date) => setFrom(date)}
                 />
               </FormField>
               <FormField label="To" htmlFor="report-to">
-                <Input
+                <DateField
                   id="report-to"
                   aria-label="Report end date"
-                  type="date"
+
                   value={to}
-                  onChange={(e) => setTo(e.target.value)}
+                  onChange={(date) => setTo(date)}
                 />
               </FormField>
               <Button type="submit">Apply range</Button>

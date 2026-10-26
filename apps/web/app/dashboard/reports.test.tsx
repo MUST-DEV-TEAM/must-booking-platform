@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { pickDate } from '../../components/ui/date-field-test-utils';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, it, expect, vi } from 'vitest';
@@ -127,11 +128,7 @@ async function click(text: string) {
   await act(async () => button.click());
 }
 async function value(label: string, value: string) {
-  const input = document.querySelector(`[aria-label="${label}"]`) as HTMLInputElement;
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-  });
+  await pickDate(document.querySelector<HTMLElement>(`[aria-label="${label}"]`), value);
 }
 describe('Reports workspace', () => {
   it('renders exact currencies, date basis, last-updated and tab-specific queries', async () => {

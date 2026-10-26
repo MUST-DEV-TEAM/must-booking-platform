@@ -19,7 +19,6 @@ import {
 import { DetailList } from '../../../../components/ui/detail-list';
 import { FilterChips } from '../../../../components/ui/filter-chips';
 import { FormField } from '../../../../components/ui/form-field';
-import { Input } from '../../../../components/ui/input';
 import { PageHeader } from '../../../../components/ui/page-header';
 import { Pagination } from '../../../../components/ui/pagination';
 import { PermissionPanel } from '../../../../components/ui/permission-panel';
@@ -50,6 +49,7 @@ import {
 } from '../../../../lib/platform-api';
 import { actionLabel, formatDateTime } from '../../../../lib/platform-format';
 import { useConsoleSession } from '../console-frame';
+import { DateField } from '../../../../components/ui/date-field';
 
 const FAMILIES = [
   { value: 'all', label: 'All actions', prefix: '' },
@@ -226,24 +226,26 @@ export default function AuditPage() {
             </div>
           ) : null}
           <FormField label="From" htmlFor="audit-from" className="w-40">
-            <Input
+            <DateField
               id="audit-from"
-              type="date"
+              aria-label="From"
+
               value={from}
-              onChange={(e) => {
+              onChange={(date) => {
                 setPage(1);
-                setFrom(e.target.value);
+                setFrom(date);
               }}
             />
           </FormField>
           <FormField label="To" htmlFor="audit-to" className="w-40">
-            <Input
+            <DateField
               id="audit-to"
-              type="date"
+              aria-label="To"
+
               value={to}
-              onChange={(e) => {
+              onChange={(date) => {
                 setPage(1);
-                setTo(e.target.value);
+                setTo(date);
               }}
             />
           </FormField>

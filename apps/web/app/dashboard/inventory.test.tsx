@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { pickDate } from '../../components/ui/date-field-test-utils';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -409,7 +410,7 @@ describe('Inventory editors and preview', () => {
       }),
     );
     expect(document.body.textContent).toContain('Activate a draft before testing its effect.');
-    await fill('preview-departure', '2035-03-02');
+    await pickDate(document.getElementById('preview-departure'), '2035-03-02');
     await click('Test stay');
     await wait('Stay rejected');
     expect(document.body.textContent).toContain('Three nights required.');

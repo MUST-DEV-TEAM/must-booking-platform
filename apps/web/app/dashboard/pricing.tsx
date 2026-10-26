@@ -16,7 +16,6 @@ import { Badge } from '../../components/ui/badge';
 import { Alert, AlertTitle, AlertDescription } from '../../components/ui/alert';
 import { Combobox } from '../../components/ui/combobox';
 import { FormField } from '../../components/ui/form-field';
-import { Input } from '../../components/ui/input';
 import { EmptyPanel, ErrorPanel, ListSkeleton } from '../../components/ui/state-panel';
 import { RecordDirectory, type RecordColumn } from '../../components/ui/record-directory';
 import { PriceGrid, type PriceGridRow } from '../../components/ui/price-grid';
@@ -38,6 +37,7 @@ import {
   type PricingKind,
   type PricingIssue,
 } from './pricing-types';
+import { DateField } from '../../components/ui/date-field';
 const titles = { plans: 'Rate plans', rules: 'Pricing rules', charges: 'Taxes & fees' };
 /** Property-scoped rates workspace using the saved pricing contract and shared dashboard components. */
 export function PricingSection({
@@ -489,11 +489,11 @@ export function PricingSection({
                     </FormField>
                   ) : null}
                   <FormField label="Start date">
-                    <Input
+                    <DateField
                       aria-label="Price grid start date"
-                      type="date"
+
                       value={start || data.today}
-                      onChange={(e) => setStart(e.target.value)}
+                      onChange={(date) => setStart(date)}
                     />
                   </FormField>
                   <FormField label="Days">

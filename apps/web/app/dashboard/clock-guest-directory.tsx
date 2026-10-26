@@ -13,6 +13,7 @@ import {
   TableHeader,
   TableHead,
 } from '../../components/ui/table';
+import { DateField } from '../../components/ui/date-field';
 type Guest = {
   id: string;
   email: string | null;
@@ -142,22 +143,22 @@ export function ClockGuestDirectory({
             <div className="flex flex-wrap gap-2">
               <label>
                 Updated from
-                <Input
+                <DateField
                   aria-label="Guests updated from"
-                  type="date"
+
                   value={from}
                   disabled={busy || !!progress}
-                  onChange={(e) => setFrom(e.target.value)}
+                  onChange={(date) => setFrom(date)}
                 />
               </label>
               <label>
                 Updated before
-                <Input
+                <DateField
                   aria-label="Guests updated before"
-                  type="date"
+
                   value={until}
                   disabled={busy || !!progress}
-                  onChange={(e) => setUntil(e.target.value)}
+                  onChange={(date) => setUntil(date)}
                 />
               </label>
             </div>

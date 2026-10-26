@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { FinancialMetrics, type FinancialMetricRow } from '../../components/ui/financial-metrics';
 import { FormField } from '../../components/ui/form-field';
-import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
 import {
   Card,
@@ -14,6 +13,7 @@ import {
 } from '../../components/ui/card';
 import { ErrorPanel, ListSkeleton, EmptyPanel } from '../../components/ui/state-panel';
 import { reportRequest, ReportRequestError } from '../../lib/report-presentation';
+import { DateField } from '../../components/ui/date-field';
 export type PaymentReportSummaryData = {
   query: { from: string; to: string };
   meta: { source: string; timezone: string; asOf: string; basis: string };
@@ -78,19 +78,21 @@ export function PaymentReportSummary({
           }}
         >
           <FormField label="Payment totals from" htmlFor="payment-totals-from">
-            <Input
+            <DateField
               id="payment-totals-from"
-              type="date"
+              aria-label="Payment totals from"
+
               value={from}
-              onChange={(e) => setFrom(e.target.value)}
+              onChange={(date) => setFrom(date)}
             />
           </FormField>
           <FormField label="Payment totals to" htmlFor="payment-totals-to">
-            <Input
+            <DateField
               id="payment-totals-to"
-              type="date"
+              aria-label="Payment totals to"
+
               value={to}
-              onChange={(e) => setTo(e.target.value)}
+              onChange={(date) => setTo(date)}
             />
           </FormField>
           <Button type="submit">Apply totals period</Button>

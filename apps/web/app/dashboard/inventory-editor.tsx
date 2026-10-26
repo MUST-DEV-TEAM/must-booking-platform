@@ -24,6 +24,7 @@ import {
   type InventoryRecord,
   type StaffChoice,
 } from './inventory-types';
+import { DateField } from '../../components/ui/date-field';
 /** Shared Inventory editing flow; server validation and activation remain authoritative. */
 export function InventoryEditor({
   kind,
@@ -357,13 +358,12 @@ export function InventoryEditor({
             ) : null}
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="Start date" htmlFor="inventory-start" required>
-                <Input
+                <DateField
                   id="inventory-start"
-                  type="date"
-                  required
+              aria-label="Start date"
                   value={startsOn}
-                  onChange={(e) => {
-                    setStart(e.target.value);
+                  onChange={(date) => {
+                    setStart(date);
                     setValidation('');
                   }}
                 />
@@ -373,13 +373,11 @@ export function InventoryEditor({
                 htmlFor="inventory-end"
                 required={!rule}
               >
-                <Input
+                <DateField
                   id="inventory-end"
-                  type="date"
-                  required={!rule}
                   value={endsOn}
-                  onChange={(e) => {
-                    setEnd(e.target.value);
+                  onChange={(date) => {
+                    setEnd(date);
                     setValidation('');
                   }}
                 />

@@ -28,6 +28,7 @@ import {
 } from '../../components/ui/select';
 import { Switch } from '../../components/ui/switch';
 import { inventoryRequest } from './inventory-api';
+import { DateField } from '../../components/ui/date-field';
 
 export type PromoStatus = 'ACTIVE' | 'SCHEDULED' | 'EXPIRED' | 'USED_UP' | 'OFF';
 
@@ -349,11 +350,12 @@ export function PromoCodesPanel({
                 htmlFor="promo-book-from"
                 hint="First day it can be used."
               >
-                <Input
+                <DateField
                   id="promo-book-from"
-                  type="date"
+                  aria-label="Booking from"
+
                   value={draft.bookFrom}
-                  onChange={(event) => setDraft({ bookFrom: event.target.value })}
+                  onChange={(date) => setDraft({ bookFrom: date })}
                 />
               </FormField>
               <FormField
@@ -361,27 +363,30 @@ export function PromoCodesPanel({
                 htmlFor="promo-book-until"
                 hint="Last day it can be used."
               >
-                <Input
+                <DateField
                   id="promo-book-until"
-                  type="date"
+                  aria-label="Booking until"
+
                   value={draft.bookUntil}
-                  onChange={(event) => setDraft({ bookUntil: event.target.value })}
+                  onChange={(date) => setDraft({ bookUntil: date })}
                 />
               </FormField>
               <FormField label="Stay from" htmlFor="promo-stay-from" hint="Earliest check-in.">
-                <Input
+                <DateField
                   id="promo-stay-from"
-                  type="date"
+                  aria-label="Stay from"
+
                   value={draft.stayFrom}
-                  onChange={(event) => setDraft({ stayFrom: event.target.value })}
+                  onChange={(date) => setDraft({ stayFrom: date })}
                 />
               </FormField>
               <FormField label="Stay until" htmlFor="promo-stay-until" hint="Latest check-out.">
-                <Input
+                <DateField
                   id="promo-stay-until"
-                  type="date"
+                  aria-label="Stay until"
+
                   value={draft.stayUntil}
-                  onChange={(event) => setDraft({ stayUntil: event.target.value })}
+                  onChange={(date) => setDraft({ stayUntil: date })}
                 />
               </FormField>
               <FormField label="Minimum nights" htmlFor="promo-min">
