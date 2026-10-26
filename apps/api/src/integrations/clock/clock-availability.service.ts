@@ -1679,41 +1679,30 @@ function noRatesError(rates: RoomTypeRates): ClockClassifiedError {
 }
 
 /**
- * Deterministic offer selection among a room type's `/products` offers
- * (Task 12). Replaces relying on `Object.values(...).find(...)`, which
- * silently picks whichever rate id sorts numerically lowest — a real bug
- * confirmed against the real sandbox 2026-09-10, not Clock's response
- * order, not price, not any considered business rule. Only ever considers
- * `available && no-errors` offers.
+ * The offer used when nobody has chosen a rate (a room card's "from" price, the nightly reference price, a
+ * quote from a caller that sends no rate): the lowest price among the offers that can actually be booked.
+ * Equal prices fall back to the staff display order, then to the rate id, so the result is stable.
  *
- * `rankOrder` (Task 13 — a staff-defined per-room-type rate priority list)
- * takes precedence when given: the highest-ranked rate id with a valid
- * offer wins even if a lower-ranked one is cheaper. Without it, falls back
- * to the lowest price, so quoting still works before any ranking exists.
+ * Every bookable rate is also listed for the guest or staff member to choose (see `orderOffers`), so this
+ * never decides for them; `rankOrder` only sets the order of that list and breaks ties here.
  */
 function selectBestOffer(
   rateOffers: Record<string, ClockProductOffer[]>,
   rankOrder?: string[],
 ): { rateId: string; offer: ClockProductOffer } | undefined {
-  const valid: Array<{ rateId: string; offer: ClockProductOffer }> = [];
-  for (const [rateId, offers] of Object.entries(rateOffers)) {
-    for (const offer of offers) {
-      if (offer.available && Object.keys(offer.errors ?? {}).length === 0)
-        valid.push({ rateId, offer });
-    }
-  }
+  const valid = collectValidOffers(rateOffers);
   if (valid.length === 0) return undefined;
-
-  if (rankOrder) {
-    for (const rankedId of rankOrder) {
-      const match = valid.find((entry) => entry.rateId === rankedId);
-      if (match) return match;
-    }
-  }
-
-  return valid.reduce((best, entry) =>
-    entry.offer.price.cents < best.offer.price.cents ? entry : best,
-  );
+  const rankOf = (rateId: string) => {
+    const index = rankOrder?.indexOf(rateId) ?? -1;
+    return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+  };
+  return valid.reduce((best, entry) => {
+    if (entry.offer.price.cents !== best.offer.price.cents)
+      return entry.offer.price.cents < best.offer.price.cents ? entry : best;
+    if (rankOf(entry.rateId) !== rankOf(best.rateId))
+      return rankOf(entry.rateId) < rankOf(best.rateId) ? entry : best;
+    return entry.rateId.localeCompare(best.rateId, undefined, { numeric: true }) < 0 ? entry : best;
+  });
 }
 
 /** The offers a guest could actually book: available and without any restriction error. */

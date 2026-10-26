@@ -272,6 +272,10 @@ function maybe_process_confirm_booking_submission(): string
             'specialRequests' => $specialRequests !== '' ? $specialRequests : null,
         ],
     ];
+    if (!empty($selection['promoCode']) && \is_array($selection['quote']['promo'] ?? null)) {
+        // The signed quote carries the coupon; the booking names it so the API can check they match.
+        $bookingInput['promoCode'] = (string) $selection['promoCode'];
+    }
     if (!empty($selection['clockRateId'])) {
         $bookingInput['clockRateId'] = $selection['clockRateId'];
     }

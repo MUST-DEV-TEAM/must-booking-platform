@@ -26,7 +26,7 @@ type Rate = {
   maxAdults?: number | null;
   maxChildren?: number | null;
 };
-/** Existing MUST-owned Clock preference: changes only local priority, never the provider's prices. */
+/** Existing MUST-owned Clock preference: changes only the order rates are listed in, never the provider's prices. */
 export function ClockPricingPriority({
   root,
   canWrite,
@@ -61,9 +61,9 @@ export function ClockPricingPriority({
       <CardHeader>
         <CardTitle>Clock rates by room type</CardTitle>
         <CardDescription>
-          Only the preferred order is stored in MUST. Prices and rate definitions remain managed in
-          Clock. Listed rates are published to the booking engine. Date and stay restrictions are
-          checked separately for each quote.
+          Guests and staff see every published rate and choose; nothing is chosen for them. The
+          order below only sets how the rates are listed. Prices and rate definitions stay managed
+          in Clock, and date and stay restrictions are checked separately for each quote.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -81,7 +81,7 @@ export function ClockPricingPriority({
                     <TableRow>
                       <TableHead>Provider rate</TableHead>
                       <TableHead>Guest limits</TableHead>
-                      <TableHead>Priority</TableHead>
+                      <TableHead>Shown</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -98,7 +98,9 @@ export function ClockPricingPriority({
                             ? 'children: not supplied'
                             : `up to ${r.maxChildren} children`}
                         </TableCell>
-                        <TableCell>{r.rank === null ? 'Not yet ranked' : i + 1}</TableCell>
+                        <TableCell>
+                          {r.rank === null ? 'After the ordered rates' : `Position ${i + 1}`}
+                        </TableCell>
                         <TableCell>
                           <Button
                             variant="ghost"

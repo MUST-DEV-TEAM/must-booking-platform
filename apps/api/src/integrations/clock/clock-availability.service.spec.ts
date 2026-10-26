@@ -1306,7 +1306,7 @@ describe('ClockAvailabilityService.getQuote', () => {
     );
   });
 
-  it('a staff-set rate ranking (Task 13) wins over the cheapest-price default, even when the ranked rate costs more', async () => {
+  it('a staff display order never overrides the lowest price when no rate was chosen', async () => {
     const request = vi
       .fn()
       .mockResolvedValueOnce({
@@ -1322,7 +1322,7 @@ describe('ClockAvailabilityService.getQuote', () => {
           {
             id: 42023,
             rates: {
-              // 803404 is cheaper, but 803405 is ranked #1 by staff — it must win.
+              // 803404 is cheaper; the staff order lists 803405 first but does not choose it.
               '803404': [
                 {
                   available: true,
@@ -1347,7 +1347,7 @@ describe('ClockAvailabilityService.getQuote', () => {
 
     const result = await service.getQuote('t1', 'p1', query);
 
-    expect(result).toEqual({ ok: true, value: { amount: '250.00', currency: 'EUR' } });
+    expect(result).toEqual({ ok: true, value: { amount: '110.00', currency: 'EUR' } });
   });
 });
 
@@ -1649,7 +1649,7 @@ describe('ClockAvailabilityService.ratesForRoomTypeDetailed', () => {
 });
 
 describe('ClockAvailabilityService.selectRateForStay', () => {
-  it('selects the same ranked rate and total that getQuote selects for identical stay data', async () => {
+  it('selects the same rate and total that getQuote selects for identical stay data', async () => {
     const responses = () =>
       vi
         .fn()
@@ -1733,10 +1733,11 @@ describe('ClockAvailabilityService.selectRateForStay', () => {
         query: expect.objectContaining({ 'product_search[children_ages]': ['2'] }),
       }),
     );
-    expect(quote).toEqual({ ok: true, value: { amount: '325.00', currency: 'EUR' } });
+    // The cheaper rate wins; the staff order (803405 first) does not choose for the guest.
+    expect(quote).toEqual({ ok: true, value: { amount: '110.00', currency: 'EUR' } });
     expect(selected).toEqual({
       ok: true,
-      value: { rateId: '803405', total: { amount: '325.00', currency: 'EUR' } },
+      value: { rateId: '803406', total: { amount: '110.00', currency: 'EUR' } },
     });
   });
 });

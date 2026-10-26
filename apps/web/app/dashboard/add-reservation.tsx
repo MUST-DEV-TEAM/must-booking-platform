@@ -406,8 +406,15 @@ export function AddReservation({
   });
   const rateOptions = rateOffersQuery.data ?? [];
   const rateChoice = rateOptions.length > 1;
+  // Every rate is shown and can be chosen. Until one is, the lowest price is selected: the same price the
+  // room card advertises as "from", never a rate picked by a stored priority.
+  const lowestRate = rateOptions.reduce<RateOffer | undefined>(
+    (best, option) =>
+      !best || Number(option.total.amount) < Number(best.total.amount) ? option : best,
+    undefined,
+  );
   const chosenRate = rateChoice
-    ? (rateOptions.find((option) => option.rateId === clockRateId) ?? rateOptions[0]!)
+    ? (rateOptions.find((option) => option.rateId === clockRateId) ?? lowestRate!)
     : null;
   const baseTotal = searchKey === currentKey && selectedOffer?.ok ? selectedOffer.total : null;
   const rateTotal = baseTotal && chosenRate ? chosenRate.total : baseTotal;
@@ -1080,7 +1087,8 @@ export function AddReservation({
                   <CardHeader>
                     <CardTitle className="text-lg">Rate</CardTitle>
                     <p className="m-0 text-xs text-muted-foreground">
-                      This room is sold under more than one rate for these dates.
+                      This room is sold under more than one rate for these dates. The lowest price
+                      is selected; choose another if the guest prefers.
                     </p>
                   </CardHeader>
                   <CardContent>
